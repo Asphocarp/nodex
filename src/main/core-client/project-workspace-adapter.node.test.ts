@@ -74,31 +74,29 @@ const thread = {
 
 describe("Core Project Workspace adapter", () => {
   test("maps Workspace events into authority-neutral invalidations", () => {
-    expect(mapCoreProjectWorkspaceEvent({
-      transport_version: 4,
-      packet: createCoreLocalCommitFixture({
-        commitSeq: 3,
-        storeEpoch: "epoch:test",
-        operationId: "operation:workspace",
-        committedAt: "2026-07-19T15:02:00.000Z",
-        payload: {
-          module: "project_workspace",
-          event: {
-            kind: "workspace_changed",
-            project_catalog_change: "sources_updated",
-            project_ids: ["project:one"],
-            session_ids: ["session:one"],
-            thread_ids: ["thread:one"],
-            session_summary_scopes: [
-              { kind: "project", project_id: "project:one" },
-              { kind: "projectless" },
-            ],
-            session_detail_ids: ["session:one"],
-          },
+    const packet = createCoreLocalCommitFixture({
+      commitSeq: 3,
+      storeEpoch: "epoch:test",
+      operationId: "operation:workspace",
+      committedAt: "2026-07-19T15:02:00.000Z",
+      payload: {
+        module: "project_workspace",
+        event: {
+          kind: "workspace_changed",
+          project_catalog_change: "sources_updated",
+          project_ids: ["project:one"],
+          session_ids: ["session:one"],
+          thread_ids: ["thread:one"],
+          session_summary_scopes: [
+            { kind: "project", project_id: "project:one" },
+            { kind: "projectless" },
+          ],
+          session_detail_ids: ["session:one"],
         },
-        canonicalHash: "0".repeat(64),
-      }),
-    })).toEqual({
+      },
+      canonicalHash: "0".repeat(64),
+    });
+    expect(mapCoreProjectWorkspaceEvent(packet.effects[0]!)).toEqual({
       projectCatalogChange: "sources_updated",
       projectIds: ["project:one"],
       sessionIds: ["session:one"],

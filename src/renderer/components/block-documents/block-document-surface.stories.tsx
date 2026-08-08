@@ -30,8 +30,18 @@ const makeFailure = (
 ): BlockDocumentSurfaceError =>
   new BlockDocumentSurfaceError(syncError.message, { syncError });
 
-function SurfaceFailureStory({ resetRequired = false }) {
-  const error = resetRequired
+function SurfaceFailureStory({
+  accessRevoked = false,
+  resetRequired = false,
+}) {
+  const error = accessRevoked
+    ? makeFailure({
+        code: "unauthorized",
+        message: "Access to this Document was revoked.",
+        retryable: false,
+        resetRequired: true,
+      })
+    : resetRequired
     ? makeFailure({
         code: "document_generation_mismatch",
         message: "The Card changed while this editor was opening.",
@@ -52,9 +62,11 @@ function SurfaceFailureStory({ resetRequired = false }) {
         <BlockDocumentSurfaceFailureState
           descriptor={descriptor}
           error={error}
-          reason={resetRequired ? "reset-required" : "fatal"}
+          reason={accessRevoked
+            ? "access-revoked"
+            : resetRequired ? "reset-required" : "fatal"}
           reloading={false}
-          reload={async () => undefined}
+          {...(accessRevoked ? {} : { reload: async () => undefined })}
         />
       </div>
     </div>
@@ -76,4 +88,8 @@ export const InvalidContent: Story = {};
 
 export const ResyncRequired: Story = {
   render: () => <SurfaceFailureStory resetRequired />,
+};
+
+export const AccessRevoked: Story = {
+  render: () => <SurfaceFailureStory accessRevoked />,
 };

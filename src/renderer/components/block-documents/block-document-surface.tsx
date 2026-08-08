@@ -19,6 +19,7 @@ import type { OwnedDocumentEnvelope } from "../../../shared/block-documents/docu
 import { NodexButton } from "@/components/ui/button";
 import { createDocumentSyncAdapter } from "@/lib/api";
 import {
+  isBlockDocumentAccessRevoked,
   resolveBlockDocumentSurfaceFailure,
   type BlockDocumentSurfaceFailureReason,
 } from "@/lib/block-document-surface-failure";
@@ -109,7 +110,7 @@ export interface BlockDocumentSurfaceFailureStateProps {
   readonly error: Error;
   readonly reason: BlockDocumentSurfaceFailureReason;
   readonly reloading: boolean;
-  readonly reload: () => Promise<void>;
+  readonly reload?: () => Promise<void>;
 }
 
 const DEFAULT_DEPENDENCIES: BlockDocumentSurfaceDependencies = {};
@@ -191,15 +192,17 @@ export function BlockDocumentSurfaceFailureState({
         </div>
 
         <div className="mt-2.5 flex items-center gap-1.5 pl-5">
-          <NodexButton
-            type="button"
-            size="xs"
-            variant="secondary"
-            disabled={reloading}
-            onClick={() => void reload()}
-          >
-            {reloading ? "Reloading…" : "Reload"}
-          </NodexButton>
+          {reload ? (
+            <NodexButton
+              type="button"
+              size="xs"
+              variant="secondary"
+              disabled={reloading}
+              onClick={() => void reload()}
+            >
+              {reloading ? "Reloading…" : "Reload"}
+            </NodexButton>
+          ) : null}
           <NodexButton
             type="button"
             size="xs"
@@ -395,6 +398,7 @@ export function OwnedBlockDocumentRuntimeSurface({
 
   useEffect(() => {
     if (status.phase !== "reset-required" || reloadInFlightRef.current) return;
+    if (status.error && isBlockDocumentAccessRevoked(status.error)) return;
     reloadInFlightRef.current = true;
     setReloading(true);
     void runtime
@@ -404,16 +408,19 @@ export function OwnedBlockDocumentRuntimeSurface({
         reloadInFlightRef.current = false;
         setReloading(false);
       });
-  }, [onReload, runtime, status.phase]);
+  }, [onReload, runtime, status.error, status.phase]);
 
   const failure = startupError ?? status.error;
   if (failure) {
+    const accessRevoked = isBlockDocumentAccessRevoked(failure);
     const failureState: BlockDocumentSurfaceFailureStateProps = {
       descriptor,
       error: failure,
-      reason: status.phase === "reset-required" ? "reset-required" : "fatal",
+      reason: accessRevoked
+        ? "access-revoked"
+        : status.phase === "reset-required" ? "reset-required" : "fatal",
       reloading,
-      reload,
+      ...(accessRevoked ? {} : { reload }),
     };
     return failureFallback ? (
       failureFallback(failureState)

@@ -10,6 +10,8 @@ interface CoreLocalCommitFixtureInput {
   readonly projectionImpact?: CoreAuthorizedDeliveryPacket["projection_impact"];
   readonly documentEffects?: CoreAuthorizedDeliveryPacket["document_effects"];
   readonly projectionEffects?: CoreAuthorizedDeliveryPacket["projection_effects"];
+  readonly revocations?: CoreAuthorizedDeliveryPacket["revocations"];
+  readonly authorizationScope?: CoreAuthorizedDeliveryPacket["authorization_scope"];
   readonly canonicalHash?: string;
   readonly storeEpoch?: string;
   readonly operationId?: string;
@@ -55,9 +57,13 @@ export const createCoreLocalCommitFixture = (
     payload,
   }));
   return {
-    packet_version: 1,
+    packet_version: 2,
+    authorization_scope: input.authorizationScope ?? {
+      kind: "library",
+      library_id: "library-1",
+    },
     manifest: {
-      event_version: 5,
+      event_version: 6,
       identity: {
         commit_seq: input.commitSeq,
         manifest_hash: manifestHash,
@@ -69,7 +75,7 @@ export const createCoreLocalCommitFixture = (
     effects,
     document_effects: documentEffects,
     projection_effects: projectionEffects,
-    revocations: [],
+    revocations: input.revocations ?? [],
     projection_impact: projectionImpact,
     coverage: {
       semantic_effect_orders: effects.map((effect) => effect.semantic.effect_order),

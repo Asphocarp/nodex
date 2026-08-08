@@ -23,11 +23,10 @@ import { canonicalizePortableRichText } from "../../shared/block-documents/porta
 import { isWorkflowStatus } from "../../shared/workflow-status";
 import type { DesktopDataAuthorityRuntime } from "./desktop-data-authority";
 import {
-  findCoreModulePayload,
   type AutomationApplyResult,
   type AutomationReadSnapshot,
+  type CoreAuthorizedModuleEffect,
   type CoreClientPort,
-  type CoreEventEnvelope,
 } from "./types";
 
 type CoreAutomationDefinition = Extract<
@@ -222,10 +221,10 @@ export interface CoreAutomationInvalidation {
 }
 
 export function mapCoreAutomationEvent(
-  envelope: CoreEventEnvelope,
+  effect: CoreAuthorizedModuleEffect,
 ): CoreAutomationInvalidation | null {
-  const payload = findCoreModulePayload(envelope, "automation");
-  if (payload?.module !== "automation") return null;
+  const payload = effect.payload;
+  if (payload.module !== "automation") return null;
   return {
     automationIds: payload.event.automation_ids,
     runIds: payload.event.run_ids,

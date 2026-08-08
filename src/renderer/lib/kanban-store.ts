@@ -38,9 +38,10 @@ import {
 } from "./database-view-render-model";
 import { getActiveProjectionInvalidationRegistry } from "./projection-invalidation-context";
 import type {
+  ProjectionInvalidationCause,
   ProjectionInvalidationRegistry,
+  ProjectionRevocationMessage,
 } from "./projection-invalidation-registry";
-import type { ProjectionStreamMessage } from "../../shared/projection-stream";
 import {
   projectionCoordinateFromSnapshot,
   type ProjectionCoordinate,
@@ -51,6 +52,10 @@ import {
   type ProjectionRepairRequest,
 } from "./causal-projection-runtime";
 import { projectCoreDatabaseQueryRow } from "../../shared/core-database-row-projection";
+import {
+  fenceDatabaseRowDetailsForProject,
+  revokeDatabaseRowDetail,
+} from "./database-row-detail-store";
 
 const DEFAULT_BOARD_FRESHNESS_MS = 30_000;
 const GROUP_WINDOW_FIRST = 50;
@@ -427,6 +432,8 @@ class KanbanProjectStore {
 
   private stale = true;
 
+  private revocationGeneration = 0;
+
   constructor(
     private readonly projectId: string,
     private readonly databaseViewId: string | null,
@@ -447,8 +454,39 @@ class KanbanProjectStore {
       if (this.listeners.size > 0) return;
 
       this.teardownRealtimeSubscription();
+      this.clearInactiveAuthority();
     };
   };
+
+  private clearInactiveAuthority(): void {
+    this.revocationGeneration += 1;
+    this.baseBoard = null;
+    this.baseBoardAuthority = null;
+    this.baseDatabaseView = null;
+    this.groupWindows.clear();
+    this.groupsSnapshot = null;
+    this.inFlightFetch = null;
+    this.optimisticEntries = [];
+    this.causalProjectionRuntime = null;
+    this.requiredMinimumCommitSeq = 0;
+    this.requiredRefreshGeneration = 0;
+    this.completedRefreshGeneration = 0;
+    this.lastFetchedAt = 0;
+    this.stale = true;
+    this.setSnapshot({
+      board: null,
+      databaseView: null,
+      pageIndex: new Map(),
+      loading: true,
+      loadingMore: false,
+      hasMore: false,
+      error: null,
+      pendingMutationCount: 0,
+      lastMutationError: null,
+      groupPagination: new Map(),
+      totalRows: null,
+    });
+  }
 
   private windowInputBase(minimumCommitSeq = 0): DatabaseViewWindowInput {
     return this.databaseViewId
@@ -555,6 +593,7 @@ class KanbanProjectStore {
     minimumCommitSeq: number,
     refreshGeneration: number,
   ): Promise<boolean> => {
+    const revocationGeneration = this.revocationGeneration;
     let succeeded = false;
     const hasReadableBase = this.databaseViewId
       ? this.baseDatabaseView !== null
@@ -571,6 +610,10 @@ class KanbanProjectStore {
       const { groups, windows } = await this.readConsistentFirstWindows(
         minimumCommitSeq,
       );
+      if (revocationGeneration !== this.revocationGeneration) {
+        succeeded = true;
+        return true;
+      }
       const currentAuthority = this.baseBoardAuthority;
       const incomingSeq = Math.min(
         ...windows.map((window) => window.snapshot.commitSeq),
@@ -1393,8 +1436,108 @@ class KanbanProjectStore {
     void this.fetchBoard(minimumCommitSeq);
   }
 
+  private evictRevokedPage(pageId: string, commitSeq: number): void {
+    revokeDatabaseRowDetail(this.projectId, pageId);
+    const currentAuthority = this.baseBoardAuthority;
+    if (!currentAuthority || !this.snapshot.pageIndex.has(pageId)) return;
+    const groupKey = currentAuthority.rows.find(
+      (row) => row.page.id === pageId,
+    )?.groupKey ?? null;
+    const evictFromWindow = (
+      snapshot: DatabaseViewWindowSnapshot,
+    ): DatabaseViewWindowSnapshot => ({
+      ...snapshot,
+      commitSeq: Math.max(snapshot.commitSeq, commitSeq),
+      board: removePageSummaryFromBoard(snapshot.board, pageId),
+      rows: snapshot.rows.filter((row) => row.page.id !== pageId),
+      query: {
+        ...snapshot.query,
+        rows: snapshot.query.rows.filter((row) => row.page.pageId !== pageId),
+      },
+    });
+    const nextAuthority = evictFromWindow(currentAuthority);
+    this.baseBoardAuthority = nextAuthority;
+    this.baseBoard = nextAuthority.board;
+    this.baseDatabaseView = buildDatabaseViewWindowRenderModel(nextAuthority);
+    this.groupWindows = new Map(
+      [...this.groupWindows].map(([scopeKey, state]) => [scopeKey, {
+        ...state,
+        snapshot: evictFromWindow(state.snapshot),
+      }]),
+    );
+    if (this.groupsSnapshot) {
+      this.groupsSnapshot = {
+        ...this.groupsSnapshot,
+        commitSeq: Math.max(this.groupsSnapshot.commitSeq, commitSeq),
+        totalRows: Math.max(0, this.groupsSnapshot.totalRows - 1),
+        groups: this.groupsSnapshot.groups
+          .map((group) => group.groupKey === groupKey
+            ? { ...group, totalRows: Math.max(0, group.totalRows - 1) }
+            : group)
+          .filter((group) => group.totalRows > 0),
+      };
+    }
+    this.recomputeSnapshot({ error: null });
+  }
+
+  private clearRevokedAggregate(): void {
+    this.baseBoard = null;
+    this.baseBoardAuthority = null;
+    this.baseDatabaseView = null;
+    this.groupWindows.clear();
+    this.groupsSnapshot = null;
+    this.optimisticEntries = [];
+    this.causalProjectionRuntime = null;
+    this.recomputeSnapshot({
+      loading: false,
+      error: "Database View is unavailable",
+    });
+  }
+
+  private revokeFromProjection = (
+    cause: ProjectionRevocationMessage,
+  ): void => {
+    this.stale = true;
+    this.revocationGeneration += 1;
+    this.requiredRefreshGeneration += 1;
+    this.requiredMinimumCommitSeq = Math.max(
+      this.requiredMinimumCommitSeq,
+      cause.stream.commitSeq,
+    );
+    if (cause.delivery.revocation.resource_kind === "page") {
+      this.evictRevokedPage(
+        cause.delivery.revocation.resource_id,
+        cause.stream.commitSeq,
+      );
+      return;
+    }
+    this.clearRevokedAggregate();
+  };
+
+  private fenceProjectionAuthority = (
+    cause: Extract<ProjectionInvalidationCause, {
+      readonly kind: "checkpoint" | "reset";
+    }>,
+  ): void => {
+    this.stale = true;
+    this.revocationGeneration += 1;
+    this.requiredRefreshGeneration += 1;
+    this.requiredMinimumCommitSeq = cause.kind === "reset"
+      ? 0
+      : Math.max(this.requiredMinimumCommitSeq, cause.stream.commitSeq);
+    this.baseBoard = null;
+    this.baseBoardAuthority = null;
+    this.baseDatabaseView = null;
+    this.groupWindows.clear();
+    this.groupsSnapshot = null;
+    this.optimisticEntries = [];
+    this.causalProjectionRuntime = null;
+    fenceDatabaseRowDetailsForProject(this.projectId);
+    this.recomputeSnapshot({ loading: true, error: null });
+  };
+
   private refreshFromProjection = async (
-    cause: ProjectionStreamMessage,
+    cause: ProjectionInvalidationCause,
   ): Promise<void> => {
     this.stale = true;
     if (cause.kind === "reset") {
@@ -1496,6 +1639,8 @@ class KanbanProjectStore {
             }
           : null;
       },
+      revoke: this.revokeFromProjection,
+      fence: this.fenceProjectionAuthority,
       invalidate: this.refreshFromProjection,
     });
   }

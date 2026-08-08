@@ -76,14 +76,16 @@ independently. Apply and tailer packet coverage use separate Document-control
 and notification claims, so a failed Document delivery can be replayed without
 depending on notification delivery state.
 
-The v102-v107 cutover is durable, not a renderer-only cache change. v102 adds
+The v102-v108 cutover is durable, not a renderer-only cache change. v102 adds
 the LocalCommit ledger, effect/document impact rows, and receipt linkage; v103
 rebuilds those tables with composite `(store_epoch, commit_seq)` foreign-key
 boundaries; v104 adds canonical evidence hashing; v105 records the complete
 effect/projection envelope shape; and v106 persists immutable Manifests plus
 per-scope Projection heads without adding a second authority. v107 adds exact
 child-key indexes for the Block Project-key cascades exercised by ownership
-relocation. Receipts persist a compact command result and commit identity rather
+relocation. v108 persists scoped resource revocations as immutable LocalCommit
+evidence and covers each delivery authorization scope in the packet hash.
+Receipts persist a compact command result and commit identity rather
 than duplicating large Yjs updates; Core resolves authorized delivery from the
 ledger after commit. Projection gaps and unavailable patches remain visible to
 the exact-scope causal runtime and are repaired with coalesced canonical reads.
@@ -191,19 +193,19 @@ Store v104 retains Relation Page IDs only in normalized edge authority. Relation
 - Core runs SQLite in WAL mode for resilient write/read behavior.
 - SQLite schema version state is tracked in `PRAGMA user_version`.
 - The final TypeScript handoff schema is exactly v84 and the current Rust-owned
-  Store is v107. Core accepts only the complete normalized frozen inventories
+  Store is v108. Core accepts only the complete normalized frozen inventories
   for v26, both v57 variants, v68, v82, and v83 as older sources. It snapshots
   the source database and assets, advances only a staging copy through the
   hash-pinned migrator to exact v84, reconstructs ready Yjs Documents through
-  Yrs, rebuilds derived projections, and atomically publishes v107. Direct v84
-  imports and exact Rust-owned v85 through v106 stores follow the same durable
+  Yrs, rebuilds derived projections, and atomically publishes v108. Direct v84
+  imports and exact Rust-owned v85 through v107 stores follow the same durable
   backup, validation, and forward-upgrade boundary. v102 introduced the
   LocalCommit ledger, v103 its composite Store identity, v104 canonical
   physical evidence hashing, v105 immutable Manifest/authorized packet
-  separation, v106 per-scope Projection heads, and v107 exact child-key indexes
-  for Block Project-key cascades. Unfrozen same-version lineages, drifted
+  separation, v106 per-scope Projection heads, v107 exact child-key indexes
+  for Block Project-key cascades, and v108 immutable scoped revocations. Unfrozen same-version lineages, drifted
   inventories, ambiguous owners, and future versions fail closed. Reopening
-  v107 validates the exact physical inventory and all semantic authority
+  v108 validates the exact physical inventory and all semantic authority
   invariants without silently repairing damage.
 - Schema v64-v66 add the Agent dynamic-tool durability plane: each launched task retains its namespace/toolset catalog, one store-local signing key authenticates separately domain-bound short ETags and self-contained cursors across restarts, and content-free call receipts bind thread/call identity, request semantics, deterministic allocations, canonical mutation identity, and compact replay results. Restoring or replacing the store changes the epoch, so validators, cursors, and task grants from the old authority fail closed.
 - Production startup imports only the exact frozen v26, either frozen v57, v68, v82, or v83 source; all other pre-v84 stores are rejected. The historical TypeScript chain is frozen into one bundled sidecar and runs only on the backed-up staging copy. Core never opens that converter as the live authority and never repairs a near-match. Its output must match the complete frozen v84 physical inventory exactly, including trigger/index SQL and absence of Thread-search shadow objects, before native semantic validation and publication can begin.
@@ -224,9 +226,9 @@ Store v104 retains Relation Page IDs only in normalized edge authority. Relation
   mismatch, or handshake failure. App shutdown also aborts and awaits in-flight
   startup/recovery; only an authenticated connected Core may remain detached.
 - Schema v67 turns `document_versions` into the semantic Document Revision ledger. New BlockTree revisions retain stable-ID BlockTree plus rich title rather than complete causal Yjs history; detail reads rederive NFM and other projections through the registered schema adapter. Legacy Yjs and Canvas revision bytes remain immutable and readable. Human edits durably record dirty revision sessions with a pre-burst safety revision, ten-minute active capture, two-minute idle finalization, startup retry, and forced shutdown finalization through the one mutation writer. A failed revision-maintenance pass never invalidates the already durable edit ACK and remains retryable from session state.
-- Core startup validates current v107 authority and projections but performs no
+- Core startup validates current v108 authority and projections but performs no
   semantic content repair. Timestamp and content rewrites occur only in their
-  explicit forward migrations. Once v107 is published, any ownership, receipt,
+  explicit forward migrations. Once v108 is published, any ownership, receipt,
   Document, Projection, LocalCommit evidence, canonical timestamp, Scene, or
   physical-inventory drift blocks readiness with bounded diagnostics. Recovery
   uses an explicit validated backup or a forward semantic operation.
@@ -239,10 +241,16 @@ Store v104 retains Relation Page IDs only in normalized edge authority. Relation
 - Ready Block Documents use binary Yjs updates in SQLite. The DocumentStore rejects stale store epochs and generations, deduplicates update IDs through immutable receipts, reconstructs from the latest snapshot plus tail, validates the Page roots/XML tree/global Block registry before commit, and acknowledges only after the immediate SQLite transaction advances the durable head and Block index together. A causally redundant Yjs replay is a successful duplicate ACK at the unchanged head and produces neither an update row nor fanout; monotonic CRDT state makes that no-op result stable without inventing a sequence receipt. Client-declared touched IDs are bounded diagnostics; the writer derives the authoritative title/Block change set from validated before/after content. An update with unresolved Yjs dependencies returns a typed retry error and is never appended as a poison tail.
 - Electron IPC adapts Core's engine-specific Document contracts. A client subscribes before synchronization, and success means the first authenticated exact Core stream is open rather than merely scheduled. The Host keeps one logical subscription across retryable physical UDS interruptions, resumes from the accepted cursor, and holds dependent commands behind the current connection barrier. A terminal stream failure releases the exact renderer binding; replacement sessions wait for predecessor teardown. Renderer sessions are multiplexed by subscriber identity and serialize subscribe/unsubscribe, so an old disposer cannot close a revived provider. Yjs repairs with state vectors, while Canvas repairs a missing/out-of-order head with one bounded full canonical scene. Only durable effective changes fan out, and exact retries return their original receipt.
 - Every new `change_log` row requires a normalized `ProjectionImpact` committed with its semantic mutation. Page Document commits include Page, Database, Data Source, every affected View, and the exact final Document head. Ordinary lifecycle, property, Database, Automation, and Project-creation mutations include their complete resource closure; modules with no canonical projection effect explicitly record `none`. Empty resources become `none`, and a legitimate effect beyond the fixed identity bound becomes `all` rather than being truncated. Visibility-changing moves, grants, and transfers also use identity-free `all`: Project filtering reads post-commit authorization and cannot safely reveal or name a resource the Project just lost. Event payloads contain no title, summary, property values, or Page DTO. Live publication and replay call the same row decoder, so commit-time coordinates survive later moves.
-- Committed Core event version 5 is distinct from transport version 5 and from
+- Committed Core event version 6 is distinct from transport version 6 and from
   every semantic Module contract version. Apply responses and durable replay
   reference the same immutable Manifest but may carry different authorized
-  packet coverage. Main admits either packet synchronously through
+  packet coverage. Command authorization remains bound to the exact Project or
+  resource scope. For the Electron Host, Core separately resolves the
+  apply/response-loss-recovery delivery for an explicit Library-broker
+  audience, matching the durable root stream without a second HTTP round trip
+  and without erasing the command's Project context. Native CLI, test, Agent,
+  and loopback adapters retain their exact bound delivery scope. Main
+  admits either packet synchronously through
   `LocalCommitCoordinator`, validates identity and coverage, and deduplicates
   the later copy by resource identity. Each Document, exact Projection scope,
   revocation, and notification lane orders and retries independently. A
@@ -251,6 +259,18 @@ Store v104 retains Relation Page IDs only in normalized edge authority. Relation
   publish `event_gap` reset. An unexpected Core stream end reopens from the last
   accepted checkpoint. A transport/event/Store-epoch mismatch requires a fresh
   authenticated runtime binding.
+- Core seals authorization loss in the same LocalCommit as the ownership,
+  lifecycle, or grant change. The trusted Library stream carries those exact
+  scoped revocations durably; apply, replay, and tailer packets enter the same
+  admission path. Main routes revocations independently of semantic effects,
+  with dedupe identity derived from canonical structured scope serialization
+  rather than concatenated IDs. Renderer caches run every matching revocation
+  reducer synchronously before repair I/O. Authorization-bearing inactive
+  query entries keep their scope subscription, and an initial projection
+  checkpoint fences an older cache if a revocation raced subscription setup;
+  only canonical repair may coalesce.
+  This prevents stale display or cache retention; it does not replace Core's
+  authorization check on every subsequent read.
 - Each renderer window has one projection delivery registry and one underlying stream per authorization scope. Exact consumers order by `(store_epoch, scope_key, schema_version, revision, effect_hash)`, never by the global stream cursor. A contiguous complete effect is reduced synchronously. Gaps, patchless effects, explicit `requires_read_at_least`, reset, or hash divergence coalesce into a canonical floor read; retry remains local to that exact scope. The first checkpoint closes the initial read/subscription race and later checkpoints do not create refresh storms. Canonical snapshots cannot overwrite a newer coordinate. Database View groups and all group windows expose the same projection authority; mixed revisions are retried, and a continuation crossing a revision is discarded. `board-changed` remains optional compatibility fanout and is never required for convergence.
 - `BlockTransfer` is the single public stable-ID Move/Copy command for
   cross-surface Block ownership. Its intent uses logical
@@ -407,7 +427,7 @@ Store v104 retains Relation Page IDs only in normalized edge authority. Relation
   thirty-second idle period only as crash recovery when no caller value exists;
   the production fifteen-minute contract and `--global-nodex` remain unchanged.
 - Core compatibility is an explicit offer/require comparison, not transport
-  overlap or a build string. Transport 5 carries committed-event version 5,
+  overlap or a build string. Transport 6 carries committed-event version 6,
   canonical per-Module ranges, exact normalized-schema Store fingerprints, and
   executable SHA-256 separately. Electron's `prefer_current_artifact` policy
   replaces a different compatible artifact; native CLI's `compatible` policy

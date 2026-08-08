@@ -1,9 +1,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use nodex_core_contracts::events::{
-    CommitIdentity, CommitManifest, DocumentEffectRef, DocumentEffectResourceKind,
-    LocalCommitReceiptRef, LocalCommitResources, LocalProjectionPatch, LocalProjectionScope,
-    PageDocumentHeadImpact, PhysicalEvidenceDigest, ProjectionEffect, ProjectionImpact,
+    CommitIdentity, CommitManifest, DeliveryAuthorizationScope, DocumentEffectRef,
+    DocumentEffectResourceKind, LocalCommitReceiptRef, LocalCommitResources, LocalProjectionPatch,
+    LocalProjectionScope, PageDocumentHeadImpact, PhysicalEvidenceDigest, ProjectionEffect,
+    ProjectionImpact, ResourceRevocation, ResourceRevocationReason, RevokedResourceKind,
     RoutingClaim, SemanticEffect,
 };
 use nodex_core_contracts::{CORE_EVENT_VERSION, ModuleName, StoreEpoch};
@@ -16,7 +17,7 @@ use super::projection_impact::{canonicalize, decode, encode};
 use super::projection_scope_head;
 use super::sqlite::{StoreError, StoreErrorCode};
 
-const CANONICAL_HASH_VERSION: u32 = 4;
+const CANONICAL_HASH_VERSION: u32 = 5;
 const PROJECTION_SCHEMA_VERSION: u32 = 1;
 const MIGRATION_PROGRESS_STEPS: u64 = 20;
 const MIGRATION_BATCH_SIZE: i64 = 512;
@@ -35,6 +36,11 @@ const CANONICAL_DOCUMENT_EFFECTS_SQL: &str =
      FROM local_commit_documents
      WHERE store_epoch = ?1 AND commit_seq = ?2
      ORDER BY document_order ASC, document_id ASC";
+const CANONICAL_REVOCATIONS_SQL: &str =
+    "SELECT scope_key, authorization_scope_json, resource_kind, resource_id, reason
+     FROM local_commit_revocations
+     WHERE store_epoch = ?1 AND commit_seq = ?2
+     ORDER BY scope_key ASC, resource_kind ASC, resource_id ASC";
 const MIGRATED_RECEIPT_SQL: &str = "SELECT module_name, operation_id, result_json, request_hash
      FROM core_module_receipts
      WHERE store_epoch = ?1 AND local_commit_seq = ?2
@@ -190,6 +196,7 @@ struct CanonicalManifest<'a> {
     semantic_effects: &'a [SemanticEffect],
     document_effects: &'a [DocumentEffectRef],
     projection_effects: &'a [ProjectionEffect],
+    revocations: &'a [ResourceRevocation],
     receipt: &'a LocalCommitReceiptRef,
     routing_claims: &'a [RoutingClaim],
     physical_evidence: &'a PhysicalEvidenceDigest,
@@ -519,6 +526,55 @@ pub(crate) fn record_receipt(
     Ok(())
 }
 
+pub(crate) fn record_revocation(
+    connection: &Connection,
+    context: &CommitContext,
+    revocation: &ResourceRevocation,
+) -> Result<(), StoreError> {
+    assert_open(connection, context)?;
+    validate_revocation(revocation)?;
+    let scope_key = authorization_scope_key(&revocation.authorization_scope)?;
+    let scope_json = serde_json::to_string(&revocation.authorization_scope)
+        .map_err(|_| corrupt("LocalCommit revocation scope is invalid"))?;
+    let resource_kind = revoked_resource_kind_name(revocation.resource_kind);
+    let reason = revocation_reason_name(revocation.reason);
+    connection.execute(
+        "INSERT INTO local_commit_revocations(
+           store_epoch, commit_seq, scope_key, authorization_scope_json,
+           resource_kind, resource_id, reason
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+         ON CONFLICT(store_epoch, commit_seq, scope_key, resource_kind, resource_id)
+         DO NOTHING",
+        params![
+            context.store_epoch,
+            context.commit_seq,
+            scope_key,
+            scope_json,
+            resource_kind,
+            revocation.resource_id,
+            reason,
+        ],
+    )?;
+    let stored = connection.query_row(
+        "SELECT authorization_scope_json, reason
+         FROM local_commit_revocations
+         WHERE store_epoch = ?1 AND commit_seq = ?2 AND scope_key = ?3
+           AND resource_kind = ?4 AND resource_id = ?5",
+        params![
+            context.store_epoch,
+            context.commit_seq,
+            scope_key,
+            resource_kind,
+            revocation.resource_id,
+        ],
+        |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+    )?;
+    if stored != (scope_json, reason.to_owned()) {
+        return Err(corrupt("LocalCommit revocation identity collision"));
+    }
+    Ok(())
+}
+
 pub(crate) fn finalize(
     connection: &Connection,
     context: &CommitContext,
@@ -542,6 +598,7 @@ pub(crate) fn finalize(
 
     let effects = canonical_effects(connection, context.coordinate())?;
     let document_effects = canonical_document_effects(connection, context.coordinate())?;
+    let revocations = canonical_revocations(connection, context.coordinate())?;
     let impact = merged_projection_impact(&effects)?;
     let mut projection = draft_projection(connection, context)?;
     projection.impact = impact.clone();
@@ -562,6 +619,7 @@ pub(crate) fn finalize(
         &effects,
         &document_effects,
         &projection,
+        &revocations,
         &receipt,
         &audience,
     )?;
@@ -619,6 +677,8 @@ pub(crate) fn abandon(connection: &Connection, context: &CommitContext) -> Resul
            (SELECT count(*) FROM local_commit_effects
              WHERE store_epoch = ?1 AND commit_seq = ?2)
          + (SELECT count(*) FROM local_commit_documents
+             WHERE store_epoch = ?1 AND commit_seq = ?2)
+         + (SELECT count(*) FROM local_commit_revocations
              WHERE store_epoch = ?1 AND commit_seq = ?2)
          + (SELECT count(*) FROM core_module_receipts
              WHERE store_epoch = ?1 AND local_commit_seq = ?2)",
@@ -859,11 +919,13 @@ pub(crate) fn load_verified_commit(
     let physical_effects = physical_effect_evidence(connection, coordinate)?;
     let effects = canonical_effects_from_evidence(&physical_effects)?;
     let documents = canonical_document_effects(connection, coordinate)?;
+    let revocations = canonical_revocations(connection, coordinate)?;
     let compiled = compile_manifest(
         &context,
         &effects,
         &documents,
         &row.projection,
+        &revocations,
         &row.receipt,
         &row.audience,
     )?;
@@ -1196,6 +1258,75 @@ pub(crate) fn upgrade_v106_manifest(
     Ok(())
 }
 
+pub(crate) fn upgrade_v108_manifest(
+    connection: &Connection,
+    progress: &mut dyn FnMut(u64, u64),
+) -> Result<(), StoreError> {
+    let total = u64::try_from(connection.query_row(
+        "SELECT count(*) FROM local_commits WHERE finalized = 1",
+        [],
+        |row| row.get::<_, i64>(0),
+    )?)
+    .map_err(|_| corrupt("LocalCommit migration count is invalid"))?;
+    let mut progress_step = 0;
+    let mut completed = 0_usize;
+    let mut after_commit_seq = 0;
+    loop {
+        let sequences = connection
+            .prepare_cached(
+                "SELECT commit_seq FROM local_commits
+                 WHERE finalized = 1 AND commit_seq > ?1
+                 ORDER BY commit_seq ASC LIMIT ?2",
+            )?
+            .query_map(params![after_commit_seq, MIGRATION_BATCH_SIZE], |row| {
+                row.get::<_, i64>(0)
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        if sequences.is_empty() {
+            break;
+        }
+        for commit_seq in sequences {
+            after_commit_seq = commit_seq;
+            let row = read_commit(connection, commit_seq)?
+                .ok_or_else(|| corrupt("Migrated LocalCommit is missing"))?;
+            let context = CommitContext {
+                commit_seq: row.commit_seq,
+                store_epoch: row.store_epoch.clone(),
+                operation_id: row.operation_id.clone(),
+                intent_hash: row.intent_hash.clone(),
+                committed_at: row.committed_at.clone(),
+            };
+            let coordinate = context.coordinate();
+            let effects = canonical_effects(connection, coordinate)?;
+            let documents = canonical_document_effects(connection, coordinate)?;
+            let revocations = canonical_revocations(connection, coordinate)?;
+            let manifest = compile_manifest(
+                &context,
+                &effects,
+                &documents,
+                &row.projection,
+                &revocations,
+                &row.receipt,
+                &row.audience,
+            )?;
+            connection.execute(
+                "UPDATE local_commits SET canonical_hash = ?1, manifest_json = ?2
+                 WHERE store_epoch = ?3 AND commit_seq = ?4 AND finalized = 1",
+                params![
+                    manifest.identity.manifest_hash,
+                    serde_json::to_string(&manifest)
+                        .map_err(|_| corrupt("Migrated CommitManifest is invalid"))?,
+                    context.store_epoch,
+                    context.commit_seq,
+                ],
+            )?;
+            report_migration_progress(progress, completed, total, &mut progress_step);
+            completed = completed.saturating_add(1);
+        }
+    }
+    Ok(())
+}
+
 fn report_migration_progress(
     progress: &mut dyn FnMut(u64, u64),
     completed_index: usize,
@@ -1240,6 +1371,10 @@ pub(crate) fn rebase_store_epoch(
     )?;
     connection.execute(
         "UPDATE local_commit_documents SET store_epoch = ?1 WHERE store_epoch <> ?1",
+        [store_epoch],
+    )?;
+    connection.execute(
+        "UPDATE local_commit_revocations SET store_epoch = ?1 WHERE store_epoch <> ?1",
         [store_epoch],
     )?;
     // Scope heads are derived chain tips. Replaying historical manifests against
@@ -1511,6 +1646,47 @@ fn canonical_document_effects(
     Ok(effects)
 }
 
+fn canonical_revocations(
+    connection: &Connection,
+    coordinate: CommitCoordinate<'_>,
+) -> Result<Vec<ResourceRevocation>, StoreError> {
+    let rows = connection
+        .prepare_cached(CANONICAL_REVOCATIONS_SQL)?
+        .query_map(
+            params![coordinate.store_epoch, coordinate.commit_seq],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                ))
+            },
+        )?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    rows.into_iter()
+        .map(
+            |(scope_key, scope_json, resource_kind, resource_id, reason)| {
+                let revocation = ResourceRevocation {
+                    authorization_scope: decode_json(
+                        &scope_json,
+                        "LocalCommit revocation authorization scope",
+                    )?,
+                    resource_kind: parse_revoked_resource_kind(&resource_kind)?,
+                    resource_id,
+                    reason: parse_revocation_reason(&reason)?,
+                };
+                validate_revocation(&revocation)?;
+                if authorization_scope_key(&revocation.authorization_scope)? != scope_key {
+                    return Err(corrupt("LocalCommit revocation scope key diverges"));
+                }
+                Ok(revocation)
+            },
+        )
+        .collect()
+}
+
 fn valid_document_transition(
     generation: i64,
     base_head_seq: i64,
@@ -1591,6 +1767,7 @@ fn compile_manifest(
     effects: &[CanonicalPhysicalEffect],
     documents: &[CanonicalDocumentEffect],
     projection: &CommitProjectionDraft,
+    revocations: &[ResourceRevocation],
     receipt: &LocalCommitReceiptRef,
     audience: &RoutingEvidence,
 ) -> Result<CommitManifest, StoreError> {
@@ -1629,7 +1806,8 @@ fn compile_manifest(
         last_change_log_seq: effects.last().map(|effect| effect.change_log_seq),
         ordered_digest: sha256(&physical_encoded),
     };
-    let routing_claims = routing_claims(audience, &document_effects, &projection.impact);
+    let routing_claims =
+        routing_claims(audience, &document_effects, &projection.impact, revocations);
     let hash_input = CanonicalManifest {
         hash_version: CANONICAL_HASH_VERSION,
         event_version: CORE_EVENT_VERSION,
@@ -1641,6 +1819,7 @@ fn compile_manifest(
         semantic_effects: &semantic_effects,
         document_effects: &document_effects,
         projection_effects: &projection.effects,
+        revocations,
         receipt,
         routing_claims: &routing_claims,
         physical_evidence: &physical_evidence,
@@ -1660,6 +1839,7 @@ fn compile_manifest(
         semantic_effects,
         document_effects,
         projection_effects: projection.effects.clone(),
+        revocations: revocations.to_vec(),
         receipt: receipt.clone(),
         routing_claims,
         physical_evidence,
@@ -1670,6 +1850,7 @@ fn routing_claims(
     audience: &RoutingEvidence,
     documents: &[DocumentEffectRef],
     impact: &ProjectionImpact,
+    revocations: &[ResourceRevocation],
 ) -> Vec<RoutingClaim> {
     let mut claims = BTreeSet::new();
     claims.insert(RoutingClaim::Library {
@@ -1685,6 +1866,51 @@ fn routing_claims(
     claims.extend(documents.iter().map(|effect| RoutingClaim::Document {
         document_id: effect.document_id.clone(),
     }));
+    for revocation in revocations {
+        match &revocation.authorization_scope {
+            DeliveryAuthorizationScope::Library { .. } => {}
+            DeliveryAuthorizationScope::Project { project_id, .. }
+            | DeliveryAuthorizationScope::Document {
+                project_id: Some(project_id),
+                ..
+            } => {
+                claims.insert(RoutingClaim::Project {
+                    project_id: project_id.clone(),
+                });
+            }
+            DeliveryAuthorizationScope::Document {
+                project_id: None, ..
+            } => {}
+        }
+        match revocation.resource_kind {
+            RevokedResourceKind::Page => {
+                claims.insert(RoutingClaim::Page {
+                    page_id: revocation.resource_id.clone(),
+                });
+            }
+            RevokedResourceKind::Document => {
+                claims.insert(RoutingClaim::Document {
+                    document_id: revocation.resource_id.clone(),
+                });
+            }
+            RevokedResourceKind::Database => {
+                claims.insert(RoutingClaim::Database {
+                    database_id: revocation.resource_id.clone(),
+                });
+            }
+            RevokedResourceKind::DataSource => {
+                claims.insert(RoutingClaim::DataSource {
+                    data_source_id: revocation.resource_id.clone(),
+                });
+            }
+            RevokedResourceKind::View => {
+                claims.insert(RoutingClaim::View {
+                    view_id: revocation.resource_id.clone(),
+                });
+            }
+            RevokedResourceKind::Canvas => {}
+        }
+    }
     for page_id in documents.iter().filter_map(|effect| effect.page_id.clone()) {
         claims.insert(RoutingClaim::Page { page_id });
     }
@@ -1725,6 +1951,82 @@ fn routing_claims(
         }));
     }
     claims.into_iter().collect()
+}
+
+fn authorization_scope_key(scope: &DeliveryAuthorizationScope) -> Result<String, StoreError> {
+    match scope {
+        DeliveryAuthorizationScope::Library { library_id } => {
+            validate_identity(library_id, "Revocation Library")?;
+        }
+        DeliveryAuthorizationScope::Project {
+            library_id,
+            project_id,
+        } => {
+            validate_identity(library_id, "Revocation Library")?;
+            validate_identity(project_id, "Revocation Project")?;
+        }
+        DeliveryAuthorizationScope::Document {
+            library_id,
+            project_id,
+            document_id,
+        } => {
+            validate_identity(library_id, "Revocation Library")?;
+            if let Some(project_id) = project_id {
+                validate_identity(project_id, "Revocation Project")?;
+            }
+            validate_identity(document_id, "Revocation Document")?;
+        }
+    }
+    let encoded = serde_json::to_vec(scope)
+        .map_err(|_| corrupt("Revocation authorization scope cannot be encoded"))?;
+    Ok(sha256(&encoded))
+}
+
+fn validate_revocation(revocation: &ResourceRevocation) -> Result<(), StoreError> {
+    authorization_scope_key(&revocation.authorization_scope)?;
+    validate_identity(&revocation.resource_id, "Revoked resource")
+}
+
+fn revoked_resource_kind_name(kind: RevokedResourceKind) -> &'static str {
+    match kind {
+        RevokedResourceKind::Page => "page",
+        RevokedResourceKind::Document => "document",
+        RevokedResourceKind::Database => "database",
+        RevokedResourceKind::DataSource => "data_source",
+        RevokedResourceKind::View => "view",
+        RevokedResourceKind::Canvas => "canvas",
+    }
+}
+
+fn parse_revoked_resource_kind(value: &str) -> Result<RevokedResourceKind, StoreError> {
+    match value {
+        "page" => Ok(RevokedResourceKind::Page),
+        "document" => Ok(RevokedResourceKind::Document),
+        "database" => Ok(RevokedResourceKind::Database),
+        "data_source" => Ok(RevokedResourceKind::DataSource),
+        "view" => Ok(RevokedResourceKind::View),
+        "canvas" => Ok(RevokedResourceKind::Canvas),
+        _ => Err(corrupt("LocalCommit revoked resource kind is invalid")),
+    }
+}
+
+fn revocation_reason_name(reason: ResourceRevocationReason) -> &'static str {
+    match reason {
+        ResourceRevocationReason::OwnershipMoved => "ownership_moved",
+        ResourceRevocationReason::AccessRevoked => "access_revoked",
+        ResourceRevocationReason::Archived => "archived",
+        ResourceRevocationReason::Deleted => "deleted",
+    }
+}
+
+fn parse_revocation_reason(value: &str) -> Result<ResourceRevocationReason, StoreError> {
+    match value {
+        "ownership_moved" => Ok(ResourceRevocationReason::OwnershipMoved),
+        "access_revoked" => Ok(ResourceRevocationReason::AccessRevoked),
+        "archived" => Ok(ResourceRevocationReason::Archived),
+        "deleted" => Ok(ResourceRevocationReason::Deleted),
+        _ => Err(corrupt("LocalCommit revocation reason is invalid")),
+    }
 }
 
 fn default_projection_scopes(
@@ -2752,6 +3054,25 @@ mod tests {
                 document_ids: vec!["document-a".to_owned(), "document-b".to_owned()],
                 database_ids: vec!["database-a".to_owned(), "database-b".to_owned()],
             }
+        );
+    }
+
+    #[test]
+    fn revocation_scope_identity_is_unambiguous_across_delimited_ids() {
+        let first = DeliveryAuthorizationScope::Document {
+            library_id: "library:test".to_owned(),
+            project_id: Some("project:a".to_owned()),
+            document_id: "document:b:c".to_owned(),
+        };
+        let second = DeliveryAuthorizationScope::Document {
+            library_id: "library:test".to_owned(),
+            project_id: Some("project:a:document:b".to_owned()),
+            document_id: "c".to_owned(),
+        };
+
+        assert_ne!(
+            authorization_scope_key(&first).expect("first scope key"),
+            authorization_scope_key(&second).expect("second scope key"),
         );
     }
 }

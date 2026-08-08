@@ -50,9 +50,9 @@ use nodex_core::workspace::ProjectWorkspaceModule;
 use nodex_core_contracts::administration::StoreAdministrationIntent;
 use nodex_core_contracts::document::{OwnedDocumentIntent, OwnedDocumentRead};
 use nodex_core_contracts::{
-    AdapterKind, ApplyResponse, BoundModuleContext, CoreError, CoreErrorCode, CoreErrorRecovery,
-    CoreModuleEventPayload, LibraryId, ModuleName, ProfileId, ProjectId, StoreEpoch,
-    StoreObservation, StreamCheckpoint,
+    AdapterKind, ApplyResponse, AuthorizedDeliveryPacket, BoundModuleContext, CoreError,
+    CoreErrorCode, CoreErrorRecovery, CoreModuleEventPayload, LibraryId, ModuleName, ProfileId,
+    ProjectId, StoreEpoch, StoreObservation, StreamCheckpoint,
 };
 use nodex_core_protocol::{
     AutomationApplyRequest, AutomationApplyResponse, AutomationReadRequest, AutomationReadResponse,
@@ -665,6 +665,37 @@ fn module_storage_name(module: ModuleName) -> &'static str {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum LocalCommitDeliveryAudience {
+    BoundScope,
+    HostLibraryBroker,
+}
+
+/// Command authorization and local delivery authorization are separate
+/// capabilities. The Electron Host coordinates every mounted Project surface,
+/// but its broker audience never rewrites or discards the command context.
+fn local_commit_delivery_audience(context: &BoundModuleContext) -> LocalCommitDeliveryAudience {
+    if context.adapter == AdapterKind::ElectronHost {
+        return LocalCommitDeliveryAudience::HostLibraryBroker;
+    }
+    LocalCommitDeliveryAudience::BoundScope
+}
+
+fn authorized_apply_packet(
+    state: &ServerState,
+    commit_seq: i64,
+    context: &BoundModuleContext,
+) -> Result<Option<AuthorizedDeliveryPacket>, StoreError> {
+    match local_commit_delivery_audience(context) {
+        LocalCommitDeliveryAudience::BoundScope => state
+            .event_log
+            .authorized_packet(commit_seq, context, None, true),
+        LocalCommitDeliveryAudience::HostLibraryBroker => state
+            .event_log
+            .authorized_packet_for_library_broker(commit_seq, context, true),
+    }
+}
+
 fn build_authorized_apply_response<T, R>(
     state: &ServerState,
     module: ModuleName,
@@ -709,10 +740,8 @@ fn build_authorized_apply_response<T, R>(
             "Committed command result diverges from its manifest identity",
         ));
     }
-    let delivery = state
-        .event_log
-        .authorized_packet(commit_seq, context, None, true)
-        .map_err(apply_response_store_error)?;
+    let delivery =
+        authorized_apply_packet(state, commit_seq, context).map_err(apply_response_store_error)?;
     publish_committed_if_new(state, duplicate, Some(commit_seq));
     let response = ApplyResponse::Committed {
         outcome,
@@ -814,11 +843,7 @@ async fn resolve_local_mutation(
     }
     let delivery = stored
         .local_commit_seq
-        .map(|commit_seq| {
-            state
-                .event_log
-                .authorized_packet(commit_seq, &context, None, true)
-        })
+        .map(|commit_seq| authorized_apply_packet(&state, commit_seq, &context))
         .transpose()
         .map_err(|error| {
             ApiError::new(
@@ -2840,4 +2865,48 @@ fn unix_time_millis() -> Result<i64, std::time::SystemTimeError> {
 
 fn store_replacement_hook_error(error: CoreError) -> StoreError {
     StoreError::new(StoreErrorCode::Internal, error.message, error.retryable)
+}
+
+#[cfg(test)]
+mod local_commit_delivery_audience_tests {
+    use super::*;
+
+    fn context(adapter: AdapterKind) -> BoundModuleContext {
+        BoundModuleContext {
+            profile_id: ProfileId("profile:test".to_owned()),
+            library_id: LibraryId("library:test".to_owned()),
+            project_id: Some(ProjectId("project:test".to_owned())),
+            connection_id: "connection:test".to_owned(),
+            adapter,
+        }
+    }
+
+    #[test]
+    fn electron_host_receives_explicit_library_broker_audience() {
+        let command_context = context(AdapterKind::ElectronHost);
+        assert_eq!(
+            local_commit_delivery_audience(&command_context),
+            LocalCommitDeliveryAudience::HostLibraryBroker
+        );
+        assert_eq!(
+            command_context.project_id,
+            Some(ProjectId("project:test".to_owned()))
+        );
+    }
+
+    #[test]
+    fn non_broker_adapters_keep_their_exact_delivery_scope() {
+        for adapter in [
+            AdapterKind::NativeCli,
+            AdapterKind::Test,
+            AdapterKind::Agent,
+            AdapterKind::LoopbackHttp,
+        ] {
+            let command_context = context(adapter);
+            assert_eq!(
+                local_commit_delivery_audience(&command_context),
+                LocalCommitDeliveryAudience::BoundScope
+            );
+        }
+    }
 }

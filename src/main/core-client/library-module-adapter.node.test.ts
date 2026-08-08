@@ -1760,7 +1760,7 @@ describe("Core Library Module Adapter", () => {
   });
 
   test("maps only Library Core events into renderer invalidations", () => {
-    expect(mapCoreLibraryEvent({
+    const envelope = {
       transport_version: 4,
       packet: createCoreLocalCommitFixture({
         commitSeq: 9,
@@ -1779,7 +1779,12 @@ describe("Core Library Module Adapter", () => {
         },
         canonicalHash: "0".repeat(64),
       }),
-    }, identity.libraryId)).toEqual({
+    } as const;
+    expect(mapCoreLibraryEvent(
+      envelope,
+      envelope.packet.effects[0]!,
+      identity.libraryId,
+    )).toEqual({
       version: LIBRARY_NAVIGATION_EVENT_VERSION,
       libraryId: identity.libraryId,
       storeEpoch: identity.storeEpoch,

@@ -46,7 +46,10 @@ import type {
   DesktopDataAuthorityRuntime,
   RustDataAuthorityRuntime,
 } from "./desktop-data-authority";
-import { findCoreModulePayload, type CoreEventEnvelope } from "./types";
+import type {
+  CoreAuthorizedModuleEffect,
+  CoreEventEnvelope,
+} from "./types";
 import {
   createCoreDatabaseModuleAdapter,
   type CoreDatabaseModuleAdapter,
@@ -480,10 +483,11 @@ export const createDesktopDatabaseModuleBridge = (
 
 export const mapCoreDatabaseEvent = (
   envelope: CoreEventEnvelope,
+  effect: CoreAuthorizedModuleEffect,
   libraryId: string,
 ): DatabaseChangeEvent | null => {
-  const payload = findCoreModulePayload(envelope, "database");
-  if (payload?.module !== "database") return null;
+  const payload = effect.payload;
+  if (payload.module !== "database") return null;
   const operationId = envelope.packet.manifest.operation_id;
   const projectId = payload.event.project_id;
   if (!operationId || !projectId) return null;
@@ -504,10 +508,11 @@ export const mapCoreDatabaseEvent = (
 
 export const mapCoreLibraryDatabaseEvent = (
   envelope: CoreEventEnvelope,
+  effect: CoreAuthorizedModuleEffect,
   libraryId: string,
 ): LibraryNavigationChangedEvent | null => {
-  const payload = findCoreModulePayload(envelope, "database");
-  if (payload?.module !== "database" || payload.event.project_id) return null;
+  const payload = effect.payload;
+  if (payload.module !== "database" || payload.event.project_id) return null;
   return {
     version: LIBRARY_NAVIGATION_EVENT_VERSION,
     libraryId,

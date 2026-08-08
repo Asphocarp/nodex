@@ -21,6 +21,7 @@ use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 use crate::infrastructure::store::SqliteStoreKernel;
 use crate::infrastructure::writer::{StoreReaders, StoreWriter};
 
+mod authorization_loss;
 mod page_projection;
 mod projection_authorization;
 mod resource_access;

@@ -1,19 +1,20 @@
 # Architecture
 
-Current Rust Store authority is v107. Database contract v6 centralizes typed Property schema, capabilities, and edits. Relation definitions and Page-reference edges are normalized in `data_source_relation_properties` and `data_source_relation_edges`; JSON `null` headers retain revision/CAS leverage while reverse indexes support projection invalidation and retention. Main and renderer adapters map this contract mechanically: authorized Database catalogs, target-Source candidate windows, relation-value windows, and bounded summaries replace View-cache inference and per-Page hydration. Library contract v10 provides the upper transaction for Page Detail actions that combine Database-owned Source Properties with Library-owned intrinsic Properties, while preserving the lower ownership boundaries and restricting the composition to value edits over one identical Page set.
+Current Rust Store authority is v108. Database contract v6 centralizes typed Property schema, capabilities, and edits. Relation definitions and Page-reference edges are normalized in `data_source_relation_properties` and `data_source_relation_edges`; JSON `null` headers retain revision/CAS leverage while reverse indexes support projection invalidation and retention. Main and renderer adapters map this contract mechanically: authorized Database catalogs, target-Source candidate windows, relation-value windows, and bounded summaries replace View-cache inference and per-Page hydration. Library contract v10 provides the upper transaction for Page Detail actions that combine Database-owned Source Properties with Library-owned intrinsic Properties, while preserving the lower ownership boundaries and restricting the composition to value edits over one identical Page set.
 
-Store v107 retains the three-artifact semantic mutation model introduced by
+Store v108 retains the three-artifact semantic mutation model introduced by
 v105/v106. The existing
 `change_log`, Document update rows, and Module history form a private physical
 journal. An immutable `CommitManifest` records semantic identity, ordered
-physical evidence digest, Document refs, routing claims, receipts, and
+physical evidence digest, Document refs, scoped resource revocations, routing claims, receipts, and
 per-scope Projection effects. A post-state-authorized
 `AuthorizedDeliveryPacket` is generated for one access context and may carry
 inline Document bytes or refs without changing the Manifest identity. Dynamic
 recipients, inline bytes, and transport retries never enter `manifest_hash`.
 v106 added the persisted manifest and transactionally advanced
 `projection_scope_heads`; v107 adds exact Block child-key indexes for
-Project-key cascades. Physical `change_log_seq` remains an internal
+Project-key cascades; v108 adds immutable Core-authored authorization-loss
+facts keyed by exact Library/Project/Document scope. Physical `change_log_seq` remains an internal
 history coordinate rather than a public cursor.
 
 Every LocalCommit child artifact is addressed by the complete
@@ -120,9 +121,15 @@ Durable user mutations have one immutable semantic Manifest. Core assigns its
 and persists the Manifest, physical evidence links, affected Document refs,
 scope revisions, and idempotent receipt before returning success. Apply
 responses carry the command result independently from an optional authorized
-delivery packet. The initiator therefore admits readable local effects before
-waiting for the durable stream, while a caller that lost post-state read access
-still receives the successful command result and a typed revoke when needed.
+delivery packet. Command authorization and delivery audience are distinct: a
+Project header still constrains the mutation, while the authenticated Electron
+Host has a separate, explicit Library-broker delivery capability for its
+process-wide coordinator. The original command context is preserved; native
+CLI, test, Agent, and loopback adapters retain their exact bound post-state
+scope. The Host therefore admits every
+affected local surface before returning the command without waiting for the
+durable stream; a scope that lost access receives only its typed revoke, and
+canonical reads remain independently authorized by Core.
 
 Core's durable stream is log-driven. Broadcast is only a wake signal: each
 subscriber first installs its receiver, scans a single SQLite read snapshot in
@@ -133,6 +140,14 @@ cursor. A retention gap returns a generation-bound resync token. Main admits
 apply and stream packets by Manifest identity, delivers complementary coverage
 as enrichment, and rejects a hash collision. Core—not Main—filters all packet
 content against current post-state authority.
+
+Every delivery packet carries a Core-authored authorization scope covered by
+its packet hash. A trusted Library stream may carry scoped revocations for
+Project consumers, but Main never reconstructs those scopes from current
+ownership. Revocation identity includes commit, authorization scope, resource
+kind, and resource ID. Scope identity is derived from canonical structured
+serialization rather than delimiter-concatenated IDs. Pure revocation packets
+are valid even when they contain no semantic, Document, or Projection effect.
 
 An exact Document subscription is itself a resource boundary. Core authorizes
 the owned Document with the canonical Page/grant/synced-owner/Canvas-shell read
@@ -147,6 +162,10 @@ ordering barrier. A future head is buffered, a contiguous head drains in
 order, and a bounded overflow emits an explicit resync. This ordering is
 independent of the semantic LocalCommit order because one commit may update
 multiple Documents and two apply responses may arrive out of order.
+An active exact-Document subscription is itself a Core-authorized capability;
+root-stream Document refs fan out only to active subscriptions for that exact
+Document. A scoped Document revocation emits an `access-revoked` boundary and
+closes only the addressed subscription scope.
 
 Document payload bytes are operationally compactable, but the Manifest effect
 index is not deleted from durable semantic history. The Manifest hash covers
@@ -185,6 +204,14 @@ composition and continuations never cross a scope revision. There is no
 item-level pending projection state: after Core commits, the apply response is
 the initiating renderer's immediate authority and durable replay is only the
 later convergence path.
+Scoped revocations bypass projection cursors: mounted Page, Board, and query
+stores run the reducer for every matching revocation synchronously, and
+generation fences prevent reads started before the revocation from restoring
+stale content. Authorization-bearing inactive query entries retain the same
+scope subscription until eviction. If a revocation lands in the read/subscribe
+race, the projection stream's initial checkpoint synchronously fences any
+older cache before canonical repair. Only subsequent repair may coalesce;
+synchronous resource removal never does.
 
 ## Codemap
 
@@ -1367,16 +1394,17 @@ Block-first migration foundation:
 1. Core accepts the exact frozen v26, both v57, v68, v82, and v83
    TypeScript inventories as historical import sources, the exact final
    TypeScript v84 inventory as its direct handoff, and exact Rust-owned v85
-   through v106 stores. Historical sources are snapshotted with their asset
+   through v107 stores. Historical sources are snapshotted with their asset
    closure, advanced only in staging by the hash-pinned migrator, reconstructed
-   through Yrs, semantically validated, and atomically published as v107 under
+   through Yrs, semantically validated, and atomically published as v108 under
    the crash-recovery journal. Direct native upgrades use the same exact-schema
    validation and durable backup boundary. v102 introduced the LocalCommit
    ledger, v103 its composite Store identity, v104 canonical physical evidence
    hashing, v105 immutable Manifest/authorized packet separation, v106
-   Projection scope heads, and v107 exact child-key indexes for Block
-   Project-key cascades. Unfrozen same-version lineages, near-matches,
-   ambiguous owners, and future stores fail closed; a Rust-owned v107 Store is
+   Projection scope heads, v107 exact child-key indexes for Block Project-key
+   cascades, and v108 immutable scoped resource revocations. Unfrozen
+   same-version lineages, near-matches, ambiguous owners, and future stores
+   fail closed; a Rust-owned v108 Store is
    validated exactly and never silently repaired.
 2. A successful Document apply tentatively reconstructs and validates a Y.Doc, derives the changed title/Block identities from before/after state, reconciles the registry/index, and writes the binary update, immutable receipt, exact-blob checksum, state vector, and new head under one immediate SQLite transaction. Receipts remain independently of update payload retention; compaction verifies and semantically reloads a full snapshot at the current head, then atomically removes only its covered payload tail. Store epoch, Document generation, update identity, `headSeq`, Yjs state vector, and exact retained-blob integrity remain separate concepts. Equivalent Y.Docs may produce different full-state wire bytes, so Store v98 removes Yjs reconstruction fingerprints and excludes full-state hashes from authority, integrity, and concurrency.
 3. Production Page Stage prepares the exact owned descriptor before rendering content. Only a ready `yjs`/`block_tree` descriptor enters the Page editor: its canonical DocumentSession completes Core state-vector sync before resolving `Y.Text("title")` / `Y.XmlFragment("body")`, then starts disposable checkpoint recovery in a separate lane. BlockNote binds directly to that fragment without projection-based initialization. The NFM parser produces a zero-or-more Block forest without editor policy. Document create/replace/patch boundaries normalize an empty forest to one registered stable-ID paragraph, while Fragment insertion rejects an empty forest and points callers to `<empty-block/>`. A first root insertion into a semantically blank Document promotes the existing seed ID through a fenced Block update, preventing the authority scaffold from appearing in canonical NFM.

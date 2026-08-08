@@ -203,6 +203,7 @@ import {
   mapCoreProjectWorkspaceEvent,
   mapCoreStoreAdministrationEvent,
   type CoreAuthorizedDeliveryPacket,
+  type CoreAuthorizedModuleEffect,
   type CoreEventEnvelope,
   type CoreEventSubscription,
   type CoreAuthorityState,
@@ -217,10 +218,15 @@ import { superviseCoreEventStream } from "./core-client/core-event-stream-superv
 import { LocalCommitCoordinator } from "./core-client/local-commit-coordinator";
 import { CoreEventCompatibilityError } from "./core-client/uds-http";
 import { ProjectionDeliveryRouter } from "./core-client/projection-delivery-router";
+import { ResourceRevocationRouter } from "./core-client/resource-revocation-router";
 import {
   requireProjectionDeliveryRouter,
   setProjectionDeliveryRouter,
 } from "./projection-delivery-runtime";
+import {
+  requireResourceRevocationRouter,
+  setResourceRevocationRouter,
+} from "./resource-revocation-runtime";
 import {
   allProjectSessionInvalidation,
   planCoreWorkspaceNotifications,
@@ -928,7 +934,8 @@ function registerInitializationIpcHandlers(): void {
 
 interface ProjectionIpcSenderSubscriptions {
   readonly sender: WebContents;
-  readonly releases: Map<string, () => void>;
+  readonly projectionReleases: Map<string, () => void>;
+  readonly revocationReleases: Map<string, () => void>;
   readonly onDestroyed: () => void;
 }
 
@@ -941,44 +948,73 @@ function registerProjectionStreamIpcHandlers(): void {
     if (!state) return;
     projectionIpcSubscriptions.delete(senderId);
     state.sender.removeListener("destroyed", state.onDestroyed);
-    for (const release of state.releases.values()) release();
-    state.releases.clear();
+    for (const release of state.projectionReleases.values()) release();
+    for (const release of state.revocationReleases.values()) release();
+    state.projectionReleases.clear();
+    state.revocationReleases.clear();
   };
   const ensureSender = (sender: WebContents): ProjectionIpcSenderSubscriptions => {
     const existing = projectionIpcSubscriptions.get(sender.id);
     if (existing) return existing;
     const state: ProjectionIpcSenderSubscriptions = {
       sender,
-      releases: new Map(),
+      projectionReleases: new Map(),
+      revocationReleases: new Map(),
       onDestroyed: () => releaseSender(sender.id),
     };
     projectionIpcSubscriptions.set(sender.id, state);
     sender.once("destroyed", state.onDestroyed);
     return state;
   };
-  const unsubscribe = (senderId: number, scope: ProjectionScope) => {
+  const unsubscribe = (
+    senderId: number,
+    scope: ProjectionScope,
+    lane: "projection" | "revocation",
+  ) => {
     const state = projectionIpcSubscriptions.get(senderId);
     if (!state) return;
     const key = projectionScopeKey(scope);
-    state.releases.get(key)?.();
-    state.releases.delete(key);
-    if (state.releases.size === 0) releaseSender(senderId);
+    const releases = lane === "projection"
+      ? state.projectionReleases
+      : state.revocationReleases;
+    releases.get(key)?.();
+    releases.delete(key);
+    if (
+      state.projectionReleases.size === 0
+      && state.revocationReleases.size === 0
+    ) releaseSender(senderId);
   };
 
   ipcMain.removeHandler("projection-stream:subscribe");
   ipcMain.handle("projection-stream:subscribe", (event, scope: ProjectionScope) => {
-    unsubscribe(event.sender.id, scope);
+    unsubscribe(event.sender.id, scope, "projection");
     const state = ensureSender(event.sender);
     const key = projectionScopeKey(scope);
     const release = requireProjectionRouter().subscribe(scope, (message) => {
       safeSendToWebContents(event.sender, "projection-stream:message", [message]);
     });
-    state.releases.set(key, release);
+    state.projectionReleases.set(key, release);
   });
 
   ipcMain.removeHandler("projection-stream:unsubscribe");
   ipcMain.handle("projection-stream:unsubscribe", (event, scope: ProjectionScope) => {
-    unsubscribe(event.sender.id, scope);
+    unsubscribe(event.sender.id, scope, "projection");
+  });
+
+  ipcMain.removeHandler("resource-revocation:subscribe");
+  ipcMain.handle("resource-revocation:subscribe", (event, scope: ProjectionScope) => {
+    unsubscribe(event.sender.id, scope, "revocation");
+    const state = ensureSender(event.sender);
+    const key = projectionScopeKey(scope);
+    const release = requireRevocationRouter().subscribe(scope, (message) => {
+      safeSendToWebContents(event.sender, "resource-revocation:message", [message]);
+    });
+    state.revocationReleases.set(key, release);
+  });
+
+  ipcMain.removeHandler("resource-revocation:unsubscribe");
+  ipcMain.handle("resource-revocation:unsubscribe", (event, scope: ProjectionScope) => {
+    unsubscribe(event.sender.id, scope, "revocation");
   });
 }
 
@@ -1758,23 +1794,40 @@ async function initializeDesktopApp(
       });
     },
   }));
+  setResourceRevocationRouter(new ResourceRevocationRouter({
+    libraryId: coreIdentity.libraryId,
+    onListenerError: (error, scope) => {
+      logger.warn("Resource revocation listener failed", {
+        scope,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    },
+  }));
   localCommitCoordinator = new LocalCommitCoordinator({
+    expectedLibraryId: coreIdentity.libraryId,
     expectedStoreEpoch: coreIdentity.storeEpoch,
     onDocument: (packet, documentId) => {
-      desktopDocumentSync?.publishLocalCommit(packet, documentId);
+      desktopDocumentSync?.publishDocumentEffects(packet, documentId);
     },
     onProjection: (packet, effect) => {
       requireProjectionRouter().publish(packet, effect);
     },
-    onNotification: (packet) => {
+    onNotification: (packet, effect) => {
       const envelope: CoreEventEnvelope = {
         transport_version: coreClient.handshake.selected_transport_version,
         packet,
       };
       publishCoreModuleEventToNotifiers(
         envelope,
+        effect,
         coreIdentity.libraryId,
       );
+    },
+    onRevocation: (packet, revocation) => {
+      requireRevocationRouter().publish(packet, revocation);
+      if (revocation.resource_kind === "document") {
+        desktopDocumentSync?.publishResourceRevocation(packet, revocation);
+      }
     },
     onError: (failure) => {
       logger.error("LocalCommit delivery lane failed", {
@@ -1879,9 +1932,13 @@ function requireProjectionRouter(): ProjectionDeliveryRouter {
   return requireProjectionDeliveryRouter();
 }
 
-function publishCoreModuleEvent(envelope: CoreEventEnvelope): void {
+function requireRevocationRouter(): ResourceRevocationRouter {
+  return requireResourceRevocationRouter();
+}
+
+async function publishCoreModuleEvent(envelope: CoreEventEnvelope): Promise<void> {
   if (!desktopDataAuthorityRuntime || !localCommitCoordinator) return;
-  localCommitCoordinator.admit(envelope.packet, "tailer");
+  await localCommitCoordinator.admitAndWait(envelope.packet, "tailer");
 }
 
 function publishLocalCommitFromApply(packet: CoreAuthorizedDeliveryPacket): void {
@@ -1891,11 +1948,12 @@ function publishLocalCommitFromApply(packet: CoreAuthorizedDeliveryPacket): void
 
 function publishCoreModuleEventToNotifiers(
   envelope: CoreEventEnvelope,
+  effect: CoreAuthorizedModuleEffect,
   libraryId: string,
 ): void {
-  const administrationEvent = mapCoreStoreAdministrationEvent(envelope);
+  const administrationEvent = mapCoreStoreAdministrationEvent(effect);
   if (administrationEvent) return;
-  const automationEvent = mapCoreAutomationEvent(envelope);
+  const automationEvent = mapCoreAutomationEvent(effect);
   if (automationEvent) {
     void codexService.synchronizeAutomationRuntime().catch((error) => {
       logger.warn("Failed to refresh Automation runtime cache", {
@@ -1927,6 +1985,7 @@ function publishCoreModuleEventToNotifiers(
   }
   const databaseEvent = mapCoreDatabaseEvent(
     envelope,
+    effect,
     libraryId,
   );
   if (databaseEvent) {
@@ -1941,6 +2000,7 @@ function publishCoreModuleEventToNotifiers(
   }
   const libraryDatabaseEvent = mapCoreLibraryDatabaseEvent(
     envelope,
+    effect,
     libraryId,
   );
   if (libraryDatabaseEvent) {
@@ -1949,13 +2009,14 @@ function publishCoreModuleEventToNotifiers(
   }
   const libraryEvent = mapCoreLibraryEvent(
     envelope,
+    effect,
     libraryId,
   );
   if (libraryEvent) {
     dbNotifier.notifyLibraryNavigationChanged(libraryEvent);
     return;
   }
-  const workspaceEvent = mapCoreProjectWorkspaceEvent(envelope);
+  const workspaceEvent = mapCoreProjectWorkspaceEvent(effect);
   if (!workspaceEvent) return;
   const notifications = planCoreWorkspaceNotifications(workspaceEvent);
   if (notifications.project) {
@@ -2125,10 +2186,12 @@ function beginMainRuntimeShutdown(): void {
     ?? Promise.resolve();
   for (const state of projectionIpcSubscriptions.values()) {
     state.sender.removeListener("destroyed", state.onDestroyed);
-    for (const release of state.releases.values()) release();
+    for (const release of state.projectionReleases.values()) release();
+    for (const release of state.revocationReleases.values()) release();
   }
   projectionIpcSubscriptions.clear();
   setProjectionDeliveryRouter(null);
+  setResourceRevocationRouter(null);
   storeAdministrationBackupScheduler?.dispose();
   storeAdministrationBackupScheduler = null;
   if (stopReminderScheduler) {

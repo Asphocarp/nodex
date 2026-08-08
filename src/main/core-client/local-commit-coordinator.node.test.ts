@@ -84,7 +84,9 @@ describe("LocalCommitCoordinator", () => {
   test("admits the apply response synchronously without awaiting any lane", () => {
     const projection = vi.fn();
     const coordinator = new LocalCommitCoordinator({
+      expectedLibraryId: "library-1",
       expectedStoreEpoch: "epoch-1",
+      onRevocation: vi.fn(),
       onDocument: vi.fn(),
       onProjection: projection,
       onNotification: vi.fn(),
@@ -104,7 +106,9 @@ describe("LocalCommitCoordinator", () => {
     });
     const delivered: string[] = [];
     const coordinator = new LocalCommitCoordinator({
+      expectedLibraryId: "library-1",
       expectedStoreEpoch: "epoch-1",
+      onRevocation: vi.fn(),
       onDocument: vi.fn(),
       onProjection: async (_packet, effect) => {
         delivered.push(effect.scope.canonical_key);
@@ -140,7 +144,9 @@ describe("LocalCommitCoordinator", () => {
     });
     const delivered: string[] = [];
     const coordinator = new LocalCommitCoordinator({
+      expectedLibraryId: "library-1",
       expectedStoreEpoch: "epoch-1",
+      onRevocation: vi.fn(),
       onDocument: async (packet, documentId) => {
         const coordinate = `${documentId}:${packet.manifest.identity.commit_seq}`;
         delivered.push(coordinate);
@@ -180,7 +186,9 @@ describe("LocalCommitCoordinator", () => {
     });
     const delivered: number[] = [];
     const coordinator = new LocalCommitCoordinator({
+      expectedLibraryId: "library-1",
       expectedStoreEpoch: "epoch-1",
+      onRevocation: vi.fn(),
       onDocument: vi.fn(),
       onProjection: async (_packet, effect) => {
         delivered.push(effect.result_revision);
@@ -205,7 +213,9 @@ describe("LocalCommitCoordinator", () => {
     const projection = vi.fn();
     const notification = vi.fn();
     const coordinator = new LocalCommitCoordinator({
+      expectedLibraryId: "library-1",
       expectedStoreEpoch: "epoch-1",
+      onRevocation: vi.fn(),
       onDocument: vi.fn(),
       onProjection: projection,
       onNotification: notification,
@@ -226,7 +236,9 @@ describe("LocalCommitCoordinator", () => {
     const projection = vi.fn();
     const notification = vi.fn();
     const coordinator = new LocalCommitCoordinator({
+      expectedLibraryId: "library-1",
       expectedStoreEpoch: "epoch-1",
+      onRevocation: vi.fn(),
       onDocument: vi.fn(),
       onProjection: projection,
       onNotification: notification,
@@ -243,7 +255,7 @@ describe("LocalCommitCoordinator", () => {
     expect(projection).toHaveBeenCalledOnce();
   });
 
-  test("releases a failed resource claim so durable replay can recover it", async () => {
+  test("makes a duplicate tailer wait on apply delivery and replay after terminal failure", async () => {
     const projection = vi.fn()
       .mockRejectedValueOnce(new Error("one"))
       .mockRejectedValueOnce(new Error("two"))
@@ -251,7 +263,9 @@ describe("LocalCommitCoordinator", () => {
       .mockResolvedValue(undefined);
     const onError = vi.fn();
     const coordinator = new LocalCommitCoordinator({
+      expectedLibraryId: "library-1",
       expectedStoreEpoch: "epoch-1",
+      onRevocation: vi.fn(),
       onDocument: vi.fn(),
       onProjection: projection,
       onNotification: vi.fn(),
@@ -262,17 +276,21 @@ describe("LocalCommitCoordinator", () => {
     });
 
     expect(coordinator.admit(packet, "apply").kind).toBe("accepted");
-    await flush();
+    const tailer = coordinator.admitAndWait(packet, "tailer");
+    await expect(tailer).rejects.toThrow("three");
     expect(onError).toHaveBeenCalledOnce();
 
-    expect(coordinator.admit(packet, "replay").kind).toBe("enriched");
-    await flush();
+    await expect(coordinator.admitAndWait(packet, "replay")).resolves.toMatchObject({
+      kind: "enriched",
+    });
     expect(projection).toHaveBeenCalledTimes(4);
   });
 
   test("rejects manifest and resource collisions at admission", () => {
     const coordinator = new LocalCommitCoordinator({
+      expectedLibraryId: "library-1",
       expectedStoreEpoch: "epoch-1",
+      onRevocation: vi.fn(),
       onDocument: vi.fn(),
       onProjection: vi.fn(),
       onNotification: vi.fn(),
@@ -291,9 +309,11 @@ describe("LocalCommitCoordinator", () => {
     }), "tailer")).toThrow("resource identity collision");
   });
 
-  test("bounds remembered identities and records durable checkpoints", () => {
+  test("bounds remembered identities after in-flight deliveries settle", async () => {
     const coordinator = new LocalCommitCoordinator({
+      expectedLibraryId: "library-1",
       expectedStoreEpoch: "epoch-1",
+      onRevocation: vi.fn(),
       maxRememberedCommits: 2,
       onDocument: vi.fn(),
       onProjection: vi.fn(),
@@ -309,10 +329,168 @@ describe("LocalCommitCoordinator", () => {
       oldest_available_seq: 1,
       resync_token: null,
     });
+    await flush();
 
     expect(coordinator.diagnostics()).toMatchObject({
       rememberedCommits: 2,
       checkpoint: { scanned_through_seq: 3 },
     });
+  });
+
+  test("keeps the authorization audience in semantic claim identity", async () => {
+    const onNotification = vi.fn();
+    const coordinator = new LocalCommitCoordinator({
+      expectedLibraryId: "library-1",
+      expectedStoreEpoch: "epoch-1",
+      onDocument: vi.fn(),
+      onProjection: vi.fn(),
+      onNotification,
+      onRevocation: vi.fn(),
+    });
+    const base = commit(13);
+    const projectA: CoreAuthorizedDeliveryPacket = {
+      ...base,
+      authorization_scope: {
+        kind: "project",
+        library_id: "library-1",
+        project_id: "project-a",
+      },
+      packet_hash: "c".repeat(64),
+    };
+    const projectB: CoreAuthorizedDeliveryPacket = {
+      ...base,
+      authorization_scope: {
+        kind: "project",
+        library_id: "library-1",
+        project_id: "project-b",
+      },
+      packet_hash: "d".repeat(64),
+    };
+
+    expect(coordinator.admit(projectA, "tailer").kind).toBe("accepted");
+    expect(coordinator.admit(projectB, "tailer").kind).toBe("enriched");
+    await flush();
+
+    expect(onNotification).toHaveBeenCalledTimes(2);
+  });
+
+  test("delivers scoped revocations once across apply and trusted tailer packets", async () => {
+    const onRevocation = vi.fn();
+    const onNotification = vi.fn();
+    const coordinator = new LocalCommitCoordinator({
+      expectedLibraryId: "library-1",
+      expectedStoreEpoch: "epoch-1",
+      onDocument: vi.fn(),
+      onProjection: vi.fn(),
+      onNotification,
+      onRevocation,
+    });
+    const revocation = {
+      authorization_scope: {
+        kind: "project" as const,
+        library_id: "library-1",
+        project_id: "project-a",
+      },
+      resource_kind: "page" as const,
+      resource_id: "page-a",
+      reason: "ownership_moved" as const,
+    };
+    const apply = createCoreLocalCommitFixture({
+      authorizationScope: revocation.authorization_scope,
+      commitSeq: 11,
+      revocations: [revocation],
+    });
+    const tailer = {
+      ...apply,
+      authorization_scope: {
+        kind: "library" as const,
+        library_id: "library-1",
+      },
+      packet_hash: "d".repeat(64),
+    };
+
+    expect(coordinator.admit(apply, "apply").kind).toBe("accepted");
+    expect(coordinator.admit(tailer, "tailer").kind).toBe("duplicate");
+    await flush();
+
+    expect(onRevocation).toHaveBeenCalledOnce();
+    expect(onRevocation).toHaveBeenCalledWith(apply, revocation, "apply");
+    expect(onNotification).not.toHaveBeenCalled();
+  });
+
+  test("keeps delimited Document scopes as distinct revocation identities", async () => {
+    const onRevocation = vi.fn();
+    const coordinator = new LocalCommitCoordinator({
+      expectedLibraryId: "library-1",
+      expectedStoreEpoch: "epoch-1",
+      onDocument: vi.fn(),
+      onProjection: vi.fn(),
+      onNotification: vi.fn(),
+      onRevocation,
+    });
+    const revocations = [
+      {
+        authorization_scope: {
+          kind: "document" as const,
+          library_id: "library-1",
+          project_id: "project:a",
+          document_id: "document:b:c",
+        },
+        resource_kind: "page" as const,
+        resource_id: "page:shared",
+        reason: "access_revoked" as const,
+      },
+      {
+        authorization_scope: {
+          kind: "document" as const,
+          library_id: "library-1",
+          project_id: "project:a:document:b",
+          document_id: "c",
+        },
+        resource_kind: "page" as const,
+        resource_id: "page:shared",
+        reason: "access_revoked" as const,
+      },
+    ];
+
+    coordinator.admit(createCoreLocalCommitFixture({
+      commitSeq: 12,
+      revocations,
+    }), "tailer");
+    await flush();
+
+    expect(onRevocation).toHaveBeenCalledTimes(2);
+    expect(onRevocation.mock.calls.map((call) => call[1])).toEqual(revocations);
+  });
+
+  test("rejects packet and revocation scopes from another Library", () => {
+    const coordinator = new LocalCommitCoordinator({
+      expectedLibraryId: "library-1",
+      expectedStoreEpoch: "epoch-1",
+      onDocument: vi.fn(),
+      onProjection: vi.fn(),
+      onNotification: vi.fn(),
+      onRevocation: vi.fn(),
+    });
+    expect(() => coordinator.admit(createCoreLocalCommitFixture({
+      authorizationScope: {
+        kind: "library",
+        library_id: "library-other",
+      },
+      commitSeq: 12,
+    }), "tailer")).toThrow("another Library");
+    expect(() => coordinator.admit(createCoreLocalCommitFixture({
+      commitSeq: 13,
+      revocations: [{
+        authorization_scope: {
+          kind: "project",
+          library_id: "library-other",
+          project_id: "project-a",
+        },
+        resource_kind: "page",
+        resource_id: "page-a",
+        reason: "access_revoked",
+      }],
+    }), "tailer")).toThrow("revocation belongs to another Library");
   });
 });

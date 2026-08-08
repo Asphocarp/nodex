@@ -1146,6 +1146,32 @@ CREATE INDEX IF NOT EXISTS idx_block_asset_refs_owner
   ON block_asset_refs(owner_block_id, project_id);
 "#;
 
+const V108_LOCAL_COMMIT_REVOCATIONS_SCHEMA_SQL: &str = r#"
+CREATE TABLE local_commit_revocations (
+  store_epoch TEXT NOT NULL,
+  commit_seq INTEGER NOT NULL,
+  scope_key TEXT NOT NULL,
+  authorization_scope_json TEXT NOT NULL,
+  resource_kind TEXT NOT NULL,
+  resource_id TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  PRIMARY KEY (
+    store_epoch, commit_seq, scope_key, resource_kind, resource_id
+  ),
+  FOREIGN KEY (store_epoch, commit_seq)
+    REFERENCES local_commits(store_epoch, commit_seq) ON DELETE CASCADE,
+  CHECK (length(store_epoch) BETWEEN 1 AND 512),
+  CHECK (length(scope_key) BETWEEN 1 AND 1600),
+  CHECK (
+    json_valid(authorization_scope_json)
+    AND json_type(authorization_scope_json) = 'object'
+  ),
+  CHECK (resource_kind IN ('page', 'document', 'database', 'data_source', 'view', 'canvas')),
+  CHECK (length(resource_id) BETWEEN 1 AND 512),
+  CHECK (reason IN ('ownership_moved', 'access_revoked', 'archived', 'deleted'))
+) WITHOUT ROWID, STRICT;
+"#;
+
 const V94_PROJECT_APPEARANCE_SCHEMA_SQL: &str = r#"
 ALTER TABLE projects ADD COLUMN appearance_color TEXT NOT NULL DEFAULT 'black'
   CHECK (appearance_color IN ('black', 'red', 'orange', 'yellow', 'green', 'blue', 'purple', 'pink'));
@@ -1545,6 +1571,7 @@ fn upgrade_owned_store(
         104 => validate_exact_v104_schema(connection)?,
         105 => validate_exact_v105_schema(connection)?,
         106 => validate_exact_v106_schema(connection)?,
+        107 => validate_exact_v107_schema(connection)?,
         _ => return Err(corrupt("Rust Core forward-migration source is unsupported")),
     }
 
@@ -1610,6 +1637,13 @@ fn upgrade_owned_store(
         if source_version < 103 {
             ensure_v103_local_commit_composite_identity(transaction)?;
         }
+        if source_version < 108 {
+            // Current manifest compilation includes scoped revocation evidence.
+            // Install its immutable child table before any historical manifest
+            // rebuild so every migration stage sees the complete current
+            // canonical input rather than special-casing absent evidence.
+            ensure_v108_local_commit_revocations_schema(transaction)?;
+        }
         if source_version < 106 {
             upgrade_local_commit_artifacts(
                 transaction,
@@ -1621,6 +1655,14 @@ fn upgrade_owned_store(
         }
         if source_version < 107 {
             ensure_v107_block_project_cascade_indexes(transaction)?;
+        }
+        if (106..108).contains(&source_version) {
+            crate::infrastructure::local_commit::upgrade_v108_manifest(
+                transaction,
+                &mut |completed, total| {
+                    observer(StorePreparationEvent::MigrationProgress { completed, total });
+                },
+            )?;
         }
         let updated = transaction.execute(
             "UPDATE core_store_metadata SET store_format_version = ?1 \
@@ -2060,6 +2102,7 @@ fn publish_current_store(
         ensure_v101_projectless_permission_mode_schema(transaction)?;
         ensure_v102_local_commit_schema(transaction, &mut |_, _| {})?;
         ensure_v103_local_commit_composite_identity(transaction)?;
+        ensure_v108_local_commit_revocations_schema(transaction)?;
         upgrade_local_commit_artifacts(
             transaction,
             TYPESCRIPT_SCHEMA_VERSION,
@@ -2103,6 +2146,7 @@ fn create_fresh_store(
         ensure_v101_projectless_permission_mode_schema(transaction)?;
         ensure_v102_local_commit_schema(transaction, &mut |_, _| {})?;
         ensure_v103_local_commit_composite_identity(transaction)?;
+        ensure_v108_local_commit_revocations_schema(transaction)?;
         upgrade_local_commit_artifacts(transaction, TYPESCRIPT_SCHEMA_VERSION, &mut |_, _| {})?;
         ensure_v107_block_project_cascade_indexes(transaction)?;
         import_legacy_writable_roots(transaction, profile_home, now)?;
@@ -2490,6 +2534,19 @@ fn upgrade_local_commit_artifacts(
 
 fn ensure_v107_block_project_cascade_indexes(connection: &Connection) -> Result<(), StoreError> {
     connection.execute_batch(V107_BLOCK_PROJECT_CASCADE_INDEXES_SQL)?;
+    Ok(())
+}
+
+fn ensure_v108_local_commit_revocations_schema(connection: &Connection) -> Result<(), StoreError> {
+    let exists: i64 = connection.query_row(
+        "SELECT count(*) FROM sqlite_schema
+         WHERE type = 'table' AND name = 'local_commit_revocations'",
+        [],
+        |row| row.get(0),
+    )?;
+    if exists == 0 {
+        connection.execute_batch(V108_LOCAL_COMMIT_REVOCATIONS_SCHEMA_SQL)?;
+    }
     Ok(())
 }
 
@@ -3905,6 +3962,10 @@ fn validate_exact_v106_schema(connection: &Connection) -> Result<(), StoreError>
     validate_exact_core_schema(connection, true, true, true, true, true, true, true, 106)
 }
 
+fn validate_exact_v107_schema(connection: &Connection) -> Result<(), StoreError> {
+    validate_exact_core_schema(connection, true, true, true, true, true, true, true, 107)
+}
+
 fn validate_exact_current_schema(connection: &Connection) -> Result<(), StoreError> {
     validate_exact_core_schema(
         connection,
@@ -3993,6 +4054,9 @@ fn validate_exact_core_schema(
     }
     if schema_version >= 107 {
         ensure_v107_block_project_cascade_indexes(&expected)?;
+    }
+    if schema_version >= 108 {
+        ensure_v108_local_commit_revocations_schema(&expected)?;
     }
 
     let expected_inventory = read_schema_inventory(&expected)?;
@@ -4097,6 +4161,9 @@ pub fn expected_store_schema_fingerprint(version: i64) -> Result<String, StoreEr
     }
     if version >= 107 {
         ensure_v107_block_project_cascade_indexes(&expected)?;
+    }
+    if version >= 108 {
+        ensure_v108_local_commit_revocations_schema(&expected)?;
     }
     read_schema_inventory(&expected).map(|inventory| schema_inventory_fingerprint(&inventory))
 }
@@ -6086,6 +6153,46 @@ mod tests {
         assert_eq!(commit_head, 1);
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].commit_seq, 1);
+    }
+
+    #[test]
+    fn v107_store_upgrades_to_scoped_revocation_authority() {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        drop(SqliteStoreKernel::open(&home).expect("create current Core store"));
+
+        let connection = open_writer(&home.join("nodex.db")).expect("current writer");
+        connection
+            .execute_batch(
+                "DROP TABLE local_commit_revocations;
+                 UPDATE core_store_metadata SET store_format_version = 107 WHERE id = 1;
+                 PRAGMA user_version = 107;",
+            )
+            .expect("restore exact v107 schema");
+        drop(connection);
+
+        let upgraded = SqliteStoreKernel::open(&home).expect("upgrade exact v107 store");
+        assert_eq!(upgraded.preparation().migrated_from_version, Some(107));
+        upgraded
+            .readers()
+            .read_default(|connection| {
+                assert_eq!(
+                    connection
+                        .query_row("PRAGMA user_version", [], |row| { row.get::<_, i64>(0) })?,
+                    108
+                );
+                assert_eq!(
+                    connection.query_row(
+                        "SELECT count(*) FROM sqlite_schema
+                         WHERE type = 'table' AND name = 'local_commit_revocations'",
+                        [],
+                        |row| row.get::<_, i64>(0),
+                    )?,
+                    1
+                );
+                Ok(())
+            })
+            .expect("verify scoped revocation schema");
     }
 
     #[test]

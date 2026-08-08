@@ -8,10 +8,11 @@ Clearing a non-empty Relation requires explicit confirmation and uses a revision
 
 CLI `meta.yaml` represents a non-empty Relation as a read-only bounded summary containing visible `{id, name}` targets, `total_count`, `restricted_count`, and `has_more`. Restricted identities are never serialized, and a long or partially restricted Relation does not make the Page unreadable.
 
-Fresh Profiles use Store v107. Exact older native Stores are backed up and
+Fresh Profiles use Store v108. Exact older native Stores are backed up and
 atomically advanced through the v102 LocalCommit ledger, v103 composite Store
 identity, v104 canonical evidence hash, v105 Manifest/authorized packet split,
-v106 Projection scope heads, and v107 exact Block child-key indexes. Drifted or
+v106 Projection scope heads, v107 exact Block child-key indexes, and v108
+scoped resource-revocation evidence. Drifted or
 partially migrated inventories fail closed.
 
 ## Overview
@@ -291,15 +292,15 @@ When working with coding agents like Claude Code, there's no streamlined way to:
   real percentage; it never estimates progress from elapsed time. `store_ready`
   immediately changes the copy to `Opening workspace…`, so completed Store work
   is not presented as an ongoing migration. Fresh Profiles are exact Rust-owned
-  v107. Exact frozen TypeScript v26, both v57 variants, v68, v82, and v83
+  v108. Exact frozen TypeScript v26, both v57 variants, v68, v82, and v83
   Profiles are backed up and converted in isolation to the frozen v84 handoff;
-  direct v84 and exact Rust-owned v85 through v106 Profiles are also accepted.
+  direct v84 and exact Rust-owned v85 through v107 Profiles are also accepted.
   Core validates the complete
-  inventory and content before one-way v107 publication. v102 introduced the
+  inventory and content before one-way v108 publication. v102 introduced the
   LocalCommit ledger, v103 its composite Store identity, v104 canonical
   evidence hashing, v105 immutable Manifest/authorized packet separation, v106
-  Projection scope heads, and v107 exact child-key indexes for Block Project-key
-  cascades. Unfrozen same-version lineages, drifted, ambiguous, future, or
+  Projection scope heads, v107 exact child-key indexes for Block Project-key
+  cascades, and v108 immutable scoped revocations. Unfrozen same-version lineages, drifted, ambiguous, future, or
   damaged Stores fail closed while HTTP, schedulers, and windows remain
   unavailable. Repeated failure against identical source bytes retains one
   content-addressed migration backup. Long but active migration phases emit a
@@ -384,8 +385,8 @@ When working with coding agents like Claude Code, there's no streamlined way to:
   which contains no local Thread transcript/FTS projection. Earlier sources
   receive an immutable database/assets backup and are advanced only in a staging
   Profile by the bundled hash-pinned migrator. Core validates exact v84 plus
-  native Document/Projection semantics before journaled v107 publication;
-  fresh Profiles start directly at v107, and exact v85 through v106 native
+  native Document/Projection semantics before journaled v108 publication;
+  fresh Profiles start directly at v108, and exact v85 through v107 native
   Stores are backed up before forward upgrade. Import-only compatibility logic
   never becomes a live runtime path.
 - One serialized native writer commits Block/Page/Database/Workspace/Automation semantics and their events atomically, while bounded read snapshots serve desktop, browser, CLI, and Agent adapters.
@@ -532,7 +533,8 @@ Typed owner operations follow one closed matrix. `pageRef` is a non-owning refer
 - `pageRef` / `databaseViewRef` are childless persistence shapes. Parser, codec, and primary storage validation reject foreign Page bodies; `cardRef`, `cardToggle`, and `toggleListInlineView` exist only as migration inputs and inert diagnostics. A migrated missing Page target remains an import-only, deleted `unresolved_card_reference` shell in its host Project; current writes cannot create or target that shell. Table materialization preserves BlockNote header-cell matrices as `headerRows` / `headerCols` and emits the corresponding `tableHeader` nodes on round-trip.
 - Toggle List summary rows do not export or accept body snapshots; only an independently mounted Page editor can move its own stable-ID Blocks through `BlockTransfer`.
 - Reference recursion is guarded by inherited Page ancestry (including A → B → A), while a per-mounted-surface provider budget caps independent editors; foreign bodies never enter the host tree.
-- Drag-handle `Move to` sends stable root Block IDs plus logical `library | page | data_source` parents. Core resolves current physical storage coordinates, validates the target View/Data Source, and commits content, parent, Source membership/value state, View positions, projections, history, Document effects, and receipt atomically. The apply response is the local committed authority: Main immediately fans the source Document update and exact Database View effect through independent lanes, so the source Block disappears and the promoted Page appears in the Board/query model before any durable-tail or repair read. A later stream copy is deduplicated by Manifest/resource identity. No renderer invents an ownership mutation, displays a structural pending projection, or performs a post-command Page/Board refresh. Losslessly promotable roots preserve their ID as Page identity; Option/Alt Copy allocates fresh identities.
+- Drag-handle `Move to` sends stable root Block IDs plus logical `library | page | data_source` parents. Core resolves current physical storage coordinates, validates the target View/Data Source, and commits content, parent, Source membership/value state, View positions, projections, history, Document effects, and receipt atomically. The apply response is the local committed authority: Main immediately fans the source Document update and exact Database View effect through independent lanes, so the source Block disappears and the promoted Page appears in the Board/query model before any durable-tail or repair read. If ownership crosses Project scopes, the same Host fast path carries both the exact source revocation and target projection while the command itself remains authorized in its initiating Project. A later stream copy is deduplicated by Manifest/resource identity. No renderer invents an ownership mutation, displays a structural pending projection, or performs a post-command Page/Board refresh. Losslessly promotable roots preserve their ID as Page identity; Option/Alt Copy allocates fresh identities.
+- Moving, archiving, deleting, or ungranting a resource seals an authorization-scoped revocation in the same local transaction whenever a Project loses read access. Open source-scope Page, Board, query, and Document surfaces evict or close immediately from that artifact; trusted durable replay repairs a lost apply response. Revocation clears stale client state but never substitutes for Core's authorization check on a later read.
 - NFM block side menu opens from the left drag handle or `Cmd/Ctrl+/` at the current block, promotes relevant text selections into visible block selections, and advertises the top-level action scope with labels such as `Text`, `Code`, or `3 blocks`. Production rows expose real block actions only: `Turn into`, `Color`, `Duplicate`, `Move to`, and `Delete`, plus eligible divider/table-specific rows. Block-link copy rows remain development-only reference mocks until NFM has stable persisted block identities. Detailed title, action, layout, submenu, and card deeplink rules: [NFM Block Side Menu Behavior](./nfm-block-side-menu-behavior.md).
 - Page, Database, and Canvas owner Blocks cannot be removed or reclassified through generic editor commands such as cut, paste replacement, duplicate, or `Turn into`; their typed lifecycle/transfer actions are the only paths that can change ownership. This protects the stable owner identity and prevents a host Document from diverging from the Core ownership and projection authorities.
 - Side-menu handle dragging interprets a live text selection with block-level start-inclusive/end-exclusive bounds. If the selection ends exactly at the start of the next block, that next block is not part of the drag payload; if the selection has entered the next block's content, it is included. If the selection starts at the previous block's content end, the previous block remains included. Cross-parent text selections do not create custom mixed-parent payloads; instead, the editor drags the smallest common-level block range that fully covers the selected candidates. Examples: `blo<start>ck-0 / <end>block-1` dragged from `block-0` moves `{block-0}`, while `blo<start>ck-0 / b<end>lock-1` dragged from either selected handle moves `{block-0, block-1}`; `block-0<start> / blo<end>ck-1` also moves `{block-0, block-1}`; `block-0<start> / <end>block-1` moves only `{block-0}` when dragged from `block-0`. In a nested range `block-0 > block-02<start>, block-03 / <end>block-1`, dragging `block-02` or `block-03` moves `{block-02, block-03}`, while dragging `block-1` moves `{block-1}`; if the end enters `block-1`, dragging `block-02`, `block-03`, or `block-1` moves `{block-0, block-1}` so the dragged payload fully covers the text selection.

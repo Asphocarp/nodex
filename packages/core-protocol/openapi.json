@@ -2074,6 +2074,7 @@
         "description": "Post-state-authorized transport artifact. Packets for the apply response\nand durable stream may have different coverage but always reference the\nsame immutable manifest identity.",
         "required": [
           "packet_version",
+          "authorization_scope",
           "manifest",
           "effects",
           "document_effects",
@@ -2084,6 +2085,9 @@
           "packet_hash"
         ],
         "properties": {
+          "authorization_scope": {
+            "$ref": "#/components/schemas/DeliveryAuthorizationScope"
+          },
           "coverage": {
             "$ref": "#/components/schemas/DeliveryCoverage"
           },
@@ -7193,6 +7197,79 @@
           "synced_block",
           "reusable_template"
         ]
+      },
+      "DeliveryAuthorizationScope": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "library_id",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "library"
+                ]
+              },
+              "library_id": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "library_id",
+              "project_id",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "project"
+                ]
+              },
+              "library_id": {
+                "type": "string"
+              },
+              "project_id": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "library_id",
+              "document_id",
+              "kind"
+            ],
+            "properties": {
+              "document_id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "document"
+                ]
+              },
+              "library_id": {
+                "type": "string"
+              },
+              "project_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "Core-authored authorization boundary for one delivery artifact. This is\npart of packet integrity and must never be reconstructed by an Adapter."
       },
       "DeliveryCoverage": {
         "type": "object",
@@ -22545,11 +22622,15 @@
       "ResourceRevocation": {
         "type": "object",
         "required": [
+          "authorization_scope",
           "resource_kind",
           "resource_id",
           "reason"
         ],
         "properties": {
+          "authorization_scope": {
+            "$ref": "#/components/schemas/DeliveryAuthorizationScope"
+          },
           "reason": {
             "$ref": "#/components/schemas/ResourceRevocationReason"
           },
@@ -26473,7 +26554,8 @@
           "document",
           "database",
           "data_source",
-          "view"
+          "view",
+          "canvas"
         ]
       },
       "RuntimeDescriptor": {

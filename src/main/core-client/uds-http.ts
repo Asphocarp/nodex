@@ -159,6 +159,7 @@ const normalizeTransportError = (
 interface CoreEventContract {
   readonly transportVersion: number;
   readonly eventVersion: number;
+  readonly libraryId: string;
   readonly storeEpoch: string;
 }
 
@@ -188,6 +189,7 @@ export class UdsHttpTransport {
     if (
       !Number.isSafeInteger(contract.transportVersion) ||
       !Number.isSafeInteger(contract.eventVersion) ||
+      !contract.libraryId ||
       !contract.storeEpoch
     ) {
       throw new CoreEventCompatibilityError("Core event contract is invalid");
@@ -583,6 +585,7 @@ const assertAuthorizedDeliveryPacket = (
     typeof packet !== "object" ||
     packet === null ||
     !hasExactKeys(packet, [
+      "authorization_scope",
       "coverage",
       "document_effects",
       "effects",
@@ -598,13 +601,19 @@ const assertAuthorizedDeliveryPacket = (
   }
   if (
     !("packet_version" in packet)
-    || packet.packet_version !== 1
+    || packet.packet_version !== 2
     || !("packet_hash" in packet)
     || !isSha256(packet.packet_hash)
     || !("projection_impact" in packet)
     || !isProjectionImpact(packet.projection_impact)
   ) {
     throw new CoreEventCompatibilityError("Authorized delivery integrity is invalid");
+  }
+  const authorizationScope = "authorization_scope" in packet
+    ? packet.authorization_scope
+    : null;
+  if (!isDeliveryAuthorizationScope(authorizationScope, contract.libraryId)) {
+    throw new CoreEventCompatibilityError("Delivery authorization scope is invalid");
   }
 
   const manifest = "manifest" in packet ? packet.manifest : null;
@@ -679,7 +688,9 @@ const assertAuthorizedDeliveryPacket = (
   if (
     !Array.isArray(revocations)
     || revocations.length > 10_000
-    || revocations.some((revocation) => !isResourceRevocation(revocation))
+    || revocations.some((revocation) =>
+      !isResourceRevocation(revocation, contract.libraryId)
+    )
   ) {
     throw new CoreEventCompatibilityError("Authorized revocations are invalid");
   }
@@ -955,16 +966,62 @@ const isProjectionEffect = (value: unknown): boolean => {
     && scope.scope !== null;
 };
 
-const isResourceRevocation = (value: unknown): boolean => {
+const isDeliveryAuthorizationScope = (
+  value: unknown,
+  expectedLibraryId: string,
+): boolean => {
+  if (typeof value !== "object" || value === null || !("kind" in value)) {
+    return false;
+  }
+  if (value.kind === "library") {
+    return hasExactKeys(value, ["kind", "library_id"])
+      && "library_id" in value
+      && value.library_id === expectedLibraryId;
+  }
+  if (value.kind === "project") {
+    return hasExactKeys(value, ["kind", "library_id", "project_id"])
+      && "library_id" in value
+      && value.library_id === expectedLibraryId
+      && "project_id" in value
+      && isIdentity(value.project_id);
+  }
+  if (value.kind === "document") {
+    return hasExactKeys(value, [
+      "document_id",
+      "kind",
+      "library_id",
+      "project_id",
+    ])
+      && "library_id" in value
+      && value.library_id === expectedLibraryId
+      && "document_id" in value
+      && isIdentity(value.document_id)
+      && "project_id" in value
+      && (value.project_id === null || isIdentity(value.project_id));
+  }
+  return false;
+};
+
+const isResourceRevocation = (
+  value: unknown,
+  expectedLibraryId: string,
+): boolean => {
   if (
     typeof value !== "object"
     || value === null
-    || !hasExactKeys(value, ["reason", "resource_id", "resource_kind"])
+    || !hasExactKeys(value, [
+      "authorization_scope",
+      "reason",
+      "resource_id",
+      "resource_kind",
+    ])
   ) return false;
-  return "resource_id" in value
+  return "authorization_scope" in value
+    && isDeliveryAuthorizationScope(value.authorization_scope, expectedLibraryId)
+    && "resource_id" in value
     && isIdentity(value.resource_id)
     && "resource_kind" in value
-    && ["page", "document", "database", "data_source", "view"]
+    && ["page", "document", "database", "data_source", "view", "canvas"]
       .includes(String(value.resource_kind))
     && "reason" in value
     && ["ownership_moved", "access_revoked", "archived", "deleted"]

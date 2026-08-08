@@ -131,10 +131,15 @@ export interface NativeNodexAgentMutationExecution<
 }
 
 export interface DesktopDocumentSyncPort {
-  /** Publishes one post-state-authorized commit packet to active sessions. */
-  publishLocalCommit(
+  /** Publishes exact Document effects to already-authorized active sessions. */
+  publishDocumentEffects(
     packet: CoreAuthorizedDeliveryPacket,
     documentId?: string,
+  ): void;
+  /** Closes only sessions addressed by one Core-authored revocation. */
+  publishResourceRevocation(
+    packet: CoreAuthorizedDeliveryPacket,
+    revocation: CoreAuthorizedDeliveryPacket["revocations"][number],
   ): void;
   getOwnedDocumentDescriptor(
     projectId: string,
@@ -282,6 +287,29 @@ type NativeSubscriptionReservation =
 
 const scopeKey = (scope: DesktopDocumentSyncScope): string =>
   scope.kind === "project" ? `project:${scope.projectId}` : "library";
+
+const authorizationScopeMatchesDocumentScope = (
+  authorization: CoreAuthorizedDeliveryPacket["authorization_scope"],
+  scope: DesktopDocumentSyncScope,
+): boolean => {
+  if (authorization.kind === "library") return scope.kind === "library";
+  const projectId = authorization.project_id ?? null;
+  if (projectId === null) return scope.kind === "library";
+  return scope.kind === "project" && scope.projectId === projectId;
+};
+
+const packetRevokesDocumentScope = (
+  packet: CoreAuthorizedDeliveryPacket,
+  documentId: string,
+  scope: DesktopDocumentSyncScope,
+): boolean => packet.revocations.some((revocation) =>
+  revocation.resource_kind === "document"
+  && revocation.resource_id === documentId
+  && authorizationScopeMatchesDocumentScope(
+    revocation.authorization_scope,
+    scope,
+  )
+);
 
 const subscriptionKey = (
   target: DocumentSyncClientTarget,
@@ -1009,7 +1037,7 @@ export function createDesktopDocumentSyncBridge(
       return committed;
     }, request.mutationId);
 
-  const publishLocalCommit = (
+  const publishDocumentEffects = (
     packet: CoreAuthorizedDeliveryPacket,
     onlyDocumentId?: string,
   ): void => {
@@ -1052,10 +1080,19 @@ export function createDesktopDocumentSyncBridge(
         readonly scope: DesktopDocumentSyncScope;
         readonly recipients: Map<string, NativeSubscription>;
       }>();
+      // Each active subscription was authorized by Core for this exact
+      // Document. A root-stream packet may cover several subscription scopes,
+      // so its packet scope is not the audience for each Document ref. Access
+      // loss is carried separately by the scoped revocation lane below.
       for (const [key, subscription] of subscriptions) {
         if (
           subscription.engine === "yjs"
           && subscription.documentId === reference.document_id
+          && !packetRevokesDocumentScope(
+            packet,
+            reference.document_id,
+            subscription.scope,
+          )
         ) {
           const keyForScope = scopeKey(subscription.scope);
           const group = scopes.get(keyForScope) ?? {
@@ -1117,6 +1154,9 @@ export function createDesktopDocumentSyncBridge(
       if (onlyDocumentId && event.document_id !== onlyDocumentId) return;
       for (const [key, subscription] of [...subscriptions]) {
         if (subscription.documentId !== event.document_id) continue;
+        if (packetRevokesDocumentScope(packet, event.document_id, subscription.scope)) {
+          continue;
+        }
         if (subscription.storeEpoch && subscription.storeEpoch !== identity.store_epoch) {
           closeSubscription(key);
           continue;
@@ -1195,28 +1235,38 @@ export function createDesktopDocumentSyncBridge(
         void delivered;
       }
     });
-    packet.revocations.forEach((revocation, revocationIndex) => {
-      if (revocation.resource_kind !== "document") return;
-      if (onlyDocumentId && revocation.resource_id !== onlyDocumentId) return;
-      for (const [key, subscription] of [...subscriptions]) {
-        if (subscription.documentId !== revocation.resource_id) continue;
-        if (subscription.engine !== "yjs") {
-          closeSubscription(key);
-          continue;
-        }
-        const delivered = deliverDocumentRealtimeEvent(key, subscription.target, {
-          kind: "resync-required",
-          documentId: revocation.resource_id,
-          storeEpoch: identity.store_epoch,
-          generation: subscription.generation ?? 1,
-          headSeq: subscription.headSeq ?? 0,
-          commitSeq: identity.commit_seq,
-          effectSequence: packet.effects.length + revocationIndex,
-          reason: "access-revoked",
-        }, { revokeAfter: true });
-        void delivered;
+  };
+
+  const publishResourceRevocation = (
+    packet: CoreAuthorizedDeliveryPacket,
+    revocation: CoreAuthorizedDeliveryPacket["revocations"][number],
+  ): void => {
+    if (revocation.resource_kind !== "document") return;
+    if (revocation.authorization_scope.kind !== "document") return;
+    const identity = packet.manifest.identity;
+    const revocationIndex = packet.revocations.indexOf(revocation);
+    for (const [key, subscription] of [...subscriptions]) {
+      if (subscription.documentId !== revocation.resource_id) continue;
+      if (!authorizationScopeMatchesDocumentScope(
+        revocation.authorization_scope,
+        subscription.scope,
+      )) continue;
+      if (subscription.engine !== "yjs") {
+        closeSubscription(key);
+        continue;
       }
-    });
+      const delivered = deliverDocumentRealtimeEvent(key, subscription.target, {
+        kind: "resync-required",
+        documentId: revocation.resource_id,
+        storeEpoch: identity.store_epoch,
+        generation: subscription.generation ?? 1,
+        headSeq: subscription.headSeq ?? 0,
+        commitSeq: identity.commit_seq,
+        effectSequence: packet.effects.length + Math.max(0, revocationIndex),
+        reason: "access-revoked",
+      }, { revokeAfter: true });
+      void delivered;
+    }
   };
 
   const transferBlocks = async (
@@ -1259,7 +1309,8 @@ export function createDesktopDocumentSyncBridge(
   };
 
   return {
-    publishLocalCommit,
+    publishDocumentEffects,
+    publishResourceRevocation,
     getOwnedDocumentDescriptor: async (projectId, ownerBlockId) => {
       const runtime = await input.authority;
       const descriptor = await adapterFor(runtime, { kind: "project", projectId })
@@ -1339,7 +1390,10 @@ export function createDesktopDocumentSyncBridge(
                 }
                 return;
               }
-              deliverDocumentRealtimeEvent(key, target, event);
+              deliverDocumentRealtimeEvent(key, target, event, {
+                revokeAfter: event.kind === "resync-required"
+                  && event.reason === "access-revoked",
+              });
             });
             pending.attachClose(lifecycle.close);
             const subscribed = addNativeSubscription(key, {

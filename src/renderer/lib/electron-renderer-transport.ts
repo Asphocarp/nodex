@@ -20,6 +20,7 @@ import type {
   ProjectionScope,
   ProjectionStreamMessage,
 } from "../../shared/projection-stream";
+import type { ResourceRevocationMessage } from "../../shared/resource-revocation-stream";
 import {
   createElectronDocumentSyncAdapter,
   createElectronLibraryDocumentSyncAdapter,
@@ -237,6 +238,34 @@ export function createElectronRendererTransport(
         active = false;
         removeListener();
         void bridge.invoke("projection-stream:unsubscribe", scope);
+      };
+    },
+    subscribeResourceRevocations(
+      scope: ProjectionScope,
+      callback: (message: ResourceRevocationMessage) => void,
+    ) {
+      let active = true;
+      const removeListener = bridge.on(
+        "resource-revocation:message",
+        (...args: unknown[]) => {
+          const message = args[0] as ResourceRevocationMessage | undefined;
+          if (!active || !message) return;
+          if (message.scope.kind !== scope.kind) return;
+          if (message.scope.libraryId !== scope.libraryId) return;
+          if (
+            scope.kind === "project"
+            && message.scope.kind === "project"
+            && message.scope.projectId !== scope.projectId
+          ) return;
+          callback(message);
+        },
+      );
+      void bridge.invoke("resource-revocation:subscribe", scope);
+      return () => {
+        if (!active) return;
+        active = false;
+        removeListener();
+        void bridge.invoke("resource-revocation:unsubscribe", scope);
       };
     },
     subscribePageOwnershipPathChanges(

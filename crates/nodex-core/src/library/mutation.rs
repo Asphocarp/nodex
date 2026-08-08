@@ -752,6 +752,15 @@ fn move_block(
             context,
         },
         |scope| {
+            scope.observe_authorization_before(super::authorization_loss::capture(
+                connection,
+                library_id,
+                super::authorization_loss::AuthorizationRoots::typed(
+                    authority.resource_kind,
+                    authority.id.clone(),
+                )?,
+                None,
+            )?);
             if authority.location_kind == "space" && target_document_id.is_some() {
                 connection.execute(
                     "DELETE FROM top_level_block_placements WHERE block_id = ?1",
@@ -1078,6 +1087,15 @@ fn change_resource_lifecycle(
         request_hash,
         &now,
     )?;
+    prepared.observe_authorization_before(super::authorization_loss::capture(
+        connection,
+        library_id,
+        super::authorization_loss::AuthorizationRoots::typed(
+            authority.resource_kind,
+            authority.id.clone(),
+        )?,
+        None,
+    )?);
     let changed = connection.execute(
         "UPDATE blocks SET lifecycle = ?1, metadata_revision = metadata_revision + 1, \
            updated_at = ?2 WHERE id = ?3 AND lifecycle = ?4 AND metadata_revision = ?5",
@@ -1225,6 +1243,15 @@ fn grant_project_access(
         request_hash,
         &now,
     )?;
+    prepared.observe_authorization_before(super::authorization_loss::capture(
+        connection,
+        library_id,
+        super::authorization_loss::AuthorizationRoots::typed(
+            authority.resource_kind,
+            authority.id.clone(),
+        )?,
+        Some(&[project_id.to_owned()]),
+    )?);
     let mutation = mutate_direct_project_access(
         connection,
         library_id,
@@ -1321,6 +1348,19 @@ fn set_project_access(
         request_hash,
         &now,
     )?;
+    let restricted_project_ids = changes
+        .iter()
+        .map(|change| change.project_id.clone())
+        .collect::<Vec<_>>();
+    prepared.observe_authorization_before(super::authorization_loss::capture(
+        connection,
+        library_id,
+        super::authorization_loss::AuthorizationRoots::typed(
+            authority.resource_kind,
+            authority.id.clone(),
+        )?,
+        Some(&restricted_project_ids),
+    )?);
     let mut did_mutate = false;
     let mut committed_revisions = BTreeMap::new();
     for change in changes {
@@ -2632,6 +2672,14 @@ pub(super) fn seal_mutation_with(
             },
         ));
     }
+    if let Some(reason) = revocation_reason(effects.operation_kind) {
+        super::authorization_loss::record_losses(
+            scope.connection(),
+            scope.evidence(),
+            &scope.authorization_before(),
+            reason,
+        )?;
+    }
     let (committed, event_sequence) = build_mutation_result(
         scope.connection(),
         context,
@@ -2649,6 +2697,26 @@ pub(super) fn seal_mutation_with(
             committed_at: &committed_at,
         },
     ))
+}
+
+fn revocation_reason(
+    operation_kind: &str,
+) -> Option<nodex_core_contracts::ResourceRevocationReason> {
+    use nodex_core_contracts::ResourceRevocationReason;
+
+    match operation_kind {
+        "set_project_access" | "grant_project_access" | "persist_agent_project_resource_grants" => {
+            Some(ResourceRevocationReason::AccessRevoked)
+        }
+        "move_block"
+        | "move_canvas"
+        | "move_page_in_library"
+        | "transfer_blocks"
+        | "agent_move_pages" => Some(ResourceRevocationReason::OwnershipMoved),
+        "archive_page" | "archive_resource" => Some(ResourceRevocationReason::Archived),
+        "delete_canvas" | "delete_page" => Some(ResourceRevocationReason::Deleted),
+        _ => None,
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -3325,7 +3393,7 @@ mod tests {
     };
     use nodex_core_contracts::{
         AdapterKind, CoreErrorCode, LibraryId, ModuleReadRequest, OWNED_DOCUMENT_CONTRACT_VERSION,
-        ProfileId, ProjectId,
+        ProfileId, ProjectId, ResourceRevocationReason, RevokedResourceKind,
     };
     use tempfile::tempdir;
 
@@ -4905,6 +4973,115 @@ mod tests {
                 Ok(())
             })
             .expect("move ownership evidence");
+    }
+
+    #[test]
+    fn seals_project_access_revocation_as_immutable_commit_evidence() {
+        let (_directory, kernel, module) = seeded_library();
+        module
+            .apply(
+                &context(),
+                create_request("operation:create-revocation-page", "Shared Page"),
+            )
+            .expect("create shared Page");
+        kernel
+            .writer()
+            .call(|connection| {
+                with_immediate_transaction(connection, |transaction| {
+                    transaction.execute(
+                        "INSERT INTO projects(id, library_id, name, created, updated)
+                         VALUES ('project-2', 'library-1', 'Reader', ?1, ?1)",
+                        [NOW],
+                    )?;
+                    Ok(())
+                })
+            })
+            .expect("seed reader Project");
+        module
+            .apply(
+                &library_context(),
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "operation:grant-reader-page".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::SetProjectAccess {
+                        target: LibraryResourceTarget::Page {
+                            page_id: "page:created".to_owned(),
+                        },
+                        changes: vec![LibraryProjectAccessChange {
+                            project_id: "project-2".to_owned(),
+                            access: Some(LibraryAccess::Read),
+                            expected_revision: None,
+                        }],
+                    },
+                },
+            )
+            .expect("grant reader access");
+        let revoked = module
+            .apply(
+                &library_context(),
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "operation:revoke-reader-page".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::SetProjectAccess {
+                        target: LibraryResourceTarget::Page {
+                            page_id: "page:created".to_owned(),
+                        },
+                        changes: vec![LibraryProjectAccessChange {
+                            project_id: "project-2".to_owned(),
+                            access: None,
+                            expected_revision: Some(1),
+                        }],
+                    },
+                },
+            )
+            .expect("revoke reader access");
+        let manifest = kernel
+            .readers()
+            .read_default(|connection| {
+                local_commit::read_manifest(connection, revoked.committed.receipt.commit_seq)
+            })
+            .expect("read revocation Manifest");
+
+        assert!(manifest.revocations.iter().any(|revocation| {
+            revocation.resource_kind == RevokedResourceKind::Page
+                && revocation.resource_id == "page:created"
+                && revocation.reason == ResourceRevocationReason::AccessRevoked
+                && matches!(
+                    &revocation.authorization_scope,
+                    nodex_core_contracts::events::DeliveryAuthorizationScope::Project {
+                        project_id,
+                        ..
+                    } if project_id == "project-2"
+                )
+        }));
+        assert!(manifest.revocations.iter().any(|revocation| {
+            revocation.resource_kind == RevokedResourceKind::Document
+                && revocation.reason == ResourceRevocationReason::AccessRevoked
+                && matches!(
+                    &revocation.authorization_scope,
+                    nodex_core_contracts::events::DeliveryAuthorizationScope::Project {
+                        project_id,
+                        ..
+                    } if project_id == "project-2"
+                )
+        }));
+        assert!(manifest.revocations.iter().any(|revocation| {
+            revocation.resource_kind == RevokedResourceKind::Document
+                && revocation.reason == ResourceRevocationReason::AccessRevoked
+                && matches!(
+                    &revocation.authorization_scope,
+                    nodex_core_contracts::events::DeliveryAuthorizationScope::Document {
+                        project_id: Some(project_id),
+                        ..
+                    } if project_id == "project-2"
+                )
+        }));
+        assert!(!manifest.revocations.iter().any(|revocation| matches!(
+            revocation.authorization_scope,
+            nodex_core_contracts::events::DeliveryAuthorizationScope::Library { .. }
+        )));
     }
 
     #[test]

@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-pub const CORE_EVENT_VERSION: u32 = 5;
+pub const CORE_EVENT_VERSION: u32 = 6;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(transparent)]

@@ -21,7 +21,7 @@ use crate::document::event_log::{
     ChangeLogRow, reconstruct_document_event, validate_change_log_row,
 };
 
-use super::authorized_delivery::{self, DeliveryRequest, DeliveryResourceMode};
+use super::authorized_delivery::{self, DeliveryAudience, DeliveryRequest, DeliveryResourceMode};
 use super::local_commit;
 use super::projection_impact::{
     canonicalize as canonicalize_projection_impact, decode as decode_projection_impact,
@@ -270,6 +270,40 @@ impl CoreEventLog {
         document_id: Option<&str>,
         inline_resources: bool,
     ) -> Result<Option<AuthorizedDeliveryPacket>, StoreError> {
+        self.authorized_packet_for_audience(
+            commit_seq,
+            context,
+            document_id,
+            inline_resources,
+            DeliveryAudience::BoundScope,
+        )
+    }
+
+    /// Resolves a packet for the trusted Electron Host's Library broker while
+    /// preserving the command's original Project-bound context.
+    pub fn authorized_packet_for_library_broker(
+        &self,
+        commit_seq: i64,
+        context: &BoundModuleContext,
+        inline_resources: bool,
+    ) -> Result<Option<AuthorizedDeliveryPacket>, StoreError> {
+        self.authorized_packet_for_audience(
+            commit_seq,
+            context,
+            None,
+            inline_resources,
+            DeliveryAudience::HostLibraryBroker,
+        )
+    }
+
+    fn authorized_packet_for_audience(
+        &self,
+        commit_seq: i64,
+        context: &BoundModuleContext,
+        document_id: Option<&str>,
+        inline_resources: bool,
+        audience: DeliveryAudience,
+    ) -> Result<Option<AuthorizedDeliveryPacket>, StoreError> {
         let context = context.clone();
         let document_id = document_id.map(str::to_owned);
         self.readers.read_default(move |connection| {
@@ -279,6 +313,7 @@ impl CoreEventLog {
                 commit_seq,
                 DeliveryRequest {
                     context: &context,
+                    audience,
                     document_id: document_id.as_deref(),
                     resource_mode: if inline_resources {
                         DeliveryResourceMode::Inline
@@ -512,6 +547,7 @@ fn scan_authorized_events(
             commit_seq,
             DeliveryRequest {
                 context,
+                audience: DeliveryAudience::BoundScope,
                 document_id,
                 resource_mode: DeliveryResourceMode::RefOnly,
             },
@@ -882,7 +918,8 @@ fn corrupt(message: &str) -> StoreError {
 #[cfg(test)]
 mod tests {
     use nodex_core_contracts::{
-        AdapterKind, BoundModuleContext, LibraryId, ProfileId, ProjectId, RevokedResourceKind,
+        AdapterKind, BoundModuleContext, LibraryId, ProfileId, ProjectId, ResourceRevocation,
+        ResourceRevocationReason, RevokedResourceKind, events::DeliveryAuthorizationScope,
     };
     use rusqlite::OptionalExtension;
     use tempfile::tempdir;
@@ -930,6 +967,15 @@ mod tests {
         module_name: &str,
         entry: NewChangeLogEntry<'_>,
     ) -> Result<i64, StoreError> {
+        append_finalized_test_event_with_revocations(connection, module_name, entry, &[])
+    }
+
+    fn append_finalized_test_event_with_revocations(
+        connection: &Connection,
+        module_name: &str,
+        entry: NewChangeLogEntry<'_>,
+        revocations: &[ResourceRevocation],
+    ) -> Result<i64, StoreError> {
         let operation_id = entry
             .operation_id
             .ok_or_else(|| corrupt("Test LocalCommit needs an operation identity"))?
@@ -949,6 +995,9 @@ mod tests {
             &committed_at,
         )?;
         let event_sequence = append_change_log(connection, entry, &commit)?;
+        for revocation in revocations {
+            local_commit::record_revocation(connection, &commit, revocation)?;
+        }
         let result = serde_json::json!({ "eventSequence": event_sequence });
         insert_module_receipt(
             connection,
@@ -1759,7 +1808,7 @@ mod tests {
                        'library:events', 'active', '2026-08-07', '2026-08-07'
                      );",
                 )?;
-                append_finalized_test_event(
+                append_finalized_test_event_with_revocations(
                     connection,
                     "library",
                     NewChangeLogEntry {
@@ -1784,6 +1833,15 @@ mod tests {
                         },
                         committed_at: "2026-08-07T00:00:00Z",
                     },
+                    &[ResourceRevocation {
+                        authorization_scope: DeliveryAuthorizationScope::Project {
+                            library_id: "library:events".to_owned(),
+                            project_id: "project:a".to_owned(),
+                        },
+                        resource_kind: RevokedResourceKind::Page,
+                        resource_id: "page:moved".to_owned(),
+                        reason: ResourceRevocationReason::OwnershipMoved,
+                    }],
                 )?;
                 Ok((library_id, local_commit::head(connection)?))
             })
@@ -1798,6 +1856,35 @@ mod tests {
             .authorized_packet(commit_seq, &context(&library_id, "project:b"), None, true)
             .expect("target packet")
             .expect("target delivery packet");
+        let root = log
+            .authorized_packet(
+                commit_seq,
+                &BoundModuleContext {
+                    profile_id: ProfileId("profile:events".to_owned()),
+                    library_id: LibraryId(library_id.clone()),
+                    project_id: None,
+                    connection_id: "connection:root".to_owned(),
+                    adapter: AdapterKind::Test,
+                },
+                None,
+                true,
+            )
+            .expect("root packet")
+            .expect("root delivery packet");
+        let broker = log
+            .authorized_packet_for_library_broker(
+                commit_seq,
+                &BoundModuleContext {
+                    profile_id: ProfileId("profile:events".to_owned()),
+                    library_id: LibraryId(library_id.clone()),
+                    project_id: Some(ProjectId("project:a".to_owned())),
+                    connection_id: "connection:broker".to_owned(),
+                    adapter: AdapterKind::ElectronHost,
+                },
+                true,
+            )
+            .expect("broker packet")
+            .expect("broker delivery packet");
 
         assert!(source.effects.is_empty());
         assert!(source.document_effects.is_empty());
@@ -1807,10 +1894,28 @@ mod tests {
         }));
         assert_eq!(target.effects.len(), 1);
         assert!(target.revocations.is_empty());
+        assert_eq!(root.effects.len(), 1);
+        assert_eq!(root.revocations, source.revocations);
+        assert!(matches!(
+            source.authorization_scope,
+            DeliveryAuthorizationScope::Project { ref project_id, .. }
+                if project_id == "project:a"
+        ));
+        assert!(matches!(
+            target.authorization_scope,
+            DeliveryAuthorizationScope::Project { ref project_id, .. }
+                if project_id == "project:b"
+        ));
+        assert!(matches!(
+            root.authorization_scope,
+            DeliveryAuthorizationScope::Library { .. }
+        ));
+        assert_eq!(broker, root);
         assert_eq!(
             source.manifest.identity.manifest_hash,
             target.manifest.identity.manifest_hash
         );
         assert_ne!(source.packet_hash, target.packet_hash);
+        assert_ne!(source.packet_hash, root.packet_hash);
     }
 }

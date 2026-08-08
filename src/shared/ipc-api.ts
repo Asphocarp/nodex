@@ -595,6 +595,14 @@ export interface IpcApi {
     args: [scope: import("./projection-stream").ProjectionScope];
     result: void;
   };
+  "resource-revocation:subscribe": {
+    args: [scope: import("./projection-stream").ProjectionScope];
+    result: void;
+  };
+  "resource-revocation:unsubscribe": {
+    args: [scope: import("./projection-stream").ProjectionScope];
+    result: void;
+  };
   "pages:detail:get": {
     args: [projectId: string, pageId: string, minimumCommitSeq?: number];
     result: PageDetailResult;
@@ -2025,6 +2033,7 @@ export interface IpcEvents {
   "document-sync:event": DocumentSyncRealtimeEvent;
   "persisted-atom:updated": PersistedAtomEvent;
   "projection-stream:message": import("./projection-stream").ProjectionStreamMessage;
+  "resource-revocation:message": import("./resource-revocation-stream").ResourceRevocationMessage;
   "board-changed": BoardChangeEvent;
   "page-ownership-paths-changed": import("./page-ownership-path-events").PageOwnershipPathsChangedEvent;
   "database-changed": DatabaseChangeEvent;

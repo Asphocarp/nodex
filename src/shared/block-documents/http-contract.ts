@@ -472,7 +472,8 @@ const parseAuthorizedDeliveryPacket = (value: unknown): AuthorizedDeliveryPacket
   const manifest = readRecord(record.manifest);
   const identity = readRecord(manifest.identity);
   if (
-    record.packet_version !== 1
+    record.packet_version !== 2
+    || !isDeliveryAuthorizationScope(record.authorization_scope)
     || typeof record.packet_hash !== "string"
     || !/^[a-f0-9]{64}$/u.test(record.packet_hash)
     || typeof manifest.event_version !== "number"
@@ -495,6 +496,15 @@ const parseAuthorizedDeliveryPacket = (value: unknown): AuthorizedDeliveryPacket
     throw new DocumentHttpWireError("Document update ACK delivery is invalid");
   }
   return record as unknown as AuthorizedDeliveryPacket;
+};
+
+const isDeliveryAuthorizationScope = (value: unknown): boolean => {
+  if (!isRecord(value) || typeof value.library_id !== "string") return false;
+  if (value.kind === "library") return true;
+  if (value.kind === "project") return typeof value.project_id === "string";
+  return value.kind === "document"
+    && typeof value.document_id === "string"
+    && (value.project_id === null || typeof value.project_id === "string");
 };
 
 const parseAwarenessRequestMetadata = (

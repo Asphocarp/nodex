@@ -6,9 +6,13 @@
 //! abandonment. Callers cannot successfully return a partially finalized
 //! semantic commit.
 
+use std::cell::RefCell;
+use std::collections::BTreeSet;
 use std::marker::PhantomData;
 
-use nodex_core_contracts::events::CommitManifest;
+use nodex_core_contracts::events::{
+    CommitManifest, DeliveryAuthorizationScope, RevokedResourceKind,
+};
 use nodex_core_contracts::{ApplyResponse, BoundModuleContext, ModuleName, StoreObservation};
 use rusqlite::Connection;
 use serde::Serialize;
@@ -45,6 +49,18 @@ pub(crate) struct DurableMutationScope<'connection> {
     connection: &'connection Connection,
     context: CommitContext,
     module: ModuleName,
+    authorization_before: RefCell<BTreeSet<AuthorizedResourceObservation>>,
+}
+
+/// A resource that was visible through one exact authorization scope before a
+/// mutation began. Domain writers record these observations before changing
+/// ownership or grants; their sealer compares them with canonical post-state
+/// authorization and persists only real losses into the LocalCommit.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub(crate) struct AuthorizedResourceObservation {
+    pub authorization_scope: DeliveryAuthorizationScope,
+    pub resource_kind: RevokedResourceKind,
+    pub resource_id: String,
 }
 
 /// Type-state token for complex/prepared writers whose control flow cannot be
@@ -72,6 +88,13 @@ impl PreparedDurableMutation<'_> {
     pub(crate) fn committed_at(&self) -> &str {
         self.scope.context.committed_at()
     }
+
+    pub(crate) fn observe_authorization_before(
+        &self,
+        observations: impl IntoIterator<Item = AuthorizedResourceObservation>,
+    ) {
+        self.scope.observe_authorization_before(observations);
+    }
 }
 
 impl<'connection> DurableMutationScope<'connection> {
@@ -89,6 +112,17 @@ impl<'connection> DurableMutationScope<'connection> {
 
     pub(crate) fn store_epoch(&self) -> &str {
         self.context.store_epoch()
+    }
+
+    pub(crate) fn observe_authorization_before(
+        &self,
+        observations: impl IntoIterator<Item = AuthorizedResourceObservation>,
+    ) {
+        self.authorization_before.borrow_mut().extend(observations);
+    }
+
+    pub(crate) fn authorization_before(&self) -> Vec<AuthorizedResourceObservation> {
+        self.authorization_before.borrow().iter().cloned().collect()
     }
 
     pub(crate) fn seal<T>(&self, outcome: T, receipt: ReceiptMetadata<'_>) -> SealedOutcome<T> {
@@ -216,6 +250,7 @@ where
         connection,
         context,
         module: identity.module,
+        authorization_before: RefCell::new(BTreeSet::new()),
     };
     let sealed = apply(&scope)?;
     if sealed.module != identity.module {
@@ -308,6 +343,7 @@ pub(crate) fn prepare<'connection>(
             connection,
             context,
             module: identity.module,
+            authorization_before: RefCell::new(BTreeSet::new()),
         },
         module_name: identity.module_name.to_owned(),
         operation_id: identity.operation_id.to_owned(),

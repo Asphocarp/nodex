@@ -189,6 +189,7 @@ export class CoreClient implements CoreClientPort {
     transport.configureEventContract({
       transportVersion: handshake.selected_transport_version,
       eventVersion: handshake.selected_event_version,
+      libraryId: handshake.library_id,
       storeEpoch: handshake.store_epoch,
     });
     return new CoreClient(transport, handshake, input.projectId, connectionId);

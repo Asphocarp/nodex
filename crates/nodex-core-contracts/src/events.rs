@@ -317,6 +317,8 @@ pub struct CommitManifest {
     pub semantic_effects: Vec<SemanticEffect>,
     pub document_effects: Vec<DocumentEffectRef>,
     pub projection_effects: Vec<ProjectionEffect>,
+    #[serde(default)]
+    pub revocations: Vec<ResourceRevocation>,
     pub receipt: LocalCommitReceiptRef,
     pub routing_claims: Vec<RoutingClaim>,
     pub physical_evidence: PhysicalEvidenceDigest,
@@ -353,6 +355,7 @@ pub enum RevokedResourceKind {
     Database,
     DataSource,
     View,
+    Canvas,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -364,8 +367,28 @@ pub enum ResourceRevocationReason {
     Deleted,
 }
 
+/// Core-authored authorization boundary for one delivery artifact. This is
+/// part of packet integrity and must never be reconstructed by an Adapter.
+#[derive(Clone, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum DeliveryAuthorizationScope {
+    Library {
+        library_id: String,
+    },
+    Project {
+        library_id: String,
+        project_id: String,
+    },
+    Document {
+        library_id: String,
+        project_id: Option<String>,
+        document_id: String,
+    },
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 pub struct ResourceRevocation {
+    pub authorization_scope: DeliveryAuthorizationScope,
     pub resource_kind: RevokedResourceKind,
     pub resource_id: String,
     pub reason: ResourceRevocationReason,
@@ -385,6 +408,7 @@ pub struct DeliveryCoverage {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 pub struct AuthorizedDeliveryPacket {
     pub packet_version: u32,
+    pub authorization_scope: DeliveryAuthorizationScope,
     pub manifest: CommitManifestHeader,
     pub effects: Vec<AuthorizedModuleEffect>,
     pub document_effects: Vec<AuthorizedDocumentEffect>,

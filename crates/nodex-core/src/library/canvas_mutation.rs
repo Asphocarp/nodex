@@ -416,6 +416,12 @@ pub(super) fn move_canvas(
             context,
         },
         |scope| {
+            scope.observe_authorization_before(super::authorization_loss::capture(
+                connection,
+                library_id,
+                super::authorization_loss::AuthorizationRoots::canvas(canvas_id.to_owned()),
+                None,
+            )?);
             connection.execute(
                 "DELETE FROM top_level_block_placements WHERE block_id = ?1",
                 [canvas_id],
@@ -619,6 +625,12 @@ pub(super) fn delete(
             context,
         },
         |scope| {
+            scope.observe_authorization_before(super::authorization_loss::capture(
+                connection,
+                library_id,
+                super::authorization_loss::AuthorizationRoots::canvas(canvas_id.to_owned()),
+                None,
+            )?);
             let changed = connection.execute(
                 "UPDATE blocks SET lifecycle = 'deleted', \
            location_revision = location_revision + 1, \

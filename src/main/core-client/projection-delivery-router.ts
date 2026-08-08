@@ -103,6 +103,13 @@ const deliveryOf = (
   effect: mapEffect(effect),
 });
 
+const packetCursor = (
+  packet: CoreAuthorizedDeliveryPacket,
+): ProjectionCursor => ({
+  storeEpoch: packet.manifest.identity.store_epoch,
+  commitSeq: packet.manifest.identity.commit_seq,
+});
+
 /**
  * Routes already-authorized projection effects without performing reads.
  * Scope ordering belongs to LocalCommitCoordinator; this Adapter only maps
@@ -157,11 +164,6 @@ export class ProjectionDeliveryRouter {
     packet: CoreAuthorizedDeliveryPacket,
     effect: CoreProjectionEffect,
   ): void {
-    const identity = packet.manifest.identity;
-    this.#observe({
-      storeEpoch: identity.store_epoch,
-      commitSeq: identity.commit_seq,
-    });
     const delivery = deliveryOf(packet, effect);
     for (const state of this.#scopes.values()) {
       if (!scopeCanReceive(state.scope, effect)) continue;
@@ -169,7 +171,7 @@ export class ProjectionDeliveryRouter {
         version: 2,
         kind: "effect",
         scope: state.scope,
-        stream: this.#cursor,
+        stream: packetCursor(packet),
         delivery,
       });
     }

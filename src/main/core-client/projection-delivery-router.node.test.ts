@@ -78,6 +78,7 @@ describe("ProjectionDeliveryRouter", () => {
       "effect",
     ]);
     expect(projectMessages[1]).toMatchObject({
+      stream: { commitSeq: 1 },
       delivery: {
         effect: {
           scope: { canonical_key: "scope:project-1" },
@@ -85,6 +86,7 @@ describe("ProjectionDeliveryRouter", () => {
         },
       },
     });
+    expect(router.cursor).toEqual({ storeEpoch: "epoch-1", commitSeq: 0 });
   });
 
   test("publishes checkpoints and resets without an authorization read", () => {

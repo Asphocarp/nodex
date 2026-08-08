@@ -134,28 +134,25 @@ describe("Desktop Store Administration bridge", () => {
   });
 
   test("maps Store Administration events", () => {
-    expect(mapCoreStoreAdministrationEvent({
-      transport_version: 4,
-      packet: createCoreLocalCommitFixture({
-        commitSeq: 5,
-        storeEpoch: "epoch:test",
-        operationId: "operation:backup",
-        committedAt: "2026-07-19T20:00:00.000Z",
-        payload: {
-          module: "store_administration",
-          event: {
-            kind: "store_administration_changed",
-            operation: "create_backup",
-            backup_ids: ["core-backup"],
-            readiness_changed: false,
-          },
+    const packet = createCoreLocalCommitFixture({
+      commitSeq: 5,
+      storeEpoch: "epoch:test",
+      operationId: "operation:backup",
+      committedAt: "2026-07-19T20:00:00.000Z",
+      payload: {
+        module: "store_administration",
+        event: {
+          kind: "store_administration_changed",
+          operation: "create_backup",
+          backup_ids: ["core-backup"],
+          readiness_changed: false,
         },
-        canonicalHash: "0".repeat(64),
-      }),
-    })).toEqual({
+      },
+      canonicalHash: "0".repeat(64),
+    });
+    expect(mapCoreStoreAdministrationEvent(packet.effects[0]!)).toEqual({
       backupIds: ["core-backup"],
       readinessChanged: false,
     });
-
   });
 });

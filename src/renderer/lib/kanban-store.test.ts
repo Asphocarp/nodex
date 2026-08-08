@@ -26,6 +26,7 @@ import type { DatabaseViewGroupsSnapshot } from "../../shared/database-views";
 import { toDatabasePageSummary } from "../../shared/page-summary";
 import type { BoardChangeEvent } from "../../shared/ipc-api";
 import type { ProjectionStreamMessage } from "../../shared/projection-stream";
+import type { ResourceRevocationMessage } from "../../shared/resource-revocation-stream";
 import type { DatabaseViewWindowSnapshot } from "../../shared/database-views";
 import {
   DATABASE_MODULE_V2_CONTRACT_VERSION,
@@ -328,25 +329,36 @@ function createTestRegistry(
 }
 
 function createProjectionHarness() {
-  const listeners = new Set<(message: ProjectionStreamMessage) => void>();
-  let latestMessage: ProjectionStreamMessage | null = null;
-  const registry = new ProjectionInvalidationRegistry((scope, listener) => {
-    listeners.add(listener);
-    if (latestMessage) {
-      listener({
-        version: 2,
-        kind: "checkpoint",
-        scope,
-        stream: latestMessage.stream,
-      });
-    }
-    return () => listeners.delete(listener);
+  const projectionListeners = new Set<(message: ProjectionStreamMessage) => void>();
+  const revocationListeners = new Set<(message: ResourceRevocationMessage) => void>();
+  let latestMessage: ProjectionStreamMessage | ResourceRevocationMessage | null = null;
+  const registry = new ProjectionInvalidationRegistry({
+    subscribeProjection: (scope, listener) => {
+      projectionListeners.add(listener);
+      if (latestMessage) {
+        listener({
+          version: 2,
+          kind: "checkpoint",
+          scope,
+          stream: latestMessage.stream,
+        });
+      }
+      return () => projectionListeners.delete(listener);
+    },
+    subscribeRevocations: (_scope, listener) => {
+      revocationListeners.add(listener);
+      return () => revocationListeners.delete(listener);
+    },
   });
   return {
     getRegistry: () => registry,
-    publish: (message: ProjectionStreamMessage) => {
+    publish: (message: ProjectionStreamMessage | ResourceRevocationMessage) => {
       latestMessage = message;
-      for (const listener of listeners) listener(message);
+      if (message.kind === "revocation") {
+        for (const listener of revocationListeners) listener(message);
+        return;
+      }
+      for (const listener of projectionListeners) listener(message);
     },
   };
 }
@@ -427,6 +439,39 @@ function pageRemoved(commitSeq: number, pageId: string): ProjectionStreamMessage
           groupKey: "triage",
           groupTotal: 0,
         },
+      },
+    },
+  };
+}
+
+function pageRevoked(
+  commitSeq: number,
+  pageId: string,
+): ResourceRevocationMessage {
+  return {
+    version: 1,
+    kind: "revocation",
+    scope: {
+      kind: "project",
+      libraryId: "library-1",
+      projectId: "project-1",
+    },
+    stream: { storeEpoch: "epoch-1", commitSeq },
+    delivery: {
+      storeEpoch: "epoch-1",
+      commitSeq,
+      manifestHash: String(commitSeq).padStart(64, "b").slice(-64),
+      operationId: `operation-${commitSeq}`,
+      committedAt: "2026-08-06T00:00:00.000Z",
+      revocation: {
+        authorization_scope: {
+          kind: "project",
+          library_id: "library-1",
+          project_id: "project-1",
+        },
+        resource_kind: "page",
+        resource_id: pageId,
+        reason: "ownership_moved",
       },
     },
   };
@@ -1729,6 +1774,45 @@ describe("kanban store", () => {
     unsubscribe();
   });
 
+  test("evicts a revoked Page immediately and fences a pre-revocation Board read", async () => {
+    const staleRead = createDeferred<DatabaseViewWindowSnapshot>();
+    const projection = createProjectionHarness();
+    let readCount = 0;
+    const registry = createTestRegistry({
+      readViewWindow: async () => {
+        readCount += 1;
+        if (readCount === 1) return createBoardSnapshot(createBoard(), 1);
+        if (readCount === 2) return await staleRead.promise;
+        return createBoardSnapshot({
+          ...createBoard(),
+          columns: createBoard().columns.map((column) => ({
+            ...column,
+            cards: column.cards.filter((card) => card.id !== "card-1"),
+          })),
+        }, 2, "view-primary", true, 2);
+      },
+      subscribeBoardChanges: () => () => {},
+      getProjectionInvalidationRegistry: projection.getRegistry,
+    });
+    const store = registry.getStore("project-1");
+    const unsubscribe = store.subscribe(() => {});
+    await waitForMicrotasks();
+    expect(store.getSnapshot().pageIndex.has("card-1")).toBe(true);
+
+    const refresh = store.refreshBoard();
+    await waitForMicrotasks();
+    projection.publish(pageRevoked(2, "card-1"));
+    expect(store.getSnapshot().pageIndex.has("card-1")).toBe(false);
+
+    staleRead.resolve(createBoardSnapshot(createBoard(), 1));
+    await refresh;
+    await waitForMicrotasks();
+
+    expect(readCount).toBe(3);
+    expect(store.getSnapshot().pageIndex.has("card-1")).toBe(false);
+    unsubscribe();
+  });
+
   test("keeps per-project store instance across unsubscribe/resubscribe", async () => {
     const registry = createTestRegistry({
       readViewWindow: async () => createBoardSnapshot(),
@@ -1742,6 +1826,7 @@ describe("kanban store", () => {
 
     const second = registry.getStore("default");
     expect(second).toBe(first);
+    expect(second.getSnapshot().board).toBe(null);
   });
 
   test("queues local overlay before first fetch and applies after board load", async () => {

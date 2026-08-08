@@ -166,6 +166,10 @@ const documentCommitEnvelope = (
   const update = [1, 2, 3] as const;
   const updateHash = createHash("sha256").update(Uint8Array.from(update)).digest("hex");
   return createCoreLocalCommitFixture({
+    authorizationScope: {
+      kind: "library",
+      library_id: "library:test",
+    },
     commitSeq,
     storeEpoch: "epoch:test",
     operationId: `operation:document:${commitSeq}`,
@@ -206,6 +210,10 @@ const compactedDocumentCommitEnvelope = (
     },
   };
   return createCoreLocalCommitFixture({
+    authorizationScope: {
+      kind: "library",
+      library_id: "library:test",
+    },
     commitSeq,
     storeEpoch: "epoch:test",
     operationId: `operation:document:${commitSeq}`,
@@ -564,7 +572,7 @@ describe("Desktop Document sync bridge", () => {
       target.sent.splice(0);
     }
 
-    bridge.publishLocalCommit(documentCommitEnvelope(3, [
+    bridge.publishDocumentEffects(documentCommitEnvelope(3, [
       subscribeRequest.documentId,
     ]));
 
@@ -580,6 +588,164 @@ describe("Desktop Document sync bridge", () => {
       })]);
     }
     expect(unrelated.sent).toHaveLength(0);
+  });
+
+  test("revokes only the exact Project Document subscription from a root packet", async () => {
+    const bridge = createDesktopDocumentSyncBridge({
+      authority: Promise.resolve(rustRuntime(new FakeCoreClient())),
+    });
+    const source = new FakeTarget(5);
+    const target = new FakeTarget(6);
+    const library = new FakeTarget(7);
+    await bridge.subscribe(
+      { kind: "project", projectId: "project:one" },
+      source,
+      { ...subscribeRequest, clientSessionId: "renderer:source" },
+    );
+    await bridge.subscribe(
+      { kind: "project", projectId: "project:two" },
+      target,
+      { ...subscribeRequest, clientSessionId: "renderer:target" },
+    );
+    await bridge.subscribe(
+      { kind: "library" },
+      library,
+      { ...subscribeRequest, clientSessionId: "renderer:library" },
+    );
+    for (const recipient of [source, target, library]) recipient.sent.splice(0);
+    const revocation = {
+      authorization_scope: {
+        kind: "document" as const,
+        library_id: "library:test",
+        project_id: "project:one",
+        document_id: subscribeRequest.documentId,
+      },
+      resource_kind: "document" as const,
+      resource_id: subscribeRequest.documentId,
+      reason: "access_revoked" as const,
+    };
+    const packet = createCoreLocalCommitFixture({
+      authorizationScope: {
+        kind: "library",
+        library_id: "library:test",
+      },
+      commitSeq: 3,
+      storeEpoch: "epoch:test",
+      revocations: [revocation],
+    });
+
+    bridge.publishResourceRevocation(packet, revocation);
+
+    expect(source.sent).toEqual([expect.objectContaining({
+      payload: expect.objectContaining({
+        kind: "resync-required",
+        reason: "access-revoked",
+      }),
+    })]);
+    expect(target.sent).toHaveLength(0);
+    expect(library.sent).toHaveLength(0);
+
+    bridge.publishDocumentEffects(documentCommitEnvelope(4, [subscribeRequest.documentId]));
+    expect(source.sent).toHaveLength(1);
+    expect(target.sent).toHaveLength(1);
+    expect(library.sent).toHaveLength(1);
+  });
+
+  test("suppresses same-packet Document bytes before the revocation lane runs", async () => {
+    const bridge = createDesktopDocumentSyncBridge({
+      authority: Promise.resolve(rustRuntime(new FakeCoreClient())),
+    });
+    const source = new FakeTarget(8);
+    const target = new FakeTarget(9);
+    await bridge.subscribe(
+      { kind: "project", projectId: "project:one" },
+      source,
+      { ...subscribeRequest, clientSessionId: "renderer:source-barrier" },
+    );
+    await bridge.subscribe(
+      { kind: "project", projectId: "project:two" },
+      target,
+      { ...subscribeRequest, clientSessionId: "renderer:target-barrier" },
+    );
+    source.sent.splice(0);
+    target.sent.splice(0);
+    const revocation = {
+      authorization_scope: {
+        kind: "document" as const,
+        library_id: "library:test",
+        project_id: "project:one",
+        document_id: subscribeRequest.documentId,
+      },
+      resource_kind: "document" as const,
+      resource_id: subscribeRequest.documentId,
+      reason: "ownership_moved" as const,
+    };
+    const packet = {
+      ...documentCommitEnvelope(4, [subscribeRequest.documentId]),
+      revocations: [revocation],
+    };
+
+    bridge.publishDocumentEffects(packet);
+
+    expect(source.sent).toHaveLength(0);
+    expect(target.sent).toEqual([expect.objectContaining({
+      payload: expect.objectContaining({ kind: "document-update" }),
+    })]);
+
+    bridge.publishResourceRevocation(packet, revocation);
+    expect(source.sent).toEqual([expect.objectContaining({
+      payload: expect.objectContaining({
+        kind: "resync-required",
+        reason: "access-revoked",
+      }),
+    })]);
+  });
+
+  test("closes an exact Document subscription recovered from its durable stream", async () => {
+    const client = new FakeCoreClient();
+    const bridge = createDesktopDocumentSyncBridge({
+      authority: Promise.resolve(rustRuntime(client)),
+    });
+    const target = new FakeTarget(10);
+    const scope = { kind: "project", projectId: "project:one" } as const;
+    await bridge.subscribe(scope, target, subscribeRequest);
+    target.sent.splice(0);
+    const revocation = {
+      authorization_scope: {
+        kind: "document" as const,
+        library_id: "library:test",
+        project_id: "project:one",
+        document_id: subscribeRequest.documentId,
+      },
+      resource_kind: "document" as const,
+      resource_id: subscribeRequest.documentId,
+      reason: "access_revoked" as const,
+    };
+    client.emit({
+      transport_version: 6,
+      packet: createCoreLocalCommitFixture({
+        authorizationScope: revocation.authorization_scope,
+        commitSeq: 5,
+        storeEpoch: "epoch:test",
+        revocations: [revocation],
+      }),
+    });
+
+    await vi.waitFor(() => expect(target.sent).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          kind: "resync-required",
+          reason: "access-revoked",
+        }),
+      }),
+    ])));
+    await expect(bridge.sync(scope, target, {
+      ...subscribeRequest,
+      stateVector: new Uint8Array(),
+    })).resolves.toMatchObject({
+      ok: false,
+      error: { code: "unauthorized" },
+    });
   });
 
   test("publishes an exact coordinator lane without replaying sibling Documents", async () => {
@@ -603,7 +769,7 @@ describe("Desktop Document sync bridge", () => {
       "document:second",
     ]);
 
-    bridge.publishLocalCommit(packet, "document:first");
+    bridge.publishDocumentEffects(packet, "document:first");
 
     expect(first.sent).toHaveLength(1);
     expect(second.sent).toHaveLength(0);
@@ -634,7 +800,7 @@ describe("Desktop Document sync bridge", () => {
     );
     client.enqueueDocumentRead(updateResourceSnapshot(packet));
 
-    bridge.publishLocalCommit(packet);
+    bridge.publishDocumentEffects(packet);
 
     await vi.waitFor(() => {
       expect(first.sent).toHaveLength(1);
@@ -684,7 +850,7 @@ describe("Desktop Document sync bridge", () => {
       },
     });
 
-    bridge.publishLocalCommit(packet);
+    bridge.publishDocumentEffects(packet);
 
     await vi.waitFor(() => expect(target.sent).toHaveLength(1));
     expect(target.sent[0]?.payload).toMatchObject({
@@ -713,7 +879,7 @@ describe("Desktop Document sync bridge", () => {
       [9, 9, 9],
     ));
 
-    bridge.publishLocalCommit(fetchedPacket);
+    bridge.publishDocumentEffects(fetchedPacket);
 
     await vi.waitFor(() => expect(target.sent).toHaveLength(1));
     expect(target.sent[0]?.payload).toMatchObject({
@@ -734,7 +900,7 @@ describe("Desktop Document sync bridge", () => {
     const inlinePacket = documentCommitEnvelope(6, [subscribeRequest.documentId]);
     const inlineEffect = inlinePacket.document_effects[0];
     if (!inlineEffect) throw new Error("Expected a Document effect fixture");
-    inlineBridge.publishLocalCommit({
+    inlineBridge.publishDocumentEffects({
       ...inlinePacket,
       document_effects: [{
         ...inlineEffect,
@@ -763,8 +929,8 @@ describe("Desktop Document sync bridge", () => {
     target.sent.splice(0);
 
     const envelope = documentCommitEnvelope(4, [subscribeRequest.documentId]);
-    bridge.publishLocalCommit(envelope);
-    bridge.publishLocalCommit(envelope);
+    bridge.publishDocumentEffects(envelope);
+    bridge.publishDocumentEffects(envelope);
 
     expect(target.sent).toHaveLength(1);
   });
@@ -782,10 +948,12 @@ describe("Desktop Document sync bridge", () => {
     target.sent.splice(0);
 
     const coordinator = new LocalCommitCoordinator({
+      expectedLibraryId: "library:test",
       expectedStoreEpoch: "epoch:test",
-      onDocument: (packet) => bridge.publishLocalCommit(packet),
+      onDocument: (packet) => bridge.publishDocumentEffects(packet),
       onProjection: () => undefined,
       onNotification: () => undefined,
+      onRevocation: () => undefined,
     });
     const envelope = documentCommitEnvelope(6, [subscribeRequest.documentId]);
 
@@ -813,7 +981,7 @@ describe("Desktop Document sync bridge", () => {
     );
     target.sent.splice(0);
 
-    bridge.publishLocalCommit(compactedDocumentCommitEnvelope(
+    bridge.publishDocumentEffects(compactedDocumentCommitEnvelope(
       5,
       subscribeRequest.documentId,
     ));
@@ -852,10 +1020,10 @@ describe("Desktop Document sync bridge", () => {
     });
     target.sent.splice(0);
 
-    bridge.publishLocalCommit(documentCommitEnvelope(3, [subscribeRequest.documentId]));
+    bridge.publishDocumentEffects(documentCommitEnvelope(3, [subscribeRequest.documentId]));
     expect(target.sent).toHaveLength(0);
 
-    bridge.publishLocalCommit(documentCommitEnvelope(2, [subscribeRequest.documentId]));
+    bridge.publishDocumentEffects(documentCommitEnvelope(2, [subscribeRequest.documentId]));
     expect(target.sent.map((delivery) =>
       (delivery.payload as { readonly headSeq: number }).headSeq,
     )).toEqual([2, 3]);
@@ -1266,7 +1434,7 @@ describe("Desktop Document sync bridge", () => {
         intent: { root_block_ids: ["block:root"] },
       },
     });
-    bridge.publishLocalCommit(documentCommitEnvelope(9, [
+    bridge.publishDocumentEffects(documentCommitEnvelope(9, [
       "document:source",
       "document:target",
     ]));
@@ -1342,7 +1510,7 @@ describe("Desktop Document sync bridge", () => {
     });
     expect(result).toMatchObject({ ok: true, value: { commitSeq: 14 } });
     expect(execute).toHaveBeenCalledOnce();
-    bridge.publishLocalCommit(documentCommitEnvelope(14, [
+    bridge.publishDocumentEffects(documentCommitEnvelope(14, [
       "document:agent-target",
     ]));
     expect(target.sent.some((delivery) =>

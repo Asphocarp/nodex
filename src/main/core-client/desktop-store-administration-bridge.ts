@@ -8,9 +8,8 @@ import type {
 } from "../../shared/types";
 import type { DesktopDataAuthorityRuntime } from "./desktop-data-authority";
 import {
-  findCoreModulePayload,
+  type CoreAuthorizedModuleEffect,
   type CoreClientPort,
-  type CoreEventEnvelope,
   type StoreAdministrationApplyResult,
   type StoreAdministrationIntent,
 } from "./types";
@@ -191,10 +190,10 @@ export function createDesktopStoreAdministrationBridge(
 }
 
 export function mapCoreStoreAdministrationEvent(
-  envelope: CoreEventEnvelope,
+  effect: CoreAuthorizedModuleEffect,
 ): CoreStoreAdministrationInvalidation | null {
-  const payload = findCoreModulePayload(envelope, "store_administration");
-  if (payload?.module !== "store_administration") return null;
+  const payload = effect.payload;
+  if (payload.module !== "store_administration") return null;
   return {
     backupIds: payload.event.backup_ids,
     readinessChanged: payload.event.readiness_changed,

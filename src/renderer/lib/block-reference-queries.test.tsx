@@ -87,10 +87,13 @@ describe("Page reference queries", () => {
     mocks.ownershipPathChangeListener = null;
     projectionListeners = new Set();
     projectionScopes = [];
-    projectionRegistry = new ProjectionInvalidationRegistry((scope, listener) => {
-      projectionScopes.push(scope);
-      projectionListeners.add(listener);
-      return () => projectionListeners.delete(listener);
+    projectionRegistry = new ProjectionInvalidationRegistry({
+      subscribeProjection: (scope, listener) => {
+        projectionScopes.push(scope);
+        projectionListeners.add(listener);
+        return () => projectionListeners.delete(listener);
+      },
+      subscribeRevocations: () => () => {},
     });
   });
 

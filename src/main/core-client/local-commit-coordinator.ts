@@ -1,11 +1,16 @@
 import type { CoreProjectionEffect } from "../../shared/projection-stream";
 import type {
   CoreAuthorizedDeliveryPacket,
+  CoreAuthorizedModuleEffect,
   CoreStreamCheckpoint,
 } from "./types";
 
 export type LocalCommitIngress = "apply" | "tailer" | "replay" | "resolve";
-export type LocalCommitLaneKind = "document" | "projection" | "notification";
+export type LocalCommitLaneKind =
+  | "document"
+  | "projection"
+  | "revocation"
+  | "notification";
 export type LocalCommitStreamResetReason =
   | "event_gap"
   | "reconnect"
@@ -36,9 +41,16 @@ export interface LocalCommitCoordinatorInput {
   ) => void | Promise<void>;
   readonly onNotification: (
     packet: CoreAuthorizedDeliveryPacket,
+    effect: CoreAuthorizedModuleEffect,
+    ingress: LocalCommitIngress,
+  ) => void | Promise<void>;
+  readonly onRevocation: (
+    packet: CoreAuthorizedDeliveryPacket,
+    revocation: CoreAuthorizedDeliveryPacket["revocations"][number],
     ingress: LocalCommitIngress,
   ) => void | Promise<void>;
   readonly onError?: (failure: LocalCommitDeliveryError) => void;
+  readonly expectedLibraryId: string;
   readonly expectedStoreEpoch: string;
   readonly maxRememberedCommits?: number;
   readonly maxDeliveryAttempts?: number;
@@ -57,20 +69,81 @@ interface ResourceClaim {
   readonly fingerprint: string;
 }
 
+interface RememberedResource {
+  readonly fingerprint: string;
+  readonly completion: Promise<void>;
+  readonly resolve: () => void;
+  readonly reject: (error: unknown) => void;
+  status: "in_flight" | "completed";
+}
+
+interface AdmittedClaim extends ResourceClaim {
+  readonly resource: RememberedResource;
+}
+
 interface DocumentDelivery {
   readonly documentId: string;
-  readonly claims: readonly ResourceClaim[];
+  readonly claims: readonly AdmittedClaim[];
 }
 
 interface RememberedCommit {
   readonly manifestHash: string;
-  readonly resources: Map<string, string>;
+  readonly resources: Map<string, RememberedResource>;
+}
+
+interface AdmissionResult {
+  readonly admission: LocalCommitAdmission;
+  readonly completions: readonly Promise<void>[];
 }
 
 interface DeliveryLane {
   tail: Promise<void>;
   pending: number;
 }
+
+const validateAuthorizationScope = (
+  scope: CoreAuthorizedDeliveryPacket["authorization_scope"],
+): void => {
+  if (!scope.library_id || scope.library_id.trim() !== scope.library_id) {
+    throw new Error("Delivery authorization Library is invalid");
+  }
+  if (
+    (scope.kind === "project" || scope.kind === "document")
+    && scope.project_id !== null
+    && scope.project_id !== undefined
+    && (!scope.project_id || scope.project_id.trim() !== scope.project_id)
+  ) {
+    throw new Error("Delivery authorization Project is invalid");
+  }
+  if (
+    scope.kind === "document"
+    && (!scope.document_id || scope.document_id.trim() !== scope.document_id)
+  ) {
+    throw new Error("Delivery authorization Document is invalid");
+  }
+};
+
+const authorizationScopeKey = (
+  scope: CoreAuthorizedDeliveryPacket["authorization_scope"],
+): string => {
+  if (scope.kind === "library") {
+    return JSON.stringify(["library", scope.library_id]);
+  }
+  if (scope.kind === "project") {
+    return JSON.stringify(["project", scope.library_id, scope.project_id]);
+  }
+  return JSON.stringify([
+    "document",
+    scope.library_id,
+    scope.project_id ?? null,
+    scope.document_id,
+  ]);
+};
+
+const scopedClaimKey = (
+  scope: CoreAuthorizedDeliveryPacket["authorization_scope"],
+  claim: string,
+): string => `${authorizationScopeKey(scope)}:${claim}`;
 
 const identityOf = (packet: CoreAuthorizedDeliveryPacket) => {
   const identity = packet.manifest.identity;
@@ -92,6 +165,10 @@ const identityOf = (packet: CoreAuthorizedDeliveryPacket) => {
     || !packet.manifest.committed_at
   ) {
     throw new Error("Authorized delivery packet manifest header is invalid");
+  }
+  validateAuthorizationScope(packet.authorization_scope);
+  for (const revocation of packet.revocations) {
+    validateAuthorizationScope(revocation.authorization_scope);
   }
   validateCoverage(packet);
   return {
@@ -149,15 +226,19 @@ const resourceClaims = (
   packet: CoreAuthorizedDeliveryPacket,
 ): readonly ResourceClaim[] => {
   const claims: ResourceClaim[] = [];
+  const packetClaimKey = (claim: string): string =>
+    scopedClaimKey(packet.authorization_scope, claim);
   for (const effect of packet.effects) {
     const semantic = effect.semantic;
     claims.push({
-      key: `notification:semantic:${semantic.effect_order}`,
+      key: packetClaimKey(`notification:semantic:${semantic.effect_order}`),
       fingerprint: `${semantic.module}:${semantic.effect_kind}:${semantic.payload_hash}`,
     });
     if (effect.payload.module === "owned_document") {
       claims.push({
-        key: `document-control:semantic:${semantic.effect_order}:${effect.payload.event.document_id}`,
+        key: packetClaimKey(
+          `document-control:semantic:${semantic.effect_order}:${effect.payload.event.document_id}`,
+        ),
         fingerprint: `${semantic.effect_kind}:${semantic.payload_hash}`,
       });
     }
@@ -172,43 +253,63 @@ const resourceClaims = (
       reference.effect_order,
     ].join(":");
     claims.push({
-      key: `document:${coordinate}`,
+      key: packetClaimKey(`document:${coordinate}`),
       fingerprint: `${reference.update_id}:${reference.update_hash}:${reference.update_byte_length}`,
     });
     if (effect.inline_update) {
       claims.push({
-        key: `document-inline:${coordinate}`,
+        key: packetClaimKey(`document-inline:${coordinate}`),
         fingerprint: `${reference.update_hash}:${reference.update_byte_length}`,
       });
     }
   }
   for (const effect of packet.projection_effects) {
     claims.push({
-      key: `projection:${effect.scope.canonical_key}:${effect.result_revision}`,
+      key: packetClaimKey(
+        `projection:${effect.scope.canonical_key}:${effect.result_revision}`,
+      ),
       fingerprint: effect.effect_hash,
     });
   }
   for (const revocation of packet.revocations) {
     claims.push({
-      key: `notification:revocation:${revocation.resource_kind}:${revocation.resource_id}`,
+      key: scopedClaimKey(
+        revocation.authorization_scope,
+        `revocation:${revocation.resource_kind}:${revocation.resource_id}`,
+      ),
       fingerprint: revocation.reason,
     });
-    if (revocation.resource_kind === "document") {
-      claims.push({
-        key: `document-control:revocation:${revocation.resource_id}`,
-        fingerprint: revocation.reason,
-      });
-    }
   }
   return claims;
 };
 
+const rememberedResource = (fingerprint: string): RememberedResource => {
+  let resolve!: () => void;
+  let reject!: (error: unknown) => void;
+  const completion = new Promise<void>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  // Apply-response admission is deliberately fire-and-forget. Attach a
+  // rejection observer immediately; durable ingress can still await the
+  // original Promise and turn terminal lane failure into stream replay.
+  void completion.catch(() => undefined);
+  return {
+    fingerprint,
+    completion,
+    resolve,
+    reject,
+    status: "in_flight",
+  };
+};
+
 const documentDeliveries = (
   packet: CoreAuthorizedDeliveryPacket,
-  admitted: readonly ResourceClaim[],
+  admittedByKey: ReadonlyMap<string, AdmittedClaim>,
 ): readonly DocumentDelivery[] => {
-  const admittedByKey = new Map(admitted.map((claim) => [claim.key, claim]));
-  const claimsByDocument = new Map<string, ResourceClaim[]>();
+  const claimsByDocument = new Map<string, AdmittedClaim[]>();
+  const packetClaimKey = (claim: string): string =>
+    scopedClaimKey(packet.authorization_scope, claim);
   const add = (documentId: string, key: string): void => {
     const claim = admittedByKey.get(key);
     if (!claim) return;
@@ -225,31 +326,23 @@ const documentDeliveries = (
       reference.result_head_seq,
       reference.effect_order,
     ].join(":");
-    add(reference.document_id, `document:${coordinate}`);
-    add(reference.document_id, `document-inline:${coordinate}`);
+    add(reference.document_id, packetClaimKey(`document:${coordinate}`));
+    add(reference.document_id, packetClaimKey(`document-inline:${coordinate}`));
   }
   for (const effect of packet.effects) {
     if (effect.payload.module !== "owned_document") continue;
     const documentId = effect.payload.event.document_id;
     add(
       documentId,
-      `document-control:semantic:${effect.semantic.effect_order}:${documentId}`,
-    );
-  }
-  for (const revocation of packet.revocations) {
-    if (revocation.resource_kind !== "document") continue;
-    add(
-      revocation.resource_id,
-      `document-control:revocation:${revocation.resource_id}`,
+      packetClaimKey(
+        `document-control:semantic:${effect.semantic.effect_order}:${documentId}`,
+      ),
     );
   }
   return [...claimsByDocument]
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([documentId, claims]) => ({ documentId, claims }));
 };
-
-const hasNotificationDelivery = (claims: readonly ResourceClaim[]): boolean =>
-  claims.some((claim) => claim.key.startsWith("notification:"));
 
 /**
  * Synchronously admits one authorized packet, then fans its resource effects
@@ -264,6 +357,7 @@ export class LocalCommitCoordinator {
   readonly #lanes: Record<LocalCommitLaneKind, Map<string, DeliveryLane>> = {
     document: new Map(),
     projection: new Map(),
+    revocation: new Map(),
     notification: new Map(),
   };
   #pendingDeliveries = 0;
@@ -286,9 +380,41 @@ export class LocalCommitCoordinator {
     packet: CoreAuthorizedDeliveryPacket,
     ingress: LocalCommitIngress,
   ): LocalCommitAdmission {
+    return this.#admit(packet, ingress).admission;
+  }
+
+  /**
+   * Durable ingress uses the same synchronous admission path, then waits for
+   * every resource claim represented by the packet. If apply already owns an
+   * in-flight claim, the tailer attaches to that exact completion instead of
+   * treating the packet as a finished duplicate. A terminal lane failure
+   * therefore rejects stream delivery before its checkpoint can advance.
+   */
+  async admitAndWait(
+    packet: CoreAuthorizedDeliveryPacket,
+    ingress: Exclude<LocalCommitIngress, "apply">,
+  ): Promise<LocalCommitAdmission> {
+    const admitted = this.#admit(packet, ingress);
+    await Promise.all(admitted.completions);
+    return admitted.admission;
+  }
+
+  #admit(
+    packet: CoreAuthorizedDeliveryPacket,
+    ingress: LocalCommitIngress,
+  ): AdmissionResult {
     const identity = identityOf(packet);
     if (identity.storeEpoch !== this.#input.expectedStoreEpoch) {
       throw new Error(`Commit belongs to another Store epoch: ${identity.key}`);
+    }
+    if (packet.authorization_scope.library_id !== this.#input.expectedLibraryId) {
+      throw new Error("Commit delivery belongs to another Library");
+    }
+    if (packet.revocations.some(
+      (revocation) =>
+        revocation.authorization_scope.library_id !== this.#input.expectedLibraryId,
+    )) {
+      throw new Error("Commit revocation belongs to another Library");
     }
     const claims = resourceClaims(packet);
     const remembered = this.#remembered.get(identity.key);
@@ -297,23 +423,51 @@ export class LocalCommitCoordinator {
     }
     const state = remembered ?? {
       manifestHash: identity.manifestHash,
-      resources: new Map<string, string>(),
+      resources: new Map<string, RememberedResource>(),
     };
-    const admitted: ResourceClaim[] = [];
+    const admittedByKey = new Map<string, AdmittedClaim>();
+    const completions = new Set<Promise<void>>();
     for (const claim of claims) {
       const known = state.resources.get(claim.key);
-      if (known !== undefined && known !== claim.fingerprint) {
+      if (known !== undefined && known.fingerprint !== claim.fingerprint) {
         throw new Error(`Commit resource identity collision for ${identity.key}:${claim.key}`);
       }
-      if (known !== undefined) continue;
-      state.resources.set(claim.key, claim.fingerprint);
-      admitted.push(claim);
+      if (known !== undefined) {
+        completions.add(known.completion);
+        continue;
+      }
+      const resource = rememberedResource(claim.fingerprint);
+      const admitted = { ...claim, resource };
+      state.resources.set(claim.key, resource);
+      admittedByKey.set(claim.key, admitted);
+      completions.add(resource.completion);
     }
     if (!remembered) this.#remembered.set(identity.key, state);
     this.#touch(identity.key, state);
-    if (admitted.length === 0) return { kind: "duplicate", key: identity.key };
+    if (admittedByKey.size === 0) {
+      return {
+        admission: { kind: "duplicate", key: identity.key },
+        completions: [...completions],
+      };
+    }
 
-    for (const delivery of documentDeliveries(packet, admitted)) {
+    for (const revocation of packet.revocations) {
+      const scopeKey = authorizationScopeKey(revocation.authorization_scope);
+      const key = scopedClaimKey(
+        revocation.authorization_scope,
+        `revocation:${revocation.resource_kind}:${revocation.resource_id}`,
+      );
+      const claim = admittedByKey.get(key);
+      if (!claim) continue;
+      this.#schedule(
+        "revocation",
+        `${scopeKey}:${revocation.resource_kind}:${revocation.resource_id}`,
+        packet,
+        [claim],
+        () => this.#input.onRevocation(packet, revocation, ingress),
+      );
+    }
+    for (const delivery of documentDeliveries(packet, admittedByKey)) {
       this.#schedule(
         "document",
         delivery.documentId,
@@ -322,34 +476,42 @@ export class LocalCommitCoordinator {
         () => this.#input.onDocument(packet, delivery.documentId, ingress),
       );
     }
-    const admittedProjectionKeys = new Set(
-      admitted
-        .filter((claim) => claim.key.startsWith("projection:"))
-        .map((claim) => claim.key),
-    );
     for (const effect of packet.projection_effects) {
-      const key = `projection:${effect.scope.canonical_key}:${effect.result_revision}`;
-      if (!admittedProjectionKeys.has(key)) continue;
+      const key = scopedClaimKey(
+        packet.authorization_scope,
+        `projection:${effect.scope.canonical_key}:${effect.result_revision}`,
+      );
+      const claim = admittedByKey.get(key);
+      if (!claim) continue;
       this.#schedule(
         "projection",
         effect.scope.canonical_key,
         packet,
-        admitted.filter((claim) => claim.key === key),
+        [claim],
         () => this.#input.onProjection(packet, effect, ingress),
       );
     }
-    if (hasNotificationDelivery(admitted)) {
+    for (const effect of packet.effects) {
+      const key = scopedClaimKey(
+        packet.authorization_scope,
+        `notification:semantic:${effect.semantic.effect_order}`,
+      );
+      const claim = admittedByKey.get(key);
+      if (!claim) continue;
       this.#schedule(
         "notification",
         identity.key,
         packet,
-        admitted.filter((claim) => claim.key.startsWith("notification:")),
-        () => this.#input.onNotification(packet, ingress),
+        [claim],
+        () => this.#input.onNotification(packet, effect, ingress),
       );
     }
     return {
-      kind: remembered ? "enriched" : "accepted",
-      key: identity.key,
+      admission: {
+        kind: remembered ? "enriched" : "accepted",
+        key: identity.key,
+      },
+      completions: [...completions],
     };
   }
 
@@ -378,6 +540,7 @@ export class LocalCommitCoordinator {
       activeLanes: {
         document: this.#lanes.document.size,
         projection: this.#lanes.projection.size,
+        revocation: this.#lanes.revocation.size,
         notification: this.#lanes.notification.size,
       },
       pendingDeliveries: this.#pendingDeliveries,
@@ -390,7 +553,7 @@ export class LocalCommitCoordinator {
     kind: LocalCommitLaneKind,
     laneKey: string,
     packet: CoreAuthorizedDeliveryPacket,
-    claims: readonly ResourceClaim[],
+    claims: readonly AdmittedClaim[],
     work: () => void | Promise<void>,
   ): void {
     const lanes = this.#lanes[kind];
@@ -403,13 +566,19 @@ export class LocalCommitCoordinator {
       for (let attempt = 0; attempt < this.#maxDeliveryAttempts; attempt += 1) {
         try {
           await work();
+          this.#completeClaims(claims);
           return;
         } catch (error) {
           lastError = error;
         }
       }
-      this.#releaseClaims(packet, claims);
-      this.#input.onError?.({ lane: kind, laneKey, packet, error: lastError });
+      const failure = lastError ?? new Error("LocalCommit delivery failed");
+      this.#failClaims(packet, claims, failure);
+      try {
+        this.#input.onError?.({ lane: kind, laneKey, packet, error: failure });
+      } catch {
+        // Delivery failure remains represented by the rejected resource claim.
+      }
     };
     const next = lane.tail.then(
       () => new Promise<void>((resolve) => queueMicrotask(() => void run().finally(resolve))),
@@ -423,28 +592,45 @@ export class LocalCommitCoordinator {
     lane.tail = settled;
   }
 
-  #releaseClaims(
+  #completeClaims(claims: readonly AdmittedClaim[]): void {
+    for (const claim of claims) {
+      if (claim.resource.status === "completed") continue;
+      claim.resource.status = "completed";
+      claim.resource.resolve();
+    }
+    this.#trimRemembered();
+  }
+
+  #failClaims(
     packet: CoreAuthorizedDeliveryPacket,
-    claims: readonly ResourceClaim[],
+    claims: readonly AdmittedClaim[],
+    error: unknown,
   ): void {
     const identity = identityOf(packet);
     const remembered = this.#remembered.get(identity.key);
     if (!remembered) return;
     for (const claim of claims) {
-      if (remembered.resources.get(claim.key) === claim.fingerprint) {
-        remembered.resources.delete(claim.key);
-      }
+      if (remembered.resources.get(claim.key) !== claim.resource) continue;
+      remembered.resources.delete(claim.key);
+      claim.resource.reject(error);
     }
     if (remembered.resources.size === 0) this.#remembered.delete(identity.key);
+    this.#trimRemembered();
   }
 
   #touch(key: string, value: RememberedCommit): void {
     this.#remembered.delete(key);
     this.#remembered.set(key, value);
+    this.#trimRemembered();
+  }
+
+  #trimRemembered(): void {
     while (this.#remembered.size > this.#maxRememberedCommits) {
-      const oldest = this.#remembered.keys().next().value;
-      if (oldest === undefined) return;
-      this.#remembered.delete(oldest);
+      const removable = [...this.#remembered].find(([, commit]) =>
+        [...commit.resources.values()].every((resource) => resource.status === "completed")
+      );
+      if (!removable) return;
+      this.#remembered.delete(removable[0]);
     }
   }
 }

@@ -1,12 +1,10 @@
-use std::collections::BTreeSet;
-
 use nodex_core_contracts::document::OwnedDocumentEvent;
 use nodex_core_contracts::events::{
     AuthorizedDeliveryPacket, AuthorizedDocumentEffect, AuthorizedModuleEffect,
     AuthorizedModulePayload, AuthorizedOwnedDocumentEvent, CommitManifestHeader,
-    CoreModuleEventPayload, DeliveryCoverage, DocumentEffectRef, LocalCommitResources,
-    LocalProjectionScope, ProjectionImpact, ResourceRevocation, ResourceRevocationReason,
-    RevokedResourceKind, SemanticEffect,
+    CoreModuleEventPayload, DeliveryAuthorizationScope, DeliveryCoverage, DocumentEffectRef,
+    LocalCommitResources, LocalProjectionScope, ProjectionImpact, ResourceRevocation,
+    SemanticEffect,
 };
 use nodex_core_contracts::{AdapterKind, BoundModuleContext};
 use rusqlite::{Connection, OptionalExtension, params};
@@ -18,7 +16,7 @@ use super::local_commit::{self, LocalCommitResourceMode};
 use super::projection_impact::canonicalize;
 use super::sqlite::{StoreError, StoreErrorCode};
 
-const DELIVERY_PACKET_VERSION: u32 = 1;
+const DELIVERY_PACKET_VERSION: u32 = 2;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum DeliveryResourceMode {
@@ -26,9 +24,16 @@ pub(crate) enum DeliveryResourceMode {
     Inline,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum DeliveryAudience {
+    BoundScope,
+    HostLibraryBroker,
+}
+
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct DeliveryRequest<'a> {
     pub context: &'a BoundModuleContext,
+    pub audience: DeliveryAudience,
     pub document_id: Option<&'a str>,
     pub resource_mode: DeliveryResourceMode,
 }
@@ -37,6 +42,7 @@ pub(crate) struct DeliveryRequest<'a> {
 struct CanonicalPacket<'a> {
     hash_version: u32,
     packet_version: u32,
+    authorization_scope: &'a DeliveryAuthorizationScope,
     manifest: &'a CommitManifestHeader,
     effects: &'a [AuthorizedModuleEffect],
     document_effects: &'a [AuthorizedDocumentEffect],
@@ -68,19 +74,30 @@ pub(crate) fn resolve(
         return Ok(None);
     }
 
-    let library_authority = request.context.project_id.is_none()
-        && matches!(
-            request.context.adapter,
-            AdapterKind::ElectronHost | AdapterKind::NativeCli | AdapterKind::Test
-        );
+    if request.audience == DeliveryAudience::HostLibraryBroker
+        && request.context.adapter != AdapterKind::ElectronHost
+    {
+        return Err(StoreError::new(
+            StoreErrorCode::Unauthorized,
+            "Only the Electron Host may request the Library broker delivery audience",
+            false,
+        ));
+    }
+
+    let library_authority = request.audience == DeliveryAudience::HostLibraryBroker
+        || (request.context.project_id.is_none()
+            && matches!(
+                request.context.adapter,
+                AdapterKind::ElectronHost | AdapterKind::NativeCli | AdapterKind::Test
+            ));
     let project_id = request.context.project_id.as_ref().map(|id| id.0.as_str());
     if !library_authority && project_id.is_none() {
         return Ok(None);
     }
+    let authorization_scope = delivery_authorization_scope(request);
 
     let mut effects = Vec::new();
     let mut projection_impact = ProjectionImpact::None;
-    let mut revocations = BTreeSet::<(RevokedResourceKind, String)>::new();
     for physical in &verified.physical_effects {
         let (effect_order, change_log_seq, physical_project_id, _, _, _, resources, _, _) =
             physical;
@@ -104,15 +121,6 @@ pub(crate) fn resolve(
             _ => library_authority,
         };
         if !allowed {
-            if project_id == Some(physical_project_id.as_str()) {
-                add_resource_revocations(
-                    connection,
-                    &request.context.library_id.0,
-                    resources,
-                    request.document_id,
-                    &mut revocations,
-                )?;
-            }
             continue;
         }
         let event = load_committed_event_by_sequence(connection, *change_log_seq)?;
@@ -156,14 +164,6 @@ pub(crate) fn resolve(
             _ => library_authority,
         };
         if !allowed {
-            if project_id == Some(resource.project_id.as_str()) {
-                revocations.insert((RevokedResourceKind::Document, resource.document_id.clone()));
-                if request.document_id.is_none()
-                    && let Some(page_id) = resource.page_id
-                {
-                    revocations.insert((RevokedResourceKind::Page, page_id));
-                }
-            }
             continue;
         }
         document_effects.push(AuthorizedDocumentEffect {
@@ -195,14 +195,7 @@ pub(crate) fn resolve(
         })
         .cloned()
         .collect::<Vec<_>>();
-    let revocations = revocations
-        .into_iter()
-        .map(|(resource_kind, resource_id)| ResourceRevocation {
-            resource_kind,
-            resource_id,
-            reason: ResourceRevocationReason::OwnershipMoved,
-        })
-        .collect::<Vec<_>>();
+    let revocations = authorized_revocations(manifest, request);
     if effects.is_empty()
         && document_effects.is_empty()
         && projection_effects.is_empty()
@@ -237,17 +230,21 @@ pub(crate) fn resolve(
         committed_at: manifest.committed_at.clone(),
     };
     let projection_impact = canonicalize(projection_impact)?;
-    let packet_hash = packet_hash(
-        &header,
-        &effects,
-        &document_effects,
-        &projection_effects,
-        &revocations,
-        &projection_impact,
-        &coverage,
-    )?;
+    let packet_hash = packet_hash(CanonicalPacket {
+        hash_version: 2,
+        packet_version: DELIVERY_PACKET_VERSION,
+        authorization_scope: &authorization_scope,
+        manifest: &header,
+        effects: &effects,
+        document_effects: &document_effects,
+        projection_effects: &projection_effects,
+        revocations: &revocations,
+        projection_impact: &projection_impact,
+        coverage: &coverage,
+    })?;
     Ok(Some(AuthorizedDeliveryPacket {
         packet_version: DELIVERY_PACKET_VERSION,
+        authorization_scope,
         manifest: header,
         effects,
         document_effects,
@@ -268,6 +265,92 @@ impl DeliveryRequest<'_> {
                 |row| row.get(0),
             )
             .map_err(StoreError::from)
+    }
+}
+
+fn delivery_authorization_scope(request: DeliveryRequest<'_>) -> DeliveryAuthorizationScope {
+    let library_id = request.context.library_id.0.clone();
+    if let Some(document_id) = request.document_id {
+        return DeliveryAuthorizationScope::Document {
+            library_id,
+            project_id: request
+                .context
+                .project_id
+                .as_ref()
+                .map(|project_id| project_id.0.clone()),
+            document_id: document_id.to_owned(),
+        };
+    }
+    if request.audience == DeliveryAudience::HostLibraryBroker {
+        return DeliveryAuthorizationScope::Library { library_id };
+    }
+    match &request.context.project_id {
+        Some(project_id) => DeliveryAuthorizationScope::Project {
+            library_id,
+            project_id: project_id.0.clone(),
+        },
+        None => DeliveryAuthorizationScope::Library { library_id },
+    }
+}
+
+fn authorized_revocations(
+    manifest: &nodex_core_contracts::CommitManifest,
+    request: DeliveryRequest<'_>,
+) -> Vec<ResourceRevocation> {
+    let library_id = &request.context.library_id.0;
+    let project_id = request.context.project_id.as_ref().map(|id| id.0.as_str());
+    manifest
+        .revocations
+        .iter()
+        .filter(|revocation| {
+            revocation_scope_matches(
+                &revocation.authorization_scope,
+                library_id,
+                project_id,
+                request.document_id,
+            )
+        })
+        .cloned()
+        .collect()
+}
+
+fn revocation_scope_matches(
+    scope: &DeliveryAuthorizationScope,
+    library_id: &str,
+    project_id: Option<&str>,
+    document_id: Option<&str>,
+) -> bool {
+    if let Some(document_id) = document_id {
+        return matches!(
+            scope,
+            DeliveryAuthorizationScope::Document {
+                library_id: scope_library_id,
+                project_id: scope_project_id,
+                document_id: scope_document_id,
+            } if scope_library_id == library_id
+                && scope_project_id.as_deref() == project_id
+                && scope_document_id == document_id
+        );
+    }
+    match scope {
+        DeliveryAuthorizationScope::Library {
+            library_id: scope_library_id,
+        } => scope_library_id == library_id && project_id.is_none(),
+        DeliveryAuthorizationScope::Project {
+            library_id: scope_library_id,
+            project_id: scope_project_id,
+        } => {
+            scope_library_id == library_id
+                && (project_id.is_none() || project_id == Some(scope_project_id.as_str()))
+        }
+        DeliveryAuthorizationScope::Document {
+            library_id: scope_library_id,
+            project_id: scope_project_id,
+            ..
+        } => {
+            scope_library_id == library_id
+                && (project_id.is_none() || project_id == scope_project_id.as_deref())
+        }
     }
 }
 
@@ -362,46 +445,6 @@ fn document_is_authorized(
         }
         Err(error) => Err(error),
     }
-}
-
-fn add_resource_revocations(
-    connection: &Connection,
-    library_id: &str,
-    resources: &LocalCommitResources,
-    requested_document_id: Option<&str>,
-    revocations: &mut BTreeSet<(RevokedResourceKind, String)>,
-) -> Result<(), StoreError> {
-    if let Some(document_id) = requested_document_id {
-        if resources
-            .document_ids
-            .iter()
-            .any(|candidate| candidate == document_id)
-        {
-            revocations.insert((RevokedResourceKind::Document, document_id.to_owned()));
-        }
-        return Ok(());
-    }
-    for block_id in &resources.block_ids {
-        let is_page = connection
-            .query_row(
-                "SELECT 1 FROM pages WHERE block_id = ?1 AND library_id = ?2",
-                params![block_id, library_id],
-                |_| Ok(()),
-            )
-            .optional()?
-            .is_some();
-        if is_page {
-            revocations.insert((RevokedResourceKind::Page, block_id.clone()));
-        }
-    }
-    revocations.extend(
-        resources
-            .document_ids
-            .iter()
-            .cloned()
-            .map(|document_id| (RevokedResourceKind::Document, document_id)),
-    );
-    Ok(())
 }
 
 fn owned_document_event_id(payload: &CoreModuleEventPayload) -> Option<&str> {
@@ -522,27 +565,9 @@ fn projection_scope_project(scope: &LocalProjectionScope) -> Option<&str> {
     }
 }
 
-fn packet_hash(
-    manifest: &CommitManifestHeader,
-    effects: &[AuthorizedModuleEffect],
-    document_effects: &[AuthorizedDocumentEffect],
-    projection_effects: &[nodex_core_contracts::ProjectionEffect],
-    revocations: &[ResourceRevocation],
-    projection_impact: &ProjectionImpact,
-    coverage: &DeliveryCoverage,
-) -> Result<String, StoreError> {
-    let encoded = serde_json::to_vec(&CanonicalPacket {
-        hash_version: 1,
-        packet_version: DELIVERY_PACKET_VERSION,
-        manifest,
-        effects,
-        document_effects,
-        projection_effects,
-        revocations,
-        projection_impact,
-        coverage,
-    })
-    .map_err(|_| corrupt("AuthorizedDeliveryPacket hash input is invalid"))?;
+fn packet_hash(packet: CanonicalPacket<'_>) -> Result<String, StoreError> {
+    let encoded = serde_json::to_vec(&packet)
+        .map_err(|_| corrupt("AuthorizedDeliveryPacket hash input is invalid"))?;
     Ok(format!("{:x}", Sha256::digest(encoded)))
 }
 
@@ -617,29 +642,57 @@ mod tests {
             inline_document_effect_orders: vec![0],
             ..reference_coverage.clone()
         };
+        let scope = DeliveryAuthorizationScope::Project {
+            library_id: "library:test".to_owned(),
+            project_id: "project:test".to_owned(),
+        };
 
-        let reference_hash = packet_hash(
-            &manifest,
-            &[],
-            &reference,
-            &[],
-            &[],
-            &ProjectionImpact::None,
-            &reference_coverage,
-        )
+        let reference_hash = packet_hash(CanonicalPacket {
+            hash_version: 2,
+            packet_version: DELIVERY_PACKET_VERSION,
+            authorization_scope: &scope,
+            manifest: &manifest,
+            effects: &[],
+            document_effects: &reference,
+            projection_effects: &[],
+            revocations: &[],
+            projection_impact: &ProjectionImpact::None,
+            coverage: &reference_coverage,
+        })
         .expect("reference packet hash");
-        let inline_hash = packet_hash(
-            &manifest,
-            &[],
-            &inline,
-            &[],
-            &[],
-            &ProjectionImpact::None,
-            &inline_coverage,
-        )
+        let inline_hash = packet_hash(CanonicalPacket {
+            hash_version: 2,
+            packet_version: DELIVERY_PACKET_VERSION,
+            authorization_scope: &scope,
+            manifest: &manifest,
+            effects: &[],
+            document_effects: &inline,
+            projection_effects: &[],
+            revocations: &[],
+            projection_impact: &ProjectionImpact::None,
+            coverage: &inline_coverage,
+        })
         .expect("inline packet hash");
+        let other_scope = DeliveryAuthorizationScope::Project {
+            library_id: "library:test".to_owned(),
+            project_id: "project:other".to_owned(),
+        };
+        let other_scope_hash = packet_hash(CanonicalPacket {
+            hash_version: 2,
+            packet_version: DELIVERY_PACKET_VERSION,
+            authorization_scope: &other_scope,
+            manifest: &manifest,
+            effects: &[],
+            document_effects: &reference,
+            projection_effects: &[],
+            revocations: &[],
+            projection_impact: &ProjectionImpact::None,
+            coverage: &reference_coverage,
+        })
+        .expect("other-scope packet hash");
 
         assert_ne!(reference_hash, inline_hash);
+        assert_ne!(reference_hash, other_scope_hash);
         assert_eq!(manifest.identity.manifest_hash, "a".repeat(64));
     }
 }

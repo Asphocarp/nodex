@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 import { plainTextToPortableRichText } from "../../shared/block-documents";
 import type { PageDetail } from "../../shared/page-detail";
 import type { ProjectionStreamMessage } from "../../shared/projection-stream";
+import type { ResourceRevocationMessage } from "../../shared/resource-revocation-stream";
 import { ProjectionInvalidationProvider } from "./projection-invalidation-context";
 import { ProjectionInvalidationRegistry } from "./projection-invalidation-registry";
 
@@ -17,6 +18,7 @@ vi.mock("./api", () => ({
 }));
 
 import {
+  getPageDetail,
   resetPageDetailStoreForTests,
   usePageDetail,
 } from "./page-detail-store";
@@ -111,6 +113,36 @@ const pageEvent = (
   },
 });
 
+const pageRevocation = (
+  commitSeq: number,
+): ResourceRevocationMessage => ({
+  version: 1,
+  kind: "revocation",
+  scope: {
+    kind: "project",
+    libraryId: "library-1",
+    projectId: "project-1",
+  },
+  stream: { storeEpoch: "epoch-1", commitSeq },
+  delivery: {
+    storeEpoch: "epoch-1",
+    commitSeq,
+    manifestHash: String(commitSeq).padStart(64, "b").slice(-64),
+    operationId: `operation-${commitSeq}`,
+    committedAt: "2026-08-06T00:00:00.000Z",
+    revocation: {
+      authorization_scope: {
+        kind: "project",
+        library_id: "library-1",
+        project_id: "project-1",
+      },
+      resource_kind: "page",
+      resource_id: "page-1",
+      reason: "ownership_moved",
+    },
+  },
+});
+
 const deferred = <T,>() => {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((resolvePromise) => {
@@ -121,15 +153,20 @@ const deferred = <T,>() => {
 
 describe("Page Detail store realtime convergence", () => {
   let projectionListener: ((message: ProjectionStreamMessage) => void) | null;
-  let latestMessage: ProjectionStreamMessage | null;
+  let revocationListener: ((message: ResourceRevocationMessage) => void) | null;
+  let latestMessage: ProjectionStreamMessage | ResourceRevocationMessage | null;
   let projectionRegistry: ProjectionInvalidationRegistry;
   const wrapper = ({ children }: { children: ReactNode }) => (
     <ProjectionInvalidationProvider registry={projectionRegistry}>
       {children}
     </ProjectionInvalidationProvider>
   );
-  const publish = (message: ProjectionStreamMessage) => {
+  const publish = (message: ProjectionStreamMessage | ResourceRevocationMessage) => {
     latestMessage = message;
+    if (message.kind === "revocation") {
+      revocationListener?.(message);
+      return;
+    }
     projectionListener?.(message);
   };
 
@@ -137,20 +174,29 @@ describe("Page Detail store realtime convergence", () => {
     resetPageDetailStoreForTests();
     mocks.readPageDetail.mockReset();
     projectionListener = null;
+    revocationListener = null;
     latestMessage = null;
-    projectionRegistry = new ProjectionInvalidationRegistry((scope, listener) => {
-      projectionListener = listener;
-      if (latestMessage) {
-        listener({
-          version: 2,
-          kind: "checkpoint",
-          scope,
-          stream: latestMessage.stream,
-        });
-      }
-      return () => {
-        if (projectionListener === listener) projectionListener = null;
-      };
+    projectionRegistry = new ProjectionInvalidationRegistry({
+      subscribeProjection: (scope, listener) => {
+        projectionListener = listener;
+        if (latestMessage) {
+          listener({
+            version: 2,
+            kind: "checkpoint",
+            scope,
+            stream: latestMessage.stream,
+          });
+        }
+        return () => {
+          if (projectionListener === listener) projectionListener = null;
+        };
+      },
+      subscribeRevocations: (_scope, listener) => {
+        revocationListener = listener;
+        return () => {
+          if (revocationListener === listener) revocationListener = null;
+        };
+      },
     });
   });
 
@@ -262,5 +308,80 @@ describe("Page Detail store realtime convergence", () => {
 
     await waitFor(() => expect(result.current.detail?.page.title).toBe("Restored"));
     expect(mocks.readPageDetail).toHaveBeenCalledTimes(2);
+  });
+
+  test("evicts a revoked Page immediately and fences an older in-flight read", async () => {
+    const staleRead = deferred<{ ok: true; value: PageDetail }>();
+    mocks.readPageDetail.mockReturnValueOnce(staleRead.promise);
+    const { result } = renderHook(
+      () => usePageDetail("library-1", "project-1", "page-1"),
+      { wrapper },
+    );
+
+    await waitFor(() => expect(result.current.loading).toBe(true));
+    await act(async () => {
+      publish(pageRevocation(2));
+      await Promise.resolve();
+    });
+    expect(result.current).toMatchObject({
+      detail: null,
+      loading: false,
+      error: "Page not found",
+    });
+
+    await act(async () => {
+      staleRead.resolve({ ok: true, value: detail("Stale", 1) });
+      await staleRead.promise;
+    });
+    expect(result.current).toMatchObject({
+      detail: null,
+      loading: false,
+      error: "Page not found",
+    });
+  });
+
+  test("refreshes Page detail without tombstoning it when only a dependency is revoked", async () => {
+    mocks.readPageDetail
+      .mockResolvedValueOnce({ ok: true, value: detail("Before", 1) })
+      .mockResolvedValueOnce({ ok: true, value: detail("Still readable", 2) });
+    const { result } = renderHook(
+      () => usePageDetail("library-1", "project-1", "page-1"),
+      { wrapper },
+    );
+    await waitFor(() => expect(result.current.detail?.page.title).toBe("Before"));
+    const revocation = pageRevocation(2);
+
+    await act(async () => {
+      publish({
+        ...revocation,
+        delivery: {
+          ...revocation.delivery,
+          revocation: {
+            ...revocation.delivery.revocation,
+            resource_kind: "document",
+            resource_id: "document-1",
+          },
+        },
+      });
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(result.current.detail?.page.title).toBe("Still readable");
+    });
+    expect(result.current.error).toBe(null);
+  });
+
+  test("does not retain authorization-scoped Page data after its last surface closes", async () => {
+    mocks.readPageDetail.mockResolvedValueOnce({ ok: true, value: detail("Open", 1) });
+    const { result, unmount } = renderHook(
+      () => usePageDetail("library-1", "project-1", "page-1"),
+      { wrapper },
+    );
+    await waitFor(() => expect(result.current.detail?.page.title).toBe("Open"));
+
+    unmount();
+
+    expect(getPageDetail("project-1", "page-1")).toBe(null);
   });
 });

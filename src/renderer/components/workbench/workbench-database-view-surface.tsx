@@ -26,7 +26,8 @@ import {
 } from "../../lib/query-invalidation";
 import { queryKeys } from "../../lib/query-keys";
 import { useProjectionInvalidationRegistry } from "../../lib/projection-invalidation-context";
-import type { ProjectionStreamMessage } from "../../../shared/projection-stream";
+import type { ProjectionInvalidationCause } from "../../lib/projection-invalidation-registry";
+import { resourceAuthorityQueryMeta } from "../../lib/resource-authority-query-cache";
 import { DatabaseViewTabSurface } from "./workbench-db-view-panel";
 
 type DatabaseReadTarget =
@@ -215,6 +216,36 @@ export function WorkbenchDatabaseViewSurface({
       );
       return { groups, scopedWindows };
     },
+    meta: resourceAuthorityQueryMeta((_queryKey, data) => {
+      const snapshot = data as {
+        readonly groups: DatabaseViewGroupsSnapshot<string | null>;
+        readonly scopedWindows: readonly ScopedWindow[];
+      } | undefined;
+      if (!snapshot) return null;
+      return {
+        scope: accessProjectId
+          ? {
+              kind: "project",
+              libraryId: snapshot.groups.libraryId,
+              projectId: accessProjectId,
+            }
+          : {
+              kind: "library",
+              libraryId: snapshot.groups.libraryId,
+            },
+        cursor: {
+          storeEpoch: snapshot.groups.storeEpoch,
+          commitSeq: snapshot.groups.commitSeq,
+        },
+        dependencies: {
+          databaseIds: [snapshot.groups.databaseId],
+          dataSourceIds: [snapshot.groups.dataSourceId],
+          viewIds: [snapshot.groups.viewId],
+          pageIds: snapshot.scopedWindows.flatMap((window) =>
+            window.snapshot.rows.map((row) => row.page.id)),
+        },
+      };
+    }),
   });
 
   useEffect(() => {
@@ -284,6 +315,7 @@ export function WorkbenchDatabaseViewSurface({
   useEffect(() => {
     const authority = mergedWindow;
     if (!authority) return;
+    let revocationRepair: Promise<void> | null = null;
     return projectionRegistry.register({
       scope: accessProjectId
         ? {
@@ -310,11 +342,23 @@ export function WorkbenchDatabaseViewSurface({
           ...current.scopedWindows.map((window) => window.snapshot),
         ]);
       },
-      invalidate: async (cause: ProjectionStreamMessage) => {
+      revoke: (cause) => {
         requiredMinimumCommitSeqRef.current = Math.max(
           requiredMinimumCommitSeqRef.current,
           cause.stream.commitSeq,
         );
+        revocationRepair = queryClient.resetQueries({ queryKey, exact: true });
+      },
+      invalidate: async (cause: ProjectionInvalidationCause) => {
+        requiredMinimumCommitSeqRef.current = Math.max(
+          requiredMinimumCommitSeqRef.current,
+          cause.stream.commitSeq,
+        );
+        if (cause.kind === "revocation") {
+          await revocationRepair;
+          revocationRepair = null;
+          return;
+        }
         await invalidateExactQuery(queryClient, queryKey);
       },
     });

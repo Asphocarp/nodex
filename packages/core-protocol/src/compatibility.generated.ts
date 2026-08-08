@@ -2,10 +2,10 @@ import type { components } from "./generated";
 
 export const CORE_CLIENT_REQUIREMENTS = {
   "transport": {
-    "min": 5,
-    "max": 5
+    "min": 6,
+    "max": 6
   },
-  "event_version": 5,
+  "event_version": 6,
   "modules": [
     {
       "module": "library",
@@ -35,8 +35,8 @@ export const CORE_CLIENT_REQUIREMENTS = {
   "accepted_store_formats": [
     {
       "lineage": "nodex-rust-core",
-      "version": 107,
-      "schema_fingerprint": "21aa9712f987c67678e1df3911955b0f9a68a239993468fa11d49f26bb744d5e"
+      "version": 108,
+      "schema_fingerprint": "ffa034b48ecedc1a38020db6f669117ab3ebc27432b24c4d0ef9800f7504056e"
     }
   ]
 } as const satisfies components["schemas"]["CoreClientRequirements"];

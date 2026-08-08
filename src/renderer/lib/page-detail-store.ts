@@ -1,11 +1,11 @@
-import { useEffect, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useSyncExternalStore } from "react";
 
 import type { PageDetail } from "../../shared/page-detail";
-import type { ProjectionStreamMessage } from "../../shared/projection-stream";
 import {
   readPageDetail,
 } from "./api";
 import { useProjectionInvalidationRegistry } from "./projection-invalidation-context";
+import type { ProjectionInvalidationCause } from "./projection-invalidation-registry";
 import {
   pageDetailDataDependencies,
   pageDetailDocumentDependencies,
@@ -28,7 +28,13 @@ const EMPTY_DETAIL: PageDetailSnapshot = {
 const entries = new Map<string, PageDetailSnapshot>();
 const listeners = new Map<string, Set<Listener>>();
 const versions = new Map<string, number>();
-const inFlight = new Map<string, Promise<PageDetail | null>>();
+interface InFlightPageDetail {
+  readonly generation: number;
+  readonly promise: Promise<PageDetail | null>;
+  readonly token: object;
+}
+const inFlight = new Map<string, InFlightPageDetail>();
+const entryGenerations = new Map<string, number>();
 let storeGeneration = 0;
 
 const detailKey = (projectId: string, pageId: string): string =>
@@ -39,6 +45,12 @@ const emit = (key: string): void => {
   for (const listener of listeners.get(key) ?? []) listener();
 };
 
+const advanceEntryGeneration = (key: string): number => {
+  const generation = (entryGenerations.get(key) ?? 0) + 1;
+  entryGenerations.set(key, generation);
+  return generation;
+};
+
 const subscribe = (key: string | null, listener: Listener): (() => void) => {
   if (!key) return () => undefined;
   const keyListeners = listeners.get(key) ?? new Set<Listener>();
@@ -46,7 +58,10 @@ const subscribe = (key: string | null, listener: Listener): (() => void) => {
   listeners.set(key, keyListeners);
   return () => {
     keyListeners.delete(listener);
-    if (keyListeners.size === 0) listeners.delete(key);
+    if (keyListeners.size > 0) return;
+    listeners.delete(key);
+    advanceEntryGeneration(key);
+    entries.delete(key);
   };
 };
 
@@ -103,8 +118,23 @@ export const invalidatePageDetail = (
   pageId: string,
 ): void => {
   const key = detailKey(projectId, pageId);
+  advanceEntryGeneration(key);
   if (!entries.has(key)) return;
   entries.delete(key);
+  emit(key);
+};
+
+export const revokePageDetail = (
+  projectId: string,
+  pageId: string,
+): void => {
+  const key = detailKey(projectId, pageId);
+  advanceEntryGeneration(key);
+  entries.set(key, {
+    detail: null,
+    loading: false,
+    error: "Page not found",
+  });
   emit(key);
 };
 
@@ -113,6 +143,7 @@ export const resetPageDetailStoreForTests = (): void => {
   const subscribedKeys = [...listeners.keys()];
   entries.clear();
   inFlight.clear();
+  entryGenerations.clear();
   versions.clear();
   for (const key of subscribedKeys) emit(key);
 };
@@ -124,9 +155,10 @@ export const fetchPageDetail = async (
 ): Promise<PageDetail | null> => {
   const key = detailKey(projectId, pageId);
   const minimumCommitSeq = options.minimumCommitSeq ?? 0;
+  const generation = entryGenerations.get(key) ?? 0;
   const existingRequest = inFlight.get(key);
-  if (existingRequest) {
-    const detail = await existingRequest;
+  if (existingRequest?.generation === generation) {
+    const detail = await existingRequest.promise;
     if (!detail) return null;
     if (
       minimumCommitSeq <= 0
@@ -145,11 +177,16 @@ export const fetchPageDetail = async (
   });
   emit(key);
 
-  const requestGeneration = storeGeneration;
+  const requestStoreGeneration = storeGeneration;
+  const requestEntryGeneration = generation;
+  const requestToken = {};
   const request = (async (): Promise<PageDetail | null> => {
     try {
       const result = await readPageDetail(projectId, pageId, minimumCommitSeq);
-      if (requestGeneration !== storeGeneration) return null;
+      if (
+        requestStoreGeneration !== storeGeneration
+        || requestEntryGeneration !== (entryGenerations.get(key) ?? 0)
+      ) return null;
       if (!result.ok) {
         if (result.error.code !== "page_not_found") {
           throw new Error(result.error.message);
@@ -176,7 +213,10 @@ export const fetchPageDetail = async (
       setPageDetail(result.value, { acceptEqualFreshness: true });
       return result.value;
     } catch (error) {
-      if (requestGeneration !== storeGeneration) return null;
+      if (
+        requestStoreGeneration !== storeGeneration
+        || requestEntryGeneration !== (entryGenerations.get(key) ?? 0)
+      ) return null;
       entries.set(key, {
         detail: current.detail,
         loading: false,
@@ -185,24 +225,32 @@ export const fetchPageDetail = async (
       emit(key);
       throw error;
     } finally {
-      if (requestGeneration === storeGeneration) {
+      if (inFlight.get(key)?.token === requestToken) {
         inFlight.delete(key);
       }
     }
   })();
-  inFlight.set(key, request);
+  inFlight.set(key, {
+    generation,
+    promise: request,
+    token: requestToken,
+  });
   return request;
 };
 
 const requestPageDetailRefresh = (
   projectId: string,
   pageId: string,
-  cause: ProjectionStreamMessage,
+  cause: ProjectionInvalidationCause,
 ): Promise<void> => {
   const key = detailKey(projectId, pageId);
   return (async () => {
+    if (
+      cause.kind === "revocation"
+      && cause.delivery.revocation.resource_kind === "page"
+    ) return;
     const current = inFlight.get(key);
-    if (current) await current;
+    if (current) await current.promise;
     if (!listeners.has(key)) return;
     const detail = getPageDetail(projectId, pageId);
     if (
@@ -225,8 +273,12 @@ export const usePageDetail = (
 ): PageDetailSnapshot => {
   const registry = useProjectionInvalidationRegistry();
   const key = projectId && pageId ? detailKey(projectId, pageId) : null;
+  const subscribeToDetail = useMemo(
+    () => (listener: Listener) => subscribe(key, listener),
+    [key],
+  );
   useSyncExternalStore(
-    (listener) => subscribe(key, listener),
+    subscribeToDetail,
     () => key ? (versions.get(key) ?? 0) : 0,
     () => 0,
   );
@@ -258,6 +310,14 @@ export const usePageDetail = (
             }
           : null;
       },
+      revoke: (cause) => {
+        if (cause.delivery.revocation.resource_kind === "page") {
+          revokePageDetail(projectId, pageId);
+          return;
+        }
+        invalidatePageDetail(projectId, pageId);
+      },
+      fence: () => invalidatePageDetail(projectId, pageId),
       invalidate: (cause) => requestPageDetailRefresh(projectId, pageId, cause),
     });
   }, [libraryId, pageId, projectId, registry]);

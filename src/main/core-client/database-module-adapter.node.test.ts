@@ -887,7 +887,7 @@ describe("Core Database Module Adapter", () => {
   });
 
   test("maps Database Core events into resource-scoped renderer invalidations", () => {
-    expect(mapCoreDatabaseEvent({
+    const envelope = {
       transport_version: 4,
       packet: createCoreLocalCommitFixture({
         commitSeq: 42,
@@ -907,7 +907,12 @@ describe("Core Database Module Adapter", () => {
         },
         canonicalHash: "0".repeat(64),
       }),
-    }, identity.libraryId)).toEqual({
+    } as const;
+    expect(mapCoreDatabaseEvent(
+      envelope,
+      envelope.packet.effects[0]!,
+      identity.libraryId,
+    )).toEqual({
       version: 2,
       projectId: identity.projectId,
       libraryId: identity.libraryId,
@@ -923,7 +928,7 @@ describe("Core Database Module Adapter", () => {
   });
 
   test("maps Library Database events without a compatibility Project", () => {
-    expect(mapCoreLibraryDatabaseEvent({
+    const envelope = {
       transport_version: 4,
       packet: createCoreLocalCommitFixture({
         commitSeq: 53,
@@ -943,7 +948,12 @@ describe("Core Database Module Adapter", () => {
         },
         canonicalHash: "0".repeat(64),
       }),
-    }, identity.libraryId)).toEqual({
+    } as const;
+    expect(mapCoreLibraryDatabaseEvent(
+      envelope,
+      envelope.packet.effects[0]!,
+      identity.libraryId,
+    )).toEqual({
       version: 1,
       libraryId: identity.libraryId,
       storeEpoch: identity.storeEpoch,

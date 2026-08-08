@@ -30,7 +30,10 @@ import type {
   PageOwnershipPathReadModel,
   ResolvePageOwnershipPathInput,
 } from "../../shared/page-ownership-paths";
-import { findCoreModulePayload, type CoreEventEnvelope } from "./types";
+import type {
+  CoreAuthorizedModuleEffect,
+  CoreEventEnvelope,
+} from "./types";
 import type {
   BlockPropertyMutationCommandResultV2,
   BlockPropertyMutationRequestV2,
@@ -219,10 +222,11 @@ export function createDesktopLibraryModuleBridge(
 
 export function mapCoreLibraryEvent(
   envelope: CoreEventEnvelope,
+  effect: CoreAuthorizedModuleEffect,
   libraryId: string,
 ): LibraryNavigationChangedEvent | null {
-  const payload = findCoreModulePayload(envelope, "library");
-  if (payload?.module !== "library") return null;
+  const payload = effect.payload;
+  if (payload.module !== "library") return null;
   return {
     version: LIBRARY_NAVIGATION_EVENT_VERSION,
     libraryId,

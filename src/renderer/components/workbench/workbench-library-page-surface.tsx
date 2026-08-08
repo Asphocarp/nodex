@@ -27,6 +27,8 @@ import {
   pageDetailDataDependencies,
   pageDetailDocumentDependencies,
 } from "../../lib/page-detail-projection-dependencies";
+import type { PageDetail } from "../../../shared/page-detail";
+import { resourceAuthorityQueryMeta } from "../../lib/resource-authority-query-cache";
 
 export function WorkbenchLibraryPageSurface({
   pageId,
@@ -70,6 +72,22 @@ export function WorkbenchLibraryPageSurface({
       if (!result.ok) throw new Error(result.error.message);
       return result.value;
     },
+    meta: resourceAuthorityQueryMeta((_queryKey, data) => {
+      const authority = data as PageDetail | undefined;
+      if (!authority) return null;
+      return {
+        scope: { kind: "library", libraryId: authority.libraryId },
+        cursor: {
+          storeEpoch: authority.storeEpoch,
+          commitSeq: authority.commitSeq,
+        },
+        dependencies: {
+          ...pageDetailDataDependencies(authority, pageId),
+          ...pageDetailDocumentDependencies(authority, pageId),
+        },
+        relatedQueryKeys: [documentQueryKey],
+      };
+    }),
   });
   const document = useQuery({
     queryKey: documentQueryKey,

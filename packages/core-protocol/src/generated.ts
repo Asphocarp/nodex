@@ -619,6 +619,7 @@ export interface components {
          *     same immutable manifest identity.
          */
         readonly AuthorizedDeliveryPacket: {
+            readonly authorization_scope: components["schemas"]["DeliveryAuthorizationScope"];
             readonly coverage: components["schemas"]["DeliveryCoverage"];
             readonly document_effects: readonly components["schemas"]["AuthorizedDocumentEffect"][];
             readonly effects: readonly components["schemas"]["AuthorizedModuleEffect"][];
@@ -1900,6 +1901,26 @@ export interface components {
         };
         /** @enum {string} */
         readonly DeletableOwnedSourceKind: "synced_block" | "reusable_template";
+        /**
+         * @description Core-authored authorization boundary for one delivery artifact. This is
+         *     part of packet integrity and must never be reconstructed by an Adapter.
+         */
+        readonly DeliveryAuthorizationScope: {
+            /** @enum {string} */
+            readonly kind: "library";
+            readonly library_id: string;
+        } | {
+            /** @enum {string} */
+            readonly kind: "project";
+            readonly library_id: string;
+            readonly project_id: string;
+        } | {
+            readonly document_id: string;
+            /** @enum {string} */
+            readonly kind: "document";
+            readonly library_id: string;
+            readonly project_id?: string | null;
+        };
         readonly DeliveryCoverage: {
             readonly document_effect_orders: readonly number[];
             readonly inline_document_effect_orders: readonly number[];
@@ -5498,6 +5519,7 @@ export interface components {
             readonly snooze_id: number;
         };
         readonly ResourceRevocation: {
+            readonly authorization_scope: components["schemas"]["DeliveryAuthorizationScope"];
             readonly reason: components["schemas"]["ResourceRevocationReason"];
             readonly resource_id: string;
             readonly resource_kind: components["schemas"]["RevokedResourceKind"];
@@ -6314,7 +6336,7 @@ export interface components {
             readonly status: "error";
         };
         /** @enum {string} */
-        readonly RevokedResourceKind: "page" | "document" | "database" | "data_source" | "view";
+        readonly RevokedResourceKind: "page" | "document" | "database" | "data_source" | "view" | "canvas";
         readonly RuntimeDescriptor: {
             readonly actual_store_format: components["schemas"]["StoreFormatIdentity"];
             readonly artifact: components["schemas"]["CoreArtifactIdentity"];
