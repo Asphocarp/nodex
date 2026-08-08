@@ -29,13 +29,35 @@ Document resource reads reauthorize and return typed unavailable reasons for a
 missing, compacted, generation-changed, or hash-mismatched ref.
 
 An exact Document subscription is also an authorization and resource-filtering
-boundary. Post-state packet resolution treats the subscribed Document ID as a
-first-class resource, applies the canonical owned-Document read rules—including
-Canvas shells and granted host Pages—and emits only semantic effects, Document
-refs, and revocations that address that exact Document. Unrelated effects are
-omitted while the stream checkpoint still advances. This prevents both payload
-leakage and the false-ready state where a valid Canvas commit advances the
-cursor without delivering its scene update.
+boundary, but has no replay cursor. Core installs its resource-addressed live
+receiver before reading authorization, Store identity, engine, generation,
+Document head, and LocalCommit head in one SQLite snapshot. The resulting
+`DocumentLiveBarrier` means every later addressed commit is either buffered by
+Main or delivered after canonical state-vector/scene synchronization adopts the
+barrier. Earlier state comes from that canonical sync, never from scanning the
+global ledger. Post-state packet resolution still applies the canonical
+owned-Document read rules—including Canvas shells and granted host Pages—and
+emits only effects, refs, and revocations for that exact Document.
+
+The exact live publisher resolves immutable routing claims once per commit on
+an ordered blocking worker and wakes only addressed Document channels. Apply
+publication performs only bounded non-blocking enqueue work; routing,
+authorization, packet reconstruction, and renderer delivery are not response
+prerequisites. Unrelated commits therefore create no wakeup or cursor work per
+open surface. Ephemeral Awareness uses a separate addressed per-Document
+channel, so presence bursts cannot crowd the commit/repair lane. Receiver lag,
+route/payload failure, and Store replacement are typed repair boundaries that
+close the physical stream and force a fresh barrier plus canonical sync. A
+post-state access revocation is delivered through the same exact-resource
+boundary even when the commit has no semantic effects. Durable root scanning
+and exact packet reconstruction run outside the async server reactor, so a
+large mutation cannot starve handshake or UDS scheduling.
+
+Once a command's durable identity is verified, Core publishes its at-least-once
+wake before reconstructing optional apply delivery. A post-commit response
+failure therefore remains recoverable without waiting for another mutation;
+an exact retry republishes the same identity and downstream resource admission
+deduplicates it.
 
 Document/Canvas realtime heads are ordered independently per surface. A future
 head is retained in a bounded gap buffer until its predecessor arrives; an
@@ -239,7 +261,7 @@ Store v104 retains Relation Page IDs only in normalized edge authority. Relation
 - Every Canvas is a `scene_graph` Owned Document using the `canvas_scene` engine, not Yjs or a renderer-overwritten scene row; each Project merely seeds one deterministic primary Canvas as its default entry. SQLite normalizes current element, durable app-state, and managed-file authority; the writer merges bounded candidates by Excalidraw version/nonce plus canonical hash, requires explicit tombstones, advances the head only for effective change, and records compact exact-mutation evidence atomically with projections. Exact counters—including tombstone UTF-8 bytes—derived reference/text columns, sparse hash buckets, and a projection head keep warm writes and maintenance eligibility proportional to changed candidates rather than total scene size. The common Module receipt is the only retained replay result, and its Canvas semantic fingerprint excludes physical connection and adapter identity. A renderer shares one ref-counted provider/outbox session per Canvas Document while preserving surface-local interaction state. Images are materialized under SHA-256 filenames before enqueue; repeated logical file assertions compare canonical MIME, byte length, and verified digest, retain first-writer URI/time metadata, and reject only different content. Active outbox rows cross store-epoch/generation boundaries only by explicit reset. A deterministic Core rejection moves the exact row atomically into a bounded quarantine before full resync, while transport or ambiguous protocol failures retain the active row for exact retry. Subscribe-before-sync, semantic snapshot decoding, canonical delta fanout, and bounded full-scene repair close realtime gaps; Rust JSON bytes are validated as UTF-8/JSON/portable scene rather than being required to equal a JavaScript re-encoding. Remote presentation uses Excalidraw reconciliation with `CaptureUpdateAction.NEVER`. When the last fully committed surface closes, count or byte pressure may trigger invisible maintenance. The Host requires that surface to be the sole subscriber, uses the common write fence to pin a complete safety revision, and atomically publishes a tombstone-free next generation at head one. Offline, pending-outbox, concurrent-surface, and fence failures defer without blocking close. Exact replay precedes fresh fence checks; stale generation intent is cleared before it can replay. Missing, replaced, oversized, symlinked, or hash-mismatched assets fail the whole scene mutation, maintenance, or backup validation.
 - Pointer, selection, and idle presence uses a Host-memory lane keyed to the exact Canvas subscription generation. Higher clocks replace, clean close removes immediately, 15-second heartbeats prevent 30-second TTL expiry, and reconnect receives a fresh snapshot. Presence never enters Core, SQLite, history, the change log, or the outbox; remote collaborator presentation also uses `CaptureUpdateAction.NEVER`.
 - Ready Block Documents use binary Yjs updates in SQLite. The DocumentStore rejects stale store epochs and generations, deduplicates update IDs through immutable receipts, reconstructs from the latest snapshot plus tail, validates the Page roots/XML tree/global Block registry before commit, and acknowledges only after the immediate SQLite transaction advances the durable head and Block index together. A causally redundant Yjs replay is a successful duplicate ACK at the unchanged head and produces neither an update row nor fanout; monotonic CRDT state makes that no-op result stable without inventing a sequence receipt. Client-declared touched IDs are bounded diagnostics; the writer derives the authoritative title/Block change set from validated before/after content. An update with unresolved Yjs dependencies returns a typed retry error and is never appended as a poison tail.
-- Electron IPC adapts Core's engine-specific Document contracts. A client subscribes before synchronization, and success means the first authenticated exact Core stream is open rather than merely scheduled. The Host keeps one logical subscription across retryable physical UDS interruptions, resumes from the accepted cursor, and holds dependent commands behind the current connection barrier. A terminal stream failure releases the exact renderer binding; replacement sessions wait for predecessor teardown. Renderer sessions are multiplexed by subscriber identity and serialize subscribe/unsubscribe, so an old disposer cannot close a revived provider. Yjs repairs with state vectors, while Canvas repairs a missing/out-of-order head with one bounded full canonical scene. Only durable effective changes fan out, and exact retries return their original receipt.
+- Electron IPC adapts Core's engine-specific Document contracts. A client subscribes before synchronization, and success means the first authenticated exact live barrier is open rather than merely scheduled. The Host keeps one logical subscription across retryable physical UDS interruptions, opens a fresh barrier instead of replaying an exact cursor, and holds dependent commands behind the current connection boundary. The bridge does not expose post-barrier bytes as current authority until canonical sync adopts the matching Store/generation/head; covered events are discarded and later contiguous heads drain in order. A terminal stream failure releases the exact renderer binding; replacement sessions wait for predecessor teardown. Renderer sessions are multiplexed by subscriber identity and serialize subscribe/unsubscribe, so an old disposer cannot close a revived provider. Yjs repairs with state vectors, while Canvas repairs a missing/out-of-order head with one bounded full canonical scene. Only durable effective changes fan out, and exact retries return their original receipt.
 - Every new `change_log` row requires a normalized `ProjectionImpact` committed with its semantic mutation. Page Document commits include Page, Database, Data Source, every affected View, and the exact final Document head. Ordinary lifecycle, property, Database, Automation, and Project-creation mutations include their complete resource closure; modules with no canonical projection effect explicitly record `none`. Empty resources become `none`, and a legitimate effect beyond the fixed identity bound becomes `all` rather than being truncated. Visibility-changing moves, grants, and transfers also use identity-free `all`: Project filtering reads post-commit authorization and cannot safely reveal or name a resource the Project just lost. Event payloads contain no title, summary, property values, or Page DTO. Live publication and replay call the same row decoder, so commit-time coordinates survive later moves.
 - Committed Core event version 6 is distinct from transport version 6 and from
   every semantic Module contract version. Apply responses and durable replay

@@ -240,7 +240,7 @@ describe("Core Canvas scene adapter", () => {
       fileAdditions: {},
     })).resolves.toEqual({ ok: true, value: mutationResult });
 
-    client.emit(committedEvent());
+    client.emitDocument(DOCUMENT_ID, committedEvent());
     await expect.poll(() => events).toEqual([{
       type: "canvas_scene_committed",
       version: CANVAS_SCENE_SYNC_VERSION,
@@ -414,7 +414,7 @@ describe("Core Canvas scene adapter", () => {
       expected_head_seq: 9,
     });
 
-    client.emit({
+    client.emitDocument(DOCUMENT_ID, {
       transport_version: 4,
       packet: createCoreLocalCommitFixture({
         commitSeq: 4,

@@ -47,6 +47,39 @@ const AUTHORIZED_STREAM_BOUNDS_SQL: &str = "SELECT metadata.store_epoch,
 const AUTHORIZED_STREAM_PAGE_SQL: &str = "SELECT commit_seq FROM local_commits
      WHERE store_epoch = ?1 AND finalized = 1 AND commit_seq > ?2
      ORDER BY commit_seq ASC LIMIT ?3";
+const DOCUMENT_LIVE_ROUTE_SQL: &str = "SELECT
+       EXISTS(
+         SELECT 1 FROM local_commit_documents document
+         WHERE document.store_epoch = ?1
+           AND document.commit_seq = ?2 AND document.document_id = ?3
+       ) OR EXISTS(
+         SELECT 1 FROM local_commit_revocations revocation
+         WHERE revocation.store_epoch = ?1 AND revocation.commit_seq = ?2
+           AND revocation.resource_kind = 'document'
+           AND revocation.resource_id = ?3
+       ) OR EXISTS(
+         SELECT 1 FROM local_commit_effects effect
+         JOIN change_log change ON change.seq = effect.change_log_seq
+         JOIN json_each(change.document_ids_json) routed
+         WHERE effect.store_epoch = ?1 AND effect.commit_seq = ?2
+           AND routed.value = ?3
+       )";
+const DOCUMENT_LIVE_ROUTES_SQL: &str = "SELECT document_id FROM (
+       SELECT document.document_id AS document_id
+       FROM local_commit_documents document
+       WHERE document.store_epoch = ?1 AND document.commit_seq = ?2
+       UNION
+       SELECT revocation.resource_id AS document_id
+       FROM local_commit_revocations revocation
+       WHERE revocation.store_epoch = ?1 AND revocation.commit_seq = ?2
+         AND revocation.resource_kind = 'document'
+       UNION
+       SELECT CAST(routed.value AS TEXT) AS document_id
+       FROM local_commit_effects effect
+       JOIN change_log change ON change.seq = effect.change_log_seq
+       JOIN json_each(change.document_ids_json) routed
+       WHERE effect.store_epoch = ?1 AND effect.commit_seq = ?2
+     ) ORDER BY document_id";
 const MAX_EVENT_PAYLOAD_BYTES: usize = 1024 * 1024;
 const MAX_EVENT_IDENTITIES: usize = 10_000;
 
@@ -228,6 +261,14 @@ pub enum CoreAuthorizedEventReplay {
     },
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum DocumentLiveDelivery {
+    Unrelated,
+    Packet(Box<AuthorizedDeliveryPacket>),
+    IdentityChanged(StreamCheckpoint),
+    AccessRevoked,
+}
+
 #[derive(Clone)]
 pub struct CoreEventLog {
     readers: StoreReaders,
@@ -277,6 +318,119 @@ impl CoreEventLog {
             inline_resources,
             DeliveryAudience::BoundScope,
         )
+    }
+
+    /// Resolves one post-barrier packet for an exact Document subscription.
+    /// The immutable route indexes are checked before manifest verification so
+    /// unrelated commits never pay the reconstruction cost per open surface.
+    pub fn authorized_document_live_delivery(
+        &self,
+        commit_seq: i64,
+        context: &BoundModuleContext,
+        document_id: &str,
+        expected_store_epoch: &StoreEpoch,
+        generation: &str,
+        live_after: i64,
+    ) -> Result<DocumentLiveDelivery, StoreError> {
+        if commit_seq <= 0
+            || document_id.is_empty()
+            || document_id.len() > 512
+            || generation.is_empty()
+            || generation.len() > 512
+            || live_after < 0
+        {
+            return Err(corrupt("Document live delivery coordinate is invalid"));
+        }
+        let context = context.clone();
+        let document_id = document_id.to_owned();
+        let expected_store_epoch = expected_store_epoch.clone();
+        let generation = generation.to_owned();
+        self.readers.read_default(move |connection| {
+            let transaction = connection.unchecked_transaction()?;
+            let (store_epoch, oldest_available_seq, scanned_through_seq) =
+                authorized_stream_bounds(&transaction)?;
+            if store_epoch != expected_store_epoch.0 {
+                transaction.commit()?;
+                return Ok(DocumentLiveDelivery::IdentityChanged(StreamCheckpoint {
+                    store_epoch: StoreEpoch(store_epoch),
+                    generation,
+                    scanned_through_seq,
+                    oldest_available_seq,
+                    resync_token: None,
+                }));
+            }
+            if commit_seq <= live_after {
+                transaction.commit()?;
+                return Ok(DocumentLiveDelivery::Unrelated);
+            }
+            let addressed = transaction.query_row(
+                DOCUMENT_LIVE_ROUTE_SQL,
+                params![&expected_store_epoch.0, commit_seq, &document_id],
+                |row| row.get::<_, i64>(0),
+            )? == 1;
+            if !addressed {
+                transaction.commit()?;
+                return Ok(DocumentLiveDelivery::Unrelated);
+            }
+            if let Err(error) = crate::document::require_owned_document_read_access(
+                &transaction,
+                &context,
+                &document_id,
+            ) {
+                if matches!(
+                    error.code,
+                    StoreErrorCode::NotFound | StoreErrorCode::Unauthorized
+                ) {
+                    transaction.commit()?;
+                    return Ok(DocumentLiveDelivery::AccessRevoked);
+                }
+                return Err(error);
+            }
+            let packet = authorized_delivery::resolve(
+                &transaction,
+                commit_seq,
+                DeliveryRequest {
+                    context: &context,
+                    audience: DeliveryAudience::BoundScope,
+                    document_id: Some(&document_id),
+                    resource_mode: DeliveryResourceMode::RefOnly,
+                },
+            )?;
+            transaction.commit()?;
+            Ok(packet.map_or(DocumentLiveDelivery::Unrelated, |packet| {
+                DocumentLiveDelivery::Packet(Box::new(packet))
+            }))
+        })
+    }
+
+    /// Resolves the immutable routing claims for one committed mutation once,
+    /// before the server wakes exact-resource live streams. Authorization is
+    /// deliberately not decided here; every addressed stream still resolves
+    /// its own scoped packet through Core.
+    pub fn document_live_routes(
+        &self,
+        store_epoch: &str,
+        commit_seq: i64,
+    ) -> Result<Vec<String>, StoreError> {
+        if store_epoch.is_empty() || store_epoch.len() > 512 || commit_seq <= 0 {
+            return Err(corrupt("Document live route commit sequence is invalid"));
+        }
+        let store_epoch = store_epoch.to_owned();
+        self.readers.read_default(move |connection| {
+            let mut statement = connection.prepare_cached(DOCUMENT_LIVE_ROUTES_SQL)?;
+            let rows = statement.query_map(params![store_epoch, commit_seq], |row| {
+                row.get::<_, String>(0)
+            })?;
+            let mut routes = Vec::new();
+            for row in rows {
+                let document_id = row?;
+                if document_id.is_empty() || document_id.len() > 512 {
+                    return Err(corrupt("Document live route identity is invalid"));
+                }
+                routes.push(document_id);
+            }
+            Ok(routes)
+        })
     }
 
     /// Resolves a packet for the trusted Electron Host's Library broker while
@@ -498,14 +652,7 @@ fn scan_authorized_events(
     if limit == 0 {
         return Err(corrupt("Authorized commit stream limit is invalid"));
     }
-    let (store_epoch, oldest_commit, commit_head) =
-        connection.query_row(AUTHORIZED_STREAM_BOUNDS_SQL, [], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, i64>(1)?,
-                row.get::<_, i64>(2)?,
-            ))
-        })?;
+    let (store_epoch, oldest_commit, commit_head) = authorized_stream_bounds(connection)?;
     if oldest_commit < 0 || commit_head < oldest_commit {
         return Err(corrupt("Authorized commit retention boundary is invalid"));
     }
@@ -566,6 +713,20 @@ fn scan_authorized_events(
         },
         commit_head,
     })
+}
+
+fn authorized_stream_bounds(connection: &Connection) -> Result<(String, i64, i64), StoreError> {
+    let bounds = connection.query_row(AUTHORIZED_STREAM_BOUNDS_SQL, [], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, i64>(1)?,
+            row.get::<_, i64>(2)?,
+        ))
+    })?;
+    if bounds.1 < 0 || bounds.2 < bounds.1 {
+        return Err(corrupt("Authorized commit retention boundary is invalid"));
+    }
+    Ok(bounds)
 }
 
 pub(crate) fn validate_local_commit_index(connection: &Connection) -> Result<(), StoreError> {
@@ -1677,6 +1838,69 @@ mod tests {
     }
 
     #[test]
+    fn exact_document_live_delivery_skips_unrelated_manifest_reconstruction() {
+        let directory = tempdir().expect("temporary Profile");
+        let kernel = SqliteStoreKernel::open(directory.path()).expect("Core store");
+        let (store_epoch, library_id, commit_seq) = kernel
+            .writer()
+            .call(|connection| {
+                let (store_epoch, library_id) = store_identity(connection)?;
+                connection.execute(
+                    "INSERT INTO projects(id, library_id, name, created, updated)
+                     VALUES ('project:events', ?1, 'Events', '2026-01-01', '2026-01-01')",
+                    [&library_id],
+                )?;
+                append_finalized_test_event(
+                    connection,
+                    "project_workspace",
+                    NewChangeLogEntry {
+                        project_id: "project:events",
+                        store_epoch: &store_epoch,
+                        kind: "project_workspace.changed",
+                        operation_id: Some("workspace:unrelated-to-document"),
+                        block_ids: &[],
+                        document_ids: &[],
+                        database_block_ids: &[],
+                        payload_json: r#"{
+                          "module":"project_workspace","kind":"workspace_changed",
+                          "projectIds":[],"sessionIds":[],"threadIds":[],
+                          "sessionSummaryScopes":[],"sessionDetailIds":[]
+                        }"#,
+                        projection_impact: &ProjectionImpact::None,
+                        committed_at: "2026-08-07T00:00:00Z",
+                    },
+                )?;
+                let commit_seq = local_commit::head(connection)?;
+                connection.execute(
+                    "UPDATE local_commits SET canonical_hash = ?1
+                     WHERE commit_seq = ?2",
+                    params!["0".repeat(64), commit_seq],
+                )?;
+                Ok((store_epoch, library_id, commit_seq))
+            })
+            .expect("unrelated corrupt manifest fixture");
+        let log = CoreEventLog::new(kernel.readers());
+
+        let packet = log
+            .authorized_document_live_delivery(
+                commit_seq,
+                &context(&library_id, "project:events"),
+                "document:exact",
+                &StoreEpoch(store_epoch.clone()),
+                "generation:test",
+                0,
+            )
+            .expect("unrelated commit bypasses manifest reconstruction");
+        assert_eq!(packet, DocumentLiveDelivery::Unrelated);
+
+        assert_eq!(
+            log.document_live_routes(&store_epoch, commit_seq)
+                .expect("Document routes"),
+            Vec::<String>::new(),
+        );
+    }
+
+    #[test]
     fn authorized_scan_returns_typed_resync_when_cursor_predates_retention() {
         let directory = tempdir().expect("temporary Profile");
         let kernel = SqliteStoreKernel::open(directory.path()).expect("Core store");
@@ -1773,7 +1997,7 @@ mod tests {
     fn post_state_delivery_revokes_source_project_and_grants_target_project() {
         let directory = tempdir().expect("temporary Profile");
         let kernel = SqliteStoreKernel::open(directory.path()).expect("Core store");
-        let (library_id, commit_seq) = kernel
+        let (store_epoch, library_id, commit_seq) = kernel
             .writer()
             .call(|connection| {
                 let (store_epoch, library_id) = store_identity(connection)?;
@@ -1833,17 +2057,28 @@ mod tests {
                         },
                         committed_at: "2026-08-07T00:00:00Z",
                     },
-                    &[ResourceRevocation {
-                        authorization_scope: DeliveryAuthorizationScope::Project {
-                            library_id: "library:events".to_owned(),
-                            project_id: "project:a".to_owned(),
+                    &[
+                        ResourceRevocation {
+                            authorization_scope: DeliveryAuthorizationScope::Project {
+                                library_id: "library:events".to_owned(),
+                                project_id: "project:a".to_owned(),
+                            },
+                            resource_kind: RevokedResourceKind::Page,
+                            resource_id: "page:moved".to_owned(),
+                            reason: ResourceRevocationReason::OwnershipMoved,
                         },
-                        resource_kind: RevokedResourceKind::Page,
-                        resource_id: "page:moved".to_owned(),
-                        reason: ResourceRevocationReason::OwnershipMoved,
-                    }],
+                        ResourceRevocation {
+                            authorization_scope: DeliveryAuthorizationScope::Project {
+                                library_id: "library:events".to_owned(),
+                                project_id: "project:a".to_owned(),
+                            },
+                            resource_kind: RevokedResourceKind::Document,
+                            resource_id: "document:moved".to_owned(),
+                            reason: ResourceRevocationReason::OwnershipMoved,
+                        },
+                    ],
                 )?;
-                Ok((library_id, local_commit::head(connection)?))
+                Ok((store_epoch, library_id, local_commit::head(connection)?))
             })
             .expect("cross-Project delivery fixture");
         let log = CoreEventLog::new(kernel.readers());
@@ -1911,6 +2146,18 @@ mod tests {
             DeliveryAuthorizationScope::Library { .. }
         ));
         assert_eq!(broker, root);
+        assert_eq!(
+            log.authorized_document_live_delivery(
+                commit_seq,
+                &context(&library_id, "project:a"),
+                "document:moved",
+                &StoreEpoch(store_epoch),
+                "generation:test",
+                0,
+            )
+            .expect("source exact Document revocation"),
+            DocumentLiveDelivery::AccessRevoked,
+        );
         assert_eq!(
             source.manifest.identity.manifest_hash,
             target.manifest.identity.manifest_hash

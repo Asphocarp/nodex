@@ -38,6 +38,7 @@ import type {
   CoreEventEnvelope,
   CoreEventReplayRequired,
   CoreEventSubscription,
+  CoreDocumentEventSubscription,
   CoreStreamCheckpoint,
   CoreHandshakeResponse,
   CoreLocalMutationResolveRequest,
@@ -61,7 +62,7 @@ import type {
   LibraryRead,
   LibraryReadResponse,
   LibraryReadSnapshot,
-  DocumentResyncRequired,
+  DocumentLiveRepair,
   OwnedDocumentApplyInput,
   OwnedDocumentApplyResponse,
   OwnedDocumentApplyResult,
@@ -81,7 +82,7 @@ import type {
   StoreAdministrationReadResponse,
   StoreAdministrationReadSnapshot,
 } from "./types";
-import { UdsHttpTransport } from "./uds-http";
+import { CoreEventCompatibilityError, UdsHttpTransport } from "./uds-http";
 
 const DOCUMENT_FRAME_OVERHEAD_BYTES = MAX_DOCUMENT_HTTP_METADATA_BYTES + 8;
 
@@ -191,6 +192,7 @@ export class CoreClient implements CoreClientPort {
       eventVersion: handshake.selected_event_version,
       libraryId: handshake.library_id,
       storeEpoch: handshake.store_epoch,
+      coreGeneration: handshake.generation.start_nonce,
     });
     return new CoreClient(transport, handshake, input.projectId, connectionId);
   }
@@ -498,27 +500,30 @@ export class CoreClient implements CoreClientPort {
     input: {
       readonly documentId: string;
       readonly clientSessionId: string;
-      readonly after: number;
       readonly signal?: AbortSignal;
     },
     onEvent: (event: CoreEventEnvelope) => void,
-    onCheckpoint: (checkpoint: CoreStreamCheckpoint) => void,
-    onResyncRequired: (event: DocumentResyncRequired) => void,
+    onRepair: (repair: DocumentLiveRepair) => void,
     onRealtimeEvent: (event: DocumentSyncRealtimeEvent) => void,
-  ): Promise<CoreEventSubscription> {
-    return this.#transport.openEventStream(
-      input.after,
-      onEvent,
+  ): Promise<CoreDocumentEventSubscription> {
+    return this.#transport.openDocumentLiveStream(
       {
         ...this.#documentHeaders(input.clientSessionId),
         "x-nodex-document-id": input.documentId,
       },
-      onResyncRequired,
+      onEvent,
+      onRepair,
       onRealtimeEvent,
-      undefined,
-      onCheckpoint,
       input.signal,
-    );
+    ).then((subscription) => {
+      if (subscription.barrier.document_id !== input.documentId) {
+        subscription.close();
+        throw new CoreEventCompatibilityError(
+          "Core Document live barrier does not match the requested Document",
+        );
+      }
+      return subscription;
+    });
   }
 
   openEventStream(
@@ -532,7 +537,6 @@ export class CoreClient implements CoreClientPort {
       after,
       onEvent,
       this.#moduleHeaders(),
-      undefined,
       undefined,
       onResyncRequired,
       onCheckpoint,

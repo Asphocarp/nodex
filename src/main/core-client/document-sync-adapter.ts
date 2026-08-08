@@ -59,11 +59,11 @@ import type {
 } from "../../shared/block-documents/document-sync";
 import { CoreModuleResponseError } from "./core-client";
 import { applyResultCursor, applyResultStoreEpoch } from "./types";
+import { isRetryableCoreEventStreamError } from "./core-event-stream-supervisor";
 import {
-  isRetryableCoreEventStreamError,
-  superviseCoreEventStream,
-  type SupervisedCoreEventSubscription,
-} from "./core-event-stream-supervisor";
+  superviseDocumentLiveStream,
+  type SupervisedDocumentLiveSubscription,
+} from "./document-live-stream-supervisor";
 import { executeWithDocumentSubscription } from "./core-document-subscription-lifecycle";
 import {
   resolveAuthorizedDocumentEffect,
@@ -72,7 +72,7 @@ import {
 import type {
   CoreClientPort,
   CoreEventEnvelope,
-  DocumentResyncRequired,
+  DocumentLiveRepair,
   OwnedDocumentIntent,
 } from "./types";
 
@@ -81,7 +81,7 @@ type CoreDocumentOwnerCommand = Extract<
   { readonly kind: "apply_owner_command" }
 >["command"];
 
-type ActiveSubscription = SupervisedCoreEventSubscription;
+type ActiveSubscription = SupervisedDocumentLiveSubscription;
 
 interface CoreDocumentSyncAdapterOptions {
   readonly retryDelayMs?: number;
@@ -124,7 +124,7 @@ export interface CoreDocumentSyncAdapter extends DocumentSyncAdapter {
   subscribeWithLifecycle(
     request: DocumentSyncSubscribeRequest,
     listener: (event: DocumentSyncRealtimeEvent) => void,
-  ): SupervisedCoreEventSubscription;
+  ): SupervisedDocumentLiveSubscription;
   readDescriptor(input: {
     readonly ownerBlockId: string;
     readonly clientSessionId: string;
@@ -660,7 +660,6 @@ export const createCoreDocumentSyncAdapter = (
   options: CoreDocumentSyncAdapterOptions = {},
 ): CoreDocumentSyncAdapter => {
   const subscriptions = new Map<string, ActiveSubscription>();
-  const lastSequences = new Map<string, number>();
   const updateResourceFetches = new Map<
     string,
     Promise<DocumentSyncCommandResult<DocumentUpdateResourceReadResult>>
@@ -808,41 +807,38 @@ export const createCoreDocumentSyncAdapter = (
   const subscribeWithLifecycle = (
     request: DocumentSyncSubscribeRequest,
     listener: (event: DocumentSyncRealtimeEvent) => void,
-  ): SupervisedCoreEventSubscription => {
+  ): SupervisedDocumentLiveSubscription => {
     const key = subscriptionKey(request);
     const predecessor = subscriptions.get(key);
     predecessor?.close();
     const predecessorDone = predecessor?.done.catch(() => undefined)
       ?? Promise.resolve();
-    const supervisor = superviseCoreEventStream<DocumentResyncRequired>({
-      initialAfter: lastSequences.get(key) ?? 0,
+    const supervisor = superviseDocumentLiveStream({
       maxInitialOpenAttempts: options.maxInitialOpenAttempts ?? 3,
       shouldRetry: isRetryableCoreEventStreamError,
       retryDelayMs: options.retryDelayMs,
       maxRetryDelayMs: options.maxRetryDelayMs,
-      open: async (after, onEvent, onCheckpoint, onResyncRequired, signal) => {
+      open: async (onEvent, onRepair, onRealtime, signal) => {
         await predecessorDone;
         if (signal.aborted) throw signal.reason;
         return await client.openDocumentEventStream(
           {
             documentId: request.documentId,
             clientSessionId: request.clientSessionId,
-            after,
             signal,
           },
           onEvent,
-          onCheckpoint,
-          onResyncRequired,
-          (event) => listener(event),
+          onRepair,
+          onRealtime,
         );
       },
-      onEvent: (envelope) => {
-        const previous = lastSequences.get(key) ?? 0;
+      onEvent: async (envelope) => {
         const commitSeq = envelope.packet.manifest.identity.commit_seq;
-        if (commitSeq <= previous) return;
-        void documentEvents(request, envelope, fetchUpdateResource)
-          .then((events) => events.forEach(listener))
-          .catch(() => listener({
+        try {
+          const events = await documentEvents(request, envelope, fetchUpdateResource);
+          events.forEach(listener);
+        } catch {
+          listener({
             kind: "resync-required",
             documentId: request.documentId,
             storeEpoch: envelope.packet.manifest.identity.store_epoch,
@@ -850,22 +846,25 @@ export const createCoreDocumentSyncAdapter = (
             headSeq: 0,
             commitSeq,
             reason: "resource-integrity-failure",
-          }));
+          });
+        }
       },
-      onCheckpoint: (checkpoint) => {
-        lastSequences.set(key, checkpoint.scanned_through_seq);
-      },
-      onResyncRequired: (resync) => {
-        lastSequences.set(key, resync.commit_head);
+      onRepair: (repair: DocumentLiveRepair) => {
         listener({
           kind: "resync-required",
-          documentId: resync.document_id,
-          storeEpoch: resync.store_epoch,
-          generation: resync.generation,
-          headSeq: resync.head_seq,
-          reason: "history-compacted",
+          documentId: repair.document_id,
+          storeEpoch: repair.store_epoch,
+          generation: repair.document_generation,
+          headSeq: repair.head_seq,
+          commitSeq: repair.commit_head,
+          reason: repair.reason === "identity_changed"
+            ? "identity-boundary-changed"
+            : repair.reason === "access_revoked"
+            ? "access-revoked"
+            : "event-gap",
         });
       },
+      onRealtime: (event) => listener(event),
       onConnectionStateChanged: (state) => {
         listener({
           kind: "connection",

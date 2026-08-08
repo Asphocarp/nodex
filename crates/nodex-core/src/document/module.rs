@@ -67,7 +67,6 @@ use super::canvas_scene::{
     parse_canvas_mutation, prepare_canvas_restore,
 };
 use super::compaction::{DocumentCompactionResult, compact_yjs_document};
-use super::event_log::{DocumentEventReplay, replay_document_events};
 use super::genesis::{prepare_editable_root, prepare_yjs_genesis};
 use super::history::{
     NewDocumentCheckpoint, get_document_version, insert_canvas_checkpoint,
@@ -766,44 +765,24 @@ impl OwnedDocumentModule {
         self.validate_context(context)?;
         self.readers
             .read_default(|connection| {
-                let authority = read_document_authority(connection, document_id)?
+                let transaction = connection.unchecked_transaction()?;
+                let authority = read_document_authority(&transaction, document_id)?
                     .ok_or_else(|| not_found("Owned Document was not found"))?;
                 authorize_owned_document(
-                    connection,
+                    &transaction,
                     context,
                     &authority,
                     DocumentAccessKind::Read,
                 )?;
-                Ok(RealtimeDocumentBoundary {
-                    store_epoch: StoreEpoch(read_store_epoch(connection)?),
+                let boundary = RealtimeDocumentBoundary {
+                    store_epoch: StoreEpoch(read_store_epoch(&transaction)?),
                     generation: authority.head.generation,
                     head_seq: authority.head.head_seq,
-                    commit_head: read_local_commit_head(connection)?,
+                    commit_head: read_local_commit_head(&transaction)?,
                     engine: authority.head.sync_engine,
-                })
-            })
-            .map_err(core_error)
-    }
-
-    pub(crate) fn replay_document_events(
-        &self,
-        context: &BoundModuleContext,
-        after: i64,
-        limit: Option<u32>,
-    ) -> Result<DocumentEventReplay, CoreError> {
-        self.validate_context(context)?;
-        authorize_library_document_scope(context)?;
-        self.readers
-            .read_default(|connection| {
-                replay_document_events(
-                    connection,
-                    context
-                        .project_id
-                        .as_ref()
-                        .map(|project_id| project_id.0.as_str()),
-                    after,
-                    limit,
-                )
+                };
+                transaction.commit()?;
+                Ok(boundary)
             })
             .map_err(core_error)
     }
@@ -6376,15 +6355,6 @@ mod tests {
                 .expect("filter unrelated exact Document delivery")
                 .is_none()
         );
-        let replayed = seeded
-            .module
-            .replay_document_events(&context(), 0, None)
-            .expect("Canvas event replay");
-        let DocumentEventReplay::Events { events, .. } = replayed else {
-            panic!("Canvas mutation receipt should replay exactly")
-        };
-        assert_eq!(events.len(), 1);
-        assert_eq!(events[0].payload, applied.events[0].payload);
         seeded
             .module
             .apply(
@@ -6504,19 +6474,6 @@ mod tests {
             panic!("stale Canvas merge should publish a durable event")
         };
         assert_eq!(*base_head_seq, 1);
-        let stale_replay = seeded
-            .module
-            .replay_document_events(&context(), 0, None)
-            .expect("stale Canvas event replay");
-        let DocumentEventReplay::Events { events, .. } = stale_replay else {
-            panic!("stale Canvas merge should replay")
-        };
-        let replayed_stale = events
-            .iter()
-            .find(|event| event.operation_id.as_deref() == Some("canvas:edit:2"))
-            .expect("stale Canvas event");
-        assert_eq!(replayed_stale.payload, stale_merge.events[0].payload);
-
         seeded.module.inject_failure_after_next_commit();
         let interrupted = seeded
             .module
@@ -7337,22 +7294,6 @@ mod tests {
                 Ok::<_, StoreError>(())
             })
             .expect("retained source evidence");
-
-        let replay = seeded
-            .module
-            .replay_document_events(&context(), 0, None)
-            .expect("owner event replay");
-        let DocumentEventReplay::Events { events, .. } = replay else {
-            panic!("expected retained owner events")
-        };
-        assert_eq!(events.len(), 2);
-        assert!(matches!(
-            &events[1].payload,
-            CoreModuleEventPayload::OwnedDocument(OwnedDocumentEvent::DocumentInvalidated {
-                reason: DocumentInvalidationReason::AccessChanged,
-                ..
-            })
-        ));
     }
 
     #[test]
@@ -7957,14 +7898,16 @@ mod tests {
                 })
             })
             .expect("move Page after its Document commit");
-        let replay = seeded
-            .module
-            .replay_document_events(&context(), applied.committed.event_sequence - 1, Some(1))
-            .expect("replay committed Page impact");
-        let DocumentEventReplay::Events { events, .. } = replay else {
-            panic!("expected replayed Page Document event")
-        };
-        assert_eq!(events, applied.events);
+        let packet = crate::infrastructure::event_log::CoreEventLog::new(seeded.kernel.readers())
+            .authorized_packet(
+                applied.committed.commit_seq,
+                &library_context_for("electron-host:projection-replay", AdapterKind::ElectronHost),
+                Some(DOCUMENT_ID),
+                false,
+            )
+            .expect("resolve committed Page impact")
+            .expect("Page Document delivery");
+        assert_eq!(packet.document_effects.len(), 1);
     }
 
     #[test]
@@ -8090,16 +8033,6 @@ mod tests {
             .apply(&first_context, "client:first", request)
             .expect("subscribed mutation");
         assert_eq!(applied.committed.value.head_seq, 2);
-        let replay = adapter
-            .replay("renderer:second", "client:second", 0, None)
-            .expect("durable replay");
-        assert_eq!(replay.events.len(), 1);
-        let DocumentRealtimeEvent::Committed(replayed) = &replay.events[0] else {
-            panic!("expected committed event")
-        };
-        assert_eq!(replayed.sequence, applied.committed.event_sequence);
-        assert_eq!(replayed.payload, applied.events[0].payload);
-
         let mut remote_awareness = DocumentAwareness::new("awareness:remote");
         remote_awareness
             .set_local_state(&json!({ "user": "first" }))
@@ -8134,9 +8067,7 @@ mod tests {
             .unsubscribe("renderer:first", "client:first")
             .expect("exact unsubscribe clears presence")
             .expect("Awareness leave publication");
-        let DocumentRealtimeEvent::Awareness { update, .. } = &unsubscribed.event else {
-            panic!("expected Awareness leave")
-        };
+        let DocumentRealtimeEvent::Awareness { update, .. } = &unsubscribed.event;
         observer.apply_update_v1(update).expect("observe leave");
         assert!(observer.state(awareness_client_id).is_none());
         adapter
@@ -8175,17 +8106,6 @@ mod tests {
                 2,
             )
             .expect("compact event update tail");
-        let compacted = adapter
-            .replay("renderer:second", "client:second", 0, None)
-            .expect("compacted replay returns resync");
-        assert!(matches!(
-            compacted.events.as_slice(),
-            [DocumentRealtimeEvent::ResyncRequired {
-                document_id,
-                head_seq: 2,
-                ..
-            }] if document_id == DOCUMENT_ID
-        ));
     }
 
     #[test]
@@ -8331,16 +8251,7 @@ mod tests {
                 ),
             )
             .expect("Library-scoped update");
-        let replay = adapter
-            .replay("renderer:library", "client:library", 0, None)
-            .expect("Library-scoped durable replay");
-        assert!(replay.events.iter().any(|event| {
-            matches!(
-                event,
-                DocumentRealtimeEvent::Committed(event)
-                    if event.sequence == applied.committed.event_sequence
-            )
-        }));
+        assert_eq!(applied.committed.value.head_seq, 2);
 
         seeded
             .kernel
@@ -8419,14 +8330,6 @@ mod tests {
             .apply(&reconnected_context, "client:faulted", request)
             .expect("exact retry recovers receipt");
         assert!(retry.committed.receipt.mutation.duplicate);
-        let replay = adapter
-            .replay("renderer:reconnected", "client:faulted", 0, None)
-            .expect("reconnect replay");
-        assert!(matches!(
-            replay.events.as_slice(),
-            [DocumentRealtimeEvent::Committed(event)]
-                if event.sequence == retry.committed.event_sequence
-        ));
         seeded
             .kernel
             .readers()

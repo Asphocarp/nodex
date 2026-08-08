@@ -19,6 +19,7 @@ vi.mock("./api", () => ({
 
 import {
   getPageDetail,
+  invalidatePageDetail,
   resetPageDetailStoreForTests,
   usePageDetail,
 } from "./page-detail-store";
@@ -432,7 +433,7 @@ describe("Page Detail store realtime convergence", () => {
     expect(result.current.error).toBe(null);
   });
 
-  test("does not retain authorization-scoped Page data after its last surface closes", async () => {
+  test("retains an authorized Page across surface remounts without serving it past an effect", async () => {
     mocks.readPageDetail.mockResolvedValueOnce({ ok: true, value: detail("Open", 1) });
     const { result, unmount } = renderHook(
       () => usePageDetail("library-1", "project-1", "page-1"),
@@ -441,7 +442,37 @@ describe("Page Detail store realtime convergence", () => {
     await waitFor(() => expect(result.current.detail?.page.title).toBe("Open"));
 
     unmount();
+    expect(getPageDetail("project-1", "page-1")?.page.title).toBe("Open");
+
+    const remounted = renderHook(
+      () => usePageDetail("library-1", "project-1", "page-1"),
+      { wrapper },
+    );
+    expect(remounted.result.current.detail?.page.title).toBe("Open");
+    expect(mocks.readPageDetail).toHaveBeenCalledTimes(1);
+    remounted.unmount();
+
+    await act(async () => {
+      publish(pageEvent("page-1", 2));
+      await Promise.resolve();
+    });
 
     expect(getPageDetail("project-1", "page-1")).toBe(null);
+  });
+
+  test("releases authority when an invalidated active Page is later unmounted", async () => {
+    mocks.readPageDetail.mockResolvedValueOnce({ ok: true, value: detail("Open", 1) });
+    const { result, unmount } = renderHook(
+      () => usePageDetail("library-1", "project-1", "page-1"),
+      { wrapper },
+    );
+    await waitFor(() => expect(result.current.detail?.page.title).toBe("Open"));
+
+    act(() => invalidatePageDetail("project-1", "page-1"));
+    expect(projectionListener).not.toBe(null);
+    unmount();
+
+    expect(projectionListener).toBe(null);
+    expect(revocationListener).toBe(null);
   });
 });

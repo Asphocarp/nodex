@@ -662,6 +662,15 @@ export function createDesktopDocumentSyncBridge(
     }
   };
 
+  const suspendSubscriptionBoundary = (key: string): void => {
+    const subscription = subscriptions.get(key);
+    if (!subscription) return;
+    subscription.pendingRealtimeEvents.clear();
+    subscription.storeEpoch = undefined;
+    subscription.generation = undefined;
+    subscription.headSeq = undefined;
+  };
+
   type RealtimeDeliveryOptions = {
     readonly drain?: boolean;
     readonly revokeAfter?: boolean;
@@ -681,6 +690,22 @@ export function createDesktopDocumentSyncBridge(
         || subscription.headSeq === undefined
       ) {
         return;
+      }
+      for (const [identity, pending] of subscription.pendingRealtimeEvents) {
+        if (
+          pending.engine === "yjs"
+          && pending.event.kind === "document-update"
+          && pending.event.storeEpoch === subscription.storeEpoch
+          && (
+            pending.event.generation < subscription.generation
+            || (
+              pending.event.generation === subscription.generation
+              && pending.event.headSeq <= subscription.headSeq
+            )
+          )
+        ) {
+          subscription.pendingRealtimeEvents.delete(identity);
+        }
       }
       const nextHeadSeq = subscription.headSeq + 1;
       const next = [...subscription.pendingRealtimeEvents.entries()]
@@ -717,6 +742,21 @@ export function createDesktopDocumentSyncBridge(
       ) {
         return;
       }
+      for (const [identity, pending] of subscription.pendingRealtimeEvents) {
+        if (
+          pending.engine === "canvas_scene"
+          && pending.event.storeEpoch === subscription.storeEpoch
+          && (
+            pending.event.generation < subscription.generation
+            || (
+              pending.event.generation === subscription.generation
+              && pending.event.headSeq <= subscription.headSeq
+            )
+          )
+        ) {
+          subscription.pendingRealtimeEvents.delete(identity);
+        }
+      }
       const nextHeadSeq = subscription.headSeq + 1;
       const next = [...subscription.pendingRealtimeEvents.entries()]
         .find(([, pending]) =>
@@ -751,19 +791,15 @@ export function createDesktopDocumentSyncBridge(
     ) {
       return sendDocumentRealtimeEvent(key, target, event);
     }
-    if (
-      subscription.storeEpoch !== undefined
-      && subscription.storeEpoch !== event.storeEpoch
-    ) {
-      closeSubscription(key);
-      return false;
-    }
+    const storeEpochChanged = subscription.storeEpoch !== undefined
+      && subscription.storeEpoch !== event.storeEpoch;
     const identity = documentRealtimeIdentity(event);
     if (deliveredCommitKeys.get(key)?.has(identity)) return true;
 
     if (event.kind === "resync-required") {
       if (
-        subscription.generation !== undefined
+        !storeEpochChanged
+        && subscription.generation !== undefined
         && event.generation < subscription.generation
       ) {
         return true;
@@ -771,17 +807,22 @@ export function createDesktopDocumentSyncBridge(
       subscription.pendingRealtimeEvents.clear();
       const delivered = sendDocumentRealtimeEvent(key, target, event);
       if (!delivered) return false;
-      adoptSubscriptionBoundary(key, event);
+      suspendSubscriptionBoundary(key);
       if (options.revokeAfter && subscriptions.has(key)) closeSubscription(key);
       return true;
     }
 
+    if (storeEpochChanged) {
+      closeSubscription(key);
+      return false;
+    }
+
     if (subscription.generation === undefined) {
-      const delivered = sendDocumentRealtimeEvent(key, target, event);
-      if (!delivered) return false;
-      adoptSubscriptionBoundary(key, event);
-      if (options.drain !== false) drainDocumentRealtimeEvents(key, target);
-      return true;
+      if (queuePendingRealtimeEvent(subscription, { engine: "yjs", event })) {
+        return true;
+      }
+      closeSubscription(key);
+      return false;
     }
     if (event.generation < subscription.generation) return true;
     if (event.generation > subscription.generation) {
@@ -844,18 +885,14 @@ export function createDesktopDocumentSyncBridge(
     ) {
       return sendCanvasRealtimeEvent(key, target, event);
     }
-    if (
-      subscription.storeEpoch !== undefined
-      && subscription.storeEpoch !== event.storeEpoch
-    ) {
-      closeSubscription(key);
-      return false;
-    }
+    const storeEpochChanged = subscription.storeEpoch !== undefined
+      && subscription.storeEpoch !== event.storeEpoch;
     const identity = canvasRealtimeIdentity(event);
     if (deliveredCommitKeys.get(key)?.has(identity)) return true;
     if (event.type === "canvas_scene_resync_required") {
       if (
-        subscription.generation !== undefined
+        !storeEpochChanged
+        && subscription.generation !== undefined
         && event.generation < subscription.generation
       ) {
         return true;
@@ -863,15 +900,22 @@ export function createDesktopDocumentSyncBridge(
       subscription.pendingRealtimeEvents.clear();
       const delivered = sendCanvasRealtimeEvent(key, target, event);
       if (!delivered) return false;
-      adoptSubscriptionBoundary(key, event);
+      suspendSubscriptionBoundary(key);
       return true;
     }
+    if (storeEpochChanged) {
+      closeSubscription(key);
+      return false;
+    }
     if (subscription.generation === undefined) {
-      const delivered = sendCanvasRealtimeEvent(key, target, event);
-      if (!delivered) return false;
-      adoptSubscriptionBoundary(key, event);
-      if (options.drain !== false) drainCanvasRealtimeEvents(key, target);
-      return true;
+      if (queuePendingRealtimeEvent(subscription, {
+        engine: "canvas_scene",
+        event,
+      })) {
+        return true;
+      }
+      closeSubscription(key);
+      return false;
     }
     if (event.generation < subscription.generation) return true;
     if (event.generation > subscription.generation) {
@@ -1382,48 +1426,81 @@ export function createDesktopDocumentSyncBridge(
         let lifecycle: ReturnType<
           CoreDocumentSyncAdapter["subscribeWithLifecycle"]
         > | null = null;
-          try {
-            lifecycle = adapter.subscribeWithLifecycle(request, (event) => {
-              if (event.kind !== "document-update" && event.kind !== "resync-required") {
-                if (!safeSendToWebContents(target, DOCUMENT_SYNC_EVENT_CHANNEL, [event])) {
-                  closeSubscription(key);
-                }
-                return;
-              }
-              deliverDocumentRealtimeEvent(key, target, event, {
-                revokeAfter: event.kind === "resync-required"
-                  && event.reason === "access-revoked",
-              });
-            });
-            pending.attachClose(lifecycle.close);
-            const subscribed = addNativeSubscription(key, {
-              engine: "yjs",
-              bindingKey: ownerKey,
-              scope,
-              documentId: request.documentId,
-              clientSessionId: request.clientSessionId,
-              target,
-              targetId: target.id,
-              close: lifecycle.close,
-              pendingRealtimeEvents: new Map(),
-            });
-            await lifecycle.ready;
-            if (target.isDestroyed()) {
-              closeSubscription(key);
-              return documentSyncUnauthorized();
-            }
-            void lifecycle.done.catch(() => undefined).finally(() => {
-              if (subscriptions.get(key)?.close === lifecycle?.close) {
+        try {
+          let admitted = false;
+          let openingOverflowed = false;
+          const openingEvents: DocumentSyncRealtimeEvent[] = [];
+          const deliver = (event: DocumentSyncRealtimeEvent): void => {
+            if (event.kind === "connection") {
+              if (event.state === "disconnected") suspendSubscriptionBoundary(key);
+              if (!safeSendToWebContents(target, DOCUMENT_SYNC_EVENT_CHANNEL, [event])) {
                 closeSubscription(key);
               }
+              return;
+            }
+            if (event.kind !== "document-update" && event.kind !== "resync-required") {
+              if (!safeSendToWebContents(target, DOCUMENT_SYNC_EVENT_CHANNEL, [event])) {
+                closeSubscription(key);
+              }
+              return;
+            }
+            deliverDocumentRealtimeEvent(key, target, event, {
+              revokeAfter: event.kind === "resync-required"
+                && event.reason === "access-revoked",
             });
-            return subscribed;
-          } catch (error) {
-            lifecycle?.close();
-            closeSubscription(key);
-            if (bindings.get(ownerKey) === key) bindings.delete(ownerKey);
-            return transportUnavailable(error);
+          };
+          lifecycle = adapter.subscribeWithLifecycle(request, (event) => {
+            if (!admitted) {
+              if (openingEvents.length >= MAX_PENDING_REALTIME_EVENTS) {
+                openingOverflowed = true;
+                lifecycle?.close();
+                return;
+              }
+              openingEvents.push(event);
+              return;
+            }
+            deliver(event);
+          });
+          pending.attachClose(lifecycle.close);
+          const barrier = await lifecycle.ready;
+          if (
+            openingOverflowed
+            || barrier.engine !== "yjs"
+            || barrier.document_id !== request.documentId
+            || barrier.store_epoch !== runtime.identity.storeEpoch
+          ) {
+            throw new Error("Core Document live barrier does not match the Yjs session");
           }
+          if (target.isDestroyed()) {
+            lifecycle.close();
+            if (bindings.get(ownerKey) === key) bindings.delete(ownerKey);
+            return documentSyncUnauthorized();
+          }
+          const subscribed = addNativeSubscription(key, {
+            engine: "yjs",
+            bindingKey: ownerKey,
+            scope,
+            documentId: request.documentId,
+            clientSessionId: request.clientSessionId,
+            target,
+            targetId: target.id,
+            close: lifecycle.close,
+            pendingRealtimeEvents: new Map(),
+          });
+          admitted = true;
+          openingEvents.forEach(deliver);
+          void lifecycle.done.catch(() => undefined).finally(() => {
+            if (subscriptions.get(key)?.close === lifecycle?.close) {
+              closeSubscription(key);
+            }
+          });
+          return subscribed;
+        } catch (error) {
+          lifecycle?.close();
+          closeSubscription(key);
+          if (bindings.get(ownerKey) === key) bindings.delete(ownerKey);
+          return transportUnavailable(error);
+        }
       } finally {
         pending.settle();
       }
@@ -1438,11 +1515,13 @@ export function createDesktopDocumentSyncBridge(
       if (!hasNativeSubscription(target, scope, request)) {
         return documentSyncUnauthorized();
       }
+      const key = subscriptionKey(target, scope, request);
+      suspendSubscriptionBoundary(key);
       const result = await adapter.sync(request);
-      if (result.ok) adoptSubscriptionBoundary(
-        subscriptionKey(target, scope, request),
-        result.value,
-      );
+      if (result.ok) {
+        adoptSubscriptionBoundary(key, result.value);
+        drainDocumentRealtimeEvents(key, target);
+      }
       return result;
     }),
     applyUpdate: async (scope, target, request) => await withRuntime(async (runtime) => {
@@ -1487,10 +1566,39 @@ export function createDesktopDocumentSyncBridge(
             CoreCanvasSceneAdapter["subscribeWithLifecycle"]
           > | null = null;
           try {
-            lifecycle = adapter.subscribeWithLifecycle(request, (event) => {
+            let admitted = false;
+            let openingOverflowed = false;
+            const openingEvents: CanvasSceneRealtimeEvent[] = [];
+            const deliver = (event: CanvasSceneRealtimeEvent): void => {
               deliverCanvasRealtimeEvent(key, target, event);
+            };
+            lifecycle = adapter.subscribeWithLifecycle(request, (event) => {
+              if (!admitted) {
+                if (openingEvents.length >= MAX_PENDING_REALTIME_EVENTS) {
+                  openingOverflowed = true;
+                  lifecycle?.close();
+                  return;
+                }
+                openingEvents.push(event);
+                return;
+              }
+              deliver(event);
             });
             pending.attachClose(lifecycle.close);
+            const barrier = await lifecycle.ready;
+            if (
+              openingOverflowed
+              || barrier.engine !== "canvas_scene"
+              || barrier.document_id !== request.documentId
+              || barrier.store_epoch !== runtime.identity.storeEpoch
+            ) {
+              throw new Error("Core Document live barrier does not match the Canvas session");
+            }
+            if (target.isDestroyed()) {
+              lifecycle.close();
+              if (bindings.get(ownerKey) === key) bindings.delete(ownerKey);
+              return canvasSceneUnauthorized();
+            }
             const subscribed = addNativeSubscription(key, {
               engine: "canvas_scene",
               bindingKey: ownerKey,
@@ -1502,7 +1610,8 @@ export function createDesktopDocumentSyncBridge(
               close: lifecycle.close,
               pendingRealtimeEvents: new Map(),
             });
-            await lifecycle.ready;
+            admitted = true;
+            openingEvents.forEach(deliver);
             canvasPresenceHub.register({
               key,
               projectId: request.projectId,
@@ -1515,10 +1624,6 @@ export function createDesktopDocumentSyncBridge(
                 }
               },
             });
-            if (target.isDestroyed()) {
-              closeSubscription(key);
-              return canvasSceneUnauthorized();
-            }
             void lifecycle.done.catch(() => undefined).finally(() => {
               if (subscriptions.get(key)?.close === lifecycle?.close) {
                 closeSubscription(key);
@@ -1547,13 +1652,13 @@ export function createDesktopDocumentSyncBridge(
         if (!hasNativeCanvasSceneSubscription(target, request)) {
           return canvasSceneUnauthorized();
         }
+        const key = canvasSceneSubscriptionKey(target, request);
+        suspendSubscriptionBoundary(key);
         const result = await canvasSceneAdapterFor(runtime, request.projectId)
           .sync(request);
         if (result.ok) {
-          adoptSubscriptionBoundary(
-            canvasSceneSubscriptionKey(target, request),
-            result.value,
-          );
+          adoptSubscriptionBoundary(key, result.value);
+          drainCanvasRealtimeEvents(key, target);
         }
         return result;
       }),

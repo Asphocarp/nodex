@@ -103,22 +103,41 @@ dependencies. Core verifies them while preparing and revalidates them in the
 writer transaction against current SQLite Document rows. The dependency is excluded from the semantic
 intent hash so a retry after a fresh read remains the same idempotent command.
 
-Document/Canvas realtime streams independently enforce per-surface head order.
-They buffer a bounded future-head gap and emit resync on overflow or epoch
+Document/Canvas live streams independently enforce per-surface head order. They
+buffer a bounded future-head gap and emit typed repair on overflow or epoch
 change. This preserves Yjs/scene convergence without making projection replay a
 prerequisite for local command visibility.
 
-Each exact Document subscription is also a post-state authorization and
-resource-filtering boundary. Core resolves read access through the canonical
-owned-Document rules, including Canvas shells and granted host Pages, and
-delivers only effects, refs, and revocations that address that Document.
-Unrelated commits may advance the scanner checkpoint but cannot enter the
-surface lane. This rule applies equally to the initiating apply packet and the
-durable replay packet.
+An exact Document subscription is a post-state authorization and
+resource-filtering boundary, not a durable replay stream. Core first installs a
+receiver in a resource-addressed Document live Hub, then resolves access,
+Store identity, engine, generation, Document head, and current LocalCommit head
+in one SQLite read snapshot. That `DocumentLiveBarrier` opens the interval.
+Main buffers any post-barrier events until the renderer's canonical
+state-vector/scene sync adopts the same boundary; events covered by the sync are
+dropped and later contiguous heads drain in order. Historical state is supplied
+by canonical Document sync and the global durable stream, so Page opening cost
+does not grow with retained LocalCommit history.
+
+After commit, the server performs only a bounded O(1) enqueue before returning
+the apply response. One ordered worker resolves immutable Document routing
+claims and publishes to addressed channels only. A woken stream still asks Core
+to resolve an exact post-state-authorized packet, so routing is never trusted as
+authorization. SQLite scans and packet reconstruction execute on blocking
+workers rather than the async transport reactor. Queue failure, receiver lag,
+unavailable evidence, or Store replacement produces a typed repair boundary and
+a fresh barrier; there is no exact-stream cursor to guess or replay.
+
+Publication follows durable identity, not successful construction of optional
+apply delivery. Core enqueues the wake first and republishes exact retries;
+resource admission makes repeated copies harmless. Thus a committed command
+whose response packet cannot be reconstructed is still recoverable by an
+already-open live or durable consumer.
 
 An already-open exact Document subscription remains a Core-authorized
-capability for that Document. A trusted root-stream ref may therefore fan out
-to every active subscription for the exact Document; a scoped Document
+capability for that Document. Apply-response and trusted root-stream packets may
+therefore enrich active subscriptions for the exact Document, while dispatcher
+resource identity deduplicates the later live/root copy. A scoped Document
 revocation independently emits `access-revoked` and closes only the addressed
 Project or Library subscription. Revocation and Document effects have separate
 bridge entry points, so one lane cannot accidentally consume or suppress the
@@ -189,8 +208,14 @@ or UI freeze is needed for the normal commit path.
 - A mounted source/target body is flushed before Move-to or Board DnD, and Core
   rejects a stale causal head without a partial ownership/membership commit.
 - An exact Page or Canvas Document subscription receives its own authorized
-  updates and never receives unrelated semantic effects from a multi-resource
-  Manifest.
+  post-barrier updates, never scans historical LocalCommits, and never receives
+  unrelated semantic effects from a multi-resource Manifest.
+- A receiver installed before the exact barrier plus canonical sync loses no
+  commit at the open boundary: covered events are discarded and later events
+  are delivered once in Document-head order.
+- Exact live publication is not an apply-response prerequisite; queue or
+  receiver pressure produces typed repair rather than synchronous replay or a
+  best-effort silent drop.
 - A high-pressure populated Board test moves 100 independently seeded nested
   100-child subtrees and reports commit/card visibility p50/p95/p99/max without
   a fixed sleep or manual refresh. Automated Electron coverage invokes the real

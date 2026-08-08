@@ -10,7 +10,6 @@ use nodex_core_contracts::{
     OWNED_DOCUMENT_CONTRACT_VERSION, StoreEpoch,
 };
 
-use super::event_log::DocumentEventReplay;
 use crate::infrastructure::document_repository::DocumentSyncEngine;
 
 use super::{DocumentAwareness, OwnedDocumentApplyOutcome, OwnedDocumentModule};
@@ -42,7 +41,6 @@ pub struct DocumentSubscriptionAck {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum DocumentRealtimeEvent {
-    Committed(Box<CommittedCoreModuleEvent>),
     Awareness {
         document_id: String,
         store_epoch: StoreEpoch,
@@ -50,20 +48,6 @@ pub enum DocumentRealtimeEvent {
         client_session_id: String,
         update: Vec<u8>,
     },
-    ResyncRequired {
-        document_id: String,
-        store_epoch: StoreEpoch,
-        generation: i64,
-        head_seq: i64,
-        commit_head: i64,
-    },
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct DocumentRealtimeReplay {
-    pub events: Vec<DocumentRealtimeEvent>,
-    pub next_after: i64,
-    pub commit_head: i64,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -270,71 +254,6 @@ impl OwnedDocumentRealtimeAdapter {
             self.adopt_committed_boundary(event)?;
         }
         Ok(outcome)
-    }
-
-    pub fn replay(
-        &self,
-        connection_id: &str,
-        client_session_id: &str,
-        after: i64,
-        limit: Option<u32>,
-    ) -> Result<DocumentRealtimeReplay, CoreError> {
-        let (context, document_id, boundary) = {
-            let state = self.lock_state()?;
-            let subscription = state
-                .subscriptions
-                .get(&(connection_id.to_owned(), client_session_id.to_owned()))
-                .ok_or_else(|| {
-                    subscription_required("An exact Document subscription is required")
-                })?;
-            (
-                subscription.context.clone(),
-                subscription.document_id.clone(),
-                subscription_ack(subscription, 0),
-            )
-        };
-        let replay = self.module.replay_document_events(&context, after, limit)?;
-        match replay {
-            DocumentEventReplay::Events {
-                events,
-                next_after,
-                commit_head,
-            } => Ok(DocumentRealtimeReplay {
-                events: events
-                    .into_iter()
-                    .filter(|event| event_document_id(event) == Some(document_id.as_str()))
-                    .map(|event| match &event.payload {
-                        CoreModuleEventPayload::OwnedDocument(
-                            OwnedDocumentEvent::DocumentResyncRequired {
-                                generation,
-                                head_seq,
-                                ..
-                            },
-                        ) => DocumentRealtimeEvent::ResyncRequired {
-                            document_id: document_id.clone(),
-                            store_epoch: event.store_epoch.clone(),
-                            generation: *generation,
-                            head_seq: *head_seq,
-                            commit_head,
-                        },
-                        _ => DocumentRealtimeEvent::Committed(Box::new(event)),
-                    })
-                    .collect(),
-                next_after,
-                commit_head,
-            }),
-            DocumentEventReplay::ResyncRequired { commit_head, .. } => Ok(DocumentRealtimeReplay {
-                events: vec![DocumentRealtimeEvent::ResyncRequired {
-                    document_id,
-                    store_epoch: boundary.store_epoch,
-                    generation: boundary.generation,
-                    head_seq: boundary.head_seq,
-                    commit_head,
-                }],
-                next_after: commit_head,
-                commit_head,
-            }),
-        }
     }
 
     pub fn publish_awareness(

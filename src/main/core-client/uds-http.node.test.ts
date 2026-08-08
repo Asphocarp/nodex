@@ -33,6 +33,7 @@ const configureEventContract = (transport: UdsHttpTransport): UdsHttpTransport =
     eventVersion: 6,
     libraryId: "library-1",
     storeEpoch: "epoch-1",
+    coreGeneration: "generation-1",
   });
   return transport;
 };
@@ -298,7 +299,6 @@ describe("UDS Core event replay boundaries", () => {
       () => undefined,
       {},
       undefined,
-      undefined,
       (boundary) => {
         observed = boundary;
       },
@@ -499,7 +499,6 @@ describe("UDS Core event replay boundaries", () => {
       0,
       () => undefined,
       {},
-      undefined,
       undefined,
       undefined,
       undefined,

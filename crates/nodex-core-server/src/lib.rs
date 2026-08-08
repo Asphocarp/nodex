@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 mod connections;
+mod document_live;
 mod document_wire;
 mod lifecycle;
 mod lifecycle_summary;
@@ -36,7 +37,9 @@ use nodex_core::database::DatabaseModule;
 use nodex_core::document::{
     AwarenessPublication, DocumentRealtimeEvent, OwnedDocumentModule, OwnedDocumentRealtimeAdapter,
 };
-use nodex_core::infrastructure::event_log::{CoreAuthorizedEventReplay, CoreEventLog};
+use nodex_core::infrastructure::event_log::{
+    CoreAuthorizedEventReplay, CoreEventLog, DocumentLiveDelivery,
+};
 use nodex_core::infrastructure::metrics::DurationMetricSnapshot;
 use nodex_core::infrastructure::migration::StorePreparationEvent;
 use nodex_core::infrastructure::module_receipts::read_module_receipt;
@@ -48,11 +51,14 @@ use nodex_core::infrastructure::writer::StoreRuntimePhase;
 use nodex_core::library::LibraryModule;
 use nodex_core::workspace::ProjectWorkspaceModule;
 use nodex_core_contracts::administration::StoreAdministrationIntent;
-use nodex_core_contracts::document::{OwnedDocumentIntent, OwnedDocumentRead};
+use nodex_core_contracts::document::{
+    DocumentLiveBarrier, DocumentLiveEngine, DocumentLiveRepair, DocumentLiveRepairReason,
+    OwnedDocumentIntent, OwnedDocumentRead,
+};
 use nodex_core_contracts::{
     AdapterKind, ApplyResponse, AuthorizedDeliveryPacket, BoundModuleContext, CoreError,
-    CoreErrorCode, CoreErrorRecovery, CoreModuleEventPayload, LibraryId, ModuleName, ProfileId,
-    ProjectId, StoreEpoch, StoreObservation, StreamCheckpoint,
+    CoreErrorCode, CoreErrorRecovery, LibraryId, ModuleName, ProfileId, ProjectId, StoreEpoch,
+    StoreObservation, StreamCheckpoint,
 };
 use nodex_core_protocol::{
     AutomationApplyRequest, AutomationApplyResponse, AutomationReadRequest, AutomationReadResponse,
@@ -80,6 +86,9 @@ use tracing::Instrument;
 use connections::{
     BoundConnection, ConnectionActivity, ConnectionRegistry, ConnectionRegistryError,
     ConnectionRegistryErrorKind, EventSubscriptionKey, PeerIdentity,
+};
+use document_live::{
+    DocumentLiveHub, DocumentLiveNotice, DocumentLivePublisher, DocumentLiveRepairKind,
 };
 use document_wire::{ApplyFrame, CONTENT_TYPE as DOCUMENT_CONTENT_TYPE, CanvasSyncKind, SyncFrame};
 use lifecycle::{DrainReason, LifecycleCoordinator, configured_idle_timeout, monitor_idle};
@@ -196,7 +205,8 @@ struct ServerState {
     store: SqliteStoreKernel,
     event_log: CoreEventLog,
     event_sender: broadcast::Sender<i64>,
-    document_sender: broadcast::Sender<DocumentTransportPublication>,
+    document_live: DocumentLiveHub,
+    document_live_publisher: DocumentLivePublisher,
     metrics: ServerMetrics,
     logging: logging::LoggingHandle,
 }
@@ -207,12 +217,6 @@ fn descriptor_snapshot(state: &ServerState) -> RuntimeDescriptor {
         .lock()
         .expect("runtime descriptor mutex poisoned")
         .clone()
-}
-
-#[derive(Clone)]
-struct DocumentTransportPublication {
-    event: DocumentRealtimeEvent,
-    recipient_connections: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -740,9 +744,15 @@ fn build_authorized_apply_response<T, R>(
             "Committed command result diverges from its manifest identity",
         ));
     }
+
+    // Publication is an at-least-once wake for already-durable authority, not
+    // a consequence of successfully reconstructing the caller's optional
+    // delivery. Republish exact retries as well: scanners and resource
+    // dispatchers deduplicate by commit/resource identity, while a retry may
+    // be the first observable wake after a post-commit response failure.
+    publish_local_commit(state, commit_seq, commit.store_epoch.0.clone());
     let delivery =
         authorized_apply_packet(state, commit_seq, context).map_err(apply_response_store_error)?;
-    publish_committed_if_new(state, duplicate, Some(commit_seq));
     let response = ApplyResponse::Committed {
         outcome,
         receipt,
@@ -1423,251 +1433,336 @@ async fn events(
     Query(query): Query<EventQuery>,
 ) -> Result<Sse<impl futures_core::Stream<Item = Result<Event, Infallible>>>, ApiError> {
     let mut receiver = state.event_sender.subscribe();
-    let mut document_receiver = state.document_sender.subscribe();
-    let requested_document_id =
-        optional_header(&headers, DOCUMENT_HEADER, "Document").map_err(api_core_error)?;
-    let requested_client_session_id = requested_document_id
-        .as_ref()
-        .map(|_| required_header(&headers, CLIENT_SESSION_HEADER, "Document client session"))
-        .transpose()
-        .map_err(api_core_error)?;
-    let subscription_key = requested_client_session_id
-        .as_ref()
-        .map_or(EventSubscriptionKey::Global, |client_session_id| {
-            EventSubscriptionKey::Document(client_session_id.clone())
-        });
+    if query.after < 0 {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "Event sequence must be non-negative",
+        ));
+    }
+    if optional_header(&headers, DOCUMENT_HEADER, "Document")
+        .map_err(api_core_error)?
+        .is_some()
+    {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "Global event streams cannot bind an exact Document",
+        ));
+    }
     let event_subscription = state
         .connections
-        .acquire_event_subscription(&bound.id, subscription_key)
+        .acquire_event_subscription(&bound.id, EventSubscriptionKey::Global)
         .map_err(connection_registry_error)?;
-    let context = if requested_document_id.is_some() {
-        document_context(&state, &headers, &bound).map_err(api_core_error)?
-    } else {
-        module_context(&state, &headers, &bound).map_err(api_core_error)?
-    };
+    let context = module_context(&state, &headers, &bound).map_err(api_core_error)?;
     let generation = descriptor_snapshot(&state).start_nonce;
-    let mut document_boundary = None;
-    let mut initial_awareness = None;
-    let mut connection_id = None;
-    let mut disconnect = None;
-    if let Some(document_id) = requested_document_id.as_ref() {
-        let client_session_id = requested_client_session_id
-            .as_ref()
-            .expect("Document subscription validated a client session")
-            .clone();
-        let subscription = state
-            .document_realtime
-            .subscribe(&context, document_id.clone(), client_session_id.clone())
-            .map_err(api_core_error)?;
-        let subscription_guard = DocumentSubscriptionGuard {
-            adapter: state.document_realtime.clone(),
-            connection_id: context.connection_id.clone(),
-            client_session_id: client_session_id.clone(),
-            sender: state.document_sender.clone(),
-        };
-        document_boundary = Some(serde_json::json!({
-            "document_id": subscription.document_id,
-            "store_epoch": subscription.store_epoch,
-            "generation": subscription.generation,
-            "head_seq": subscription.head_seq,
-            "commit_head": query.after,
-        }));
-        initial_awareness =
-            subscription
-                .awareness_update
-                .map(|update| DocumentRealtimeEvent::Awareness {
-                    document_id: subscription.document_id,
-                    store_epoch: subscription.store_epoch,
-                    generation: subscription.generation,
-                    client_session_id: "core:awareness-snapshot".to_owned(),
-                    update,
-                });
-        connection_id = Some(context.connection_id.clone());
-        disconnect = Some(subscription_guard);
-    }
-    let initial = collect_authorized_replay(
-        &state.event_log,
-        query.after,
-        &generation,
-        &context,
-        requested_document_id.as_deref(),
-    )
-    .map_err(|error| {
-        ApiError::new(
-            StatusCode::CONFLICT,
-            format!("Authorized commit replay is unavailable: {}", error.message),
-        )
-    })?;
-    let (replay, initial_checkpoint, replay_head, core_resync, document_resync) = match initial {
-        CollectedAuthorizedReplay::Scan {
-            envelopes,
-            checkpoint,
-            commit_head,
-        } => (envelopes, Some(checkpoint), commit_head, None, None),
-        CollectedAuthorizedReplay::ResyncRequired {
-            requested_after,
-            oldest_available,
-            commit_head,
-            resync_token,
-        } => {
-            if let Some(boundary) = document_boundary.as_mut() {
-                boundary["commit_head"] = serde_json::Value::from(commit_head);
-                (Vec::new(), None, commit_head, None, Some(boundary.clone()))
-            } else {
-                (
-                    Vec::new(),
-                    None,
-                    commit_head,
-                    Some(EventReplayRequired {
-                        requested_after,
-                        oldest_available,
-                        commit_head,
-                        generation: generation.clone(),
-                        resync_token,
-                    }),
-                    None,
-                )
-            }
-        }
-    };
-    if let Some(boundary) = document_boundary.as_mut() {
-        boundary["commit_head"] = serde_json::Value::from(replay_head);
-    }
-    state
-        .metrics
-        .record_event_replay_lag(replay_head, query.after);
-    let replay_count = u64::try_from(replay.len()).unwrap_or(u64::MAX);
-    if core_resync.is_some() || document_resync.is_some() {
-        tracing::warn!(
-            requestedAfter = query.after,
-            eventHead = replay_head,
-            replayCount = replay_count,
-            "Core event subscription requires resynchronization"
-        );
-    } else {
-        tracing::debug!(
-            requestedAfter = query.after,
-            eventHead = replay_head,
-            replayCount = replay_count,
-            "Core event subscription opened"
-        );
-    }
     let event_log = state.event_log.clone();
     let stream_context = context.clone();
     let stream_generation = generation.clone();
+    let stream_metrics = state.metrics.clone();
     let mut stream_shutdown = state.lifecycle.subscribe_stream_shutdown();
     let stream = async_stream::stream! {
         let _event_subscription = event_subscription;
-        let _disconnect = disconnect;
         let mut scanned_through = query.after;
-        for envelope in replay {
-            yield Ok(sse_event(&envelope));
-        }
-        if let Some(checkpoint) = initial_checkpoint {
-            scanned_through = checkpoint.scanned_through_seq;
-            yield Ok(sse_stream_checkpoint(&checkpoint));
-        }
-        if let Some(resync) = core_resync {
-            yield Ok(sse_core_resync(&resync));
-            return;
-        }
-        if let Some(resync) = document_resync {
-            yield Ok(Event::default()
-                .event("document-resync-required")
-                .data(serde_json::to_string(&resync).expect("resync event serializes")));
-        }
-        if let Some(awareness) = initial_awareness {
-            yield Ok(sse_document_realtime_event(&awareness));
-        }
+        let mut opening = true;
+        let mut opening_packet_count = 0_u64;
         loop {
+            loop {
+                match scan_authorized(
+                    event_log.clone(),
+                    scanned_through,
+                    stream_generation.clone(),
+                    stream_context.clone(),
+                ).await {
+                    Ok(CoreAuthorizedEventReplay::Scan { packets, checkpoint, commit_head }) => {
+                        if opening {
+                            stream_metrics.record_event_replay_lag(commit_head, query.after);
+                            opening_packet_count = opening_packet_count.saturating_add(
+                                u64::try_from(packets.len()).unwrap_or(u64::MAX),
+                            );
+                        }
+                        for packet in packets {
+                            yield Ok(sse_event(&EventEnvelope {
+                                transport_version: TRANSPORT_PROTOCOL_MAX,
+                                packet,
+                            }));
+                        }
+                        let previous = scanned_through;
+                        scanned_through = checkpoint.scanned_through_seq;
+                        yield Ok(sse_stream_checkpoint(&checkpoint));
+                        if scanned_through >= commit_head {
+                            if opening {
+                                tracing::debug!(
+                                    requestedAfter = query.after,
+                                    eventHead = commit_head,
+                                    replayCount = opening_packet_count,
+                                    "Core event subscription opened"
+                                );
+                                opening = false;
+                            }
+                            break;
+                        }
+                        if scanned_through <= previous {
+                            yield Ok(sse_core_resync(&EventReplayRequired {
+                                requested_after: previous,
+                                oldest_available: checkpoint.oldest_available_seq,
+                                commit_head,
+                                generation: stream_generation.clone(),
+                                resync_token: checkpoint.resync_token.clone().unwrap_or_else(|| {
+                                    format!("{}:{previous}:{commit_head}", stream_generation)
+                                }),
+                            }));
+                            return;
+                        }
+                    }
+                    Ok(CoreAuthorizedEventReplay::ResyncRequired {
+                        requested_after,
+                        oldest_available,
+                        commit_head,
+                        resync_token,
+                    }) => {
+                        stream_metrics.record_event_replay_lag(commit_head, query.after);
+                        tracing::warn!(
+                            requestedAfter = requested_after,
+                            eventHead = commit_head,
+                            replayCount = opening_packet_count,
+                            "Core event subscription requires resynchronization"
+                        );
+                        yield Ok(sse_core_resync(&EventReplayRequired {
+                            requested_after,
+                            oldest_available,
+                            commit_head,
+                            generation: stream_generation.clone(),
+                            resync_token,
+                        }));
+                        return;
+                    }
+                    Err(error) => {
+                        tracing::error!(error = %error.message, "Authorized commit scanner failed");
+                        return;
+                    }
+                }
+            }
+
+            let mut rescan = false;
+            let mut wake_channel_closed = false;
+            loop {
+                match receiver.try_recv() {
+                    Ok(commit_seq) => rescan |= commit_seq > scanned_through,
+                    Err(broadcast::error::TryRecvError::Lagged(_)) => rescan = true,
+                    Err(broadcast::error::TryRecvError::Empty) => break,
+                    Err(broadcast::error::TryRecvError::Closed) => {
+                        wake_channel_closed = true;
+                        break;
+                    }
+                }
+            }
+            if wake_channel_closed {
+                break;
+            }
+            if rescan {
+                continue;
+            }
             tokio::select! {
                 () = LifecycleCoordinator::wait_for_stream_shutdown(&mut stream_shutdown) => {
                     break;
                 }
                 received = receiver.recv() => match received {
-                    Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => loop {
-                        match event_log.scan_authorized(
-                            scanned_through,
-                            None,
-                            &stream_generation,
-                            &stream_context,
-                            requested_document_id.as_deref(),
-                        ) {
-                            Ok(CoreAuthorizedEventReplay::Scan { packets, checkpoint, commit_head }) => {
-                                for packet in packets {
-                                    yield Ok(sse_event(&EventEnvelope {
-                                        transport_version: TRANSPORT_PROTOCOL_MAX,
-                                        packet,
-                                    }));
-                                }
-                                let previous = scanned_through;
-                                scanned_through = checkpoint.scanned_through_seq;
-                                yield Ok(sse_stream_checkpoint(&checkpoint));
-                                if scanned_through >= commit_head {
-                                    break;
-                                }
-                                if scanned_through <= previous {
-                                    yield Ok(sse_core_resync(&EventReplayRequired {
-                                        requested_after: previous,
-                                        oldest_available: checkpoint.oldest_available_seq,
-                                        commit_head,
-                                        generation: stream_generation.clone(),
-                                        resync_token: checkpoint.resync_token.clone().unwrap_or_else(|| format!("{}:{previous}:{commit_head}", stream_generation)),
-                                    }));
-                                    return;
-                                }
+                    Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(broadcast::error::RecvError::Closed) => break,
+                },
+            }
+        }
+    };
+    Ok(Sse::new(stream))
+}
+
+async fn document_live_events(
+    State(state): State<Arc<ServerState>>,
+    Extension(bound): Extension<BoundConnection>,
+    headers: HeaderMap,
+) -> Result<Sse<impl futures_core::Stream<Item = Result<Event, Infallible>>>, ApiError> {
+    let document_id =
+        required_header(&headers, DOCUMENT_HEADER, "Document").map_err(api_core_error)?;
+    let client_session_id =
+        required_header(&headers, CLIENT_SESSION_HEADER, "Document client session")
+            .map_err(api_core_error)?;
+    let event_subscription = state
+        .connections
+        .acquire_event_subscription(
+            &bound.id,
+            EventSubscriptionKey::Document(client_session_id.clone()),
+        )
+        .map_err(connection_registry_error)?;
+    let context = document_context(&state, &headers, &bound).map_err(api_core_error)?;
+
+    // Both receivers are installed before the atomic authorization/read
+    // barrier. Notices at or below that barrier are harmless duplicates;
+    // every later addressed commit is guaranteed to be observed.
+    let mut live_subscription = state.document_live.subscribe(document_id.clone());
+    let subscription = state
+        .document_realtime
+        .subscribe(&context, document_id.clone(), client_session_id.clone())
+        .map_err(api_core_error)?;
+    let generation = descriptor_snapshot(&state).start_nonce;
+    let barrier = DocumentLiveBarrier {
+        store_epoch: subscription.store_epoch.clone(),
+        core_generation: generation.clone(),
+        document_id: subscription.document_id.clone(),
+        document_generation: subscription.generation,
+        head_seq: subscription.head_seq,
+        commit_head: subscription.commit_head,
+        engine: match subscription.engine {
+            nodex_core::document::DocumentSubscriptionEngine::Yjs => DocumentLiveEngine::Yjs,
+            nodex_core::document::DocumentSubscriptionEngine::CanvasScene => {
+                DocumentLiveEngine::CanvasScene
+            }
+        },
+    };
+    let initial_awareness =
+        subscription
+            .awareness_update
+            .map(|update| DocumentRealtimeEvent::Awareness {
+                document_id: subscription.document_id,
+                store_epoch: subscription.store_epoch,
+                generation: subscription.generation,
+                client_session_id: "core:awareness-snapshot".to_owned(),
+                update,
+            });
+    let disconnect = DocumentSubscriptionGuard {
+        adapter: state.document_realtime.clone(),
+        connection_id: context.connection_id.clone(),
+        client_session_id,
+        live_hub: state.document_live.clone(),
+    };
+    let connection_id = context.connection_id.clone();
+    let event_log = state.event_log.clone();
+    let mut stream_shutdown = state.lifecycle.subscribe_stream_shutdown();
+    tracing::debug!(
+        documentId = barrier.document_id,
+        commitHead = barrier.commit_head,
+        documentHead = barrier.head_seq,
+        "Exact Document live session opened"
+    );
+
+    let stream_barrier = barrier.clone();
+    let stream = async_stream::stream! {
+        let _event_subscription = event_subscription;
+        let _disconnect = disconnect;
+        yield Ok(sse_document_live_barrier(&stream_barrier));
+        if let Some(awareness) = initial_awareness {
+            yield Ok(sse_document_realtime_event(&awareness));
+        }
+        loop {
+            let (live_receiver, realtime_receiver) = live_subscription.receivers();
+            tokio::select! {
+                () = LifecycleCoordinator::wait_for_stream_shutdown(&mut stream_shutdown) => {
+                    break;
+                }
+                received = live_receiver.recv() => match received {
+                    Ok(DocumentLiveNotice::Commit(commit_seq)) => {
+                        if commit_seq <= stream_barrier.commit_head {
+                            continue;
+                        }
+                        match resolve_document_live_delivery(
+                            event_log.clone(),
+                            commit_seq,
+                            context.clone(),
+                            stream_barrier.document_id.clone(),
+                            stream_barrier.store_epoch.clone(),
+                            stream_barrier.core_generation.clone(),
+                            stream_barrier.commit_head,
+                        ).await {
+                            Ok(DocumentLiveDelivery::Packet(packet)) => {
+                                yield Ok(sse_event(&EventEnvelope {
+                                    transport_version: TRANSPORT_PROTOCOL_MAX,
+                                    packet: *packet,
+                                }));
                             }
-                            Ok(CoreAuthorizedEventReplay::ResyncRequired {
-                                requested_after,
-                                oldest_available,
-                                commit_head,
-                                resync_token,
-                            }) => {
-                                if let Some(boundary) = document_boundary.as_ref() {
-                                    yield Ok(Event::default()
-                                        .event("document-resync-required")
-                                        .data(serde_json::to_string(boundary).expect("resync event serializes")));
-                                } else {
-                                    yield Ok(sse_core_resync(&EventReplayRequired {
-                                        requested_after,
-                                        oldest_available,
-                                        commit_head,
-                                        generation: stream_generation.clone(),
-                                        resync_token,
-                                    }));
-                                }
+                            Ok(DocumentLiveDelivery::Unrelated) => {}
+                            Ok(DocumentLiveDelivery::AccessRevoked) => {
+                                yield Ok(sse_document_live_repair_at(
+                                    &stream_barrier,
+                                    stream_barrier.store_epoch.clone(),
+                                    commit_seq,
+                                    DocumentLiveRepairReason::AccessRevoked,
+                                ));
+                                return;
+                            }
+                            Ok(DocumentLiveDelivery::IdentityChanged(checkpoint)) => {
+                                yield Ok(sse_document_live_repair_at(
+                                    &stream_barrier,
+                                    checkpoint.store_epoch,
+                                    checkpoint.scanned_through_seq,
+                                    DocumentLiveRepairReason::IdentityChanged,
+                                ));
                                 return;
                             }
                             Err(error) => {
-                                tracing::error!(error = %error.message, "Authorized commit scanner failed");
+                                tracing::error!(
+                                    error = %error.message,
+                                    documentId = stream_barrier.document_id,
+                                    commitSequence = commit_seq,
+                                    "Exact Document live delivery failed"
+                                );
+                                yield Ok(sse_document_live_repair_at(
+                                    &stream_barrier,
+                                    stream_barrier.store_epoch.clone(),
+                                    commit_seq,
+                                    DocumentLiveRepairReason::PayloadUnavailable,
+                                ));
                                 return;
                             }
                         }
-                    },
+                    }
+                    Ok(DocumentLiveNotice::Repair { store_epoch, commit_head, reason }) => {
+                        let reason = match reason {
+                            DocumentLiveRepairKind::IdentityChanged => {
+                                DocumentLiveRepairReason::IdentityChanged
+                            }
+                            DocumentLiveRepairKind::PayloadUnavailable => {
+                                DocumentLiveRepairReason::PayloadUnavailable
+                            }
+                        };
+                        yield Ok(sse_document_live_repair_at(
+                            &stream_barrier,
+                            StoreEpoch(store_epoch),
+                            commit_head,
+                            reason,
+                        ));
+                        return;
+                    }
+                    Err(broadcast::error::RecvError::Lagged(_)) => {
+                        yield Ok(sse_document_live_repair_at(
+                            &stream_barrier,
+                            stream_barrier.store_epoch.clone(),
+                            stream_barrier.commit_head,
+                            DocumentLiveRepairReason::ReceiverLagged,
+                        ));
+                        return;
+                    }
                     Err(broadcast::error::RecvError::Closed) => break,
                 },
-                received = document_receiver.recv() => match received {
+                received = realtime_receiver.recv() => match received {
                     Ok(publication) => {
-                        let Some(connection_id) = connection_id.as_deref() else {
-                            continue;
-                        };
-                        if !publication.recipient_connections.iter().any(|recipient| recipient == connection_id) {
+                        if !publication.recipient_connections.iter().any(
+                            |recipient| recipient == &connection_id,
+                        ) {
                             continue;
                         }
-                        if let Some(document_id) = requested_document_id.as_deref()
-                            && realtime_event_document_id(&publication.event) != document_id
+                        if realtime_event_document_id(&publication.event)
+                            != stream_barrier.document_id
                         {
                             continue;
                         }
                         yield Ok(sse_document_realtime_event(&publication.event));
                     }
                     Err(broadcast::error::RecvError::Lagged(_)) => {
-                        if let Some(boundary) = document_boundary.as_ref() {
-                            yield Ok(Event::default()
-                                .event("document-resync-required")
-                                .data(serde_json::to_string(boundary).expect("resync event serializes")));
-                        }
-                        break;
+                        yield Ok(sse_document_live_repair_at(
+                            &stream_barrier,
+                            stream_barrier.store_epoch.clone(),
+                            stream_barrier.commit_head,
+                            DocumentLiveRepairReason::ReceiverLagged,
+                        ));
+                        return;
                     }
                     Err(broadcast::error::RecvError::Closed) => break,
                 }
@@ -1677,71 +1772,49 @@ async fn events(
     Ok(Sse::new(stream))
 }
 
-enum CollectedAuthorizedReplay {
-    Scan {
-        envelopes: Vec<EventEnvelope>,
-        checkpoint: StreamCheckpoint,
-        commit_head: i64,
-    },
-    ResyncRequired {
-        requested_after: i64,
-        oldest_available: i64,
-        commit_head: i64,
-        resync_token: String,
-    },
+async fn scan_authorized(
+    event_log: CoreEventLog,
+    after: i64,
+    generation: String,
+    context: BoundModuleContext,
+) -> Result<CoreAuthorizedEventReplay, StoreError> {
+    tokio::task::spawn_blocking(move || {
+        event_log.scan_authorized(after, Some(1_024), &generation, &context, None)
+    })
+    .await
+    .map_err(blocking_event_delivery_error)?
 }
 
-fn collect_authorized_replay(
-    event_log: &CoreEventLog,
-    after: i64,
-    generation: &str,
-    context: &BoundModuleContext,
-    document_id: Option<&str>,
-) -> Result<CollectedAuthorizedReplay, StoreError> {
-    let mut cursor = after;
-    let mut envelopes = Vec::new();
-    loop {
-        match event_log.scan_authorized(cursor, Some(1_024), generation, context, document_id)? {
-            CoreAuthorizedEventReplay::Scan {
-                packets,
-                checkpoint,
-                commit_head,
-            } => {
-                envelopes.extend(packets.into_iter().map(|packet| EventEnvelope {
-                    transport_version: TRANSPORT_PROTOCOL_MAX,
-                    packet,
-                }));
-                if checkpoint.scanned_through_seq >= commit_head {
-                    return Ok(CollectedAuthorizedReplay::Scan {
-                        envelopes,
-                        checkpoint,
-                        commit_head,
-                    });
-                }
-                if checkpoint.scanned_through_seq <= cursor {
-                    return Err(StoreError::new(
-                        StoreErrorCode::StoreCorrupt,
-                        "Authorized commit scanner did not advance",
-                        false,
-                    ));
-                }
-                cursor = checkpoint.scanned_through_seq;
-            }
-            CoreAuthorizedEventReplay::ResyncRequired {
-                requested_after,
-                oldest_available,
-                commit_head,
-                resync_token,
-            } => {
-                return Ok(CollectedAuthorizedReplay::ResyncRequired {
-                    requested_after,
-                    oldest_available,
-                    commit_head,
-                    resync_token,
-                });
-            }
-        }
-    }
+#[allow(clippy::too_many_arguments)]
+async fn resolve_document_live_delivery(
+    event_log: CoreEventLog,
+    commit_seq: i64,
+    context: BoundModuleContext,
+    document_id: String,
+    store_epoch: StoreEpoch,
+    generation: String,
+    live_after: i64,
+) -> Result<DocumentLiveDelivery, StoreError> {
+    tokio::task::spawn_blocking(move || {
+        event_log.authorized_document_live_delivery(
+            commit_seq,
+            &context,
+            &document_id,
+            &store_epoch,
+            &generation,
+            live_after,
+        )
+    })
+    .await
+    .map_err(blocking_event_delivery_error)?
+}
+
+fn blocking_event_delivery_error(error: tokio::task::JoinError) -> StoreError {
+    StoreError::new(
+        StoreErrorCode::Internal,
+        format!("Event delivery worker failed: {error}"),
+        false,
+    )
 }
 
 async fn shutdown(
@@ -1887,6 +1960,7 @@ fn router(state: Arc<ServerState>) -> Router {
     let document_routes = Router::new()
         .route("/core/v1/modules/document/read", post(document_read))
         .route("/core/v1/modules/document/apply", post(document_apply))
+        .route("/core/v1/modules/document/live", get(document_live_events))
         .layer(middleware::from_fn_with_state(
             Arc::clone(&state),
             bind_connection,
@@ -2110,7 +2184,7 @@ struct DocumentSubscriptionGuard {
     adapter: OwnedDocumentRealtimeAdapter,
     connection_id: String,
     client_session_id: String,
-    sender: broadcast::Sender<DocumentTransportPublication>,
+    live_hub: DocumentLiveHub,
 }
 
 impl Drop for DocumentSubscriptionGuard {
@@ -2122,10 +2196,7 @@ impl Drop for DocumentSubscriptionGuard {
             return;
         };
         if let Some(publication) = publication {
-            let _ = self.sender.send(DocumentTransportPublication {
-                event: publication.event,
-                recipient_connections: publication.recipient_connections,
-            });
+            self.live_hub.publish_awareness(publication);
         }
     }
 }
@@ -2277,41 +2348,12 @@ fn connection_registry_error(error: ConnectionRegistryError) -> ApiError {
 
 fn realtime_event_document_id(event: &DocumentRealtimeEvent) -> &str {
     match event {
-        DocumentRealtimeEvent::Committed(event) => match &event.payload {
-            CoreModuleEventPayload::OwnedDocument(event) => match event {
-                nodex_core_contracts::document::OwnedDocumentEvent::DocumentUpdated {
-                    document_id,
-                    ..
-                }
-                | nodex_core_contracts::document::OwnedDocumentEvent::DocumentResyncRequired {
-                    document_id,
-                    ..
-                }
-                | nodex_core_contracts::document::OwnedDocumentEvent::CanvasUpdated {
-                    document_id,
-                    ..
-                }
-                | nodex_core_contracts::document::OwnedDocumentEvent::CanvasGenerationChanged {
-                    document_id,
-                    ..
-                }
-                | nodex_core_contracts::document::OwnedDocumentEvent::DocumentInvalidated {
-                    document_id,
-                    ..
-                } => document_id,
-            },
-            _ => "",
-        },
-        DocumentRealtimeEvent::Awareness { document_id, .. }
-        | DocumentRealtimeEvent::ResyncRequired { document_id, .. } => document_id,
+        DocumentRealtimeEvent::Awareness { document_id, .. } => document_id,
     }
 }
 
 fn publish_document_transport(state: &ServerState, publication: AwarenessPublication) {
-    let _ = state.document_sender.send(DocumentTransportPublication {
-        event: publication.event,
-        recipient_connections: publication.recipient_connections,
-    });
+    state.document_live.publish_awareness(publication);
 }
 
 fn record_operation(module: &str, operation_id: &str) {
@@ -2344,23 +2386,16 @@ fn record_apply_response<T, R>(response: &ApplyResponse<T, R>, duplicate: bool) 
     }
 }
 
-fn publish_committed_if_new(state: &ServerState, duplicate: bool, commit_seq: Option<i64>) {
-    if duplicate {
-        return;
-    }
-    let Some(commit_seq) = commit_seq else {
-        return;
-    };
-    publish_local_commit(state, commit_seq);
-}
-
-fn publish_local_commit(state: &ServerState, commit_seq: i64) {
+fn publish_local_commit(state: &ServerState, commit_seq: i64, store_epoch: String) {
     let started_at = Instant::now();
     tracing::debug!(
         commitSequence = commit_seq,
         "Core commit scanner wake published"
     );
     let _ = state.event_sender.send(commit_seq);
+    state
+        .document_live_publisher
+        .publish(commit_seq, store_epoch);
     state
         .metrics
         .record_local_commit_publication(started_at.elapsed());
@@ -2378,6 +2413,34 @@ fn sse_stream_checkpoint(checkpoint: &StreamCheckpoint) -> Event {
         .event("stream-checkpoint")
         .id(checkpoint.scanned_through_seq.to_string())
         .data(serde_json::to_string(checkpoint).expect("stream checkpoint serializes"))
+}
+
+fn sse_document_live_barrier(barrier: &DocumentLiveBarrier) -> Event {
+    Event::default()
+        .event("document-live-opened")
+        .data(serde_json::to_string(barrier).expect("Document live barrier serializes"))
+}
+
+fn sse_document_live_repair(repair: &DocumentLiveRepair) -> Event {
+    Event::default()
+        .event("document-live-repair")
+        .data(serde_json::to_string(repair).expect("Document live repair serializes"))
+}
+
+fn sse_document_live_repair_at(
+    barrier: &DocumentLiveBarrier,
+    store_epoch: StoreEpoch,
+    commit_head: i64,
+    reason: DocumentLiveRepairReason,
+) -> Event {
+    sse_document_live_repair(&DocumentLiveRepair {
+        document_id: barrier.document_id.clone(),
+        store_epoch,
+        document_generation: barrier.document_generation,
+        head_seq: barrier.head_seq,
+        commit_head,
+        reason,
+    })
 }
 
 fn sse_core_resync(resync: &EventReplayRequired) -> Event {
@@ -2647,7 +2710,9 @@ pub async fn run_with_selection(
     let descriptor = Arc::new(Mutex::new(descriptor));
     let event_log = CoreEventLog::new(store.readers());
     let (event_sender, _) = broadcast::channel(EVENT_CHANNEL_CAPACITY);
-    let (document_sender, _) = broadcast::channel(EVENT_CHANNEL_CAPACITY);
+    let document_live = DocumentLiveHub::new(store_epoch.clone(), EVENT_CHANNEL_CAPACITY);
+    let document_live_publisher =
+        DocumentLivePublisher::start(event_log.clone(), document_live.clone());
     let library = LibraryModule::new(&identity.profile_id, &identity.library_id, &store);
     let replacement_library_operations = library.prepared_agent_operation_registry();
     let replacement_search_snapshots = library.search_snapshot_lease_registry();
@@ -2661,6 +2726,7 @@ pub async fn run_with_selection(
     let document_realtime = OwnedDocumentRealtimeAdapter::new(document.clone());
     let replacement_document = document.clone();
     let replacement_realtime = document_realtime.clone();
+    let replacement_document_live = document_live.clone();
     let replacement_descriptor = Arc::clone(&descriptor);
     let replacement_paths = paths.clone();
     let replacement_lifecycle_summary = lifecycle_summary.clone();
@@ -2715,6 +2781,12 @@ pub async fn run_with_selection(
                     })?;
                 replacement_lifecycle_summary.replace_generation(&next);
                 *descriptor = next;
+                drop(descriptor);
+                replacement_document_live.publish_repair(
+                    store_epoch,
+                    0,
+                    DocumentLiveRepairKind::IdentityChanged,
+                );
                 Ok(())
             });
     let drain_lifecycle_summary = lifecycle_summary.clone();
@@ -2740,7 +2812,8 @@ pub async fn run_with_selection(
         descriptor,
         event_log,
         event_sender,
-        document_sender,
+        document_live,
+        document_live_publisher,
         metrics: ServerMetrics::default(),
         logging: logging_handle,
     });

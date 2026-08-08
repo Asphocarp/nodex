@@ -16,6 +16,7 @@ import type {
   CoreEventEnvelope,
   CoreEventSubscription,
   CoreRuntimeDescriptor,
+  DocumentLiveRepair,
 } from "./types";
 import {
   applyResultCursor,
@@ -128,7 +129,7 @@ describe("CoreClient over a Unix socket", () => {
       await createInitialProject(rootClient, nodexHome);
       const client = rootClient.forProject("project:default");
       const documentId = "document:stream-lifecycle";
-      await client.libraryApply({
+      const created = await client.libraryApply({
         operationId: "node-document-stream-lifecycle-page",
         intent: {
           kind: "create_page",
@@ -139,24 +140,28 @@ describe("CoreClient over a Unix socket", () => {
         },
       });
 
-      firstSubscription = await client.openDocumentEventStream(
+      const firstEvents: CoreEventEnvelope[] = [];
+
+      const openedFirstSubscription = await client.openDocumentEventStream(
         {
           documentId,
           clientSessionId: "session:stream-lifecycle:first",
-          after: 0,
         },
-        () => undefined,
-        () => undefined,
+        (event) => firstEvents.push(event),
         () => undefined,
         () => undefined,
       );
+      firstSubscription = openedFirstSubscription;
+      expect(openedFirstSubscription.barrier.commit_head).toBeGreaterThanOrEqual(
+        applyResultCursor(created),
+      );
+      await new Promise<void>((resolve) => setTimeout(resolve, 25));
+      expect(firstEvents).toEqual([]);
       secondSubscription = await client.openDocumentEventStream(
         {
           documentId,
           clientSessionId: "session:stream-lifecycle:second",
-          after: 0,
         },
-        () => undefined,
         () => undefined,
         () => undefined,
         () => undefined,
@@ -793,15 +798,14 @@ describe("CoreClient over a Unix socket", () => {
         },
       });
 
+      const documentRepairs: DocumentLiveRepair[] = [];
       documentSubscription = await client.openDocumentEventStream(
         {
           documentId: "document:node-integration",
           clientSessionId: "session:before-store-restore",
-          after: 0,
         },
         () => undefined,
-        () => undefined,
-        () => undefined,
+        (repair) => documentRepairs.push(repair),
         () => undefined,
       );
       const restoreInput = {
@@ -825,9 +829,14 @@ describe("CoreClient over a Unix socket", () => {
         CoreEventCompatibilityError,
       );
       subscription = undefined;
-      await expect(staleDocumentEventStream).resolves.toBeInstanceOf(
-        CoreEventCompatibilityError,
-      );
+      await expect(staleDocumentEventStream).resolves.toBeUndefined();
+      expect(documentRepairs).toEqual([
+        expect.objectContaining({
+          document_id: "document:node-integration",
+          reason: "identity_changed",
+          store_epoch: applyResultStoreEpoch(restored),
+        }),
+      ]);
       documentSubscription = undefined;
 
       const replacedConnection = readCoreRuntimeConnection(nodexHome);

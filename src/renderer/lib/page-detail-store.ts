@@ -5,7 +5,10 @@ import {
   readPageDetail,
 } from "./api";
 import { useProjectionInvalidationRegistry } from "./projection-invalidation-context";
-import type { ProjectionInvalidationCause } from "./projection-invalidation-registry";
+import type {
+  ProjectionInvalidationCause,
+  ProjectionInvalidationRegistry,
+} from "./projection-invalidation-registry";
 import {
   pageDetailDataDependencies,
   pageDetailDocumentDependencies,
@@ -35,7 +38,14 @@ interface InFlightPageDetail {
 }
 const inFlight = new Map<string, InFlightPageDetail>();
 const entryGenerations = new Map<string, number>();
+const authorityRegistrations = new Map<string, {
+  readonly registry: ProjectionInvalidationRegistry;
+  readonly release: () => void;
+}>();
+const lastAccess = new Map<string, number>();
 let storeGeneration = 0;
+let accessSequence = 0;
+const MAX_RETAINED_PAGE_DETAILS = 128;
 
 const detailKey = (projectId: string, pageId: string): string =>
   `${projectId}:${pageId}`;
@@ -43,6 +53,36 @@ const detailKey = (projectId: string, pageId: string): string =>
 const emit = (key: string): void => {
   versions.set(key, (versions.get(key) ?? 0) + 1);
   for (const listener of listeners.get(key) ?? []) listener();
+};
+
+const touch = (key: string): void => {
+  accessSequence += 1;
+  lastAccess.set(key, accessSequence);
+};
+
+const releaseAuthority = (key: string): void => {
+  authorityRegistrations.get(key)?.release();
+  authorityRegistrations.delete(key);
+};
+
+const evictInactiveEntry = (key: string): void => {
+  if (listeners.has(key) || inFlight.has(key)) return;
+  advanceEntryGeneration(key);
+  entries.delete(key);
+  versions.delete(key);
+  lastAccess.delete(key);
+  releaseAuthority(key);
+};
+
+const pruneInactiveEntries = (): void => {
+  if (entries.size <= MAX_RETAINED_PAGE_DETAILS) return;
+  const candidates = [...entries.keys()]
+    .filter((key) => !listeners.has(key) && !inFlight.has(key))
+    .sort((left, right) => (lastAccess.get(left) ?? 0) - (lastAccess.get(right) ?? 0));
+  for (const key of candidates) {
+    if (entries.size <= MAX_RETAINED_PAGE_DETAILS) return;
+    evictInactiveEntry(key);
+  }
 };
 
 const advanceEntryGeneration = (key: string): number => {
@@ -60,8 +100,12 @@ const subscribe = (key: string | null, listener: Listener): (() => void) => {
     keyListeners.delete(listener);
     if (keyListeners.size > 0) return;
     listeners.delete(key);
-    advanceEntryGeneration(key);
-    entries.delete(key);
+    if (!entries.has(key) && !inFlight.has(key)) {
+      lastAccess.delete(key);
+      releaseAuthority(key);
+      return;
+    }
+    pruneInactiveEntries();
   };
 };
 
@@ -105,13 +149,20 @@ export const setPageDetail = (
     return;
   }
   entries.set(key, { detail, loading: false, error: null });
+  touch(key);
+  pruneInactiveEntries();
   emit(key);
 };
 
 export const getPageDetail = (
   projectId: string,
   pageId: string,
-): PageDetail | null => entries.get(detailKey(projectId, pageId))?.detail ?? null;
+): PageDetail | null => {
+  const key = detailKey(projectId, pageId);
+  const detail = entries.get(key)?.detail ?? null;
+  if (detail) touch(key);
+  return detail;
+};
 
 export const invalidatePageDetail = (
   projectId: string,
@@ -119,9 +170,10 @@ export const invalidatePageDetail = (
 ): void => {
   const key = detailKey(projectId, pageId);
   advanceEntryGeneration(key);
-  if (!entries.has(key)) return;
-  entries.delete(key);
-  emit(key);
+  const removed = entries.delete(key);
+  lastAccess.delete(key);
+  if (removed) emit(key);
+  if (!listeners.has(key)) releaseAuthority(key);
 };
 
 export const revokePageDetail = (
@@ -135,7 +187,9 @@ export const revokePageDetail = (
     loading: false,
     error: "Page not found",
   });
+  touch(key);
   emit(key);
+  if (!listeners.has(key)) releaseAuthority(key);
 };
 
 export const resetPageDetailStoreForTests = (): void => {
@@ -145,6 +199,12 @@ export const resetPageDetailStoreForTests = (): void => {
   inFlight.clear();
   entryGenerations.clear();
   versions.clear();
+  lastAccess.clear();
+  accessSequence = 0;
+  for (const registration of authorityRegistrations.values()) {
+    registration.release();
+  }
+  authorityRegistrations.clear();
   for (const key of subscribedKeys) emit(key);
 };
 
@@ -175,6 +235,7 @@ export const fetchPageDetail = async (
     loading: current.detail === null,
     error: null,
   });
+  touch(key);
   emit(key);
 
   const requestStoreGeneration = storeGeneration;
@@ -251,7 +312,10 @@ const requestPageDetailRefresh = (
     ) return;
     const current = inFlight.get(key);
     if (current) await current.promise;
-    if (!listeners.has(key)) return;
+    if (!listeners.has(key)) {
+      invalidatePageDetail(projectId, pageId);
+      return;
+    }
     const detail = getPageDetail(projectId, pageId);
     if (
       cause.kind !== "reset" &&
@@ -264,6 +328,58 @@ const requestPageDetailRefresh = (
       minimumCommitSeq: cause.kind === "reset" ? 0 : cause.stream.commitSeq,
     });
   })();
+};
+
+const retainPageDetailAuthority = (
+  libraryId: string,
+  projectId: string,
+  pageId: string,
+  registry: ProjectionInvalidationRegistry,
+): void => {
+  const key = detailKey(projectId, pageId);
+  const existing = authorityRegistrations.get(key);
+  if (existing?.registry === registry) return;
+  existing?.release();
+  const release = registry.register({
+    scope: { kind: "project", libraryId, projectId },
+    consumerKey: `page-detail:${projectId}:${pageId}`,
+    getDependencies: () => {
+      const detail = getPageDetail(projectId, pageId);
+      return {
+        ...pageDetailDataDependencies(detail, pageId),
+        ...pageDetailDocumentDependencies(detail, pageId),
+      };
+    },
+    getCursor: () => {
+      const detail = getPageDetail(projectId, pageId);
+      return detail
+        ? {
+            storeEpoch: detail.storeEpoch,
+            commitSeq: detail.commitSeq,
+          }
+        : null;
+    },
+    revoke: (cause) => {
+      if (cause.delivery.revocation.resource_kind === "page") {
+        revokePageDetail(projectId, pageId);
+        return;
+      }
+      invalidatePageDetail(projectId, pageId);
+    },
+    fence: (cause) => {
+      // A projection checkpoint can be delivered synchronously while the
+      // canonical Page Detail read is still in flight. Do not fence that
+      // read: requestPageDetailRefresh awaits it and performs a trailing
+      // minimum-commit read only when the result is actually old.
+      if (
+        cause.kind === "checkpoint"
+        && inFlight.has(detailKey(projectId, pageId))
+      ) return;
+      invalidatePageDetail(projectId, pageId);
+    },
+    invalidate: (cause) => requestPageDetailRefresh(projectId, pageId, cause),
+  });
+  authorityRegistrations.set(key, { registry, release });
 };
 
 export const usePageDetail = (
@@ -284,52 +400,14 @@ export const usePageDetail = (
   );
 
   useEffect(() => {
-    if (!projectId || !pageId) return;
+    if (!projectId || !pageId || getPageDetail(projectId, pageId)) return;
     void fetchPageDetail(projectId, pageId).catch(() => undefined);
   }, [pageId, projectId]);
 
   const snapshot = key ? (entries.get(key) ?? EMPTY_DETAIL) : EMPTY_DETAIL;
   useEffect(() => {
     if (!projectId || !pageId || !libraryId) return;
-    return registry.register({
-      scope: { kind: "project", libraryId, projectId },
-      consumerKey: `page-detail:${projectId}:${pageId}`,
-      getDependencies: () => {
-        const detail = getPageDetail(projectId, pageId);
-        return {
-          ...pageDetailDataDependencies(detail, pageId),
-          ...pageDetailDocumentDependencies(detail, pageId),
-        };
-      },
-      getCursor: () => {
-        const detail = getPageDetail(projectId, pageId);
-        return detail
-          ? {
-              storeEpoch: detail.storeEpoch,
-              commitSeq: detail.commitSeq,
-            }
-          : null;
-      },
-      revoke: (cause) => {
-        if (cause.delivery.revocation.resource_kind === "page") {
-          revokePageDetail(projectId, pageId);
-          return;
-        }
-        invalidatePageDetail(projectId, pageId);
-      },
-      fence: (cause) => {
-        // A projection checkpoint can be delivered synchronously while the
-        // canonical Page Detail read is still in flight. Do not fence that
-        // read: requestPageDetailRefresh awaits it and performs a trailing
-        // minimum-commit read only when the result is actually old.
-        if (
-          cause.kind === "checkpoint"
-          && inFlight.has(detailKey(projectId, pageId))
-        ) return;
-        invalidatePageDetail(projectId, pageId);
-      },
-      invalidate: (cause) => requestPageDetailRefresh(projectId, pageId, cause),
-    });
+    retainPageDetailAuthority(libraryId, projectId, pageId, registry);
   }, [libraryId, pageId, projectId, registry]);
 
   return snapshot;

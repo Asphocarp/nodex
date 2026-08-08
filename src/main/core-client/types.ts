@@ -168,17 +168,37 @@ export interface OwnedDocumentApplyInput {
   readonly intent: OwnedDocumentIntent;
 }
 
-export interface DocumentResyncRequired {
-  readonly document_id: string;
+export interface DocumentLiveBarrier {
   readonly store_epoch: string;
-  readonly generation: number;
+  readonly core_generation: string;
+  readonly document_id: string;
+  readonly document_generation: number;
   readonly head_seq: number;
   readonly commit_head: number;
+  readonly engine: "yjs" | "canvas_scene";
+}
+
+export interface DocumentLiveRepair {
+  readonly document_id: string;
+  readonly store_epoch: string;
+  readonly document_generation: number;
+  readonly head_seq: number;
+  readonly commit_head: number;
+  readonly reason:
+    | "receiver_lagged"
+    | "payload_unavailable"
+    | "identity_changed"
+    | "access_revoked"
+    | "event_gap";
 }
 
 export interface CoreEventSubscription {
   readonly done: Promise<void>;
   close(): void;
+}
+
+export interface CoreDocumentEventSubscription extends CoreEventSubscription {
+  readonly barrier: DocumentLiveBarrier;
 }
 
 export interface CoreClientPort {
@@ -218,14 +238,12 @@ export interface CoreClientPort {
     input: {
       readonly documentId: string;
       readonly clientSessionId: string;
-      readonly after: number;
       readonly signal?: AbortSignal;
     },
     onEvent: (event: CoreEventEnvelope) => void,
-    onCheckpoint: (checkpoint: CoreStreamCheckpoint) => void,
-    onResyncRequired: (event: DocumentResyncRequired) => void,
+    onRepair: (repair: DocumentLiveRepair) => void,
     onRealtimeEvent: (event: DocumentSyncRealtimeEvent) => void,
-  ): Promise<CoreEventSubscription>;
+  ): Promise<CoreDocumentEventSubscription>;
   openEventStream(
     after: number,
     onEvent: (event: CoreEventEnvelope) => void,

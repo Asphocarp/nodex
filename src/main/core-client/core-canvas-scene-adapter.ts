@@ -25,20 +25,20 @@ import {
   decodeCanvasSceneSseEvent,
 } from "../../shared/block-documents/canvas-scene-http-contract";
 import { CoreModuleResponseError } from "./core-client";
+import { isRetryableCoreEventStreamError } from "./core-event-stream-supervisor";
 import {
-  isRetryableCoreEventStreamError,
-  superviseCoreEventStream,
-  type SupervisedCoreEventSubscription,
-} from "./core-event-stream-supervisor";
+  superviseDocumentLiveStream,
+  type SupervisedDocumentLiveSubscription,
+} from "./document-live-stream-supervisor";
 import { executeWithDocumentSubscription } from "./core-document-subscription-lifecycle";
 import {
   findCoreModulePayload,
   type CoreClientPort,
   type CoreEventEnvelope,
-  type DocumentResyncRequired,
+  type DocumentLiveRepair,
 } from "./types";
 
-type ActiveSubscription = SupervisedCoreEventSubscription;
+type ActiveSubscription = SupervisedDocumentLiveSubscription;
 
 interface CoreCanvasSceneAdapterOptions {
   readonly retryDelayMs?: number;
@@ -62,7 +62,7 @@ export interface CoreCanvasSceneAdapter {
   subscribeWithLifecycle(
     request: CanvasSceneSubscribeRequest,
     listener: (event: CanvasSceneRealtimeEvent) => void,
-  ): SupervisedCoreEventSubscription;
+  ): SupervisedDocumentLiveSubscription;
   subscribe(
     request: CanvasSceneSubscribeRequest,
     listener: (event: CanvasSceneRealtimeEvent) => void,
@@ -89,7 +89,6 @@ export const createCoreCanvasSceneAdapter = (
   options: CoreCanvasSceneAdapterOptions = {},
 ): CoreCanvasSceneAdapter => {
   const subscriptions = new Map<string, ActiveSubscription>();
-  const lastSequences = new Map<string, number>();
 
   const subscriptionFor = (
     request: Pick<CanvasSceneSubscribeRequest, "clientSessionId" | "documentId">,
@@ -102,57 +101,60 @@ export const createCoreCanvasSceneAdapter = (
   const subscribeWithLifecycle = (
     request: CanvasSceneSubscribeRequest,
     listener: (event: CanvasSceneRealtimeEvent) => void,
-  ): SupervisedCoreEventSubscription => {
+  ): SupervisedDocumentLiveSubscription => {
     const key = subscriptionKey(request);
     const predecessor = subscriptions.get(key);
     predecessor?.close();
     const predecessorDone = predecessor?.done.catch(() => undefined)
       ?? Promise.resolve();
-    const supervisor = superviseCoreEventStream<DocumentResyncRequired>({
-      initialAfter: lastSequences.get(key) ?? 0,
+    const supervisor = superviseDocumentLiveStream({
       maxInitialOpenAttempts: options.maxInitialOpenAttempts ?? 3,
       shouldRetry: isRetryableCoreEventStreamError,
       retryDelayMs: options.retryDelayMs,
       maxRetryDelayMs: options.maxRetryDelayMs,
-      open: async (after, onEvent, onCheckpoint, onResyncRequired, signal) => {
+      open: async (onEvent, onRepair, onRealtime, signal) => {
         await predecessorDone;
         if (signal.aborted) throw signal.reason;
         return await client.openDocumentEventStream(
           {
             documentId: request.documentId,
             clientSessionId: request.clientSessionId,
-            after,
             signal,
           },
           onEvent,
-          onCheckpoint,
-          onResyncRequired,
-          () => undefined,
+          onRepair,
+          onRealtime,
         );
       },
       onEvent: (envelope) => {
         const event = canvasEvent(request, envelope);
         if (!event) return;
-        const previous = lastSequences.get(key) ?? 0;
-        const commitSeq = envelope.packet.manifest.identity.commit_seq;
-        if (commitSeq <= previous) return;
         listener(event);
       },
-      onCheckpoint: (checkpoint) => {
-        lastSequences.set(key, checkpoint.scanned_through_seq);
-      },
-      onResyncRequired: (resync) => {
-        lastSequences.set(key, resync.commit_head);
+      onRepair: (repair: DocumentLiveRepair) => {
         listener({
           type: "canvas_scene_resync_required",
           version: CANVAS_SCENE_SYNC_VERSION,
           projectId: request.projectId,
-          documentId: resync.document_id,
-          storeEpoch: resync.store_epoch,
-          generation: resync.generation,
-          headSeq: resync.head_seq,
+          documentId: repair.document_id,
+          storeEpoch: repair.store_epoch,
+          generation: repair.document_generation,
+          headSeq: repair.head_seq,
         });
       },
+      onOpened: (barrier, reconnected) => {
+        if (!reconnected) return;
+        listener({
+          type: "canvas_scene_resync_required",
+          version: CANVAS_SCENE_SYNC_VERSION,
+          projectId: request.projectId,
+          documentId: barrier.document_id,
+          storeEpoch: barrier.store_epoch,
+          generation: barrier.document_generation,
+          headSeq: barrier.head_seq,
+        });
+      },
+      onRealtime: () => undefined,
     });
     subscriptions.set(key, supervisor);
     void supervisor.done.catch(() => undefined).finally(() => {

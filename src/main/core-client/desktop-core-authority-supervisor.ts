@@ -16,6 +16,7 @@ import type {
   CoreEventEnvelope,
   CoreEventReplayRequired,
   CoreEventSubscription,
+  CoreDocumentEventSubscription,
   CoreStreamCheckpoint,
   CoreHandshakeResponse,
   CoreLocalMutationResolveRequest,
@@ -24,7 +25,7 @@ import type {
   DatabaseApplyResult,
   DatabaseRead,
   DatabaseReadSnapshot,
-  DocumentResyncRequired,
+  DocumentLiveRepair,
   LibraryApplyInput,
   LibraryApplyResult,
   LibraryRead,
@@ -560,19 +561,16 @@ class SupervisedCoreClient implements DesktopCoreClient {
     input: {
       readonly documentId: string;
       readonly clientSessionId: string;
-      readonly after: number;
       readonly signal?: AbortSignal;
     },
     onEvent: (event: CoreEventEnvelope) => void,
-    onCheckpoint: (checkpoint: CoreStreamCheckpoint) => void,
-    onResyncRequired: (event: DocumentResyncRequired) => void,
+    onRepair: (repair: DocumentLiveRepair) => void,
     onRealtimeEvent: (event: DocumentSyncRealtimeEvent) => void,
-  ): Promise<CoreEventSubscription> {
+  ): Promise<CoreDocumentEventSubscription> {
     return this.#execute((client) => client.openDocumentEventStream(
       input,
       onEvent,
-      onCheckpoint,
-      onResyncRequired,
+      onRepair,
       onRealtimeEvent,
     ));
   }

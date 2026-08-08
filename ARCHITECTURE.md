@@ -149,23 +149,44 @@ kind, and resource ID. Scope identity is derived from canonical structured
 serialization rather than delimiter-concatenated IDs. Pure revocation packets
 are valid even when they contain no semantic, Document, or Projection effect.
 
-An exact Document subscription is itself a resource boundary. Core authorizes
-the owned Document with the canonical Page/grant/synced-owner/Canvas-shell read
-rules, then filters semantic effects, Document refs, and revocations to that
-exact Document before delivery. A commit that contains only unrelated effects
-may advance the explicit stream checkpoint but cannot enter the surface lane;
-a Canvas scene commit cannot disappear merely because its shell is not a normal
-Page row.
+An exact Document subscription is itself a resource boundary, but it is not a
+second durable-log reader. Core installs a receiver in a resource-addressed
+Document live Hub, then authorizes the owned Document and reads its Store epoch,
+engine, generation, Document head, and current LocalCommit head in one SQLite
+snapshot. That `DocumentLiveBarrier` opens the live interval. The renderer then
+performs canonical state-vector/scene synchronization at the barrier while Main
+buffers later events; only after that sync adopts its boundary can post-barrier
+events become current surface authority. Historical recovery belongs solely to
+the global durable stream and canonical Document sync, so opening a Page never
+scans LocalCommit history from genesis.
 
-Document and Canvas realtime delivery has a separate per-surface durable head
+Committed routing claims drive one ordered asynchronous publisher that wakes
+only the addressed Document channels. Each woken stream still asks Core for a
+post-state-authorized exact packet, so routing never becomes authorization.
+Unrelated commits do not wake the surface or consume a surface cursor. Ephemeral
+Awareness has its own addressed per-Document channel, so presence traffic cannot
+consume commit/repair capacity or wake unrelated editors. Receiver lag, missing
+payload evidence, and Store identity change terminate the physical stream with
+a typed repair boundary; reconnect installs a fresh barrier and canonical sync
+rather than replaying an exact-stream cursor. The publisher is an O(1) enqueue
+after commit and its route resolution runs outside the apply response and async
+network reactor.
+
+The committed identity is enqueued before reconstructing the caller's optional
+apply delivery. A delivery-construction failure can therefore lose the response
+but cannot suppress recovery wakes. Exact command retries republish the same
+identity; durable scanners and resource dispatchers absorb the duplicate.
+
+Document and Canvas live delivery has a separate per-surface Document-head
 ordering barrier. A future head is buffered, a contiguous head drains in
 order, and a bounded overflow emits an explicit resync. This ordering is
 independent of the semantic LocalCommit order because one commit may update
 multiple Documents and two apply responses may arrive out of order.
-An active exact-Document subscription is itself a Core-authorized capability;
-root-stream Document refs fan out only to active subscriptions for that exact
-Document. A scoped Document revocation emits an `access-revoked` boundary and
-closes only the addressed subscription scope.
+An active exact-Document subscription is itself a Core-authorized capability.
+Apply-response and durable-root packets may enrich that active exact scope, but
+the resource Hub is the ordinary live wake path and dispatcher resource
+identity makes later copies harmless. A scoped Document revocation emits an
+`access-revoked` boundary and closes only the addressed subscription scope.
 
 Document payload bytes are operationally compactable, but the Manifest effect
 index is not deleted from durable semantic history. The Manifest hash covers
@@ -314,14 +335,15 @@ Project before crossing IPC. Project-scoped live Yjs subscribe,
 sync, update, and Awareness IPC use a lifecycle-aware Owned Document bridge;
 each native subscription is bound to its Electron target, Project, Document,
 and client session and is closed with the target. The bridge reserves that exact
-session while opening, acknowledges it only after the authenticated Core stream
-is physically open, and serializes replacement behind predecessor teardown. One
-logical subscription supervises retryable physical UDS interruptions from the
-last delivered cursor; dependent commands wait for its current connection,
-and a typed stream recovery invalidates a stale physical stream before one
-safe/idempotent command retry. A fatal stream end atomically releases the
-renderer binding. Session-qualified connection events prevent a retiring
-provider from changing its replacement's state. Library-scoped live Page
+session while opening, admits it only after the authenticated Core live barrier,
+and keeps post-barrier events buffered until canonical sync adopts the barrier's
+Store/generation/head coordinate. Replacement waits for predecessor teardown.
+One logical subscription supervises retryable physical UDS interruptions by
+opening a fresh barrier; typed repair suspends the old surface boundary before
+canonical resynchronization, while dependent commands wait for the current
+connection. A fatal stream end atomically releases the renderer binding.
+Session-qualified connection events prevent a retiring provider from changing
+its replacement's state. Library-scoped live Page
 Document sync uses the root Core client and an explicit Library transport scope that the
 server accepts only from trusted local Electron, native CLI, and test Adapters;
 Core resolves the Page's local Library identity and read/write lifecycle itself

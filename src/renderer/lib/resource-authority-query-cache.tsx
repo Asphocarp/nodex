@@ -1,4 +1,6 @@
 import {
+  type Query,
+  type QueryCacheNotifyEvent,
   type QueryClient,
   type QueryKey,
   useQueryClient,
@@ -68,6 +70,12 @@ interface ScopeRegistration {
   readonly release: () => void;
 }
 
+interface IndexedAuthorityQuery {
+  readonly queryHash: string;
+  readonly queryKey: QueryKey;
+  readonly resolution: ResourceAuthorityQueryResolution;
+}
+
 /**
  * Keeps revocation subscriptions alive for authorization-bearing query cache
  * entries, including entries whose React surface is currently unmounted.
@@ -76,9 +84,9 @@ export class ResourceAuthorityQueryCache {
   readonly #queryClient: QueryClient;
   readonly #registry: ProjectionInvalidationRegistry;
   readonly #scopeRegistrations = new Map<string, ScopeRegistration>();
+  readonly #indexedQueries = new Map<string, IndexedAuthorityQuery>();
+  readonly #queriesByScope = new Map<string, Map<string, IndexedAuthorityQuery>>();
   #releaseCacheSubscription: (() => void) | null = null;
-  #reconciling = false;
-  #reconcileAgain = false;
 
   constructor(input: {
     readonly queryClient: QueryClient;
@@ -90,10 +98,12 @@ export class ResourceAuthorityQueryCache {
 
   start(): () => void {
     if (this.#releaseCacheSubscription) return () => this.dispose();
-    this.#reconcileScopes();
+    for (const query of this.#queryClient.getQueryCache().getAll()) {
+      this.#indexQuery(query);
+    }
     this.#releaseCacheSubscription = this.#queryClient
       .getQueryCache()
-      .subscribe(() => this.#reconcileScopes());
+      .subscribe((event) => this.#handleCacheEvent(event));
     return () => this.dispose();
   }
 
@@ -104,88 +114,119 @@ export class ResourceAuthorityQueryCache {
       registration.release();
     }
     this.#scopeRegistrations.clear();
+    this.#indexedQueries.clear();
+    this.#queriesByScope.clear();
   }
 
-  #reconcileScopes(): void {
-    if (this.#reconciling) {
-      this.#reconcileAgain = true;
+  #handleCacheEvent(event: QueryCacheNotifyEvent): void {
+    if (event.type === "removed") {
+      this.#removeIndexedQuery(event.query.queryHash);
       return;
     }
-    this.#reconciling = true;
-    try {
-      do {
-        this.#reconcileAgain = false;
-        const desired = new Map<string, ProjectionScope>();
-        for (const query of this.#queryClient.getQueryCache().getAll()) {
-          const metadata = metadataFrom(query.meta);
-          const resolution = metadata?.resolve(query.queryKey, query.state.data);
-          if (!resolution) continue;
-          desired.set(projectionScopeKey(resolution.scope), resolution.scope);
-        }
+    this.#indexQuery(event.query);
+  }
 
-        for (const [key, registration] of this.#scopeRegistrations) {
-          if (desired.has(key)) continue;
-          registration.release();
-          this.#scopeRegistrations.delete(key);
+  #indexQuery(query: Query): void {
+    const metadata = metadataFrom(query.meta);
+    const resolution = metadata?.resolve(query.queryKey, query.state.data);
+    if (!resolution) {
+      this.#removeIndexedQuery(query.queryHash);
+      return;
+    }
+
+    const key = projectionScopeKey(resolution.scope);
+    const indexed = {
+      queryHash: query.queryHash,
+      queryKey: query.queryKey,
+      resolution,
+    } satisfies IndexedAuthorityQuery;
+    const existing = this.#indexedQueries.get(query.queryHash);
+    if (
+      existing
+      && projectionScopeKey(existing.resolution.scope) === key
+    ) {
+      this.#indexedQueries.set(query.queryHash, indexed);
+      const scoped = this.#queriesByScope.get(key);
+      if (scoped) scoped.set(query.queryHash, indexed);
+      this.#ensureScopeRegistration(key, resolution.scope);
+      return;
+    }
+
+    this.#removeIndexedQuery(query.queryHash);
+    const scoped = this.#queriesByScope.get(key)
+      ?? new Map<string, IndexedAuthorityQuery>();
+    scoped.set(query.queryHash, indexed);
+    this.#queriesByScope.set(key, scoped);
+    this.#indexedQueries.set(query.queryHash, indexed);
+    this.#ensureScopeRegistration(key, resolution.scope);
+  }
+
+  #removeIndexedQuery(queryHash: string): void {
+    const indexed = this.#indexedQueries.get(queryHash);
+    if (!indexed) return;
+    this.#indexedQueries.delete(queryHash);
+    const key = projectionScopeKey(indexed.resolution.scope);
+    const scoped = this.#queriesByScope.get(key);
+    scoped?.delete(queryHash);
+    if (scoped && scoped.size > 0) return;
+    this.#queriesByScope.delete(key);
+    this.#scopeRegistrations.get(key)?.release();
+    this.#scopeRegistrations.delete(key);
+  }
+
+  #ensureScopeRegistration(key: string, scope: ProjectionScope): void {
+    if (this.#scopeRegistrations.has(key)) return;
+    // Registration may synchronously deliver the initial checkpoint. Install
+    // a placeholder first so a resulting cache event cannot double-register.
+    this.#scopeRegistrations.set(key, { release: () => undefined });
+    const release = this.#registry.register({
+      scope,
+      consumerKey: `resource-authority-query-cache:${key}`,
+      projectionEffects: "ignore",
+      getDependencies: () => ({ aggregate: true }),
+      getCursor: () => this.#scopeCursor(key),
+      revoke: (cause) => {
+        for (const indexed of this.#scopeQueries(key)) {
+          if (!revocationMatches(
+            indexed.resolution.dependencies,
+            cause.delivery.revocation,
+          )) continue;
+          this.#evictIndexedQuery(indexed);
         }
-        for (const [key, scope] of desired) {
-          if (this.#scopeRegistrations.has(key)) continue;
-          const release = this.#registry.register({
-            scope,
-            consumerKey: `resource-authority-query-cache:${key}`,
-            projectionEffects: "ignore",
-            getDependencies: () => ({ aggregate: true }),
-            getCursor: () => this.#scopeCursor(key),
-            revoke: (cause) => {
-              for (const query of this.#queryClient.getQueryCache().getAll()) {
-                const metadata = metadataFrom(query.meta);
-                const resolution = metadata?.resolve(query.queryKey, query.state.data);
-                if (!resolution) continue;
-                if (projectionScopeKey(resolution.scope) !== key) continue;
-                if (!revocationMatches(
-                  resolution.dependencies,
-                  cause.delivery.revocation,
-                )) continue;
-                evictExactQuery(this.#queryClient, query.queryKey);
-                for (const relatedQueryKey of resolution.relatedQueryKeys ?? []) {
-                  evictExactQuery(this.#queryClient, relatedQueryKey);
-                }
-              }
-            },
-            fence: (cause) => {
-              for (const query of this.#queryClient.getQueryCache().getAll()) {
-                const metadata = metadataFrom(query.meta);
-                const resolution = metadata?.resolve(query.queryKey, query.state.data);
-                if (!resolution) continue;
-                if (projectionScopeKey(resolution.scope) !== key) continue;
-                if (
-                  cause.kind === "checkpoint"
-                  && projectionCursorCovers(resolution.cursor, cause.stream)
-                ) continue;
-                evictExactQuery(this.#queryClient, query.queryKey);
-                for (const relatedQueryKey of resolution.relatedQueryKeys ?? []) {
-                  evictExactQuery(this.#queryClient, relatedQueryKey);
-                }
-              }
-            },
-            invalidate: () => undefined,
-          });
-          this.#scopeRegistrations.set(key, { release });
+      },
+      fence: (cause) => {
+        for (const indexed of this.#scopeQueries(key)) {
+          if (
+            cause.kind === "checkpoint"
+            && projectionCursorCovers(indexed.resolution.cursor, cause.stream)
+          ) continue;
+          this.#evictIndexedQuery(indexed);
         }
-      } while (this.#reconcileAgain);
-    } finally {
-      this.#reconciling = false;
+      },
+      invalidate: () => undefined,
+    });
+    if (!this.#queriesByScope.has(key)) {
+      release();
+      this.#scopeRegistrations.delete(key);
+      return;
+    }
+    this.#scopeRegistrations.set(key, { release });
+  }
+
+  #scopeQueries(key: string): IndexedAuthorityQuery[] {
+    return [...(this.#queriesByScope.get(key)?.values() ?? [])];
+  }
+
+  #evictIndexedQuery(indexed: IndexedAuthorityQuery): void {
+    evictExactQuery(this.#queryClient, indexed.queryKey);
+    for (const relatedQueryKey of indexed.resolution.relatedQueryKeys ?? []) {
+      evictExactQuery(this.#queryClient, relatedQueryKey);
     }
   }
 
   #scopeCursor(key: string): ProjectionCursor | null {
-    const cursors: ProjectionCursor[] = [];
-    for (const query of this.#queryClient.getQueryCache().getAll()) {
-      const metadata = metadataFrom(query.meta);
-      const resolution = metadata?.resolve(query.queryKey, query.state.data);
-      if (!resolution || projectionScopeKey(resolution.scope) !== key) continue;
-      cursors.push(resolution.cursor);
-    }
+    const cursors = this.#scopeQueries(key)
+      .map((indexed) => indexed.resolution.cursor);
     const storeEpoch = cursors[0]?.storeEpoch;
     if (!storeEpoch || cursors.some((cursor) => cursor.storeEpoch !== storeEpoch)) {
       return null;

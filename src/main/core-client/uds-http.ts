@@ -15,9 +15,11 @@ import type {
   CoreEventEnvelope,
   CoreEventReplayRequired,
   CoreEventSubscription,
+  CoreDocumentEventSubscription,
   CoreModuleEventPayload,
   CoreStreamCheckpoint,
-  DocumentResyncRequired,
+  DocumentLiveBarrier,
+  DocumentLiveRepair,
 } from "./types";
 
 const MAX_JSON_REQUEST_BYTES =
@@ -161,6 +163,12 @@ interface CoreEventContract {
   readonly eventVersion: number;
   readonly libraryId: string;
   readonly storeEpoch: string;
+  readonly coreGeneration: string;
+}
+
+interface DocumentLiveStreamOptions {
+  readonly path: string;
+  readonly onRepair: (repair: DocumentLiveRepair) => void;
 }
 
 export class UdsHttpTransport {
@@ -190,7 +198,8 @@ export class UdsHttpTransport {
       !Number.isSafeInteger(contract.transportVersion) ||
       !Number.isSafeInteger(contract.eventVersion) ||
       !contract.libraryId ||
-      !contract.storeEpoch
+      !contract.storeEpoch ||
+      !contract.coreGeneration
     ) {
       throw new CoreEventCompatibilityError("Core event contract is invalid");
     }
@@ -351,11 +360,11 @@ export class UdsHttpTransport {
     after: number,
     onEvent: (event: CoreEventEnvelope) => void,
     requestHeaders: Readonly<Record<string, string>> = {},
-    onResyncRequired?: (event: DocumentResyncRequired) => void,
     onDocumentRealtime?: (event: DocumentSyncRealtimeEvent) => void,
     onCoreResyncRequired?: (event: CoreEventReplayRequired) => void,
     onCheckpoint?: (checkpoint: CoreStreamCheckpoint) => void,
     signal?: AbortSignal,
+    documentLive?: DocumentLiveStreamOptions,
   ): Promise<CoreEventSubscription> {
     if (!Number.isSafeInteger(after) || after < 0) {
       return Promise.reject(new Error("Event sequence must be a non-negative integer"));
@@ -370,6 +379,7 @@ export class UdsHttpTransport {
     return new Promise<CoreEventSubscription>((resolve, reject) => {
       let opened = false;
       let closed = false;
+      let documentBarrier: DocumentLiveBarrier | null = null;
       let resolveDone: (() => void) | undefined;
       let rejectDone: ((error: unknown) => void) | undefined;
       const done = new Promise<void>((doneResolve, doneReject) => {
@@ -379,7 +389,7 @@ export class UdsHttpTransport {
       const request = httpRequest(
         {
           socketPath: this.socketPath,
-          path: `/core/v1/events?after=${after}`,
+          path: documentLive?.path ?? `/core/v1/events?after=${after}`,
           method: "GET",
           agent: false,
           signal,
@@ -390,7 +400,6 @@ export class UdsHttpTransport {
           },
         },
         (response) => {
-          request.setTimeout(0);
           const status = response.statusCode ?? 0;
           if (status !== 200) {
             collectResponse(response, this.#maximumJsonResponseBytes)
@@ -406,21 +415,62 @@ export class UdsHttpTransport {
             return;
           }
 
-          opened = true;
           const parser = new SseParser(MAX_EVENT_FRAME_BYTES);
+          const openSubscription = (): void => {
+            if (opened || closed) return;
+            if (documentLive && !documentBarrier) return;
+            opened = true;
+            request.setTimeout(0);
+            resolve({
+              done,
+              ...(documentBarrier ? { barrier: documentBarrier } : {}),
+              close: () => {
+                if (closed) return;
+                closed = true;
+                response.destroy();
+                request.destroy();
+                resolveDone?.();
+              },
+            });
+          };
           const fail = (error: unknown): void => {
             if (closed) return;
             closed = true;
             response.destroy();
-            rejectDone?.(normalizeTransportError(error, "response"));
-          };
-          const processFrame = (frame: { readonly event: string; readonly data: string }): void => {
-            if (frame.event === "module") {
-              onEvent(parseEventEnvelope(frame.data, eventContract));
+            const normalized = normalizeTransportError(error, "response");
+            if (opened) {
+              rejectDone?.(normalized);
               return;
             }
-            if (frame.event === "document-resync-required") {
-              onResyncRequired?.(parseDocumentResync(frame.data));
+            reject(normalized);
+          };
+          const processFrame = (frame: { readonly event: string; readonly data: string }): void => {
+            if (frame.event === "document-live-opened") {
+              if (!documentLive || documentBarrier) {
+                throw new CoreEventCompatibilityError(
+                  "Core emitted an unexpected Document live barrier",
+                );
+              }
+              documentBarrier = parseDocumentLiveBarrier(frame.data, eventContract);
+              openSubscription();
+              return;
+            }
+            if (documentLive && !documentBarrier) {
+              throw new CoreEventCompatibilityError(
+                "Core Document live stream emitted data before its barrier",
+              );
+            }
+            if (frame.event === "document-live-repair") {
+              if (!documentLive) {
+                throw new CoreEventCompatibilityError(
+                  "Core emitted a Document repair on the global stream",
+                );
+              }
+              documentLive.onRepair(parseDocumentLiveRepair(frame.data, eventContract));
+              return;
+            }
+            if (frame.event === "module") {
+              onEvent(parseEventEnvelope(frame.data, eventContract));
               return;
             }
             if (frame.event === "document-realtime") {
@@ -450,6 +500,12 @@ export class UdsHttpTransport {
           response.on("end", () => {
             try {
               for (const frame of parser.finish()) processFrame(frame);
+              if (documentLive && !documentBarrier) {
+                fail(new CoreEventCompatibilityError(
+                  "Core Document live stream ended before its barrier",
+                ));
+                return;
+              }
               if (!closed) resolveDone?.();
               closed = true;
             } catch (error) {
@@ -460,16 +516,7 @@ export class UdsHttpTransport {
             fail(new Error("Core event stream ended before completion"));
           });
           response.on("error", fail);
-          resolve({
-            done,
-            close: () => {
-              if (closed) return;
-              closed = true;
-              response.destroy();
-              request.destroy();
-              resolveDone?.();
-            },
-          });
+          openSubscription();
         },
       );
       request.on("error", (error) => {
@@ -484,6 +531,28 @@ export class UdsHttpTransport {
       });
       request.end();
     });
+  }
+
+  openDocumentLiveStream(
+    requestHeaders: Readonly<Record<string, string>>,
+    onEvent: (event: CoreEventEnvelope) => void,
+    onRepair: (repair: DocumentLiveRepair) => void,
+    onDocumentRealtime: (event: DocumentSyncRealtimeEvent) => void,
+    signal?: AbortSignal,
+  ): Promise<CoreDocumentEventSubscription> {
+    return this.openEventStream(
+      0,
+      onEvent,
+      requestHeaders,
+      onDocumentRealtime,
+      undefined,
+      undefined,
+      signal,
+      {
+        path: "/core/v1/modules/document/live",
+        onRepair,
+      },
+    ) as Promise<CoreDocumentEventSubscription>;
   }
 }
 
@@ -1140,23 +1209,109 @@ const isProjectionImpact = (value: unknown): boolean => {
     );
 };
 
-const parseDocumentResync = (json: string): DocumentResyncRequired => {
+const parseDocumentLiveBarrier = (
+  json: string,
+  contract: CoreEventContract,
+): DocumentLiveBarrier => {
   const value = decodeBoundedJson<unknown>(
     Buffer.from(json, "utf8"),
     MAX_EVENT_FRAME_BYTES,
-    "Core Document resync event",
+    "Core Document live barrier",
   );
   if (
-    typeof value !== "object" ||
-    value === null ||
-    !("document_id" in value) ||
-    typeof value.document_id !== "string" ||
-    !("commit_head" in value) ||
-    typeof value.commit_head !== "number"
+    typeof value !== "object"
+    || value === null
+    || !hasExactKeys(value, [
+      "commit_head",
+      "core_generation",
+      "document_generation",
+      "document_id",
+      "engine",
+      "head_seq",
+      "store_epoch",
+    ])
+    || !("store_epoch" in value)
+    || !isIdentity(value.store_epoch)
+    || !("core_generation" in value)
+    || !isIdentity(value.core_generation)
+    || !("document_id" in value)
+    || !isIdentity(value.document_id)
+    || !("document_generation" in value)
+    || !isNonNegativeSafeInteger(value.document_generation)
+    || Number(value.document_generation) < 1
+    || !("head_seq" in value)
+    || !isNonNegativeSafeInteger(value.head_seq)
+    || !("commit_head" in value)
+    || !isNonNegativeSafeInteger(value.commit_head)
+    || !("engine" in value)
+    || (value.engine !== "yjs" && value.engine !== "canvas_scene")
   ) {
-    throw new Error("Core Document resync event is invalid");
+    throw new CoreEventCompatibilityError("Core Document live barrier is invalid");
   }
-  return value as DocumentResyncRequired;
+  if (
+    value.store_epoch !== contract.storeEpoch
+    || value.core_generation !== contract.coreGeneration
+  ) {
+    throw new CoreEventCompatibilityError(
+      "Core Document live barrier crossed the connected identity",
+    );
+  }
+  return value as DocumentLiveBarrier;
+};
+
+const parseDocumentLiveRepair = (
+  json: string,
+  contract: CoreEventContract,
+): DocumentLiveRepair => {
+  const value = decodeBoundedJson<unknown>(
+    Buffer.from(json, "utf8"),
+    MAX_EVENT_FRAME_BYTES,
+    "Core Document live repair",
+  );
+  const reasons = new Set<DocumentLiveRepair["reason"]>([
+    "receiver_lagged",
+    "payload_unavailable",
+    "identity_changed",
+    "access_revoked",
+    "event_gap",
+  ]);
+  if (
+    typeof value !== "object"
+    || value === null
+    || !hasExactKeys(value, [
+      "commit_head",
+      "document_generation",
+      "document_id",
+      "head_seq",
+      "reason",
+      "store_epoch",
+    ])
+    || !("store_epoch" in value)
+    || !isIdentity(value.store_epoch)
+    || !("document_id" in value)
+    || !isIdentity(value.document_id)
+    || !("document_generation" in value)
+    || !isNonNegativeSafeInteger(value.document_generation)
+    || Number(value.document_generation) < 1
+    || !("head_seq" in value)
+    || !isNonNegativeSafeInteger(value.head_seq)
+    || !("commit_head" in value)
+    || !isNonNegativeSafeInteger(value.commit_head)
+    || !("reason" in value)
+    || typeof value.reason !== "string"
+    || !reasons.has(value.reason as DocumentLiveRepair["reason"])
+  ) {
+    throw new CoreEventCompatibilityError("Core Document live repair is invalid");
+  }
+  if (
+    value.store_epoch !== contract.storeEpoch
+    && value.reason !== "identity_changed"
+  ) {
+    throw new CoreEventCompatibilityError(
+      "Core Document live repair crossed the connected Store epoch",
+    );
+  }
+  return value as DocumentLiveRepair;
 };
 
 const parseCoreResync = (json: string): CoreEventReplayRequired => {

@@ -364,12 +364,7 @@ pub(crate) fn encode_realtime_event(
         generation,
         client_session_id,
         update,
-    } = event
-    else {
-        return Err(invalid(
-            "Only ephemeral Document events use the transport frame",
-        ));
-    };
+    } = event;
     serde_json::to_string(&serde_json::json!({
         "version": 1,
         "kind": "awareness",

@@ -11,11 +11,18 @@ import {
   BLOCK_TRANSFER_INTENT_CONTRACT_VERSION,
   type BlockTransferIntent,
 } from "../../shared/block-transfer";
-import type { DocumentSyncClientTarget } from "../document-sync-transport";
+import type {
+  DocumentSyncClientTarget,
+} from "../document-sync-transport";
+import type {
+  DocumentSyncSubscribeRequest,
+} from "../../shared/block-documents/document-sync";
 import type { ExecuteNodexAgentDuplicatePageResult } from "../../shared/nodex-agent-tools";
 import { DuplicatePageV3OutputSchema } from "../../shared/nodex-agent-tools/v3-write-schemas";
 import {
   createDesktopDocumentSyncBridge,
+  type DesktopDocumentSyncPort,
+  type DesktopDocumentSyncScope,
 } from "./desktop-document-sync-bridge";
 import type { RustDataAuthorityRuntime } from "./desktop-data-authority";
 import {
@@ -27,7 +34,10 @@ import {
   CoreEventCompatibilityError,
   CoreHttpError,
 } from "./uds-http";
-import type { CoreAuthorizedDeliveryPacket } from "./types";
+import type {
+  CoreAuthorizedDeliveryPacket,
+  DocumentLiveBarrier,
+} from "./types";
 import { LocalCommitCoordinator } from "./local-commit-coordinator";
 
 class FakeTarget implements DocumentSyncClientTarget {
@@ -88,6 +98,7 @@ class TerminalDocumentStreamClient extends FakeCoreClient {
       this.rejectActive = reject;
     });
     return Promise.resolve({
+      barrier: documentLiveBarrier(args[0].documentId),
       done,
       close: resolveDone,
     });
@@ -107,13 +118,16 @@ class ControlledOpeningDocumentStreamClient extends FakeCoreClient {
   }> = [];
 
   override openDocumentEventStream(
+    input: Parameters<FakeCoreClient["openDocumentEventStream"]>[0],
   ): ReturnType<FakeCoreClient["openDocumentEventStream"]> {
     let resolveOpening: (subscription: {
+      readonly barrier: DocumentLiveBarrier;
       readonly done: Promise<void>;
       close(): void;
     }) => void = () => undefined;
     let rejectOpening: (error: unknown) => void = () => undefined;
     const opening = new Promise<{
+      readonly barrier: DocumentLiveBarrier;
       readonly done: Promise<void>;
       close(): void;
     }>((resolve, reject) => {
@@ -126,13 +140,27 @@ class ControlledOpeningDocumentStreamClient extends FakeCoreClient {
         const done = new Promise<void>((resolve) => {
           resolveDone = resolve;
         });
-        resolveOpening({ done, close: resolveDone });
+        resolveOpening({
+          barrier: documentLiveBarrier(input.documentId),
+          done,
+          close: resolveDone,
+        });
       },
       fail: rejectOpening,
     });
     return opening;
   }
 }
+
+const documentLiveBarrier = (documentId: string): DocumentLiveBarrier => ({
+  store_epoch: "epoch:test",
+  core_generation: "fake-core-start",
+  document_id: documentId,
+  document_generation: 1,
+  head_seq: 0,
+  commit_head: 0,
+  engine: "yjs",
+});
 
 const rustRuntime = (
   rootClient: FakeCoreClient,
@@ -254,6 +282,30 @@ const subscribeRequest = {
   documentId: "document:one",
   clientSessionId: "renderer:one",
 } as const;
+
+const activateYjsSubscription = async (
+  bridge: DesktopDocumentSyncPort,
+  client: FakeCoreClient,
+  scope: DesktopDocumentSyncScope,
+  target: FakeTarget,
+  request: DocumentSyncSubscribeRequest,
+  headSeq: number,
+): Promise<void> => {
+  client.enqueueDocumentSync({
+    documentId: request.documentId,
+    storeEpoch: "epoch:test",
+    generation: 1,
+    headSeq,
+    update: new Uint8Array(),
+    stateVector: new Uint8Array(),
+  });
+  const result = await bridge.sync(scope, target, {
+    ...request,
+    stateVector: new Uint8Array(),
+  });
+  if (!result.ok) throw new Error(`Document activation failed: ${result.error.message}`);
+  target.sent.splice(0);
+};
 
 const canvasSubscribeRequest = {
   version: CANVAS_SCENE_SYNC_VERSION,
@@ -475,6 +527,114 @@ describe("Desktop Document sync bridge", () => {
     expect(client.openings).toHaveLength(2);
   });
 
+  test("keeps a reserved session outside root fanout until Core opens its barrier", async () => {
+    const client = new ControlledOpeningDocumentStreamClient();
+    const bridge = createDesktopDocumentSyncBridge({
+      authority: Promise.resolve(rustRuntime(client)),
+    });
+    const target = new FakeTarget(30);
+    const opening = bridge.subscribe(
+      { kind: "library" },
+      target,
+      subscribeRequest,
+    );
+    await vi.waitFor(() => expect(client.openings).toHaveLength(1));
+
+    bridge.publishDocumentEffects(documentCommitEnvelope(1, [
+      subscribeRequest.documentId,
+    ]));
+    expect(target.sent).toHaveLength(0);
+
+    client.openings[0]?.open();
+    await expect(opening).resolves.toEqual({
+      ok: true,
+      value: { subscribed: true },
+    });
+    expect(target.sent.filter((delivery) =>
+      typeof delivery.payload === "object"
+      && delivery.payload !== null
+      && "kind" in delivery.payload
+      && delivery.payload.kind === "document-update"
+    )).toHaveLength(0);
+  });
+
+  test("admits an exact session at its barrier but withholds bytes until canonical sync", async () => {
+    const client = new FakeCoreClient();
+    const bridge = createDesktopDocumentSyncBridge({
+      authority: Promise.resolve(rustRuntime(client)),
+    });
+    const target = new FakeTarget(31);
+    const scope = { kind: "library" } as const;
+    await bridge.subscribe(scope, target, subscribeRequest);
+    target.sent.splice(0);
+
+    client.emitDocument(subscribeRequest.documentId, {
+      transport_version: 6,
+      packet: documentCommitEnvelope(1, [subscribeRequest.documentId]),
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(target.sent).toHaveLength(0);
+
+    await activateYjsSubscription(
+      bridge,
+      client,
+      scope,
+      target,
+      subscribeRequest,
+      1,
+    );
+    client.emitDocument(subscribeRequest.documentId, {
+      transport_version: 6,
+      packet: documentCommitEnvelope(2, [subscribeRequest.documentId]),
+    });
+    await vi.waitFor(() => {
+      expect(target.sent).toEqual([expect.objectContaining({
+        payload: expect.objectContaining({
+          kind: "document-update",
+          headSeq: 2,
+        }),
+      })]);
+    });
+  });
+
+  test("delivers an identity repair across the previous Yjs Store boundary", async () => {
+    const client = new FakeCoreClient();
+    const bridge = createDesktopDocumentSyncBridge({
+      authority: Promise.resolve(rustRuntime(client)),
+    });
+    const target = new FakeTarget(32);
+    const scope = { kind: "library" } as const;
+    await bridge.subscribe(scope, target, subscribeRequest);
+    await activateYjsSubscription(
+      bridge,
+      client,
+      scope,
+      target,
+      subscribeRequest,
+      1,
+    );
+    target.sent.splice(0);
+
+    client.emitDocumentRepair(subscribeRequest.documentId, {
+      document_id: subscribeRequest.documentId,
+      store_epoch: "epoch:replacement",
+      document_generation: 1,
+      head_seq: 0,
+      commit_head: 0,
+      reason: "identity_changed",
+    });
+
+    await vi.waitFor(() => {
+      expect(target.sent).toContainEqual(expect.objectContaining({
+        payload: expect.objectContaining({
+          kind: "resync-required",
+          storeEpoch: "epoch:replacement",
+          reason: "identity-boundary-changed",
+        }),
+      }));
+    });
+  });
+
   test("releases the bridge binding when an established logical stream terminates", async () => {
     const client = new TerminalDocumentStreamClient();
     const bridge = createDesktopDocumentSyncBridge({
@@ -538,8 +698,9 @@ describe("Desktop Document sync bridge", () => {
   });
 
   test("fans one LocalCommit out to every authorized live Document surface", async () => {
+    const client = new FakeCoreClient();
     const bridge = createDesktopDocumentSyncBridge({
-      authority: Promise.resolve(rustRuntime(new FakeCoreClient())),
+      authority: Promise.resolve(rustRuntime(client)),
     });
     const projectOne = new FakeTarget(1);
     const projectTwo = new FakeTarget(2);
@@ -568,6 +729,30 @@ describe("Desktop Document sync bridge", () => {
         clientSessionId: "renderer:unrelated",
       },
     );
+    await activateYjsSubscription(
+      bridge,
+      client,
+      { kind: "project", projectId: "project:one" },
+      projectOne,
+      { ...subscribeRequest, clientSessionId: "renderer:project:one" },
+      2,
+    );
+    await activateYjsSubscription(
+      bridge,
+      client,
+      { kind: "project", projectId: "project:two" },
+      projectTwo,
+      { ...subscribeRequest, clientSessionId: "renderer:project:two" },
+      2,
+    );
+    await activateYjsSubscription(
+      bridge,
+      client,
+      { kind: "library" },
+      library,
+      { ...subscribeRequest, clientSessionId: "renderer:library" },
+      2,
+    );
     for (const target of [projectOne, projectTwo, library, unrelated]) {
       target.sent.splice(0);
     }
@@ -591,8 +776,9 @@ describe("Desktop Document sync bridge", () => {
   });
 
   test("revokes only the exact Project Document subscription from a root packet", async () => {
+    const client = new FakeCoreClient();
     const bridge = createDesktopDocumentSyncBridge({
-      authority: Promise.resolve(rustRuntime(new FakeCoreClient())),
+      authority: Promise.resolve(rustRuntime(client)),
     });
     const source = new FakeTarget(5);
     const target = new FakeTarget(6);
@@ -611,6 +797,30 @@ describe("Desktop Document sync bridge", () => {
       { kind: "library" },
       library,
       { ...subscribeRequest, clientSessionId: "renderer:library" },
+    );
+    await activateYjsSubscription(
+      bridge,
+      client,
+      { kind: "project", projectId: "project:one" },
+      source,
+      { ...subscribeRequest, clientSessionId: "renderer:source" },
+      3,
+    );
+    await activateYjsSubscription(
+      bridge,
+      client,
+      { kind: "project", projectId: "project:two" },
+      target,
+      { ...subscribeRequest, clientSessionId: "renderer:target" },
+      3,
+    );
+    await activateYjsSubscription(
+      bridge,
+      client,
+      { kind: "library" },
+      library,
+      { ...subscribeRequest, clientSessionId: "renderer:library" },
+      3,
     );
     for (const recipient of [source, target, library]) recipient.sent.splice(0);
     const revocation = {
@@ -652,8 +862,9 @@ describe("Desktop Document sync bridge", () => {
   });
 
   test("suppresses same-packet Document bytes before the revocation lane runs", async () => {
+    const client = new FakeCoreClient();
     const bridge = createDesktopDocumentSyncBridge({
-      authority: Promise.resolve(rustRuntime(new FakeCoreClient())),
+      authority: Promise.resolve(rustRuntime(client)),
     });
     const source = new FakeTarget(8);
     const target = new FakeTarget(9);
@@ -666,6 +877,22 @@ describe("Desktop Document sync bridge", () => {
       { kind: "project", projectId: "project:two" },
       target,
       { ...subscribeRequest, clientSessionId: "renderer:target-barrier" },
+    );
+    await activateYjsSubscription(
+      bridge,
+      client,
+      { kind: "project", projectId: "project:one" },
+      source,
+      { ...subscribeRequest, clientSessionId: "renderer:source-barrier" },
+      3,
+    );
+    await activateYjsSubscription(
+      bridge,
+      client,
+      { kind: "project", projectId: "project:two" },
+      target,
+      { ...subscribeRequest, clientSessionId: "renderer:target-barrier" },
+      3,
     );
     source.sent.splice(0);
     target.sent.splice(0);
@@ -721,7 +948,7 @@ describe("Desktop Document sync bridge", () => {
       resource_id: subscribeRequest.documentId,
       reason: "access_revoked" as const,
     };
-    client.emit({
+    client.emitDocument(subscribeRequest.documentId, {
       transport_version: 6,
       packet: createCoreLocalCommitFixture({
         authorizationScope: revocation.authorization_scope,
@@ -749,8 +976,9 @@ describe("Desktop Document sync bridge", () => {
   });
 
   test("publishes an exact coordinator lane without replaying sibling Documents", async () => {
+    const client = new FakeCoreClient();
     const bridge = createDesktopDocumentSyncBridge({
-      authority: Promise.resolve(rustRuntime(new FakeCoreClient())),
+      authority: Promise.resolve(rustRuntime(client)),
     });
     const first = new FakeTarget(5);
     const second = new FakeTarget(6);
@@ -762,6 +990,22 @@ describe("Desktop Document sync bridge", () => {
       documentId: "document:second",
       clientSessionId: "renderer:second",
     });
+    await activateYjsSubscription(
+      bridge,
+      client,
+      { kind: "library" },
+      first,
+      { documentId: "document:first", clientSessionId: "renderer:first" },
+      2,
+    );
+    await activateYjsSubscription(
+      bridge,
+      client,
+      { kind: "library" },
+      second,
+      { documentId: "document:second", clientSessionId: "renderer:second" },
+      2,
+    );
     first.sent.splice(0);
     second.sent.splice(0);
     const packet = documentCommitEnvelope(3, [
@@ -791,6 +1035,22 @@ describe("Desktop Document sync bridge", () => {
       ...subscribeRequest,
       clientSessionId: "renderer:second",
     });
+    await activateYjsSubscription(
+      bridge,
+      client,
+      scope,
+      first,
+      { ...subscribeRequest, clientSessionId: "renderer:first" },
+      2,
+    );
+    await activateYjsSubscription(
+      bridge,
+      client,
+      scope,
+      second,
+      { ...subscribeRequest, clientSessionId: "renderer:second" },
+      2,
+    );
     first.sent.splice(0);
     second.sent.splice(0);
     const packet = documentCommitEnvelope(
@@ -917,14 +1177,23 @@ describe("Desktop Document sync bridge", () => {
   });
 
   test("deduplicates an apply fast path replayed by the durable stream", async () => {
+    const client = new FakeCoreClient();
     const bridge = createDesktopDocumentSyncBridge({
-      authority: Promise.resolve(rustRuntime(new FakeCoreClient())),
+      authority: Promise.resolve(rustRuntime(client)),
     });
     const target = new FakeTarget(1);
     await bridge.subscribe(
       { kind: "library" },
       target,
       subscribeRequest,
+    );
+    await activateYjsSubscription(
+      bridge,
+      client,
+      { kind: "library" },
+      target,
+      subscribeRequest,
+      3,
     );
     target.sent.splice(0);
 
@@ -936,14 +1205,23 @@ describe("Desktop Document sync bridge", () => {
   });
 
   test("publishes the admitted apply envelope once before the tailer replay", async () => {
+    const client = new FakeCoreClient();
     const bridge = createDesktopDocumentSyncBridge({
-      authority: Promise.resolve(rustRuntime(new FakeCoreClient())),
+      authority: Promise.resolve(rustRuntime(client)),
     });
     const target = new FakeTarget(2);
     await bridge.subscribe(
       { kind: "library" },
       target,
       subscribeRequest,
+    );
+    await activateYjsSubscription(
+      bridge,
+      client,
+      { kind: "library" },
+      target,
+      subscribeRequest,
+      5,
     );
     target.sent.splice(0);
 
@@ -1416,6 +1694,22 @@ describe("Desktop Document sync bridge", () => {
       documentId: "document:target",
       clientSessionId: "renderer:target",
     });
+    await activateYjsSubscription(
+      bridge,
+      projectClient,
+      scope,
+      sourceTarget,
+      { documentId: "document:source", clientSessionId: "renderer:source" },
+      8,
+    );
+    await activateYjsSubscription(
+      bridge,
+      projectClient,
+      scope,
+      targetTarget,
+      { documentId: "document:target", clientSessionId: "renderer:target" },
+      8,
+    );
 
     const result = await bridge.transferBlocks(transferIntent);
     if (!result.ok) throw new Error(JSON.stringify(result.error));
@@ -1466,6 +1760,17 @@ describe("Desktop Document sync bridge", () => {
       documentId: "document:agent-target",
       clientSessionId: "renderer:agent-target",
     });
+    await activateYjsSubscription(
+      bridge,
+      projectClient,
+      scope,
+      target,
+      {
+        documentId: "document:agent-target",
+        clientSessionId: "renderer:agent-target",
+      },
+      13,
+    );
     const execute = vi.fn(async (): Promise<ExecuteNodexAgentDuplicatePageResult> => ({
       ok: true,
       value: {
@@ -1598,6 +1903,39 @@ describe("Desktop Document sync bridge", () => {
       ...canvasSubscribeRequest,
       syncRequestId: "sync:canvas",
     }]);
+  });
+
+  test("delivers an identity repair across the previous Canvas Store boundary", async () => {
+    const projectClient = new FakeCoreClient();
+    projectClient.enqueueDocumentCanvasSync(canvasSyncSnapshot("sync:identity"));
+    const bridge = createDesktopDocumentSyncBridge({
+      authority: Promise.resolve(rustRuntime(new FakeCoreClient(), projectClient)),
+    });
+    const target = new FakeTarget(4);
+    await bridge.subscribeCanvasScene(target, canvasSubscribeRequest);
+    await bridge.syncCanvasScene(target, {
+      ...canvasSubscribeRequest,
+      syncRequestId: "sync:identity",
+    });
+    target.sent.splice(0);
+
+    projectClient.emitDocumentRepair(canvasSubscribeRequest.documentId, {
+      document_id: canvasSubscribeRequest.documentId,
+      store_epoch: "epoch:replacement",
+      document_generation: 1,
+      head_seq: 0,
+      commit_head: 0,
+      reason: "identity_changed",
+    });
+
+    await vi.waitFor(() => {
+      expect(target.sent).toContainEqual(expect.objectContaining({
+        payload: expect.objectContaining({
+          type: "canvas_scene_resync_required",
+          storeEpoch: "epoch:replacement",
+        }),
+      }));
+    });
   });
 
   test("binds ephemeral Canvas presence to the exact Host target without Core writes", async () => {

@@ -7,12 +7,13 @@ import type {
   CoreEventEnvelope,
   CoreEventReplayRequired,
   CoreEventSubscription,
+  CoreDocumentEventSubscription,
   CoreStreamCheckpoint,
   DatabaseApplyInput,
   DatabaseApplyResult,
   DatabaseRead,
   DatabaseReadSnapshot,
-  DocumentResyncRequired,
+  DocumentLiveRepair,
   LibraryApplyInput,
   LibraryApplyResult,
   LibraryRead,
@@ -199,6 +200,14 @@ export class FakeCoreClient implements CoreClientPort {
   readonly #awarenessResults: DocumentAwarenessPublishAck[] = [];
   readonly #localMutationResolveResults: CoreLocalMutationResolveResponse[] = [];
   readonly #eventConsumers = new Set<(event: CoreEventEnvelope) => void>();
+  readonly #documentEventConsumers = new Map<
+    string,
+    Set<(event: CoreEventEnvelope) => void>
+  >();
+  readonly #documentRepairConsumers = new Map<
+    string,
+    Set<(repair: DocumentLiveRepair) => void>
+  >();
 
   enqueueRead(result: LibraryReadSnapshot): void {
     this.#readResults.push(result);
@@ -429,17 +438,47 @@ export class FakeCoreClient implements CoreClientPort {
     _input: {
       readonly documentId: string;
       readonly clientSessionId: string;
-      readonly after: number;
     },
     onEvent: (event: CoreEventEnvelope) => void,
-    _onCheckpoint: (checkpoint: CoreStreamCheckpoint) => void,
-    _onResyncRequired: (event: DocumentResyncRequired) => void,
+    onRepair: (repair: DocumentLiveRepair) => void,
     _onRealtimeEvent: (event: DocumentSyncRealtimeEvent) => void,
-  ): Promise<CoreEventSubscription> {
-    void _onResyncRequired;
-    void _onCheckpoint;
+  ): Promise<CoreDocumentEventSubscription> {
     void _onRealtimeEvent;
-    return this.openEventStream(0, onEvent, () => undefined);
+    const consumers = this.#documentEventConsumers.get(_input.documentId)
+      ?? new Set<(event: CoreEventEnvelope) => void>();
+    consumers.add(onEvent);
+    this.#documentEventConsumers.set(_input.documentId, consumers);
+    const repairConsumers = this.#documentRepairConsumers.get(_input.documentId)
+      ?? new Set<(repair: DocumentLiveRepair) => void>();
+    repairConsumers.add(onRepair);
+    this.#documentRepairConsumers.set(_input.documentId, repairConsumers);
+    let finish: (() => void) | undefined;
+    const done = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    return Promise.resolve({
+      barrier: {
+        store_epoch: "epoch:test",
+        core_generation: "fake-core-start",
+        document_id: _input.documentId,
+        document_generation: 1,
+        head_seq: 0,
+        commit_head: 0,
+        engine: _input.documentId.includes("canvas") ? "canvas_scene" : "yjs",
+      },
+      done,
+      close: () => {
+        consumers.delete(onEvent);
+        if (consumers.size === 0) {
+          this.#documentEventConsumers.delete(_input.documentId);
+        }
+        repairConsumers.delete(onRepair);
+        if (repairConsumers.size === 0) {
+          this.#documentRepairConsumers.delete(_input.documentId);
+        }
+        finish?.();
+      },
+    });
   }
 
   async openEventStream(
@@ -468,5 +507,17 @@ export class FakeCoreClient implements CoreClientPort {
 
   emit(event: CoreEventEnvelope): void {
     for (const consumer of this.#eventConsumers) consumer(event);
+  }
+
+  emitDocument(documentId: string, event: CoreEventEnvelope): void {
+    for (const consumer of this.#documentEventConsumers.get(documentId) ?? []) {
+      consumer(event);
+    }
+  }
+
+  emitDocumentRepair(documentId: string, repair: DocumentLiveRepair): void {
+    for (const consumer of this.#documentRepairConsumers.get(documentId) ?? []) {
+      consumer(repair);
+    }
   }
 }

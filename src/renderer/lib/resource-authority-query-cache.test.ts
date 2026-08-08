@@ -1,5 +1,5 @@
 import { QueryClient, QueryObserver } from "@tanstack/react-query";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { ProjectionScope } from "../../shared/projection-stream";
 import { projectionScopeKey } from "../../shared/projection-stream";
@@ -242,6 +242,53 @@ describe("ResourceAuthorityQueryCache", () => {
     });
     cache.dispose();
     releaseObserver();
+    registry.dispose();
+  });
+
+  it("reindexes only the query named by a cache event", async () => {
+    const subscribeProjection = vi.fn(() => () => undefined);
+    const subscribeRevocations = vi.fn(() => () => undefined);
+    const registry = new ProjectionInvalidationRegistry({
+      subscribeProjection,
+      subscribeRevocations,
+    });
+    const client = new QueryClient({
+      defaultOptions: { queries: { gcTime: Infinity, retry: false } },
+    });
+    clients.push(client);
+    const resolvers = Array.from({ length: 100 }, (_, index) =>
+      vi.fn(() => ({
+        scope: projectScope,
+        cursor: { storeEpoch: "epoch-1", commitSeq: 1 },
+        dependencies: { pageIds: [`page-${index}`] },
+      })),
+    );
+    for (const [index, resolve] of resolvers.entries()) {
+      await client.fetchQuery({
+        queryKey: ["page", index],
+        queryFn: async () => ({ index }),
+        meta: resourceAuthorityQueryMeta(resolve),
+      });
+    }
+    const cache = new ResourceAuthorityQueryCache({
+      queryClient: client,
+      registry,
+    });
+    cache.start();
+    expect(resolvers.map((resolve) => resolve.mock.calls.length))
+      .toEqual(Array.from({ length: 100 }, () => 1));
+
+    client.setQueryData(["page", 42], { index: 42, updated: true });
+
+    expect(resolvers[42]).toHaveBeenCalledTimes(2);
+    expect(subscribeProjection).toHaveBeenCalledTimes(1);
+    expect(subscribeRevocations).toHaveBeenCalledTimes(1);
+    expect(
+      resolvers
+        .filter((_, index) => index !== 42)
+        .every((resolve) => resolve.mock.calls.length === 1),
+    ).toBe(true);
+    cache.dispose();
     registry.dispose();
   });
 });

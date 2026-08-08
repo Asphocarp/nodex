@@ -50,7 +50,7 @@ pub use operations::{
     prepare_reference_hint_finalization_update,
 };
 pub use realtime::{
-    AwarenessPublication, DocumentRealtimeEvent, DocumentRealtimeReplay, DocumentSubscriptionAck,
+    AwarenessPublication, DocumentRealtimeEvent, DocumentSubscriptionAck,
     DocumentSubscriptionEngine, OwnedDocumentRealtimeAdapter,
 };
 pub(crate) use retention::run_block_retention_pass;
