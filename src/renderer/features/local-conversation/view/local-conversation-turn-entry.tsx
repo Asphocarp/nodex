@@ -10,6 +10,8 @@ import type {
 } from "../thread-stage-types";
 import { ThreadTurn } from "./local-conversation-thread-turn";
 import { LocalConversationAboveComposerPortal } from "./local-conversation-above-composer-portal";
+import { useMcpServerStatuses } from "../../../lib/use-mcp-queries";
+import { useCodexMcpApps } from "../use-codex-mcp-apps";
 
 interface LocalConversationTurnEntryProps {
   conversationId: string;
@@ -78,6 +80,8 @@ function LocalConversationTurnEntryComponent({
 }: LocalConversationTurnEntryProps) {
   const turn = entry.turn;
   onRendered?.(entry.turnKey);
+  const { data: mcpApps } = useCodexMcpApps();
+  const { data: mcpServerStatuses } = useMcpServerStatuses();
   const turnModel = useMemo(
     () =>
       selectTurnRenderModel({
@@ -87,12 +91,16 @@ function LocalConversationTurnEntryComponent({
         backgroundAgents: backgroundAgentRows,
         cwd: threadCwd,
         projectlessOutputDirectory,
+        mcpApps: mcpApps ?? [],
+        mcpServerStatuses: mcpServerStatuses ?? null,
       }),
     [
       canEditTurnUserPrefix,
       canForkTurn,
       backgroundAgentRows,
       entry,
+      mcpApps,
+      mcpServerStatuses,
       projectlessOutputDirectory,
       threadCwd,
     ],
@@ -125,6 +133,7 @@ function LocalConversationTurnEntryComponent({
       >
         <ThreadTurn
           turn={turnModel}
+          mcpApps={mcpApps ?? []}
           agentBodyCollapsed={
             persistedCollapsed ?? turnModel.defaultAgentBodyCollapsed
           }

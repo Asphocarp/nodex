@@ -36,7 +36,7 @@ import {
 import { ThreadBlockRenderer } from "./local-conversation-block-renderer";
 import { HookFeedbackSettingsNavigationProvider } from "../hook-feedback-settings-navigation";
 import type {
-  ThreadAgentActivityGroupSummaryStats,
+  ThreadAgentActivityGroupBlockModel,
   ThreadOpenThreadContext,
   ThreadTranscriptBlockModel,
 } from "../../thread-stage-types";
@@ -92,6 +92,33 @@ function buildCommandBlock(
     type: "exec",
     entry,
     status: entry.status,
+  };
+}
+
+function buildAgentActivityGroupBlock(
+  overrides: Partial<ThreadAgentActivityGroupBlockModel> = {},
+): ThreadAgentActivityGroupBlockModel {
+  const entries = overrides.entries ?? [];
+  const bodyEntries = overrides.bodyEntries ?? entries;
+
+  return {
+    id: "activity-1",
+    turnId: "turn-1",
+    createdAt: 1,
+    updatedAt: 2,
+    searchableText: "activity",
+    type: "agentActivityGroup",
+    canExpand: overrides.canExpand ?? bodyEntries.length > 0,
+    entries,
+    bodyEntries,
+    completedHeader: overrides.completedHeader ?? {
+      parts: [],
+      iconItem: entries[0] ?? null,
+    },
+    header: overrides.header ?? { kind: "summary", key: "summary" },
+    shouldAnimateInitialCollapse: overrides.shouldAnimateInitialCollapse ?? false,
+    status: overrides.status ?? "completed",
+    ...overrides,
   };
 }
 
@@ -203,45 +230,6 @@ function buildSubagentActivityInlineGroupBlock(): ThreadTranscriptBlockModel {
         diffStats: null,
       },
     ],
-  };
-}
-
-function buildCollapsedSummaryStats(
-  overrides: Partial<ThreadAgentActivityGroupSummaryStats> = {},
-): ThreadAgentActivityGroupSummaryStats {
-  return {
-    createdFileCount: 0,
-    runningCreatedFileCount: 0,
-    stoppedCreatedFileCount: 0,
-    editedFileCount: 0,
-    runningEditedFileCount: 0,
-    deletedFileCount: 0,
-    runningDeletedFileCount: 0,
-    changedLineCount: 0,
-    runningCreatedLineCount: 0,
-    exploredFileCount: 0,
-    runningExploredFileCount: 0,
-    loadedToolCount: 0,
-    runningLoadedToolCount: 0,
-    searchCount: 0,
-    runningSearchCount: 0,
-    listCount: 0,
-    runningListCount: 0,
-    commandCount: 0,
-    runningCommandCount: 0,
-    completedWebSearchCommandCount: 0,
-    runningFolderCreationCommandCount: 0,
-    runningWebSearchCommandCount: 0,
-    deniedRequestCount: 0,
-    timedOutRequestCount: 0,
-    hookCount: 0,
-    runningHookCount: 0,
-    mcpToolCallCount: 0,
-    runningMcpToolCallCount: 0,
-    mcpToolCallSources: [],
-    webSearchCount: 0,
-    runningWebSearchCount: 0,
-    ...overrides,
   };
 }
 
@@ -532,21 +520,17 @@ describe("ThreadAgentActivityGroupBlock", () => {
   });
 
   test("starts collapsed and expands a Codex-style body with original flat entries", async () => {
-    const block = {
+    const readBlock = buildCommandBlock("item-1", [
+      { type: "read", command: "cat a.ts", name: "./src/a.ts", path: "./src/a.ts" },
+    ]);
+    const block = buildAgentActivityGroupBlock({
       id: "activity-1",
-      turnId: "turn-1",
-      createdAt: 1,
-      updatedAt: 2,
-      searchableText: "activity",
-      type: "agentActivityGroup" as const,
-      summary: "Read a file",
-      status: "completed" as const,
-      entries: [
-        buildCommandBlock("item-1", [
-          { type: "read", command: "cat a.ts", name: "./src/a.ts", path: "./src/a.ts" },
-        ]),
-      ],
-    };
+      entries: [readBlock],
+      completedHeader: {
+        parts: [{ kind: "exploration" }],
+        iconItem: readBlock,
+      },
+    });
 
     const { container, getByRole } = render(
       <TooltipProvider>
@@ -558,7 +542,7 @@ describe("ThreadAgentActivityGroupBlock", () => {
       </TooltipProvider>,
     );
 
-    const summaryButton = getByRole("button", { name: /Read a file/i });
+    const summaryButton = getByRole("button", { name: /Read files/i });
     expect(summaryButton.getAttribute("aria-expanded") ?? "").toBe("false");
     expect(Boolean(container.querySelector("[data-testid='agent-activity-group-body']"))).toBe(false);
     expect(applyContentSearchDomMarks({
@@ -592,39 +576,27 @@ describe("ThreadAgentActivityGroupBlock", () => {
   });
 
   test("shimmers only the latest streaming active summary", () => {
-    const commandEntry = buildCommandEntry("item-command-active", [], {
+    const commandBlock = buildCommandBlock("item-command-active", [], {
       status: "inProgress",
       command: "bun test",
       exitCode: undefined,
     });
-    const block = {
+    const block = buildAgentActivityGroupBlock({
       id: "activity-active",
-      turnId: "turn-1",
-      createdAt: 1,
-      updatedAt: 2,
       searchableText: "activity active",
-      type: "agentActivityGroup" as const,
-      summary: "Ran 1 command",
-      status: "inProgress" as const,
-      summaryStats: buildCollapsedSummaryStats({ runningCommandCount: 1 }),
-      runningSummary: {
-        kind: "text" as const,
+      status: "inProgress",
+      header: {
+        kind: "active",
         key: "item-command-active",
         label: "Running bun test",
+        item: commandBlock,
       },
-      entries: [
-        {
-          id: commandEntry.entryId ?? commandEntry.itemId,
-          turnId: commandEntry.turnId,
-          createdAt: commandEntry.createdAt,
-          updatedAt: commandEntry.updatedAt,
-          searchableText: "command",
-          type: "exec" as const,
-          entry: commandEntry,
-          status: commandEntry.status,
-        },
-      ],
-    };
+      completedHeader: {
+        parts: [{ kind: "commands", count: 1 }],
+        iconItem: commandBlock,
+      },
+      entries: [commandBlock],
+    });
 
     const { getByRole } = render(
       <TooltipProvider>
@@ -643,38 +615,25 @@ describe("ThreadAgentActivityGroupBlock", () => {
   });
 
   test("renders the latest open group's Thinking fallback as its only live header", () => {
-    const commandEntry = buildCommandEntry("item-command-completed", [], {
+    const commandBlock = buildCommandBlock("item-command-completed", [], {
       status: "completed",
       command: "pnpm test",
       exitCode: 0,
     });
-    const block = {
+    const block = buildAgentActivityGroupBlock({
       id: "activity-thinking-owner",
-      turnId: "turn-1",
-      createdAt: 1,
-      updatedAt: 2,
       searchableText: "completed command",
-      type: "agentActivityGroup" as const,
-      liveHeaderKind: "thinking" as const,
-      summary: "Ran a command",
-      status: "completed" as const,
-      summaryStats: buildCollapsedSummaryStats({ commandCount: 1 }),
-      runningSummary: {
-        kind: "text" as const,
-        key: "agent-activity-group:item-command-completed:thinking",
-        label: "Thinking",
+      header: {
+        kind: "thinking",
+        key: "thinking",
+        message: null,
       },
-      entries: [{
-        id: commandEntry.entryId ?? commandEntry.itemId,
-        turnId: commandEntry.turnId,
-        createdAt: commandEntry.createdAt,
-        updatedAt: commandEntry.updatedAt,
-        searchableText: "pnpm test",
-        type: "exec" as const,
-        entry: commandEntry,
-        status: commandEntry.status,
-      }],
-    };
+      completedHeader: {
+        parts: [{ kind: "commands", count: 1 }],
+        iconItem: commandBlock,
+      },
+      entries: [commandBlock],
+    });
 
     const { container, getByRole } = render(
       <TooltipProvider>
@@ -722,24 +681,15 @@ describe("ThreadAgentActivityGroupBlock", () => {
       entry: webEntry,
       status: "completed" as const,
     };
-    const block = {
+    const block = buildAgentActivityGroupBlock({
       id: "activity-web-completed",
-      turnId: "turn-1",
-      createdAt: 1,
-      updatedAt: 2,
       searchableText: "completed query",
-      type: "agentActivityGroup" as const,
-      summary: "Searched the web",
-      status: "completed" as const,
-      summaryStats: buildCollapsedSummaryStats({ webSearchCount: 1, runningWebSearchCount: 0 }),
-      runningSummary: null,
-      continuitySummary: {
-        kind: "text" as const,
-        key: "web-completed",
-        label: "Searching the web for completed query",
+      completedHeader: {
+        parts: [{ kind: "webSearch" }],
+        iconItem: webBlock,
       },
       entries: [webBlock],
-    };
+    });
 
     const { container, getByRole } = render(
       <TooltipProvider>
@@ -774,23 +724,29 @@ describe("ThreadAgentActivityGroupBlock", () => {
       scheduledCallback = null;
     }) as typeof window.clearTimeout;
 
-    const buildBlock = (key: string, label: string) => ({
-      id: "activity-deferred-summary",
-      turnId: "turn-1",
-      createdAt: 1,
-      updatedAt: 2,
-      searchableText: label,
-      type: "agentActivityGroup" as const,
-      summary: "Running a command",
-      status: "inProgress" as const,
-      summaryStats: buildCollapsedSummaryStats({ runningCommandCount: 1 }),
-      runningSummary: {
-        kind: "text" as const,
-        key,
-        label,
-      },
-      entries: [],
-    });
+    const buildBlock = (key: string, label: string) => {
+      const commandBlock = buildCommandBlock(key, [], {
+        status: "inProgress",
+        command: label.replace(/^Running /, ""),
+        exitCode: undefined,
+      });
+      return buildAgentActivityGroupBlock({
+        id: "activity-deferred-summary",
+        searchableText: label,
+        status: "inProgress",
+        entries: [commandBlock],
+        completedHeader: {
+          parts: [{ kind: "commands", count: 1 }],
+          iconItem: commandBlock,
+        },
+        header: {
+          kind: "active",
+          key,
+          item: commandBlock,
+          label,
+        },
+      });
+    };
 
     try {
       const view = render(
@@ -838,7 +794,7 @@ describe("ThreadAgentActivityGroupBlock", () => {
     }
   });
 
-  test("renders a live file-change active header with animated diff stats", async () => {
+  test("renders a live file-change header from the exact active item", async () => {
     const liveFileChangeEntry = buildFileChangeEntry("item-file-live");
     const content = Array.from({ length: 85 }, (_, index) => `line ${index + 1}`).join("\n");
     liveFileChangeEntry.status = "inProgress";
@@ -847,42 +803,32 @@ describe("ThreadAgentActivityGroupBlock", () => {
       changes: buildCodexFileChangeMap([{ type: "add", path: "poem.md", content }]),
     };
 
-    const block = {
-      id: "activity-file-live",
-      turnId: "turn-1",
-      createdAt: 1,
-      updatedAt: 2,
-      searchableText: "activity file live",
-      type: "agentActivityGroup" as const,
-      summary: "Creating a file",
-      status: "inProgress" as const,
-      summaryStats: buildCollapsedSummaryStats({
-        createdFileCount: 1,
-        runningCreatedFileCount: 1,
-        changedLineCount: 85,
-        runningCreatedLineCount: 85,
-      }),
-      runningSummary: {
-        kind: "fileChange" as const,
-        key: "item-file-live",
-        label: "Creating",
-        displayPath: "poem.md",
-        additions: 85,
-        deletions: 0,
-      },
-      entries: [
-        {
-          id: liveFileChangeEntry.entryId ?? liveFileChangeEntry.itemId,
-          turnId: liveFileChangeEntry.turnId,
-          createdAt: liveFileChangeEntry.createdAt,
-          updatedAt: liveFileChangeEntry.updatedAt,
-          searchableText: "file change",
-          type: "fileChange" as const,
-          entry: liveFileChangeEntry,
-          status: liveFileChangeEntry.status,
-        },
-      ],
+    const fileChangeBlock = {
+      id: liveFileChangeEntry.entryId ?? liveFileChangeEntry.itemId,
+      turnId: liveFileChangeEntry.turnId,
+      createdAt: liveFileChangeEntry.createdAt,
+      updatedAt: liveFileChangeEntry.updatedAt,
+      searchableText: "file change",
+      type: "fileChange" as const,
+      entry: liveFileChangeEntry,
+      status: liveFileChangeEntry.status,
     };
+    const block = buildAgentActivityGroupBlock({
+      id: "activity-file-live",
+      searchableText: "activity file live",
+      status: "inProgress",
+      header: {
+        kind: "active",
+        key: "item-file-live",
+        item: fileChangeBlock,
+        label: "Editing files",
+      },
+      completedHeader: {
+        parts: [{ kind: "fileChanges", count: 1 }],
+        iconItem: fileChangeBlock,
+      },
+      entries: [fileChangeBlock],
+    });
 
     const { container } = render(
       <TooltipProvider>
@@ -896,14 +842,11 @@ describe("ThreadAgentActivityGroupBlock", () => {
 
     const summaryButton = container.querySelector<HTMLButtonElement>("button[aria-expanded='false']");
     if (!summaryButton) throw new Error("Expected collapsed activity summary button");
-    expect(Boolean(textContent(summaryButton).includes("Creating"))).toBe(true);
-    expect(Boolean(textContent(summaryButton).includes("poem.md"))).toBe(true);
+    expect(Boolean(textContent(summaryButton).includes("Editing files"))).toBe(true);
     const shimmer = summaryButton.querySelector<HTMLElement>(".loading-shimmer-pure-text");
     expect(Boolean(shimmer)).toBe(true);
-    expect(shimmer?.firstChild?.textContent ?? "").toBe("Creating");
-    expect(Boolean(summaryButton.querySelector(".diff-stat-digit-stack-8"))).toBe(true);
-    expect(Boolean(summaryButton.querySelector(".diff-stat-digit-stack-5"))).toBe(true);
-    expect(Boolean(textContent(summaryButton).includes("Creating a file • writing"))).toBe(false);
+    expect(shimmer?.firstChild?.textContent ?? "").toBe("Editing files");
+    expect(Boolean(summaryButton.querySelector(".diff-stat-digit-stack-8"))).toBe(false);
 
     fireEvent.click(summaryButton);
     await settleAsyncRender();
@@ -915,22 +858,19 @@ describe("ThreadAgentActivityGroupBlock", () => {
   });
 
   test("keeps completed collapsed summaries static", () => {
-    const block = {
+    const explorationBlock = buildCommandBlock("item-explore-static", [
+      { type: "read", command: "cat src/a.ts", name: "src/a.ts", path: "src/a.ts" },
+    ]);
+    const commandBlock = buildCommandBlock("item-command-static", [], { command: "pnpm test" });
+    const block = buildAgentActivityGroupBlock({
       id: "activity-static",
-      turnId: "turn-1",
-      createdAt: 1,
-      updatedAt: 2,
       searchableText: "activity static",
-      type: "agentActivityGroup" as const,
-      summary: "Read a file, ran a command",
-      status: "completed" as const,
-      summaryStats: buildCollapsedSummaryStats({ exploredFileCount: 1, commandCount: 1 }),
-      entries: [
-        buildCommandBlock("item-explore-static", [
-          { type: "read", command: "cat src/a.ts", name: "src/a.ts", path: "src/a.ts" },
-        ]),
-      ],
-    };
+      completedHeader: {
+        parts: [{ kind: "exploration" }, { kind: "commands", count: 1 }],
+        iconItem: explorationBlock,
+      },
+      entries: [explorationBlock, commandBlock],
+    });
 
     const { container, getByRole } = render(
       <TooltipProvider>
@@ -942,27 +882,31 @@ describe("ThreadAgentActivityGroupBlock", () => {
       </TooltipProvider>,
     );
 
-    getByRole("button", { name: /Read a file, ran a command/i });
+    getByRole("button", { name: /Read files, ran a command/i });
     expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBe(false);
   });
 
-  test("shimmers running aggregate text without shimmering the writing-lines segment", () => {
-    const block = {
-      id: "activity-aggregate",
-      turnId: "turn-1",
-      createdAt: 1,
-      updatedAt: 2,
-      searchableText: "activity aggregate",
-      type: "agentActivityGroup" as const,
-      summary: "Creating a file • writing 3 lines",
-      status: "inProgress" as const,
-      summaryStats: buildCollapsedSummaryStats({
-        createdFileCount: 1,
-        runningCreatedFileCount: 1,
-        runningCreatedLineCount: 3,
-      }),
-      entries: [],
+  test("never shimmers a completed aggregate summary", () => {
+    const fileChangeEntry = buildFileChangeEntry("item-file-aggregate");
+    const fileChangeBlock = {
+      id: fileChangeEntry.entryId ?? fileChangeEntry.itemId,
+      turnId: fileChangeEntry.turnId,
+      createdAt: fileChangeEntry.createdAt,
+      updatedAt: fileChangeEntry.updatedAt,
+      searchableText: "file change",
+      type: "fileChange" as const,
+      entry: fileChangeEntry,
+      status: fileChangeEntry.status,
     };
+    const block = buildAgentActivityGroupBlock({
+      id: "activity-aggregate",
+      searchableText: "activity aggregate",
+      completedHeader: {
+        parts: [{ kind: "fileChanges", count: 1 }],
+        iconItem: fileChangeBlock,
+      },
+      entries: [fileChangeBlock],
+    });
 
     const { container, getByRole } = render(
       <TooltipProvider>
@@ -974,40 +918,33 @@ describe("ThreadAgentActivityGroupBlock", () => {
       </TooltipProvider>,
     );
 
-    const summaryButton = getByRole("button", { name: /Creating a file/i });
-    const shimmer = summaryButton.querySelector<HTMLElement>(".loading-shimmer-pure-text");
-    expect(shimmer?.firstChild?.textContent ?? "").toBe("Creating a file");
-    expect(Boolean(textContent(summaryButton).includes("• writing 3 lines"))).toBe(true);
-    expect(Boolean(shimmer?.firstChild?.textContent?.includes("writing 3 lines"))).toBe(false);
+    const summaryButton = getByRole("button", { name: /Edited a file/i });
+    expect(Boolean(summaryButton.querySelector(".loading-shimmer-pure-text"))).toBe(false);
     const initiallyMountedBody = container.querySelector<HTMLElement>("[data-testid='agent-activity-group-body']");
     expect(Boolean(initiallyMountedBody)).toBe(false);
   });
 
   test("renders a completed single-file change as an aggregate activity header before the row", async () => {
     const fileChangeEntry = buildFileChangeEntry("item-file-single");
-    const block = {
-      id: "activity-single-file",
-      turnId: "turn-1",
-      createdAt: 1,
-      updatedAt: 2,
-      searchableText: "single file activity",
-      type: "agentActivityGroup" as const,
-      summary: "Edited a file",
-      status: "completed" as const,
-      summaryStats: buildCollapsedSummaryStats({ editedFileCount: 1, changedLineCount: 2 }),
-      entries: [
-        {
-          id: fileChangeEntry.entryId ?? fileChangeEntry.itemId,
-          turnId: fileChangeEntry.turnId,
-          createdAt: fileChangeEntry.createdAt,
-          updatedAt: fileChangeEntry.updatedAt,
-          searchableText: "file change",
-          type: "fileChange" as const,
-          entry: fileChangeEntry,
-          status: fileChangeEntry.status,
-        },
-      ],
+    const fileChangeBlock = {
+      id: fileChangeEntry.entryId ?? fileChangeEntry.itemId,
+      turnId: fileChangeEntry.turnId,
+      createdAt: fileChangeEntry.createdAt,
+      updatedAt: fileChangeEntry.updatedAt,
+      searchableText: "file change",
+      type: "fileChange" as const,
+      entry: fileChangeEntry,
+      status: fileChangeEntry.status,
     };
+    const block = buildAgentActivityGroupBlock({
+      id: "activity-single-file",
+      searchableText: "single file activity",
+      completedHeader: {
+        parts: [{ kind: "fileChanges", count: 1 }],
+        iconItem: fileChangeBlock,
+      },
+      entries: [fileChangeBlock],
+    });
 
     const { container, getByRole } = render(
       <TooltipProvider>
@@ -1044,47 +981,54 @@ describe("ThreadAgentActivityGroupBlock", () => {
       commandActions: [],
     });
     const fileChangeEntry = buildFileChangeEntry("item-file-change");
-    const block = {
-      id: "activity-icons",
-      turnId: "turn-1",
-      createdAt: 1,
-      updatedAt: 2,
-      searchableText: "activity icons",
-      type: "agentActivityGroup" as const,
-      summary: "Edited a file, explored 1 search, ran 1 command",
-      status: "completed" as const,
-      entries: [
-        buildCommandBlock("item-read", [
-          { type: "read", command: "cat src/a.ts", name: "src/a.ts", path: "src/a.ts" },
-        ]),
-        buildCommandBlock("item-search", [
-          { type: "search", command: "rg thing", query: "thing", path: "src" },
-        ]),
-        buildCommandBlock("item-list", [
-          { type: "listFiles", command: "fd", path: "src" },
-        ]),
-        {
-          id: commandEntry.entryId ?? commandEntry.itemId,
-          turnId: commandEntry.turnId,
-          createdAt: commandEntry.createdAt,
-          updatedAt: commandEntry.updatedAt,
-          searchableText: "command",
-          type: "exec" as const,
-          entry: commandEntry,
-          status: commandEntry.status,
-        },
-        {
-          id: fileChangeEntry.entryId ?? fileChangeEntry.itemId,
-          turnId: fileChangeEntry.turnId,
-          createdAt: fileChangeEntry.createdAt,
-          updatedAt: fileChangeEntry.updatedAt,
-          searchableText: "file change",
-          type: "fileChange" as const,
-          entry: fileChangeEntry,
-          status: fileChangeEntry.status,
-        },
-      ],
+    const readBlock = buildCommandBlock("item-read", [
+      { type: "read", command: "cat src/a.ts", name: "src/a.ts", path: "src/a.ts" },
+    ]);
+    const searchBlock = buildCommandBlock("item-search", [
+      { type: "search", command: "rg thing", query: "thing", path: "src" },
+    ]);
+    const listBlock = buildCommandBlock("item-list", [
+      { type: "listFiles", command: "fd", path: "src" },
+    ]);
+    const commandBlock = {
+      id: commandEntry.entryId ?? commandEntry.itemId,
+      turnId: commandEntry.turnId,
+      createdAt: commandEntry.createdAt,
+      updatedAt: commandEntry.updatedAt,
+      searchableText: "command",
+      type: "exec" as const,
+      entry: commandEntry,
+      status: commandEntry.status,
     };
+    const fileChangeBlock = {
+      id: fileChangeEntry.entryId ?? fileChangeEntry.itemId,
+      turnId: fileChangeEntry.turnId,
+      createdAt: fileChangeEntry.createdAt,
+      updatedAt: fileChangeEntry.updatedAt,
+      searchableText: "file change",
+      type: "fileChange" as const,
+      entry: fileChangeEntry,
+      status: fileChangeEntry.status,
+    };
+    const block = buildAgentActivityGroupBlock({
+      id: "activity-icons",
+      searchableText: "activity icons",
+      completedHeader: {
+        parts: [
+          { kind: "fileChanges", count: 1 },
+          { kind: "exploration" },
+          { kind: "commands", count: 1 },
+        ],
+        iconItem: fileChangeBlock,
+      },
+      entries: [
+        readBlock,
+        searchBlock,
+        listBlock,
+        commandBlock,
+        fileChangeBlock,
+      ],
+    });
 
     const { container, getByRole } = render(
       <TooltipProvider>

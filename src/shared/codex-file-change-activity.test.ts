@@ -2,14 +2,14 @@ import { describe, expect, test } from "vitest";
 import { resolveCodexFileChangeActivity } from "./codex-file-change-activity";
 
 describe("resolveCodexFileChangeActivity", () => {
-  test("keeps an empty in-progress file change active", () => {
+  test("keeps empty lifecycle state while suppressing semantic activity", () => {
     const activity = resolveCodexFileChangeActivity({
       status: "inProgress",
       fileChange: { changes: {} },
     });
 
     expect(activity).toMatchObject({
-      visibility: "active",
+      visibility: "suppressed",
       lifecycle: "inProgress",
       success: null,
       hasMaterializedChanges: false,

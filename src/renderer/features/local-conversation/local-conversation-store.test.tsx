@@ -24,11 +24,16 @@ import {
   buildCodexConversationStateUpdates,
 } from "../../../shared/codex-conversation-patches";
 import {
+  buildCodexThreadStreamCheckpoint,
+  hashCodexConversationReplica,
+} from "../../../shared/codex-owner-follower-replication";
+import {
   createCodexCanonicalHydratedConversationState,
   type CodexCanonicalLiveTurnParams,
 } from "../../../shared/codex-conversation-state/codex-conversation-state";
 import { getCodexFileChangeList, getCodexFileChangePaths } from "../../../shared/codex-file-change";
 import { render, settleAsyncRender, textContent } from "../../test/dom";
+import type { CodexThreadStreamStateChangedEvent } from "./app-server-message-bus";
 
 let invokeCalls: string[] = [];
 let invokeRecords: Array<{ channel: string; args: unknown[] }> = [];
@@ -39,7 +44,10 @@ let snapshotByThread: Record<string, CodexConversationSnapshot | null> = {};
 let startThreadForSessionResult: unknown = null;
 let freshThreadAdoptionResult: CodexConversationSnapshot | null = null;
 let freshThreadAdoptionRevision = 0;
-let resumeThreadResult: unknown = null;
+let resumeThreadResult:
+  | CodexConversationSnapshot
+  | Promise<CodexConversationSnapshot>
+  | null = null;
 let resumeThreadError: Error | null = null;
 let resumeThreadRole: "owner" | "follower" = "owner";
 let resumeThreadOwnerClientId = "renderer-owner";
@@ -55,7 +63,7 @@ let ownerTurnSteerHandler: ((params: unknown) => unknown | Promise<unknown>) | n
 let followerActionResult: unknown = null;
 let followerActionError: Error | null = null;
 let followerActionHandler: ((input: unknown) => unknown | Promise<unknown>) | null = null;
-let ownerStreamPublishHandler: ((input: unknown) => boolean | Promise<boolean>) | null = null;
+let ownerStreamPublishHandler: ((input: unknown) => unknown | Promise<unknown>) | null = null;
 let ownerNotificationAckHandler: ((input: unknown) => boolean | Promise<boolean>) | null = null;
 let ownerRequestResponseHandler: ((channel: string, args: unknown[]) => boolean | Promise<boolean>) | null = null;
 const generatedThreadTitleResult: unknown = { title: null };
@@ -99,12 +107,18 @@ vi.mock("./local-conversation-deps", () => ({
       const conversation = ensureCanonicalResumeFixture(await Promise.resolve(resumeThreadResult));
       return conversation
         ? resumeThreadRole === "owner"
-          ? { role: "owner", conversation, revision: resumeThreadRevision }
+          ? {
+              role: "owner",
+              conversation,
+              revision: resumeThreadRevision,
+              checkpoint: buildTestCheckpoint(conversation, resumeThreadRevision),
+            }
           : {
               role: "follower",
               conversation,
               revision: resumeThreadRevision,
               ownerClientId: resumeThreadOwnerClientId,
+              checkpoint: buildTestCheckpoint(conversation, resumeThreadRevision),
             }
         : null;
     }
@@ -120,6 +134,7 @@ vi.mock("./local-conversation-deps", () => ({
         role: "owner",
         conversation,
         revision: freshThreadAdoptionRevision,
+        checkpoint: buildTestCheckpoint(conversation, freshThreadAdoptionRevision),
       };
     }
 
@@ -291,6 +306,13 @@ vi.mock("./local-conversation-deps", () => ({
       return true;
     }
 
+    if (
+      channel === "codex:thread-follower:snapshot-applied"
+      || channel === "codex:thread:stream-resync:request"
+    ) {
+      return true;
+    }
+
     if (channel === "codex:dynamic-tool-call:respond") {
       return { success: false, contentItems: [] };
     }
@@ -403,6 +425,113 @@ function buildConversation(threadId: string, projectId: string): CodexConversati
       canCollapseTurns: true,
     },
   };
+}
+
+function buildTestCheckpoint(
+  conversation: CodexConversationSnapshot,
+  revision: number,
+  ownerEpoch = 1,
+) {
+  return buildCodexThreadStreamCheckpoint({ ownerEpoch, revision, conversation });
+}
+
+type TestThreadStreamDispatch = (
+  type: "thread-stream-state-changed",
+  event: CodexThreadStreamStateChangedEvent,
+) => void;
+
+interface TestThreadStreamReplica {
+  readonly conversation: CodexConversationSnapshot;
+  readonly checkpoint: ReturnType<typeof buildTestCheckpoint>;
+  readonly sourceClientId: string | null;
+}
+
+const testThreadStreamReplicas = new Map<string, TestThreadStreamReplica>();
+
+function resetLocalConversationStoreTestHarness(reset: () => void): void {
+  testThreadStreamReplicas.clear();
+  reset();
+}
+
+function dispatchTestThreadStreamStateChanged(
+  dispatch: TestThreadStreamDispatch,
+  event: Omit<
+    CodexThreadStreamStateChangedEvent,
+    "checkpoint" | "baseCheckpoint"
+  > & Partial<Pick<
+    CodexThreadStreamStateChangedEvent,
+    "checkpoint" | "baseCheckpoint"
+  >>,
+): void {
+  const sourceClientId = event.sourceClientId?.trim() || null;
+  const current = testThreadStreamReplicas.get(event.conversationId);
+  if (event.change.type === "snapshot") {
+    const ownerEpoch = event.checkpoint?.ownerEpoch
+      ?? (current?.sourceClientId === sourceClientId
+        ? current.checkpoint.ownerEpoch
+        : (current?.checkpoint.ownerEpoch ?? 0) + 1);
+    const checkpoint = event.checkpoint ?? buildTestCheckpoint(
+      event.change.conversationState,
+      event.change.revision,
+      ownerEpoch,
+    );
+    testThreadStreamReplicas.set(event.conversationId, {
+      conversation: event.change.conversationState,
+      checkpoint,
+      sourceClientId,
+    });
+    dispatch("thread-stream-state-changed", {
+      ...event,
+      checkpoint,
+      baseCheckpoint: event.baseCheckpoint ?? null,
+    });
+    return;
+  }
+
+  const baseConversation = current?.conversation
+    ?? buildConversation(event.conversationId, "project-1");
+  const ownerEpoch = event.checkpoint?.ownerEpoch
+    ?? event.baseCheckpoint?.ownerEpoch
+    ?? current?.checkpoint.ownerEpoch
+    ?? 1;
+  const baseCheckpoint = event.baseCheckpoint ?? buildTestCheckpoint(
+    baseConversation,
+    event.change.baseRevision,
+    ownerEpoch,
+  );
+  let nextConversation = baseConversation;
+  let applied = false;
+  try {
+    nextConversation = applyCodexConversationStateUpdates(
+      baseConversation,
+      event.change.patches,
+    );
+    applied = true;
+  } catch {
+    // Invalid-patch fixtures still need a well-formed envelope so production
+    // reaches and rejects the patch application boundary under test.
+  }
+  const checkpoint = event.checkpoint ?? buildTestCheckpoint(
+    nextConversation,
+    event.change.revision,
+    ownerEpoch,
+  );
+  if (
+    applied
+    && current?.sourceClientId === sourceClientId
+    && current.checkpoint.revision === event.change.baseRevision
+  ) {
+    testThreadStreamReplicas.set(event.conversationId, {
+      conversation: nextConversation,
+      checkpoint,
+      sourceClientId,
+    });
+  }
+  dispatch("thread-stream-state-changed", {
+    ...event,
+    baseCheckpoint,
+    checkpoint,
+  });
 }
 
 function ConversationUserMessages({
@@ -608,16 +737,20 @@ function withCanonicalState(
   };
 }
 
-function ensureCanonicalResumeFixture(value: unknown): unknown {
-  if (typeof value !== "object" || value === null) return value;
+function ensureCanonicalResumeFixture(
+  value: CodexConversationSnapshot | null,
+): CodexConversationSnapshot | null {
+  if (value === null) return null;
   const candidate = value as Partial<CodexConversationSnapshot>;
   if (
     typeof candidate.threadId !== "string"
     || !Array.isArray(candidate.turns)
     || typeof candidate.resumeState !== "string"
-    || candidate.canonicalState !== undefined
   ) {
-    return value;
+    throw new Error("Resume fixture is not a complete conversation snapshot");
+  }
+  if (candidate.canonicalState !== undefined) {
+    return candidate as CodexConversationSnapshot;
   }
   return withCanonicalState(candidate as CodexConversationSnapshot);
 }
@@ -815,7 +948,7 @@ describe("local-conversation-store", () => {
       CodexAppServerManager,
       __resetLocalConversationStoreForTests,
     } = await import("./local-conversation-store");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     const firstLoad = manager.requestThreadOlderTurns("thread-older");
@@ -863,7 +996,7 @@ describe("local-conversation-store", () => {
       CodexAppServerManager,
       __resetLocalConversationStoreForTests,
     } = await import("./local-conversation-store");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     await manager.startThreadForSession({
@@ -903,7 +1036,7 @@ describe("local-conversation-store", () => {
       CodexAppServerManager,
       __resetLocalConversationStoreForTests,
     } = await import("./local-conversation-store");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     await manager.startThreadForSession({
@@ -943,7 +1076,7 @@ describe("local-conversation-store", () => {
       CodexAppServerManager,
       __resetLocalConversationStoreForTests,
     } = await import("./local-conversation-store");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -983,7 +1116,7 @@ describe("local-conversation-store", () => {
       CodexAppServerManager,
       __resetLocalConversationStoreForTests,
     } = await import("./local-conversation-store");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -1059,6 +1192,42 @@ describe("local-conversation-store", () => {
     };
     freshThreadAdoptionResult = adoptedConversation;
     freshThreadAdoptionRevision = 3;
+    let acceptedReplica = adoptedConversation;
+    let acceptedCheckpoint = buildTestCheckpoint(
+      acceptedReplica,
+      freshThreadAdoptionRevision,
+    );
+    let acceptedPublicationCount = 0;
+    let publicationError: unknown = null;
+    ownerStreamPublishHandler = (input) => {
+      try {
+        const publication = input as {
+          baseCheckpoint: ReturnType<typeof buildTestCheckpoint>;
+          checkpoint: ReturnType<typeof buildTestCheckpoint>;
+          change: CodexThreadStreamStateChange;
+        };
+        expect(publication.baseCheckpoint).toEqual(acceptedCheckpoint);
+        const nextReplica = publication.change.type === "snapshot"
+          ? publication.change.conversationState
+          : applyCodexConversationStateUpdates(
+              acceptedReplica,
+              publication.change.patches,
+            );
+        expect(publication.checkpoint.revision).toBe(
+          acceptedCheckpoint.revision + 1,
+        );
+        expect(publication.checkpoint.canonicalHash).toBe(
+          hashCodexConversationReplica(nextReplica),
+        );
+        acceptedReplica = nextReplica;
+        acceptedCheckpoint = publication.checkpoint;
+        acceptedPublicationCount += 1;
+        return { accepted: true, checkpoint: publication.checkpoint };
+      } catch (error) {
+        publicationError = error;
+        return false;
+      }
+    };
     let releaseTurnStart = () => {};
     const turnStartGate = new Promise<void>((resolve) => {
       releaseTurnStart = resolve;
@@ -1076,7 +1245,7 @@ describe("local-conversation-store", () => {
       CodexAppServerManager,
       __resetLocalConversationStoreForTests,
     } = await import("./local-conversation-store");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     function OptimisticTurnProbe() {
@@ -1184,6 +1353,12 @@ describe("local-conversation-store", () => {
         manager.readConversation(threadId)?.canonicalState?.turns[0]
           ?.protocol.id,
       ).toBe("turn-owner-start");
+      await flushAsyncWork(3);
+      expect(publicationError).toBeNull();
+      expect(acceptedPublicationCount).toBeGreaterThanOrEqual(2);
+      expect(acceptedReplica.canonicalState?.turns[0]?.protocol.id).toBe(
+        "turn-owner-start",
+      );
     } finally {
       probe.unmount();
       releaseTurnStart();
@@ -1191,6 +1366,7 @@ describe("local-conversation-store", () => {
       freshThreadAdoptionRevision = 0;
       ownerTurnStartHandler = null;
       ownerTurnStartGate = null;
+      ownerStreamPublishHandler = null;
       manager.destroy();
     }
   });
@@ -1209,7 +1385,7 @@ describe("local-conversation-store", () => {
       CodexAppServerManager,
       __resetLocalConversationStoreForTests,
     } = await import("./local-conversation-store");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -1251,7 +1427,7 @@ describe("local-conversation-store", () => {
       CodexAppServerManager,
       __resetLocalConversationStoreForTests,
     } = await import("./local-conversation-store");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     const startPromise = manager.startThreadForSession({
@@ -1283,7 +1459,7 @@ describe("local-conversation-store", () => {
       LocalConversationProvider,
       useCodexThreadStartProgress,
     } = await import("./local-conversation-store");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     function Probe() {
       const progress = useCodexThreadStartProgress("project-1", "session-1");
@@ -1333,7 +1509,7 @@ describe("local-conversation-store", () => {
       useLocalConversationAccount,
       useLocalConversationConnection,
     } = await import("./local-conversation-store");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     function Probe() {
       const account = useLocalConversationAccount();
@@ -1366,7 +1542,7 @@ describe("local-conversation-store", () => {
       useConversation,
       useProjectThreadSummaries,
     } = await import("./local-conversation-store");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     hydrateLocalConversationThreadSummaries("project-1", [
       buildThreadSummary("thread-1", "project-1"),
@@ -1412,6 +1588,8 @@ describe("local-conversation-store", () => {
         },
         version: 1,
         sourceClientId: "test-owner",
+        checkpoint: buildTestCheckpoint(snapshot, 1),
+        baseCheckpoint: null,
       });
     });
     await settleAsyncRender();
@@ -1432,6 +1610,8 @@ describe("local-conversation-store", () => {
         },
         version: 1,
         sourceClientId: "test-owner",
+        checkpoint: buildTestCheckpoint(snapshot, 1),
+        baseCheckpoint: null,
       });
     });
     await settleAsyncRender();
@@ -1468,6 +1648,8 @@ describe("local-conversation-store", () => {
         },
         version: 2,
         sourceClientId: "test-owner",
+        baseCheckpoint: buildTestCheckpoint(previousConversation, 1),
+        checkpoint: buildTestCheckpoint(nextConversation, 2),
       });
     });
     await settleAsyncRender();
@@ -1487,7 +1669,7 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -1512,7 +1694,7 @@ describe("local-conversation-store", () => {
         }],
       };
 
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -1523,7 +1705,7 @@ describe("local-conversation-store", () => {
         },
         sourceClientId: "test-owner",
       });
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 2,
@@ -1554,7 +1736,7 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const renderStates: string[] = [];
     function Probe() {
@@ -1607,7 +1789,7 @@ describe("local-conversation-store", () => {
       };
 
       await act(async () => {
-        dispatchCodexAppServerMessage("thread-stream-state-changed", {
+        dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
           hostId: "default",
           conversationId: "thread-1",
           version: 1,
@@ -1623,7 +1805,7 @@ describe("local-conversation-store", () => {
       renderStates.length = 0;
 
       await act(async () => {
-        dispatchCodexAppServerMessage("thread-stream-state-changed", {
+        dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
           hostId: "default",
           conversationId: "thread-1",
           version: 2,
@@ -1635,7 +1817,7 @@ describe("local-conversation-store", () => {
           },
           sourceClientId: "owner-window",
         });
-        dispatchCodexAppServerMessage("thread-stream-state-changed", {
+        dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
           hostId: "default",
           conversationId: "thread-1",
           version: 3,
@@ -1671,7 +1853,7 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const followerManager = new CodexAppServerManager("default");
     let ownerManager: InstanceType<typeof CodexAppServerManager> | null = null;
@@ -1689,18 +1871,6 @@ describe("local-conversation-store", () => {
           }],
         }],
       });
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
-        hostId: "default",
-        conversationId: "thread-1",
-        version: 1,
-        change: {
-          type: "snapshot",
-          revision: 1,
-          conversationState: baseConversation,
-        },
-        sourceClientId: "owner-a",
-      });
-
       resumeThreadResult = baseConversation;
       ownerManager = new CodexAppServerManager("default");
       await ownerManager.requestThreadStreamResume("thread-1");
@@ -1709,6 +1879,26 @@ describe("local-conversation-store", () => {
         record.channel === "codex:thread-owner:stream-state:publish"
       );
       expect(Boolean(ownerSnapshotPublish)).toBe(true);
+      const ownerSnapshotInput = ownerSnapshotPublish?.args[0] as {
+        change?: CodexThreadStreamStateChange;
+        baseCheckpoint?: ReturnType<typeof buildTestCheckpoint> | null;
+        checkpoint?: ReturnType<typeof buildTestCheckpoint>;
+      } | undefined;
+      if (
+        ownerSnapshotInput?.change?.type !== "snapshot"
+        || !ownerSnapshotInput.checkpoint
+      ) {
+        throw new Error("Missing owner bootstrap snapshot");
+      }
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
+        hostId: "default",
+        conversationId: "thread-1",
+        version: 1,
+        change: ownerSnapshotInput.change,
+        sourceClientId: "owner-a",
+        baseCheckpoint: ownerSnapshotInput.baseCheckpoint ?? null,
+        checkpoint: ownerSnapshotInput.checkpoint,
+      });
       invokeRecords = [];
 
       dispatchCodexAppServerMessage("thread-owner-request", {
@@ -1754,7 +1944,7 @@ describe("local-conversation-store", () => {
         throw new Error("Missing owner request patch");
       }
 
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 2,
@@ -1782,36 +1972,44 @@ describe("local-conversation-store", () => {
       expect(invokeRecords.some((record) => record.channel === "codex:user-input:respond")).toBe(false);
       invokeRecords = [];
 
-      const requestConversation = followerManager.readConversation("thread-1");
-      if (!requestConversation) {
-        throw new Error("Missing follower request conversation");
+      dispatchCodexAppServerMessage("thread-owner-notification", {
+        hostId: "default",
+        sequence: 11,
+        notification: {
+          method: "item/agentMessage/delta",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            itemId: "assistant-1",
+            delta: "live",
+          },
+        },
+      });
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      await flushAsyncWork(4);
+      const ownerLivePublish = invokeRecords.find((record) => {
+        if (record.channel !== "codex:thread-owner:stream-state:publish") return false;
+        return (record.args[0] as { ownerNotificationSequence?: number })
+          .ownerNotificationSequence === 11;
+      })?.args[0] as {
+        change?: CodexThreadStreamStateChange;
+        baseCheckpoint?: ReturnType<typeof buildTestCheckpoint> | null;
+        checkpoint?: ReturnType<typeof buildTestCheckpoint>;
+      } | undefined;
+      if (!ownerLivePublish?.change || !ownerLivePublish.checkpoint) {
+        throw new Error("Missing owner live publication");
       }
-      const patchedRequestConversation: CodexConversationSnapshot = {
-        ...requestConversation,
-        turns: [{
-          ...requestConversation.turns[0]!,
-          items: requestConversation.turns[0]!.items.map((item) =>
-            item.itemId === "assistant-1"
-              ? buildAssistantMessage("thread-1", "turn-1", "assistant-1", "live")
-              : item
-          ),
-        }],
-      };
-
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 3,
-        change: {
-          type: "patches",
-          baseRevision: 2,
-          revision: 3,
-          patches: buildCodexConversationStateUpdates(requestConversation, patchedRequestConversation),
-        },
+        change: ownerLivePublish.change,
         sourceClientId: "owner-a",
+        baseCheckpoint: ownerLivePublish.baseCheckpoint ?? null,
+        checkpoint: ownerLivePublish.checkpoint,
       });
 
-      expect(ownerManager.readConversation("thread-1")?.turns[0]?.items[0]?.markdownText).toBe("");
+      expect(ownerManager.readConversation("thread-1")?.turns[0]?.items[0]?.markdownText).toBe("live");
       expect(followerManager.readConversation("thread-1")?.turns[0]?.items[0]?.markdownText).toBe("live");
 
       const interrupted = await followerManager.interruptTurn("thread-1", "turn-1");
@@ -1861,7 +2059,7 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const browserWindow = globalThis.window as (Window & {
       requestAnimationFrame?: Window["requestAnimationFrame"];
@@ -1901,7 +2099,7 @@ describe("local-conversation-store", () => {
         change,
         sourceClientId,
       });
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId,
         version: hostMessageVersion,
@@ -2231,7 +2429,7 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -2253,7 +2451,7 @@ describe("local-conversation-store", () => {
         }],
       };
 
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -2264,7 +2462,7 @@ describe("local-conversation-store", () => {
         },
         sourceClientId: "test-owner",
       });
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 2,
@@ -2300,7 +2498,7 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -2322,7 +2520,7 @@ describe("local-conversation-store", () => {
         }],
       };
 
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -2333,7 +2531,7 @@ describe("local-conversation-store", () => {
         },
         sourceClientId: "owner-a",
       });
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 2,
@@ -2369,7 +2567,7 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -2393,7 +2591,7 @@ describe("local-conversation-store", () => {
 
       olderThreadTurnsResult = baseConversation;
       await manager.requestThreadOlderTurns("thread-1");
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -2430,7 +2628,7 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -2450,7 +2648,7 @@ describe("local-conversation-store", () => {
         value: "completed",
       }];
 
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -2461,7 +2659,7 @@ describe("local-conversation-store", () => {
         },
         sourceClientId: "owner-a",
       });
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 2,
@@ -2498,7 +2696,7 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -2521,7 +2719,7 @@ describe("local-conversation-store", () => {
       };
       resumeThreadResult = baseConversation;
 
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -2535,7 +2733,7 @@ describe("local-conversation-store", () => {
       await manager.requestThreadStreamResume("thread-1");
       invokeRecords = [];
 
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 2,
@@ -2569,6 +2767,7 @@ describe("local-conversation-store", () => {
         },
       });
       await new Promise((resolve) => setTimeout(resolve, 70));
+      await flushAsyncWork(4);
 
       const publishRecord = invokeRecords.find((record) =>
         record.channel === "codex:thread-owner:stream-state:publish"
@@ -2598,7 +2797,7 @@ describe("local-conversation-store", () => {
       CodexAppServerManager,
       __resetLocalConversationStoreForTests,
     } = await import("./local-conversation-store");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -2693,12 +2892,18 @@ describe("local-conversation-store", () => {
     resumeThreadRole = "follower";
     resumeThreadOwnerClientId = "renderer-existing-owner";
     resumeThreadRevision = 12;
-    resumeThreadResult = buildConversation("thread-resume-follower", "project-1");
+    const acceptedBaseline = withCanonicalState(
+      buildConversation("thread-resume-follower", "project-1"),
+    );
+    resumeThreadResult = acceptedBaseline;
     const {
       CodexAppServerManager,
       __resetLocalConversationStoreForTests,
     } = await import("./local-conversation-store");
-    __resetLocalConversationStoreForTests();
+    const {
+      dispatchCodexAppServerMessage,
+    } = await import("./app-server-message-bus");
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -2715,6 +2920,31 @@ describe("local-conversation-store", () => {
       expect(invokeRecords.some((record) =>
         record.channel === "codex:thread-owner:pending-requests:replay"
       )).toBe(false);
+
+      const nextConversation = {
+        ...acceptedBaseline,
+        threadName: "Follower received the first patch after resume",
+      };
+      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+        hostId: "default",
+        conversationId: "thread-resume-follower",
+        version: 13,
+        sourceClientId: "renderer-existing-owner",
+        baseCheckpoint: buildTestCheckpoint(acceptedBaseline, 12),
+        checkpoint: buildTestCheckpoint(nextConversation, 13),
+        change: {
+          type: "patches",
+          baseRevision: 12,
+          revision: 13,
+          patches: buildCodexConversationStateUpdates(
+            acceptedBaseline,
+            nextConversation,
+          ),
+        },
+      });
+      expect(manager.readConversation("thread-resume-follower")?.threadName).toBe(
+        "Follower received the first patch after resume",
+      );
     } finally {
       resumeThreadRole = "owner";
       resumeThreadOwnerClientId = "renderer-owner";
@@ -2730,7 +2960,7 @@ describe("local-conversation-store", () => {
       CodexAppServerManager,
       __resetLocalConversationStoreForTests,
     } = await import("./local-conversation-store");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     const localView: CodexConversationSnapshot = {
@@ -2754,22 +2984,30 @@ describe("local-conversation-store", () => {
     };
 
     try {
-      const accepted = await (
+      const baseCheckpoint = buildTestCheckpoint(localView, 0);
+      const checkpoint = buildTestCheckpoint(localView, 1);
+      const result = await (
         manager as unknown as {
           dispatchOwnerStreamSnapshot: (
             conversationId: string,
-            revision: number,
+            baseCheckpoint: ReturnType<typeof buildTestCheckpoint>,
+            checkpoint: ReturnType<typeof buildTestCheckpoint>,
             conversation: CodexConversationSnapshot,
-          ) => Promise<boolean>;
+          ) => Promise<{ accepted: boolean }>;
         }
-      ).dispatchOwnerStreamSnapshot("thread-private-overlay", 1, localView);
+      ).dispatchOwnerStreamSnapshot(
+        "thread-private-overlay",
+        baseCheckpoint,
+        checkpoint,
+        localView,
+      );
       const publish = invokeRecords.find((record) =>
         record.channel === "codex:thread-owner:stream-state:publish"
       )?.args[0] as {
         change?: { type?: string; conversationState?: CodexConversationSnapshot };
       } | undefined;
 
-      expect(accepted).toBe(true);
+      expect(result.accepted).toBe(true);
       expect(localView.requests).toHaveLength(1);
       expect(publish?.change?.type).toBe("snapshot");
       expect(publish?.change?.conversationState?.requests).toEqual([]);
@@ -2788,7 +3026,7 @@ describe("local-conversation-store", () => {
       CodexAppServerManager,
       __resetLocalConversationStoreForTests,
     } = await import("./local-conversation-store");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -2858,7 +3096,7 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -2872,7 +3110,7 @@ describe("local-conversation-store", () => {
         }],
       };
 
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-parent",
         version: 1,
@@ -2883,7 +3121,7 @@ describe("local-conversation-store", () => {
         },
         sourceClientId: "test-owner",
       });
-      await flushAsyncWork();
+      await flushAsyncWork(4);
 
       expect(manager.readConversation("thread-parent")?.childMemberships.length ?? 0).toBe(1);
       expect(invokeRecords.some((record) =>
@@ -2908,11 +3146,11 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-parent",
         version: 1,
@@ -2974,7 +3212,7 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -2984,7 +3222,7 @@ describe("local-conversation-store", () => {
         turns: [],
       };
 
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-resume-failed",
         version: 1,
@@ -3039,7 +3277,7 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -3055,7 +3293,7 @@ describe("local-conversation-store", () => {
       };
       resumeThreadResult = baseConversation;
 
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -3114,7 +3352,7 @@ describe("local-conversation-store", () => {
       __resetLocalConversationStoreForTests,
     } = await import("./local-conversation-store");
     const { dispatchCodexAppServerMessage } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -3130,7 +3368,7 @@ describe("local-conversation-store", () => {
         }],
       };
       resumeThreadResult = baseConversation;
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -3173,7 +3411,7 @@ describe("local-conversation-store", () => {
           },
         },
       });
-      await flushAsyncWork();
+      await flushAsyncWork(4);
 
       const conversation = manager.readConversation("thread-1");
       const acknowledgements = invokeRecords.filter((record) =>
@@ -3209,7 +3447,7 @@ describe("local-conversation-store", () => {
       __resetLocalConversationStoreForTests,
     } = await import("./local-conversation-store");
     const { dispatchCodexAppServerMessage } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -3228,7 +3466,7 @@ describe("local-conversation-store", () => {
         }],
       };
       resumeThreadResult = baseConversation;
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -3279,7 +3517,7 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -3331,7 +3569,7 @@ describe("local-conversation-store", () => {
       };
       resumeThreadResult = baseConversation;
 
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -3432,7 +3670,7 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -3442,7 +3680,7 @@ describe("local-conversation-store", () => {
       };
       resumeThreadResult = baseConversation;
 
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -3556,7 +3794,7 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -3572,7 +3810,7 @@ describe("local-conversation-store", () => {
       });
       resumeThreadResult = baseConversation;
 
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -3679,7 +3917,7 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     const managerInternals = manager as unknown as {
@@ -3701,7 +3939,7 @@ describe("local-conversation-store", () => {
       });
       resumeThreadResult = baseConversation;
 
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -3776,7 +4014,7 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     const managerInternals = manager as unknown as {
@@ -3800,7 +4038,7 @@ describe("local-conversation-store", () => {
       });
       resumeThreadResult = baseConversation;
 
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -3930,7 +4168,7 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -3947,7 +4185,7 @@ describe("local-conversation-store", () => {
       };
       resumeThreadResult = baseConversation;
 
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -4000,7 +4238,7 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     const managerInternals = manager as unknown as {
@@ -4038,7 +4276,7 @@ describe("local-conversation-store", () => {
       };
       resumeThreadResult = baseConversation;
 
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -4102,7 +4340,7 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const heartbeatText = [
       "<heartbeat>",
@@ -4154,7 +4392,7 @@ describe("local-conversation-store", () => {
       };
       resumeThreadResult = baseConversation;
 
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -4238,7 +4476,7 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -4255,7 +4493,7 @@ describe("local-conversation-store", () => {
       const delta = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
       resumeThreadResult = baseConversation;
 
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -4335,7 +4573,7 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -4345,7 +4583,7 @@ describe("local-conversation-store", () => {
       };
       resumeThreadResult = baseConversation;
 
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -4435,7 +4673,7 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -4446,7 +4684,7 @@ describe("local-conversation-store", () => {
       };
       resumeThreadResult = baseConversation;
 
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -4511,7 +4749,7 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -4527,7 +4765,7 @@ describe("local-conversation-store", () => {
       };
       resumeThreadResult = baseConversation;
 
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -4589,7 +4827,7 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -4627,7 +4865,7 @@ describe("local-conversation-store", () => {
       };
       resumeThreadResult = baseConversation;
 
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -4767,7 +5005,7 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -4788,7 +5026,7 @@ describe("local-conversation-store", () => {
       };
       resumeThreadResult = baseConversation;
 
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -4886,7 +5124,7 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -4942,7 +5180,7 @@ describe("local-conversation-store", () => {
       };
       resumeThreadResult = baseConversation;
 
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -5069,7 +5307,7 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -5090,7 +5328,7 @@ describe("local-conversation-store", () => {
       };
       resumeThreadResult = baseConversation;
 
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -5285,7 +5523,7 @@ describe("local-conversation-store", () => {
       __resetLocalConversationStoreForTests,
     } = await import("./local-conversation-store");
     const { dispatchCodexAppServerMessage } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -5301,7 +5539,7 @@ describe("local-conversation-store", () => {
         }],
       };
       resumeThreadResult = baseConversation;
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -5405,7 +5643,7 @@ describe("local-conversation-store", () => {
       __resetLocalConversationStoreForTests,
     } = await import("./local-conversation-store");
     const { dispatchCodexAppServerMessage } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -5427,7 +5665,7 @@ describe("local-conversation-store", () => {
         }],
       };
       resumeThreadResult = baseConversation;
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -5522,7 +5760,7 @@ describe("local-conversation-store", () => {
       __resetLocalConversationStoreForTests,
     } = await import("./local-conversation-store");
     const { dispatchCodexAppServerMessage } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -5540,7 +5778,7 @@ describe("local-conversation-store", () => {
         }],
       };
       resumeThreadResult = baseConversation;
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -5687,7 +5925,7 @@ describe("local-conversation-store", () => {
       __resetLocalConversationStoreForTests,
     } = await import("./local-conversation-store");
     const { dispatchCodexAppServerMessage } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     const requestId = "shared-owner-request-id";
@@ -5701,7 +5939,7 @@ describe("local-conversation-store", () => {
           turns: [{ threadId, turnId, status: "inProgress", itemIds: [], items: [] }],
         };
         resumeThreadResult = conversation;
-        dispatchCodexAppServerMessage("thread-stream-state-changed", {
+        dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
           hostId: "default",
           conversationId: threadId,
           version: 1,
@@ -5763,7 +6001,7 @@ describe("local-conversation-store", () => {
       __resetLocalConversationStoreForTests,
     } = await import("./local-conversation-store");
     const { dispatchCodexAppServerMessage } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     let resolved = false;
@@ -5805,7 +6043,7 @@ describe("local-conversation-store", () => {
     };
 
     try {
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -5824,7 +6062,7 @@ describe("local-conversation-store", () => {
       await flushAsyncWork();
       expect(resolved).toBe(false);
 
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 2,
@@ -5881,7 +6119,7 @@ describe("local-conversation-store", () => {
       __resetLocalConversationStoreForTests,
     } = await import("./local-conversation-store");
     const { dispatchCodexAppServerMessage } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     const runCollision = async (input: {
@@ -5901,7 +6139,7 @@ describe("local-conversation-store", () => {
         }],
       };
       resumeThreadResult = baseConversation;
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: input.threadId,
         version: 1,
@@ -6010,14 +6248,14 @@ describe("local-conversation-store", () => {
       __resetLocalConversationStoreForTests,
     } = await import("./local-conversation-store");
     const { dispatchCodexAppServerMessage } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     const threadId = "thread-owner-resolved-before-action";
     const conversation = buildConversation(threadId, "project-1");
     resumeThreadResult = conversation;
     try {
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: threadId,
         version: 1,
@@ -6061,7 +6299,7 @@ describe("local-conversation-store", () => {
       __resetLocalConversationStoreForTests,
     } = await import("./local-conversation-store");
     const { dispatchCodexAppServerMessage } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     const runCollision = async (input: {
@@ -6138,7 +6376,7 @@ describe("local-conversation-store", () => {
           },
         ],
       };
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: input.threadId,
         version: 1,
@@ -6196,7 +6434,7 @@ describe("local-conversation-store", () => {
       __resetLocalConversationStoreForTests,
     } = await import("./local-conversation-store");
     const { dispatchCodexAppServerMessage } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -6236,7 +6474,7 @@ describe("local-conversation-store", () => {
         }],
       };
       resumeThreadResult = baseConversation;
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -6295,7 +6533,7 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -6311,7 +6549,7 @@ describe("local-conversation-store", () => {
       };
       resumeThreadResult = baseConversation;
 
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-dynamic",
         version: 1,
@@ -6391,7 +6629,7 @@ describe("local-conversation-store", () => {
       __resetLocalConversationStoreForTests,
     } = await import("./local-conversation-store");
     const { dispatchCodexAppServerMessage } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     const threadId = "thread-special-dynamic-owner";
@@ -6408,7 +6646,7 @@ describe("local-conversation-store", () => {
         }],
       };
       resumeThreadResult = baseConversation;
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: threadId,
         version: 1,
@@ -6574,7 +6812,7 @@ describe("local-conversation-store", () => {
       __resetLocalConversationStoreForTests,
     } = await import("./local-conversation-store");
     const { dispatchCodexAppServerMessage } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     const threadId = "thread-special-dynamic-follower";
@@ -6633,7 +6871,7 @@ describe("local-conversation-store", () => {
           },
         ],
       };
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: threadId,
         version: 1,
@@ -6745,7 +6983,7 @@ describe("local-conversation-store", () => {
       __resetLocalConversationStoreForTests,
     } = await import("./local-conversation-store");
     const { dispatchCodexAppServerMessage } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     const threadId = "thread-standalone-unread";
@@ -6753,7 +6991,7 @@ describe("local-conversation-store", () => {
       streamState: { getRevision: (targetThreadId: string) => number | null };
     };
     try {
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: threadId,
         version: 1,
@@ -6826,7 +7064,7 @@ describe("local-conversation-store", () => {
       __resetLocalConversationStoreForTests,
     } = await import("./local-conversation-store");
     const { dispatchCodexAppServerMessage } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     const threadId = "thread-unread-owner-race";
@@ -6852,7 +7090,7 @@ describe("local-conversation-store", () => {
         }],
       };
       resumeThreadResult = baseConversation;
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: threadId,
         version: 1,
@@ -6957,7 +7195,7 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -6973,7 +7211,7 @@ describe("local-conversation-store", () => {
       };
       resumeThreadResult = baseConversation;
 
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -7046,7 +7284,7 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -7062,7 +7300,7 @@ describe("local-conversation-store", () => {
       };
       resumeThreadResult = baseConversation;
 
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -7175,7 +7413,7 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -7191,7 +7429,7 @@ describe("local-conversation-store", () => {
       };
       resumeThreadResult = baseConversation;
 
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -7322,7 +7560,7 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -7338,7 +7576,7 @@ describe("local-conversation-store", () => {
       };
       resumeThreadResult = baseConversation;
 
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -7431,7 +7669,7 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const browserWindow = globalThis.window as (Window & {
       requestAnimationFrame?: Window["requestAnimationFrame"];
@@ -7468,7 +7706,7 @@ describe("local-conversation-store", () => {
       const delta = "abcdefghijklmnopqrstuvwxyz0123456789";
       resumeThreadResult = baseConversation;
 
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -7532,7 +7770,7 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const browserWindow = globalThis.window as (Window & {
       requestAnimationFrame?: Window["requestAnimationFrame"];
@@ -7574,7 +7812,7 @@ describe("local-conversation-store", () => {
       const delta = "abcdefghijklmnopqrstuvwxyz0123456789";
       resumeThreadResult = baseConversation;
 
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -7651,7 +7889,7 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const browserWindow = globalThis.window as (Window & {
       requestAnimationFrame?: Window["requestAnimationFrame"];
@@ -7692,7 +7930,7 @@ describe("local-conversation-store", () => {
       };
       resumeThreadResult = baseConversation;
 
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -7797,7 +8035,7 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const browserWindow = globalThis.window as (Window & {
       requestAnimationFrame?: Window["requestAnimationFrame"];
@@ -7953,7 +8191,7 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const previousVisibilityDescriptor = Object.getOwnPropertyDescriptor(document, "visibilityState");
     Object.defineProperty(document, "visibilityState", {
@@ -7979,7 +8217,7 @@ describe("local-conversation-store", () => {
       };
       resumeThreadResult = baseConversation;
 
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -7991,11 +8229,27 @@ describe("local-conversation-store", () => {
         sourceClientId: null,
       });
       await manager.requestThreadStreamResume("thread-1");
+      const acceptedConversation = manager.readConversation("thread-1");
+      if (!acceptedConversation) throw new Error("Missing accepted owner conversation");
       invokeCalls = [];
       invokeRecords = [];
       ownerStreamPublishHandler = (input) => {
         publishInputs.push(input);
-        return publishInputs.length !== 1;
+        if (publishInputs.length !== 1) return true;
+        const publication = input as {
+          baseCheckpoint?: ReturnType<typeof buildTestCheckpoint> | null;
+        };
+        if (!publication.baseCheckpoint) {
+          throw new Error("Missing rejected publication base checkpoint");
+        }
+        return {
+          accepted: false,
+          reason: "base-checkpoint-mismatch",
+          recovery: {
+            checkpoint: publication.baseCheckpoint,
+            conversationState: acceptedConversation,
+          },
+        };
       };
 
       dispatchCodexAppServerMessage("thread-owner-notification", {
@@ -8054,7 +8308,7 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const previousVisibilityDescriptor = Object.getOwnPropertyDescriptor(document, "visibilityState");
     Object.defineProperty(document, "visibilityState", {
@@ -8080,7 +8334,7 @@ describe("local-conversation-store", () => {
       };
       resumeThreadResult = baseConversation;
 
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -8092,11 +8346,27 @@ describe("local-conversation-store", () => {
         sourceClientId: null,
       });
       await manager.requestThreadStreamResume("thread-1");
+      const acceptedConversation = manager.readConversation("thread-1");
+      if (!acceptedConversation) throw new Error("Missing accepted owner conversation");
       invokeCalls = [];
       invokeRecords = [];
       ownerStreamPublishHandler = (input) => {
         publishInputs.push(input);
-        return false;
+        if (publishInputs.length !== 1) return false;
+        const publication = input as {
+          baseCheckpoint?: ReturnType<typeof buildTestCheckpoint> | null;
+        };
+        if (!publication.baseCheckpoint) {
+          throw new Error("Missing rejected publication base checkpoint");
+        }
+        return {
+          accepted: false,
+          reason: "base-checkpoint-mismatch",
+          recovery: {
+            checkpoint: publication.baseCheckpoint,
+            conversationState: acceptedConversation,
+          },
+        };
       };
 
       dispatchCodexAppServerMessage("thread-owner-notification", {
@@ -8143,7 +8413,7 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -8169,7 +8439,7 @@ describe("local-conversation-store", () => {
       };
       snapshotByThread["thread-1"] = staleConversation;
 
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -8229,7 +8499,7 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -8291,7 +8561,7 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -8310,7 +8580,7 @@ describe("local-conversation-store", () => {
         turns: [],
       };
 
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -8327,7 +8597,7 @@ describe("local-conversation-store", () => {
         hostId: "default",
         status: "connected",
       });
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 2,
@@ -8364,7 +8634,7 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const browserWindow = globalThis.window as (Window & {
       requestAnimationFrame?: Window["requestAnimationFrame"];
@@ -8406,7 +8676,7 @@ describe("local-conversation-store", () => {
       const delta = "abcdefghijklmnopqrstuvwxyz0123456789";
       resumeThreadResult = baseConversation;
 
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -8527,7 +8797,7 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const browserWindow = globalThis.window as (Window & {
       requestAnimationFrame?: Window["requestAnimationFrame"];
@@ -8567,7 +8837,7 @@ describe("local-conversation-store", () => {
       const delta = "abcdefghijklmnopqrstuvwxyz0123456789";
       resumeThreadResult = baseConversation;
 
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -8671,7 +8941,7 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const browserWindow = globalThis.window as (Window & {
       requestAnimationFrame?: Window["requestAnimationFrame"];
@@ -8716,7 +8986,7 @@ describe("local-conversation-store", () => {
       for (const threadId of ["thread-1", "thread-2"]) {
         const conversation = buildStreamingConversation(threadId);
         resumeThreadResult = conversation;
-        dispatchCodexAppServerMessage("thread-stream-state-changed", {
+        dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
           hostId: "default",
           conversationId: threadId,
           version: 1,
@@ -8794,7 +9064,7 @@ describe("local-conversation-store", () => {
       __resetLocalConversationStoreForTests,
     } = await import("./local-conversation-store");
     const { dispatchCodexAppServerMessage } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -8802,7 +9072,7 @@ describe("local-conversation-store", () => {
       const second = buildConversation("thread-2", "project-1");
       for (const conversation of [first, second]) {
         resumeThreadResult = conversation;
-        dispatchCodexAppServerMessage("thread-stream-state-changed", {
+        dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
           hostId: "default",
           conversationId: conversation.threadId,
           version: 1,
@@ -8860,13 +9130,13 @@ describe("local-conversation-store", () => {
       __resetLocalConversationStoreForTests,
     } = await import("./local-conversation-store");
     const { dispatchCodexAppServerMessage } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
       const conversation = buildConversation("thread-1", "project-1");
       resumeThreadResult = conversation;
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -8928,7 +9198,7 @@ describe("local-conversation-store", () => {
       __resetLocalConversationStoreForTests,
     } = await import("./local-conversation-store");
     const { dispatchCodexAppServerMessage } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -8943,7 +9213,7 @@ describe("local-conversation-store", () => {
         }],
       };
       resumeThreadResult = conversation;
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -9000,13 +9270,13 @@ describe("local-conversation-store", () => {
       __resetLocalConversationStoreForTests,
     } = await import("./local-conversation-store");
     const { dispatchCodexAppServerMessage } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
       const conversation = buildConversation("thread-1", "project-1");
       resumeThreadResult = conversation;
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -9073,7 +9343,7 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const browserWindow = globalThis.window as (Window & {
       requestAnimationFrame?: Window["requestAnimationFrame"];
@@ -9135,7 +9405,7 @@ describe("local-conversation-store", () => {
       }
 
       await act(async () => {
-        dispatchCodexAppServerMessage("thread-stream-state-changed", {
+        dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
           hostId: "default",
           conversationId: "thread-1",
           version: 1,
@@ -9241,7 +9511,7 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const browserWindow = globalThis.window as (Window & {
       requestAnimationFrame?: Window["requestAnimationFrame"];
@@ -9277,7 +9547,7 @@ describe("local-conversation-store", () => {
       };
       resumeThreadResult = baseConversation;
 
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -9389,7 +9659,7 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const browserWindow = globalThis.window as (Window & {
       requestAnimationFrame?: Window["requestAnimationFrame"];
@@ -9437,7 +9707,7 @@ describe("local-conversation-store", () => {
           const delta = "abcdefghijklmnopqrstuvwxyz0123456789";
           resumeThreadResult = baseConversation;
 
-          dispatchCodexAppServerMessage("thread-stream-state-changed", {
+          dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
             hostId: "default",
             conversationId: threadId,
             version: 1,
@@ -9516,7 +9786,7 @@ describe("local-conversation-store", () => {
     }
   });
 
-  test("owner command output notifications update locally and ack without stream patches", async () => {
+  test("owner command output notifications publish before their sequence is acknowledged", async () => {
     invokeCalls = [];
     invokeRecords = [];
     hostMessageListener = null;
@@ -9529,7 +9799,7 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -9545,7 +9815,7 @@ describe("local-conversation-store", () => {
       };
       resumeThreadResult = baseConversation;
 
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -9576,14 +9846,11 @@ describe("local-conversation-store", () => {
       )).toBe(false);
 
       await new Promise((resolve) => setTimeout(resolve, 70));
+      await flushAsyncWork(4);
 
       const publishRecords = invokeRecords.filter((record) =>
         record.channel === "codex:thread-owner:stream-state:publish"
       );
-      const ackRecord = invokeRecords.find((record) =>
-        record.channel === "codex:thread-owner:notification:ack"
-      );
-      const ackInput = ackRecord?.args[0] as { conversationId?: string; sequence?: number } | undefined;
 
       expect(manager.readConversation("thread-1")?.turns[0]?.items[0]?.aggregatedOutput).toBe("owner output\n");
       expect(manager.readConversation("thread-1")?.turns[0]?.items[0]?.toolCall).toBeUndefined();
@@ -9593,16 +9860,23 @@ describe("local-conversation-store", () => {
       expect(canonicalCommand?.type === "commandExecution"
         ? canonicalCommand.aggregatedOutput
         : null).toBe("owner output\n");
-      expect(String(publishRecords.length)).toBe("0");
-      expect(ackInput?.conversationId).toBe("thread-1");
-      expect(ackInput?.sequence).toBe(1);
+      expect(String(publishRecords.length)).toBe("1");
+      const publishInput = publishRecords[0]?.args[0] as {
+        change?: { type?: string };
+        ownerNotificationSequence?: number;
+      } | undefined;
+      expect(publishInput?.change?.type).toBe("patches");
+      expect(publishInput?.ownerNotificationSequence).toBe(1);
+      expect(invokeRecords.some((record) =>
+        record.channel === "codex:thread-owner:notification:ack"
+      )).toBe(false);
     } finally {
       resumeThreadResult = null;
       manager.destroy();
     }
   });
 
-  test("owner terminal interactions append command actions locally and ack without stream patches", async () => {
+  test("owner terminal interactions publish parsed command actions before acknowledgement", async () => {
     invokeCalls = [];
     invokeRecords = [];
     hostMessageListener = null;
@@ -9615,7 +9889,7 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -9631,7 +9905,7 @@ describe("local-conversation-store", () => {
       };
       resumeThreadResult = baseConversation;
 
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -9678,7 +9952,7 @@ describe("local-conversation-store", () => {
           },
         },
       });
-      await flushAsyncWork();
+      await flushAsyncWork(4);
 
       const publishRecords = invokeRecords.filter((record) =>
         record.channel === "codex:thread-owner:stream-state:publish"
@@ -9696,9 +9970,13 @@ describe("local-conversation-store", () => {
       const canonicalCommand = manager.readConversation("thread-1")
         ?.canonicalState?.turns[0]?.items[0];
       const commandAction = item?.commandActions?.[0];
+      const publishInput = publishRecords[0]?.args[0] as {
+        ownerNotificationSequence?: number;
+      } | undefined;
 
-      expect(String(publishRecords.length)).toBe("0");
-      expect(ackSequences).toBe("thread-1:1,thread-1:2");
+      expect(String(publishRecords.length)).toBe("1");
+      expect(ackSequences).toBe("thread-1:1");
+      expect(publishInput?.ownerNotificationSequence).toBe(2);
       expect(commandAction?.type).toBe("unknown");
       expect(commandAction?.command).toBe("bun test");
       expect(item?.toolCall).toBeUndefined();
@@ -9725,7 +10003,7 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -9742,7 +10020,7 @@ describe("local-conversation-store", () => {
       };
       resumeThreadResult = baseConversation;
 
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -9836,7 +10114,7 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -9854,7 +10132,7 @@ describe("local-conversation-store", () => {
       };
       resumeThreadResult = baseConversation;
 
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -9920,7 +10198,7 @@ describe("local-conversation-store", () => {
       __resetLocalConversationStoreForTests,
     } = await import("./local-conversation-store");
     const { dispatchCodexAppServerMessage } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -9935,7 +10213,7 @@ describe("local-conversation-store", () => {
         }],
       };
       resumeThreadResult = baseConversation;
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -9994,7 +10272,7 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -10011,7 +10289,7 @@ describe("local-conversation-store", () => {
       });
       resumeThreadResult = baseConversation;
 
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -10069,7 +10347,7 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -10085,7 +10363,7 @@ describe("local-conversation-store", () => {
       });
       resumeThreadResult = baseConversation;
 
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -10143,7 +10421,7 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -10159,7 +10437,7 @@ describe("local-conversation-store", () => {
       });
       resumeThreadResult = baseConversation;
 
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -10214,7 +10492,7 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -10267,7 +10545,7 @@ describe("local-conversation-store", () => {
       };
       resumeThreadResult = baseConversation;
 
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -10298,7 +10576,7 @@ describe("local-conversation-store", () => {
           },
         },
       });
-      await flushAsyncWork();
+      await flushAsyncWork(4);
 
       const turn = manager.readConversation("thread-1")?.turns[0];
       const item = turn?.items[0] ?? null;
@@ -10306,7 +10584,9 @@ describe("local-conversation-store", () => {
         record.channel === "codex:thread-owner:stream-state:publish"
       );
       const publishInput = publishRecords[0]?.args[0] as {
-        broadcastPatchesToFollowers?: boolean;
+        change?: { type?: string };
+        baseCheckpoint?: ReturnType<typeof buildTestCheckpoint> | null;
+        checkpoint?: ReturnType<typeof buildTestCheckpoint>;
       } | undefined;
       const ackRecord = invokeRecords.find((record) =>
         record.channel === "codex:thread-owner:notification:ack"
@@ -10332,8 +10612,11 @@ describe("local-conversation-store", () => {
       expect(rawItem?.extension === rawExtension).toBe(true);
       expect(manager.readConversation("thread-1")?.updatedAt).toBe(103);
       expect(publishRecords.length).toBe(1);
-      expect(publishInput?.broadcastPatchesToFollowers).toBe(false);
-      expect(ackInput?.sequence).toBe(1);
+      expect(publishInput?.change?.type).toBe("patches");
+      expect(publishInput?.checkpoint?.revision).toBe(
+        (publishInput?.baseCheckpoint?.revision ?? 0) + 1,
+      );
+      expect(ackInput).toBeUndefined();
     } finally {
       resumeThreadResult = null;
       manager.destroy();
@@ -10353,7 +10636,7 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -10377,7 +10660,7 @@ describe("local-conversation-store", () => {
       };
       resumeThreadResult = baseConversation;
 
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -10404,7 +10687,7 @@ describe("local-conversation-store", () => {
           },
         },
       });
-      await flushAsyncWork();
+      await flushAsyncWork(4);
 
       const turn = manager.readConversation("thread-1")?.turns[0];
       const item = turn?.items[0];
@@ -10423,21 +10706,18 @@ describe("local-conversation-store", () => {
       );
       const ackInput = ackRecord?.args[0] as { sequence?: number } | undefined;
 
-      expect(turn?.items.length).toBe(1);
-      expect(turn?.itemIds.length).toBe(1);
-      expect(item?.itemId).toBe("shared-item");
-      expect(item?.kind).toBe("fileChange");
-      expect(item?.status).toBe("inProgress");
-      expect(rawItem?.type).toBe("fileChange");
-      expect(rawItem?.changes === changes).toBe(true);
+      expect(turn?.items.length).toBe(0);
+      expect(turn?.itemIds).toEqual(["shared-item"]);
+      expect(item).toBeUndefined();
+      expect(rawItem).toBeUndefined();
       expect(canonicalItem?.type).toBe("fileChange");
       expect(canonicalItem?.type === "fileChange" && canonicalItem.changes === changes).toBe(true);
       const publishInput = publishRecords[0]?.args[0] as {
-        broadcastPatchesToFollowers?: boolean;
+        change?: { type?: string };
       } | undefined;
       expect(publishRecords.length).toBe(1);
-      expect(publishInput?.broadcastPatchesToFollowers).toBe(false);
-      expect(ackInput?.sequence).toBe(1);
+      expect(publishInput?.change?.type).toBe("patches");
+      expect(ackInput).toBeUndefined();
     } finally {
       resumeThreadResult = null;
       manager.destroy();
@@ -10457,15 +10737,9 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
-    const managerInternals = manager as unknown as {
-      ownerHiddenLifecycleItemTypesByConversationId: Map<
-        string,
-        Map<string | null, Map<string, string>>
-      >;
-    };
     try {
       const baseConversation: CodexConversationSnapshot = withCanonicalState({
         ...buildConversation("thread-1", "project-1"),
@@ -10481,7 +10755,7 @@ describe("local-conversation-store", () => {
       });
       resumeThreadResult = baseConversation;
 
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -10530,7 +10804,7 @@ describe("local-conversation-store", () => {
       await flushAsyncWork();
 
       let turn = manager.readConversation("thread-1")?.turns[0];
-      let target = turn?.items[1];
+      let target = turn?.items.find((item) => item.itemId === "target");
       const targetRaw = target?.rawItem as {
         type?: string;
         changes?: unknown;
@@ -10539,22 +10813,14 @@ describe("local-conversation-store", () => {
         record.channel === "codex:thread-owner:stream-state:publish"
       );
 
-      expect(turn?.items.map((item) => item.itemId).join(",")).toBe("before,target,after");
-      expect(target?.itemId).toBe("target");
-      expect(target?.kind).toBe("fileChange");
-      expect(targetRaw?.type).toBe("fileChange");
-      expect(targetRaw?.changes === liveChanges).toBe(true);
+      expect(turn?.items.map((item) => item.itemId).join(",")).toBe("before,after");
+      expect(target).toBeUndefined();
+      expect(targetRaw).toBeUndefined();
       expect(
-        managerInternals.ownerHiddenLifecycleItemTypesByConversationId
-          .get("thread-1")
-          ?.get("turn-1")
-          ?.has("target") ?? false,
-      ).toBe(false);
-      const patchPublishInput = patchPublishes[0]?.args[0] as {
-        broadcastPatchesToFollowers?: boolean;
-      } | undefined;
+        manager.readConversation("thread-1")
+          ?.canonicalState?.turns[0]?.items[1]?.type,
+      ).toBe("fileChange");
       expect(patchPublishes.length).toBe(1);
-      expect(patchPublishInput?.broadcastPatchesToFollowers).toBe(false);
 
       invokeRecords = [];
       dispatchCodexAppServerMessage("thread-owner-notification", {
@@ -10584,7 +10850,7 @@ describe("local-conversation-store", () => {
       await flushAsyncWork(4);
 
       turn = manager.readConversation("thread-1")?.turns[0];
-      target = turn?.items[1];
+      target = turn?.items.find((item) => item.itemId === "target");
       expect(turn?.items.map((item) => item.itemId).join(",")).toBe(
         "before,target,after",
       );
@@ -10599,7 +10865,7 @@ describe("local-conversation-store", () => {
     }
   });
 
-  test("owner fileChange patchUpdated rebinds latest in-progress placeholder without stream patches", async () => {
+  test("owner fileChange patchUpdated rebinds and publishes the latest placeholder", async () => {
     invokeCalls = [];
     invokeRecords = [];
     hostMessageListener = null;
@@ -10612,7 +10878,7 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -10628,7 +10894,7 @@ describe("local-conversation-store", () => {
       };
       resumeThreadResult = baseConversation;
 
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -10660,14 +10926,14 @@ describe("local-conversation-store", () => {
           },
         },
       });
-      await flushAsyncWork();
+      await flushAsyncWork(4);
 
       const conversation = manager.readConversation("thread-1");
       const publishRecords = invokeRecords.filter((record) =>
         record.channel === "codex:thread-owner:stream-state:publish"
       );
       const publishInput = publishRecords[0]?.args[0] as {
-        broadcastPatchesToFollowers?: boolean;
+        change?: { type?: string };
       } | undefined;
       const ackRecord = invokeRecords.find((record) =>
         record.channel === "codex:thread-owner:notification:ack"
@@ -10679,8 +10945,8 @@ describe("local-conversation-store", () => {
       expect(conversation?.turns[0]?.items[0]?.itemId).toBe("patch-live");
       expect(getCodexFileChangePaths(conversation?.turns[0]?.items[0]?.fileChange?.changes).join(",")).toBe("poem.md");
       expect(String(publishRecords.length)).toBe("1");
-      expect(publishInput?.broadcastPatchesToFollowers).toBe(false);
-      expect(ackInput?.sequence).toBe(1);
+      expect(publishInput?.change?.type).toBe("patches");
+      expect(ackInput).toBeUndefined();
     } finally {
       resumeThreadResult = null;
       manager.destroy();
@@ -10700,7 +10966,7 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -10716,7 +10982,7 @@ describe("local-conversation-store", () => {
       };
       resumeThreadResult = baseConversation;
 
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -10777,7 +11043,7 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -10795,7 +11061,7 @@ describe("local-conversation-store", () => {
       };
       resumeThreadResult = baseConversation;
 
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -10861,7 +11127,7 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -10875,7 +11141,7 @@ describe("local-conversation-store", () => {
           items: [buildAssistantMessage("thread-1", "turn-1", "assistant-1", "working")],
         }],
       };
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -10919,7 +11185,7 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -10933,7 +11199,7 @@ describe("local-conversation-store", () => {
           items: [buildAssistantMessage("thread-1", "turn-live", "assistant-1", "working")],
         }],
       };
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -10978,7 +11244,7 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     const latestFollowerAction = () =>
@@ -10988,7 +11254,7 @@ describe("local-conversation-store", () => {
       } | undefined;
 
     try {
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -11086,11 +11352,11 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -11166,13 +11432,13 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     let resolved = false;
     let resolvedReasoningEffort = "";
     try {
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -11194,7 +11460,7 @@ describe("local-conversation-store", () => {
       await flushAsyncWork();
       expect(resolved).toBe(false);
 
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 2,
@@ -11252,12 +11518,12 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     let resolved = false;
     try {
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -11275,7 +11541,7 @@ describe("local-conversation-store", () => {
       await flushAsyncWork();
       expect(resolved).toBe(false);
 
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 2,
@@ -11317,7 +11583,7 @@ describe("local-conversation-store", () => {
       CodexAppServerManager,
       __resetLocalConversationStoreForTests,
     } = await import("./local-conversation-store");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -11366,7 +11632,7 @@ describe("local-conversation-store", () => {
       __resetLocalConversationStoreForTests,
     } = await import("./local-conversation-store");
     const { dispatchCodexAppServerMessage } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     let resolveFirstPublish: (accepted: boolean) => void = () => {
@@ -11452,11 +11718,11 @@ describe("local-conversation-store", () => {
       __resetLocalConversationStoreForTests,
     } = await import("./local-conversation-store");
     const { dispatchCodexAppServerMessage } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -11513,11 +11779,11 @@ describe("local-conversation-store", () => {
       __resetLocalConversationStoreForTests,
     } = await import("./local-conversation-store");
     const { dispatchCodexAppServerMessage } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -11566,7 +11832,7 @@ describe("local-conversation-store", () => {
       CodexAppServerManager,
       __resetLocalConversationStoreForTests,
     } = await import("./local-conversation-store");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -11645,7 +11911,7 @@ describe("local-conversation-store", () => {
       CodexAppServerManager,
       __resetLocalConversationStoreForTests,
     } = await import("./local-conversation-store");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -11727,7 +11993,7 @@ describe("local-conversation-store", () => {
       __resetLocalConversationStoreForTests,
     } = await import("./local-conversation-store");
     const { dispatchCodexAppServerMessage } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -11850,7 +12116,7 @@ describe("local-conversation-store", () => {
       __resetLocalConversationStoreForTests,
     } = await import("./local-conversation-store");
     const { dispatchCodexAppServerMessage } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -11954,7 +12220,7 @@ describe("local-conversation-store", () => {
       CodexAppServerManager,
       __resetLocalConversationStoreForTests,
     } = await import("./local-conversation-store");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -12020,7 +12286,7 @@ describe("local-conversation-store", () => {
       CodexAppServerManager,
       __resetLocalConversationStoreForTests,
     } = await import("./local-conversation-store");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -12071,7 +12337,7 @@ describe("local-conversation-store", () => {
       CodexAppServerManager,
       __resetLocalConversationStoreForTests,
     } = await import("./local-conversation-store");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -12123,7 +12389,7 @@ describe("local-conversation-store", () => {
       CodexAppServerManager,
       __resetLocalConversationStoreForTests,
     } = await import("./local-conversation-store");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -12235,7 +12501,7 @@ describe("local-conversation-store", () => {
       CodexAppServerManager,
       __resetLocalConversationStoreForTests,
     } = await import("./local-conversation-store");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -12298,11 +12564,11 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -12456,11 +12722,11 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -12543,11 +12809,11 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -12662,7 +12928,7 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -12678,7 +12944,7 @@ describe("local-conversation-store", () => {
       };
       resumeThreadResult = baseConversation;
 
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -12765,7 +13031,7 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -12781,7 +13047,7 @@ describe("local-conversation-store", () => {
         }],
       };
       resumeThreadResult = unreadyConversation;
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-owner-request-race",
         version: 1,
@@ -12854,7 +13120,7 @@ describe("local-conversation-store", () => {
       __resetLocalConversationStoreForTests,
     } = await import("./local-conversation-store");
     const { dispatchCodexAppServerMessage } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -12926,7 +13192,7 @@ describe("local-conversation-store", () => {
         }],
       });
       resumeThreadResult = baseConversation;
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -13145,11 +13411,11 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -13235,13 +13501,13 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     let resolved = false;
     let accepted = false;
     try {
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -13261,7 +13527,7 @@ describe("local-conversation-store", () => {
       await flushAsyncWork();
       expect(resolved).toBe(false);
 
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 2,
@@ -13293,7 +13559,7 @@ describe("local-conversation-store", () => {
       CodexAppServerManager,
       __resetLocalConversationStoreForTests,
     } = await import("./local-conversation-store");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -13414,7 +13680,7 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -13429,7 +13695,7 @@ describe("local-conversation-store", () => {
         }],
       };
       resumeThreadResult = baseConversation;
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -13473,7 +13739,7 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -13495,7 +13761,7 @@ describe("local-conversation-store", () => {
         }],
       };
 
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -13511,7 +13777,7 @@ describe("local-conversation-store", () => {
         ownerClientId: "owner-a",
         conversationIds: ["thread-1"],
       });
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 2,
@@ -13531,7 +13797,7 @@ describe("local-conversation-store", () => {
           items: [buildAssistantMessage("thread-1", "turn-1", "assistant-1", "canonical fallback")],
         }],
       };
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 3,
@@ -13568,7 +13834,7 @@ describe("local-conversation-store", () => {
       __resetLocalConversationStoreForTests,
     } = await import("./local-conversation-store");
     const { dispatchCodexAppServerMessage } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -13583,7 +13849,7 @@ describe("local-conversation-store", () => {
         }],
       };
       resumeThreadResult = baseConversation;
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -13786,7 +14052,7 @@ describe("local-conversation-store", () => {
       CodexAppServerManager,
       __resetLocalConversationStoreForTests,
     } = await import("./local-conversation-store");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -13863,7 +14129,7 @@ describe("local-conversation-store", () => {
       CodexAppServerManager,
       __resetLocalConversationStoreForTests,
     } = await import("./local-conversation-store");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -13932,7 +14198,7 @@ describe("local-conversation-store", () => {
       __resetLocalConversationStoreForTests,
     } = await import("./local-conversation-store");
     const { dispatchCodexAppServerMessage } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -13990,7 +14256,7 @@ describe("local-conversation-store", () => {
       useDefaultCodexAppServerManager,
       __resetLocalConversationStoreForTests,
     } = await import("./local-conversation-store");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     let manager: {
       requestThreadStreamResume: (threadId: string) => Promise<CodexConversationSnapshot | null>;
@@ -14052,7 +14318,7 @@ describe("local-conversation-store", () => {
       __resetLocalConversationStoreForTests,
     } = await import("./local-conversation-store");
     const { dispatchCodexAppServerMessage } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     let manager: {
       readConversation: (threadId: string) => CodexConversationSnapshot | null;
@@ -14078,7 +14344,7 @@ describe("local-conversation-store", () => {
         conversationId: string,
       ) => Promise<boolean>;
     };
-    dispatchCodexAppServerMessage("thread-stream-state-changed", {
+    dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
       hostId: "default",
       conversationId: "thread-1",
       version: 1,
@@ -14123,7 +14389,7 @@ describe("local-conversation-store", () => {
       ) === true
     , 1_000);
 
-    dispatchCodexAppServerMessage("thread-stream-state-changed", {
+    dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
       hostId: "default",
       conversationId: "thread-1",
       version: 2,
@@ -14196,7 +14462,7 @@ describe("local-conversation-store", () => {
       ) === true
     , 1_000);
 
-    dispatchCodexAppServerMessage("thread-stream-state-changed", {
+    dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
       hostId: "default",
       conversationId: "thread-1",
       version: 3,
@@ -14239,7 +14505,7 @@ describe("local-conversation-store", () => {
       CodexAppServerManager,
       __resetLocalConversationStoreForTests,
     } = await import("./local-conversation-store");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -14308,7 +14574,7 @@ describe("local-conversation-store", () => {
       CodexAppServerManager,
       __resetLocalConversationStoreForTests,
     } = await import("./local-conversation-store");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -14353,7 +14619,7 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -14380,7 +14646,7 @@ describe("local-conversation-store", () => {
           partialConversation.turns[0]!,
         ],
       };
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -14404,7 +14670,7 @@ describe("local-conversation-store", () => {
       expect(invokeRecords.some((record) => record.channel === "codex:thread:turns:load-older")).toBe(false);
       expect(invokeRecords.some((record) => record.channel === "codex:thread:turns:load-complete")).toBe(false);
 
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 2,
@@ -14439,7 +14705,7 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -14466,7 +14732,7 @@ describe("local-conversation-store", () => {
           partialConversation.turns[0]!,
         ],
       };
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -14487,7 +14753,7 @@ describe("local-conversation-store", () => {
       expect(firstPayload?.action?.type).toBe("loadCompleteHistory");
       expect(invokeRecords.some((record) => record.channel === "codex:thread:edit-last-user-turn")).toBe(false);
 
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 2,
@@ -14535,7 +14801,7 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     let resolved = false;
@@ -14564,7 +14830,7 @@ describe("local-conversation-store", () => {
           items: [buildUserMessage("thread-1", "turn-replacement", "user-replacement", "Rewrite latest prompt")],
         }],
       };
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -14582,7 +14848,7 @@ describe("local-conversation-store", () => {
         });
       await flushAsyncWork();
 
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 2,
@@ -14596,7 +14862,7 @@ describe("local-conversation-store", () => {
       await flushAsyncWork();
       expect(resolved).toBe(false);
 
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 3,
@@ -14629,7 +14895,7 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -14656,7 +14922,7 @@ describe("local-conversation-store", () => {
           partialConversation.turns[0]!,
         ],
       };
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -14677,7 +14943,7 @@ describe("local-conversation-store", () => {
       expect(firstPayload?.action?.type).toBe("loadCompleteHistory");
       expect(invokeRecords.some((record) => record.channel === "codex:thread:fork-from-turn")).toBe(false);
 
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 2,
@@ -14717,7 +14983,7 @@ describe("local-conversation-store", () => {
       CodexAppServerManager,
       __resetLocalConversationStoreForTests,
     } = await import("./local-conversation-store");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -14799,11 +15065,11 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -14849,7 +15115,7 @@ describe("local-conversation-store", () => {
       CodexAppServerManager,
       __resetLocalConversationStoreForTests,
     } = await import("./local-conversation-store");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -14888,7 +15154,7 @@ describe("local-conversation-store", () => {
       CodexAppServerManager,
       __resetLocalConversationStoreForTests,
     } = await import("./local-conversation-store");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -14935,7 +15201,7 @@ describe("local-conversation-store", () => {
       CodexAppServerManager,
       __resetLocalConversationStoreForTests,
     } = await import("./local-conversation-store");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -14987,7 +15253,7 @@ describe("local-conversation-store", () => {
       CodexAppServerManager,
       __resetLocalConversationStoreForTests,
     } = await import("./local-conversation-store");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -15072,11 +15338,11 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -15133,11 +15399,11 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -15204,7 +15470,7 @@ describe("local-conversation-store", () => {
       CodexAppServerManager,
       __resetLocalConversationStoreForTests,
     } = await import("./local-conversation-store");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -15263,11 +15529,11 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -15315,11 +15581,11 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -15361,11 +15627,11 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -15411,11 +15677,11 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -15442,7 +15708,7 @@ describe("local-conversation-store", () => {
     }
   });
 
-  test("owner background-terminal cleanup is owner-local silent from bundle 50754-50825", async () => {
+  test("owner background-terminal cleanup publishes its canonical cleanup", async () => {
     invokeCalls = [];
     invokeRecords = [];
     hostMessageListener = null;
@@ -15479,7 +15745,7 @@ describe("local-conversation-store", () => {
       CodexAppServerManager,
       __resetLocalConversationStoreForTests,
     } = await import("./local-conversation-store");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -15497,7 +15763,7 @@ describe("local-conversation-store", () => {
       expect(invokeRecords.some((record) => record.channel === "codex:thread:background-terminals:clean-silent")).toBe(true);
       expect(invokeRecords.some((record) => record.channel === "codex:thread:background-terminals:clean")).toBe(false);
       expect(invokeRecords.some((record) => record.channel === "codex:thread-follower:action")).toBe(false);
-      expect(publishCountAfter).toBe(publishCountBefore);
+      expect(publishCountAfter).toBe(publishCountBefore + 1);
       expect(conversation?.backgroundTerminalRows.length ?? -1).toBe(0);
       expect(conversation?.turns[0]?.interruptedCommandExecutionItemIds?.[0]).toBe("cmd-1");
       expect(
@@ -15522,7 +15788,7 @@ describe("local-conversation-store", () => {
       CodexAppServerManager,
       __resetLocalConversationStoreForTests,
     } = await import("./local-conversation-store");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -15588,7 +15854,7 @@ describe("local-conversation-store", () => {
       CodexAppServerManager,
       __resetLocalConversationStoreForTests,
     } = await import("./local-conversation-store");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -15747,7 +16013,7 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -15779,7 +16045,7 @@ describe("local-conversation-store", () => {
       resumeThreadResult = currentConversation;
       ownerEditRollbackResult = buildRollbackResponseFromConversation(rollbackConversation);
 
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -15835,7 +16101,7 @@ describe("local-conversation-store", () => {
       CodexAppServerManager,
       __resetLocalConversationStoreForTests,
     } = await import("./local-conversation-store");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -15969,7 +16235,7 @@ describe("local-conversation-store", () => {
       CodexAppServerManager,
       __resetLocalConversationStoreForTests,
     } = await import("./local-conversation-store");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -16042,7 +16308,7 @@ describe("local-conversation-store", () => {
       __resetLocalConversationStoreForTests,
     } = await import("./local-conversation-store");
     const { dispatchCodexAppServerMessage } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -16111,7 +16377,7 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const browserWindow = globalThis.window as (Window & {
       requestAnimationFrame?: Window["requestAnimationFrame"];
@@ -16268,7 +16534,7 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -16367,7 +16633,7 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -16417,7 +16683,7 @@ describe("local-conversation-store", () => {
     }
   });
 
-  test("coalesces command output mcp notifications into renderer conversation state", async () => {
+  test("does not let no-owner command output mutate an accepted follower replica", async () => {
     invokeCalls = [];
     hostMessageListener = null;
     threadListByProject = {};
@@ -16428,11 +16694,11 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -16481,14 +16747,14 @@ describe("local-conversation-store", () => {
       await new Promise((resolve) => setTimeout(resolve, 70));
 
       const item = manager.readConversation("thread-1")?.turns[0]?.items[0];
-      expect(item?.aggregatedOutput).toBe("1340 pass\n");
+      expect(item?.aggregatedOutput).toBe("");
       expect(item?.toolCall).toBeUndefined();
     } finally {
       manager.destroy();
     }
   });
 
-  test("applies command output deltas only to the addressed conversation turn item", async () => {
+  test("does not route no-owner command output into any followed conversation", async () => {
     invokeCalls = [];
     hostMessageListener = null;
     threadListByProject = {};
@@ -16499,12 +16765,12 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
       for (const threadId of ["thread-1", "thread-2"]) {
-        dispatchCodexAppServerMessage("thread-stream-state-changed", {
+        dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
           hostId: "default",
           conversationId: threadId,
           version: 1,
@@ -16541,13 +16807,13 @@ describe("local-conversation-store", () => {
       await new Promise((resolve) => setTimeout(resolve, 70));
 
       expect(manager.readConversation("thread-1")?.turns[0]?.items[0]?.aggregatedOutput ?? "missing").toBe("");
-      expect(manager.readConversation("thread-2")?.turns[0]?.items[0]?.aggregatedOutput).toBe("target output\n");
+      expect(manager.readConversation("thread-2")?.turns[0]?.items[0]?.aggregatedOutput).toBe("");
     } finally {
       manager.destroy();
     }
   });
 
-  test("command output skips a later same-id non-command raw item", async () => {
+  test("no-owner command output cannot mutate a followed same-id command slot", async () => {
     invokeCalls = [];
     hostMessageListener = null;
     threadListByProject = {};
@@ -16558,11 +16824,11 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -16603,7 +16869,7 @@ describe("local-conversation-store", () => {
       await new Promise((resolve) => setTimeout(resolve, 70));
 
       const items = manager.readConversation("thread-1")?.turns[0]?.items;
-      expect(items?.[0]?.aggregatedOutput).toBe("exact command output\n");
+      expect(items?.[0]?.aggregatedOutput).toBe("");
       expect(items?.[0]?.updatedAt).toBe(1);
       expect(items?.[1]?.markdownText).toBe("assistant");
       expect(items?.[1]?.rawItem).toBe(assistantRawItem);
@@ -16623,11 +16889,11 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -16668,7 +16934,7 @@ describe("local-conversation-store", () => {
     }
   });
 
-  test("keeps queued command output on its independent timer across snapshots", async () => {
+  test("a newer accepted snapshot cannot duplicate queued no-owner command output", async () => {
     invokeCalls = [];
     hostMessageListener = null;
     threadListByProject = {};
@@ -16679,7 +16945,7 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
@@ -16693,7 +16959,7 @@ describe("local-conversation-store", () => {
           items: [buildCommandExecutionItem("thread-1", "turn-1", "cmd-1")],
         }],
       });
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,
@@ -16717,7 +16983,7 @@ describe("local-conversation-store", () => {
       },
         },
       });
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 2,
@@ -16738,7 +17004,7 @@ describe("local-conversation-store", () => {
       await new Promise((resolve) => setTimeout(resolve, 70));
 
       expect(manager.readConversation("thread-1")?.turns[0]?.items[0]?.aggregatedOutput).toBe(
-        "single append\nsingle append\n",
+        "single append\n",
       );
     } finally {
       manager.destroy();
@@ -16755,7 +17021,7 @@ describe("local-conversation-store", () => {
       useCodexPermissionMode,
       useCodexThreadStartProgress,
     } = await import("./local-conversation-store");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     function Probe() {
       const permissionMode = useCodexPermissionMode("project-1");
@@ -16855,7 +17121,7 @@ describe("local-conversation-store", () => {
       LocalConversationProvider,
       useProjectThreadSummaries,
     } = await import("./local-conversation-store");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     function Probe() {
       const summaries = useProjectThreadSummaries("project-1");
@@ -16884,7 +17150,7 @@ describe("local-conversation-store", () => {
       LocalConversationProvider,
       useProjectThreadSummaries,
     } = await import("./local-conversation-store");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     function Probe() {
       const summaries = useProjectThreadSummaries(null);
@@ -16915,12 +17181,22 @@ describe("local-conversation-store", () => {
       LocalConversationProvider,
       readLocalConversation,
     } = await import("./local-conversation-store");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     render(createElement(LocalConversationProvider, null, createElement("div")));
     await settleAsyncRender();
 
     await act(async () => {
+      const snapshot: CodexConversationSnapshot = {
+        ...buildConversation("thread-1", "project-1"),
+        threadName: undefined as unknown as string,
+        threadPreview: undefined as unknown as string,
+        pendingSteers: undefined as unknown as [],
+        queuedFollowUps: undefined as unknown as [],
+        backgroundTerminalRows: undefined as unknown as [],
+        childMemberships: undefined as unknown as [],
+        statusActiveFlags: undefined as unknown as [],
+      };
       hostMessageListener?.({
         type: "threadStreamStateChanged",
         hostId: "default",
@@ -16928,19 +17204,12 @@ describe("local-conversation-store", () => {
         change: {
           type: "snapshot",
           revision: 1,
-          conversationState: {
-            ...buildConversation("thread-1", "project-1"),
-            threadName: undefined as unknown as string,
-            threadPreview: undefined as unknown as string,
-            pendingSteers: undefined as unknown as [],
-            queuedFollowUps: undefined as unknown as [],
-            backgroundTerminalRows: undefined as unknown as [],
-            childMemberships: undefined as unknown as [],
-            statusActiveFlags: undefined as unknown as [],
-          },
+          conversationState: snapshot,
         },
         version: 1,
         sourceClientId: "test-owner",
+        checkpoint: buildTestCheckpoint(snapshot, 1),
+        baseCheckpoint: null,
       });
     });
     await settleAsyncRender();
@@ -16967,7 +17236,7 @@ describe("local-conversation-store", () => {
       readLocalConversation,
       useProjectThreadSummaries,
     } = await import("./local-conversation-store");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     function Probe() {
       const summaries = useProjectThreadSummaries("project-1");
@@ -16978,6 +17247,21 @@ describe("local-conversation-store", () => {
     await settleAsyncRender();
 
     await act(async () => {
+      const snapshot = {
+        ...buildConversation("side-thread-1", "project-1"),
+        source: {
+          parentThreadId: "thread-parent",
+          sideConversation: true,
+          sideConversationParentNavigationPath: "project:project-1/session:session-1/thread:thread-parent",
+        },
+        ephemeral: true,
+        capabilityFlags: {
+          canEditLastUserTurn: false,
+          canForkFromTurn: false,
+          canSearch: true,
+          canCollapseTurns: true,
+        },
+      } satisfies CodexConversationSnapshot;
       hostMessageListener?.({
         type: "threadStreamStateChanged",
         hostId: "default",
@@ -16985,24 +17269,12 @@ describe("local-conversation-store", () => {
         change: {
           type: "snapshot",
           revision: 1,
-          conversationState: {
-            ...buildConversation("side-thread-1", "project-1"),
-            source: {
-              parentThreadId: "thread-parent",
-              sideConversation: true,
-              sideConversationParentNavigationPath: "project:project-1/session:session-1/thread:thread-parent",
-            },
-            ephemeral: true,
-            capabilityFlags: {
-              canEditLastUserTurn: false,
-              canForkFromTurn: false,
-              canSearch: true,
-              canCollapseTurns: true,
-            },
-          },
+          conversationState: snapshot,
         },
         version: 1,
         sourceClientId: "test-owner",
+        checkpoint: buildTestCheckpoint(snapshot, 1),
+        baseCheckpoint: null,
       });
     });
     await settleAsyncRender();
@@ -17027,7 +17299,7 @@ describe("local-conversation-store", () => {
       LocalConversationProvider,
       useProjectThreadSummaries,
     } = await import("./local-conversation-store");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     function Probe() {
       const summaries = useProjectThreadSummaries("project-empty");
@@ -17055,12 +17327,12 @@ describe("local-conversation-store", () => {
     const {
       dispatchCodexAppServerMessage,
     } = await import("./app-server-message-bus");
-    __resetLocalConversationStoreForTests();
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
 
     const manager = new CodexAppServerManager("default");
     try {
       manager.hydrateThreadSummaries("project-1", [buildThreadSummary("thread-1", "project-1")]);
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread-1",
         version: 1,

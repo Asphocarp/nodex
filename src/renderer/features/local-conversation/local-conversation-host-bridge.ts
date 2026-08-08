@@ -30,6 +30,8 @@ function applyHostMessage(message: CodexHostMessage): void {
       change: message.change,
       version: message.version,
       sourceClientId: message.sourceClientId ?? null,
+      checkpoint: message.checkpoint,
+      baseCheckpoint: message.baseCheckpoint ?? null,
     });
     return;
   }

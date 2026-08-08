@@ -13,8 +13,10 @@ type CodexReasoningSummarySource = Pick<
   "itemId" | "semanticKind" | "normalizedKind" | "markdownText"
 >;
 
-function isCommentLine(line: string): boolean {
-  return line.startsWith("<!--");
+function stripReasoningHtmlComments(markdownText: string): string {
+  return markdownText.replace(/<!--[\s\S]*?(?:-->|$)/g, (comment) => (
+    comment.replace(/[^\r\n]/g, "")
+  ));
 }
 
 /**
@@ -34,10 +36,12 @@ export function resolveCodexReasoningSummaryPresentation(
       continue;
     }
 
-    const lines = (item.markdownText ?? "").trimEnd().split(/\r?\n/);
+    const lines = stripReasoningHtmlComments(item.markdownText ?? "")
+      .trimEnd()
+      .split(/\r?\n/);
     for (let lineIndex = lines.length - 1; lineIndex >= 0; lineIndex -= 1) {
       const line = lines[lineIndex]?.trim() ?? "";
-      if (line.length === 0 || isCommentLine(line)) continue;
+      if (line.length === 0) continue;
 
       const text = projectCodexMarkdownToPlainText(
         line.slice(0, MAX_REASONING_FALLBACK_LINE_CHARS),

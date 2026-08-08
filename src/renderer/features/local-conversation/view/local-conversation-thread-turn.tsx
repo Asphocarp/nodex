@@ -4,13 +4,9 @@ import { ChevronRightIcon } from "@/components/shared/icons";
 import type {
   CodexConversationChildMembership,
   ProtocolAppInfo,
-  ProtocolListMcpServerStatusResponse,
 } from "../../../lib/types";
 import type { ReviewOpenIntent } from "@/features/review/model/review-view-state";
 import { cn } from "../../../lib/utils";
-import { useMcpServerStatuses } from "../../../lib/use-mcp-queries";
-import { useCodexMcpApps } from "../use-codex-mcp-apps";
-import { buildV2AgentRenderUnits } from "../projection/build-turn-view-model";
 import type {
   ThreadAgentRenderUnit,
   ThreadBlockModel,
@@ -30,10 +26,22 @@ import { ThreadBlockRenderer } from "./blocks/local-conversation-block-renderer"
 import { ThreadMcpAppsProvider } from "./shared/tools/mcp-apps-context";
 
 const EMPTY_THREAD_LIVE_ACTIVITY: ThreadTurnModel["liveActivity"] = {
-  state: "none",
-  placement: "none",
+  global: {
+    state: { type: "none" },
+    reason: "turn-settled",
+  },
+  mainSlice: {
+    kind: "main",
+    state: { kind: "closed", reason: "turn-settled" },
+    latestVisibleUnit: null,
+  },
+  fallback: {
+    owner: "none",
+    reason: "global-state-suppressed",
+    message: null,
+    isVisible: false,
+  },
   reasoningSummary: null,
-  isActivitySliceClosed: true,
 };
 
 function normalizeThreadLiveActivity(turn: ThreadTurnModel): ThreadTurnModel {
@@ -46,6 +54,7 @@ function normalizeThreadLiveActivity(turn: ThreadTurnModel): ThreadTurnModel {
 
 interface ThreadTurnProps {
   turn: ThreadTurnModel;
+  mcpApps?: readonly ProtocolAppInfo[];
   agentBodyCollapsed: boolean;
   onAgentBodyCollapsedChange: (turnId: string, collapsed: boolean) => void;
   projectWorkspacePath?: string | null;
@@ -146,14 +155,9 @@ function renderAgentUnits(
 }
 
 function ThreadLiveActivityFallbackForTurn({ turn }: { turn: ThreadTurnModel }) {
-  if (
-    turn.liveActivity.placement !== "standalone"
-    || turn.liveActivity.state === "none"
-  ) {
-    return null;
-  }
+  if (turn.liveActivity.fallback.owner !== "standalone") return null;
 
-  return <ThreadLiveActivityFallback message={turn.liveActivity.reasoningSummary?.text} />;
+  return <ThreadLiveActivityFallback message={turn.liveActivity.fallback.message} />;
 }
 
 export function resolveThreadBlockRenderKey(block: { id: string; renderKey?: unknown }): string {
@@ -295,7 +299,7 @@ function ThreadTurnBody({
           </>
         ) : null}
 
-        {turn.liveActivity.placement === "standalone" ? (
+        {turn.liveActivity.fallback.owner === "standalone" ? (
           <>
             {(turn.leadingBlocks.length > 0
               || agentBodyUnits.length > 0
@@ -305,53 +309,6 @@ function ThreadTurnBody({
         ) : null}
       </div>
     </div>
-  );
-}
-
-function buildLiveAgentBodyUnits(
-  turn: ThreadTurnModel,
-  mcpApps: readonly ProtocolAppInfo[],
-  mcpServerStatuses: ProtocolListMcpServerStatusResponse | null,
-): ThreadAgentRenderUnit[] {
-  return buildV2AgentRenderUnits(
-    turn.agentActivitySourceItems,
-    {
-      mcpApps,
-      mcpServerStatuses,
-      isTurnCancelled: turn.turn?.status === "interrupted",
-      liveActivity: {
-        isTurnInProgress: turn.isStreamingTurn,
-        isActivitySliceClosed: turn.liveActivity.isActivitySliceClosed,
-        isExploring: turn.liveActivity.state === "exploring",
-        reasoningFallbackLabel: turn.liveActivity.reasoningSummary?.text,
-      },
-    },
-  ).units;
-}
-
-function ThreadTurnWithoutServerStatuses(props: ThreadTurnProps) {
-  const agentBodyUnits = buildLiveAgentBodyUnits(props.turn, [], null);
-
-  return (
-    <ThreadMcpAppsProvider apps={[]}>
-      <ThreadTurnBody {...props} agentBodyUnits={agentBodyUnits} />
-    </ThreadMcpAppsProvider>
-  );
-}
-
-function ThreadTurnWithLiveStatuses(props: ThreadTurnProps) {
-  const { data: mcpApps } = useCodexMcpApps();
-  const { data: mcpServerStatuses } = useMcpServerStatuses();
-  const agentBodyUnits = buildLiveAgentBodyUnits(
-    props.turn,
-    mcpApps ?? [],
-    mcpServerStatuses ?? null,
-  );
-
-  return (
-    <ThreadMcpAppsProvider apps={mcpApps ?? []}>
-      <ThreadTurnBody {...props} agentBodyUnits={agentBodyUnits} />
-    </ThreadMcpAppsProvider>
   );
 }
 
@@ -367,11 +324,9 @@ export function ThreadLiveActivityFallback({ message }: { message?: string | nul
 
 export function ThreadTurn(props: ThreadTurnProps) {
   const turn = normalizeThreadLiveActivity(props.turn);
-  const hasMcpActivity = turn.agentActivitySourceItems.some(
-    (item) => item.type === "mcpToolCall",
+  return (
+    <ThreadMcpAppsProvider apps={props.mcpApps ?? []}>
+      <ThreadTurnBody {...props} turn={turn} agentBodyUnits={turn.agentBodyUnits} />
+    </ThreadMcpAppsProvider>
   );
-  if (!hasMcpActivity) {
-    return <ThreadTurnWithoutServerStatuses {...props} turn={turn} />;
-  }
-  return <ThreadTurnWithLiveStatuses {...props} turn={turn} />;
 }

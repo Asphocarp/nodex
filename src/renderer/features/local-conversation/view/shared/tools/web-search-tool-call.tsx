@@ -1,4 +1,5 @@
 import type { CodexTranscriptEntry } from "../../../../../lib/types";
+import { isCodexWebSearchActivityInProgress } from "../../../../../../shared/codex-web-search";
 import { describeWebSearchAction } from "../../../web-search-display";
 import { CodexShimmerText } from "../codex-shimmer-text";
 import { asRecord, getString } from "./tool-call-utils";
@@ -38,7 +39,7 @@ export function getWebSearchSummaryDetail(item: CodexTranscriptEntry): string {
 }
 
 export function WebSearchToolCall({ item }: WebSearchToolCallProps) {
-  const completed = item.status !== "inProgress";
+  const completed = !isCodexWebSearchActivityInProgress(item);
   const summaryVerb = completed ? "Searched the web" : "Searching the web";
   const summaryDetail = getWebSearchSummaryDetail(item);
   const summary = (

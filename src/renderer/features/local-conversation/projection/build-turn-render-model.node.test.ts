@@ -7,7 +7,10 @@ import type {
 } from "../../../lib/types";
 import { buildCodexFileChangeMap } from "../../../../shared/codex-file-change";
 import type { VisibleConversationTurnEntry } from "../selectors";
-import type { ThreadComposerShellBackgroundAgentRowModel } from "../thread-stage-types";
+import type {
+  ThreadComposerShellBackgroundAgentRowModel,
+  ThreadTurnModel,
+} from "../thread-stage-types";
 import {
   buildTurnRenderModel,
   createTurnRenderModelSelector,
@@ -264,6 +267,39 @@ function buildMcpToolItem(overrides: Partial<CodexConversationItem> = {}): Codex
   };
 }
 
+function buildReasoningItem(overrides: Partial<CodexConversationItem> = {}): CodexConversationItem {
+  return {
+    threadId: "thread_1",
+    turnId: "turn_1",
+    itemId: "reasoning_1",
+    entryId: "reasoning_1",
+    type: "reasoning",
+    kind: "reasoning",
+    semanticKind: "reasoning",
+    markdownText: "Inspecting the renderer",
+    createdAt: 2,
+    updatedAt: 2,
+    ...overrides,
+  };
+}
+
+function findRenderedActivityEntry(
+  model: ThreadTurnModel,
+  itemId: string,
+): CodexConversationItem | null {
+  for (const unit of model.agentBodyUnits) {
+    if (unit.block.type === "agentActivityGroup") {
+      const entry = unit.block.entries.find((candidate) => candidate.entry.itemId === itemId);
+      if (entry) return entry.entry;
+      continue;
+    }
+    if ("entry" in unit.block && unit.block.entry.itemId === itemId) {
+      return unit.block.entry;
+    }
+  }
+  return null;
+}
+
 function buildAssistantItem(overrides: Partial<CodexConversationItem> = {}): CodexConversationItem {
   return {
     threadId: "thread_1",
@@ -408,8 +444,11 @@ describe("buildTurnRenderModel", () => {
     expect(model.agentBodyUnits.map((unit) => unit.block.type)).toEqual(["assistantMessage"]);
     expect(model.trailingBlocks).toEqual([]);
     expect(model.liveActivity).toMatchObject({
-      state: "thinking",
-      placement: "standalone",
+      global: {
+        state: { type: "thinking", isVisible: true },
+        reason: "between-activities",
+      },
+      fallback: { owner: "standalone", reason: "global-thinking" },
     });
     expect(model.blocks.some((block) => block.type === "subagentActivityInlineGroup")).toBe(false);
   });
@@ -441,6 +480,90 @@ describe("buildTurnRenderModel", () => {
     const interactiveRead = selectModel({ entry, canEditTurnUserPrefix: true });
     expect(interactiveRead === bodyRead).toBe(false);
     expect(projectionCount).toBe(3);
+  });
+
+  test("refreshes identity-stable live items once per canonical turn revision", () => {
+    let projectionCount = 0;
+    const selectModel = createTurnRenderModelSelector((input) => {
+      projectionCount += 1;
+      return buildTurnRenderModel(input);
+    });
+    const reasoning = buildReasoningItem();
+    const patch = buildFileChangeItem();
+    const command = buildExecItem();
+    const mcp = buildMcpToolItem();
+    const turn = buildTurn({
+      itemIds: [reasoning.itemId, patch.itemId, command.itemId, mcp.itemId],
+      items: [reasoning, patch, command, mcp],
+    });
+    const entry = buildVisibleEntry(turn);
+
+    const initial = selectModel({ entry });
+    expect(selectModel({ entry })).toBe(initial);
+    expect(projectionCount).toBe(1);
+
+    reasoning.markdownText = "Preparing the large patch";
+    reasoning.updatedAt = 3;
+    const afterReasoningDelta = selectModel({ entry });
+    expect(afterReasoningDelta).not.toBe(initial);
+    expect(afterReasoningDelta.liveActivity.reasoningSummary?.text).toBe(
+      "Preparing the large patch",
+    );
+    expect(selectModel({ entry })).toBe(afterReasoningDelta);
+    expect(projectionCount).toBe(2);
+
+    patch.fileChange = {
+      changes: buildCodexFileChangeMap([{
+        type: "add",
+        path: "src/fresh.ts",
+        content: "fresh",
+      }]),
+      label: "Created src/fresh.ts",
+    };
+    patch.updatedAt = 4;
+    const afterPatchUpdate = selectModel({ entry });
+    expect(findRenderedActivityEntry(afterPatchUpdate, patch.itemId)).toBe(patch);
+    expect(
+      findRenderedActivityEntry(afterPatchUpdate, patch.itemId)?.fileChange?.label,
+    ).toBe("Created src/fresh.ts");
+    expect(selectModel({ entry })).toBe(afterPatchUpdate);
+    expect(projectionCount).toBe(3);
+
+    command.aggregatedOutput = "streamed command output";
+    command.updatedAt = 5;
+    const afterCommandOutput = selectModel({ entry });
+    expect(findRenderedActivityEntry(afterCommandOutput, command.itemId)).toBe(command);
+    expect(
+      findRenderedActivityEntry(afterCommandOutput, command.itemId)?.aggregatedOutput,
+    ).toBe("streamed command output");
+    expect(selectModel({ entry })).toBe(afterCommandOutput);
+    expect(projectionCount).toBe(4);
+
+    mcp.status = "completed";
+    mcp.mcpToolCall = {
+      ...mcp.mcpToolCall!,
+      result: {
+        type: "success",
+        content: [{ type: "text", text: "Clicked the target" }],
+        structuredContent: null,
+        raw: {
+          content: [{ type: "text", text: "Clicked the target" }],
+          structuredContent: null,
+          _meta: null,
+        },
+      },
+      durationMs: 12,
+      completed: true,
+    };
+    mcp.updatedAt = 6;
+    const afterMcpCompletion = selectModel({ entry });
+    const renderedMcp = findRenderedActivityEntry(afterMcpCompletion, mcp.itemId);
+    expect(renderedMcp).toBe(mcp);
+    expect(renderedMcp?.status).toBe("completed");
+    expect(renderedMcp?.mcpToolCall?.completed).toBe(true);
+    expect(renderedMcp?.mcpToolCall?.result?.type).toBe("success");
+    expect(selectModel({ entry })).toBe(afterMcpCompletion);
+    expect(projectionCount).toBe(5);
   });
 
   test("starts the preview surface after the turn intro", () => {
@@ -524,6 +647,24 @@ describe("buildTurnRenderModel", () => {
     expect(projectionCount).toBe(2);
   });
 
+  test("does not reuse a model after entry recency changes in place", () => {
+    let projectionCount = 0;
+    const selectModel = createTurnRenderModelSelector((input) => {
+      projectionCount += 1;
+      return buildTurnRenderModel(input);
+    });
+    const entry = buildVisibleEntry(buildTurn({ status: "completed" }), true);
+
+    const latest = selectModel({ entry });
+    entry.isMostRecentTurn = false;
+    const historical = selectModel({ entry });
+
+    expect(latest.isLatestTurn).toBe(true);
+    expect(historical.isLatestTurn).toBe(false);
+    expect(historical).not.toBe(latest);
+    expect(projectionCount).toBe(2);
+  });
+
   test("treats only unresolved permission requests as first-class turn blockers", () => {
     const unresolved = buildTurnRenderModel({
       turn: buildTurn(),
@@ -540,12 +681,12 @@ describe("buildTurnRenderModel", () => {
 
     expect(unresolved.buckets.permissionRequestItems.length).toBe(1);
     expect(unresolved.isBlocked).toBe(true);
-    expect(unresolved.liveActivity.state).toBe("none");
+    expect(unresolved.liveActivity.global.state.type).toBe("none");
     expect(completed.buckets.permissionRequestItems.length).toBe(0);
     expect(completed.isBlocked).toBe(false);
     expect(completed.liveActivity).toMatchObject({
-      state: "thinking",
-      placement: "standalone",
+      global: { state: { type: "thinking", isVisible: true } },
+      fallback: { owner: "standalone" },
     });
   });
 
@@ -559,7 +700,7 @@ describe("buildTurnRenderModel", () => {
 
     expect(model.buckets.interactiveRequestItem?.request.type).toBe("optionPicker");
     expect(model.isBlocked).toBe(true);
-    expect(model.liveActivity.state).toBe("none");
+    expect(model.liveActivity.global.state.type).toBe("none");
   });
 
   test("derives live turn-diff from turn.diff before any fileChange item exists", () => {
@@ -573,8 +714,8 @@ describe("buildTurnRenderModel", () => {
     expect(model.aboveComposerBlocks?.map((block) => block.type).join(",") ?? "").toBe("turnDiff");
     expect(model.blocks).toEqual([]);
     expect(model.liveActivity).toMatchObject({
-      state: "thinking",
-      placement: "standalone",
+      global: { state: { type: "thinking", isVisible: true } },
+      fallback: { owner: "standalone" },
     });
     expect(model.searchableText.includes("+next")).toBe(false);
     const rawItem = model.aboveComposerBlocks?.[0]?.type === "turnDiff"
@@ -892,7 +1033,7 @@ describe("buildTurnRenderModel", () => {
     expect(afterAssistantStarts.blocks.map((block) => block.type).join(",")).toBe("agentActivityGroup,assistantMessage");
   });
 
-  test("keeps empty live fileChange activity visible without a duplicate Thinking row", () => {
+  test("suppresses empty live fileChange activity and keeps Thinking fallback", () => {
     const model = buildTurnRenderModel({
       turn: buildTurn({
         diff: LIVE_DIFF,
@@ -911,7 +1052,11 @@ describe("buildTurnRenderModel", () => {
     });
 
     expect(model.aboveComposerBlocks?.map((block) => block.type).join(",") ?? "").toBe("turnDiff");
-    expect(model.blocks.map((block) => block.type).join(",")).toBe("agentActivityGroup");
+    expect(model.blocks).toEqual([]);
+    expect(model.liveActivity).toMatchObject({
+      global: { state: { type: "thinking", isVisible: true } },
+      fallback: { owner: "standalone" },
+    });
   });
 
   test("keeps completed derived turn-diff in the trailing body", () => {
@@ -965,7 +1110,12 @@ describe("buildTurnRenderModel", () => {
 
     expect(model.agentBodyUnits.map((unit) => unit.block.type).join(",")).toBe("workedFor,agentActivityGroup");
     expect(model.blocks.map((block) => block.type).join(",")).toBe("userMessage,workedFor,agentActivityGroup");
-    expect(model.liveActivity.state).toBe("active");
+    expect(model.liveActivity).toMatchObject({
+      global: { state: { type: "none" } },
+      fallback: { owner: "none" },
+    });
+    const activityGroup = model.agentBodyUnits[1]?.block;
+    expect(activityGroup?.type === "agentActivityGroup" ? activityGroup.header.kind : null).toBe("active");
     expect(model.searchableText.includes("Working")).toBe(false);
   });
 
@@ -1071,10 +1221,10 @@ describe("buildTurnRenderModel", () => {
     });
 
     expect(model.agentBodyUnits.map((unit) => unit.kind).join(",")).toBe(
-      "agentActivityGroup,entry,agentActivityGroup",
+      "entry,entry,entry",
     );
     expect(model.agentBodyUnits.map((unit) => unit.block.type).join(",")).toBe(
-      "agentActivityGroup,dynamicToolCall,agentActivityGroup",
+      "exec,dynamicToolCall,fileChange",
     );
     expect(model.agentBodyUnits.map((unit) => unit.block.renderKey).join(",")).toBe(
       "agent-activity-group:exec:0,agent-activity-standalone:handoff_1,agent-activity-group:patch_live",

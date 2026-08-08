@@ -10,9 +10,9 @@ import type {
 import {
   ConnectorLogo,
   ToolActivityIcon,
-  resolveAgentActivityGroupIcon,
   resolveMcpElicitationIcon,
   resolveMcpSourceIcon,
+  resolveToolActivityEntryIcon,
   resolveWebSearchIcon,
   semanticToolIcon,
   toolCallIconTestHelpers,
@@ -219,7 +219,7 @@ describe("tool-call icon helpers", () => {
     expect(nodeIcon.kind === "semantic" ? nodeIcon.icon : "").toBe("node-repl");
   });
 
-  test("resolves collapsed activity icon priority before MCP fallback", () => {
+  test("resolves group header icons from the exact activity item family", () => {
     const commandEntry = buildEntry({
       semanticKind: "exec",
       commandActions: [
@@ -241,30 +241,62 @@ describe("tool-call icon helpers", () => {
       },
     }) as CodexConversationItem;
 
-    const descriptor = resolveAgentActivityGroupIcon([
-      {
-        id: "command",
-        turnId: "turn-1",
-        createdAt: 1,
-        updatedAt: 1,
-        searchableText: "Explored",
-        type: "exec",
-        entry: commandEntry,
-        status: "completed",
-      },
-      {
-        id: "web",
-        turnId: "turn-1",
-        createdAt: 1,
-        updatedAt: 1,
-        searchableText: "Web",
-        type: "webSearch",
-        entry: webEntry,
-      },
-    ]);
+    const commandDescriptor = resolveToolActivityEntryIcon({
+      id: "command",
+      turnId: "turn-1",
+      createdAt: 1,
+      updatedAt: 1,
+      searchableText: "Explored",
+      type: "exec",
+      entry: commandEntry,
+      status: "completed",
+    }, []);
+    const webDescriptor = resolveToolActivityEntryIcon({
+      id: "web",
+      turnId: "turn-1",
+      createdAt: 1,
+      updatedAt: 1,
+      searchableText: "Web",
+      type: "webSearch",
+      entry: webEntry,
+    }, []);
 
-    expect(descriptor?.kind).toBe("semantic");
-    expect(descriptor?.kind === "semantic" ? descriptor.icon : "").toBe("web-search");
+    expect(commandDescriptor?.kind === "semantic" ? commandDescriptor.icon : "").toBe("code-searching");
+    expect(webDescriptor?.kind === "semantic" ? webDescriptor.icon : "").toBe("web-search");
+  });
+
+  test("uses semantic command evidence for stopped, web, and visualization activity", () => {
+    const makeCommandBlock = (entry: CodexConversationItem) => ({
+      id: entry.itemId,
+      turnId: "turn-1",
+      createdAt: 1,
+      updatedAt: 1,
+      searchableText: "command",
+      type: "exec" as const,
+      entry,
+      status: entry.status,
+    });
+    const stopped = resolveToolActivityEntryIcon(makeCommandBlock(buildEntry({
+      itemId: "stopped",
+      semanticKind: "exec",
+      status: "interrupted",
+      executionStatus: "interrupted",
+      command: "pnpm test",
+    }) as CodexConversationItem), []);
+    const web = resolveToolActivityEntryIcon(makeCommandBlock(buildEntry({
+      itemId: "curl",
+      semanticKind: "exec",
+      command: "curl https://example.com",
+    }) as CodexConversationItem), []);
+    const visualization = resolveToolActivityEntryIcon(makeCommandBlock(buildEntry({
+      itemId: "visualization",
+      semanticKind: "exec",
+      command: "mkdir -p /tmp/visualizations/chart",
+    }) as CodexConversationItem), []);
+
+    expect(stopped?.kind === "semantic" ? stopped.icon : "").toBe("stopped");
+    expect(web?.kind === "semantic" ? web.icon : "").toBe("web-search");
+    expect(visualization?.kind === "semantic" ? visualization.icon : "").toBe("visualization");
   });
 
   test("uses the automatic-review semantic icon for grouped review activity", () => {
@@ -273,7 +305,7 @@ describe("tool-call icon helpers", () => {
       status: "inProgress",
       rawItem: { review: { status: "inProgress" } },
     }) as CodexConversationItem;
-    const descriptor = resolveAgentActivityGroupIcon([{
+    const descriptor = resolveToolActivityEntryIcon({
       id: "review",
       turnId: "turn-1",
       createdAt: 1,
@@ -282,7 +314,7 @@ describe("tool-call icon helpers", () => {
       type: "automaticApprovalReview",
       entry,
       status: "inProgress",
-    }]);
+    }, []);
 
     expect(descriptor?.kind).toBe("semantic");
     expect(descriptor?.kind === "semantic" ? descriptor.icon : "").toBe("automatic-review");

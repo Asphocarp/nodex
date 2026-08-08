@@ -60,13 +60,28 @@ function buildTranscriptBlock(
   type: "exec" | "fileChange" | "webSearch",
   overrides: Partial<ThreadTranscriptBlockModel> = {},
 ): ThreadTranscriptBlockModel & { type: "exec" | "fileChange" | "webSearch" } {
+  const defaultEntry = type === "fileChange"
+    ? buildConversationItem(`${type}-1`, {
+        status: "completed",
+        fileChange: {
+          changes: {
+            "src/app.ts": {
+              type: "update",
+              unifiedDiff: "@@ -1 +1 @@",
+              movePath: null,
+            },
+          },
+          success: true,
+        },
+      })
+    : buildConversationItem(`${type}-1`);
   return {
     id: `${type}-1`,
     turnId: "turn-1",
     createdAt: 1,
     updatedAt: 1,
     searchableText: "",
-    entry: buildConversationItem(`${type}-1`),
+    entry: defaultEntry,
     ...overrides,
     type,
   };
@@ -152,8 +167,9 @@ function buildClassifiableBlock(
   type: ThreadClassifiableActivityTranscriptType,
   overrides: Partial<ThreadTranscriptBlockModel> = {},
 ) {
+  const baseType = type === "fileChange" || type === "webSearch" ? type : "exec";
   return {
-    ...buildTranscriptBlock("exec", overrides),
+    ...buildTranscriptBlock(baseType, overrides),
     id: `${type}-1`,
     type,
   } as ThreadTranscriptBlockModel & { type: ThreadClassifiableActivityTranscriptType };
@@ -266,6 +282,18 @@ describe("agent activity v2 type boundary", () => {
     const classifiedVisible = classifyThreadExecPatchWebActivityItem(visible);
     expect(classifiedVisible?.grouping).toBe("groupable");
     expect(classifiedVisible?.item === visible).toBe(true);
+  });
+
+  test("defensively suppresses an ordinary empty file-change item", () => {
+    const emptyPatch = buildTranscriptBlock("fileChange", {
+      status: "inProgress",
+      entry: buildConversationItem("empty-patch", {
+        status: "inProgress",
+        fileChange: { changes: {} },
+      }),
+    });
+
+    expect(classifyThreadExecPatchWebActivityItem(emptyPatch)).toBe(null);
   });
 
   test("makes computer-use source and server calls standalone barriers", () => {

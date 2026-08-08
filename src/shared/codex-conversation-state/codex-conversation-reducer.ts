@@ -496,9 +496,12 @@ export function reduceCodexItemLifecycleMetadata(
   const { item } = notification.params;
   const sameIdIndex = state.items.findIndex((candidate) => candidate.id === item.id);
   const upsertIndex = sameIdIndex >= 0 ? sameIdIndex : state.items.length;
+  const sameOccurrence = state.items[sameIdIndex]?.type === item.type;
   let firstTurnWorkItemStartedAtMs = state.firstTurnWorkItemStartedAtMs;
   let finalAssistantStartedAtMs = state.finalAssistantStartedAtMs;
-  const previousLifecycleStatus = state.lifecycleStatusByItemId?.[item.id];
+  const previousLifecycleStatus = sameOccurrence
+    ? state.lifecycleStatusByItemId?.[item.id]
+    : undefined;
   const lifecycleStatusByItemId = {
     ...(state.lifecycleStatusByItemId ?? {}),
     [item.id]: resolveLifecycleStatus(previousLifecycleStatus, notification),
@@ -506,6 +509,16 @@ export function reduceCodexItemLifecycleMetadata(
   let commandExecutionStartedAtMsById = state.commandExecutionStartedAtMsById;
 
   if (notification.method === "item/started") {
+    if (previousLifecycleStatus && previousLifecycleStatus !== "inProgress") {
+      return {
+        shouldUpsertItem: false,
+        upsertIndex,
+        firstTurnWorkItemStartedAtMs,
+        finalAssistantStartedAtMs,
+        lifecycleStatusByItemId,
+        commandExecutionStartedAtMsById,
+      };
+    }
     if (
       item.type === "userMessage"
       && (

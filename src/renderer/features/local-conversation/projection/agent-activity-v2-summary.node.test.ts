@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
   buildThreadAgentActivityDynamicCompletedParts,
+  demoteSettledThreadAgentActivitySingleton,
   formatThreadAgentActivityCompletedSummary,
   formatThreadAgentActivityGroupHeader,
   buildThreadAgentActivityMcpSourcesWording,
@@ -373,6 +374,82 @@ describe("v2 activity summary fact accumulator", () => {
 
     expect(exploring.kind === "active" ? exploring.item.item.id : "").toBe("latest-read");
     expect(thinking.kind).toBe("thinking");
+  });
+
+  test("demotes only settled ordinary singletons and one-file patches", () => {
+    const completedWeb = {
+      grouping: "groupable" as const,
+      item: {
+        id: "web",
+        turnId: "turn",
+        createdAt: 1,
+        updatedAt: 1,
+        searchableText: "",
+        type: "webSearch" as const,
+        status: "completed" as const,
+        entry: {
+          threadId: "thread",
+          turnId: "turn",
+          itemId: "web",
+          type: "web_search",
+          kind: "toolCall" as const,
+          semanticKind: "webSearch" as const,
+          createdAt: 1,
+          updatedAt: 1,
+          webSearch: { query: "parity", action: null, completed: true },
+        },
+      },
+    };
+    const completedPatch = {
+      grouping: "groupable" as const,
+      item: {
+        ...completedWeb.item,
+        id: "patch",
+        type: "fileChange" as const,
+        entry: {
+          ...completedWeb.item.entry,
+          itemId: "patch",
+          semanticKind: "patch" as const,
+          status: "completed" as const,
+          fileChange: {
+            changes: {
+              "src/app.ts": {
+                type: "update" as const,
+                unifiedDiff: "@@ -1 +1 @@\n-old\n+new",
+                movePath: null,
+              },
+            },
+            success: true,
+          },
+        },
+      },
+    };
+    const webUnit = { kind: "group" as const, key: "web-group", items: [completedWeb] as const };
+    const patchUnit = { kind: "group" as const, key: "patch-group", items: [completedPatch] as const };
+
+    expect(demoteSettledThreadAgentActivitySingleton(webUnit, { kind: "summary" }).kind).toBe("standalone");
+    expect(demoteSettledThreadAgentActivitySingleton(webUnit, { kind: "thinking" }).kind).toBe("group");
+    expect(demoteSettledThreadAgentActivitySingleton(patchUnit, { kind: "summary" }).kind).toBe("standalone");
+    expect(demoteSettledThreadAgentActivitySingleton({
+      ...patchUnit,
+      items: [completedPatch, { ...completedPatch, item: { ...completedPatch.item, id: "patch-2" } }] as const,
+    }, { kind: "summary" }).kind).toBe("group");
+    expect(demoteSettledThreadAgentActivitySingleton({
+      ...patchUnit,
+      items: [{
+        ...completedPatch,
+        item: {
+          ...completedPatch.item,
+          entry: {
+            ...completedPatch.item.entry,
+            fileChange: {
+              ...completedPatch.item.entry.fileChange,
+              visualizationActivities: [{ path: "visualizations/chart.html", kind: "update" as const }],
+            },
+          },
+        },
+      }] as const,
+    }, { kind: "summary" }).kind).toBe("group");
   });
 
   test("formats settled parts in exact leading/following grammar with Worked fallback", () => {
