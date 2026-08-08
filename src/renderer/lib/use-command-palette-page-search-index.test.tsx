@@ -16,6 +16,7 @@ function makePage(overrides: Partial<DatabasePageSummary> = {}): DatabasePageSum
   const title = overrides.title ?? "Mention search page";
   return {
     id: overrides.id ?? "page-1",
+    pageKey: overrides.pageKey ?? null,
     title,
     richTitle: overrides.richTitle ?? plainTextToPortableRichText(title),
     descriptionPreview,
@@ -129,5 +130,42 @@ describe("useCommandPalettePageSearchIndex", () => {
     expect(view.getByText("ready").textContent).toBe("ready");
     expect(snapshots.length > 0).toBe(true);
     expect(snapshots.some((entry) => entry === null)).toBe(false);
+  });
+
+  test("replaces both fallback and hydrated indexes when only the Page key changes", async () => {
+    const snapshots: Array<CommandPalettePageSearchIndex | null> = [];
+    const view = render(
+      <PageSearchIndexHarness
+        pages={[makePalettePage({
+          page: makePage({ id: "renamed-key", pageKey: "LAB-13", revision: 1 }),
+        })]}
+        snapshots={snapshots}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(snapshots.at(-1)?.search("lab-13")[0]?.item.page.id).toBe("renamed-key");
+    });
+
+    snapshots.length = 0;
+    view.rerender(
+      <PageSearchIndexHarness
+        pages={[makePalettePage({
+          page: makePage({ id: "renamed-key", pageKey: "RND-13", revision: 1 }),
+        })]}
+        snapshots={snapshots}
+      />,
+    );
+
+    const fallbackIndex = snapshots[0];
+    expect(fallbackIndex?.search("rnd-13")[0]?.item.page.id).toBe("renamed-key");
+    expect(fallbackIndex?.search("lab-13")).toHaveLength(0);
+
+    await waitFor(() => {
+      const hydratedIndex = snapshots.at(-1);
+      expect(hydratedIndex).not.toBe(fallbackIndex);
+      expect(hydratedIndex?.search("rnd-13")[0]?.item.page.id).toBe("renamed-key");
+      expect(hydratedIndex?.search("lab-13")).toHaveLength(0);
+    });
   });
 });

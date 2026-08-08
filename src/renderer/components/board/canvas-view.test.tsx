@@ -88,6 +88,7 @@ const mockBoard = {
 function makeCardSummary(id: string, title: string): DatabasePageSummary {
   return {
     id,
+    pageKey: null,
     title,
     richTitle: plainTextToPortableRichText(title),
     status: "triage",

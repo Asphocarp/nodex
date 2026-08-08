@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import type { EffectiveDatabaseViewPresentation } from "../../../shared/database-kernel";
-import { classicBoardPreferences } from "@/lib/classic-board-adapter";
+import { classicBoardPresentation } from "@/lib/classic-board-adapter";
 
 const boardPresentation = (
   overrides: Partial<EffectiveDatabaseViewPresentation["presentation"]> = {},
@@ -29,19 +29,39 @@ const boardPresentation = (
   },
 });
 
-describe("classicBoardPreferences", () => {
-  test("adapts canonical Status Board fields without changing its presenter", () => {
-    const preferences = classicBoardPreferences(boardPresentation());
+describe("classicBoardPresentation", () => {
+  test("adapts Page key as identity without changing the canonical Board presenter", () => {
+    const adapted = classicBoardPresentation(boardPresentation({
+      layouts: {
+        board: {
+          fields: [
+            { kind: "intrinsic", field: "page_key" },
+            { kind: "property", propertyId: "tags" },
+            { kind: "property", propertyId: "priority" },
+            { kind: "property", propertyId: "status" },
+          ],
+          showEmptyGroups: false,
+        },
+        list: { fields: [], showEmptyGroups: false },
+      },
+    }));
 
-    expect(preferences?.display.propertyOrder).toEqual(["tags", "priority"]);
-    expect(preferences?.display.hiddenProperties).toEqual([
+    expect(adapted?.identity).toEqual({ showPageKey: true });
+    expect(adapted?.prefs.display.propertyOrder).toEqual(["tags", "priority"]);
+    expect(adapted?.prefs.display.hiddenProperties).toEqual([
       "estimate",
       "assignee",
     ]);
-    expect(preferences?.rules.sort).toEqual([{
+    expect(adapted?.prefs.rules.sort).toEqual([{
       field: "board-order",
       direction: "asc",
     }]);
+  });
+
+  test("keeps the canonical presenter when Page key is hidden", () => {
+    expect(classicBoardPresentation(boardPresentation())?.identity).toEqual({
+      showPageKey: false,
+    });
   });
 
   test.each([
@@ -60,6 +80,6 @@ describe("classicBoardPreferences", () => {
     string,
     Partial<EffectiveDatabaseViewPresentation["presentation"]>,
   ]>)("keeps the generic renderer for %s", (_name, overrides) => {
-    expect(classicBoardPreferences(boardPresentation(overrides))).toBeNull();
+    expect(classicBoardPresentation(boardPresentation(overrides))).toBeNull();
   });
 });

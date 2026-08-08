@@ -163,6 +163,7 @@ mod tests {
             view_id: "view:board".to_owned(),
             row: Box::new(DatabaseRowSummary {
                 page_id: "page:row".to_owned(),
+                page_key: None,
                 lifecycle: "active".to_owned(),
                 title: "Row".to_owned(),
                 rich_title: json!([]),

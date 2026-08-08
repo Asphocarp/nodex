@@ -12,6 +12,67 @@ Data Source owns schema, row Pages, and values. A View targets one Data Source
 and owns saved filtering, sorting, grouping, displayed Properties, and optional
 manual Page positions. Page content remains in the Page's owned Document.
 
+## Page keys
+
+Pages in an enabled Database receive a short key such as `LAB-13`. The key is a
+readable locator, not Page identity: UUID remains authoritative for Documents,
+references, deep links, selection, drag state, caches, and every mutation.
+Project creation enables the namespace of its primary Database and exposes that
+Database prefix as the Page key prefix. Project rename does not change it.
+Create Project shows a quiet Core-confirmed summary such as
+`Page keys · LAB-1, LAB-2, …`; the advanced prefix input appears only after
+`Change`. Create submits the confirmed initial prefix as part of the Project and
+primary-Database genesis transaction. If the preview becomes stale because
+another window claims it, the form remains open with its draft and a
+collision-free Core alternative.
+
+Edit Project keeps the current prefix collapsed by default. Expanding it reads
+the primary Database namespace, including its assigned Page count and retained
+prefix history. Saving changed Project details and renaming the Database prefix
+are two ordered operations: details save first, then the revision-fenced prefix
+rename. If the second step fails, the saved details remain saved, the dialog
+stays open with the prefix draft, and the namespace is refreshed for an explicit
+retry; Nodex never creates another historical alias by attempting an automatic
+rollback. An unused old prefix is released; a used one stays reserved and its
+allocated keys keep resolving.
+
+Allocation is monotonic and may contain gaps. Archive, delete, retry, and
+movement never recycle a committed number. Moving among Views or Data Sources
+inside one Database retains the assignment. A cross-Database move receives or
+recovers the target Database assignment while every previously allocated key
+remains an authorized historical locator for the same Page UUID.
+
+Page Stage does not repeat the contextual Database key in its Page identity.
+In Board and List Display Options the Page key is labeled **ID**. The canonical
+UUID remains machine identity and is not a View display field. List includes ID
+in its default presentation; Board keeps it hidden by default. A personal
+Display Option may change either choice without disabling assignment, lookup,
+copy, command search, CLI, or Agent results. Publishing the normalized effective
+presentation makes the same choice the shared View default. When enabled on
+Board, ID is the first quiet metadata line at the top of the card, above the
+title and displayed Properties. List keeps ID in its named identity lane. The
+lane measures the widest plausible identifier for the prefixes and number
+depths in the current projection, so short prefixes do not inherit spacing
+sized for longer ones and virtualized rows do not change the lane as individual
+numeral glyphs appear.
+A Page with no current enabled Database renders no placeholder.
+Board and List expose `Copy Page key` in the Page context menu whenever a
+current key exists. Both surfaces use the same success and failure
+feedback; `Copy deeplink` remains a distinct UUID-based action.
+
+View-local search accepts a current canonical key, case normalization, one
+optional leading `#`, outer whitespace, and no-hyphen shorthand. Key matching
+is exact or prefix-oriented, never fuzzy within the key token; explicit `#`
+intent never falls back to title or body. Loaded Board/List rows do not carry
+historical aliases. Global search, destination pickers, CLI, and Agent reads use
+the authorized Core resolver when historical lookup is required. A compact
+query that maps to multiple authorized Pages shows every candidate; a direct
+selector reports ambiguity and never chooses the first match. Results keep the
+current key in the primary identity slot and show `Matched OLD-13` only when a
+historical key matched. Prefix changes refresh current View, Page Detail, and
+search projections from one Database LocalCommit without remounting Page
+identity or emitting one patch per Page.
+
 ## View behavior
 
 Database Views support Board and List layouts. Both execute the selected View's
@@ -51,11 +112,13 @@ refresh Board/List content or invalidate Library navigation. Reconnect replay
 preserves those deltas; a Store-epoch replacement rehydrates both personal
 authorities while retaining the last readable surface until the handover.
 
-Display Options derives valid group fields, finite empty groups, completion
-controls, and visible Properties from the active Source schema. Page ID is an
-ordinary optional List display field: it follows the same personal override,
-reset, and default-publishing flow as other display fields and is never forced
-visible. Hiding any optional List field collapses only that field's track; the
+Display Options derives valid group fields, intrinsic Page identity fields,
+finite empty groups, completion
+controls, and visible Properties from the active Source schema. Page key is
+labeled ID and follows the same personal override, reset, and
+default-publishing flow as other display fields. It is included in the default
+List presentation and omitted from the default Board presentation. Hiding any optional
+field collapses only that field's track; the
 remaining Page identity cells, Property cells, group headers, and nested guides
 retain their named-column alignment. List is a dense,
 full-width 40–44px task-row surface whose sections match Board groups and
@@ -168,7 +231,7 @@ authors descendant IDs or primitive inverse operations.
 
 The active source row alone becomes translucent, while descendants stay in
 place. A body-portaled compact preview represents the initiator, mirrors its
-visible Priority, Page ID, Status, and title columns, and shows the concrete
+visible Priority, readable ID, Status, and title columns, and shows the concrete
 Page count; rows do not live-shift during pointer movement. Returning the source
 to its unchanged structural slot is a silent no-op: it creates no mutation,
 error, toast, or Undo entry. After drop,

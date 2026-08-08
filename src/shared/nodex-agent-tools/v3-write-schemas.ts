@@ -62,14 +62,16 @@ const PageMutationEtagsV3Schema = z.strictObject({
   body: ETagSchema,
 });
 
+export const CreatePagesResultPageV3Schema = z.strictObject({
+  pageId: BlockIdSchema,
+  location: PageLocationV3Schema,
+  bodyBlocksCreated: z.number().int().min(0),
+  blockIds: z.array(BlockIdSchema).optional(),
+  etags: PageMutationEtagsV3Schema.optional(),
+});
+
 export const CreatePagesV3DataSchema = z.strictObject({
-  pages: z.array(z.strictObject({
-    pageId: BlockIdSchema,
-    location: PageLocationV3Schema,
-    bodyBlocksCreated: z.number().int().min(0),
-    blockIds: z.array(BlockIdSchema).optional(),
-    etags: PageMutationEtagsV3Schema.optional(),
-  })).min(1).max(16),
+  pages: z.array(CreatePagesResultPageV3Schema).min(1).max(16),
   created: z.number().int().min(1).max(16),
 });
 
@@ -208,11 +210,13 @@ export const MovePagesV3InputSchema = z.strictObject({
   destination: MovePagesDestinationV3Schema,
 });
 
+export const MovePagesResultPageV3Schema = z.strictObject({
+  pageId: BlockIdSchema,
+  location: PageLocationV3Schema,
+});
+
 export const MovePagesV3DataSchema = z.strictObject({
-  pages: z.array(z.strictObject({
-    pageId: BlockIdSchema,
-    location: PageLocationV3Schema,
-  })).min(1).max(16),
+  pages: z.array(MovePagesResultPageV3Schema).min(1).max(16),
   moved: z.number().int().min(1).max(16),
 });
 

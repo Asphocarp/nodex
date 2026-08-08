@@ -40,6 +40,7 @@ interface ColumnProps {
   pagination?: ColumnPaginationState;
   onLoadMore?: (scopeKey: string) => Promise<void> | void;
   displayPrefs?: DbViewDisplayPrefs;
+  showPageKey?: boolean;
   dragInstanceId?: symbol;
   buildDragData?: (card: CardType, columnId: string) => BoardCardDragData;
   layout: BoardColumnLayout;
@@ -65,6 +66,7 @@ interface ColumnProps {
     pageId: string;
     projectId: string;
   }) => Promise<void> | void;
+  onCopyPageKeyFromMenu?: (input: { pageKey: string }) => Promise<void> | void;
   onOpenPageFromMenu?: (input: OpenPageInNewChatInput) => Promise<void> | void;
   onOpenPageInNewChatFromMenu?: (input: OpenPageInNewChatInput) => Promise<void> | void;
   onSendPageToChatFromMenu?: (input: SendPageToChatInput) => Promise<void> | void;
@@ -104,6 +106,7 @@ export const Column = memo(function Column({
   pagination,
   onLoadMore,
   displayPrefs,
+  showPageKey = false,
   dragInstanceId,
   buildDragData,
   layout,
@@ -115,6 +118,7 @@ export const Column = memo(function Column({
   onWidthChange,
   onDeletePageFromMenu,
   onCopyCardLinkFromMenu,
+  onCopyPageKeyFromMenu,
   onOpenPageFromMenu,
   onOpenPageInNewChatFromMenu,
   onSendPageToChatFromMenu,
@@ -418,6 +422,7 @@ export const Column = memo(function Column({
                       card={card}
                       columnId={column.id}
                       displayPrefs={displayPrefs}
+                      showPageKey={showPageKey}
                       dragInstanceId={dragInstanceId}
                       buildDragData={buildDragData}
                       dragDisabled={dragDisabled}
@@ -442,6 +447,7 @@ export const Column = memo(function Column({
                           pageId,
                           projectId,
                         }),
+                        onCopyPageKey: ({ pageKey }) => onCopyPageKeyFromMenu?.({ pageKey }),
                         onOpenPage: onOpenPageFromMenu,
                         onOpenPageInNewChat: onOpenPageInNewChatFromMenu,
                         onSendPageToChat: onSendPageToChatFromMenu,

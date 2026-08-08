@@ -392,6 +392,7 @@ export function resolveThreadStageStoryPreset(preset: ThreadStageStoryPresetId):
 function buildStoryCard(): DatabasePage {
   return {
     id: STORY_CARD_ID,
+    pageKey: "LAB-13",
     status: "build",
     archived: false,
     title: "Add Storybook coverage for thread surfaces",

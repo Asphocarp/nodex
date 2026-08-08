@@ -19,6 +19,28 @@ vi.mock("@/lib/api", () => ({
     invokeCalls.push([channel, ...args]);
     return mockInvokeImpl?.(channel, ...args) ?? null;
   },
+  readLibraryDatabaseModule: async (request: {
+    read: { nameHint: string; requestedPrefix?: string };
+  }) => {
+    const prefix = request.read.requestedPrefix
+      ?? (request.read.nameHint.trim().toUpperCase().slice(0, 3) || "NX");
+    return {
+      ok: true,
+      value: {
+        storeEpoch: "epoch:test",
+        value: {
+          kind: "page_key_prefix_preview",
+          value: {
+            prefix,
+            availability: "available",
+            alternativePrefix: null,
+            nextNumber: 1,
+            exampleKeys: [`${prefix}-1`, `${prefix}-2`],
+          },
+        },
+      },
+    };
+  },
   subscribeBoardChanges: () => () => undefined,
   subscribeProjectSessionChanges: () => () => undefined,
   subscribeProjectChanges: () => () => undefined,
@@ -229,6 +251,7 @@ describe("SidebarProjectsSection", () => {
           marker: { kind: "icon", icon: "folder" },
         },
         name: "",
+        pageKeyPrefix: "NX",
         sources: [],
       }]);
       expect(queryByRole("heading", { name: "Create project" })).toBe(null);
@@ -261,6 +284,7 @@ describe("SidebarProjectsSection", () => {
             marker: { kind: "icon", icon: "folder" },
           },
           name: "",
+          pageKeyPrefix: "NX",
           sources: [],
         },
         {
@@ -269,6 +293,7 @@ describe("SidebarProjectsSection", () => {
             marker: { kind: "icon", icon: "folder" },
           },
           name: "",
+          pageKeyPrefix: "NX",
           sources: ["/repo/new-project"],
         },
       ]);

@@ -34,7 +34,7 @@ import {
 } from "../../lib/resource-authority-query-cache";
 import { DatabaseViewTabSurface } from "./workbench-db-view-panel";
 import { Board } from "@/components/board/board";
-import { classicBoardPreferences } from "@/lib/classic-board-adapter";
+import { classicBoardPresentation } from "@/lib/classic-board-adapter";
 import type { Project } from "@/lib/types";
 import type {
   OpenPageInNewChatInput,
@@ -300,8 +300,8 @@ export function WorkbenchDatabaseViewSurface({
       : undefined,
     [mergedWindow],
   );
-  const classicBoardPrefs = useMemo(() => model
-    ? classicBoardPreferences({
+  const classicBoard = useMemo(() => model
+    ? classicBoardPresentation({
         layout: model.query.view.defaultLayout,
         presentation: model.query.view.config.presentation,
       })
@@ -519,7 +519,7 @@ export function WorkbenchDatabaseViewSurface({
             initialSelectedPageIds={selectedPageIds}
             onSelectedPageIdsChange={setSelectedPageIds}
             boardSurface={
-              accessContext.kind === "project" && classicBoardPrefs
+              accessContext.kind === "project" && classicBoard
                 ? (
                     <Board
                       surfaceId={keyboardSurface?.surfaceId ?? targetIdentity}
@@ -530,7 +530,8 @@ export function WorkbenchDatabaseViewSurface({
                       presentationOverrideReady
                       projects={projects}
                       searchQuery={searchQuery}
-                      dbViewPrefs={classicBoardPrefs}
+                      dbViewPrefs={classicBoard.prefs}
+                      showPageKey={classicBoard.identity.showPageKey}
                       openPageStage={(_projectId, pageId, titleSnapshot) => {
                         onOpenPage(pageId, titleSnapshot ?? "Untitled Page");
                       }}

@@ -1,7 +1,7 @@
 import { describe, expect, test, vi } from "vitest";
 import {
   NODEX_APP_TOOL_NAMESPACE,
-  NODEX_APP_V5_TOOLSET_REVISION,
+  NODEX_APP_TOOLSET_REVISION,
 } from "../../shared/nodex-agent-tools";
 import {
   AdvancedUpdatePageV3InputSchema,
@@ -122,7 +122,7 @@ describe("native desktop Nodex Agent dynamic service", () => {
 
     const result = await service.registry.execute({
       namespace: NODEX_APP_TOOL_NAMESPACE,
-      toolsetRevision: NODEX_APP_V5_TOOLSET_REVISION,
+      toolsetRevision: NODEX_APP_TOOLSET_REVISION,
       tool: "get_context",
     }, {
       include: { databases: true, markdownGuide: true },
@@ -309,7 +309,7 @@ describe("native desktop Nodex Agent dynamic service", () => {
 
     const result = await service.registry.execute({
       namespace: NODEX_APP_TOOL_NAMESPACE,
-      toolsetRevision: NODEX_APP_V5_TOOLSET_REVISION,
+      toolsetRevision: NODEX_APP_TOOLSET_REVISION,
       tool: "create_pages",
     }, {
       destination: {
@@ -489,7 +489,7 @@ describe("native desktop Nodex Agent dynamic service", () => {
 
     const result = await service.registry.execute({
       namespace: NODEX_APP_TOOL_NAMESPACE,
-      toolsetRevision: NODEX_APP_V5_TOOLSET_REVISION,
+      toolsetRevision: NODEX_APP_TOOLSET_REVISION,
       tool: "move_pages",
     }, {
       pageIds: ["page-move-database", "page-move-library"],
@@ -504,9 +504,11 @@ describe("native desktop Nodex Agent dynamic service", () => {
       data: {
         pages: [{
           pageId: "page-move-database",
+          pageKey: null,
           location: { kind: "page", pageId: "page-move-target" },
         }, {
           pageId: "page-move-library",
+          pageKey: null,
           location: { kind: "page", pageId: "page-move-target" },
         }],
         moved: 2,
@@ -670,7 +672,7 @@ describe("native desktop Nodex Agent dynamic service", () => {
 
     const result = await service.registry.execute({
       namespace: NODEX_APP_TOOL_NAMESPACE,
-      toolsetRevision: NODEX_APP_V5_TOOLSET_REVISION,
+      toolsetRevision: NODEX_APP_TOOLSET_REVISION,
       tool: "duplicate_page",
     }, {
       pageId: "page-copy-source",
@@ -747,7 +749,7 @@ describe("native desktop Nodex Agent dynamic service", () => {
 
     const result = await service.registry.execute({
       namespace: NODEX_APP_TOOL_NAMESPACE,
-      toolsetRevision: NODEX_APP_V5_TOOLSET_REVISION,
+      toolsetRevision: NODEX_APP_TOOLSET_REVISION,
       tool: "search",
     }, {
       query: "nativ serch",
@@ -760,6 +762,7 @@ describe("native desktop Nodex Agent dynamic service", () => {
         results: [{
           kind: "page",
           id: "page-native-search",
+          pageKey: null,
           title: "Native Search",
           location: {
             kind: "data_source",
@@ -910,7 +913,7 @@ describe("native desktop Nodex Agent dynamic service", () => {
 
     const result = await service.registry.execute({
       namespace: NODEX_APP_TOOL_NAMESPACE,
-      toolsetRevision: NODEX_APP_V5_TOOLSET_REVISION,
+      toolsetRevision: NODEX_APP_TOOLSET_REVISION,
       tool: "fetch",
     }, {
       id: "page-fetch",
@@ -1059,7 +1062,7 @@ describe("native desktop Nodex Agent dynamic service", () => {
 
     const result = await service.registry.execute({
       namespace: NODEX_APP_TOOL_NAMESPACE,
-      toolsetRevision: NODEX_APP_V5_TOOLSET_REVISION,
+      toolsetRevision: NODEX_APP_TOOLSET_REVISION,
       tool: "query_data_source",
     }, {
       dataSourceId: "data-source-native-agent",
@@ -1234,7 +1237,7 @@ describe("native desktop Nodex Agent dynamic service", () => {
 
     const result = await service.registry.execute({
       namespace: NODEX_APP_TOOL_NAMESPACE,
-      toolsetRevision: NODEX_APP_V5_TOOLSET_REVISION,
+      toolsetRevision: NODEX_APP_TOOLSET_REVISION,
       tool: "update_page",
     }, {
       pageId: "page-update",

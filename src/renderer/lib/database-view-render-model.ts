@@ -51,6 +51,7 @@ export type DatabaseViewAccessContext =
 
 export interface DatabaseViewRenderRow {
   readonly pageId: string;
+  readonly pageKey: string | null;
   /** Standard Parent Relation projection, distinct from structural Page ownership. */
   readonly parentPageId?: string;
   readonly siblingRank?: string;
@@ -174,6 +175,7 @@ export const projectDataSourcePageRowToDatabaseViewRenderRow = (
 
   return {
     pageId: row.page.pageId,
+    pageKey: row.pageKey,
     ...(row.taskParent.parentPageId
       ? {
           parentPageId: row.taskParent.parentPageId,

@@ -8,6 +8,7 @@ export interface CardActionMenuEntry {
     | "open-page"
     | "open-in-new-chat"
     | "send-to-chat"
+    | "copy-page-key"
     | "copy-link"
     | "duplicate"
     | "delete";
@@ -21,6 +22,7 @@ export interface CardActionMenuEntry {
 interface CardActionMenuQuery {
   query: string;
   showMockActions: boolean;
+  hasPageKey?: boolean;
 }
 
 const MOCK_ACTION_REASON = "Mock UI only. Not available in Nodex yet.";
@@ -77,6 +79,11 @@ const CARD_ACTION_MENU_ENTRIES: CardActionMenuEntry[] = [
     keywords: ["send", "page", "chat", "thread", "agent"],
   },
   {
+    id: "copy-page-key",
+    label: "Copy Page key",
+    keywords: ["copy", "page", "key", "identifier", "issue"],
+  },
+  {
     id: "copy-link",
     label: "Copy deeplink",
     keywords: ["copy", "link", "reference"],
@@ -102,9 +109,12 @@ function normalizeSearchValue(value: string): string {
 }
 
 export function getPageActionMenuEntries(input: CardActionMenuQuery): CardActionMenuEntry[] {
-  const { query, showMockActions } = input;
+  const { query, showMockActions, hasPageKey = true } = input;
   const normalizedQuery = normalizeSearchValue(query);
-  const entries = CARD_ACTION_MENU_ENTRIES.filter((entry) => showMockActions || !entry.mockReason);
+  const entries = CARD_ACTION_MENU_ENTRIES.filter((entry) => (
+    (showMockActions || !entry.mockReason)
+    && (entry.id !== "copy-page-key" || hasPageKey)
+  ));
 
   if (normalizedQuery.length === 0) {
     return entries;

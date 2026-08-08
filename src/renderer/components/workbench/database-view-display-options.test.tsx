@@ -67,6 +67,11 @@ test("keeps layout edits personal until explicitly published or reset", async ()
   expect(groupOrdering.getAttribute("aria-pressed")).toBe("false");
   fireEvent.click(groupOrdering);
   expect(groupOrdering.getAttribute("aria-pressed")).toBe("true");
+  const boardIdField = screen.getByRole("button", { name: "ID" });
+  expect(boardIdField.getAttribute("aria-pressed")).toBe("false");
+  fireEvent.click(boardIdField);
+  expect(boardIdField.getAttribute("aria-pressed")).toBe("true");
+  expect(screen.queryByRole("button", { name: "Internal ID" })).toBeNull();
   fireEvent.click(screen.getByRole("tab", { name: "List" }));
   const statusField = screen.getByRole("button", { name: "Status" });
   expect(statusField.getAttribute("aria-pressed")).toBe("false");
@@ -77,6 +82,7 @@ test("keeps layout edits personal until explicitly published or reset", async ()
   expect(idField.getAttribute("aria-pressed")).toBe("false");
   fireEvent.click(idField);
   expect(idField.getAttribute("aria-pressed")).toBe("true");
+  expect(screen.queryByRole("button", { name: "Internal ID" })).toBeNull();
 
   expect(screen.getByRole("button", { name: "Reset" }).hasAttribute("disabled"))
     .toBe(false);

@@ -393,7 +393,7 @@ import type {
   LibraryDatabaseViewGroupsSnapshot,
   LibraryDatabaseViewWindowSnapshot,
 } from "./database-views";
-import type { CoreReadResult } from "./core-read-result";
+import type { CoreResult } from "./core-result";
 import type {
   NativeContextMenuItem,
   NativeContextMenuOptions,
@@ -819,10 +819,13 @@ export interface IpcApi {
     args: [projectIds: string[]];
     result: ProjectActivitySummaryResult;
   };
-  "projects:create": { args: [input: ProjectCreateInput]; result: Project };
+  "projects:create": {
+    args: [input: ProjectCreateInput];
+    result: CoreResult<Project>;
+  };
   "projects:update": {
     args: [projectId: string, updates: ProjectUpdateInput];
-    result: Project | null;
+    result: CoreResult<Project | null>;
   };
   "projects:reorder": { args: [input: ProjectOrderInput]; result: void };
   "projects:set-pinned": {
@@ -908,15 +911,15 @@ export interface IpcApi {
   };
   "database:view-window:get": {
     args: [projectId: string, input: DatabaseViewWindowInput];
-    result: CoreReadResult<DatabaseViewWindowSnapshot>;
+    result: CoreResult<DatabaseViewWindowSnapshot>;
   };
   "database:list-window:get": {
     args: [projectId: string, input: DatabaseListWindowInput];
-    result: CoreReadResult<DatabaseListWindowSnapshot>;
+    result: CoreResult<DatabaseListWindowSnapshot>;
   };
   "database:view-groups:get": {
     args: [projectId: string, input: DatabaseViewGroupsInput];
-    result: CoreReadResult<DatabaseViewGroupsSnapshot>;
+    result: CoreResult<DatabaseViewGroupsSnapshot>;
   };
   "library-database:view-window:get": {
     args: [
@@ -925,7 +928,7 @@ export interface IpcApi {
         | { readonly databaseId: string }
       ),
     ];
-    result: CoreReadResult<LibraryDatabaseViewWindowSnapshot>;
+    result: CoreResult<LibraryDatabaseViewWindowSnapshot>;
   };
   "library-database:list-window:get": {
     args: [
@@ -934,7 +937,7 @@ export interface IpcApi {
         | { readonly databaseId: string }
       ),
     ];
-    result: CoreReadResult<LibraryDatabaseListWindowSnapshot>;
+    result: CoreResult<LibraryDatabaseListWindowSnapshot>;
   };
   "library-database:view-groups:get": {
     args: [
@@ -943,7 +946,7 @@ export interface IpcApi {
         | { readonly databaseId: string }
       ),
     ];
-    result: CoreReadResult<LibraryDatabaseViewGroupsSnapshot>;
+    result: CoreResult<LibraryDatabaseViewGroupsSnapshot>;
   };
   "pages:search": {
     args: [input: PageSearchInput];

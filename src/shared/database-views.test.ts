@@ -22,6 +22,7 @@ const makePage = (
   priority: DatabasePageSummary["priority"],
 ): DatabasePageSummary => ({
   id,
+  pageKey: null,
   status,
   archived: false,
   title: id,

@@ -107,6 +107,7 @@ function dedupeTags(tags: readonly string[]): string[] {
 function buildVisibleCardRecord(card: CardInputWithDefaults, targetColumnId: WorkflowStatus): DbViewCardRecord {
   return {
     id: `import:${crypto.randomUUID()}`,
+    pageKey: null,
     status: targetColumnId,
     columnId: targetColumnId,
     columnName: WORKFLOW_STATUS_NAMES[targetColumnId],

@@ -20,6 +20,7 @@ function makeStoryPage(overrides: Partial<DatabasePageSummary> = {}): DatabasePa
   const title = overrides.title ?? "Command palette shell refresh";
   return {
     id: overrides.id ?? "palette-page",
+    pageKey: overrides.pageKey === undefined ? "LAB-13" : overrides.pageKey,
     status: overrides.status ?? "build",
     title,
     richTitle: overrides.richTitle ?? plainTextToPortableRichText(title),
@@ -336,6 +337,32 @@ export const PageSearchPending: Story = {
         query: "previous query",
         scopeKey: "codex\nnodex",
         results: [],
+        status: "success",
+        error: null,
+      }}
+    />
+  ),
+};
+
+export const HistoricalPageKeyMatch: Story = {
+  render: () => (
+    <CommandPaletteStory
+      mode="pages"
+      initialQuery="old-13"
+      pageDescriptionSearchBatch={{
+        query: "old-13",
+        scopeKey: "codex\nnodex",
+        results: [{
+          projectId: "nodex",
+          pageId: "palette-page",
+          pageKey: "LAB-13",
+          matchedPageKey: "OLD-13",
+          matchedPageKeyIsCurrent: false,
+          title: "Command palette shell refresh",
+          status: "build",
+          score: 2_000_000,
+          excerpt: "Command palette shell refresh",
+        }],
         status: "success",
         error: null,
       }}

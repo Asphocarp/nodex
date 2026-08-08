@@ -27,7 +27,15 @@ describe("resolveNodexDynamicToolCallPresentation", () => {
     const search = resolveNodexDynamicToolCallPresentation(call(
       "search",
       { query: "migrtion", target: "pages" },
-      { data: { target: "pages", results: [{ kind: "page" }, { kind: "page" }] } },
+      {
+        data: {
+          target: "pages",
+          results: [
+            { kind: "page", pageKey: "LAB-13" },
+            { kind: "page", pageKey: "LAB-22" },
+          ],
+        },
+      },
     ));
     const create = resolveNodexDynamicToolCallPresentation(call(
       "create",
@@ -44,7 +52,9 @@ describe("resolveNodexDynamicToolCallPresentation", () => {
       },
     ));
 
-    expect(search?.label).toBe("Searched pages for “migrtion” · 2 results");
+    expect(search?.label).toBe(
+      "Searched pages for “migrtion” · 2 results · LAB-13, LAB-22",
+    );
     expect(create?.label).toBe("Created “Migration plan” · 2 body blocks");
   });
 
@@ -126,6 +136,7 @@ describe("resolveNodexDynamicToolCallPresentation", () => {
       data: {
         resource: {
           id: "card-launch",
+          pageKey: "LAB-13",
           type: "page",
           title: { markdown: "**Launch** plan" },
           lifecycle: "active",
@@ -149,7 +160,7 @@ describe("resolveNodexDynamicToolCallPresentation", () => {
       data: { dataSource: { name: "Tasks" }, rows: [{}] },
     }));
 
-    expect(fetch?.label).toBe("Fetched “Launch plan” as markdown");
+    expect(fetch?.label).toBe("Fetched LAB-13 · “Launch plan” as markdown");
     expect(view?.label).toBe("Queried view “Roadmap” · 2 rows");
     expect(advanced?.label).toBe("Queried data source “Tasks” · 1 row");
   });
@@ -165,30 +176,38 @@ describe("resolveNodexDynamicToolCallPresentation", () => {
     }, {
       data: {
         pages: [
-          { bodyBlocksCreated: 2 },
-          { bodyBlocksCreated: 0 },
-          { bodyBlocksCreated: 1 },
+          { pageKey: "LAB-13", bodyBlocksCreated: 2 },
+          { pageKey: "LAB-14", bodyBlocksCreated: 0 },
+          { pageKey: "LAB-15", bodyBlocksCreated: 1 },
         ],
         created: 3,
       },
     }));
-    const move = resolveNodexDynamicToolCallPresentation(call("move_pages", {
-      pageIds: ["page-a", "page-b"],
-      destination: { kind: "page", pageId: "parent-1" },
-    }));
+    const move = resolveNodexDynamicToolCallPresentation(call(
+      "move_pages",
+      {
+        pageIds: ["page-a", "page-b"],
+        destination: { kind: "page", pageId: "parent-1" },
+      },
+      { data: { pages: [{ pageKey: "LAB-13" }, { pageKey: null }] } },
+    ));
     const duplicate = resolveNodexDynamicToolCallPresentation(call("duplicate_page", {
       pageId: "page-source-1",
       destination: { kind: "library" },
     }, {
-      data: { sourcePageId: "page-source-1", pageId: "page-copy-1" },
+      data: {
+        sourcePageId: "page-source-1",
+        pageId: "page-copy-1",
+        pageKey: "LAB-16",
+      },
     }));
 
     expect(create?.label).toBe(
-      "Created 3 pages: “Alpha”, “Beta” +1 in data source “source-1” · 3 body blocks",
+      "Created 3 pages: “Alpha”, “Beta” +1 in data source “source-1” · 3 body blocks · LAB-13, LAB-14 +1",
     );
-    expect(move?.label).toBe("Moved 2 pages to page “parent-1”");
+    expect(move?.label).toBe("Moved 2 pages to page “parent-1” · LAB-13");
     expect(duplicate?.label).toBe(
-      "Duplicated page “page-source-1” → “page-copy-1” to Library",
+      "Duplicated page “page-source-1” → LAB-16 to Library",
     );
   });
 

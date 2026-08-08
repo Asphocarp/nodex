@@ -1,6 +1,8 @@
 import { describe, expect, test } from "vitest";
 import {
   buildPageSearchText,
+  compilePageCollectionSearchQuery,
+  matchesPageCollectionSearchQuery,
   matchesSearchTokens,
   tokenizeSearchQuery,
 } from "./page-search";
@@ -24,6 +26,7 @@ function makeCard(overrides: Partial<DatabasePageSummary> = {}): DatabasePageSum
     created: new Date("2026-02-10T00:00:00.000Z"),
     order: 0,
     ...overrides,
+    pageKey: overrides.pageKey ?? null,
   };
 }
 
@@ -40,15 +43,42 @@ describe("card search", () => {
     expect(matchesSearchTokens(text, ["nfm", "missing"])).toBe(false);
   });
 
-  test("buildPageSearchText includes searchable card fields", () => {
-    const card = makeCard();
+  test("buildPageSearchText includes ordinary searchable card fields", () => {
+    const card = makeCard({ pageKey: "LAB-13" });
     const searchable = buildPageSearchText(card, ["Editor", "Search"]);
 
     expect(searchable.includes("abc1234")).toBe(true);
+    expect(searchable.includes("lab-13")).toBe(false);
     expect(searchable.includes("improve nfm search")).toBe(true);
     expect(searchable.includes("token based matching")).toBe(true);
     expect(searchable.includes("editor search")).toBe(true);
     expect(searchable.includes("o_aaaaaaaa")).toBe(false);
     expect(searchable.includes("alice")).toBe(true);
+  });
+
+  test.each([
+    { query: "LAB-13", pageKey: "LAB-13", title: "Polish launch", expected: true },
+    { query: "lab13", pageKey: "LAB-13", title: "Polish launch", expected: true },
+    { query: "lab-1", pageKey: "LAB-13", title: "Polish launch", expected: true },
+    { query: "b-1", pageKey: "LAB-13", title: "Polish launch", expected: false },
+    { query: "#LAB-13", pageKey: "RND-9", title: "Discuss #LAB-13", expected: false },
+    { query: "#", pageKey: "LAB-13", title: "Hash", expected: false },
+    { query: "##LAB-13", pageKey: "LAB-13", title: "Hash", expected: false },
+    { query: "LAB-13 polish", pageKey: "RND-9", title: "LAB-13 polish", expected: true },
+    { query: "#LAB-13 polish", pageKey: "LAB-13", title: "Polish", expected: false },
+  ])("applies one Page-key query policy to '$query'", ({
+    query,
+    pageKey,
+    title,
+    expected,
+  }) => {
+    const card = makeCard({ pageKey, title });
+    const compiled = compilePageCollectionSearchQuery(query);
+
+    expect(matchesPageCollectionSearchQuery(
+      card.pageKey,
+      buildPageSearchText(card),
+      compiled,
+    )).toBe(expected);
   });
 });

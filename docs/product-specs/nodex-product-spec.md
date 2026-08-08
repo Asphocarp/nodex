@@ -80,6 +80,10 @@ Source-defined properties. Page Stage opens the Page identity independently of
 its current View or parent. A Page outside a Data Source remains complete and
 does not acquire synthetic workflow values.
 
+Project work also receives short Database-scoped Page keys such as `LAB-13`.
+They make Pages easier to scan, copy, search, and discuss while the stable Page
+UUID remains the identity used by Documents, references, links, and mutations.
+
 Database Views provide Board, List, Table, Toggle List, and Calendar-shaped
 presentations. Saved filters, sorts, grouping, displayed properties, and manual
 positions belong to the exact View. Every growing list is bounded and honest

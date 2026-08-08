@@ -76,6 +76,7 @@ struct ScheduledRow {
     materialization_updated_at: Option<String>,
     membership_id: Option<String>,
     data_source_id: Option<String>,
+    page_key: Option<String>,
     view_order: Option<i64>,
 }
 
@@ -457,7 +458,10 @@ fn visit_scheduled_rows(
            document.authority, materialization.generation, materialization.projected_seq, \
            materialization.schema_version, materialization.title, \
            materialization.title_rich_json, materialization.preview, materialization.updated_at, \
-           membership.id, source.id, position.view_order \
+           membership.id, source.id, \
+           CASE WHEN key_assignment.number IS NULL THEN NULL \
+             ELSE key_prefix.normalized_prefix || '-' || key_assignment.number END, \
+           position.view_order \
          FROM scheduled_page_index schedule \
          JOIN blocks block ON block.id = schedule.page_block_id \
            AND block.library_id = schedule.library_id AND block.type = 'page' \
@@ -472,6 +476,14 @@ fn visit_scheduled_rows(
            ON membership.page_block_id = block.id AND membership.removed_at IS NULL \
          LEFT JOIN data_sources source ON source.id = membership.data_source_id \
            AND source.library_id = block.library_id \
+           AND page.parent_kind = 'data_source' AND page.parent_id = source.id \
+         LEFT JOIN page_key_assignments key_assignment \
+           ON key_assignment.database_block_id = source.home_database_block_id \
+           AND key_assignment.page_block_id = block.id \
+         LEFT JOIN page_key_prefixes key_prefix \
+           ON key_prefix.database_block_id = key_assignment.database_block_id \
+           AND key_prefix.library_id = page.library_id \
+           AND key_prefix.retired_at IS NULL \
          LEFT JOIN ranked_positions position \
            ON position.database_block_id = source.home_database_block_id \
            AND position.data_source_id = membership.data_source_id \
@@ -514,7 +526,8 @@ fn visit_scheduled_rows(
             materialization_updated_at: row.get(25)?,
             membership_id: row.get(26)?,
             data_source_id: row.get(27)?,
-            view_order: row.get(28)?,
+            page_key: row.get(28)?,
+            view_order: row.get(29)?,
         })?;
     }
     Ok(())
@@ -644,6 +657,7 @@ fn validate_and_project(
     Ok(ScheduledPageOccurrence {
         occurrence_id: String::new(),
         page_id: row.page_id.clone(),
+        page_key: row.page_key.clone(),
         status,
         status_name,
         archived: row.block_lifecycle == "archived",
@@ -1263,6 +1277,7 @@ fn normalize_search_tokens(value: &str) -> Vec<String> {
 
 fn matches_search(item: &ScheduledPageOccurrence, tokens: &[String]) -> bool {
     let text = [
+        item.page_key.as_deref().unwrap_or_default(),
         item.title.as_str(),
         item.description.as_str(),
         item.priority.as_deref().unwrap_or_default(),

@@ -8,6 +8,7 @@ import {
 
 const card = (id: string, status: WorkflowStatus): DatabasePageSummary => ({
   id,
+  pageKey: null,
   title: id,
   richTitle: plainTextToPortableRichText(id),
   archived: false,

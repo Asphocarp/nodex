@@ -13,6 +13,7 @@ import {
 
 interface CalendarEventBlockProps {
   id: string;
+  pageKey?: string | null;
   title: string;
   accentColor: string;
   scheduledStart: Date;
@@ -63,8 +64,32 @@ const RECURRING_BADGE_ORIGIN = cn(
   "border border-(--accent-blue)/25 bg-(--accent-blue)/10 text-(--accent-blue)",
 );
 
+function CalendarEventTitle({
+  pageKey,
+  title,
+  accentColor,
+}: {
+  pageKey?: string | null;
+  title: string;
+  accentColor: string;
+}) {
+  return (
+    <span className="flex min-w-0 items-baseline gap-1 text-xs/tight">
+      {pageKey ? (
+        <span className="max-w-[40%] shrink truncate font-medium tabular-nums text-(--foreground-tertiary)">
+          {pageKey} ·
+        </span>
+      ) : null}
+      <span className="min-w-0 truncate font-medium" style={{ color: accentColor }}>
+        {title}
+      </span>
+    </span>
+  );
+}
+
 export const CalendarEventBlock = memo(function CalendarEventBlock({
   id,
+  pageKey,
   title,
   accentColor,
   scheduledStart,
@@ -149,7 +174,7 @@ export const CalendarEventBlock = memo(function CalendarEventBlock({
     <div
       role={interactive ? "button" : undefined}
       tabIndex={interactive ? 0 : undefined}
-      aria-label={`${title} ${timeRange}`}
+      aria-label={`${pageKey ? `${pageKey} ` : ""}${title} ${timeRange}`}
       data-calendar-event-block=""
       data-uuid-v7={id}
       draggable={interactive}
@@ -249,12 +274,7 @@ export const CalendarEventBlock = memo(function CalendarEventBlock({
       {/* Tier 1: ≤30 min — compact row */}
       {isShort ? (
         <div className="flex h-full flex-row items-center gap-1.5 px-1.5 py-0.5">
-          <span
-            className="truncate text-xs/tight font-medium"
-            style={{ color: accentColor }}
-          >
-            {title}
-          </span>
+          <CalendarEventTitle pageKey={pageKey} title={title} accentColor={accentColor} />
           {recurringIndicatorVariant === "compact" && recurringIndicatorType !== "none" && (
             <span
               aria-label={recurringIndicatorLabel}
@@ -277,12 +297,7 @@ export const CalendarEventBlock = memo(function CalendarEventBlock({
         <div className="flex h-full min-h-0 flex-col px-1.5 py-0.5">
           {/* Title */}
           <div className="flex min-w-0 shrink-0 items-start gap-1">
-            <span
-              className="min-w-0 shrink-0 truncate text-xs/tight font-medium"
-              style={{ color: accentColor }}
-            >
-              {title}
-            </span>
+            <CalendarEventTitle pageKey={pageKey} title={title} accentColor={accentColor} />
             {recurringIndicatorVariant === "badge" && recurringIndicatorType !== "none" && (
               <span
                 aria-label={recurringIndicatorLabel}

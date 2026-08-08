@@ -24,6 +24,7 @@ function makeCard(
     created: new Date("2026-03-17T00:00:00.000Z"),
     order,
     ...overrides,
+    pageKey: overrides.pageKey ?? null,
   };
 }
 

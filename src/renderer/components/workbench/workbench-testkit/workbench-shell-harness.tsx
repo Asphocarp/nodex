@@ -935,6 +935,12 @@ vi.mock("../database-view-surface", () => ({
     const projectId = model.accessContext?.kind === "project"
       ? String(model.accessContext.projectId)
       : "library";
+    const effectivePresentation = props.effectivePresentation as
+      | { readonly layout?: unknown }
+      | undefined;
+    const presentationLayout = String(
+      effectivePresentation?.layout ?? props.presentationLayout,
+    );
     const [localSearch, setLocalSearch] = useState("");
     const retainedScroll = useRetainedScrollPosition<HTMLDivElement>(
       `database-view-test:${String(model.databaseViewId ?? "unknown")}`,
@@ -943,6 +949,9 @@ vi.mock("../database-view-surface", () => ({
       __lastDatabaseViewSurfaceProps?: Record<string, unknown>;
     }).__lastDatabaseViewSurfaceProps = {
       ...props,
+      // The production surface now consumes one effective presentation.
+      // Preserve the harness's compact layout observation for shell tests.
+      presentationLayout,
       projectId,
       databaseViewId: model.databaseViewId,
       openPageStage: (
@@ -961,7 +970,7 @@ vi.mock("../database-view-surface", () => ({
         "data-database-view-surface": "true",
         "data-database-view-id": String(model.databaseViewId ?? ""),
       },
-      `DB:${projectId}:${String(props.presentationLayout)}`,
+      `DB:${projectId}:${presentationLayout}`,
       createElement("input", {
         "aria-label": `Mock DB search ${projectId}`,
         value: localSearch,
@@ -2111,6 +2120,7 @@ export function renderWorkbench({
     const standalone = row.standalone === true;
     const result = buildPageDetailStoryResult(projectId, {
       id: pageId,
+      pageKey: typeof row.pageKey === "string" ? row.pageKey : null,
       status: (typeof row.status === "string" ? row.status : "triage") as "triage",
       archived: false,
       title: typeof row.title === "string" ? row.title : pageId,

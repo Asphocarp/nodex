@@ -60,6 +60,14 @@ A Page is a document-bearing Block. Page has no separate storage identity: Page
 ID is Block ID. Every Page owns exactly one Document containing its
 collaborative rich title and body.
 
+A Page key such as `LAB-13` is a human- and Agent-readable secondary locator,
+not Page identity. An enabled Database owns the prefix, monotonic counter, and
+immutable `(Database, Page) -> number` assignment from which Core projects the
+current key. One Page may retain assignments in several Databases after moves,
+but has at most one current Page key from its current enabled Database. UUID
+Page ID remains the authority for ownership, Documents, mutations, references,
+View positions, and deep links.
+
 Page Detail is the membership-independent read Interface for opening that
 identity. It combines Block parent/lifecycle coordinates, owned Document and
 exact-head projection, intrinsic property coordinates, and the optional Data
@@ -202,7 +210,10 @@ coordinates and never content ownership.
 
 A Database is a placeable Block and Container. It owns metadata, lifecycle,
 Data Sources, hosted Views, one default View, access revision, and Project
-bindings. It does not own a property schema or Page rows directly.
+bindings. An enabled Database also owns one Page-key namespace: its counter,
+current prefix, retained historical prefixes, and immutable Page-number
+assignments. This alias registry does not make the Database the Page owner. A
+Database still does not own a property schema or Page rows directly.
 
 Creating a Database atomically creates the Container, one initial Data Source,
 one View targeting that Source, and selects that View as default. All three
@@ -287,6 +298,11 @@ remains a View Preference Override until explicitly set as the View default.
 Manual Order is the shared fractional Page rank inside one Database View. It is
 independent of grouping, which is derived from Source Property values.
 
+Page key is an intrinsic Board/List display field. It participates in the same
+durable-default plus sparse Profile-local View Preference flow as other display
+fields. Hiding it changes only that effective View presentation; it cannot
+disable assignment, exact lookup, copy, CLI, or Agent projection.
+
 View position identity is `(databaseViewId, pageId)`. A Page needs no position
 to qualify as a Source row; missing manual rank follows the View's explicit null
 policy. The Page must be actively parented by the View's target Source.
@@ -306,6 +322,12 @@ Scenes through which one app window presents Project or Session resources;
 Terminal and Browser Modules own their live runtimes.
 It binds exactly one primary Database and has lifecycle `active | inactive |
 archived`. One Database has at most one active Project.
+
+Project settings expose the primary Database namespace prefix as the Project
+key. Project creation always enables that namespace; Project rename does not
+change the prefix, and an explicit prefix update is one revision-fenced
+Database authority mutation. Project removal or archive leaves the namespace
+and every historical Page-key assignment intact with the Library content.
 
 Active Projects may create and run Sessions. Inactive and archived Projects
 retain history but cannot start work and are read-only. Reactivation restores
@@ -457,6 +479,7 @@ state is rejected rather than replayed.
 | Document ownership | `block_documents` |
 | Library top-level placement | Library placement records |
 | Database metadata, lifecycle, default View | Database Container records |
+| Page-key prefix registry, counter, and Database/Page assignments | Database Page-key authority records |
 | Schema, Pages, and property values | Data Source relational records |
 | View query/configuration/manual Page position | Database View records |
 | Project binding/lifecycle | Project execution records |
@@ -502,6 +525,15 @@ state is rejected rather than replayed.
     Document identity never enter the Page Document.
 20. Canvas lifecycle and placement use typed Library commands that atomically
     preserve or change the owned Document and every affected host shell.
+21. Page ID remains canonical; Page key is a Database-scoped secondary locator
+    and never becomes a Block, Document, reference, cursor, or View-position
+    identity.
+22. An enabled Database has exactly one current prefix and one monotonic
+    counter; current and retained prefixes are unambiguous across its Library.
+23. One Database/Page assignment and one Database/number assignment are unique
+    and immutable. Committed numbers are never reclaimed.
+24. A Page has at most one current Page key, determined by its current Database,
+    while historical assignments and retired-prefix ranges remain resolvable.
 
 ## Operation semantics
 
@@ -549,6 +581,10 @@ Moving within one Document is one engine transaction; cross-Document movement
 uses relocation. Moving Page changes shell/parent only and preserves its owned
 Document. Moving into/out of a Source changes active membership atomically and
 leaves old Source values dormant. Copy allocates a fresh ownership closure.
+Changing Source or View within one Database preserves the Page-key assignment.
+Cross-Database movement allocates or reuses the target assignment while
+retaining the source key as a historical locator; copy receives a fresh Page
+identity and number.
 
 ### Restore and backup
 
@@ -587,6 +623,10 @@ explicitly invalidate the same worker-owned read plane.
 ## Naming rules
 
 - Say **Page** for the durable document-like content object.
+- Say **Page key** for a canonical readable alias such as `LAB-13`, **Project
+  key** only for the current prefix exposed through Project settings, and
+  **Page ID** for the canonical Block UUID. Do not call Page key an Issue ID or
+  use it as a synonym for identity.
 - Say **Block** when behavior applies to all content identities.
 - Say **Document** for independently synchronized content owned by a
   document-bearing Block; name `yjs` or `canvas_scene` when encoding matters.
@@ -625,6 +665,9 @@ idempotency, projections, and post-commit events behind `read` and `apply`.
 
 ## Decision index
 
+- `docs/adr/0043-database-scoped-page-keys.md`: Database-owned Page-key
+  namespaces, Library-unique prefix history, monotonic allocation, UUID
+  identity boundary, authorized resolution, and presentation projection.
 - `docs/adr/0042-dedicated-git-read-worker.md`: one rebuildable,
   generation-bound Git repository read plane in a dedicated worker, with Main
   and renderer Adapters and mutation-driven invalidation.

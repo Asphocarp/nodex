@@ -354,6 +354,7 @@ const mapOccurrence = (
   return {
     id: occurrence.occurrence_id,
     pageId: occurrence.page_id,
+    pageKey: occurrence.page_key ?? null,
     status: occurrence.status,
     statusName: occurrence.status_name,
     archived: occurrence.archived,

@@ -3,7 +3,7 @@ import type {
   NodexAgentV3ReadCommandResult,
   NodexAgentV3ReadRequest,
 } from "../../shared/nodex-agent-tools";
-import { SearchV3OutputSchema } from "../../shared/nodex-agent-tools/v3-read-schemas";
+import { SearchV6OutputSchema } from "../../shared/nodex-agent-tools/v6-schemas";
 import type { RustDataAuthorityRuntime } from "./desktop-data-authority";
 import { toCoreAgentExecutionAuthorization } from "./desktop-nodex-agent-resource-authority";
 import { mapNativeNodexAgentCoreError } from "./native-nodex-agent-page-update";
@@ -37,6 +37,14 @@ const mapLocation = (
 };
 
 const mapPageMatch = (match: CorePageMatch) => {
+  if (match.source === "page_key") {
+    return {
+      source: match.source,
+      quality: match.quality,
+      pageKey: match.page_key,
+      isCurrent: match.is_current,
+    } as const;
+  }
   if (match.source === "property") {
     return {
       source: match.source,
@@ -67,6 +75,7 @@ const mapResult = (result: CoreSearchResult) => {
     return {
       kind: result.kind,
       id: result.id,
+      pageKey: result.page_key ?? null,
       title: result.title,
       location: mapLocation(result.location),
       matches: result.matches.map(mapPageMatch),
@@ -125,7 +134,7 @@ export async function readNativeSearch(
     return {
       ok: true,
       tool: request.tool,
-      output: SearchV3OutputSchema.parse({
+      output: SearchV6OutputSchema.parse({
         data: { results: snapshot.value.items.map(mapResult) },
         page: {
           hasMore: snapshot.value.has_more,

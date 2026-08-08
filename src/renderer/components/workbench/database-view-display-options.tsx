@@ -14,6 +14,7 @@ import {
   NodexPopoverTrigger,
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
+import { databaseIntrinsicFieldsForLayout } from "@/lib/database-intrinsic-field-registry";
 import type {
   DatabaseViewCompletedRange,
   DatabaseViewField,
@@ -161,29 +162,41 @@ export function DatabaseViewDisplayOptions({
     }
     onOpenChange?.(nextOpen);
   };
+  const intrinsicFields = databaseIntrinsicFieldsForLayout(layout);
+  const identityFields = intrinsicFields.filter(
+    ({ slot, advanced }) => slot === "identity" && !advanced,
+  );
+  const advancedFields = intrinsicFields.filter(({ advanced }) => advanced);
+  const metadataFields = intrinsicFields.filter(({ slot }) => slot === "metadata");
   const fields = [
-    ...(layout === "list"
-      ? [{
-          key: "intrinsic:page_id",
-          label: "ID",
-          field: { kind: "intrinsic" as const, field: "page_id" as const },
-        }]
-      : []),
+    ...identityFields.map((descriptor) => ({
+      key: `intrinsic:${descriptor.field}`,
+      label: descriptor.label,
+      field: { kind: "intrinsic" as const, field: descriptor.field },
+    })),
     ...activeProperties.map((property) => ({
       key: `property:${property.propertyId}`,
       label: property.name,
       field: { kind: "property" as const, propertyId: property.propertyId },
     })),
-    {
-      key: "intrinsic:created_at",
-      label: "Created",
-      field: { kind: "intrinsic" as const, field: "created_at" as const },
-    },
-    {
-      key: "intrinsic:updated_at",
-      label: "Updated",
-      field: { kind: "intrinsic" as const, field: "updated_at" as const },
-    },
+    ...metadataFields.map((descriptor) => ({
+      key: `intrinsic:${descriptor.field}`,
+      label: descriptor.label,
+      field: { kind: "intrinsic" as const, field: descriptor.field },
+    })),
+  ];
+  const fieldGroups = [
+    { label: "Display fields", fields },
+    ...(advancedFields.length > 0
+      ? [{
+          label: "Advanced identity",
+          fields: advancedFields.map((descriptor) => ({
+            key: `intrinsic:${descriptor.field}`,
+            label: descriptor.label,
+            field: { kind: "intrinsic" as const, field: descriptor.field },
+          })),
+        }]
+      : []),
   ];
 
   return (
@@ -420,40 +433,47 @@ export function DatabaseViewDisplayOptions({
             />
           </DisplayRow>
 
-          <div className="px-3 pb-1 pt-2 text-[13px] font-medium text-token-text-secondary">
-            Display properties
-          </div>
-          <div className="flex flex-wrap gap-1.5 px-3 pb-2">
-            {fields.map(({ key, label, field }) => {
-              const durableVisible = layoutConfig.fields.some(
-                (candidate) => databaseViewDisplayFieldKey(candidate) === key,
-              );
-              const forced = forcedField !== null
-                && databaseViewDisplayFieldKey(forcedField) === key;
-              return (
-                <NodexButton
-                  key={key}
-                  size="xs"
-                  variant="secondary"
-                  aria-pressed={durableVisible}
-                  data-forced-visible={forced || undefined}
-                  disabled={busy}
-                  title={forced && !durableVisible
-                    ? "Visible while this field controls ordering"
-                    : undefined}
-                  onClick={() => dispatch({ kind: "toggle_field", field })}
-                  className={cn(
-                    "h-6 rounded-full border px-2 text-xs font-normal",
-                    durableVisible || forced
-                      ? "border-transparent bg-token-foreground/9 text-token-text-primary"
-                      : "border-token-border/70 bg-transparent text-token-description-foreground hover:bg-token-foreground/5",
-                  )}
-                >
-                  {label}
-                </NodexButton>
-              );
-            })}
-          </div>
+          {fieldGroups.map((group, groupIndex) => (
+            <div key={group.label}>
+              <div className={cn(
+                "px-3 pb-1 font-medium text-token-text-secondary",
+                groupIndex === 0 ? "pt-2 text-[13px]" : "pt-1 text-[12px]",
+              )}>
+                {group.label}
+              </div>
+              <div className="flex flex-wrap gap-1.5 px-3 pb-2">
+                {group.fields.map(({ key, label, field }) => {
+                  const durableVisible = layoutConfig.fields.some(
+                    (candidate) => databaseViewDisplayFieldKey(candidate) === key,
+                  );
+                  const forced = forcedField !== null
+                    && databaseViewDisplayFieldKey(forcedField) === key;
+                  return (
+                    <NodexButton
+                      key={key}
+                      size="xs"
+                      variant="secondary"
+                      aria-pressed={durableVisible}
+                      data-forced-visible={forced || undefined}
+                      disabled={busy}
+                      title={forced && !durableVisible
+                        ? "Visible while this field controls ordering"
+                        : undefined}
+                      onClick={() => dispatch({ kind: "toggle_field", field })}
+                      className={cn(
+                        "h-6 rounded-full border px-2 text-xs font-normal",
+                        durableVisible || forced
+                          ? "border-transparent bg-token-foreground/9 text-token-text-primary"
+                          : "border-token-border/70 bg-transparent text-token-description-foreground hover:bg-token-foreground/5",
+                      )}
+                    >
+                      {label}
+                    </NodexButton>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
           {error ? (
             <div role="alert" className="mx-3 mb-2 rounded-md bg-token-error-background px-2 py-1.5 text-xs text-token-error-foreground">
               {error}

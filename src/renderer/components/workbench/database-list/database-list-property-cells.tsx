@@ -329,7 +329,7 @@ export function DatabaseListTrailingPropertyCells({
 }) {
   return fields.flatMap((field) => {
     if (field.kind !== "intrinsic") return [];
-    if (field.field === "page_id") return [];
+    if (field.field === "page_key") return [];
     const value = field.field === "created_at"
       ? authority.page.createdAt
       : authority.page.updatedAt;

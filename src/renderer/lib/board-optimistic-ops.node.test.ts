@@ -15,6 +15,7 @@ import { plainTextToPortableRichText } from "../../shared/block-documents/portab
 function createPageSummary(id: string, order: number): DatabasePageSummary {
   return {
     id,
+    pageKey: null,
     status: "build",
     archived: false,
     title: id,

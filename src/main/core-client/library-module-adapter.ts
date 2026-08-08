@@ -836,6 +836,7 @@ const mapPageDataSourceContext = (
   if (context.kind === "standalone") return { kind: "standalone" };
   return {
     kind: "member",
+    pageKey: context.page_key ?? null,
     membership: {
       membershipId: context.membership.membership_id,
       dataSourceId: context.membership.data_source_id,
@@ -1816,6 +1817,11 @@ export const createCoreLibraryModuleAdapter = (
           !item.project_id
           || !item.page_id
           || typeof item.title !== "string"
+          || (item.page_key !== null && typeof item.page_key !== "string")
+          || (item.matched_page_key !== null
+            && typeof item.matched_page_key !== "string")
+          || (item.matched_page_key_is_current !== null
+            && typeof item.matched_page_key_is_current !== "boolean")
           || !isWorkflowStatus(item.status)
           || !Number.isSafeInteger(item.score)
           || item.score < 1
@@ -1825,6 +1831,9 @@ export const createCoreLibraryModuleAdapter = (
         return {
           projectId: item.project_id,
           pageId: item.page_id,
+          pageKey: item.page_key ?? null,
+          matchedPageKey: item.matched_page_key ?? null,
+          matchedPageKeyIsCurrent: item.matched_page_key_is_current ?? null,
           title: item.title,
           status: item.status,
           score: item.score,

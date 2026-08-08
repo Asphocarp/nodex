@@ -129,6 +129,7 @@ interface CalendarGridProps {
   visibleDays: Date[];
   createRequestId: number;
   scheduledPages: ScheduledPage[];
+  showPageKey?: boolean;
   pageStagePageId: string | undefined;
   onClickPage: (page: ScheduledPage) => void;
   onCreatePage: (title: string, start: Date, end: Date) => void;
@@ -274,6 +275,7 @@ export function CalendarGrid({
   visibleDays,
   createRequestId,
   scheduledPages,
+  showPageKey = true,
   pageStagePageId,
   onClickPage,
   onCreatePage,
@@ -1591,8 +1593,14 @@ export function CalendarGrid({
                         onDragStart={(dragEvent) => startMoveDrag(dragEvent, event)}
                         onDragEnd={() => endMoveDrag(event.id)}
                         onClick={() => handlePageOpen(event)}
+                        aria-label={`${showPageKey && event.pageKey ? `${event.pageKey} ` : ""}${event.title}`}
                       >
-                        {event.title}
+                        {showPageKey && event.pageKey ? (
+                          <span className="mr-1 font-medium tabular-nums text-(--foreground-tertiary)">
+                            {event.pageKey} ·
+                          </span>
+                        ) : null}
+                        <span>{event.title}</span>
                       </button>
                     );
                   })}
@@ -1607,7 +1615,12 @@ export function CalendarGrid({
                         backgroundColor: `color-mix(in srgb, ${columnStyles[allDayMoveOverlay.event.columnId]?.accentColor ?? "#8E8B86"} 24%, var(--background))`,
                       }}
                     >
-                      {allDayMoveOverlay.event.title}
+                      {showPageKey && allDayMoveOverlay.event.pageKey ? (
+                        <span className="mr-1 font-medium tabular-nums text-(--foreground-tertiary)">
+                          {allDayMoveOverlay.event.pageKey} ·
+                        </span>
+                      ) : null}
+                      <span>{allDayMoveOverlay.event.title}</span>
                     </div>
                   )}
                 </div>
@@ -1738,6 +1751,7 @@ export function CalendarGrid({
                         <CalendarEventBlock
                           key={event.id}
                           id={event.id}
+                          pageKey={showPageKey ? event.pageKey : null}
                           title={event.title}
                           accentColor={accentColor}
                           scheduledStart={event.scheduledStart}
@@ -1812,6 +1826,7 @@ export function CalendarGrid({
                       <CalendarEventBlock
                         key={`${moveOverlayForDay.id}-drag-overlay`}
                         id={moveOverlayForDay.id}
+                        pageKey={showPageKey ? moveOverlayForDay.pageKey : null}
                         title={moveOverlayForDay.title}
                         accentColor={moveOverlayAccentColor}
                         scheduledStart={moveOverlayForDay.scheduledStart}

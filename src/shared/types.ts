@@ -266,6 +266,8 @@ export type PageOccurrenceMutationResult =
 /** Compatibility projection for one Page row in a Database View. */
 export interface DatabasePage {
   id: string;
+  /** Human-readable key from the contextual Database namespace, such as LAB-13. */
+  pageKey: string | null;
   status: WorkflowStatus;
   archived: boolean;
   title: string;
@@ -401,6 +403,9 @@ export interface PageSearchResult {
   /** Project access context that authorized this result. */
   projectId: string;
   pageId: string;
+  pageKey: string | null;
+  matchedPageKey: string | null;
+  matchedPageKeyIsCurrent: boolean | null;
   title: string;
   status: WorkflowStatus;
   score: number;
@@ -496,6 +501,7 @@ export interface ProjectCreateInput {
   description?: string;
   appearance?: ProjectAppearance;
   sources?: string[];
+  pageKeyPrefix?: string;
 }
 
 export interface ProjectUpdateInput {

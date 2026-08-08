@@ -36,9 +36,16 @@ function makeProject(id: string, name: string, icon?: string): Project {
   };
 }
 
-function makeCard(id: string, title: string, status: DatabasePageSummary["status"], order: number): DatabasePageSummary {
+function makeCard(
+  id: string,
+  pageKey: string,
+  title: string,
+  status: DatabasePageSummary["status"],
+  order: number,
+): DatabasePageSummary {
   return {
     id,
+    pageKey,
     status,
     archived: false,
     title,
@@ -67,15 +74,15 @@ const BOARD_MAP = new Map<string, BoardSummary>([
           id: "triage",
           name: "Triage",
           cards: [
-            makeCard("panel-picker", "Panel picker polish", "triage", 0),
-            makeCard("right-panel", "Right panel composer overlay", "triage", 1),
+            makeCard("panel-picker", "LAB-13", "Panel picker polish", "triage", 0),
+            makeCard("right-panel", "LAB-14", "Right panel composer overlay", "triage", 1),
           ],
         },
         {
           id: "build",
           name: "Build",
           cards: [
-            makeCard("page-stage", "Page Stage retained editor", "build", 0),
+            makeCard("page-stage", "LAB-22", "Page Stage retained editor", "build", 0),
           ],
         },
       ],
@@ -89,7 +96,7 @@ const BOARD_MAP = new Map<string, BoardSummary>([
           id: "plan",
           name: "Plan",
           cards: [
-            makeCard("research", "Move-to picker research notes", "plan", 0),
+            makeCard("research", "CODEX-7", "Move-to picker research notes", "plan", 0),
           ],
         },
       ],

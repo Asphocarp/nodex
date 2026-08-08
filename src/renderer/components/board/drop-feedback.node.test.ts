@@ -21,6 +21,7 @@ const FILLED_BOARD: BoardSummary = {
       cards: [
         {
           id: "card-1",
+          pageKey: null,
           status: "plan",
           archived: false,
           title: "Task",

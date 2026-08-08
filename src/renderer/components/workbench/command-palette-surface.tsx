@@ -455,10 +455,24 @@ function PageRow({
         <ProjectMarker appearance={item.projectAppearance} />
       </div>
       <div className="min-w-0 flex-1">
-        <div className="truncate text-token-foreground">
-          {decorations?.titleSegments
-            ? renderSegments(decorations.titleSegments, `${item.id}:title`)
-            : item.page.title || "Untitled"}
+        <div className="flex min-w-0 items-baseline gap-2 text-token-foreground">
+          {item.page.pageKey ? (
+            <span className="shrink-0 text-xs font-medium tabular-nums text-token-description-foreground">
+              {decorations?.pageKeySegments
+                ? renderSegments(decorations.pageKeySegments, `${item.id}:page-key`)
+                : item.page.pageKey}
+            </span>
+          ) : null}
+          <span className="min-w-0 truncate">
+            {decorations?.titleSegments
+              ? renderSegments(decorations.titleSegments, `${item.id}:title`)
+              : item.page.title || "Untitled"}
+          </span>
+          {item.pageKeyMatch && !item.pageKeyMatch.isCurrent ? (
+            <span className="shrink-0 text-[11px] tabular-nums text-token-description-foreground">
+              Matched {item.pageKeyMatch.matchedPageKey}
+            </span>
+          ) : null}
         </div>
         {showSubtitle ? (
           <div className="truncate text-xs text-token-description-foreground">

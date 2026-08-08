@@ -7,11 +7,12 @@ use nodex_core_contracts::collection::{
 };
 use nodex_core_contracts::database::{
     DatabaseContainerRecord, DatabaseDataSourceDescriptor, DatabaseDataSourceRecord,
-    DatabaseDescriptor, DatabaseIdentityTarget, DatabasePropertyDescriptor, DatabasePropertyOption,
-    DatabaseRead, DatabaseReadValue, DatabaseRowsTarget, DatabaseViewCollapsedOccurrences,
-    DatabaseViewContext, DatabaseViewDisclosureTarget, DatabaseViewLayout,
-    DatabaseViewPersonalPresentation, DatabaseViewPresentationOverrideInput,
-    DatabaseViewReadTarget, DatabaseViewRecord,
+    DatabaseDescriptor, DatabaseIdentityTarget, DatabasePageKeyNamespace,
+    DatabasePageKeyPrefixAvailability, DatabasePageKeyPrefixPreview, DatabasePropertyDescriptor,
+    DatabasePropertyOption, DatabaseRead, DatabaseReadValue, DatabaseRetiredPageKeyPrefix,
+    DatabaseRowsTarget, DatabaseViewCollapsedOccurrences, DatabaseViewContext,
+    DatabaseViewDisclosureTarget, DatabaseViewLayout, DatabaseViewPersonalPresentation,
+    DatabaseViewPresentationOverrideInput, DatabaseViewReadTarget, DatabaseViewRecord,
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::{Map, Value, json};
@@ -26,6 +27,7 @@ use super::authorization::{authorize_database, authorize_required, project_prima
 use super::is_trusted_library_database_context;
 
 pub(crate) struct PageDataSourceProjection {
+    pub page_key: Option<String>,
     pub membership_id: String,
     pub data_source_id: String,
     pub membership_revision: i64,
@@ -158,6 +160,12 @@ pub(crate) fn page_data_source_projection(
         &mut values,
     )?;
     Ok(PageDataSourceProjection {
+        page_key: super::current_page_key_for_database_page(
+            connection,
+            library_id,
+            &database_id,
+            page_id,
+        )?,
         membership_id: membership_id.clone(),
         data_source_id: membership_source_id.clone(),
         membership_revision: *revision,
@@ -231,6 +239,77 @@ pub(crate) fn read_at_commit_head(
             )?;
             DatabaseReadValue::Database {
                 value: database_descriptor(connection, library_id, &database_id)?,
+            }
+        }
+        DatabaseRead::PageKeyPrefixPreview {
+            database_id,
+            name_hint,
+            requested_prefix,
+        } => {
+            if let Some(database_id) = database_id.as_deref() {
+                authorize_required(
+                    connection,
+                    project_id,
+                    primary_database_id.as_deref(),
+                    database_id,
+                )?;
+            }
+            let preview = super::preview_page_key_prefix(
+                connection,
+                library_id,
+                &name_hint,
+                requested_prefix.as_deref(),
+                database_id.as_deref(),
+            )?;
+            let availability = match preview.availability {
+                super::page_key::PageKeyPrefixAvailability::Available => {
+                    DatabasePageKeyPrefixAvailability::Available
+                }
+                super::page_key::PageKeyPrefixAvailability::Current => {
+                    DatabasePageKeyPrefixAvailability::Current
+                }
+                super::page_key::PageKeyPrefixAvailability::Reserved => {
+                    DatabasePageKeyPrefixAvailability::Reserved
+                }
+            };
+            DatabaseReadValue::PageKeyPrefixPreview {
+                value: DatabasePageKeyPrefixPreview {
+                    example_keys: page_key_examples(&preview.prefix, preview.next_number)?,
+                    prefix: preview.prefix,
+                    availability,
+                    alternative_prefix: preview.alternative_prefix,
+                    next_number: preview.next_number,
+                },
+            }
+        }
+        DatabaseRead::PageKeyNamespace { database_id } => {
+            authorize_required(
+                connection,
+                project_id,
+                primary_database_id.as_deref(),
+                &database_id,
+            )?;
+            let settings =
+                super::page_key_namespace_settings(connection, library_id, &database_id)?
+                    .ok_or_else(|| {
+                        not_found("Page-key namespace is not enabled for this Database")
+                    })?;
+            DatabaseReadValue::PageKeyNamespace {
+                value: DatabasePageKeyNamespace {
+                    database_id,
+                    current_prefix: settings.current_prefix,
+                    next_number: settings.next_number,
+                    assigned_page_count: settings.assigned_page_count,
+                    revision: settings.revision,
+                    retired_prefixes: settings
+                        .retired_prefixes
+                        .into_iter()
+                        .map(|prefix| DatabaseRetiredPageKeyPrefix {
+                            prefix: prefix.prefix,
+                            last_number: prefix.last_number,
+                        })
+                        .collect(),
+                },
             }
         }
         DatabaseRead::DataSourceWindow {
@@ -684,6 +763,23 @@ pub(crate) fn read_at_commit_head(
     };
     hydrate_relation_previews(connection, library_id, project_id, &mut value)?;
     Ok(value)
+}
+
+fn page_key_examples(prefix: &str, next_number: i64) -> Result<Vec<String>, StoreError> {
+    (0_i64..3)
+        .map(|offset| {
+            next_number
+                .checked_add(offset)
+                .map(|number| format!("{prefix}-{number}"))
+                .ok_or_else(|| {
+                    StoreError::new(
+                        StoreErrorCode::ResourceExhausted,
+                        "Page-key namespace cannot produce another preview example",
+                        false,
+                    )
+                })
+        })
+        .collect()
 }
 
 struct ResolvedViewReadTarget {

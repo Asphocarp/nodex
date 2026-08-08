@@ -22,6 +22,7 @@ import {
   filterOperatorsForProperty,
   databaseViewConfigsEqual,
   databaseViewMoveBeforeId,
+  emptyDatabaseViewConfig,
   moveDatabaseViewSort,
   removeDatabaseViewFilterNode,
   updateDatabaseViewFilterNode,
@@ -73,6 +74,14 @@ const view = (id: string): DatabaseViewRecordV2 => ({
 });
 
 describe("durable Database View authoring", () => {
+  test("defaults readable ID to List while keeping Board opt-in", () => {
+    const config = emptyDatabaseViewConfig();
+    expect(config.presentation.layouts.board.fields).toEqual([]);
+    expect(config.presentation.layouts.list.fields).toEqual([
+      { kind: "intrinsic", field: "page_key" },
+    ]);
+  });
+
   test("derives server-owned logical anchors for adjacent View moves", () => {
     const views = [view("a"), view("b"), view("c")];
     expect(databaseViewMoveBeforeId(views, "b", "up")).toBe("a");

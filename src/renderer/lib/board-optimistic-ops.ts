@@ -345,6 +345,7 @@ export function buildPatchPageTransform(
 export function createOptimisticCard(input: PageCreateInput): DatabasePageSummary {
   return {
     id: input.id ?? `optimistic:${crypto.randomUUID()}`,
+    pageKey: null,
     status: input.status ?? DEFAULT_WORKFLOW_STATUS,
     archived: false,
     title: input.title,

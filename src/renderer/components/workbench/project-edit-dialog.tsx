@@ -1,5 +1,6 @@
 import {
   useId,
+  useRef,
   useState,
   type Dispatch,
   type DragEvent,
@@ -7,6 +8,7 @@ import {
   type ReactNode,
   type SetStateAction,
 } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion } from "motion/react";
 import {
   CloseIcon,
@@ -28,16 +30,41 @@ import {
   NodexDialogHeader,
   NodexDialogTitle,
 } from "@/components/ui/dialog";
-import { toast } from "@/components/ui/toast";
 import { NodexTooltip } from "@/components/ui/tooltip";
-import { invoke } from "@/lib/api";
+import {
+  CoreApiError,
+  invoke,
+} from "@/lib/api";
 import {
   dedupeSourceRoots,
   makeSourceRootPrimary,
   sourceRootDisplayName,
 } from "@/lib/project-sources";
-import type { Project, ProjectLifecycleMutationResult } from "@/lib/types";
+import {
+  isPlausiblePageKeyPrefixDraft,
+  normalizePageKeyPrefixInput,
+} from "../../../shared/page-key";
+import type {
+  Project,
+  ProjectLifecycleMutationResult,
+} from "@/lib/types";
 import { cn } from "@/lib/utils";
+import {
+  projectPageKeyEditorModel,
+  type ProjectPageKeySaveFailure,
+} from "@/lib/project-page-key-editor-model";
+import { queryKeys } from "@/lib/query-keys";
+import {
+  usePageKeyPrefixPreview,
+  type PageKeyPrefixPreviewReader,
+} from "@/lib/use-page-key-prefix-preview";
+import {
+  DatabasePageKeyRuntimeError,
+  previewDatabasePageKeyPrefix,
+  readDatabasePageKeyNamespace,
+  renameDatabasePageKeyPrefix,
+  type DatabasePageKeyNamespaceAuthority,
+} from "@/lib/database-page-key-runtime";
 import { ProjectMarkerPicker } from "./project-marker-picker";
 import { ProjectRemoveDialog } from "./project-remove-dialog";
 
@@ -46,8 +73,26 @@ const PRIMARY_SOURCE_TOOLTIP = "ChatGPT will run in this folder and look inside 
 export interface ProjectDialogSubmitInput {
   appearance: ProjectAppearance;
   name: string;
+  /** Present only for the Workspace-owned create aggregate. */
+  pageKeyPrefix?: string;
   sources: string[];
 }
+
+export interface DatabasePageKeyAuthority {
+  readonly previewPrefix: PageKeyPrefixPreviewReader;
+  readonly readNamespace: (
+    projectId: string,
+    databaseId: string,
+  ) => Promise<DatabasePageKeyNamespaceAuthority>;
+  readonly renamePrefix: typeof renameDatabasePageKeyPrefix;
+}
+
+const DEFAULT_PAGE_KEY_AUTHORITY: DatabasePageKeyAuthority = {
+  previewPrefix: previewDatabasePageKeyPrefix,
+  readNamespace: async (projectId, databaseId) =>
+    await readDatabasePageKeyNamespace({ projectId, databaseId }),
+  renamePrefix: renameDatabasePageKeyPrefix,
+};
 
 function collectDroppedFolderPaths(dataTransfer: DataTransfer): string[] {
   const getPathForFile = window.api?.getPathForFile;
@@ -216,6 +261,9 @@ export function ProjectSourcesEditor({
 }
 
 function ProjectEditorForm({
+  mode,
+  projectId,
+  databaseId,
   title,
   submitLabel,
   saveErrorMessage,
@@ -225,7 +273,11 @@ function ProjectEditorForm({
   onSubmit,
   onClose,
   onRemoveProject,
+  pageKeyAuthority,
 }: {
+  mode: "create" | "edit";
+  projectId?: string;
+  databaseId?: string;
   title: string;
   submitLabel: string;
   saveErrorMessage: string;
@@ -235,23 +287,136 @@ function ProjectEditorForm({
   onSubmit: (input: ProjectDialogSubmitInput) => Promise<void>;
   onClose: () => void;
   onRemoveProject?: () => void;
+  pageKeyAuthority: DatabasePageKeyAuthority;
 }) {
+  const queryClient = useQueryClient();
   const nameInputId = useId();
+  const pageKeyInputId = useId();
   const [name, setName] = useState(initialName);
+  const [pageKeyPrefix, setPageKeyPrefix] = useState("");
+  const [pageKeyPrefixIsManual, setPageKeyPrefixIsManual] = useState(false);
+  const [pageKeyExpanded, setPageKeyExpanded] = useState(false);
   const [appearance, setAppearance] = useState(initialAppearance);
   const [sources, setSources] = useState<string[]>(() => dedupeSourceRoots(initialSources));
   const [saving, setSaving] = useState(false);
+  const [saveFailure, setSaveFailure] = useState<ProjectPageKeySaveFailure | null>(null);
+  const [metadataCommitted, setMetadataCommitted] = useState(false);
+  const readNamespaceRef = useRef(pageKeyAuthority.readNamespace);
+  readNamespaceRef.current = pageKeyAuthority.readNamespace;
+
+  // The reader is an injectable transport, not part of the server-state identity.
+  // eslint-disable-next-line @tanstack/query/exhaustive-deps
+  const settingsQuery = useQuery({
+    queryKey: queryKeys.pageKeys.namespace(databaseId ?? "create"),
+    queryFn: async () => {
+      if (!projectId || !databaseId) {
+        throw new Error("Project and Database identities are required for Page-key settings");
+      }
+      return await readNamespaceRef.current(projectId, databaseId);
+    },
+    enabled: mode === "edit"
+      && pageKeyExpanded
+      && projectId !== undefined
+      && databaseId !== undefined,
+    staleTime: 0,
+    retry: false,
+  });
+  const settings = settingsQuery.data?.namespace;
+  const authorityCurrentPrefix = settings?.currentPrefix;
+  const preview = usePageKeyPrefixPreview({
+    enabled: mode === "create" || (pageKeyExpanded && settings !== undefined),
+    projectId: mode === "edit" ? projectId : undefined,
+    databaseId: mode === "edit" ? databaseId : undefined,
+    nameHint: name,
+    readPreview: pageKeyAuthority.previewPrefix,
+    requestedPrefix: pageKeyPrefixIsManual
+      ? pageKeyPrefix
+      : mode === "edit"
+        ? authorityCurrentPrefix
+        : undefined,
+  });
+  const effectiveDraftPrefix = pageKeyPrefixIsManual
+    ? pageKeyPrefix
+    : "prefix" in preview && preview.prefix
+      ? preview.prefix
+      : authorityCurrentPrefix ?? "";
+  const settingsStatus = !pageKeyExpanded || mode === "create"
+    ? "idle"
+    : settingsQuery.isPending
+    ? "loading"
+    : settingsQuery.error
+    ? "error"
+    : "ready";
+  const pageKeyModel = projectPageKeyEditorModel({
+    mode,
+    expanded: pageKeyExpanded,
+    draftPrefix: effectiveDraftPrefix,
+    currentPrefix: authorityCurrentPrefix,
+    preview,
+    settings,
+    settingsStatus,
+    saveFailure,
+  });
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    if (saving) return;
+    if (saving || !pageKeyModel.canSubmit) return;
     setSaving(true);
+    setSaveFailure(null);
+    let detailsWereCommitted = metadataCommitted;
     try {
-      await onSubmit({ appearance, name, sources });
+      if (!metadataCommitted) {
+        await onSubmit({
+          appearance,
+          name,
+          ...(mode === "create" ? { pageKeyPrefix: pageKeyModel.prefix } : {}),
+          sources,
+        });
+        detailsWereCommitted = true;
+        setMetadataCommitted(true);
+      }
+      const shouldRename = mode === "edit"
+        && pageKeyExpanded
+        && pageKeyModel.prefix !== authorityCurrentPrefix;
+      if (shouldRename) {
+        if (!projectId || !databaseId || !settingsQuery.data) {
+          throw new Error("Page-key namespace authority is not ready");
+        }
+        await pageKeyAuthority.renamePrefix({
+          projectId,
+          databaseId,
+          storeEpoch: settingsQuery.data.storeEpoch,
+          expectedRevision: settingsQuery.data.namespace.revision,
+          prefix: pageKeyModel.prefix,
+        });
+      }
       onClose();
-    } catch {
+    } catch (error) {
       setSaving(false);
-      toast.danger(saveErrorMessage);
+      const failure = error instanceof CoreApiError
+        || error instanceof DatabasePageKeyRuntimeError
+        ? {
+            code: error.code,
+            message: error.message,
+            retryable: error.retryable,
+            detailsSaved: detailsWereCommitted,
+          }
+        : {
+            code: "core_unavailable",
+            message: error instanceof Error ? error.message : saveErrorMessage,
+            retryable: true,
+            detailsSaved: detailsWereCommitted,
+          };
+      setSaveFailure(failure);
+      if (
+        failure.code === "identity_conflict"
+        || failure.code === "revision_conflict"
+      ) {
+        await queryClient.invalidateQueries({
+          queryKey: queryKeys.pageKeys.namespace(databaseId ?? "create"),
+        });
+        if (mode === "edit") await settingsQuery.refetch();
+      }
     }
   };
 
@@ -269,7 +434,10 @@ function ProjectEditorForm({
             <div className="flex h-full w-10 shrink-0 items-center justify-center border-r border-token-border">
               <ProjectMarkerPicker
                 appearance={appearance}
-                onAppearanceChange={setAppearance}
+                onAppearanceChange={(nextAppearance) => {
+                  setAppearance(nextAppearance);
+                  setMetadataCommitted(false);
+                }}
                 projectName={name.trim() || "Untitled project"}
                 pending={saving}
                 headerLabel={name.trim() || "Untitled project"}
@@ -282,14 +450,131 @@ function ProjectEditorForm({
               autoFocus
               className="min-w-0 flex-1 bg-transparent text-sm text-token-input-foreground outline-none placeholder:text-token-description-foreground"
               value={name}
-              onChange={(event) => setName(event.target.value)}
+              onChange={(event) => {
+                const nextName = event.target.value;
+                setName(nextName);
+                setMetadataCommitted(false);
+                setSaveFailure(null);
+              }}
               placeholder="Project name"
               aria-label="Project name"
             />
           </div>
+          {!pageKeyExpanded ? (
+            <div className="flex min-h-8 items-center justify-between gap-3 px-1">
+              <span
+                className="min-w-0 truncate text-xs tabular-nums text-token-description-foreground"
+                aria-live="polite"
+              >
+                {mode === "create"
+                  ? pageKeyModel.summary
+                  : "Page key settings"}
+              </span>
+              <button
+                type="button"
+                className="shrink-0 cursor-interaction text-xs font-medium text-token-text-secondary hover:text-token-text-primary focus-visible:ring-2 focus-visible:ring-token-focus-border focus-visible:outline-none"
+                onClick={() => {
+                  setPageKeyExpanded(true);
+                  setSaveFailure(null);
+                }}
+              >
+                Change
+              </button>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-1.5 px-1">
+              <div className="flex h-10 shrink-0 items-center gap-2 rounded-xl border border-token-border bg-token-input-background px-3 focus-within:border-token-focus-border">
+                <label
+                  htmlFor={pageKeyInputId}
+                  className="shrink-0 text-xs text-token-text-secondary"
+                >
+                  Page key prefix
+                </label>
+                <input
+                  id={pageKeyInputId}
+                  className="min-w-0 flex-1 bg-transparent text-right text-sm tabular-nums text-token-input-foreground uppercase outline-none placeholder:text-token-description-foreground"
+                  value={effectiveDraftPrefix}
+                  maxLength={8}
+                  spellCheck={false}
+                  aria-invalid={
+                    !isPlausiblePageKeyPrefixDraft(effectiveDraftPrefix)
+                    || preview.kind === "reserved"
+                    || pageKeyModel.prefixError !== null
+                  }
+                  onChange={(event) => {
+                    setPageKeyPrefixIsManual(true);
+                    setPageKeyPrefix(event.target.value.toUpperCase());
+                    setSaveFailure(null);
+                  }}
+                  onBlur={() => {
+                    setPageKeyPrefix((value) => normalizePageKeyPrefixInput(value));
+                  }}
+                />
+              </div>
+              <div className="flex min-h-5 items-start justify-between gap-3">
+                <p
+                  className={cn(
+                    "text-xs",
+                    preview.kind === "reserved" || pageKeyModel.prefixError
+                      ? "text-token-error-foreground"
+                      : "text-token-description-foreground",
+                  )}
+                  aria-live="polite"
+                >
+                  {pageKeyModel.prefixError ?? pageKeyModel.statusText}
+                </p>
+                {pageKeyModel.suggestedPrefix ? (
+                  <button
+                    type="button"
+                    className="shrink-0 cursor-interaction text-xs font-medium text-token-text-secondary hover:text-token-text-primary focus-visible:ring-2 focus-visible:ring-token-focus-border focus-visible:outline-none"
+                    onClick={() => {
+                      setPageKeyPrefixIsManual(true);
+                      setPageKeyPrefix(pageKeyModel.suggestedPrefix ?? effectiveDraftPrefix);
+                      setSaveFailure(null);
+                    }}
+                  >
+                    Use {pageKeyModel.suggestedPrefix}
+                  </button>
+                ) : null}
+              </div>
+              {pageKeyModel.impactText ? (
+                <p className="text-xs leading-5 text-token-description-foreground">
+                  {pageKeyModel.impactText}
+                </p>
+              ) : null}
+              {pageKeyModel.history.length > 0 ? (
+                <div className="divide-y divide-token-border-subtle border-y border-token-border-subtle">
+                  {pageKeyModel.history.map((history) => (
+                    <div
+                      key={history.prefix}
+                      className="flex items-baseline justify-between gap-3 py-1.5 text-xs"
+                    >
+                      <span className="text-token-text-secondary">
+                        Previous prefix · {history.prefix}
+                      </span>
+                      <span className="text-right tabular-nums text-token-description-foreground">
+                        {history.detail}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          )}
+          {pageKeyModel.formError ? (
+            <p className="px-1 text-xs leading-5 text-token-error-foreground" role="alert">
+              {pageKeyModel.formError}
+            </p>
+          ) : null}
         </div>
       </NodexDialogBody>
-      <ProjectSourcesEditor sources={sources} setSources={setSources} />
+      <ProjectSourcesEditor
+        sources={sources}
+        setSources={(next) => {
+          setMetadataCommitted(false);
+          setSources(next);
+        }}
+      />
       <NodexDialogBody className="mt-auto !pt-5">
         <div className="flex w-full items-center justify-between gap-3">
           <div className="flex items-center gap-3">
@@ -315,7 +600,7 @@ function ProjectEditorForm({
             <NodexDialogAction
               tone="primary"
               type="submit"
-              disabled={saving}
+              disabled={saving || !pageKeyModel.canSubmit}
             >
               {submitLabel}
             </NodexDialogAction>
@@ -354,6 +639,7 @@ interface ProjectEditDialogProps {
   readonly project: Project;
   readonly onClose: () => void;
   readonly onSubmit: (input: ProjectDialogSubmitInput) => Promise<void>;
+  readonly pageKeyAuthority?: DatabasePageKeyAuthority;
   readonly onArchiveProject?: (
     projectId: string,
   ) => Promise<ProjectLifecycleMutationResult>;
@@ -364,6 +650,7 @@ function ProjectEditDialogContent({
   onClose,
   onSubmit,
   onArchiveProject,
+  pageKeyAuthority = DEFAULT_PAGE_KEY_AUTHORITY,
 }: ProjectEditDialogProps) {
   const [removeOpen, setRemoveOpen] = useState(false);
   const initialSources = project.sources
@@ -374,6 +661,9 @@ function ProjectEditDialogContent({
     <>
       <ProjectDialogShell onClose={onClose}>
         <ProjectEditorForm
+          mode="edit"
+          projectId={project.id}
+          databaseId={project.databaseId}
           title="Edit project"
           submitLabel="Save"
           saveErrorMessage="Failed to save project"
@@ -383,6 +673,7 @@ function ProjectEditDialogContent({
           onSubmit={onSubmit}
           onClose={onClose}
           onRemoveProject={onArchiveProject ? () => setRemoveOpen(true) : undefined}
+          pageKeyAuthority={pageKeyAuthority}
         />
       </ProjectDialogShell>
       {removeOpen && onArchiveProject ? (
@@ -418,13 +709,16 @@ export function ProjectEditDialog(props: ProjectEditDialogProps) {
 export function ProjectCreateDialog({
   onClose,
   onCreate,
+  pageKeyAuthority = DEFAULT_PAGE_KEY_AUTHORITY,
 }: {
   onClose: () => void;
   onCreate: (input: ProjectDialogSubmitInput) => Promise<void>;
+  pageKeyAuthority?: DatabasePageKeyAuthority;
 }) {
   return (
     <ProjectDialogShell onClose={onClose}>
       <ProjectEditorForm
+        mode="create"
         title="Create project"
         submitLabel="Create project"
         saveErrorMessage="Failed to create project"
@@ -433,6 +727,7 @@ export function ProjectCreateDialog({
         initialSources={[]}
         onSubmit={onCreate}
         onClose={onClose}
+        pageKeyAuthority={pageKeyAuthority}
       />
     </ProjectDialogShell>
   );

@@ -20,7 +20,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("./api", () => ({
-  invoke: mocks.invoke,
+  invokeCoreResult: mocks.invoke,
 }));
 
 vi.mock("@/components/ui/toast", () => ({

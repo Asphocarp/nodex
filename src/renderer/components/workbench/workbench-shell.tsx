@@ -109,9 +109,9 @@ export function WorkbenchShell({
     loading,
     error: projectsError,
     refresh: refreshProjects,
-    createProject,
+    createProjectOrThrow,
     archiveProject,
-    updateProject,
+    updateProjectOrThrow,
     reorderProjects,
     setProjectPinned,
     setPinnedProjectOrder,
@@ -189,13 +189,13 @@ export function WorkbenchShell({
 
   const handleCreateProject = useCallback(
     async (input: ProjectCreateInput) => {
-      const result = await createProject(input);
+      const result = await createProjectOrThrow(input);
       if (result) {
         setDbProjectState(result.id);
       }
       return result;
     },
-    [createProject, setDbProjectState],
+    [createProjectOrThrow, setDbProjectState],
   );
 
   const handleArchiveProject = useCallback(
@@ -205,8 +205,8 @@ export function WorkbenchShell({
 
   const handleUpdateProject = useCallback(
     async (projectId: string, updates: ProjectUpdateInput) =>
-      await updateProject(projectId, updates),
-    [updateProject],
+      await updateProjectOrThrow(projectId, updates),
+    [updateProjectOrThrow],
   );
 
   const handleReorderProjects = useCallback(

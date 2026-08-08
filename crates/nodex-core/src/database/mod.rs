@@ -2,6 +2,7 @@ pub(crate) mod authorization;
 mod genesis;
 mod list_drag;
 mod mutation;
+pub(crate) mod page_key;
 mod projection_delta;
 pub(crate) mod property_semantics;
 pub(crate) mod read;
@@ -34,6 +35,11 @@ pub(crate) use mutation::{
     validate_page_copy_data_source_destination_prevalidated, validate_page_copy_data_source_source,
     validate_page_transfer_data_source_source,
     validate_page_transfer_data_source_source_prevalidated,
+};
+pub(crate) use page_key::{
+    create_page_key_namespace, current_page_key_for_database_page, current_page_key_for_page,
+    ensure_database_page_key, page_key_namespace_settings, preview_page_key_prefix,
+    rename_page_key_prefix, resolve_page_key_matches_in_library,
 };
 pub(crate) use projection_delta::{
     record_local_projection_delta, record_page_detail_projection_delta,
@@ -209,9 +215,9 @@ fn core_error(error: StoreError) -> CoreError {
         StoreErrorCode::PatchAmbiguous => CoreErrorCode::PatchAmbiguous,
         StoreErrorCode::PatchOverlap => CoreErrorCode::PatchOverlap,
         StoreErrorCode::StaleStoreEpoch => CoreErrorCode::StaleStoreEpoch,
-        StoreErrorCode::Conflict
-        | StoreErrorCode::HeadConflict
-        | StoreErrorCode::RevisionConflict => CoreErrorCode::RevisionConflict,
+        StoreErrorCode::Conflict => CoreErrorCode::Conflict,
+        StoreErrorCode::HeadConflict => CoreErrorCode::HeadConflict,
+        StoreErrorCode::RevisionConflict => CoreErrorCode::RevisionConflict,
         StoreErrorCode::IdempotencyKeyReused => CoreErrorCode::IdempotencyKeyReused,
         StoreErrorCode::ProtectedOwnerDeletion => CoreErrorCode::ProtectedOwnerDeletion,
         StoreErrorCode::UnsupportedSchema => CoreErrorCode::SchemaUnsupported,
@@ -274,14 +280,14 @@ mod tests {
         DatabaseAgentDataSourceQuery, DatabaseAgentViewQuery, DatabaseGroupScope, DatabaseIntent,
         DatabaseListMoveEdge, DatabaseListMoveSelection, DatabaseListMoveTarget,
         DatabaseListProjectionExpectation, DatabaseListProjectionRow, DatabaseListTransientKind,
-        DatabaseOperationOutcome, DatabasePagePropertyAddress, DatabasePropertySchema,
-        DatabasePropertySetDelta, DatabasePropertyValueEdit, DatabasePropertyValueInput,
-        DatabasePropertyValueMutation, DatabaseRowsTarget, DatabaseTaskParentPage,
-        DatabaseTransferTarget, DatabaseViewCompletedRangeInput,
+        DatabaseOperationOutcome, DatabasePageKeyPrefixAvailability, DatabasePagePropertyAddress,
+        DatabasePropertySchema, DatabasePropertySetDelta, DatabasePropertyValueEdit,
+        DatabasePropertyValueInput, DatabasePropertyValueMutation, DatabaseRowsTarget,
+        DatabaseTaskParentPage, DatabaseTransferTarget, DatabaseViewCompletedRangeInput,
         DatabaseViewCompletionOverrideInput, DatabaseViewDefinition, DatabaseViewDisclosureTarget,
         DatabaseViewFieldInput, DatabaseViewFilter, DatabaseViewFilterGroupOperator,
-        DatabaseViewFilterOperator, DatabaseViewGroupOverrideInput, DatabaseViewLayout,
-        DatabaseViewLayoutDisplayOverrideInput, DatabaseViewLayoutInput,
+        DatabaseViewFilterOperator, DatabaseViewGroupOverrideInput, DatabaseViewIntrinsicField,
+        DatabaseViewLayout, DatabaseViewLayoutDisplayOverrideInput, DatabaseViewLayoutInput,
         DatabaseViewLayoutsOverrideInput, DatabaseViewNullOrder, DatabaseViewPersonalPresentation,
         DatabaseViewPresentationOverrideInput, DatabaseViewReadTarget, DatabaseViewSort,
         DatabaseViewSortDirection, DatabaseViewSortDirectionInput, DatabaseViewSortField,
@@ -4498,6 +4504,143 @@ mod tests {
     }
 
     #[test]
+    fn database_page_key_namespace_reads_and_rename_share_one_causal_commit() {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        let kernel = SqliteStoreKernel::open_test(&home).expect("fresh store");
+        let module = seed_grouped_fixture(
+            &kernel,
+            vec![GroupRowSpec {
+                page_id: "page:page-key-row",
+                title: "Page-key row",
+                value_json: None,
+                rank_key: Some("a"),
+            }],
+        );
+        kernel
+            .writer()
+            .call(|connection| {
+                with_immediate_transaction(connection, |transaction| {
+                    create_page_key_namespace(
+                        transaction,
+                        "library-1",
+                        DATABASE_ID,
+                        Some("LAB"),
+                        "Lab",
+                        NOW,
+                    )?;
+                    ensure_database_page_key(
+                        transaction,
+                        "library-1",
+                        DATABASE_ID,
+                        "page:page-key-row",
+                        NOW,
+                    )?;
+                    Ok(())
+                })
+            })
+            .expect("enable Database Page-key namespace");
+
+        let preview = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    read: DatabaseRead::PageKeyPrefixPreview {
+                        database_id: Some(DATABASE_ID.to_owned()),
+                        name_hint: "Lab".to_owned(),
+                        requested_prefix: Some("lab".to_owned()),
+                    },
+                },
+            )
+            .expect("preview current Database prefix");
+        let DatabaseReadValue::PageKeyPrefixPreview { value: preview } = preview.value else {
+            panic!("Page-key prefix preview");
+        };
+        assert_eq!(preview.prefix, "LAB");
+        assert_eq!(
+            preview.availability,
+            DatabasePageKeyPrefixAvailability::Current
+        );
+        assert_eq!(preview.next_number, 2);
+        assert_eq!(preview.example_keys, ["LAB-2", "LAB-3", "LAB-4"]);
+
+        let namespace = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    read: DatabaseRead::PageKeyNamespace {
+                        database_id: DATABASE_ID.to_owned(),
+                    },
+                },
+            )
+            .expect("read Database Page-key namespace");
+        let DatabaseReadValue::PageKeyNamespace { value: namespace } = namespace.value else {
+            panic!("Page-key namespace");
+        };
+        assert_eq!(namespace.current_prefix, "LAB");
+        assert_eq!(namespace.assigned_page_count, 1);
+        assert_eq!(namespace.revision, 1);
+
+        let renamed = module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    operation_id: "operation:rename-page-key-prefix".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: vec![DatabaseIntent::RenamePageKeyPrefix {
+                        database_id: DATABASE_ID.to_owned(),
+                        expected_revision: 1,
+                        prefix: "RND".to_owned(),
+                    }],
+                },
+            )
+            .expect("rename Database Page-key prefix");
+        assert_eq!(
+            renamed
+                .committed
+                .receipt
+                .committed_revisions
+                .get(&format!("page_key_namespace:{DATABASE_ID}")),
+            Some(&2),
+        );
+
+        let manifest = kernel
+            .readers()
+            .read_default(|connection| {
+                crate::infrastructure::local_commit::read_manifest(
+                    connection,
+                    renamed.committed.commit_seq,
+                )
+            })
+            .expect("Page-key rename CommitManifest");
+        assert!(manifest.projection_effects.iter().any(|effect| {
+            matches!(
+                &effect.scope.scope,
+                LocalProjectionScope::DatabaseView { database_id, .. }
+                    if database_id == DATABASE_ID
+            ) && effect.patch.is_none()
+        }));
+        assert!(manifest.projection_effects.iter().any(|effect| {
+            matches!(
+                &effect.scope.scope,
+                LocalProjectionScope::PageDetailDatabase { database_id, .. }
+                    if database_id == DATABASE_ID
+            )
+        }));
+        assert!(!manifest.projection_effects.iter().any(|effect| {
+            matches!(
+                &effect.patch,
+                Some(LocalProjectionPatch::PageChanged { .. })
+                    | Some(LocalProjectionPatch::DatabaseRowUpsert { .. })
+                    | Some(LocalProjectionPatch::DatabaseRowRemove { .. })
+            )
+        }));
+    }
+
+    #[test]
     fn schedule_index_follows_direct_property_edits_and_schema_deletion() {
         let directory = tempdir().expect("Profile");
         let home = directory.path().canonicalize().expect("absolute Profile");
@@ -5993,7 +6136,7 @@ mod tests {
                 }),
                 list: Some(DatabaseViewLayoutDisplayOverrideInput {
                     fields: Some(vec![DatabaseViewFieldInput::Intrinsic {
-                        field: "page_id".to_owned(),
+                        field: DatabaseViewIntrinsicField::PageKey,
                     }]),
                     show_empty_groups: None,
                 }),

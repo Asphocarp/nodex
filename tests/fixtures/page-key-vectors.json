@@ -1,0 +1,37 @@
+{
+  "prefixes": [
+    { "input": "lab", "canonical": "LAB" },
+    { "input": "PROJECT8", "canonical": "PROJECT8" },
+    { "input": "A", "canonical": null },
+    { "input": "1A", "canonical": null },
+    { "input": "A-B", "canonical": null },
+    { "input": "A_B", "canonical": null },
+    { "input": "ABCDEFGHI", "canonical": null },
+    { "input": "研发", "canonical": null }
+  ],
+  "suggestions": [
+    { "name": "Lab", "prefix": "LAB" },
+    { "name": "Research and Development", "prefix": "RAD" },
+    { "name": "A", "prefix": "AX" },
+    { "name": "2026 Lab", "prefix": "LAB" },
+    { "name": "Lab 13", "prefix": "L1" },
+    { "name": "2026Lab", "prefix": "LAB" },
+    { "name": "研发 🧪", "prefix": "NX" },
+    { "name": "Déjà Vu", "prefix": "DJV" }
+  ],
+  "searches": [
+    { "input": "LAB-13", "candidates": ["LAB-13"] },
+    { "input": "lab-13", "candidates": ["LAB-13"] },
+    { "input": "#lab-13", "candidates": ["LAB-13"] },
+    { "input": "  lab-13  ", "candidates": ["LAB-13"] },
+    { "input": "LAB1-3", "candidates": ["LAB1-3"] },
+    { "input": "lab13", "candidates": ["LAB-13", "LAB1-3"] },
+    { "input": "nx1", "candidates": ["NX-1"] },
+    { "input": "#", "candidates": [] },
+    { "input": "##lab-13", "candidates": [] },
+    { "input": "LAB-01", "candidates": [] },
+    { "input": "lab-13 polish", "candidates": [] },
+    { "input": "#lab-13 polish", "candidates": [] },
+    { "input": "LAB-9223372036854775808", "candidates": [] }
+  ]
+}

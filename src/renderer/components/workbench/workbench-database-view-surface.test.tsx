@@ -30,7 +30,9 @@ const classicBoardAdapter = vi.hoisted(() => ({ enabled: false }));
 vi.mock("../../lib/api", () => api);
 vi.mock("@/components/board/board", () => ({ Board: () => null }));
 vi.mock("@/lib/classic-board-adapter", () => ({
-  classicBoardPreferences: () => classicBoardAdapter.enabled ? {} : null,
+  classicBoardPresentation: () => classicBoardAdapter.enabled
+    ? { prefs: {}, identity: { showPageKey: true } }
+    : null,
 }));
 vi.mock("./workbench-db-view-panel", () => ({
   DatabaseViewTabSurface: (props: Record<string, unknown>) => {

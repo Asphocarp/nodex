@@ -58,6 +58,17 @@ fn read_subject(context: &BoundModuleContext, read: &DatabaseRead) -> Option<Res
                 database_id: database_id.clone(),
             },
         }),
+        DatabaseRead::PageKeyPrefixPreview { database_id, .. } => {
+            Some(database_id.as_ref().map_or_else(
+                || context_subject(context),
+                |database_id| ResourceKey::Database {
+                    database_id: database_id.clone(),
+                },
+            ))
+        }
+        DatabaseRead::PageKeyNamespace { database_id } => Some(ResourceKey::Database {
+            database_id: database_id.clone(),
+        }),
         DatabaseRead::DataSourceWindow { database_id, .. }
         | DatabaseRead::ViewDescriptorWindow { database_id, .. } => Some(ResourceKey::Database {
             database_id: database_id.clone(),

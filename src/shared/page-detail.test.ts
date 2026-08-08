@@ -24,7 +24,7 @@ const statusPropertyId = parseDataSourcePropertyId("status");
 const memberResult = (): PageDetailResult => ({
   ok: true,
   value: {
-    version: 3,
+    version: 4,
     projectId: "project-1",
     libraryId: "library-1",
     storeEpoch: "epoch-1",
@@ -63,6 +63,7 @@ const memberResult = (): PageDetailResult => ({
     intrinsicProperties: [],
     dataSourceContext: {
       kind: "member",
+      pageKey: "PROJ-1",
       membership: {
         membershipId: "membership-1",
         dataSourceId,

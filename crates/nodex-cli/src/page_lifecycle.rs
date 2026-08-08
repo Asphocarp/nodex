@@ -82,6 +82,7 @@ pub(crate) fn create_page(
         "operation_id": committed.receipt().mutation.operation_id,
         "duplicate": committed.receipt().mutation.duplicate,
         "page_id": created.page_id,
+        "page_key": created.page_key,
         "document_id": created.document_id,
         "generation": created.document_generation,
         "head_seq": created.document_head_seq,
@@ -226,6 +227,7 @@ fn transfer_page(
             "duplicate": committed.receipt().mutation.duplicate,
             "source_page_id": copied.source_page_id,
             "page_id": copied.page_id,
+            "page_key": copied.page_key,
             "document_id": copied.document_id,
             "generation": copied.document_generation,
             "head_seq": copied.document_head_seq,
@@ -259,10 +261,17 @@ fn transfer_page(
                 "Core semantic Page movement omitted its fresh move ETag",
             )
         })?;
+        let page_key = moved.page_keys.get(&page_id).ok_or_else(|| {
+            CliError::new(
+                CliErrorCode::Internal,
+                "Core semantic Page movement omitted its current Page key",
+            )
+        })?;
         json!({
             "operation_id": committed.receipt().mutation.operation_id,
             "duplicate": committed.receipt().mutation.duplicate,
             "page_id": page_id,
+            "page_key": page_key,
             "commit_seq": committed.commit_cursor(),
             "affected": {
                 "page_ids": committed.receipt().affected_page_ids,

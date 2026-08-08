@@ -3,11 +3,11 @@ import {
   NODEX_APP_TOOL_NAMESPACE,
 } from "../../shared/nodex-agent-tools/identity";
 import {
-  NODEX_APP_V5_TOOLS,
-  NODEX_APP_V5_TOOLSET_REVISION,
-  type NodexAgentV5ToolName,
+  NODEX_APP_V6_TOOLS,
+  NODEX_APP_V6_TOOLSET_REVISION,
+  type NodexAgentV6ToolName,
 } from "../../shared/nodex-agent-tools/identity";
-import { NODEX_AGENT_V5_TOOL_CONTRACTS } from "../../shared/nodex-agent-tools/v5-contracts";
+import { NODEX_AGENT_V6_TOOL_CONTRACTS } from "../../shared/nodex-agent-tools/v6-contracts";
 import { NESTED_MARKDOWN_COMPACT_HINT } from "../../shared/nfm/agent-guide";
 import {
   DynamicToolRegistry,
@@ -16,21 +16,22 @@ import {
 
 export const NODEX_APP_V3_TOOL_NAMESPACE_DESCRIPTION = [
   NESTED_MARKDOWN_COMPACT_HINT,
+  "Page keys are human locators: resolve them with search, then use the returned canonical Page ID for fetches and every mutation.",
   "Outputs are JSON text. In Code Mode, compose dependent calls in one JavaScript pipeline, parse each result, throw on result.error, keep intermediate rows, Markdown, cursors, and ETags inside JavaScript, serialize dependent writes, and emit only a bounded summary with text().",
 ].join(" ");
 
-type NodexAgentV3ToolContracts = typeof NODEX_AGENT_V5_TOOL_CONTRACTS;
+type NodexAgentV3ToolContracts = typeof NODEX_AGENT_V6_TOOL_CONTRACTS;
 
-export type NodexAgentV3ToolInput<TTool extends NodexAgentV5ToolName> = z.output<
+export type NodexAgentV3ToolInput<TTool extends NodexAgentV6ToolName> = z.output<
   NodexAgentV3ToolContracts[TTool]["inputSchema"]
 >;
 
-export type NodexAgentV3ToolOutput<TTool extends NodexAgentV5ToolName> = z.input<
+export type NodexAgentV3ToolOutput<TTool extends NodexAgentV6ToolName> = z.input<
   NodexAgentV3ToolContracts[TTool]["outputSchema"]
 >;
 
 export type NodexAgentV3ToolHandlers<TContext> = {
-  readonly [TTool in NodexAgentV5ToolName]: (
+  readonly [TTool in NodexAgentV6ToolName]: (
     request: DynamicToolExecutionRequest<NodexAgentV3ToolInput<TTool>, TContext>,
   ) => Promise<NodexAgentV3ToolOutput<TTool>> | NodexAgentV3ToolOutput<TTool>;
 };
@@ -48,17 +49,17 @@ interface CatalogContract {
 
 function registerNodexAgentV3Tool<
   TContext,
-  TTool extends NodexAgentV5ToolName,
+  TTool extends NodexAgentV6ToolName,
 >(
   registry: DynamicToolRegistry<TContext>,
   handlers: NodexAgentV3ToolHandlers<TContext>,
   tool: TTool,
 ): void {
-  const contract = NODEX_AGENT_V5_TOOL_CONTRACTS[tool];
+  const contract = NODEX_AGENT_V6_TOOL_CONTRACTS[tool];
   registry.register({
     namespace: NODEX_APP_TOOL_NAMESPACE,
     namespaceDescription: NODEX_APP_V3_TOOL_NAMESPACE_DESCRIPTION,
-    toolsetRevision: NODEX_APP_V5_TOOLSET_REVISION,
+    toolsetRevision: NODEX_APP_V6_TOOLSET_REVISION,
     tool,
     description: contract.description,
     inputSchema: contract.inputSchema,
@@ -73,7 +74,7 @@ export function createNodexV3DynamicToolRegistry<TContext>(
   handlers: NodexAgentV3ToolHandlers<TContext>,
 ): DynamicToolRegistry<TContext> {
   const registry = new DynamicToolRegistry<TContext>();
-  for (const tool of NODEX_APP_V5_TOOLS) {
+  for (const tool of NODEX_APP_V6_TOOLS) {
     registerNodexAgentV3Tool(registry, handlers, tool);
   }
   return registry;
@@ -110,16 +111,16 @@ function createNodexCatalogOnlyRegistry(input: {
 }
 
 const nodexAgentV3CatalogRegistry = createNodexCatalogOnlyRegistry({
-  tools: NODEX_APP_V5_TOOLS,
-  contracts: NODEX_AGENT_V5_TOOL_CONTRACTS,
+  tools: NODEX_APP_V6_TOOLS,
+  contracts: NODEX_AGENT_V6_TOOL_CONTRACTS,
   namespaceDescription: NODEX_APP_V3_TOOL_NAMESPACE_DESCRIPTION,
-  toolsetRevision: NODEX_APP_V5_TOOLSET_REVISION,
+  toolsetRevision: NODEX_APP_V6_TOOLSET_REVISION,
 });
 
 export function buildNodexAgentV3DynamicToolCatalog() {
   return nodexAgentV3CatalogRegistry.buildCatalog([{
     namespace: NODEX_APP_TOOL_NAMESPACE,
-    toolsetRevision: NODEX_APP_V5_TOOLSET_REVISION,
+    toolsetRevision: NODEX_APP_V6_TOOLSET_REVISION,
   }]);
 }
 

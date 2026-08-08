@@ -37,7 +37,6 @@ import { createPortal } from "react-dom";
 import { StatusIcon } from "@/lib/status-presentation";
 import { cn } from "@/lib/utils";
 import type { DatabaseListMoveTargetV2 } from "../../../../shared/database-module-v2";
-import { databaseListPageIdentifier } from "./database-list-grid";
 import { DatabaseListPriorityIcon } from "./database-list-icons";
 import {
   databaseListDragTargetChangesPlacement,
@@ -199,12 +198,12 @@ const DatabaseListDragOverlay = ({
             <DatabaseListPriorityIcon priority={row.row.priority ?? null} />
           </span>
         ) : null}
-        {columns.identifier ? (
+        {columns.identifier && row.row.pageKey ? (
           <span
             data-list-drag-overlay-column="identifier"
-            className="shrink-0 whitespace-nowrap text-[13px] font-[450] leading-[normal] tabular-nums text-[var(--database-list-text-muted)]"
+            className="shrink-0 whitespace-nowrap text-[13px] font-[450] leading-[normal] tracking-[-0.02em] tabular-nums text-[var(--database-list-text-muted)]"
           >
-            {databaseListPageIdentifier(row.pageId)}
+            {row.row.pageKey}
           </span>
         ) : null}
         {columns.status ? (

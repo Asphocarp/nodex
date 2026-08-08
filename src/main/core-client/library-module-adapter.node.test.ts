@@ -56,7 +56,7 @@ const pageDetailSnapshot = () => ({
   value: {
     kind: "page_detail" as const,
     value: {
-      version: 3,
+      version: 4,
       library_id: identity.libraryId,
       store_epoch: identity.storeEpoch,
       commit_seq: 9,
@@ -149,6 +149,9 @@ const projectPageSearchSnapshot = () => ({
     items: [{
       project_id: "project:test",
       page_id: "page:one",
+      page_key: null,
+      matched_page_key: null,
+      matched_page_key_is_current: null,
       title: "Page One",
       status: "build" as const,
       score: 1_000_000,
@@ -1186,6 +1189,9 @@ describe("Core Library Module Adapter", () => {
     })).resolves.toEqual([{
       projectId: "project:test",
       pageId: "page:one",
+      pageKey: null,
+      matchedPageKey: null,
+      matchedPageKeyIsCurrent: null,
       title: "Page One",
       status: "build",
       score: 1_000_000,

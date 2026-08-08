@@ -5,7 +5,7 @@ import type {
   NodexAgentV3ReadCommandResult,
   NodexAgentV3ReadRequest,
 } from "../../shared/nodex-agent-tools";
-import { FetchV3OutputSchema } from "../../shared/nodex-agent-tools/v3-read-schemas";
+import { FetchV6OutputSchema } from "../../shared/nodex-agent-tools/v6-schemas";
 import { serializeInlineMarkdownTitle } from "../../shared/nfm/agent-title";
 import { extractPlainText } from "../../shared/nfm/extract-text";
 import type { RustDataAuthorityRuntime } from "./desktop-data-authority";
@@ -218,10 +218,13 @@ export async function readNativeFetch(
     return {
       ok: true,
       tool: "fetch",
-      output: FetchV3OutputSchema.parse({
+      output: FetchV6OutputSchema.parse({
         data: {
           resource: {
             id: target.block_id,
+            pageKey: ownsDocument && detail.data_source_context.kind === "member"
+              ? detail.data_source_context.page_key ?? null
+              : null,
             type: target.block_type,
             ...(title ? { title } : {}),
             lifecycle: target.lifecycle,

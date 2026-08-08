@@ -36,6 +36,9 @@ describe("Project Page destination search", () => {
       results: [{
         projectId: "beta",
         pageId: "page:release",
+        pageKey: "BETA-7",
+        matchedPageKey: "BETA-7",
+        matchedPageKeyIsCurrent: true,
         title: "Release notes",
         status: "review",
         score: 1_000_000,
@@ -51,6 +54,9 @@ describe("Project Page destination search", () => {
       columnId: "review",
       columnName: "Review",
       pageId: "page:release",
+      pageKey: "BETA-7",
+      matchedPageKey: "BETA-7",
+      matchedPageKeyIsCurrent: true,
       pageTitle: "Release notes",
       boardOrder: 0,
       score: 1_000_000,
@@ -64,6 +70,9 @@ describe("Project Page destination search", () => {
       results: [{
         projectId: "alpha",
         pageId: "page:release",
+        pageKey: "RND-7",
+        matchedPageKey: "LAB-7",
+        matchedPageKeyIsCurrent: false,
         title: "Stale title",
         status: "build",
         score: 5,
@@ -76,6 +85,9 @@ describe("Project Page destination search", () => {
       results: [{
         projectId: "alpha",
         pageId: "page:release",
+        pageKey: null,
+        matchedPageKey: null,
+        matchedPageKeyIsCurrent: null,
         title: "Canonical title",
         status: "review",
         score: 1_000_000,
@@ -88,6 +100,9 @@ describe("Project Page destination search", () => {
     expect(result.pageHits[0]).toMatchObject({
       pageTitle: "Canonical title",
       columnId: "review",
+      pageKey: "RND-7",
+      matchedPageKey: "LAB-7",
+      matchedPageKeyIsCurrent: false,
     });
   });
 });

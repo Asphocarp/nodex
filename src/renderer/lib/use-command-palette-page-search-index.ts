@@ -9,45 +9,21 @@ import {
 } from "./command-palette-page-search";
 
 interface CommandPalettePageSearchIndexState {
-  cardsKey: string;
+  pages: CommandPalettePage[];
   index: CommandPalettePageSearchIndex | null;
-}
-
-function buildPagesKey(pages: readonly CommandPalettePage[]): string {
-  return pages
-    .map((item) => [
-      item.id,
-      item.projectId,
-      item.projectName,
-      item.columnName,
-      item.inActiveProject ? "1" : "0",
-      item.recentIndex ?? "",
-      item.boardIndex,
-      item.page.revision,
-      item.page.status,
-      item.page.priority ?? "",
-      item.page.estimate ?? "",
-      item.page.archived ? "1" : "0",
-      item.page.title,
-      item.page.descriptionPreview,
-      item.page.assignee ?? "",
-      item.tagLabels.join(","),
-    ].join("\u0001"))
-    .join("\u0002");
 }
 
 export function useCommandPalettePageSearchIndex(
   pages: CommandPalettePage[],
 ): CommandPalettePageSearchIndex | null {
-  const cardsKey = useMemo(() => buildPagesKey(pages), [pages]);
-  const fastIndex = useMemo(() => {
-    void cardsKey;
-    return createCommandPalettePageFastSearchIndex(pages);
-  }, [pages, cardsKey]);
+  const fastIndex = useMemo(
+    () => createCommandPalettePageFastSearchIndex(pages),
+    [pages],
+  );
   const latestPagesRef = useRef(pages);
   latestPagesRef.current = pages;
   const [state, setState] = useState<CommandPalettePageSearchIndexState>(() => ({
-    cardsKey,
+    pages,
     index: getCachedCommandPalettePageSearchIndex(pages) ?? fastIndex,
   }));
 
@@ -57,19 +33,19 @@ export function useCommandPalettePageSearchIndex(
     const cachedIndex = getCachedCommandPalettePageSearchIndex(nextPages);
     if (cachedIndex) {
       setState((current) => (
-        current.cardsKey === cardsKey && current.index !== null
+        current.pages === nextPages && current.index !== null
           ? current
-          : { cardsKey, index: cachedIndex }
+          : { pages: nextPages, index: cachedIndex }
       ));
       return;
     }
 
     if (nextPages.length === 0) {
       setState((current) => (
-        current.cardsKey === cardsKey && current.index !== null
+        current.pages === nextPages && current.index !== null
           ? current
           : {
-            cardsKey,
+            pages: nextPages,
             index: fallbackIndex,
           }
       ));
@@ -78,10 +54,10 @@ export function useCommandPalettePageSearchIndex(
 
     if (typeof indexedDB === "undefined") {
       setState((current) => (
-        current.cardsKey === cardsKey && current.index !== null
+        current.pages === nextPages && current.index !== null
           ? current
           : {
-            cardsKey,
+            pages: nextPages,
             index: createCommandPalettePageSearchIndex(nextPages),
           }
       ));
@@ -90,9 +66,9 @@ export function useCommandPalettePageSearchIndex(
 
     let cancelled = false;
     setState((current) => (
-      current.cardsKey === cardsKey && current.index !== null
+      current.pages === nextPages && current.index !== null
         ? current
-        : { cardsKey, index: fallbackIndex }
+        : { pages: nextPages, index: fallbackIndex }
     ));
 
     void hydrateCommandPalettePageSearchIndex(nextPages)
@@ -102,7 +78,7 @@ export function useCommandPalettePageSearchIndex(
         }
 
         startTransition(() => {
-          setState({ cardsKey, index });
+          setState({ pages: nextPages, index });
         });
       })
       .catch(() => {
@@ -112,7 +88,7 @@ export function useCommandPalettePageSearchIndex(
 
         startTransition(() => {
           setState({
-            cardsKey,
+            pages: latestPagesRef.current,
             index: createCommandPalettePageSearchIndex(latestPagesRef.current),
           });
         });
@@ -121,9 +97,9 @@ export function useCommandPalettePageSearchIndex(
     return () => {
       cancelled = true;
     };
-  }, [cardsKey]);
+  }, [pages]);
 
-  if (state.cardsKey !== cardsKey) {
+  if (state.pages !== pages) {
     return fastIndex;
   }
 

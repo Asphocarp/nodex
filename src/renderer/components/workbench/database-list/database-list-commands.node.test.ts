@@ -36,4 +36,17 @@ describe("Database List command registry", () => {
     expect(databaseListMoveDirection("move-bottom")).toBe("bottom");
     expect(databaseListMoveDirection("open")).toBeNull();
   });
+
+  test("offers Page-key copy only when the row has a current key", () => {
+    const capabilities = {
+      selected: false,
+      canMoveUp: true,
+      canMoveDown: true,
+    };
+
+    expect(buildDatabaseListRowCommands(capabilities)
+      .some((command) => command.id === "copy-page-key")).toBe(false);
+    expect(buildDatabaseListRowCommands({ ...capabilities, hasPageKey: true })
+      .find((command) => command.id === "copy-page-key")?.label).toBe("Copy Page key");
+  });
 });

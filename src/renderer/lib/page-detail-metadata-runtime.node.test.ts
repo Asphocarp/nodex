@@ -87,7 +87,7 @@ const detail = (member = true): PageDetail => {
     property("p_C0nf1d3n", "number"),
   ];
   return {
-    version: 3,
+    version: 4,
     projectId: "project-1",
     libraryId: "library-1",
     storeEpoch: "epoch-1",
@@ -136,6 +136,7 @@ const detail = (member = true): PageDetail => {
     dataSourceContext: member
       ? {
           kind: "member",
+          pageKey: null,
           membership: {
             membershipId: "membership-1",
             dataSourceId,

@@ -551,6 +551,24 @@ const parseApplyOperation = (
   const operation = readRecord(value, `databaseApplyV2.operations[${index}]`);
   const label = `databaseApplyV2.operations[${index}]`;
 
+  if (operation.kind === "rename_page_key_prefix") {
+    assertExactKeys(operation, label, [
+      "kind",
+      "databaseId",
+      "expectedRevision",
+      "prefix",
+    ]);
+    return {
+      kind: "rename_page_key_prefix",
+      databaseId: readDatabaseId(operation.databaseId, `${label}.databaseId`),
+      expectedRevision: readPositiveRevision(
+        operation.expectedRevision,
+        `${label}.expectedRevision`,
+      ),
+      prefix: readString(operation.prefix, `${label}.prefix`, 8),
+    };
+  }
+
   if (operation.kind === "put_property") {
     assertExactKeys(
       operation,
@@ -1326,6 +1344,62 @@ const parseDatabaseReadV2 = (value: unknown): DatabaseReadV2 => {
     };
   }
 
+  if (target.kind === "page_key_namespace" && mode === "page_key_prefix_preview") {
+    assertExactKeys(
+      target,
+      "databaseModuleReadV2.read.target",
+      ["kind"],
+      ["databaseId"],
+    );
+    assertExactKeys(
+      read,
+      "databaseModuleReadV2.read",
+      ["target", "mode", "nameHint"],
+      ["requestedPrefix", "minimumCommitSeq"],
+    );
+    const databaseId = target.databaseId === undefined
+      ? undefined
+      : readDatabaseId(target.databaseId, "databaseModuleReadV2.databaseId");
+    const requestedPrefix = read.requestedPrefix === undefined
+      ? undefined
+      : readString(
+          read.requestedPrefix,
+          "databaseModuleReadV2.requestedPrefix",
+          8,
+        );
+    return {
+      target: {
+        kind: "page_key_namespace",
+        ...(databaseId === undefined ? {} : { databaseId }),
+      },
+      mode,
+      nameHint: readUtf8String(read.nameHint, "databaseModuleReadV2.nameHint", 256),
+      ...(requestedPrefix === undefined ? {} : { requestedPrefix }),
+      ...readBarrier,
+    };
+  }
+
+  if (target.kind === "database" && mode === "page_key_namespace") {
+    assertExactKeys(target, "databaseModuleReadV2.read.target", ["kind", "databaseId"]);
+    assertExactKeys(
+      read,
+      "databaseModuleReadV2.read",
+      ["target", "mode"],
+      ["minimumCommitSeq"],
+    );
+    return {
+      target: {
+        kind: "database",
+        databaseId: readDatabaseId(
+          target.databaseId,
+          "databaseModuleReadV2.databaseId",
+        ),
+      },
+      mode,
+      ...readBarrier,
+    };
+  }
+
   if (target.kind === "data_source" && mode === "data_source") {
     assertExactKeys(target, "databaseModuleReadV2.read.target", ["kind", "dataSourceId"]);
     assertExactKeys(
@@ -1540,6 +1614,7 @@ const DATABASE_MODULE_ERROR_CODES = new Set<DatabaseModuleErrorCodeV2>([
   "authorization_denied",
   "revision_conflict",
   "operation_id_collision",
+  "resource_exhausted",
   "identity_conflict",
   "state_corrupt",
   "unsupported_operation",
@@ -1919,6 +1994,7 @@ const parseIntrinsicProperties = (
 const parsePageRow = (value: unknown, label: string): DataSourcePageRowV2 => {
   const row = readRecord(value, label);
   assertExactKeys(row, label, [
+    "pageKey",
     "page",
     "membership",
     "values",
@@ -1991,6 +2067,9 @@ const parsePageRow = (value: unknown, label: string): DataSourcePageRowV2 => {
     ),
   };
   return {
+    pageKey: row.pageKey === null
+      ? null
+      : readString(row.pageKey, `${label}.pageKey`),
     page,
     membership: {
       membershipId: readString(membership.membershipId, `${label}.membership.membershipId`),
@@ -2102,6 +2181,96 @@ const parseReadValue = (value: unknown): DatabaseReadValueV2 => {
   }
   if (result.kind === "database") {
     return { kind: "database", value: parseContainerDescriptor(result.value, "databaseModuleReadV2.value.value") };
+  }
+  if (result.kind === "page_key_prefix_preview") {
+    const preview = readRecord(result.value, "databaseModuleReadV2.value.value");
+    assertExactKeys(preview, "databaseModuleReadV2.value.value", [
+      "prefix",
+      "availability",
+      "alternativePrefix",
+      "nextNumber",
+      "exampleKeys",
+    ]);
+    if (![
+      "available",
+      "current",
+      "reserved",
+    ].includes(String(preview.availability))) {
+      throw new TypeError("Page-key prefix availability is invalid");
+    }
+    if (!Array.isArray(preview.exampleKeys) || preview.exampleKeys.length > 3) {
+      throw new TypeError("Page-key examples must be a bounded array");
+    }
+    return {
+      kind: "page_key_prefix_preview",
+      value: {
+        prefix: readString(preview.prefix, "pageKeyPrefixPreview.prefix", 8),
+        availability: preview.availability as "available" | "current" | "reserved",
+        alternativePrefix: preview.alternativePrefix === null
+          ? null
+          : readString(
+              preview.alternativePrefix,
+              "pageKeyPrefixPreview.alternativePrefix",
+              8,
+            ),
+        nextNumber: readPositiveRevision(
+          preview.nextNumber,
+          "pageKeyPrefixPreview.nextNumber",
+        ),
+        exampleKeys: preview.exampleKeys.map((key, index) =>
+          readString(key, `pageKeyPrefixPreview.exampleKeys[${index}]`, 32)
+        ),
+      },
+    };
+  }
+  if (result.kind === "page_key_namespace") {
+    const namespace = readRecord(result.value, "databaseModuleReadV2.value.value");
+    assertExactKeys(namespace, "databaseModuleReadV2.value.value", [
+      "databaseId",
+      "currentPrefix",
+      "nextNumber",
+      "assignedPageCount",
+      "revision",
+      "retiredPrefixes",
+    ]);
+    if (!Array.isArray(namespace.retiredPrefixes) || namespace.retiredPrefixes.length > 1_000) {
+      throw new TypeError("Retired Page-key prefixes must be a bounded array");
+    }
+    return {
+      kind: "page_key_namespace",
+      value: {
+        databaseId: readDatabaseId(namespace.databaseId, "pageKeyNamespace.databaseId"),
+        currentPrefix: readString(
+          namespace.currentPrefix,
+          "pageKeyNamespace.currentPrefix",
+          8,
+        ),
+        nextNumber: readPositiveRevision(namespace.nextNumber, "pageKeyNamespace.nextNumber"),
+        assignedPageCount: readRevision(
+          namespace.assignedPageCount,
+          "pageKeyNamespace.assignedPageCount",
+        ),
+        revision: readPositiveRevision(namespace.revision, "pageKeyNamespace.revision"),
+        retiredPrefixes: namespace.retiredPrefixes.map((entry, index) => {
+          const retired = readRecord(entry, `pageKeyNamespace.retiredPrefixes[${index}]`);
+          assertExactKeys(retired, `pageKeyNamespace.retiredPrefixes[${index}]`, [
+            "prefix",
+            "lastNumber",
+          ]);
+          return {
+            prefix: readString(
+              retired.prefix,
+              `pageKeyNamespace.retiredPrefixes[${index}].prefix`,
+              8,
+            ),
+            lastNumber: readPositiveRevision(
+              retired.lastNumber,
+              `pageKeyNamespace.retiredPrefixes[${index}].lastNumber`,
+            ),
+          };
+        }),
+      },
+    };
   }
   if (result.kind === "data_source") {
     return { kind: "data_source", value: parseDataSourceDescriptor(result.value, "databaseModuleReadV2.value.value") };
@@ -2377,6 +2546,7 @@ const readUniqueIdentityArray = <Identity extends string>(
 };
 
 const OPERATION_KINDS = new Set<DatabaseApplyOperationV2["kind"]>([
+  "rename_page_key_prefix",
   "put_property",
   "delete_property",
   "put_option",

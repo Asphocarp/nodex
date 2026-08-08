@@ -107,6 +107,18 @@ const toCoreRead = (read: DatabaseReadV2): DatabaseRead => {
           ? { kind: "project_default" }
           : { kind: "database", database_id: read.target.databaseId },
       };
+    case "page_key_prefix_preview":
+      return {
+        kind: "page_key_prefix_preview",
+        database_id: read.target.databaseId ?? null,
+        name_hint: read.nameHint,
+        requested_prefix: read.requestedPrefix ?? null,
+      };
+    case "page_key_namespace":
+      return {
+        kind: "page_key_namespace",
+        database_id: read.target.databaseId,
+      };
     case "data_source":
       return {
         kind: "data_source",
@@ -175,7 +187,7 @@ const readDatabaseSnapshotAtLeast = async (
   );
 };
 
-const mapCoreError = (
+export const mapCoreDatabaseModuleError = (
   error: CoreModuleError,
   operationId?: string,
 ): DatabaseModuleErrorV2 => {
@@ -193,6 +205,9 @@ const mapCoreError = (
         return "revision_conflict";
       case "idempotency_key_reused":
         return "operation_id_collision";
+      case "resource_exhausted":
+        return "resource_exhausted";
+      case "conflict":
       case "ambiguous":
         return "identity_conflict";
       case "stale_store_epoch":
@@ -218,7 +233,7 @@ const failure = (
   error: unknown,
 ): Extract<DatabaseModuleReadResultV2, { readonly ok: false }> => {
   if (error instanceof CoreModuleResponseError) {
-    return { ok: false, error: mapCoreError(error.coreError) };
+    return { ok: false, error: mapCoreDatabaseModuleError(error.coreError) };
   }
   return {
     ok: false,
@@ -237,7 +252,7 @@ const applyFailure = (
   if (error instanceof CoreModuleResponseError) {
     return {
       ok: false,
-      error: mapCoreError(error.coreError, operationId),
+      error: mapCoreDatabaseModuleError(error.coreError, operationId),
     };
   }
   return {
@@ -312,6 +327,13 @@ export const toCoreDatabaseIntent = (
   operation: DatabaseApplyOperationV2,
 ): CoreDatabaseIntent => {
   switch (operation.kind) {
+    case "rename_page_key_prefix":
+      return {
+        kind: operation.kind,
+        database_id: operation.databaseId,
+        expected_revision: operation.expectedRevision,
+        prefix: operation.prefix,
+      };
     case "put_property":
       return {
         kind: operation.kind,
@@ -961,6 +983,34 @@ const hydrateCoreReadValue = async (
     return {
       kind: value.kind,
       value: await hydrateCoreDatabase(client, value.value),
+    };
+  }
+  if (value.kind === "page_key_prefix_preview") {
+    return {
+      kind: value.kind,
+      value: {
+        prefix: value.value.prefix,
+        availability: value.value.availability,
+        alternativePrefix: value.value.alternative_prefix ?? null,
+        nextNumber: value.value.next_number,
+        exampleKeys: value.value.example_keys,
+      },
+    };
+  }
+  if (value.kind === "page_key_namespace") {
+    return {
+      kind: value.kind,
+      value: {
+        databaseId: parseDatabaseId(value.value.database_id),
+        currentPrefix: value.value.current_prefix,
+        nextNumber: value.value.next_number,
+        assignedPageCount: value.value.assigned_page_count,
+        revision: value.value.revision,
+        retiredPrefixes: value.value.retired_prefixes.map((prefix) => ({
+          prefix: prefix.prefix,
+          lastNumber: prefix.last_number,
+        })),
+      },
     };
   }
   if (value.kind === "data_source") {

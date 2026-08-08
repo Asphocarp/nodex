@@ -147,6 +147,7 @@ fn create_database_authority_records_for_contract(
                 },
                 "list": {
                     "fields": [
+                        { "kind": "intrinsic", "field": "page_key" },
                         { "kind": "property", "propertyId": "status" },
                         { "kind": "property", "propertyId": "priority" },
                         { "kind": "property", "propertyId": "estimate" },

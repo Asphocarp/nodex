@@ -7,7 +7,9 @@ use std::time::{Duration, Instant};
 
 use fs2::FileExt;
 use nodex_core_contracts::{
-    DATABASE_CONTRACT_VERSION, LIBRARY_CONTRACT_VERSION, PROJECT_WORKSPACE_CONTRACT_VERSION,
+    DATABASE_CONTRACT_VERSION, LIBRARY_CONTRACT_VERSION, ModuleReadRequest,
+    PROJECT_WORKSPACE_CONTRACT_VERSION, collection::CollectionWindowRequest,
+    database::DatabaseRead,
 };
 use nodex_core_protocol::{
     ClientIdentity, ClientKind, CoreArtifactIdentity, CoreReplacementRequest,
@@ -571,18 +573,17 @@ fn concurrent_launchers_reuse_one_authenticated_profile_core() {
     );
     assert_eq!(redundant_grant["payload"]["receipt"]["did_mutate"], false,);
 
-    let database_read = serde_json::json!({
-        "contract_version": DATABASE_CONTRACT_VERSION,
-        "read": {
-            "target": { "kind": "data_source", "data_source_id": SOURCE_ID },
-            "mode": "property_window",
-            "filter": null,
-            "sort": null,
-            "window": { "after": null, "first": 200 },
-            "page_ids": null
-        }
+    let database_read = serde_json::to_string(&ModuleReadRequest {
+        contract_version: DATABASE_CONTRACT_VERSION,
+        read: DatabaseRead::PropertyWindow {
+            data_source_id: SOURCE_ID.to_owned(),
+            window: CollectionWindowRequest {
+                after: None,
+                first: Some(200),
+            },
+        },
     })
-    .to_string();
+    .expect("Database Property window JSON");
     let database_read = request_with_headers(
         &expected.socket_path,
         &auth,
@@ -597,7 +598,7 @@ fn concurrent_launchers_reuse_one_authenticated_profile_core() {
         database_read["payload"]["value"]["properties"]["items"]
             .as_array()
             .map(Vec::len),
-        Some(8)
+        Some(9)
     );
 
     let database_apply_body = serde_json::json!({

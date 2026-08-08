@@ -881,9 +881,9 @@ fn core_error(error: StoreError) -> CoreError {
         StoreErrorCode::PatchAmbiguous => CoreErrorCode::PatchAmbiguous,
         StoreErrorCode::PatchOverlap => CoreErrorCode::PatchOverlap,
         StoreErrorCode::StaleStoreEpoch => CoreErrorCode::StaleStoreEpoch,
-        StoreErrorCode::Conflict
-        | StoreErrorCode::HeadConflict
-        | StoreErrorCode::RevisionConflict => CoreErrorCode::RevisionConflict,
+        StoreErrorCode::Conflict => CoreErrorCode::Conflict,
+        StoreErrorCode::HeadConflict => CoreErrorCode::HeadConflict,
+        StoreErrorCode::RevisionConflict => CoreErrorCode::RevisionConflict,
         StoreErrorCode::IdempotencyKeyReused => CoreErrorCode::IdempotencyKeyReused,
         StoreErrorCode::ProtectedOwnerDeletion => CoreErrorCode::ProtectedOwnerDeletion,
         StoreErrorCode::UnsupportedSchema => CoreErrorCode::SchemaUnsupported,
@@ -1330,6 +1330,66 @@ mod tests {
                 },
             )
             .expect("create ungranted search decoy");
+        kernel
+            .writer()
+            .call(|connection| {
+                with_immediate_transaction(connection, |transaction| {
+                    transaction.execute(
+                        "INSERT INTO blocks(\
+                           id, library_id, type, lifecycle, placement_revision, \
+                           metadata_revision, created_at, updated_at\
+                         ) VALUES (\
+                           'database:agent-key', 'library-1', 'database', 'active', \
+                           1, 1, ?1, ?1\
+                         )",
+                        [NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO database_containers(\
+                           block_id, library_id, name, lifecycle, created_at, updated_at\
+                         ) VALUES (\
+                           'database:agent-key', 'library-1', 'Agent keys', 'active', ?1, ?1\
+                         )",
+                        [NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO data_sources(\
+                           id, library_id, home_database_block_id, name, schema_key, lifecycle, \
+                           rank_key, created_at, updated_at\
+                         ) VALUES (\
+                           'source:agent-key', 'library-1', 'database:agent-key', 'Agent keys', \
+                           'nodex.database', 'active', 'a', ?1, ?1\
+                         )",
+                        [NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO data_source_page_memberships(\
+                           id, data_source_id, page_block_id, revision, created_at, removed_at\
+                         ) VALUES (\
+                           'membership:agent-key-history', 'source:agent-key', \
+                           'page:agent-target', 1, ?1, ?1\
+                         )",
+                        [NOW],
+                    )?;
+                    crate::database::create_page_key_namespace(
+                        transaction,
+                        "library-1",
+                        "database:agent-key",
+                        Some("LAB"),
+                        "Agent keys",
+                        NOW,
+                    )?;
+                    crate::database::ensure_database_page_key(
+                        transaction,
+                        "library-1",
+                        "database:agent-key",
+                        "page:agent-target",
+                        NOW,
+                    )?;
+                    Ok(())
+                })
+            })
+            .expect("seed historical Agent Page key");
         let authorization = AgentExecutionAuthorization {
             provenance: provenance.clone(),
             call_id: "call:search-first".to_owned(),
@@ -1425,6 +1485,65 @@ mod tests {
                             ..
                         }
                     ))
+        ));
+
+        let explicit_missing_key = module
+            .read(
+                &context,
+                ModuleReadRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    read: LibraryRead::AgentSearch {
+                        authorization: Box::new(authorization.clone()),
+                        query: "#target".to_owned(),
+                        target: LibraryAgentSearchTarget::Pages,
+                        scope: LibraryAgentSearchScope::Library,
+                        block_types: None,
+                        include_archived: false,
+                        cursor: None,
+                        limit: Some(10),
+                    },
+                },
+            )
+            .expect("explicit missing Page-key Agent search");
+        let LibraryReadValue::AgentSearch { items, .. } = explicit_missing_key.value else {
+            panic!("explicit missing Page-key Agent search");
+        };
+        assert!(items.is_empty());
+
+        let exact_key = module
+            .read(
+                &context,
+                ModuleReadRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    read: LibraryRead::AgentSearch {
+                        authorization: Box::new(authorization.clone()),
+                        query: "#lab-1".to_owned(),
+                        target: LibraryAgentSearchTarget::Pages,
+                        scope: LibraryAgentSearchScope::Library,
+                        block_types: None,
+                        include_archived: false,
+                        cursor: None,
+                        limit: Some(10),
+                    },
+                },
+            )
+            .expect("exact historical Page-key Agent search");
+        let LibraryReadValue::AgentSearch { items, .. } = exact_key.value else {
+            panic!("exact Page-key Agent search");
+        };
+        assert!(matches!(
+            &items[..],
+            [LibraryAgentSearchResult::Page {
+                id,
+                page_key: None,
+                matches,
+                ..
+            }] if id == "page:agent-target"
+                && matches == &[nodex_core_contracts::library::LibraryAgentPageSearchMatch::PageKey {
+                    quality: nodex_core_contracts::library::LibraryAgentSearchMatchQuality::Exact,
+                    page_key: "LAB-1".to_owned(),
+                    is_current: false,
+                }]
         ));
 
         let blocks = module
@@ -2067,7 +2186,10 @@ mod tests {
         else {
             panic!("Page metadata file");
         };
+        assert_eq!(meta_file.version, 2);
+        assert_eq!(meta_file.page_key, None);
         let metadata = meta_file.metadata.expect("typed Page metadata");
+        assert_eq!(metadata.page_key, None);
         assert_eq!(metadata.title_markdown, "Native lifecycle");
         assert!(metadata.schedule.is_none());
         assert!(metadata.properties.iter().any(|property| {
@@ -2084,7 +2206,7 @@ mod tests {
             })
         );
         assert!(meta_file.content.starts_with(&format!(
-            "id: \"{PAGE}\"\ntitle: \"Native lifecycle\"\nproperties:\n"
+            "id: \"{PAGE}\"\npage_key: null\ntitle: \"Native lifecycle\"\nproperties:\n"
         )));
         assert!(meta_file.content.ends_with("schedule: null\n"));
         assert!(meta_file.validators.title_etag.is_some());
@@ -2668,6 +2790,24 @@ mod tests {
         assert_eq!(items[0].title, "Say hi");
         assert_eq!(items[0].status, LibraryPageWorkflowStatus::Triage);
         assert_eq!(items[0].score, 1_000_000);
+        let LibraryReadValue::ProjectPageSearch { items } = module
+            .read(
+                &root_context,
+                ModuleReadRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    read: LibraryRead::ProjectPageSearch {
+                        project_ids: vec!["project-1".to_owned()],
+                        query: "#say hi".to_owned(),
+                        limit: Some(10),
+                    },
+                },
+            )
+            .expect("explicit missing Project Page-key search")
+            .value
+        else {
+            panic!("explicit missing Project Page-key search");
+        };
+        assert!(items.is_empty());
         let project_search_error = module
             .read(
                 &persistent_context,
@@ -3015,6 +3155,101 @@ mod tests {
                 },
             )
             .expect("create nested reference Page");
+        kernel
+            .writer()
+            .call(|connection| {
+                with_immediate_transaction(connection, |transaction| {
+                    crate::database::create_page_key_namespace(
+                        transaction,
+                        "library-1",
+                        DATABASE,
+                        Some("LAB"),
+                        "Library reads",
+                        NOW,
+                    )?;
+                    crate::database::ensure_database_page_key(
+                        transaction,
+                        "library-1",
+                        DATABASE,
+                        ROW_PAGE,
+                        NOW,
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO data_source_page_memberships( \
+                           id, data_source_id, page_block_id, revision, created_at, removed_at \
+                         ) VALUES ('membership:nested-key-history', ?1, ?2, 1, ?3, ?3)",
+                        params![SOURCE, NESTED_PAGE, NOW],
+                    )?;
+                    crate::database::ensure_database_page_key(
+                        transaction,
+                        "library-1",
+                        DATABASE,
+                        NESTED_PAGE,
+                        NOW,
+                    )?;
+                    crate::database::rename_page_key_prefix(
+                        transaction,
+                        "library-1",
+                        DATABASE,
+                        1,
+                        "RND",
+                        NOW,
+                    )?;
+                    Ok(())
+                })
+            })
+            .expect("seed current and historical Page keys");
+        for (query, expected_matched_key, expected_is_current) in
+            [("RND-1", "RND-1", true), ("LAB-1", "LAB-1", false)]
+        {
+            let LibraryReadValue::PageKeyTarget { value } = module
+                .read(
+                    &persistent_context,
+                    ModuleReadRequest {
+                        contract_version: LIBRARY_CONTRACT_VERSION,
+                        read: LibraryRead::PageKeyTarget {
+                            page_key: query.to_owned(),
+                        },
+                    },
+                )
+                .expect("authorized Page-key target")
+                .value
+            else {
+                panic!("Page-key target");
+            };
+            let nodex_core_contracts::library::LibraryPageKeyTarget::Resolved {
+                page_id,
+                current_page_key,
+                matched_page_key,
+                is_current,
+            } = value
+            else {
+                panic!("resolved Page-key target");
+            };
+            assert_eq!(page_id, ROW_PAGE);
+            assert_eq!(current_page_key.as_deref(), Some("RND-1"));
+            assert_eq!(matched_page_key, expected_matched_key);
+            assert_eq!(is_current, expected_is_current);
+        }
+        let LibraryReadValue::PageKeyTarget { value } = module
+            .read(
+                &persistent_context,
+                ModuleReadRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    read: LibraryRead::PageKeyTarget {
+                        page_key: "LAB-01".to_owned(),
+                    },
+                },
+            )
+            .expect("invalid Page key is non-oracular")
+            .value
+        else {
+            panic!("Page-key target");
+        };
+        assert_eq!(
+            value,
+            nodex_core_contracts::library::LibraryPageKeyTarget::NotFound,
+        );
         let root_context = context();
         let LibraryReadValue::PageTarget { value } = module
             .read(
@@ -3068,6 +3303,25 @@ mod tests {
             connection_id: "connection:reference-project".to_owned(),
             ..persistent_context.clone()
         };
+        let LibraryReadValue::PageKeyTarget { value } = module
+            .read(
+                &project_two_context,
+                ModuleReadRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    read: LibraryRead::PageKeyTarget {
+                        page_key: "RND-1".to_owned(),
+                    },
+                },
+            )
+            .expect("unauthorized Page key is non-oracular")
+            .value
+        else {
+            panic!("Page-key target");
+        };
+        assert_eq!(
+            value,
+            nodex_core_contracts::library::LibraryPageKeyTarget::NotFound,
+        );
         let LibraryReadValue::PageTarget { value } = module
             .read(
                 &project_two_context,
@@ -3753,6 +4007,35 @@ mod tests {
                 current_destination.document_head_seq,
             ),
             source_document_head,
+        );
+        kernel
+            .writer()
+            .call(|connection| {
+                connection.execute(
+                    "UPDATE blocks SET lifecycle = 'deleted' WHERE id = ?1",
+                    [ROW_PAGE],
+                )?;
+                Ok(())
+            })
+            .expect("delete keyed Page tombstone");
+        let LibraryReadValue::PageKeyTarget { value } = module
+            .read(
+                &root_context,
+                ModuleReadRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    read: LibraryRead::PageKeyTarget {
+                        page_key: "RND-1".to_owned(),
+                    },
+                },
+            )
+            .expect("deleted Page key is non-oracular")
+            .value
+        else {
+            panic!("Page-key target");
+        };
+        assert_eq!(
+            value,
+            nodex_core_contracts::library::LibraryPageKeyTarget::NotFound,
         );
     }
 

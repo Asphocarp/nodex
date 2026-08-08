@@ -7,7 +7,7 @@ import {
 import { useEffect, useRef } from "react";
 import { toast } from "@/components/ui/toast";
 import type { ProjectAppearance } from "../../shared/project-appearance";
-import { invoke } from "./api";
+import { invokeCoreResult } from "./api";
 import { queryKeys } from "./query-keys";
 import { runSerializedProjectCatalogUpdate } from "./project-update-queue";
 import type { Project, ProjectWindow } from "./types";
@@ -85,9 +85,9 @@ export function useProjectAppearanceMutation(
     mutationFn: async ({ appearance }) => {
       const project = await runSerializedProjectCatalogUpdate(
         projectId,
-        () => invoke("projects:update", projectId, {
+        () => invokeCoreResult("projects:update", projectId, {
           appearance,
-        }) as Promise<Project | null>,
+        }),
       );
       if (!project) {
         throw new Error("The project is no longer available");
