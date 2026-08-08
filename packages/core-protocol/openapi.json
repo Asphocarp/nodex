@@ -4177,6 +4177,12 @@
                 "page_id": {
                   "type": "string"
                 },
+                "page_key": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "parent_revision": {
                   "type": "integer",
                   "format": "int64"
@@ -5082,6 +5088,12 @@
                 "page_id": {
                   "type": "string"
                 },
+                "page_key": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "priority": {
                   "type": [
                     "string",
@@ -5367,6 +5379,7 @@
           "unauthorized",
           "not_found",
           "ambiguous",
+          "conflict",
           "stale_store_epoch",
           "revision_conflict",
           "generation_conflict",
@@ -6316,6 +6329,33 @@
       },
       "DatabaseIntent": {
         "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "database_id",
+              "expected_revision",
+              "prefix",
+              "kind"
+            ],
+            "properties": {
+              "database_id": {
+                "type": "string"
+              },
+              "expected_revision": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "rename_page_key_prefix"
+                ]
+              },
+              "prefix": {
+                "type": "string"
+              }
+            }
+          },
           {
             "type": "object",
             "required": [
@@ -7279,6 +7319,84 @@
           }
         ]
       },
+      "DatabasePageKeyNamespace": {
+        "type": "object",
+        "required": [
+          "database_id",
+          "current_prefix",
+          "next_number",
+          "assigned_page_count",
+          "revision",
+          "retired_prefixes"
+        ],
+        "properties": {
+          "assigned_page_count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "current_prefix": {
+            "type": "string"
+          },
+          "database_id": {
+            "type": "string"
+          },
+          "next_number": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "retired_prefixes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DatabaseRetiredPageKeyPrefix"
+            }
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "DatabasePageKeyPrefixAvailability": {
+        "type": "string",
+        "enum": [
+          "available",
+          "current",
+          "reserved"
+        ]
+      },
+      "DatabasePageKeyPrefixPreview": {
+        "type": "object",
+        "required": [
+          "prefix",
+          "availability",
+          "next_number",
+          "example_keys"
+        ],
+        "properties": {
+          "alternative_prefix": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "availability": {
+            "$ref": "#/components/schemas/DatabasePageKeyPrefixAvailability"
+          },
+          "example_keys": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "next_number": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "prefix": {
+            "type": "string"
+          }
+        }
+      },
       "DatabasePagePosition": {
         "type": "object",
         "required": [
@@ -7923,6 +8041,22 @@
           }
         }
       },
+      "DatabaseRetiredPageKeyPrefix": {
+        "type": "object",
+        "required": [
+          "prefix",
+          "last_number"
+        ],
+        "properties": {
+          "last_number": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "prefix": {
+            "type": "string"
+          }
+        }
+      },
       "DatabaseRowDetail": {
         "type": "object",
         "required": [
@@ -8044,6 +8178,12 @@
           },
           "page_id": {
             "type": "string"
+          },
+          "page_key": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "parent_revision": {
             "type": "integer",
@@ -8454,7 +8594,7 @@
             ],
             "properties": {
               "field": {
-                "type": "string"
+                "$ref": "#/components/schemas/DatabaseViewIntrinsicField"
               },
               "kind": {
                 "type": "string",
@@ -8703,7 +8843,7 @@
       "DatabaseViewIntrinsicField": {
         "type": "string",
         "enum": [
-          "page_id",
+          "page_key",
           "created_at",
           "updated_at"
         ]
@@ -11274,6 +11414,12 @@
           },
           "page_id": {
             "type": "string"
+          },
+          "page_key": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
@@ -11444,6 +11590,12 @@
           },
           "page_id": {
             "type": "string"
+          },
+          "page_key": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
@@ -11589,6 +11741,12 @@
           },
           "page_id": {
             "type": "string"
+          },
+          "page_key": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "source_page_id": {
             "type": "string"
@@ -11777,6 +11935,32 @@
             "type": "object",
             "required": [
               "quality",
+              "page_key",
+              "is_current",
+              "source"
+            ],
+            "properties": {
+              "is_current": {
+                "type": "boolean"
+              },
+              "page_key": {
+                "type": "string"
+              },
+              "quality": {
+                "$ref": "#/components/schemas/LibraryAgentSearchMatchQuality"
+              },
+              "source": {
+                "type": "string",
+                "enum": [
+                  "page_key"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "quality",
               "excerpt",
               "source"
             ],
@@ -11916,6 +12100,12 @@
                 "items": {
                   "$ref": "#/components/schemas/LibraryAgentPageSearchMatch"
                 }
+              },
+              "page_key": {
+                "type": [
+                  "string",
+                  "null"
+                ]
               },
               "title": {
                 "type": "string"
@@ -12530,6 +12720,7 @@
           "final_location_revisions",
           "document_commits",
           "affected_database_ids",
+          "page_keys",
           "page_etags",
           "move_etags",
           "page_view_placements"
@@ -12591,6 +12782,19 @@
             "type": "object",
             "additionalProperties": {
               "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "page_keys": {
+            "type": "object",
+            "description": "Current human-readable Page keys for result roots. A present `None`\nvalue means the root is a Page that is not currently in a keyed\nDatabase namespace.",
+            "additionalProperties": {
+              "type": [
+                "string",
+                "null"
+              ]
             },
             "propertyNames": {
               "type": "string"
@@ -14129,6 +14333,12 @@
           "page_id": {
             "type": "string"
           },
+          "page_key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "source_page_id": {
             "type": "string"
           },
@@ -14217,6 +14427,12 @@
           "page_id": {
             "type": "string"
           },
+          "page_key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "title_etag": {
             "type": "string"
           }
@@ -14259,6 +14475,12 @@
               },
               "membership": {
                 "$ref": "#/components/schemas/LibraryPageMembership"
+              },
+              "page_key": {
+                "type": [
+                  "string",
+                  "null"
+                ]
               },
               "properties": {
                 "type": "array",
@@ -14469,7 +14691,7 @@
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/PageMetaProjectionV1"
+                "$ref": "#/components/schemas/PageMetaProjectionV2"
               }
             ]
           },
@@ -14479,6 +14701,12 @@
           },
           "page_id": {
             "type": "string"
+          },
+          "page_key": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "store_epoch": {
             "type": "string"
@@ -15022,6 +15250,70 @@
             "type": "string"
           }
         }
+      },
+      "LibraryPageKeyTarget": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "status"
+            ],
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "not_found"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "status"
+            ],
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "ambiguous"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "page_id",
+              "matched_page_key",
+              "is_current",
+              "status"
+            ],
+            "properties": {
+              "current_page_key": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "is_current": {
+                "type": "boolean"
+              },
+              "matched_page_key": {
+                "type": "string"
+              },
+              "page_id": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "resolved"
+                ]
+              }
+            }
+          }
+        ]
       },
       "LibraryPageLifecycleAuthority": {
         "type": "object",
@@ -16476,8 +16768,26 @@
           "excerpt": {
             "type": "string"
           },
+          "matched_page_key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "matched_page_key_is_current": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
           "page_id": {
             "type": "string"
+          },
+          "page_key": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "project_id": {
             "type": "string"
@@ -19444,6 +19754,12 @@
                   "name": {
                     "type": "string"
                   },
+                  "page_key_prefix": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
                   "project_id": {
                     "type": "string"
                   },
@@ -19489,6 +19805,12 @@
                   },
                   "name": {
                     "type": "string"
+                  },
+                  "page_key_prefix": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
                   },
                   "project_id": {
                     "type": "string"
@@ -20485,6 +20807,33 @@
                 {
                   "type": "object",
                   "required": [
+                    "database_id",
+                    "expected_revision",
+                    "prefix",
+                    "kind"
+                  ],
+                  "properties": {
+                    "database_id": {
+                      "type": "string"
+                    },
+                    "expected_revision": {
+                      "type": "integer",
+                      "format": "int64"
+                    },
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "rename_page_key_prefix"
+                      ]
+                    },
+                    "prefix": {
+                      "type": "string"
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "required": [
                     "data_source_id",
                     "property_id",
                     "expected_data_source_revision",
@@ -21330,6 +21679,54 @@
                   },
                   "target": {
                     "$ref": "#/components/schemas/DatabaseIdentityTarget"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "name_hint",
+                  "kind"
+                ],
+                "properties": {
+                  "database_id": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "page_key_prefix_preview"
+                    ]
+                  },
+                  "name_hint": {
+                    "type": "string"
+                  },
+                  "requested_prefix": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "database_id",
+                  "kind"
+                ],
+                "properties": {
+                  "database_id": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "page_key_namespace"
+                    ]
                   }
                 }
               },
@@ -22217,6 +22614,24 @@
                     ]
                   },
                   "page_id": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "page_key",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "page_key_target"
+                    ]
+                  },
+                  "page_key": {
                     "type": "string"
                   }
                 }
@@ -23619,7 +24034,7 @@
           }
         }
       },
-      "PageMetaProjectionV1": {
+      "PageMetaProjectionV2": {
         "type": "object",
         "required": [
           "id",
@@ -23629,6 +24044,12 @@
         "properties": {
           "id": {
             "type": "string"
+          },
+          "page_key": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "properties": {
             "type": "array",
@@ -28251,6 +28672,42 @@
                       {
                         "type": "object",
                         "required": [
+                          "value",
+                          "kind"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "page_key_prefix_preview"
+                            ]
+                          },
+                          "value": {
+                            "$ref": "#/components/schemas/DatabasePageKeyPrefixPreview"
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "value",
+                          "kind"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "page_key_namespace"
+                            ]
+                          },
+                          "value": {
+                            "$ref": "#/components/schemas/DatabasePageKeyNamespace"
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
                           "data_sources",
                           "kind"
                         ],
@@ -29092,6 +29549,24 @@
                                 "$ref": "#/components/schemas/LibraryPageTarget"
                               }
                             ]
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "value",
+                          "kind"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "page_key_target"
+                            ]
+                          },
+                          "value": {
+                            "$ref": "#/components/schemas/LibraryPageKeyTarget"
                           }
                         }
                       },

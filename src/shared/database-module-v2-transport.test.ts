@@ -97,7 +97,58 @@ const propertyRecord = () => ({
 
 describe("Database Module v2 transport boundary", () => {
   test("exposes the View-global ordering contract version", () => {
-    expect(DATABASE_MODULE_V2_CONTRACT_VERSION).toBe(12);
+    expect(DATABASE_MODULE_V2_CONTRACT_VERSION).toBe(13);
+  });
+
+  test("binds Page-key namespace reads and rename as Database authority", () => {
+    expect(bindDatabaseModuleReadV2({
+      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+      projectId: "project-1",
+      read: {
+        target: { kind: "page_key_namespace", databaseId: "database-1" },
+        mode: "page_key_prefix_preview",
+        nameHint: "Lab",
+        requestedPrefix: "lab",
+      },
+    }, "project-1")).toMatchObject({
+      read: {
+        target: { kind: "page_key_namespace", databaseId: "database-1" },
+        mode: "page_key_prefix_preview",
+      },
+    });
+    expect(bindDatabaseModuleReadV2({
+      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+      projectId: "project-1",
+      read: {
+        target: { kind: "database", databaseId: "database-1" },
+        mode: "page_key_namespace",
+      },
+    }, "project-1")).toMatchObject({
+      read: {
+        target: { kind: "database", databaseId: "database-1" },
+        mode: "page_key_namespace",
+      },
+    });
+    expect(bindDatabaseApplyV2({
+      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+      operationId: "operation:rename-key",
+      projectId: "project-1",
+      storeEpoch: "epoch-1",
+      actor: {},
+      operations: [{
+        kind: "rename_page_key_prefix",
+        databaseId: "database-1",
+        expectedRevision: 2,
+        prefix: "RND",
+      }],
+    }, "project-1", { actor: { kind: "electron_renderer" } })).toMatchObject({
+      operations: [{
+        kind: "rename_page_key_prefix",
+        databaseId: "database-1",
+        expectedRevision: 2,
+        prefix: "RND",
+      }],
+    });
   });
 
   test("rejects Property option counts outside the canonical schema bound", () => {

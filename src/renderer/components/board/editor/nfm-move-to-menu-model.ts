@@ -52,6 +52,9 @@ export interface NfmMoveToPageRow {
   columnId: string;
   columnName: string;
   pageId: string;
+  pageKey: string | null;
+  matchedPageKey: string | null;
+  matchedPageKeyIsCurrent: boolean | null;
   pageTitle: string;
   depth: 0;
   destination: NfmMoveToDestination;
@@ -100,6 +103,9 @@ function createPageRowFromSearchHit(hit: NfmMoveToPageSearchHit): NfmMoveToPageR
     columnId: hit.columnId,
     columnName: hit.columnName,
     pageId: hit.pageId,
+    pageKey: hit.pageKey,
+    matchedPageKey: hit.matchedPageKey,
+    matchedPageKeyIsCurrent: hit.matchedPageKeyIsCurrent,
     pageTitle: hit.pageTitle,
     depth: 0,
     destination: {
@@ -212,6 +218,9 @@ export function buildNfmMoveToSections({
           columnId: column.id,
           columnName: column.name,
           pageId: page.id,
+          pageKey: page.pageKey ?? null,
+          matchedPageKey: null,
+          matchedPageKeyIsCurrent: null,
           pageTitle,
           depth: 0,
           destination: {

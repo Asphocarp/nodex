@@ -60,6 +60,7 @@ function makePage(
     descriptionLength: 0,
     hasDescription: false,
     ...overrides,
+    pageKey: overrides.pageKey ?? null,
   };
 }
 
@@ -80,6 +81,7 @@ const BOARD_MAP = new Map<string, BoardSummary>([
             makePage("source-page", "Source", "triage", 0),
             makePage("draft-spec", "Triage spec", "triage", 1),
             makePage("command-palette", "Command palette polish", "triage", 2, {
+              pageKey: "LAB-13",
               tags: ["secret-tag"],
               assignee: "alex",
               descriptionPreview: "Hidden body-only OCR pipeline note.",
@@ -192,6 +194,20 @@ describe("nfm move-to menu model", () => {
     expect(descriptionRows.map((row) => row.id).join(",")).toBe("");
     expect(tagRows.map((row) => row.id).join(",")).toBe("");
     expect(assigneeRows.map((row) => row.id).join(",")).toBe("");
+  });
+
+  test.each([
+    { query: "lab-13", expectedRowIds: ["page:alpha:command-palette"] },
+    { query: "#lab-13", expectedRowIds: ["page:alpha:command-palette"] },
+    { query: "lab-1", expectedRowIds: ["page:alpha:command-palette"] },
+    { query: "#", expectedRowIds: [] },
+    { query: "##lab-13", expectedRowIds: [] },
+    { query: "lab-13 polish", expectedRowIds: [] },
+    { query: "#lab-13 polish", expectedRowIds: [] },
+    { query: "lxb-13", expectedRowIds: [] },
+  ])("keeps Page-key query policy for '$query'", ({ query, expectedRowIds }) => {
+    const rows = flattenNfmMoveToRows(buildSections(query));
+    expect(rows.map((row) => row.id)).toEqual(expectedRowIds);
   });
 
   test("uses query focus reset and wrapping row-id navigation", () => {

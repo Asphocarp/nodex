@@ -164,6 +164,7 @@ export function buildPageStageStoryPage(controls: Pick<PageStageStoryControls, "
 
   return {
     id: "story-page-stage-1",
+    pageKey: "LAB-13",
     status: "build",
     archived: false,
     title: "Refine page stage thread property UI",

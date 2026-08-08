@@ -23,6 +23,7 @@ function makePage(overrides: Partial<DatabasePageSummary> = {}): DatabasePageSum
   const title = overrides.title ?? "Polish command palette";
   return {
     id: overrides.id ?? "page-1",
+    pageKey: overrides.pageKey ?? null,
     title,
     richTitle: overrides.richTitle ?? plainTextToPortableRichText(title),
     descriptionPreview,

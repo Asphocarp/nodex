@@ -56,6 +56,7 @@ Profile
     ├── Canvas                      document-bearing Block
     │   └── Document                scene authority
     └── Database                    placeable Container Block
+        ├── Page-key namespace      readable alias registry + counter
         ├── Data Source             schema + Page rows + typed Property values
         └── View                    presentation over one Data Source
 
@@ -74,15 +75,16 @@ Every active Page has exactly one `library | page | data_source` parent. Page ow
 
 A top-level Canvas is authorized by an explicit generic Canvas resource grant. An embedded Canvas inherits the host Page authorization path and has no active direct Canvas grant. Moving between Library and Page placement changes that grant state atomically with the host shell and never rehomes content.
 
-A Database is a Container Block that owns Data Sources and Views. A Data Source owns its schema, row Pages, typed Property values, and query identity. Its fixed `task_parent` Property is a cardinality-one self-Relation; the Relation value header is the sole concurrency authority for roots and children, and only its edge may carry sibling rank. The resulting task hierarchy is non-owning presentation semantics: it never changes a Page's structural `library | page | data_source` parent or expands authorization, and there is no parallel hierarchy graph. A View targets exactly one Data Source and owns its durable Filter, default presentation, and one View-global Page rank. Per-View Profile state has two independent authorities: a revision-fenced sparse Board/List presentation and a bounded set of typed collapsed occurrences changed by idempotent per-target patches. Their delivery atoms require View read authorization but carry no shared projection coordinates, so personal changes converge without invalidating View content or Library navigation. The Rust Database Module contract owns the complete typed View-definition grammar and a tagged read command for each legal coordinate set; identity descriptors are typed responses, so unrelated target, window, group, and Page-ID parameters cannot cross the Core boundary. SQLite schema markers and canonical JSON are storage encoding, while Main and renderer casing and compatibility envelopes are explicit mechanical projections rather than parallel domain grammars. Core normalizes the effective presentation against Data Source capabilities before query execution. Board consumes its established bounded group windows. List consumes a dedicated grouped/nested occurrence window whose complete Core projection graph also resolves semantic subtree moves; the renderer's bounded window owns pointer preview only and never expands descendants or composes authoritative Property, Parent, or order writes. Both layouts commit through the same atomic Database boundary. These identities are independent and must not be derived from one another.
+A Database is a Container Block that owns Data Sources and Views. An enabled Database also owns one Page-key namespace whose Library-unique prefix history, monotonic counter, and immutable Database/Page assignments provide readable aliases without replacing Page UUID identity. A Data Source owns its schema, row Pages, typed Property values, and query identity. Its fixed `task_parent` Property is a cardinality-one self-Relation; the Relation value header is the sole concurrency authority for roots and children, and only its edge may carry sibling rank. The resulting task hierarchy is non-owning presentation semantics: it never changes a Page's structural `library | page | data_source` parent or expands authorization, and there is no parallel hierarchy graph. A View targets exactly one Data Source and owns its durable Filter, default presentation, and one View-global Page rank. Per-View Profile state has two independent authorities: a revision-fenced sparse Board/List presentation and a bounded set of typed collapsed occurrences changed by idempotent per-target patches. Their delivery atoms require View read authorization but carry no shared projection coordinates, so personal changes converge without invalidating View content or Library navigation. The Rust Database Module contract owns the complete typed View-definition grammar and a tagged read command for each legal coordinate set; identity descriptors are typed responses, so unrelated target, window, group, and Page-ID parameters cannot cross the Core boundary. SQLite schema markers and canonical JSON are storage encoding, while Main and renderer casing and compatibility envelopes are explicit mechanical projections rather than parallel domain grammars. Core normalizes the effective presentation against Data Source capabilities before query execution. Board consumes its established bounded group windows. List consumes a dedicated grouped/nested occurrence window whose complete Core projection graph also resolves semantic subtree moves; the renderer's bounded window owns pointer preview only and never expands descendants or composes authoritative Property, Parent, or order writes. Both layouts commit through the same atomic Database boundary. These identities are independent and must not be derived from one another.
 
-The decisions behind this model are recorded in [ADR 0017](docs/adr/0017-library-pages-data-sources-and-project-resource-grants.md), [ADR 0020](docs/adr/0020-database-identity-scopes.md), and [ADR 0039](docs/adr/0039-data-source-relation-properties-and-property-semantics.md).
+The decisions behind this model are recorded in [ADR 0017](docs/adr/0017-library-pages-data-sources-and-project-resource-grants.md), [ADR 0020](docs/adr/0020-database-identity-scopes.md), [ADR 0039](docs/adr/0039-data-source-relation-properties-and-property-semantics.md), and [ADR 0043](docs/adr/0043-database-scoped-page-keys.md).
 
 ### State authority table
 
 | State or capability | Authoritative owner | Adapters and projections |
 | --- | --- | --- |
 | Blocks, Pages, Databases, Documents, search, schedules, history | Rust Core Library/Database/Document Modules | Core protocol, Electron adapters, CLI, renderer read models |
+| Page-key namespaces, prefix history, counters, assignments | Rust Core Database Module | Contextual Core projections; CLI/Agent resolve to canonical Page IDs |
 | Projects, Sessions, durable Thread metadata, execution context | Rust Core Workspace Module | Electron Codex/Workspace services and renderer queries |
 | Project access to Library resources | Rust Core Library authorization and resource-grant boundary | Workspace supplies Project identity; Electron and CLI bind access context |
 | Automation definitions, runs, occurrences, reminder leases and receipts | Rust Core Automation Module | Electron scheduler/executor and renderer queries |
@@ -183,6 +185,8 @@ Core writes the semantic mutation, immutable receipt, physical evidence, Documen
 
 The initiating renderer admits its authorized apply-response delivery before the feature Promise resolves. Other renderers converge through the scoped live broker and durable replay. Apply delivery and later stream delivery are complementary copies of the same committed fact, not competing authorities.
 
+Database-scoped Page-key namespace reads and prefix mutations belong to the Database Module. Project creation may provide the primary Database's initial prefix inside its aggregate transaction; after creation, Project surfaces only adapt the primary Database coordinate and do not copy namespace revision into Project state. A prefix rename authors bounded Database/View canonical-read floors plus `PageDetailDatabase` delivery in one LocalCommit, so mounted Views and Page Detail converge without advancing Project binding revision or enumerating Page patches.
+
 Renderer projections advance by an exact Core-authored scope coordinate. A complete contiguous patch may apply synchronously. Revision gaps, missing patches, integrity conflicts, resets, incomplete windows, or authorization loss fence stale state and schedule a bounded canonical read. The global LocalCommit sequence is replay progress, never a projection version.
 
 Exact Document live sync is resource-addressed and separate from the global durable ledger. Opening a Document establishes an authorized live barrier, performs canonical state-vector or scene synchronization, and then admits later live effects. It does not replay LocalCommit history from genesis.
@@ -242,19 +246,20 @@ These invariants cross subsystem boundaries. Narrower domain and feature invaria
 5. `blocks.id` is the persistent content identity. Page ID is Block ID; Document, Database, Data Source, and View identities are independent coordinates.
 6. Every active Page has one exclusive acyclic structural parent. References, Views, the `task_parent` Relation projection, other Relations, mentions, and backlinks are non-owning and non-authorizing.
 7. Database Container owns Data Sources and Views; Data Source owns schema, Pages, and values; every View targets one Data Source.
-8. Authorization is evaluated by Core from explicit trusted access context. Renderer presentation and Codex operation approval are not resource authorization.
-9. Runtime validation occurs at transport, persistence, and external-data boundaries. Normalized in-memory domain state remains typed without repeated permissive parsing.
-10. Every user-growing collection is count- and byte-bounded and uses stable keyset pagination. List and Board reads never hydrate full Page Documents.
-11. A durable mutation has one semantic intent, exact-retry receipt, atomic LocalCommit evidence, and Core-authored projection impact. Response and replay deliveries represent the same committed fact.
-12. Projection authority is scope-specific. A LocalCommit sequence is durable replay progress and cannot substitute for a projection revision.
-13. Structural mutations that consume collaborative shape fence every affected Document at an exact durable head before commit.
-14. Exact Document live sync is a resource boundary with canonical repair, not a second global ledger reader.
-15. Store epoch, Core generation, Document generation, Document head, state vector, and semantic revision are distinct and must not be conflated.
-16. Window Session Scenes own presentation only. Durable content, Codex conversation state, Browser guests, Terminals, and collaborative sessions retain their deeper owners across React unmounts.
-17. Generated app-server protocol types are the raw Codex contract. Local conversation models are explicit canonical sidecars or derived projections, never parallel guesses at protocol fields.
-18. An active Codex renderer owner is the sole visible conversation writer. Main may validate, relay, and recover its accepted document but cannot emit a competing visible state at the same revision.
-19. Browser and MCP App guests are sandboxed Main-owned runtimes. Renderer-authored preferences, DOM attributes, or URLs cannot create or broaden guest authority.
-20. There is no catch-all persistence or generic mutation boundary. New durable semantics enter an owning deep Module and its typed Interface.
+8. Page ID remains canonical. A Page key is a Database-scoped, authorized secondary locator; candidate ambiguity is evaluated only after lifecycle and access filtering, and the alias never becomes a Block, Document, cursor, reference, View-position, or mutation identity.
+9. Authorization is evaluated by Core from explicit trusted access context. Renderer presentation and Codex operation approval are not resource authorization.
+10. Runtime validation occurs at transport, persistence, and external-data boundaries. Normalized in-memory domain state remains typed without repeated permissive parsing.
+11. Every user-growing collection is count- and byte-bounded and uses stable keyset pagination. List and Board reads never hydrate full Page Documents.
+12. A durable mutation has one semantic intent, exact-retry receipt, atomic LocalCommit evidence, and Core-authored projection impact. Response and replay deliveries represent the same committed fact.
+13. Projection authority is scope-specific. A LocalCommit sequence is durable replay progress and cannot substitute for a projection revision.
+14. Structural mutations that consume collaborative shape fence every affected Document at an exact durable head before commit.
+15. Exact Document live sync is a resource boundary with canonical repair, not a second global ledger reader.
+16. Store epoch, Core generation, Document generation, Document head, state vector, and semantic revision are distinct and must not be conflated.
+17. Window Session Scenes own presentation only. Durable content, Codex conversation state, Browser guests, Terminals, and collaborative sessions retain their deeper owners across React unmounts.
+18. Generated app-server protocol types are the raw Codex contract. Local conversation models are explicit canonical sidecars or derived projections, never parallel guesses at protocol fields.
+19. An active Codex renderer owner is the sole visible conversation writer. Main may validate, relay, and recover its accepted document but cannot emit a competing visible state at the same revision.
+20. Browser and MCP App guests are sandboxed Main-owned runtimes. Renderer-authored preferences, DOM attributes, or URLs cannot create or broaden guest authority.
+21. There is no catch-all persistence or generic mutation boundary. New durable semantics enter an owning deep Module and its typed Interface.
 
 ## Codemap
 

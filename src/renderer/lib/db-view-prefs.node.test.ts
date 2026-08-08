@@ -31,6 +31,7 @@ function makeCard(overrides: Partial<DbViewCardRecord>): DbViewCardRecord {
     columnName: "Plan",
     boardIndex: 0,
     ...overrides,
+    pageKey: overrides.pageKey ?? null,
   };
 }
 

@@ -33,6 +33,7 @@ function makePalettePage(): CommandPalettePage {
     columnName: "Doing",
     page: {
       id: "page-1",
+      pageKey: null,
       title: "Mention page",
       richTitle: plainTextToPortableRichText("Mention page"),
       descriptionPreview,
@@ -287,6 +288,9 @@ describe("useNfmMentionGetItems", () => {
       oldPageSearch.resolve([{
         projectId: "project-1",
         pageId: "page-1",
+        pageKey: null,
+        matchedPageKey: null,
+        matchedPageKeyIsCurrent: null,
         title: "Old result",
         status: "build",
         score: 1,
@@ -304,6 +308,9 @@ describe("useNfmMentionGetItems", () => {
       nowPageSearch.resolve([{
         projectId: "project-1",
         pageId: "page-1",
+        pageKey: null,
+        matchedPageKey: null,
+        matchedPageKeyIsCurrent: null,
         title: "Now result",
         status: "build",
         score: 1,

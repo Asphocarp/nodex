@@ -5,6 +5,12 @@ import {
   resolveFuzzyThreshold,
 } from "./search-text";
 import {
+  buildCurrentPageKeyIndex,
+  parsePageKeySearchQuery,
+  searchCurrentPageKeyIndex,
+  type CurrentPageKeyIndex,
+} from "./page-key";
+import {
   buildCommandPaletteHighlightedSegments,
   buildCommandPaletteHighlightRegex,
   buildCommandPaletteHighlightSegments,
@@ -20,6 +26,7 @@ import type {
 
 interface CommandPalettePageSearchDocument {
   id: string;
+  pageKey: string;
   title: string;
   description: string;
   tags: string;
@@ -86,7 +93,7 @@ const FAST_FIELD_BOOSTS = {
 
 const EXCERPT_BEFORE = 96;
 const EXCERPT_AFTER = 220;
-const SEARCH_CACHE_VERSION = 2;
+const SEARCH_CACHE_VERSION = 4;
 const SEARCH_CACHE_DB_NAME = "nodex/command-palette-page-search";
 const SEARCH_CACHE_DB_VERSION = 1;
 const SEARCH_CACHE_STORE_NAME = "search-cache";
@@ -96,6 +103,7 @@ interface CommandPalettePageSearchSource {
   documents: CommandPalettePageSearchDocument[];
   documentRefs: CommandPalettePageSearchDocumentRef[];
   itemsById: Map<string, CommandPalettePage>;
+  pageKeyIndex: CurrentPageKeyIndex<CommandPalettePageSearchDocument>;
 }
 
 interface PersistedCommandPalettePageSearchCacheRecord extends CommandPalettePageSearchCacheSnapshot {
@@ -124,6 +132,7 @@ export function normalizeCommandPaletteSearchText(value: string): string {
 function buildSearchDocument(item: CommandPalettePage): CommandPalettePageSearchDocument {
   return {
     id: item.id,
+    pageKey: normalizeCommandPaletteSearchText(item.page.pageKey ?? ""),
     title: normalizeCommandPaletteSearchText(item.page.title),
     description: normalizeCommandPaletteSearchText(item.page.descriptionPreview),
     tags: normalizeCommandPaletteSearchText(item.tagLabels.join(" ")),
@@ -134,7 +143,9 @@ function buildSearchDocument(item: CommandPalettePage): CommandPalettePageSearch
   };
 }
 
-function buildSearchDocumentSignature(document: CommandPalettePageSearchDocument): string {
+function buildFullTextSearchDocumentSignature(
+  document: CommandPalettePageSearchDocument,
+): string {
   return [
     document.id,
     document.title,
@@ -154,13 +165,18 @@ function buildCommandPalettePageSearchSource(
   const documents = pages.map(buildSearchDocument);
   const documentRefs = documents.map((document) => ({
     id: document.id,
-    signature: buildSearchDocumentSignature(document),
+    signature: buildFullTextSearchDocumentSignature(document),
   }));
 
   return {
     documents,
     documentRefs,
     itemsById,
+    pageKeyIndex: buildCurrentPageKeyIndex(
+      documents,
+      (document) => document.id,
+      (document) => document.pageKey,
+    ),
   };
 }
 
@@ -275,6 +291,7 @@ function buildSearchDecorations(
   }
 
   return {
+    pageKeySegments: null,
     titleSegments,
     projectNameSegments,
     columnNameSegments,
@@ -383,6 +400,11 @@ function buildFastSearchDecorations(
   terms: readonly string[],
 ): CommandPalettePageSearchDecorations | null {
   const item = record.item;
+  const pageKeySegments = buildHighlightedSegments(
+    item.page.pageKey ?? "",
+    collectFastMatchedTerms(record.document.pageKey, terms)
+      .filter((term) => record.document.pageKey === term || record.document.pageKey.startsWith(term)),
+  );
   const titleSegments = buildHighlightedSegments(item.page.title || "Untitled", collectFastMatchedTerms(record.document.title, terms));
   const projectNameSegments = buildHighlightedSegments(item.projectName, collectFastMatchedTerms(record.document.projectName, terms));
   const columnNameSegments = buildHighlightedSegments(item.columnName, collectFastMatchedTerms(record.document.columnName, terms));
@@ -405,15 +427,33 @@ function buildFastSearchDecorations(
   const pageIdBadge = buildBadge("id", "id", item.page.id, collectFastMatchedTerms(record.document.pageId, terms), "monospace");
   if (pageIdBadge) badges.push(pageIdBadge);
 
-  if (!titleSegments && !projectNameSegments && !columnNameSegments && badges.length === 0) {
+  if (!pageKeySegments && !titleSegments && !projectNameSegments && !columnNameSegments && badges.length === 0) {
     return null;
   }
 
   return {
+    pageKeySegments,
     titleSegments,
     projectNameSegments,
     columnNameSegments,
     badges,
+  };
+}
+
+function decoratePageKeyMatch(
+  item: CommandPalettePage,
+  terms: string[],
+): CommandPalettePage {
+  const pageKeySegments = buildHighlightedSegments(item.page.pageKey ?? "", terms);
+  return {
+    ...item,
+    searchDecorations: {
+      pageKeySegments,
+      titleSegments: item.searchDecorations?.titleSegments ?? null,
+      projectNameSegments: item.searchDecorations?.projectNameSegments ?? null,
+      columnNameSegments: item.searchDecorations?.columnNameSegments ?? null,
+      badges: item.searchDecorations?.badges ?? [],
+    },
   };
 }
 
@@ -423,30 +463,47 @@ function createCommandPalettePageSearchIndexFromSource(
 ): CommandPalettePageSearchIndex {
   return {
     search(query) {
-      const normalizedQuery = normalizeCommandPaletteSearchText(query);
+      const pageKeyQuery = parsePageKeySearchQuery(query);
+      const { normalizedQuery } = pageKeyQuery;
       if (!normalizedQuery) return [];
 
-      return miniSearch
-        .search(normalizedQuery, {
-          combineWith: "AND",
-          prefix: (term) => term.length >= 2,
-          fuzzy: resolveFuzzyThreshold,
-          boost: FIELD_BOOSTS,
-        })
-        .map((result): CommandPalettePageSearchHit | null => {
-          const item = source.itemsById.get(String(result.id));
-          if (!item) return null;
-          const pageWithPreview: CommandPalettePage = {
-            ...item,
-            searchPreview: buildDescriptionPreview(item, result),
-            searchDecorations: buildSearchDecorations(item, result),
-          };
-          return {
-            item: pageWithPreview,
-            score: result.score,
-          };
-        })
-        .filter((result): result is CommandPalettePageSearchHit => result !== null);
+      const hitsById = new Map<string, CommandPalettePageSearchHit>();
+      if (!pageKeyQuery.explicit) {
+        miniSearch
+          .search(normalizedQuery, {
+            combineWith: "AND",
+            prefix: (term) => term.length >= 2,
+            fuzzy: resolveFuzzyThreshold,
+            boost: FIELD_BOOSTS,
+          })
+          .forEach((result) => {
+            const item = source.itemsById.get(String(result.id));
+            if (!item) return;
+            const pageWithPreview: CommandPalettePage = {
+              ...item,
+              searchPreview: buildDescriptionPreview(item, result),
+              searchDecorations: buildSearchDecorations(item, result),
+            };
+            hitsById.set(item.id, {
+              item: pageWithPreview,
+              score: result.score,
+            });
+          });
+      }
+
+      searchCurrentPageKeyIndex(source.pageKeyIndex, pageKeyQuery).forEach((hit) => {
+        const document = hit.value;
+        const keyMatch = hit.match;
+        const item = source.itemsById.get(document.id);
+        if (!item) return;
+        const existing = hitsById.get(document.id);
+        hitsById.set(document.id, {
+          item: decoratePageKeyMatch(existing?.item ?? item, keyMatch.terms),
+          score: Math.max(existing?.score ?? 0, keyMatch.score),
+        });
+      });
+
+      return [...hitsById.values()].sort((left, right) => right.score - left.score);
     },
   };
 }
@@ -709,17 +766,34 @@ export function createCommandPalettePageFastSearchIndex(
     document: buildSearchDocument(item),
     status: normalizeCommandPaletteSearchText(WORKFLOW_STATUS_LABELS[item.page.status] ?? item.page.status),
   }));
+  const pageKeyIndex = buildCurrentPageKeyIndex(
+    records,
+    (record) => record.item.id,
+    (record) => record.document.pageKey,
+  );
 
   return {
     search(query) {
-      const normalizedQuery = normalizeCommandPaletteSearchText(query);
+      const pageKeyQuery = parsePageKeySearchQuery(query);
+      const { normalizedQuery } = pageKeyQuery;
       if (!normalizedQuery) return [];
 
       const terms = normalizedQuery.split(/\s+/).filter((term) => term.length > 0);
       if (terms.length === 0) return [];
+      const pageKeyHits = searchCurrentPageKeyIndex(pageKeyIndex, pageKeyQuery);
+      if (pageKeyQuery.explicit) {
+        return pageKeyHits.map(({ value: record, match }) => ({
+          item: decoratePageKeyMatch(record.item, match.terms),
+          score: match.score,
+        }));
+      }
+      const pageKeyMatches = new Map(
+        pageKeyHits.map(({ value, match }) => [value.item.id, match] as const),
+      );
 
       return records
         .map((record): CommandPalettePageSearchHit | null => {
+          const keyMatch = pageKeyMatches.get(record.item.id);
           const fields = [
             { value: record.document.title, boost: FAST_FIELD_BOOSTS.title },
             { value: record.document.description, boost: FAST_FIELD_BOOSTS.description },
@@ -730,11 +804,13 @@ export function createCommandPalettePageFastSearchIndex(
             { value: record.document.projectName, boost: FAST_FIELD_BOOSTS.projectName },
             { value: record.document.pageId, boost: FAST_FIELD_BOOSTS.pageId },
           ];
-          if (!terms.every((term) => fields.some((field) => field.value.includes(term)))) {
+          if (!keyMatch && !terms.every((term) => (
+            fields.some((field) => field.value.includes(term))
+          ))) {
             return null;
           }
 
-          const score = fields.reduce(
+          const fieldScore = fields.reduce(
             (sum, field) => sum + scoreFastSearchField(field.value, normalizedQuery, terms, field.boost),
             0,
           );
@@ -744,7 +820,7 @@ export function createCommandPalettePageFastSearchIndex(
               searchPreview: buildDescriptionPreviewFromTerms(record.item, terms),
               searchDecorations: buildFastSearchDecorations(record, terms),
             },
-            score,
+            score: fieldScore + (keyMatch?.score ?? 0),
           };
         })
         .filter((result): result is CommandPalettePageSearchHit => result !== null);

@@ -17,7 +17,10 @@ import { DatabaseViewTabSurface } from "./workbench-db-view-panel";
 import { DatabaseViewGroupLimitNotice } from "./workbench-database-view-surface";
 import { executeContextualKeyboardAction } from "@/lib/contextual-keyboard-actions";
 import { DatabaseListDndProvider } from "./database-list/database-list-dnd";
-import { databaseListGridTemplate } from "./database-list/database-list-grid";
+import {
+  databaseListGridTemplate,
+  projectDatabaseListPageIdentity,
+} from "./database-list/database-list-grid";
 import {
   buildDatabaseListProjection,
   emptyDatabaseListSelection,
@@ -81,14 +84,34 @@ const model: DatabaseViewRenderModel = {
       dataSourceId,
       name: "Focused work",
       defaultLayout: "board",
-      config: upgradeDatabaseViewConfigV2({
-        schemaKey: "nodex.database-view",
-        schemaVersion: 2,
-        filter: { kind: "group", operator: "and", children: [] },
-        sort: [{ field: { kind: "manual" }, direction: "asc", nulls: "last" }],
-        group: { propertyId: statusPropertyId },
-        display: { propertyIds: [tagsPropertyId], showTitle: true },
-      }),
+      config: (() => {
+        const config = upgradeDatabaseViewConfigV2({
+          schemaKey: "nodex.database-view",
+          schemaVersion: 2,
+          filter: { kind: "group", operator: "and", children: [] },
+          sort: [{ field: { kind: "manual" }, direction: "asc", nulls: "last" }],
+          group: { propertyId: statusPropertyId },
+          display: { propertyIds: [tagsPropertyId], showTitle: true },
+        });
+        return {
+          ...config,
+          presentation: {
+            ...config.presentation,
+            layouts: {
+              board: {
+                ...config.presentation.layouts.board,
+              },
+              list: {
+                ...config.presentation.layouts.list,
+                fields: [
+                  { kind: "intrinsic", field: "page_key" },
+                  ...config.presentation.layouts.list.fields,
+                ],
+              },
+            },
+          },
+        };
+      })(),
       isDefault: false,
       revision: 1,
       rankKey: "a",
@@ -133,6 +156,7 @@ const model: DatabaseViewRenderModel = {
       },
     ],
     rows: [{
+      pageKey: "LAB-13",
       membership: {
         membershipId: "membership-1",
         dataSourceId,
@@ -174,6 +198,7 @@ const model: DatabaseViewRenderModel = {
       name: "Build",
       rows: [{
         pageId: "page-1",
+        pageKey: "LAB-13",
         groupKey: "build",
         subgroupKey: null,
         status: "build",
@@ -208,6 +233,27 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const SecondaryView: Story = {};
+
+export const BoardWithPageKey: Story = {
+  args: {
+    effectivePresentation: {
+      layout: "board",
+      presentation: {
+        ...model.query.view.config.presentation,
+        layouts: {
+          ...model.query.view.config.presentation.layouts,
+          board: {
+            ...model.query.view.config.presentation.layouts.board,
+            fields: [
+              { kind: "intrinsic", field: "page_key" },
+              ...model.query.view.config.presentation.layouts.board.fields,
+            ],
+          },
+        },
+      },
+    },
+  },
+};
 
 export const PresentedPage: Story = {
   args: {
@@ -445,6 +491,40 @@ const withNestedGroupedList = (): DatabaseViewRenderModel => {
 };
 
 export const ListView: Story = { args: { model: withLayout("list") } };
+export const ListIdentityRhythm: Story = {
+  args: {
+    model: (() => {
+      const base = withLayout("list");
+      const pageKey = "NO-13";
+      return {
+        ...base,
+        query: {
+          ...base.query,
+          rows: base.query.rows.map((row) => ({ ...row, pageKey })),
+        },
+        columns: base.columns.map((column) => ({
+          ...column,
+          rows: column.rows.map((row) => ({ ...row, pageKey })),
+        })),
+      };
+    })(),
+  },
+};
+export const ListPageKeyAction: Story = {
+  args: { model: withLayout("list") },
+  play: async ({ canvasElement }) => {
+    const row = canvasElement.querySelector<HTMLElement>(
+      "[data-database-view-page-id=page-1]",
+    );
+    if (!row) throw new Error("Expected the keyed List row");
+    fireEvent.contextMenu(row);
+    await waitFor(() => {
+      getByRole(canvasElement.ownerDocument.body, "menuitem", {
+        name: "Copy Page key",
+      });
+    });
+  },
+};
 export const NestedListHierarchy: Story = {
   args: { model: withNestedList() },
   play: async ({ canvasElement }) => {
@@ -460,7 +540,7 @@ export const NestedListHierarchy: Story = {
       const view = canvasElement.ownerDocument.defaultView;
       if (!view) throw new Error("Expected the Storybook window");
       if (view.getComputedStyle(layoutGrid).gridTemplateColumns === "none") {
-        throw new Error("Hidden Page ID invalidated the List grid template");
+        throw new Error("Hidden public ID invalidated the List grid template");
       }
       for (const cell of row.querySelectorAll<HTMLElement>(
         ":scope > [data-list-grid-column]",
@@ -1085,7 +1165,7 @@ function ListSubtreeDragFixture() {
             priorityMutationDisabled={false}
             showPriority
             showStatus
-            showIdentifier
+            identity={projectDatabaseListPageIdentity(item.row.pageKey, ["page_key"])}
             nestingContinuations={continuations.get(item.key) ?? []}
             ariaRowIndex={index + 1}
           />

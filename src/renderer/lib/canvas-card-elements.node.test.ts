@@ -91,6 +91,7 @@ describe("canvas-card-elements placed card helpers", () => {
   test("Card references do not persist Database column ownership", () => {
     const card = {
       id: "card-1",
+      pageKey: null,
       title: "One",
       priority: undefined,
     } as DatabasePageSummary;

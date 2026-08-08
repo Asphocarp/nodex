@@ -41,9 +41,18 @@ The primary read families are:
 - `rg` for exact read-only search over a Core-issued immutable snapshot lease;
 - `open page` and `open view` for validated Nodex deep links.
 
-Selectors use stable typed identities or an explicitly unique supported name or
-path. Unauthorized alternatives are never returned as disambiguation evidence.
-All growing collections are bounded and use opaque continuations.
+Page selectors resolve canonical `@pageId` first, then an authorized current or
+historical Page key, then an explicitly unique supported title path. Key input
+accepts documented case normalization, one optional leading `#`, and
+no-hyphen shorthand; output reports canonical current `page_key` alongside
+`page_id`. If compact input maps to more than one authorized Page, the command
+reports ambiguity and asks for a canonical hyphenated key or `@pageId` rather
+than choosing one. An explicit `#` miss does not fall back to a title path.
+Core resolves the alias inside the selected Project before the CLI invokes the
+UUID-based operation. Other selectors use stable typed
+identities or an explicitly unique supported name or path. Unauthorized
+alternatives are never returned as disambiguation evidence. All growing
+collections are bounded and use opaque continuations.
 
 ## Drafts and mutations
 

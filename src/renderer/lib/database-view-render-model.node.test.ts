@@ -116,6 +116,7 @@ const makeSnapshot = (input: {
     properties,
     view,
     rows: [{
+      pageKey: null,
       membership: {
         membershipId: "membership-1",
         dataSourceId,

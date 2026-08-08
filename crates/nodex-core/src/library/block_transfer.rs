@@ -18,7 +18,8 @@ use serde_json::Value;
 
 use crate::database::{
     ExistingPageTransferTarget, PageCopyDataSourceDestination, StagedPagePlacementRevisions,
-    place_staged_page_in_data_source, resolve_page_transfer_data_source_destination,
+    current_page_key_for_page, place_staged_page_in_data_source,
+    resolve_page_transfer_data_source_destination,
     resolve_page_transfer_data_source_destination_prevalidated,
     transfer_existing_page_for_agent_move_prevalidated, transfer_existing_page_for_block_transfer,
     validate_page_copy_data_source_source, validate_page_transfer_data_source_source,
@@ -941,6 +942,7 @@ fn apply_with_authority(
             };
             let (final_locations, final_location_revisions) =
                 read_final_locations(connection, &result_block_ids)?;
+            let page_keys = read_current_page_keys(connection, library_id, &result_root_block_ids)?;
             let public_commits = document_commits
                 .iter()
                 .map(|commit| commit.public.clone())
@@ -955,6 +957,7 @@ fn apply_with_authority(
                 final_location_revisions: final_location_revisions.clone(),
                 document_commits: public_commits,
                 affected_database_ids: Vec::new(),
+                page_keys,
                 page_etags: BTreeMap::new(),
                 move_etags: BTreeMap::new(),
                 page_view_placements: BTreeMap::new(),
@@ -2232,6 +2235,10 @@ fn apply_page_ownership_transfer(
             })
             .transpose()?
             .unwrap_or_default();
+        // Transfer accepts a bounded run of Page roots, so the receipt keeps a
+        // root-indexed map rather than a singular key. `None` remains
+        // meaningful after a move to Library or another Page.
+        let page_keys = read_current_page_keys(connection, library_id, &result_block_ids)?;
         let result = LibraryBlockTransferResult {
             mode: LibraryBlockTransferMode::Move,
             source_root_block_ids: intent.root_block_ids.clone(),
@@ -2245,6 +2252,7 @@ fn apply_page_ownership_transfer(
                 .map(|commit| commit.public.clone())
                 .collect(),
             affected_database_ids: affected_database_ids.clone(),
+            page_keys,
             page_etags,
             move_etags,
             page_view_placements,
@@ -2482,6 +2490,7 @@ fn apply_page_ownership_copy(
             .map(|(block_id, revision)| (format!("blockLocation:{block_id}"), *revision)),
     );
     let affected_database_ids = affected_database_ids.into_iter().collect::<Vec<_>>();
+    let page_keys = read_current_page_keys(connection, library_id, &result_root_block_ids)?;
     let result = LibraryBlockTransferResult {
         mode: LibraryBlockTransferMode::Copy,
         source_root_block_ids: intent.root_block_ids.clone(),
@@ -2492,6 +2501,7 @@ fn apply_page_ownership_copy(
         final_location_revisions: final_location_revisions.clone(),
         document_commits: document_commits.clone(),
         affected_database_ids: affected_database_ids.clone(),
+        page_keys,
         page_etags: BTreeMap::new(),
         move_etags: BTreeMap::new(),
         page_view_placements: BTreeMap::new(),
@@ -3040,6 +3050,7 @@ fn apply_page_parent_transfer(
                 .collect::<Vec<_>>();
             affected_view_ids.sort();
             affected_view_ids.dedup();
+            let page_keys = read_current_page_keys(connection, library_id, &result_root_block_ids)?;
             let result = LibraryBlockTransferResult {
                 mode: intent.mode,
                 source_root_block_ids: intent.root_block_ids.clone(),
@@ -3057,6 +3068,7 @@ fn apply_page_parent_transfer(
                     .map(|commit| commit.public.clone())
                     .collect(),
                 affected_database_ids: affected_database_ids.clone(),
+                page_keys,
                 page_etags: BTreeMap::new(),
                 move_etags: BTreeMap::new(),
                 page_view_placements: BTreeMap::new(),
@@ -4376,6 +4388,32 @@ fn assert_fresh_copy_identities(
         }
     }
     Ok(())
+}
+
+fn read_current_page_keys(
+    connection: &Connection,
+    library_id: &str,
+    root_block_ids: &[String],
+) -> Result<BTreeMap<String, Option<String>>, StoreError> {
+    let mut page_keys = BTreeMap::new();
+    for block_id in root_block_ids {
+        let is_page = connection
+            .query_row(
+                "SELECT 1 FROM pages WHERE library_id = ?1 AND block_id = ?2",
+                params![library_id, block_id],
+                |_| Ok(()),
+            )
+            .optional()?
+            .is_some();
+        if !is_page {
+            continue;
+        }
+        page_keys.insert(
+            block_id.clone(),
+            current_page_key_for_page(connection, library_id, block_id)?,
+        );
+    }
+    Ok(page_keys)
 }
 
 fn read_final_locations(

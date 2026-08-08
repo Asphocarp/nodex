@@ -14,6 +14,7 @@ import {
 import {
   createCoreDatabaseModuleAdapter,
   createCoreLibraryDatabaseModuleAdapter,
+  mapCoreDatabaseModuleError,
   mapCorePropertyDescriptor,
   toCoreDatabaseIntent,
 } from "./database-module-adapter";
@@ -35,6 +36,21 @@ const identity = {
   profileId: "profile:test",
   storeEpoch: "epoch:test",
 } as const;
+
+test("maps bounded Page-key failures without losing their typed recovery", () => {
+  expect(mapCoreDatabaseModuleError({
+    code: "conflict",
+    message: "Prefix was claimed",
+    recovery: { kind: "none" },
+    retryable: false,
+  }).code).toBe("identity_conflict");
+  expect(mapCoreDatabaseModuleError({
+    code: "resource_exhausted",
+    message: "Automatic prefix family is exhausted",
+    recovery: { kind: "none" },
+    retryable: false,
+  }).code).toBe("resource_exhausted");
+});
 
 const databaseRecord = () => ({
   databaseId: "database:test",
@@ -238,6 +254,141 @@ describe("Core Database Module Adapter", () => {
       database_id: "database:test",
       window: { after: null, first: 200 },
     }]);
+  });
+
+  test("maps Database-owned Page-key reads and rename without Workspace coordinates", async () => {
+    const client = new FakeCoreClient();
+    client.enqueueDatabaseRead({
+      contract_version: 18,
+      store_epoch: identity.storeEpoch,
+      commit_head: 24,
+      authorization: null,
+      value: {
+        kind: "page_key_prefix_preview",
+        value: {
+          prefix: "LAB",
+          availability: "reserved",
+          alternative_prefix: "LAB2",
+          next_number: 8,
+          example_keys: ["LAB-8", "LAB-9", "LAB-10"],
+        },
+      },
+    });
+    client.enqueueDatabaseRead({
+      contract_version: 18,
+      store_epoch: identity.storeEpoch,
+      commit_head: 24,
+      authorization: null,
+      value: {
+        kind: "page_key_namespace",
+        value: {
+          database_id: "database:test",
+          current_prefix: "RND",
+          next_number: 8,
+          assigned_page_count: 7,
+          revision: 3,
+          retired_prefixes: [{ prefix: "LAB", last_number: 7 }],
+        },
+      },
+    });
+    client.enqueueDatabaseApply({
+      value: { operation_count: 1 },
+      receipt: {
+        operation_id: "operation:rename-page-key",
+        duplicate: false,
+        affected_database_ids: ["database:test"],
+        affected_data_source_ids: [],
+        affected_page_ids: [],
+        affected_view_ids: [],
+        operation_kinds: ["rename_page_key_prefix"],
+        committed_revisions: { "page_key_namespace:database:test": 4 },
+        commit_seq: 25,
+        committed_at: "2026-08-14T00:00:00.000Z",
+      },
+      event_sequence: 25,
+      store_epoch: identity.storeEpoch,
+    });
+    const adapter = createCoreDatabaseModuleAdapter({ client, ...identity });
+    const databaseId = parseDatabaseId("database:test");
+
+    await expect(adapter.read({
+      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+      projectId: identity.projectId,
+      read: {
+        target: { kind: "page_key_namespace", databaseId },
+        mode: "page_key_prefix_preview",
+        nameHint: "Lab",
+        requestedPrefix: "LAB",
+      },
+    })).resolves.toMatchObject({
+      ok: true,
+      value: {
+        value: {
+          kind: "page_key_prefix_preview",
+          value: {
+            prefix: "LAB",
+            alternativePrefix: "LAB2",
+            exampleKeys: ["LAB-8", "LAB-9", "LAB-10"],
+          },
+        },
+      },
+    });
+    await expect(adapter.read({
+      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+      projectId: identity.projectId,
+      read: {
+        target: { kind: "database", databaseId },
+        mode: "page_key_namespace",
+      },
+    })).resolves.toMatchObject({
+      ok: true,
+      value: {
+        value: {
+          kind: "page_key_namespace",
+          value: {
+            databaseId,
+            currentPrefix: "RND",
+            revision: 3,
+          },
+        },
+      },
+    });
+    await expect(adapter.apply({
+      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+      operationId: "operation:rename-page-key",
+      projectId: identity.projectId,
+      storeEpoch: identity.storeEpoch,
+      actor: {},
+      operations: [{
+        kind: "rename_page_key_prefix",
+        databaseId,
+        expectedRevision: 3,
+        prefix: "OPS",
+      }],
+    })).resolves.toMatchObject({
+      ok: true,
+      value: {
+        operationKinds: ["rename_page_key_prefix"],
+        affectedPageIds: [],
+      },
+    });
+    expect(client.databaseReads).toEqual([
+      {
+        kind: "page_key_prefix_preview",
+        database_id: databaseId,
+        name_hint: "Lab",
+        requested_prefix: "LAB",
+      },
+      { kind: "page_key_namespace", database_id: databaseId },
+    ]);
+    expect(client.databaseApplies[0]).toMatchObject({
+      intent: [{
+        kind: "rename_page_key_prefix",
+        database_id: databaseId,
+        expected_revision: 3,
+        prefix: "OPS",
+      }],
+    });
   });
 
   test("maps the Core View descriptor into the renderer contract", async () => {

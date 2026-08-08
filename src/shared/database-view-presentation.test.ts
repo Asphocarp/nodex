@@ -50,8 +50,8 @@ const presentation: DatabaseViewPresentationConfig = {
 };
 
 describe("Database View presentation", () => {
-  test("accepts Page ID as an optional intrinsic display field", () => {
-    const parsed = parseDatabaseViewConfigV4({
+  test("rejects the canonical UUID as a presentation field", () => {
+    expect(() => parseDatabaseViewConfigV4({
       schemaKey: "nodex.database-view",
       schemaVersion: 4,
       filter: { kind: "group", operator: "and", children: [] },
@@ -68,12 +68,7 @@ describe("Database View presentation", () => {
           },
         },
       },
-    });
-
-    expect(parsed.presentation.layouts.list.fields[0]).toEqual({
-      kind: "intrinsic",
-      field: "page_id",
-    });
+    })).toThrow(DatabaseMutationContractError);
   });
 
   test("parses sparse Profile overrides without accepting query fields", () => {

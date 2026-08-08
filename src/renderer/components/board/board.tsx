@@ -33,6 +33,7 @@ import {
 import { useBoard } from "@/lib/use-board";
 import { useMutationAuditSessionId } from "@/lib/mutation-audit-session";
 import { writeTextToClipboard } from "@/lib/clipboard";
+import { copyPageKeyWithFeedback } from "@/lib/copy-page-key";
 import {
   filterDbViewCards,
   getDefaultDbViewPrefs,
@@ -45,7 +46,11 @@ import type {
   WorkflowStatus,
   Project,
 } from "@/lib/types";
-import { buildPageSearchText, matchesSearchTokens, tokenizeSearchQuery } from "@/lib/page-search";
+import {
+  buildPageSearchText,
+  compilePageCollectionSearchQuery,
+  matchesPageCollectionSearchQuery,
+} from "@/lib/page-search";
 import { databasePropertyValueSearchText } from "@/lib/database-property-search-text";
 import {
   buildBoardCardDragData,
@@ -148,6 +153,7 @@ interface BoardProps {
   projects: Project[];
   searchQuery: string;
   dbViewPrefs: DbViewPrefs | null;
+  showPageKey: boolean;
   openPageStage: (
     projectId: string,
     pageId: string,
@@ -174,6 +180,7 @@ export function Board({
   projects,
   searchQuery,
   dbViewPrefs,
+  showPageKey,
   openPageStage,
   onOpenPageInNewChat,
   onSendPageToChat,
@@ -289,12 +296,12 @@ export function Board({
     [propertyOptionRegistries.options, tagsProperty],
   );
 
-  const searchTokens = useMemo(
-    () => tokenizeSearchQuery(deferredSearchQuery),
+  const compiledSearchQuery = useMemo(
+    () => compilePageCollectionSearchQuery(deferredSearchQuery),
     [deferredSearchQuery]
   );
   const viewPrefs = dbViewPrefs ?? getDefaultDbViewPrefs("board");
-  const hasSearchFilter = searchTokens.length > 0;
+  const hasSearchFilter = compiledSearchQuery.normalizedQuery.length > 0;
   const dragMode = useMemo(
     () => resolveBoardCardDragMode({ rules: viewPrefs.rules }),
     [viewPrefs.rules],
@@ -319,12 +326,13 @@ export function Board({
         const filteredByRules = filterDbViewCards(columnCards, viewPrefs.rules);
         const filteredBySearch = hasSearchFilter
           ? filteredByRules.filter((card) =>
-            matchesSearchTokens(
+            matchesPageCollectionSearchQuery(
+              card.pageKey,
               `${buildPageSearchText(card)} ${databasePropertyValueSearchText(
                 card.tags,
                 { optionBacked: true, options: tagOptions },
               )} ${card.columnName.toLowerCase()}`,
-              searchTokens,
+              compiledSearchQuery,
             ))
           : filteredByRules;
 
@@ -334,7 +342,7 @@ export function Board({
         };
       }),
     };
-  }, [board, hasSearchFilter, searchTokens, tagOptions, viewPrefs.rules]);
+  }, [board, compiledSearchQuery, hasSearchFilter, tagOptions, viewPrefs.rules]);
 
   useEffect(() => {
     setCardSelection((current) => {
@@ -929,6 +937,13 @@ export function Board({
     [],
   );
 
+  const handleCopyPageKeyFromMenu = useCallback(
+    async ({ pageKey }: { pageKey: string }) => {
+      await copyPageKeyWithFeedback(pageKey);
+    },
+    [],
+  );
+
   const handleUpdatePageProperty = useCallback(
     async ({
       pageId,
@@ -1341,6 +1356,7 @@ export function Board({
                 ?? groupPagination.get(UNGROUPED_SCOPE_KEY)}
               onLoadMore={loadMoreGroup}
               displayPrefs={viewPrefs.display}
+              showPageKey={showPageKey}
               dragInstanceId={dragInstanceId}
               buildDragData={buildDragData}
               layout={getBoardColumnLayout(columnLayoutPrefs, column.id)}
@@ -1352,6 +1368,7 @@ export function Board({
               onWidthChange={(columnId, width) => updateColumnLayout(columnId, { width })}
               onDeletePageFromMenu={handleDeletePageFromMenu}
               onCopyCardLinkFromMenu={handleCopyCardLinkFromMenu}
+              onCopyPageKeyFromMenu={handleCopyPageKeyFromMenu}
               onOpenPageFromMenu={openPageFromMenu}
               onOpenPageInNewChatFromMenu={onOpenPageInNewChat}
               onSendPageToChatFromMenu={onSendPageToChat}

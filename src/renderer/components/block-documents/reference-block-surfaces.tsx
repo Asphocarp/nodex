@@ -52,6 +52,7 @@ export interface ReferencedCardRowProps extends ReferenceSurfaceStateDependencie
   readonly legacy?: boolean;
   readonly inlineEditingDisabledReason?: string;
   readonly metadata?: ReactNode;
+  readonly showPageKey?: boolean;
   readonly renderDocument?: ReferencedPageDocumentRenderer;
   readonly onOpenPage?: (input: ContentPageNavigationTarget) => void | Promise<void>;
 }
@@ -100,6 +101,7 @@ export function ReferencedCardRow({
   legacy = false,
   inlineEditingDisabledReason,
   metadata,
+  showPageKey = true,
   renderDocument,
   onOpenPage,
   disclosureStore = blockDisclosureStateStore,
@@ -158,8 +160,13 @@ export function ReferencedCardRow({
           />
         </button>
 
-        <span className="min-w-0 flex-1 truncate text-sm text-token-text-primary">
-          {title}
+        <span className="flex min-w-0 flex-1 items-baseline gap-2 text-sm text-token-text-primary">
+          {showPageKey && card.pageKey ? (
+            <span className="w-20 shrink-0 truncate text-xs font-medium tabular-nums text-token-description-foreground">
+              {card.pageKey}
+            </span>
+          ) : null}
+          <span className="min-w-0 truncate">{title}</span>
         </span>
         {legacy ? (
           <span className="shrink-0 text-[11px] text-token-description-foreground">

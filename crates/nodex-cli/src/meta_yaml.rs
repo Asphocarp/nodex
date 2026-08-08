@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use chrono::{DateTime, NaiveDate};
 pub use nodex_core_contracts::library::{
-    PageMetaProjectionV1, ProjectedIdentityV1, ProjectedPropertyTypeV1, ProjectedPropertyV1,
+    PageMetaProjectionV2, ProjectedIdentityV1, ProjectedPropertyTypeV1, ProjectedPropertyV1,
     ProjectedPropertyValueV1, ProjectedRelationSummaryV1, ProjectedScheduleV1,
 };
 use serde_json::Number;
@@ -18,14 +18,14 @@ pub const MAX_META_YAML_DEPTH: usize = 32;
 pub const MAX_META_YAML_PROPERTIES: usize = 256;
 pub const MAX_META_YAML_SEQUENCE: usize = 256;
 
-pub type PageMetaV1 = PageMetaProjectionV1;
+pub type PageMetaV2 = PageMetaProjectionV2;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DraftMetadataChange {
     pub title: Option<String>,
 }
 
-pub fn parse(input: &[u8]) -> Result<PageMetaV1, CliError> {
+pub fn parse(input: &[u8]) -> Result<PageMetaV2, CliError> {
     if input.len() > MAX_META_YAML_BYTES {
         return Err(invalid(format!(
             "meta.yaml exceeds the {MAX_META_YAML_BYTES}-byte limit"
@@ -51,8 +51,8 @@ pub fn parse(input: &[u8]) -> Result<PageMetaV1, CliError> {
 }
 
 pub fn compare_draft_metadata(
-    base: &PageMetaV1,
-    work: &PageMetaV1,
+    base: &PageMetaV2,
+    work: &PageMetaV2,
 ) -> Result<DraftMetadataChange, CliError> {
     if base.id != work.id {
         return Err(CliError::new(
@@ -63,6 +63,9 @@ pub fn compare_draft_metadata(
     }
 
     let mut read_only_paths = Vec::new();
+    if base.page_key != work.page_key {
+        read_only_paths.push("page_key".to_owned());
+    }
     let base_properties = properties_by_id(&base.properties)?;
     let work_properties = properties_by_id(&work.properties)?;
     if base_properties != work_properties {
@@ -481,9 +484,14 @@ fn is_sexagesimal(value: &str) -> bool {
             .all(|byte| byte.is_ascii_digit() || byte == b':' || byte == b'-')
 }
 
-fn validate_page(root: SpannedValue) -> Result<PageMetaV1, CliError> {
+fn validate_page(root: SpannedValue) -> Result<PageMetaV2, CliError> {
     let root_span = root.span;
     let mut root = expect_mapping(root, "", "top-level meta.yaml value")?;
+    let page_key = root
+        .remove("page_key")
+        .map(validate_page_key)
+        .transpose()?
+        .flatten();
     expect_exact_keys(
         &root,
         &["id", "title", "properties", "schedule"],
@@ -529,12 +537,36 @@ fn validate_page(root: SpannedValue) -> Result<PageMetaV1, CliError> {
         Value::Null => None,
         _ => Some(validate_schedule(schedule_node)?),
     };
-    Ok(PageMetaProjectionV1 {
+    Ok(PageMetaProjectionV2 {
         id,
+        page_key,
         title_markdown: title,
         properties: properties.into_values().collect(),
         schedule,
     })
+}
+
+fn validate_page_key(value: SpannedValue) -> Result<Option<String>, CliError> {
+    if matches!(&value.value, Value::Null) {
+        return Ok(None);
+    }
+    let page_key = expect_bounded_string(value, "page_key", 28)?;
+    let Some((prefix, number)) = page_key.split_once('-') else {
+        return Err(invalid("page_key must be canonical PREFIX-NUMBER").at_path("page_key"));
+    };
+    let prefix_is_canonical = (2..=8).contains(&prefix.len())
+        && prefix
+            .bytes()
+            .enumerate()
+            .all(|(index, byte)| byte.is_ascii_uppercase() || (index > 0 && byte.is_ascii_digit()));
+    let number_is_canonical = !number.is_empty()
+        && !number.starts_with('0')
+        && number.bytes().all(|byte| byte.is_ascii_digit())
+        && number.parse::<i64>().is_ok_and(|number| number > 0);
+    if prefix_is_canonical && number_is_canonical {
+        return Ok(Some(page_key));
+    }
+    Err(invalid("page_key must be canonical PREFIX-NUMBER").at_path("page_key"))
 }
 
 fn validate_property(
@@ -959,6 +991,35 @@ id: page_1
                 id: "o_triage".to_owned(),
                 name: "Triage".to_owned(),
             })
+        );
+    }
+
+    #[test]
+    fn parses_canonical_page_key_and_keeps_it_read_only_in_drafts() {
+        let base = parse(
+            META.replace("title:", "page_key: \"LAB-13\"\ntitle:")
+                .as_bytes(),
+        )
+        .expect("keyed metadata");
+        assert_eq!(base.page_key.as_deref(), Some("LAB-13"));
+
+        let changed = parse(
+            META.replace("title:", "page_key: \"LAB-14\"\ntitle:")
+                .as_bytes(),
+        )
+        .expect("changed keyed metadata");
+        let error = compare_draft_metadata(&base, &changed)
+            .expect_err("drafts cannot rewrite the Page key");
+        assert_eq!(error.code, CliErrorCode::DraftReadOnlyFieldChanged);
+        assert_eq!(error.path.as_deref(), Some("page_key"));
+
+        let invalid = META.replace("title:", "page_key: \"lab-13\"\ntitle:");
+        assert_eq!(
+            parse(invalid.as_bytes())
+                .expect_err("non-canonical key")
+                .path
+                .as_deref(),
+            Some("page_key")
         );
     }
 

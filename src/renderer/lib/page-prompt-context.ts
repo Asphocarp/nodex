@@ -22,6 +22,7 @@ import type { PagePromptContext } from "./page-chat-actions";
 export interface BuildPagePromptContextInput {
   readonly projectId: string;
   readonly pageId: string;
+  readonly pageKey?: string;
   readonly title: string;
   readonly nfm: string;
   readonly source?: string;
@@ -30,14 +31,17 @@ export interface BuildPagePromptContextInput {
 export function buildPagePromptContext({
   projectId,
   pageId,
+  pageKey,
   title,
   nfm,
   source = buildPageDeepLink({ pageId }),
 }: BuildPagePromptContextInput): PagePromptContext {
   const normalizedTitle = title.trim() || "Untitled Page";
+  const normalizedPageKey = pageKey?.trim() || undefined;
   const basePrompt = buildCodexPromptInputFromNfmBlocks(parseNfm(nfm));
   const promptText = [
     `Page: ${normalizedTitle}`,
+    ...(normalizedPageKey ? [`Page key: ${normalizedPageKey}`] : []),
     `Source: ${source}`,
     "",
     basePrompt.text,
@@ -50,6 +54,7 @@ export function buildPagePromptContext({
   return {
     projectId,
     pageId,
+    ...(normalizedPageKey ? { pageKey: normalizedPageKey } : {}),
     title: normalizedTitle,
     source,
     promptInput,
@@ -59,6 +64,7 @@ export function buildPagePromptContext({
 export async function loadPagePromptContext(input: {
   readonly projectId: string;
   readonly pageId: string;
+  readonly pageKey?: string;
   readonly titleSnapshot?: string;
   readonly createRuntime?: (
     options: BlockDocumentSurfaceRuntimeOptions,
@@ -82,6 +88,7 @@ export async function loadPagePromptContext(input: {
     return buildPagePromptContext({
       projectId: input.projectId,
       pageId: input.pageId,
+      pageKey: input.pageKey,
       title: materialized.title.trim() || input.titleSnapshot || "Untitled Page",
       nfm: materialized.nfm,
     });

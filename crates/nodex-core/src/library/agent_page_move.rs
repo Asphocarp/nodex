@@ -24,7 +24,8 @@ use serde_json::json;
 
 use crate::database::{
     PageCopyDataSourceDestination, PageCopyPositionAnchor, PageCopyValueDraft,
-    PageCopyViewPlacement, finalize_agent_moved_pages_in_data_source_prevalidated,
+    PageCopyViewPlacement, current_page_key_for_page,
+    finalize_agent_moved_pages_in_data_source_prevalidated,
 };
 use crate::document::{DocumentRuntimeCache, read_store_epoch, sha256};
 use crate::infrastructure::agent_operations::{
@@ -569,11 +570,14 @@ fn apply_pages(
     let pages = request
         .page_ids
         .iter()
-        .map(|page_id| LibraryAgentMovedPage {
-            page_id: page_id.clone(),
-            location: location.clone(),
+        .map(|page_id| {
+            Ok(LibraryAgentMovedPage {
+                page_id: page_id.clone(),
+                page_key: current_page_key_for_page(connection, library_id, page_id)?,
+                location: location.clone(),
+            })
         })
-        .collect();
+        .collect::<Result<Vec<_>, StoreError>>()?;
     Ok(MoveExecution {
         result: LibraryAgentMovePagesResult {
             pages,

@@ -4,7 +4,7 @@ use utoipa::ToSchema;
 use crate::collection::{CollectionWindow, CollectionWindowRequest};
 use crate::{ModuleMutationReceipt, ModuleName, VersionedModuleContract};
 
-pub const PROJECT_WORKSPACE_CONTRACT_VERSION: u32 = 10;
+pub const PROJECT_WORKSPACE_CONTRACT_VERSION: u32 = 13;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -650,6 +650,8 @@ pub enum ProjectWorkspaceIntent {
         description: String,
         appearance: Option<ProjectAppearance>,
         source_roots: Vec<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        page_key_prefix: Option<String>,
         starter_page: ProjectWorkspaceStarterPage,
     },
     CreateProject {
@@ -658,6 +660,8 @@ pub enum ProjectWorkspaceIntent {
         description: String,
         appearance: Option<ProjectAppearance>,
         source_roots: Vec<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        page_key_prefix: Option<String>,
     },
     UpdateProject {
         project_id: String,

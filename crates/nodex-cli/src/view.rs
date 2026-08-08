@@ -232,6 +232,7 @@ struct ViewGroupOutput {
 #[serde(rename_all = "camelCase")]
 struct ViewRowOutput {
     page_id: String,
+    page_key: Option<String>,
     title: String,
     description_preview: String,
     values: BTreeMap<String, Value>,
@@ -388,6 +389,7 @@ fn project_context(
 fn project_row(row: DatabaseViewContextRow) -> ViewRowOutput {
     ViewRowOutput {
         page_id: row.summary.page_id,
+        page_key: row.summary.page_key,
         title: row.summary.title,
         description_preview: row.summary.description_preview,
         values: row.summary.database_values,
@@ -414,7 +416,8 @@ fn render_human(output: &ViewQueryOutput) -> String {
     );
     for row in &output.rows {
         let group = row.effective_group_key.as_deref().unwrap_or("unassigned");
-        let _ = writeln!(rendered, "{group}\t{}\t@{}", row.title, row.page_id);
+        let key = row.page_key.as_deref().unwrap_or("-");
+        let _ = writeln!(rendered, "{group}\t{key}\t{}\t@{}", row.title, row.page_id);
     }
     if let Some(cursor) = &output.page_info.end_cursor {
         let _ = writeln!(rendered, "next\t{cursor}");
@@ -573,7 +576,7 @@ mod tests {
         assert!(output.page_info.has_next_page);
         assert_eq!(output.page_info.projection_revision, 42);
         let human = render_human(&output);
-        assert!(human.contains("triage\tShip\t@page-1"));
+        assert!(human.contains("triage\tLAB-13\tShip\t@page-1"));
     }
 
     fn projection_authority() -> ProjectionSnapshotAuthority {
@@ -597,6 +600,7 @@ mod tests {
     fn row_summary() -> DatabaseRowSummary {
         DatabaseRowSummary {
             page_id: "page-1".to_owned(),
+            page_key: Some("LAB-13".to_owned()),
             lifecycle: "active".to_owned(),
             title: "Ship".to_owned(),
             rich_title: json!([]),

@@ -5,6 +5,7 @@ import { plainTextToPortableRichText } from "../../../shared/block-documents/por
 
 const baseCard: ToggleListCard = {
   id: "card-1",
+  pageKey: null,
   status: "plan",
   archived: false,
   title: "Example",

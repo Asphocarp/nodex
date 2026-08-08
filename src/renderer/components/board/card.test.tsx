@@ -39,6 +39,31 @@ async function renderCard(props: Record<string, unknown>) {
 }
 
 describe("board card", () => {
+  test("places an enabled Page key above the card title and Properties", async () => {
+    mockCardPropertyPosition = "top";
+    const card = await renderCard({
+      card: {
+        id: "card-keyed",
+        pageKey: "LAB-13",
+        status: "build",
+        archived: false,
+        title: "Ship the keyed Board",
+        description: "",
+        priority: "p2-medium",
+        tags: [],
+        created: new Date("2026-03-01T00:00:00.000Z"),
+        order: 0,
+      },
+      columnId: "build",
+      showPageKey: true,
+      onClick: () => undefined,
+    });
+
+    const pageKey = card.container.querySelector('[data-page-key="LAB-13"]');
+    expect(pageKey?.nextElementSibling?.textContent).toBe("Ship the keyed Board");
+    expect(pageKey?.parentElement?.nextElementSibling?.textContent).toContain("P2");
+  });
+
   test("renders live title draft overlay for the matching project card", async () => {
     resetPageDraftStoreForTest();
     setPageDraftOverlay("default", "card-1", { title: "Draft title" });
@@ -74,6 +99,7 @@ describe("board card", () => {
         <Card
           card={{
             id: "card-live-title",
+            pageKey: null,
             status: "build",
             archived: false,
             title: "Persisted title",

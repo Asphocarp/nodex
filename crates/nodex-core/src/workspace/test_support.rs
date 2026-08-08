@@ -123,6 +123,7 @@ pub(super) fn create_project(
             description: String::new(),
             appearance: None,
             source_roots: vec![format!("/workspace/{project_id}")],
+            page_key_prefix: None,
         },
     );
 }

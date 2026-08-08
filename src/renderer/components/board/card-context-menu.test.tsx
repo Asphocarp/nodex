@@ -19,8 +19,18 @@ describe("card context menu action row content", () => {
 
     expect(actions.some((action) => action.mockReason !== undefined)).toBe(false);
     expect(actions.map((action) => action.id).join(",")).toBe(
-      "open-page,open-in-new-chat,send-to-chat,copy-link,delete",
+      "open-page,open-in-new-chat,send-to-chat,copy-page-key,copy-link,delete",
     );
+  });
+
+  test("omits Copy Page key when the Page has no key", () => {
+    const actions = getPageActionMenuEntries({
+      query: "",
+      showMockActions: false,
+      hasPageKey: false,
+    });
+
+    expect(actions.some((action) => action.id === "copy-page-key")).toBe(false);
   });
 
   test("renders dev mock rows with a Mock badge", () => {

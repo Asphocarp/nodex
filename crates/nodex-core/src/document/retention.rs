@@ -1111,6 +1111,10 @@ fn internal(message: impl Into<String>) -> StoreError {
 mod tests {
     use tempfile::TempDir;
 
+    use crate::database::page_key::{
+        UniquePageKeyResolution, create_page_key_namespace, ensure_database_page_key,
+        resolve_unique_page_key_in_library,
+    };
     use crate::document::{
         DocumentPlacementEvidence, PersistYjsGenesis, persist_yjs_genesis,
         prepare_page_yjs_genesis, read_document_authority,
@@ -1301,6 +1305,182 @@ mod tests {
                 Ok(())
             })
             .expect("collect tombstone");
+    }
+
+    #[test]
+    fn page_key_tombstone_survives_hard_retention_and_its_number_is_never_reused() {
+        let fixture = Fixture::new();
+        fixture.insert_owned_page_closure("deleted");
+        fixture
+            .kernel
+            .writer()
+            .call(|connection| {
+                let old = "2026-01-01T00:00:00.000Z";
+                connection.execute(
+                    "INSERT INTO blocks( \
+                       id, library_id, type, lifecycle, created_at, updated_at \
+                     ) VALUES ('database:key-retention', 'library:block-retention', \
+                       'database', 'active', ?1, ?1)",
+                    [old],
+                )?;
+                connection.execute(
+                    "INSERT INTO database_containers( \
+                       block_id, library_id, name, lifecycle, created_at, updated_at \
+                     ) VALUES ('database:key-retention', 'library:block-retention', \
+                       'Key retention', 'active', ?1, ?1)",
+                    [old],
+                )?;
+                connection.execute(
+                    "INSERT INTO data_sources( \
+                       id, library_id, home_database_block_id, name, schema_key, lifecycle, \
+                       rank_key, created_at, updated_at \
+                     ) VALUES ('source:key-retention', 'library:block-retention', \
+                       'database:key-retention', 'Key retention', 'nodex.database', 'active', \
+                       'a', ?1, ?1)",
+                    [old],
+                )?;
+                create_page_key_namespace(
+                    connection,
+                    "library:block-retention",
+                    "database:key-retention",
+                    Some("RET"),
+                    "Retention",
+                    old,
+                )?;
+                connection.execute(
+                    "INSERT INTO data_source_page_memberships( \
+                       id, data_source_id, page_block_id, revision, created_at, removed_at \
+                     ) VALUES ('membership:key-retention:original', 'source:key-retention', \
+                       'block:owned-page', 1, ?1, ?1)",
+                    [old],
+                )?;
+                let original = ensure_database_page_key(
+                    connection,
+                    "library:block-retention",
+                    "database:key-retention",
+                    "block:owned-page",
+                    old,
+                )?
+                .expect("enabled Page-key namespace");
+                assert_eq!(original.number, 1);
+                assert_eq!(original.current_page_key, "RET-1");
+
+                assert_eq!(
+                    connection.query_row(
+                        "SELECT count(*) FROM page_key_assignments \
+                         WHERE database_block_id = 'database:key-retention' \
+                           AND page_block_id = 'block:owned-page'",
+                        [],
+                        |row| row.get::<_, i64>(0),
+                    )?,
+                    1,
+                );
+
+                let summary = run_block_retention_pass(connection, 0)?;
+                assert_eq!(summary.collected_candidates, 1);
+                assert_eq!(summary.collected_blocks, 2);
+                assert_eq!(
+                    connection.query_row(
+                        "SELECT count(*) FROM pages WHERE block_id = 'block:owned-page'",
+                        [],
+                        |row| row.get::<_, i64>(0),
+                    )?,
+                    0,
+                );
+                assert_eq!(
+                    connection.query_row(
+                        "SELECT block_type FROM retired_block_identities \
+                         WHERE block_id = 'block:owned-page'",
+                        [],
+                        |row| row.get::<_, String>(0),
+                    )?,
+                    "page",
+                );
+                assert_eq!(
+                    connection.query_row(
+                        "SELECT number FROM page_key_assignments \
+                         WHERE database_block_id = 'database:key-retention' \
+                           AND page_block_id = 'block:owned-page'",
+                        [],
+                        |row| row.get::<_, i64>(0),
+                    )?,
+                    1,
+                );
+                assert_eq!(
+                    connection.query_row(
+                        "SELECT next_number FROM page_key_namespaces \
+                         WHERE database_block_id = 'database:key-retention'",
+                        [],
+                        |row| row.get::<_, i64>(0),
+                    )?,
+                    2,
+                );
+                assert!(
+                    resolve_unique_page_key_in_library(
+                        connection,
+                        "library:block-retention",
+                        "RET-1",
+                    )? == UniquePageKeyResolution::NotFound,
+                );
+
+                connection.execute(
+                    "INSERT INTO blocks( \
+                       id, library_id, type, lifecycle, created_at, updated_at \
+                     ) VALUES ('page:key-retention-successor', 'library:block-retention', \
+                       'page', 'active', ?1, ?1)",
+                    [old],
+                )?;
+                connection.execute(
+                    "INSERT INTO documents( \
+                       id, library_id, schema_key, schema_version, created_at, updated_at \
+                     ) VALUES ('document:key-retention-successor', 'library:block-retention', \
+                       'nodex.page', 2, ?1, ?1)",
+                    [old],
+                )?;
+                connection.execute(
+                    "INSERT INTO block_documents(block_id, document_id, library_id, created_at) \
+                     VALUES ('page:key-retention-successor', 'document:key-retention-successor', \
+                       'library:block-retention', ?1)",
+                    [old],
+                )?;
+                connection.execute(
+                    "INSERT INTO pages( \
+                       block_id, library_id, document_id, parent_kind, parent_id, \
+                       created_at, updated_at \
+                     ) VALUES ('page:key-retention-successor', 'library:block-retention', \
+                       'document:key-retention-successor', 'data_source', \
+                       'source:key-retention', ?1, ?1)",
+                    [old],
+                )?;
+                connection.execute(
+                    "INSERT INTO data_source_page_memberships( \
+                       id, data_source_id, page_block_id, revision, created_at, removed_at \
+                     ) VALUES ('membership:key-retention:successor', 'source:key-retention', \
+                       'page:key-retention-successor', 1, ?1, NULL)",
+                    [old],
+                )?;
+                let successor = ensure_database_page_key(
+                    connection,
+                    "library:block-retention",
+                    "database:key-retention",
+                    "page:key-retention-successor",
+                    old,
+                )?
+                .expect("enabled Page-key namespace");
+                assert_eq!(successor.number, 2);
+                assert_eq!(successor.current_page_key, "RET-2");
+                assert_eq!(
+                    connection.query_row(
+                        "SELECT next_number FROM page_key_namespaces \
+                         WHERE database_block_id = 'database:key-retention'",
+                        [],
+                        |row| row.get::<_, i64>(0),
+                    )?,
+                    3,
+                );
+                Ok(())
+            })
+            .expect("retain Page-key tombstone across physical Page purge");
     }
 
     #[test]

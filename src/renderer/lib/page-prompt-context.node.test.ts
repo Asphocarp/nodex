@@ -6,13 +6,15 @@ describe("page prompt context", () => {
     const context = buildPagePromptContext({
       projectId: "project-a",
       pageId: "page-1",
+      pageKey: "LAB-13",
       title: "Release plan",
       nfm: '<image source="nodex://assets/diagram.png">Architecture</image>\n\nShip it',
     });
 
     expect(context.source).toBe("nodex://pages/page-1");
+    expect(context.pageKey).toBe("LAB-13");
     expect(context.promptInput.text).toBe(
-      "Page: Release plan\nSource: nodex://pages/page-1\n\n[Image #1] (caption: Architecture)\nShip it",
+      "Page: Release plan\nPage key: LAB-13\nSource: nodex://pages/page-1\n\n[Image #1] (caption: Architecture)\nShip it",
     );
     expect(context.promptInput.images).toEqual([{
       source: "nodex://assets/diagram.png",
@@ -29,6 +31,7 @@ describe("page prompt context", () => {
     });
 
     expect(context.title).toBe("Untitled Page");
+    expect(context.pageKey).toBeUndefined();
     expect(context.promptInput.text.startsWith("Page: Untitled Page")).toBe(true);
   });
 });

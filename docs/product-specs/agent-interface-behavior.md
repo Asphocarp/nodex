@@ -28,6 +28,12 @@ The current intent families let an agent:
 - update Page title/body through Nested Markdown or stable Block operations;
 - move or duplicate Page ownership roots.
 
+Page results expose canonical `id`, nullable current `pageKey`, and bounded
+matched-key evidence when an authorized historical alias led to the result.
+Agents may discover and discuss a Page through its key, but every structured
+`pageId`/`pageIds` mutation input remains UUID-only: search resolves the key and
+the write reuses the returned canonical identity.
+
 Nested Markdown is the default bulk-content representation; stable Block
 operations are the identity-sensitive path. Ownership never hides in Markdown:
 create, move, duplicate, and protected deletion are typed semantic operations.
@@ -81,6 +87,12 @@ calling Core. It provides bounded context/tree/history reads, canonical Page
 content, saved View queries, immutable snapshot search, explicit local drafts,
 semantic Page/Block mutations, backup/doctor operations, deep links, and
 optional Core prewarming.
+
+At human selector boundaries, a Page may be addressed by canonical `@pageId`,
+an authorized current or historical Page key, or an exact supported title path.
+Core resolves aliases inside the selected Project before the CLI calls the
+UUID-based read or mutation. Machine and human results report the canonical
+current key alongside Page ID when one exists.
 
 Machine output uses stable versioned JSON envelopes and stable error codes.
 Mutations accept idempotency identities and narrow ETags that prove only the

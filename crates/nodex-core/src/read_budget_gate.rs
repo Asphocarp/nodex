@@ -211,6 +211,24 @@ fn seed_database_rows(kernel: &SqliteStoreKernel) {
                         ])?;
                     }
                 }
+                transaction.execute(
+                    "INSERT INTO page_key_namespaces(\
+                       database_block_id, library_id, next_number, revision, created_at, updated_at\
+                     ) VALUES (?1, ?2, ?3, 1, ?4, ?4)",
+                    params![
+                        DATABASE_ID,
+                        LIBRARY_ID,
+                        i64::try_from(DATABASE_ROW_COUNT).expect("row count fits i64") + 1,
+                        NOW
+                    ],
+                )?;
+                transaction.execute(
+                    "INSERT INTO page_key_prefixes(\
+                       library_id, normalized_prefix, database_block_id, last_number, revision, \
+                       activated_at, retired_at\
+                     ) VALUES (?1, 'SCALE', ?2, NULL, 1, ?3, NULL)",
+                    params![LIBRARY_ID, DATABASE_ID, NOW],
+                )?;
                 {
                     let mut statement = transaction.prepare(
                         "INSERT INTO blocks(\
@@ -293,6 +311,21 @@ fn seed_database_rows(kernel: &SqliteStoreKernel) {
                             format!("membership:scale:{index:05}"),
                             DATA_SOURCE_ID,
                             format!("page:scale:{index:05}"),
+                            NOW
+                        ])?;
+                    }
+                }
+                {
+                    let mut statement = transaction.prepare(
+                        "INSERT INTO page_key_assignments(\
+                           database_block_id, page_block_id, number, assigned_at\
+                         ) VALUES (?1, ?2, ?3, ?4)",
+                    )?;
+                    for index in 0..DATABASE_ROW_COUNT {
+                        statement.execute(params![
+                            DATABASE_ID,
+                            format!("page:scale:{index:05}"),
+                            i64::try_from(index).expect("row index fits i64") + 1,
                             NOW
                         ])?;
                     }
@@ -477,6 +510,44 @@ fn assert_store_health(connection: &Connection) {
         !plan.contains("USE TEMP B-TREE"),
         "Database View window order regressed to a temporary sort:\n{plan}",
     );
+
+    let page_key_plan = connection
+        .prepare(
+            "EXPLAIN QUERY PLAN \
+             SELECT assignment.number, prefix.normalized_prefix \
+             FROM data_source_page_memberships membership \
+             LEFT JOIN page_key_assignments assignment \
+               ON assignment.database_block_id = ?1 \
+              AND assignment.page_block_id = membership.page_block_id \
+             LEFT JOIN page_key_prefixes prefix \
+               ON prefix.database_block_id = assignment.database_block_id \
+              AND prefix.retired_at IS NULL \
+             WHERE membership.data_source_id = ?2 \
+               AND membership.removed_at IS NULL \
+             LIMIT 201",
+        )
+        .expect("prepare populated Page-key query plan")
+        .query_map(params![DATABASE_ID, DATA_SOURCE_ID], |row| {
+            row.get::<_, String>(3)
+        })
+        .expect("read populated Page-key query plan")
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .expect("collect populated Page-key query plan")
+        .join("\n");
+    assert!(
+        page_key_plan.contains("SEARCH assignment USING PRIMARY KEY"),
+        "Page-key assignment lookup lost its composite primary key:\n{page_key_plan}",
+    );
+    assert!(
+        page_key_plan.contains("SEARCH prefix USING COVERING INDEX")
+            && (page_key_plan.contains("idx_page_key_prefixes_current_database")
+                || page_key_plan.contains("idx_page_key_prefixes_database_history")),
+        "Current Page-key prefix lookup lost its Database/current-prefix index:\n{page_key_plan}",
+    );
+    assert!(
+        !page_key_plan.contains("USE TEMP B-TREE"),
+        "Page-key projection introduced a temporary sort:\n{page_key_plan}",
+    );
 }
 
 #[test]
@@ -586,6 +657,13 @@ fn read_budget_gate_large_fixture() {
     assert!(database_bytes < MAX_COLLECTION_WINDOW_JSON_BYTES);
     let encoded_database = serde_json::to_string(&first_database).expect("encode Database window");
     assert!(!encoded_database.contains("BODY-SENTINEL"));
+    assert!(
+        database_window.rows.items.iter().all(|row| row
+            .page_key
+            .as_deref()
+            .is_some_and(|key| key.starts_with("SCALE-"))),
+        "populated Page-key assignments must survive the production View window",
+    );
     let database_cursor = database_window
         .rows
         .next_cursor

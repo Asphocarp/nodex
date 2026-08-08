@@ -30,6 +30,7 @@ function CardContextMenuStory() {
       <CardContextMenu
         card={{
           id: "card-1",
+          pageKey: "LAB-13",
           created: new Date("2026-03-21T14:20:00.000Z"),
           title: "Release plan",
         }}
@@ -37,6 +38,7 @@ function CardContextMenuStory() {
         currentProjectId="project-a"
         currentProjectName="Alpha workspace"
         onDelete={() => {}}
+        onCopyPageKey={() => {}}
         onCopyLink={() => {}}
         onOpenPage={() => {}}
         onOpenPageInNewChat={() => {}}

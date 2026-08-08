@@ -13,7 +13,7 @@ use crate::document::DocumentHeadRevision;
 use crate::workspace::{ProjectAppearance, ProjectLifecycle};
 use crate::{ApplyResponse, ModuleMutationReceipt, ModuleName, VersionedModuleContract};
 
-pub const LIBRARY_CONTRACT_VERSION: u32 = 18;
+pub const LIBRARY_CONTRACT_VERSION: u32 = 20;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -237,6 +237,7 @@ pub struct LibraryAgentPageEtags {
 pub struct LibraryAgentPageCopyResult {
     pub source_page_id: String,
     pub page_id: String,
+    pub page_key: Option<String>,
     pub location: LibraryAgentPageLocation,
     pub body_blocks_created: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -273,6 +274,7 @@ pub struct LibraryAgentCreatePagesPreparation {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 pub struct LibraryAgentCreatedPage {
     pub page_id: String,
+    pub page_key: Option<String>,
     pub location: LibraryAgentPageLocation,
     pub body_blocks_created: u32,
     pub block_ids: Vec<String>,
@@ -315,6 +317,7 @@ pub struct LibraryAgentMovePagesPreparation {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 pub struct LibraryAgentMovedPage {
     pub page_id: String,
+    pub page_key: Option<String>,
     pub location: LibraryAgentPageLocation,
 }
 
@@ -435,6 +438,10 @@ pub struct LibraryBlockTransferResult {
     pub final_location_revisions: std::collections::BTreeMap<String, i64>,
     pub document_commits: Vec<LibraryBlockTransferDocumentCommit>,
     pub affected_database_ids: Vec<String>,
+    /// Current human-readable Page keys for result roots. A present `None`
+    /// value means the root is a Page that is not currently in a keyed
+    /// Database namespace.
+    pub page_keys: std::collections::BTreeMap<String, Option<String>>,
     pub page_etags: std::collections::BTreeMap<String, String>,
     pub move_etags: std::collections::BTreeMap<String, String>,
     pub page_view_placements: std::collections::BTreeMap<String, LibraryPageViewPlacementResult>,
@@ -515,6 +522,9 @@ pub enum LibraryRead {
     },
     PageTarget {
         page_id: String,
+    },
+    PageKeyTarget {
+        page_key: String,
     },
     PageOwnershipPath {
         page_id: String,
@@ -729,6 +739,19 @@ pub enum LibraryPageTarget {
         target_page_id: String,
         page: Value,
         document: LibraryPageDocumentDescriptor,
+    },
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum LibraryPageKeyTarget {
+    NotFound,
+    Ambiguous,
+    Resolved {
+        page_id: String,
+        current_page_key: Option<String>,
+        matched_page_key: String,
+        is_current: bool,
     },
 }
 
@@ -1107,7 +1130,8 @@ pub enum LibraryPageAccessContext {
 pub enum LibraryPageDataSourceContext {
     Standalone,
     Member {
-        membership: LibraryPageMembership,
+        page_key: Option<String>,
+        membership: Box<LibraryPageMembership>,
         database: Value,
         data_source: Value,
         properties: Vec<DatabasePropertyDescriptor>,
@@ -1225,8 +1249,9 @@ pub struct ProjectedScheduleV1 {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
-pub struct PageMetaProjectionV1 {
+pub struct PageMetaProjectionV2 {
     pub id: String,
+    pub page_key: Option<String>,
     pub title_markdown: String,
     pub properties: Vec<ProjectedPropertyV1>,
     pub schedule: Option<ProjectedScheduleV1>,
@@ -1253,7 +1278,8 @@ pub struct LibraryPageFileProjection {
     pub document_head_seq: i64,
     pub kind: LibraryPageFileKind,
     pub content: String,
-    pub metadata: Option<PageMetaProjectionV1>,
+    pub page_key: Option<String>,
+    pub metadata: Option<PageMetaProjectionV2>,
     pub validators: LibraryPageFileValidators,
 }
 
@@ -1471,6 +1497,11 @@ pub enum LibraryAgentPageLocation {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "source", rename_all = "snake_case")]
 pub enum LibraryAgentPageSearchMatch {
+    PageKey {
+        quality: LibraryAgentSearchMatchQuality,
+        page_key: String,
+        is_current: bool,
+    },
     Identity {
         quality: LibraryAgentSearchMatchQuality,
         excerpt: String,
@@ -1498,6 +1529,7 @@ pub enum LibraryAgentPageSearchMatch {
 pub enum LibraryAgentSearchResult {
     Page {
         id: String,
+        page_key: Option<String>,
         title: String,
         location: LibraryAgentPageLocation,
         matches: Vec<LibraryAgentPageSearchMatch>,
@@ -1541,6 +1573,9 @@ pub enum LibraryPageWorkflowStatus {
 pub struct LibraryProjectPageSearchHit {
     pub project_id: String,
     pub page_id: String,
+    pub page_key: Option<String>,
+    pub matched_page_key: Option<String>,
+    pub matched_page_key_is_current: Option<bool>,
     pub title: String,
     pub status: LibraryPageWorkflowStatus,
     pub score: i64,
@@ -1777,6 +1812,9 @@ pub enum LibraryReadValue {
     },
     PageTarget {
         value: Option<Box<LibraryPageTarget>>,
+    },
+    PageKeyTarget {
+        value: LibraryPageKeyTarget,
     },
     PageOwnershipPath {
         value: Option<Box<LibraryPageOwnershipPath>>,
@@ -2046,6 +2084,7 @@ pub struct LibraryCanvasMutationResult {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 pub struct LibraryPageCreateResult {
     pub page_id: String,
+    pub page_key: Option<String>,
     pub document_id: String,
     pub document_generation: i64,
     pub document_head_seq: i64,
@@ -2058,6 +2097,7 @@ pub struct LibraryPageCreateResult {
 pub struct LibraryPageCopyResult {
     pub source_page_id: String,
     pub page_id: String,
+    pub page_key: Option<String>,
     pub document_id: String,
     pub block_ids: std::collections::BTreeMap<String, String>,
     pub document_ids: std::collections::BTreeMap<String, String>,

@@ -1,6 +1,6 @@
 ---
 name: nodex
-description: Use the Nodex CLI to discover and edit Nodex Pages and Nested Markdown rich-editor content, inspect Project context, query saved database Views or Boards, move cards atomically, and open Nodex resources. Trigger only when the user wants to read, change, organize, or open content in Nodex.
+description: Use the Nodex CLI to discover Pages by readable Page key or stable ID, edit Nested Markdown rich-editor content, inspect Project context, query saved Database Views or Boards, move Pages atomically, and open Nodex resources. Trigger only when the user wants to read, change, organize, or open content in Nodex.
 ---
 
 # Nodex
@@ -33,13 +33,17 @@ Do not guess an older interface or substitute direct storage access. See
   [project-database-views.md](references/project-database-views.md).
 - Author or replace rich-editor content: also read
   [nested-markdown.md](references/nested-markdown.md).
-- Open a Page or View in the desktop app: resolve its stable ID, then use
-  `nodex open page @ID` or `nodex open view @ID`. Add `--print` when the user
-  wants the canonical URL without launching Nodex.
+- Open a Page or View in the desktop app: a Page key such as `LAB-13` is a valid
+  human selector, while `@ID` is the stable selector for both resource kinds.
+  Use `nodex open page LAB-13` or `nodex open page @ID`, and
+  `nodex open view @ID`. Add `--print` when the user wants the canonical UUID
+  URL without launching Nodex.
 
 ## Mutation protocol
 
-1. Discover names and paths, then resolve them to full `@stable-id` selectors.
+1. Discover names, paths, or Page keys, then resolve the target to the returned
+   full `@stable-id`. A Page key is ideal for discovery and conversation; use
+   the canonical ID for mutation commands.
 2. Read the smallest required state. Request a prepared ETag only for the
    mutation that needs it.
 3. Derive a non-secret idempotency key from the user's stable intent. Reuse that
@@ -61,5 +65,8 @@ Do not guess an older interface or substitute direct storage access. See
   saved View through `nodex view query`.
 - Use stable group keys and returned opaque cursors/ETags; labels and physical
   ranks are display-only.
+- Treat Page keys as guessable aliases, never capabilities. Do not substitute
+  `LAB-13` for a `pageId` field in a structured mutation or infer access from a
+  matching prefix; let Core resolve it inside the selected Project.
 - Do not install, update, remove, or repair this Skill, and do not edit Agent
   configuration.

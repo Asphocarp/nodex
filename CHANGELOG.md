@@ -8,6 +8,7 @@ All notable changes to this project will be documented in this file.
 
 - Added interactive MCP Apps with thread-scoped tools and resources, stable inline/right-panel/fullscreen presentation, and a Main-owned isolated Electron sandbox that denies guest permissions, popups, navigation, downloads, and unauthorized network access.
 - Added a dense, virtualized task List with Core-backed grouping, nested sub-pages, automatic windows, shared Board selection, inline Property editing, keyboard and bulk actions, atomic drag-and-drop, conflict recovery, and Undo.
+- Added short, searchable IDs for Database Pages, with Core-confirmed prefix setup, default-on List and optional Board display controls, consistent copy actions, authorized historical lookup after moves or prefix changes, explicit ambiguity handling, and CLI/Agent resolution alongside canonical UUID identity.
 - Added Relation Properties for linking Database Pages, with secure previews, paged editing, and contains/empty filters.
 - Added Kanban Page actions to open a Page in a new focused Chat Session or send its canonical content to an existing or new chat.
 - Added an app-level Kanban Page composer with rich descriptions, schema-aware properties, exact multi-panel targeting, recoverable drafts, compact and expanded writing modes, a create-more workflow, and a configurable contextual shortcut.

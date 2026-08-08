@@ -112,6 +112,7 @@ const model = (): DatabaseViewRenderModel => {
   };
   const rows: DatabaseViewQueryResultV2["rows"] = ["page-a", "page-b", "page-c"].map(
     (pageId, index): DataSourcePageRowV2 => ({
+      pageKey: null,
       membership: {
         membershipId: `membership-${pageId}`,
         dataSourceId,
@@ -169,6 +170,7 @@ const model = (): DatabaseViewRenderModel => {
       name: "All",
       rows: rows.map((row) => ({
         pageId: row.page.pageId,
+        pageKey: row.pageKey,
         groupKey: null,
         subgroupKey: null,
         title: row.page.title,

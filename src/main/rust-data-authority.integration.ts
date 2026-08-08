@@ -37,9 +37,9 @@ import { DATABASE_MODULE_V2_CONTRACT_VERSION } from "../shared/database-module-v
 import { parseDataSourcePropertyId } from "../shared/database-identities";
 import {
   NODEX_APP_TOOL_NAMESPACE,
-  NODEX_APP_V5_TOOLSET_REVISION,
+  NODEX_APP_TOOLSET_REVISION,
 } from "../shared/nodex-agent-tools";
-import { CreatePagesV3OutputSchema } from "../shared/nodex-agent-tools/v3-write-schemas";
+import { CreatePagesV6OutputSchema } from "../shared/nodex-agent-tools/v6-schemas";
 import {
   CANVAS_SCENE_SYNC_VERSION,
   primaryCanvasDocumentId,
@@ -821,7 +821,7 @@ describe("Electron native data authority", () => {
       });
       const nativeAgentContext = await nativeAgentService.registry.execute({
         namespace: NODEX_APP_TOOL_NAMESPACE,
-        toolsetRevision: NODEX_APP_V5_TOOLSET_REVISION,
+        toolsetRevision: NODEX_APP_TOOLSET_REVISION,
         tool: "get_context",
       }, {
         include: { databases: true },
@@ -1903,7 +1903,7 @@ describe("Electron native data authority", () => {
       };
       const nativeCreated = await nativeAgentService.registry.execute({
         namespace: NODEX_APP_TOOL_NAMESPACE,
-        toolsetRevision: NODEX_APP_V5_TOOLSET_REVISION,
+        toolsetRevision: NODEX_APP_TOOLSET_REVISION,
         tool: "create_pages",
       }, nativeCreateInput, nativeCreateContext);
       expect(nativeCreated).toMatchObject({
@@ -1935,7 +1935,7 @@ describe("Electron native data authority", () => {
       });
       await expect(nativeAgentService.registry.execute({
         namespace: NODEX_APP_TOOL_NAMESPACE,
-        toolsetRevision: NODEX_APP_V5_TOOLSET_REVISION,
+        toolsetRevision: NODEX_APP_TOOLSET_REVISION,
         tool: "create_pages",
       }, nativeCreateInput, nativeCreateContext)).resolves.toEqual(nativeCreated);
       const nativeMoveContext = {
@@ -1966,7 +1966,7 @@ describe("Electron native data authority", () => {
       } else if (moveTargetConsent.kind !== "authorized") {
         throw new Error("Native Agent Page-move target was not grantable");
       }
-      const createdPageIds = CreatePagesV3OutputSchema.parse(nativeCreated.output).data.pages
+      const createdPageIds = CreatePagesV6OutputSchema.parse(nativeCreated.output).data.pages
         .map((page) => page.pageId)
         .reverse();
       const nativeMoveInput = {
@@ -1979,7 +1979,7 @@ describe("Electron native data authority", () => {
       };
       const nativeMoved = await nativeAgentService.registry.execute({
         namespace: NODEX_APP_TOOL_NAMESPACE,
-        toolsetRevision: NODEX_APP_V5_TOOLSET_REVISION,
+        toolsetRevision: NODEX_APP_TOOLSET_REVISION,
         tool: "move_pages",
       }, nativeMoveInput, nativeMoveContext);
       expect(nativeMoved).toMatchObject({
@@ -1999,7 +1999,7 @@ describe("Electron native data authority", () => {
       });
       await expect(nativeAgentService.registry.execute({
         namespace: NODEX_APP_TOOL_NAMESPACE,
-        toolsetRevision: NODEX_APP_V5_TOOLSET_REVISION,
+        toolsetRevision: NODEX_APP_TOOLSET_REVISION,
         tool: "move_pages",
       }, nativeMoveInput, nativeMoveContext)).resolves.toEqual(nativeMoved);
       const nativeDuplicateInput = {
@@ -2013,7 +2013,7 @@ describe("Electron native data authority", () => {
       };
       const nativeDuplicate = await nativeAgentService.registry.execute({
         namespace: NODEX_APP_TOOL_NAMESPACE,
-        toolsetRevision: NODEX_APP_V5_TOOLSET_REVISION,
+        toolsetRevision: NODEX_APP_TOOLSET_REVISION,
         tool: "duplicate_page",
       }, nativeDuplicateInput, nativeDuplicateContext);
       expect(nativeDuplicate).toMatchObject({
@@ -2036,7 +2036,7 @@ describe("Electron native data authority", () => {
       });
       await expect(nativeAgentService.registry.execute({
         namespace: NODEX_APP_TOOL_NAMESPACE,
-        toolsetRevision: NODEX_APP_V5_TOOLSET_REVISION,
+        toolsetRevision: NODEX_APP_TOOLSET_REVISION,
         tool: "duplicate_page",
       }, nativeDuplicateInput, nativeDuplicateContext)).resolves.toEqual(nativeDuplicate);
       await workspace.setProjectPinned(projectId, { pinned: true });

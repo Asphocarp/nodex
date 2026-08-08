@@ -6,6 +6,7 @@ import { Column } from "./column";
 
 const card = (id: string, title: string, order: number): CardType => ({
   id,
+  pageKey: null,
   status: "build",
   archived: false,
   title,

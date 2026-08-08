@@ -18,6 +18,7 @@ const statusId = parseDataSourcePropertyId("p_STATUS01");
 const priorityId = parseDataSourcePropertyId("p_PRIOR001");
 
 const row = (pageId: string, status: string, priority: string, rankKey: string) => ({
+  pageKey: null,
   membership: {
     membershipId: `membership-${pageId}`,
     dataSourceId,

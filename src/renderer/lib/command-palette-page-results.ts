@@ -283,6 +283,12 @@ export function selectCommandPalettePageResults({
     return [{
       ...item,
       searchPreview: buildCommandPalettePageDescriptionSearchPreview(result.excerpt, results.query) ?? item.searchPreview,
+      pageKeyMatch: result.matchedPageKey
+        ? {
+            matchedPageKey: result.matchedPageKey,
+            isCurrent: result.matchedPageKeyIsCurrent === true,
+          }
+        : item.pageKeyMatch,
     }];
   });
 
@@ -293,13 +299,12 @@ export function selectCommandPalettePageResults({
   const serverMatchesById = new Map(descriptionSearchPages.map((item) => [item.id, item] as const));
   const merged = results.pages.map((item) => {
     const serverMatch = serverMatchesById.get(item.id);
-    if (!serverMatch?.searchPreview || item.searchPreview) {
-      return item;
-    }
+    if (!serverMatch) return item;
 
     return {
       ...item,
-      searchPreview: serverMatch.searchPreview,
+      searchPreview: item.searchPreview ?? serverMatch.searchPreview,
+      pageKeyMatch: serverMatch.pageKeyMatch ?? item.pageKeyMatch,
     };
   });
   const seenIds = new Set(merged.map((item) => item.id));

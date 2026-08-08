@@ -9,6 +9,8 @@ use rusqlite::{Connection, OptionalExtension, params, params_from_iter, types::V
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
+use crate::database::{current_page_key_for_page, resolve_page_key_matches_in_library};
+use crate::domain::page_key::is_explicit_page_key_search;
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
 use super::cursor;
@@ -76,6 +78,7 @@ struct ProjectSearchCandidate {
 struct AuthorizedProjectSearchCandidate {
     project_id: String,
     page_id: String,
+    page_key: Option<String>,
     title: String,
     status: LibraryPageWorkflowStatus,
     excerpt: String,
@@ -141,7 +144,7 @@ pub(super) fn page_content(
         && row.projected_seq == Some(row.document_head_seq)
         && row.materialization_schema_version == Some(row.schema_version);
     if !exact {
-        return Err(conflict(
+        return Err(revision_conflict(
             "Library Page does not have an exact current materialization",
         ));
     }
@@ -397,13 +400,55 @@ pub(super) fn project_page_search(
     let limit = usize::try_from(limit.unwrap_or(DEFAULT_PROJECT_SEARCH_LIMIT as u32))
         .map_err(|_| invalid("Project Page search limit is invalid"))?
         .clamp(1, MAX_SEARCH_LIMIT);
-    let Some(match_query) = build_fts_match_query(query)? else {
-        return Ok(LibraryReadValue::ProjectPageSearch { items: Vec::new() });
-    };
     let scopes = project_search_scopes(connection, library_id, &canonical_project_ids)?;
     if scopes.is_empty() {
         return Ok(LibraryReadValue::ProjectPageSearch { items: Vec::new() });
     }
+    let mut page_key_items = Vec::new();
+    for resolution in resolve_page_key_matches_in_library(connection, library_id, query)? {
+        let Some(coordinates) =
+            project_search_coordinates(connection, library_id, &resolution.page_block_id)?
+        else {
+            continue;
+        };
+        let Some(scope) = scopes
+            .iter()
+            .find(|scope| project_search_scope_authorizes(scope, &coordinates))
+        else {
+            continue;
+        };
+        let Some(status) = project_search_status(connection, &resolution.page_block_id)? else {
+            continue;
+        };
+        let Some(title) = project_search_title(connection, &resolution.page_block_id)? else {
+            continue;
+        };
+        let score =
+            2_000_000_i64.saturating_sub(i64::try_from(page_key_items.len()).unwrap_or(i64::MAX));
+        page_key_items.push(LibraryProjectPageSearchHit {
+            project_id: scope.project_id.clone(),
+            page_id: resolution.page_block_id,
+            page_key: resolution.current_page_key,
+            matched_page_key: Some(resolution.matched_page_key),
+            matched_page_key_is_current: Some(resolution.is_current),
+            title: title.clone(),
+            status,
+            score,
+            excerpt: title,
+        });
+    }
+    if !page_key_items.is_empty() {
+        page_key_items.truncate(limit);
+        return Ok(LibraryReadValue::ProjectPageSearch {
+            items: page_key_items,
+        });
+    }
+    if is_explicit_page_key_search(query) {
+        return Ok(LibraryReadValue::ProjectPageSearch { items: Vec::new() });
+    }
+    let Some(match_query) = build_fts_match_query(query)? else {
+        return Ok(LibraryReadValue::ProjectPageSearch { items: Vec::new() });
+    };
     let raw = connection
         .prepare(
             "SELECT unit.owner_block_id, owner_materialization.title, \
@@ -478,9 +523,11 @@ pub(super) fn project_page_search(
         let Some(status) = project_search_status(connection, &candidate.page_id)? else {
             continue;
         };
+        let page_key = current_page_key_for_page(connection, library_id, &candidate.page_id)?;
         authorized.push(AuthorizedProjectSearchCandidate {
             project_id: scope.project_id.clone(),
             page_id: candidate.page_id,
+            page_key,
             title: candidate.title,
             status,
             excerpt: candidate.excerpt,
@@ -500,6 +547,9 @@ pub(super) fn project_page_search(
         .map(|(index, candidate)| LibraryProjectPageSearchHit {
             project_id: candidate.project_id,
             page_id: candidate.page_id,
+            page_key: candidate.page_key,
+            matched_page_key: None,
+            matched_page_key_is_current: None,
             title: candidate.title,
             status: candidate.status,
             score: (1_000_000_i64 - i64::try_from(index).unwrap_or(999_999)).max(1),
@@ -662,6 +712,21 @@ fn project_search_status(
         Some("ship") => Some(LibraryPageWorkflowStatus::Ship),
         _ => None,
     })
+}
+
+fn project_search_title(
+    connection: &Connection,
+    page_id: &str,
+) -> Result<Option<String>, StoreError> {
+    connection
+        .query_row(
+            "SELECT title FROM page_read_model \
+             WHERE page_block_id = ?1 AND lifecycle = 'active'",
+            [page_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(Into::into)
 }
 
 #[allow(clippy::type_complexity)]
@@ -891,7 +956,8 @@ fn validate_identity(value: &str, label: &str) -> Result<(), StoreError> {
 }
 
 fn require_content(value: Option<String>, label: &str) -> Result<String, StoreError> {
-    let value = value.ok_or_else(|| conflict("Library Page materialization is incomplete"))?;
+    let value =
+        value.ok_or_else(|| revision_conflict("Library Page materialization is incomplete"))?;
     if value.len() <= MAX_CONTENT_BYTES {
         return Ok(value);
     }
@@ -904,7 +970,8 @@ fn parse_json_value_array(
     maximum_bytes: usize,
     maximum_items: usize,
 ) -> Result<Value, StoreError> {
-    let value = value.ok_or_else(|| conflict("Library Page materialization is incomplete"))?;
+    let value =
+        value.ok_or_else(|| revision_conflict("Library Page materialization is incomplete"))?;
     if value.len() > maximum_bytes {
         return Err(corrupt(&format!("{label} exceeds its storage bound")));
     }
@@ -925,7 +992,8 @@ fn parse_json_array<T: serde::de::DeserializeOwned>(
     maximum_bytes: usize,
     maximum_items: usize,
 ) -> Result<Vec<T>, StoreError> {
-    let value = value.ok_or_else(|| conflict("Library Page materialization is incomplete"))?;
+    let value =
+        value.ok_or_else(|| revision_conflict("Library Page materialization is incomplete"))?;
     if value.len() > maximum_bytes {
         return Err(corrupt(&format!("{label} exceeds its storage bound")));
     }
@@ -945,8 +1013,8 @@ fn not_found(message: &str) -> StoreError {
     StoreError::new(StoreErrorCode::NotFound, message, false)
 }
 
-fn conflict(message: &str) -> StoreError {
-    StoreError::new(StoreErrorCode::Conflict, message, false)
+fn revision_conflict(message: &str) -> StoreError {
+    StoreError::new(StoreErrorCode::RevisionConflict, message, false)
 }
 
 fn corrupt(message: &str) -> StoreError {

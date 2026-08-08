@@ -2,9 +2,9 @@ import { describe, expect, test, vi } from "vitest";
 import type { NodexAgentMutationEnvelope } from "./dynamic-service-v3-port";
 import {
   CreatePagesV3InputSchema,
-  CreatePagesV3OutputSchema,
+  CreatePagesV6OutputSchema,
   NODEX_APP_TOOL_NAMESPACE,
-  NODEX_APP_V5_TOOLSET_REVISION,
+  NODEX_APP_TOOLSET_REVISION,
   UpdatePageV3InputSchema,
   UpdatePageV3OutputSchema,
   type NodexAgentCreatePagesCommand,
@@ -107,10 +107,11 @@ describe("NodexAgentV3DynamicService", () => {
         markdown: "## Milestones\n\n- [ ] Ship",
       }],
     });
-    const output = CreatePagesV3OutputSchema.parse({
+    const output = CreatePagesV6OutputSchema.parse({
       data: {
         pages: [{
           pageId: "page-created",
+          pageKey: null,
           location: { kind: "library", libraryId: "library-v3" },
           bodyBlocksCreated: 2,
         }],
@@ -218,7 +219,7 @@ describe("NodexAgentV3DynamicService", () => {
 
     await expect(service.registry.execute({
       namespace: NODEX_APP_TOOL_NAMESPACE,
-      toolsetRevision: NODEX_APP_V5_TOOLSET_REVISION,
+      toolsetRevision: NODEX_APP_TOOLSET_REVISION,
       tool: "create_pages",
     }, input, executionContext)).resolves.toEqual({ effect: "write", output });
     expect(trace).toEqual(["prepare", "authorize", "prepare", "execute"]);
@@ -297,7 +298,7 @@ describe("NodexAgentV3DynamicService", () => {
 
     await expect(service.registry.execute({
       namespace: NODEX_APP_TOOL_NAMESPACE,
-      toolsetRevision: NODEX_APP_V5_TOOLSET_REVISION,
+      toolsetRevision: NODEX_APP_TOOLSET_REVISION,
       tool: "update_page",
     }, input, executionContext)).resolves.toEqual({
       effect: "destructive",
@@ -321,7 +322,7 @@ describe("NodexAgentV3DynamicService", () => {
     );
     await expect(service.registry.execute({
       namespace: NODEX_APP_TOOL_NAMESPACE,
-      toolsetRevision: NODEX_APP_V5_TOOLSET_REVISION,
+      toolsetRevision: NODEX_APP_TOOLSET_REVISION,
       tool: "update_page",
     }, input, directContext)).resolves.toEqual({
       effect: "destructive",

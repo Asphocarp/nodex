@@ -183,6 +183,7 @@ const receipt = (
 
 const canonicalPage = (archived = false): DatabasePage => ({
   id: "page-1",
+  pageKey: null,
   status: "triage",
   archived,
   title: "Page",

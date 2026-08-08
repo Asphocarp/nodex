@@ -1,11 +1,19 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { act, fireEvent, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { ReactElement } from "react";
 import type { Project } from "../../lib/types";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
 import { render } from "../../test/dom";
-import { ProjectEditDialog, type ProjectDialogSubmitInput } from "./project-edit-dialog";
+import {
+  ProjectCreateDialog,
+  ProjectEditDialog,
+  type ProjectDialogSubmitInput,
+  type DatabasePageKeyAuthority,
+} from "./project-edit-dialog";
 
-vi.mock("@/lib/api", () => ({
+vi.mock("@/lib/api", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/api")>(),
   invoke: async () => [],
 }));
 
@@ -30,21 +38,68 @@ const PROJECT: Project = {
   updated: new Date("2026-03-15T00:00:00.000Z"),
 };
 
-function renderEditDialog(onSubmit: (input: ProjectDialogSubmitInput) => Promise<void>) {
-  return render(
+let queryClient: QueryClient;
+
+const previewPrefix: DatabasePageKeyAuthority["previewPrefix"] = async (input) => {
+  const prefix = input.requestedPrefix
+    ?? (input.nameHint.trim().toUpperCase().slice(0, 3) || "NX");
+  const nextNumber = input.projectId ? 8 : 1;
+  return {
+    prefix,
+    availability: input.projectId && input.requestedPrefix === "BET"
+      ? "current"
+      : "available",
+    alternativePrefix: null,
+    nextNumber,
+    exampleKeys: [`${prefix}-${nextNumber}`, `${prefix}-${nextNumber + 1}`],
+  };
+};
+
+const readNamespace: DatabasePageKeyAuthority["readNamespace"] = async (
+  _projectId,
+  databaseId,
+) => ({
+  storeEpoch: "epoch:test",
+  namespace: {
+    databaseId: databaseId as never,
+    currentPrefix: "BET",
+    nextNumber: 8,
+    assignedPageCount: 7,
+    revision: 1,
+    retiredPrefixes: [],
+  },
+});
+
+const defaultPageKeyAuthority = (
+  renamePrefix: DatabasePageKeyAuthority["renamePrefix"] = async () => undefined,
+): DatabasePageKeyAuthority => ({ previewPrefix, readNamespace, renamePrefix });
+
+function withQueryClient(element: ReactElement): ReactElement {
+  return <QueryClientProvider client={queryClient}>{element}</QueryClientProvider>;
+}
+
+function renderEditDialog(
+  onSubmit: (input: ProjectDialogSubmitInput) => Promise<void>,
+  pageKeyAuthority = defaultPageKeyAuthority(),
+) {
+  return render(withQueryClient(
     <NodexTooltipProvider>
       <ProjectEditDialog
         project={PROJECT}
         onClose={() => undefined}
         onSubmit={onSubmit}
+        pageKeyAuthority={pageKeyAuthority}
       />
     </NodexTooltipProvider>,
-  );
+  ));
 }
 
 describe("ProjectEditDialog", () => {
   beforeEach(() => {
     document.body.innerHTML = "";
+    queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
   });
 
   test("make primary moves the folder to the front of the saved sources", async () => {
@@ -116,15 +171,16 @@ describe("ProjectEditDialog", () => {
   test("Cancel discards a staged marker without submitting", async () => {
     const onClose = vi.fn();
     const onSubmit = vi.fn(async () => undefined);
-    const view = render(
+    const view = render(withQueryClient(
       <NodexTooltipProvider>
         <ProjectEditDialog
           project={PROJECT}
           onClose={onClose}
           onSubmit={onSubmit}
+          pageKeyAuthority={defaultPageKeyAuthority()}
         />
       </NodexTooltipProvider>,
-    );
+    ));
 
     await act(async () => {
       fireEvent.click(view.getByRole("button", {
@@ -211,6 +267,188 @@ describe("ProjectEditDialog", () => {
     });
   });
 
+  test("submits an explicit Project key and explains prefix renames", async () => {
+    const submitted: ProjectDialogSubmitInput[] = [];
+    const renamed: Parameters<DatabasePageKeyAuthority["renamePrefix"]>[0][] = [];
+    const view = renderEditDialog(
+      async (input) => {
+        submitted.push(input);
+      },
+      defaultPageKeyAuthority(async (input) => {
+        renamed.push(input);
+      }),
+    );
+
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Change" }));
+      await Promise.resolve();
+    });
+    await act(async () => {
+      fireEvent.change(view.getByRole("textbox", { name: "Page key prefix" }), {
+        target: { value: "rnd" },
+      });
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(view.getByText(/7 Pages will use prefix RND/i)).toBeTruthy();
+      expect(view.getByText(/keep working and remain reserved/i)).toBeTruthy();
+      expect(view.getByText("RND-8 is available")).toBeTruthy();
+      expect(view.getByRole("button", { name: "Save" }).hasAttribute("disabled"))
+        .toBe(false);
+    });
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Save" }));
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(submitted[0]).not.toHaveProperty("pageKeyPrefix");
+      expect(renamed[0]).toMatchObject({
+        projectId: PROJECT.id,
+        databaseId: PROJECT.databaseId,
+        expectedRevision: 1,
+        prefix: "RND",
+      });
+    });
+  });
+
+  test("keeps a prefix rename retry separate after Project details were saved", async () => {
+    const submitted: ProjectDialogSubmitInput[] = [];
+    let renameAttempts = 0;
+    const view = renderEditDialog(
+      async (input) => {
+        submitted.push(input);
+      },
+      defaultPageKeyAuthority(async () => {
+        renameAttempts += 1;
+        if (renameAttempts === 1) throw new Error("Database write unavailable");
+      }),
+    );
+
+    fireEvent.click(view.getByRole("button", { name: "Change" }));
+    fireEvent.change(view.getByRole("textbox", { name: "Page key prefix" }), {
+      target: { value: "RND" },
+    });
+    await waitFor(() => {
+      expect(view.getByText("RND-8 is available")).toBeTruthy();
+    });
+    fireEvent.click(view.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(view.getByRole("alert").textContent).toContain(
+        "Project details were saved, but the prefix was not changed",
+      );
+      expect(submitted).toHaveLength(1);
+      expect(renameAttempts).toBe(1);
+    });
+
+    await act(async () => {
+      fireEvent.change(view.getByRole("textbox", { name: "Project name" }), {
+        target: { value: "Beta after conflict" },
+      });
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(view.queryByRole("alert")).toBe(null));
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Save" }));
+      await Promise.resolve();
+    });
+    await waitFor(() => {
+      expect(submitted).toHaveLength(2);
+      expect(submitted[1]?.name).toBe("Beta after conflict");
+      expect(renameAttempts).toBe(2);
+    });
+  });
+
+  test("submits the Core-confirmed create prefix shown in the collapsed summary", async () => {
+    const submitted: ProjectDialogSubmitInput[] = [];
+    const view = render(withQueryClient(
+      <NodexTooltipProvider>
+        <ProjectCreateDialog
+          onClose={() => undefined}
+          pageKeyAuthority={defaultPageKeyAuthority()}
+          onCreate={async (input) => {
+            submitted.push(input);
+          }}
+        />
+      </NodexTooltipProvider>,
+    ));
+
+    await act(async () => {
+      fireEvent.change(view.getByRole("textbox", { name: "Project name" }), {
+        target: { value: "Lab" },
+      });
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(view.getByText("Page keys · LAB-1, LAB-2, …")).toBeTruthy();
+      expect(view.getByRole("button", { name: "Create project" }).hasAttribute("disabled"))
+        .toBe(false);
+    });
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Create project" }));
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(submitted[0]?.name).toBe("Lab");
+      expect(submitted[0]?.pageKeyPrefix).toBe("LAB");
+    });
+  });
+
+  test("offers the authority alternative for a reserved manual prefix", async () => {
+    const submitted: ProjectDialogSubmitInput[] = [];
+    const view = render(withQueryClient(
+      <NodexTooltipProvider>
+        <ProjectCreateDialog
+          onClose={() => undefined}
+          onCreate={async (input) => {
+            submitted.push(input);
+          }}
+          pageKeyAuthority={{
+            previewPrefix: async (input) => input.requestedPrefix === "LAB"
+              ? {
+                  prefix: "LAB",
+                  availability: "reserved",
+                  alternativePrefix: "LAB2",
+                  nextNumber: 1,
+                  exampleKeys: ["LAB-1", "LAB-2"],
+                }
+              : {
+                  prefix: input.requestedPrefix ?? "LAB2",
+                  availability: "available",
+                  alternativePrefix: null,
+                  nextNumber: 1,
+                  exampleKeys: [
+                    `${input.requestedPrefix ?? "LAB2"}-1`,
+                    `${input.requestedPrefix ?? "LAB2"}-2`,
+                  ],
+                },
+            readNamespace,
+            renamePrefix: async () => undefined,
+          }}
+        />
+      </NodexTooltipProvider>,
+    ));
+
+    fireEvent.click(view.getByRole("button", { name: "Change" }));
+    fireEvent.change(view.getByRole("textbox", { name: "Page key prefix" }), {
+      target: { value: "LAB" },
+    });
+    await waitFor(() => {
+      expect(view.getByText("Already used in this Library")).toBeTruthy();
+      expect(view.getByRole("button", { name: "Use LAB2" })).toBeTruthy();
+    });
+    fireEvent.click(view.getByRole("button", { name: "Use LAB2" }));
+    await waitFor(() => {
+      expect(view.getByText("LAB2-1 is available")).toBeTruthy();
+    });
+    fireEvent.click(view.getByRole("button", { name: "Create project" }));
+    await waitFor(() => expect(submitted[0]?.pageKeyPrefix).toBe("LAB2"));
+  });
+
   test("resets project-scoped confirmation state when retargeted", async () => {
     const renderDialog = (project: Project) => (
       <NodexTooltipProvider>
@@ -218,11 +456,12 @@ describe("ProjectEditDialog", () => {
           project={project}
           onClose={() => undefined}
           onSubmit={async () => undefined}
+          pageKeyAuthority={defaultPageKeyAuthority()}
           onArchiveProject={async () => ({ kind: "not-found" })}
         />
       </NodexTooltipProvider>
     );
-    const view = render(renderDialog(PROJECT));
+    const view = render(withQueryClient(renderDialog(PROJECT)));
 
     fireEvent.click(view.getByRole("button", { name: "Remove project" }));
     expect(await view.findByRole("heading", { name: "Remove Beta?" })).toBeTruthy();
@@ -232,7 +471,7 @@ describe("ProjectEditDialog", () => {
       id: "gamma",
       name: "Gamma",
     };
-    view.rerender(renderDialog(nextProject));
+    view.rerender(withQueryClient(renderDialog(nextProject)));
 
     await waitFor(() => {
       expect(view.queryByRole("heading", { name: "Remove Beta?" })).toBe(null);

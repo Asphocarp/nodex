@@ -28,6 +28,8 @@ export const ProjectAppearanceSchema = z.object({
   ]),
 });
 
+export const PageKeyPrefixSchema = z.string().min(1).max(8);
+
 const ProjectSchema = z.object({
   id: z.string(),
   libraryId: z.string(),
@@ -107,6 +109,7 @@ export const ProjectCreateInputSchema = z.object({
   description: z.string().optional(),
   appearance: ProjectAppearanceSchema.optional(),
   sources: z.array(z.string()).optional(),
+  pageKeyPrefix: PageKeyPrefixSchema.optional(),
 }).strict() satisfies z.ZodType<ProjectCreateInput>;
 
 export const ProjectOrderInputSchema = z.object({

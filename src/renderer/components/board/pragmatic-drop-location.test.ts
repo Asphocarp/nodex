@@ -20,6 +20,7 @@ const board: BoardSummary = {
       cards: [
         {
           id: "a",
+          pageKey: null,
           status: "build",
           archived: false,
           title: "A",
@@ -34,6 +35,7 @@ const board: BoardSummary = {
         },
         {
           id: "b",
+          pageKey: null,
           status: "build",
           archived: false,
           title: "B",

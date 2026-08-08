@@ -146,18 +146,20 @@ export const FetchV3InputSchema = z.strictObject({
   }
 });
 
+export const FetchResourceV3Schema = z.strictObject({
+  id: BlockIdSchema,
+  type: z.string().min(1).max(256),
+  title: z.strictObject({
+    markdown: InlineMarkdownTitleSchema,
+    etag: ETagSchema.optional(),
+  }).optional(),
+  lifecycle: z.enum(["active", "archived", "deleted"]),
+  location: PageLocationV3Schema,
+  properties: z.record(PropertyIdSchema, z.strictObject({ value: JsonValueSchema })).optional(),
+});
+
 export const FetchV3DataSchema = z.strictObject({
-  resource: z.strictObject({
-    id: BlockIdSchema,
-    type: z.string().min(1).max(256),
-    title: z.strictObject({
-      markdown: InlineMarkdownTitleSchema,
-      etag: ETagSchema.optional(),
-    }).optional(),
-    lifecycle: z.enum(["active", "archived", "deleted"]),
-    location: PageLocationV3Schema,
-    properties: z.record(PropertyIdSchema, z.strictObject({ value: JsonValueSchema })).optional(),
-  }),
+  resource: FetchResourceV3Schema,
   content: FetchContentV3Schema.optional(),
   dataSource: z.strictObject({
     dataSourceId: DataSourceIdSchema,
@@ -198,7 +200,7 @@ export const SearchV3InputSchema = z.strictObject({
 
 const SearchMatchQualityV3Schema = z.enum(["exact", "prefix", "fuzzy"]);
 
-const PageSearchMatchV3Schema = z.discriminatedUnion("source", [
+export const PageSearchMatchV3Schema = z.discriminatedUnion("source", [
   z.strictObject({
     source: z.literal("identity"),
     quality: z.enum(["exact", "prefix"]),
@@ -221,23 +223,27 @@ const PageSearchMatchV3Schema = z.discriminatedUnion("source", [
   }),
 ]);
 
+export const PageSearchResultV3Schema = z.strictObject({
+  kind: z.literal("page"),
+  id: BlockIdSchema,
+  title: z.string(),
+  location: PageLocationV3Schema,
+  matches: z.array(PageSearchMatchV3Schema).max(3),
+});
+
+export const BlockSearchResultV3Schema = z.strictObject({
+  kind: z.literal("block"),
+  id: BlockIdSchema,
+  blockType: z.string(),
+  ownerPageId: BlockIdSchema,
+  source: z.enum(["title", "body"]),
+  quality: z.enum(["exact", "prefix"]),
+  excerpt: z.string(),
+});
+
 const SearchResultV3Schema = z.discriminatedUnion("kind", [
-  z.strictObject({
-    kind: z.literal("page"),
-    id: BlockIdSchema,
-    title: z.string(),
-    location: PageLocationV3Schema,
-    matches: z.array(PageSearchMatchV3Schema).max(3),
-  }),
-  z.strictObject({
-    kind: z.literal("block"),
-    id: BlockIdSchema,
-    blockType: z.string(),
-    ownerPageId: BlockIdSchema,
-    source: z.enum(["title", "body"]),
-    quality: z.enum(["exact", "prefix"]),
-    excerpt: z.string(),
-  }),
+  PageSearchResultV3Schema,
+  BlockSearchResultV3Schema,
 ]);
 
 export const SearchV3DataSchema = z.strictObject({
@@ -267,6 +273,17 @@ export const QueryDataSourceV3InputSchema = z.strictObject({
   page: createPageInputSchema(200).optional(),
 });
 
+export const QueryDatabaseRowV3Schema = z.strictObject({
+  pageId: BlockIdSchema,
+  title: z.string(),
+  values: z.record(PropertyIdSchema, JsonValueSchema),
+  placement: z.strictObject({
+    viewId: ViewIdSchema,
+    groupKey: z.string().nullable(),
+  }).optional(),
+  documentSummary: z.string().optional(),
+});
+
 export const QueryDatabaseV3DataSchema = z.strictObject({
   database: z.strictObject({
     databaseId: BlockIdSchema,
@@ -288,16 +305,7 @@ export const QueryDatabaseV3DataSchema = z.strictObject({
     name: z.string(),
     defaultLayout: DatabaseViewLayoutSchema,
   }).optional(),
-  rows: z.array(z.strictObject({
-    pageId: BlockIdSchema,
-    title: z.string(),
-    values: z.record(PropertyIdSchema, JsonValueSchema),
-    placement: z.strictObject({
-      viewId: ViewIdSchema,
-      groupKey: z.string().nullable(),
-    }).optional(),
-    documentSummary: z.string().optional(),
-  })).max(200),
+  rows: z.array(QueryDatabaseRowV3Schema).max(200),
 });
 
 export const QueryDatabaseV3OutputSchema = createToolSuccessSchema(QueryDatabaseV3DataSchema);

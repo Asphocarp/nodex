@@ -30,11 +30,12 @@ import type {
 } from "@/lib/page-chat-actions";
 
 interface CardContextMenuProps {
-  card: Pick<CardType, "id" | "created"> & Partial<Pick<CardType, "title">>;
+  card: Pick<CardType, "id" | "created"> & Partial<Pick<CardType, "title" | "pageKey">>;
   currentColumnId: string;
   currentProjectId: string;
   currentProjectName: string;
   onDelete: (input: { pageId: string; columnId: string }) => Promise<void> | void;
+  onCopyPageKey: (input: { pageKey: string }) => Promise<void> | void;
   onCopyLink: (input: { pageId: string; projectId: string }) => Promise<void> | void;
   onOpenPage?: (input: OpenPageInNewChatInput) => Promise<void> | void;
   onOpenPageInNewChat?: (input: OpenPageInNewChatInput) => Promise<void> | void;
@@ -99,6 +100,7 @@ export function CardContextMenu({
   currentProjectId,
   currentProjectName,
   onDelete,
+  onCopyPageKey,
   onCopyLink,
   onOpenPage,
   onOpenPageInNewChat,
@@ -119,10 +121,12 @@ export function CardContextMenu({
   const actions = getPageActionMenuEntries({
     query: actionQuery,
     showMockActions,
+    hasPageKey: Boolean(card.pageKey),
   });
   const pageActionInput = {
     projectId: currentProjectId,
     pageId: card.id,
+    pageKey: card.pageKey ?? undefined,
     titleSnapshot: card.title,
   };
   const canCopyLink =
@@ -204,7 +208,7 @@ export function CardContextMenu({
                     || (entry.id === "send-to-chat" && !onSendPageToChat);
                   return (
                     <Fragment key={entry.id}>
-                      {entry.id === "copy-link" ? <NodexDropdownSeparator /> : null}
+                      {entry.id === "copy-page-key" ? <NodexDropdownSeparator /> : null}
                       <ContextMenuPrimitive.Item
                         disabled={entry.disabled
                           || isActionUnavailable
@@ -216,6 +220,10 @@ export function CardContextMenu({
                               pageId: card.id,
                               projectId: currentProjectId,
                             });
+                            return;
+                          }
+                          if (entry.id === "copy-page-key" && card.pageKey) {
+                            void onCopyPageKey({ pageKey: card.pageKey });
                             return;
                           }
                           if (entry.id === "delete") {

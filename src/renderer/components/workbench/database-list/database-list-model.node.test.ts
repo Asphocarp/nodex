@@ -29,6 +29,7 @@ const row = (
   input: Partial<DatabaseViewRenderRow> = {},
 ): DatabaseViewRenderRow => ({
   pageId,
+  pageKey: null,
   groupKey: "build",
   subgroupKey: null,
   title: pageId,

@@ -125,6 +125,7 @@ const querySnapshot = (input: {
     rankKey: string,
     revision: number,
   ): DatabaseViewQueryResultV2["rows"][number] => ({
+    pageKey: null,
     page: {
       pageId,
       libraryId: "library-1",

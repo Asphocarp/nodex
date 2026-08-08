@@ -39,7 +39,7 @@ const MAX_SORT_RULES: usize = 4;
 const MAX_DISPLAY_PROPERTIES: usize = 64;
 const MAX_ROWS_BY_ID: usize = 100;
 const MAX_LIST_PROJECTION_MODELS: usize = 100_000;
-const SUMMARY_COLUMN_COUNT: usize = 28;
+const SUMMARY_COLUMN_COUNT: usize = 29;
 const COMPATIBILITY_CARD_PROPERTY_IDS: [&str; 8] = [
     "status",
     "priority",
@@ -1445,6 +1445,7 @@ fn row_window_for(
         .unwrap_or_default();
     let position_view = bind(&mut parameters, SqlValue::Text(view.view_id.clone()));
     let source = bind(&mut parameters, SqlValue::Text(view.data_source_id.clone()));
+    let database = bind(&mut parameters, SqlValue::Text(view.database_id.clone()));
     let filter = compile_filter(&view.config.filter, &mut parameters, 1, &mut 0)?;
     let completion = compile_completion_predicate(view, &mut parameters)?;
     let (database_values_projection, property_revisions_projection) =
@@ -1484,7 +1485,10 @@ fn row_window_for(
     );
     let sql = format!(
         "WITH candidate_rows AS (\
-           SELECT model.page_block_id AS page_id, model.lifecycle, model.title, \
+           SELECT model.page_block_id AS page_id, \
+             CASE WHEN key_assignment.number IS NULL THEN NULL \
+               ELSE key_prefix.normalized_prefix || '-' || key_assignment.number END AS page_key, \
+             model.lifecycle, model.title, \
              materialization.title_rich_json, model.description_preview, \
              model.description_length, model.has_description, {database_values_projection}, \
              model.intrinsic_properties_json, \
@@ -1509,6 +1513,12 @@ fn row_window_for(
              AND materialization.generation = document.generation \
              AND materialization.projected_seq = document.head_seq \
              AND materialization.schema_version = document.schema_version \
+           LEFT JOIN page_key_assignments key_assignment \
+             ON key_assignment.database_block_id = {database} \
+             AND key_assignment.page_block_id = membership.page_block_id \
+           LEFT JOIN page_key_prefixes key_prefix \
+             ON key_prefix.database_block_id = key_assignment.database_block_id \
+             AND key_prefix.retired_at IS NULL \
            LEFT JOIN database_view_page_positions position \
              ON position.view_id = {position_view} \
              AND position.page_block_id = membership.page_block_id \
@@ -2650,7 +2660,7 @@ fn refresh_effective_presentation(
                     format!("property:{property_id}")
                 }
                 ViewField::Intrinsic { field } => match field {
-                    DatabaseViewIntrinsicField::PageId => "intrinsic:page_id".to_owned(),
+                    DatabaseViewIntrinsicField::PageKey => "intrinsic:page_key".to_owned(),
                     DatabaseViewIntrinsicField::CreatedAt => "intrinsic:created_at".to_owned(),
                     DatabaseViewIntrinsicField::UpdatedAt => "intrinsic:updated_at".to_owned(),
                 },
@@ -2703,18 +2713,7 @@ fn view_field_override(input: &DatabaseViewFieldInput) -> Result<ViewField, Stor
                 property_id: property_id.clone(),
             })
         }
-        DatabaseViewFieldInput::Intrinsic { field } => match field.as_str() {
-            "page_id" => Ok(ViewField::Intrinsic {
-                field: DatabaseViewIntrinsicField::PageId,
-            }),
-            "created_at" => Ok(ViewField::Intrinsic {
-                field: DatabaseViewIntrinsicField::CreatedAt,
-            }),
-            "updated_at" => Ok(ViewField::Intrinsic {
-                field: DatabaseViewIntrinsicField::UpdatedAt,
-            }),
-            _ => Err(invalid("Database View intrinsic field is unsupported")),
-        },
+        DatabaseViewFieldInput::Intrinsic { field } => Ok(ViewField::Intrinsic { field: *field }),
     }
 }
 
@@ -2851,11 +2850,15 @@ fn summary_by_id(
     let effective_subgroup_select = effective_subgroup.as_deref().unwrap_or("NULL");
     let view_parameter = bind(&mut parameters, SqlValue::Text(view.view_id.clone()));
     let source_parameter = bind(&mut parameters, SqlValue::Text(view.data_source_id.clone()));
+    let database_parameter = bind(&mut parameters, SqlValue::Text(view.database_id.clone()));
     let page_parameter = bind(&mut parameters, SqlValue::Text(page_id.to_owned()));
     let (database_values_projection, property_revisions_projection) =
         compact_value_projections(&view.config, &mut parameters)?;
     let sql = format!(
-        "SELECT model.page_block_id, model.lifecycle, model.title, \
+        "SELECT model.page_block_id, \
+               CASE WHEN key_assignment.number IS NULL THEN NULL \
+                 ELSE key_prefix.normalized_prefix || '-' || key_assignment.number END, \
+               model.lifecycle, model.title, \
                materialization.title_rich_json, model.description_preview, \
                model.description_length, model.has_description, {database_values_projection}, \
                model.intrinsic_properties_json, \
@@ -2886,6 +2889,12 @@ fn summary_by_id(
                AND materialization.generation = document.generation \
                AND materialization.projected_seq = document.head_seq \
                AND materialization.schema_version = document.schema_version \
+             LEFT JOIN page_key_assignments key_assignment \
+               ON key_assignment.database_block_id = {database_parameter} \
+                 AND key_assignment.page_block_id = membership.page_block_id \
+             LEFT JOIN page_key_prefixes key_prefix \
+               ON key_prefix.database_block_id = key_assignment.database_block_id \
+                 AND key_prefix.retired_at IS NULL \
              LEFT JOIN database_view_page_positions position \
                ON position.view_id = {view_parameter} \
                  AND position.page_block_id = model.page_block_id \
@@ -2923,9 +2932,9 @@ fn summary_by_id(
 
 fn summary_from_row(row: &Row<'_>, sort_component_count: usize) -> rusqlite::Result<SummaryRow> {
     let page_id = row.get::<_, String>(0)?;
-    let database_values = parse_json_map(row.get::<_, String>(7)?, "Database values")?;
-    let intrinsic_properties = parse_json_map(row.get::<_, String>(8)?, "intrinsic properties")?;
-    let property_revisions = parse_json_map(row.get::<_, String>(9)?, "Property revisions")?;
+    let database_values = parse_json_map(row.get::<_, String>(8)?, "Database values")?;
+    let intrinsic_properties = parse_json_map(row.get::<_, String>(9)?, "intrinsic properties")?;
+    let property_revisions = parse_json_map(row.get::<_, String>(10)?, "Property revisions")?;
     let database_value_revisions = property_revisions
         .get("database")
         .and_then(Value::as_object)
@@ -2943,33 +2952,34 @@ fn summary_from_row(row: &Row<'_>, sort_component_count: usize) -> rusqlite::Res
     Ok(SummaryRow {
         summary: DatabaseRowSummary {
             page_id,
-            lifecycle: row.get(1)?,
-            title: row.get(2)?,
-            rich_title: parse_json_value(row.get::<_, String>(3)?, "Page rich title")?,
-            description_preview: row.get(4)?,
-            description_length: row.get(5)?,
-            has_description: row.get::<_, i64>(6)? != 0,
+            page_key: row.get(1)?,
+            lifecycle: row.get(2)?,
+            title: row.get(3)?,
+            rich_title: parse_json_value(row.get::<_, String>(4)?, "Page rich title")?,
+            description_preview: row.get(5)?,
+            description_length: row.get(6)?,
+            has_description: row.get::<_, i64>(7)? != 0,
             database_values,
             intrinsic_properties,
             database_value_revisions,
-            metadata_revision: row.get(10)?,
-            parent_revision: row.get(11)?,
-            document_id: row.get(12)?,
-            document_generation: row.get(13)?,
-            document_head_seq: row.get(14)?,
-            membership_id: row.get(15)?,
-            membership_revision: row.get(16)?,
-            membership_created_at: row.get(17)?,
-            created_at: row.get(18)?,
-            updated_at: row.get(19)?,
-            effective_group_key: row.get(20)?,
-            effective_subgroup_key: row.get(21)?,
-            rank_key: row.get(22)?,
-            position_revision: row.get(23)?,
-            position_order: row.get(24)?,
-            task_parent_page_id: row.get(25)?,
-            task_sibling_rank: row.get(26)?,
-            task_parent_value_revision: row.get(27)?,
+            metadata_revision: row.get(11)?,
+            parent_revision: row.get(12)?,
+            document_id: row.get(13)?,
+            document_generation: row.get(14)?,
+            document_head_seq: row.get(15)?,
+            membership_id: row.get(16)?,
+            membership_revision: row.get(17)?,
+            membership_created_at: row.get(18)?,
+            created_at: row.get(19)?,
+            updated_at: row.get(20)?,
+            effective_group_key: row.get(21)?,
+            effective_subgroup_key: row.get(22)?,
+            rank_key: row.get(23)?,
+            position_revision: row.get(24)?,
+            position_order: row.get(25)?,
+            task_parent_page_id: row.get(26)?,
+            task_sibling_rank: row.get(27)?,
+            task_parent_value_revision: row.get(28)?,
         },
         coordinate_values,
     })

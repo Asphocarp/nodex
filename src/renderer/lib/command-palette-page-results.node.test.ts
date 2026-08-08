@@ -17,6 +17,7 @@ function makePage(overrides: Partial<DatabasePageSummary> = {}): DatabasePageSum
   const title = overrides.title ?? "Polish command palette";
   return {
     id: overrides.id ?? "page-1",
+    pageKey: overrides.pageKey ?? null,
     title,
     richTitle: overrides.richTitle ?? plainTextToPortableRichText(title),
     descriptionPreview,
@@ -87,6 +88,9 @@ function makeDescriptionResult(overrides: Partial<PageSearchResult> = {}): PageS
   return {
     projectId: overrides.projectId ?? "default",
     pageId: overrides.pageId ?? "page-1",
+    pageKey: overrides.pageKey ?? null,
+    matchedPageKey: overrides.matchedPageKey ?? null,
+    matchedPageKeyIsCurrent: overrides.matchedPageKeyIsCurrent ?? null,
     title: overrides.title ?? "Page One",
     status: overrides.status ?? "build",
     score: overrides.score ?? -1,
@@ -184,6 +188,38 @@ describe("command palette page result selection", () => {
     expect(results.length).toBe(1);
     expect(results[0]?.page.id).toBe("content-only");
     expect(results[0]?.searchPreview?.excerpt.includes("vector clocks")).toBe(true);
+  });
+
+  test("keeps local metadata while preserving historical Page-key evidence", () => {
+    const page = makePalettePage({
+      page: makePage({
+        id: "historical-key",
+        pageKey: "RND-13",
+        title: "Current identity",
+      }),
+    });
+
+    const results = selectCommandPalettePageResults({
+      query: "lab-13",
+      pages: [page],
+      pageSearchIndex: createCommandPalettePageSearchIndex([page]),
+      pageDescriptionSearchBatch: makeDescriptionBatch("lab-13", [
+        makeDescriptionResult({
+          pageId: "historical-key",
+          pageKey: "RND-13",
+          matchedPageKey: "LAB-13",
+          matchedPageKeyIsCurrent: false,
+          excerpt: "Current identity",
+        }),
+      ]),
+    });
+
+    expect(results).toHaveLength(1);
+    expect(results[0]?.page.pageKey).toBe("RND-13");
+    expect(results[0]?.pageKeyMatch).toEqual({
+      matchedPageKey: "LAB-13",
+      isCurrent: false,
+    });
   });
 
   test("can prioritize active-project description hits before final result limits", () => {

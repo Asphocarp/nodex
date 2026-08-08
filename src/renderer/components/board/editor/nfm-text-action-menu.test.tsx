@@ -45,6 +45,7 @@ function makeProject(id: string, name: string, icon?: string): Project {
 function makeCard(id: string, title: string, status: DatabasePageSummary["status"], order: number): DatabasePageSummary {
   return {
     id,
+    pageKey: null,
     status,
     archived: false,
     title,

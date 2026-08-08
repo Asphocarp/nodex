@@ -1,4 +1,8 @@
-import { buildPageSearchText, matchesSearchTokens, tokenizeSearchQuery } from "../page-search";
+import {
+  buildPageSearchText,
+  compilePageCollectionSearchQuery,
+  matchesPageCollectionSearchQuery,
+} from "../page-search";
 import type {
   ToggleListCard,
   ToggleListClause,
@@ -24,7 +28,7 @@ const estimateRank = new Map(
 
 type ToggleListFilterableCard = Pick<
   DatabasePageSummary,
-  "id" | "title" | "priority" | "estimate" | "tags" | "created" | "assignee"
+  "id" | "pageKey" | "title" | "priority" | "estimate" | "tags" | "created" | "assignee"
 > & {
   descriptionPreview?: string;
   status?: DatabasePageSummary["status"];
@@ -43,22 +47,23 @@ export function filterCards<T extends ToggleListFilterableCard>(
     excludedPageIds?: ReadonlySet<string>;
   },
 ): T[] {
-  const searchTokens = tokenizeSearchQuery(searchQuery);
+  const compiledSearch = compilePageCollectionSearchQuery(searchQuery);
   const rulesV2 = settings.rulesV2;
   const excludedPageIds = options?.excludedPageIds;
 
   return cards.filter((card) => {
     if (excludedPageIds?.has(card.id)) return false;
     if (!matchesFilterSpec(card, rulesV2.filter)) return false;
-    if (searchTokens.length === 0) return true;
+    if (!compiledSearch.normalizedQuery) return true;
 
     const searchable = `${buildPageSearchText({
       id: card.id,
+      pageKey: card.pageKey,
       title: card.title,
       descriptionPreview: card.descriptionPreview ?? "",
       assignee: card.assignee,
     })} ${card.columnName.toLowerCase()}`;
-    return matchesSearchTokens(searchable, searchTokens);
+    return matchesPageCollectionSearchQuery(card.pageKey, searchable, compiledSearch);
   });
 }
 

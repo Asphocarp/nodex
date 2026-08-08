@@ -140,7 +140,7 @@ export const buildPageDetailStoryResult = (
   return {
     ok: true,
     value: {
-      version: 3,
+      version: 4,
       projectId,
       libraryId,
       storeEpoch,
@@ -190,6 +190,7 @@ export const buildPageDetailStoryResult = (
       ],
       dataSourceContext: {
         kind: "member",
+        pageKey: page.pageKey ?? null,
         membership: {
           membershipId: `membership:${page.id}`,
           dataSourceId,

@@ -203,6 +203,7 @@ const STORY_BOARD: BoardSummary = {
       cards: [
         {
           id: "card-1",
+          pageKey: "LAB-13",
           status: "build",
           archived: false,
           title: "Workbench redesign",
@@ -228,6 +229,7 @@ const WELCOME_BOARD: BoardSummary = {
       cards: [
         {
           id: WELCOME_PAGE_ID,
+          pageKey: null,
           status: "triage",
           archived: false,
           title: INITIAL_PROJECT_WELCOME_TITLE,
@@ -249,6 +251,7 @@ function buildStoryCardDetail(projectId: string, pageId: string): DatabasePage |
   if (pageId === WELCOME_PAGE_ID) {
     return {
       id: pageId,
+      pageKey: null,
       status: "triage",
       archived: false,
       title: INITIAL_PROJECT_WELCOME_TITLE,
@@ -265,6 +268,7 @@ function buildStoryCardDetail(projectId: string, pageId: string): DatabasePage |
 
   return {
     id: pageId,
+    pageKey: crossProject ? "CRP-1" : "LAB-13",
     status: "build",
     archived: false,
     title: crossProject ? "Readable pack review" : "Workbench redesign",
@@ -1276,7 +1280,7 @@ function installStoryApi(
           const viewId = `database-view:${projectId}:primary-board`;
           const databaseId = `database:${projectId}:primary`;
           const dataSourceId = `${databaseId}:data-source:initial`;
-          // Core-backed read channels return a CoreReadResult envelope.
+          // Core-backed channels return a CoreResult envelope.
           return { ok: true, value: {
             projectId,
             libraryId: "library:test",

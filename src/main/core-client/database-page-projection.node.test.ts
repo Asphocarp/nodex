@@ -84,6 +84,7 @@ const makeRow = (
   pageId: string,
   status: "triage" | "build" = "build",
 ): DataSourcePageRowV2 => ({
+  pageKey: null,
   page: {
     pageId,
     libraryId: "library:test",

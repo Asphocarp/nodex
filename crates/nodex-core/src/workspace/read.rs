@@ -614,6 +614,22 @@ mod tests {
                            ('session-foreign', 'thread-foreign', \
                             '2026-07-19T03:33:00.000Z');",
                     )?;
+                    crate::database::create_page_key_namespace(
+                        transaction,
+                        "library-1",
+                        "database-1",
+                        None,
+                        "Workspace",
+                        NOW,
+                    )?;
+                    crate::database::create_page_key_namespace(
+                        transaction,
+                        "library-1",
+                        "database-2",
+                        None,
+                        "Archived",
+                        NOW,
+                    )?;
                     Ok(())
                 })
             })

@@ -15,7 +15,7 @@ import type {
   ProjectUpdateInput,
   ProjectWindow,
 } from "./types";
-import { invoke, subscribeProjectChanges } from "./api";
+import { invoke, invokeCoreResult, subscribeProjectChanges } from "./api";
 import { projectsListQueryOptions } from "./query-options";
 import { queryKeys } from "./query-keys";
 import { runSerializedProjectCatalogUpdate } from "./project-update-queue";
@@ -75,7 +75,8 @@ export function useProjects() {
   }, [queryClient]);
 
   const { mutateAsync: createProjectRequest } = useMutation({
-    mutationFn: (input: ProjectCreateInput) => invoke("projects:create", input) as Promise<Project>,
+    mutationFn: (input: ProjectCreateInput) =>
+      invokeCoreResult("projects:create", input),
     onMutate: () => {
       setActionError(null);
     },
@@ -109,7 +110,7 @@ export function useProjects() {
     mutationFn: ({ projectId, updates }: { projectId: string; updates: ProjectUpdateInput }) =>
       runSerializedProjectCatalogUpdate(
         projectId,
-        () => invoke("projects:update", projectId, updates) as Promise<Project | null>,
+        () => invokeCoreResult("projects:update", projectId, updates),
       ),
     onMutate: () => {
       setActionError(null);
@@ -192,6 +193,12 @@ export function useProjects() {
     [createProjectRequest],
   );
 
+  const createProjectOrThrow = useCallback(
+    async (input: ProjectCreateInput): Promise<Project> =>
+      await createProjectRequest(input),
+    [createProjectRequest],
+  );
+
   const archiveProject = useCallback(
     async (projectId: string): Promise<ProjectLifecycleMutationResult> =>
       await archiveProjectRequest(projectId),
@@ -207,6 +214,15 @@ export function useProjects() {
         return null;
       }
     },
+    [updateProjectRequest],
+  );
+
+  const updateProjectOrThrow = useCallback(
+    async (
+      projectId: string,
+      updates: ProjectUpdateInput,
+    ): Promise<Project | null> =>
+      await updateProjectRequest({ projectId, updates }),
     [updateProjectRequest],
   );
 
@@ -259,8 +275,10 @@ export function useProjects() {
     error: actionError ?? queryError,
     refresh: refreshProjects,
     createProject,
+    createProjectOrThrow,
     archiveProject,
     updateProject,
+    updateProjectOrThrow,
     reorderProjects,
     setProjectPinned,
     setPinnedProjectOrder,

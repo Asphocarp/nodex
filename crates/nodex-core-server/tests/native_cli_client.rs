@@ -86,6 +86,7 @@ fn native_client_cold_starts_reuses_and_reads_the_authenticated_core() {
                     description: String::new(),
                     appearance: None,
                     source_roots: vec![source.to_string_lossy().into_owned()],
+                    page_key_prefix: None,
                     starter_page: ProjectWorkspaceStarterPage {
                         page_id: "019b1000-1000-7000-8000-000000000004".to_owned(),
                         document_id: "019b1000-1000-7000-8000-000000000005".to_owned(),

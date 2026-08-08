@@ -42,7 +42,7 @@ const detail = (
   storeEpoch = "epoch-1",
   authorizationDependencies?: readonly AuthorityResource[],
 ): PageDetail => ({
-  version: 3,
+  version: 4,
   projectId: "project-1",
   libraryId: "library-1",
   storeEpoch,

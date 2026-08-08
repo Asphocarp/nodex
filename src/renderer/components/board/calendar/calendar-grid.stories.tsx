@@ -32,6 +32,7 @@ function buildEvent({
   startHour,
   durationHours,
   isAllDay = false,
+  pageKey,
 }: {
   id: string;
   title: string;
@@ -39,6 +40,7 @@ function buildEvent({
   startHour: number;
   durationHours: number;
   isAllDay?: boolean;
+  pageKey: string;
 }): CalendarGridScheduledPage {
   const scheduledStart = new Date(2026, 3, 20 + dayOffset, startHour, 0, 0, 0);
   const scheduledEnd = new Date(scheduledStart);
@@ -46,6 +48,7 @@ function buildEvent({
 
   return {
     id,
+    pageKey,
     pageId: id,
     title,
     richTitle: plainTextToPortableRichText(title),
@@ -67,28 +70,31 @@ function GridHarness({
   dayCount,
   narrow = false,
   denseAllDay = false,
+  showPageKey = true,
 }: {
   dayCount: number;
   narrow?: boolean;
   denseAllDay?: boolean;
+  showPageKey?: boolean;
 }) {
   const [allDayLaneHeight, setAllDayLaneHeight] = useState(denseAllDay ? 132 : 72);
   const visibleDays = buildVisibleDays(dayCount);
   const timedEvents = [
-    buildEvent({ id: "design-review", title: "Design review", dayOffset: 0, startHour: 9, durationHours: 1 }),
-    buildEvent({ id: "implementation", title: "Implementation block", dayOffset: 1, startHour: 11, durationHours: 2 }),
-    buildEvent({ id: "release-check", title: "Release check", dayOffset: Math.min(3, dayCount - 1), startHour: 15, durationHours: 1 }),
+    buildEvent({ id: "design-review", pageKey: "LAB-13", title: "Design review", dayOffset: 0, startHour: 9, durationHours: 1 }),
+    buildEvent({ id: "implementation", pageKey: "LAB-22", title: "Implementation block", dayOffset: 1, startHour: 11, durationHours: 2 }),
+    buildEvent({ id: "release-check", pageKey: "LAB-31", title: "Release check", dayOffset: Math.min(3, dayCount - 1), startHour: 15, durationHours: 1 }),
   ];
   const allDayEvents = denseAllDay
     ? Array.from({ length: 8 }, (_, index) => buildEvent({
       id: `all-day-${index}`,
+      pageKey: `LAB-${100 + index}`,
       title: `All-day focus ${index + 1}`,
       dayOffset: index % Math.max(1, dayCount),
       startHour: 0,
       durationHours: 24,
       isAllDay: true,
     }))
-    : [buildEvent({ id: "launch-window", title: "Launch window", dayOffset: 2, startHour: 0, durationHours: 24, isAllDay: true })];
+    : [buildEvent({ id: "launch-window", pageKey: "LAB-40", title: "Launch window", dayOffset: 2, startHour: 0, durationHours: 24, isAllDay: true })];
 
   return (
     <div className="h-screen bg-token-main-surface-primary p-4 text-token-foreground">
@@ -97,6 +103,7 @@ function GridHarness({
           visibleDays={visibleDays}
           createRequestId={0}
           scheduledPages={[...timedEvents, ...allDayEvents]}
+          showPageKey={showPageKey}
           pageStagePageId={undefined}
           onClickPage={() => undefined}
           onCreatePage={() => undefined}
@@ -123,4 +130,8 @@ export const DenseAllDay: Story = {
 
 export const Narrow: Story = {
   render: () => <GridHarness dayCount={4} narrow denseAllDay />,
+};
+
+export const HiddenPageKeys: Story = {
+  render: () => <GridHarness dayCount={7} showPageKey={false} />,
 };

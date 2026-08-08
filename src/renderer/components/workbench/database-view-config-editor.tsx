@@ -32,6 +32,7 @@ import {
   type DatabaseViewFilterPath,
 } from "@/lib/database-view-authoring";
 import { cn } from "@/lib/utils";
+import { databaseIntrinsicFieldsForLayout } from "@/lib/database-intrinsic-field-registry";
 import { DatabaseViewSelect } from "./database-view-select";
 
 interface DatabaseViewConfigEditorProps {
@@ -540,6 +541,7 @@ export function DatabaseViewConfigEditor({
   );
   const presentation = config.presentation;
   const layoutConfig = presentation.layouts[layout];
+  const intrinsicFields = databaseIntrinsicFieldsForLayout(layout);
   const updateFilter = (
     path: DatabaseViewFilterPath,
     node: DatabaseViewFilterNode,
@@ -759,6 +761,46 @@ export function DatabaseViewConfigEditor({
 
           <ConfigSection title="Display" detail={`Visible fields in ${layout}`}>
         <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+          {intrinsicFields.map((descriptor) => {
+            const visible = layoutConfig.fields.some(
+              (field) => field.kind === "intrinsic" && field.field === descriptor.field,
+            );
+            return (
+              <div
+                key={descriptor.field}
+                className="inline-flex h-7 items-center gap-2 text-xs text-token-text-secondary"
+              >
+                <NodexSwitch
+                  ariaLabel={descriptor.label}
+                  checked={visible}
+                  disabled={disabled}
+                  size="compact"
+                  onCheckedChange={(checked) => onChange({
+                    ...config,
+                    presentation: {
+                      ...presentation,
+                      layouts: {
+                        ...presentation.layouts,
+                        [layout]: {
+                          ...layoutConfig,
+                          fields: checked
+                            ? [
+                                { kind: "intrinsic" as const, field: descriptor.field },
+                                ...layoutConfig.fields,
+                              ]
+                            : layoutConfig.fields.filter(
+                                (field) => field.kind !== "intrinsic"
+                                  || field.field !== descriptor.field,
+                              ),
+                        },
+                      },
+                    },
+                  })}
+                />
+                {descriptor.label}
+              </div>
+            );
+          })}
           <div className="inline-flex h-7 items-center gap-2 text-xs text-token-text-secondary">
             <NodexSwitch
               ariaLabel="Show empty groups"

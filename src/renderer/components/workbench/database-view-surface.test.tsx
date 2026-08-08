@@ -120,6 +120,7 @@ const model: DatabaseViewRenderModel = {
       updatedAt: timestamp,
     }],
     rows: [{
+      pageKey: null,
       membership: {
         membershipId: "membership-focused",
         dataSourceId,
@@ -164,6 +165,7 @@ const model: DatabaseViewRenderModel = {
     name: "In Progress",
     rows: [{
       pageId: "page-focused",
+      pageKey: null,
       groupKey: "build",
       subgroupKey: null,
       status: "build",
@@ -211,6 +213,46 @@ const boardModel = (): DatabaseViewRenderModel => {
         title: "Next Page",
       }],
     }],
+  };
+};
+
+const keyedBoardModel = (): DatabaseViewRenderModel => {
+  const next = boardModel();
+  return {
+    ...next,
+    query: {
+      ...next.query,
+      view: {
+        ...next.query.view,
+        config: {
+          ...next.query.view.config,
+          presentation: {
+            ...next.query.view.config.presentation,
+            layouts: {
+              ...next.query.view.config.presentation.layouts,
+              board: {
+                ...next.query.view.config.presentation.layouts.board,
+                fields: [
+                  { kind: "intrinsic", field: "page_key" },
+                  ...next.query.view.config.presentation.layouts.board.fields,
+                ],
+              },
+            },
+          },
+        },
+      },
+      rows: next.query.rows.map((row, index) => ({
+        ...row,
+        pageKey: index === 0 ? "LAB-13" : row.pageKey,
+      })),
+    },
+    columns: next.columns.map((column) => ({
+      ...column,
+      rows: column.rows.map((row, index) => ({
+        ...row,
+        pageKey: index === 0 ? "LAB-13" : row.pageKey,
+      })),
+    })),
   };
 };
 
@@ -444,6 +486,30 @@ describe("DatabaseViewSurface", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Open Page Focused Page" }));
     expect(opened[0]).toEqual(["page-focused", "Focused Page"]);
+  });
+
+  test("renders an enabled Board Page key above the title and applies the shared key lookup", () => {
+    const keyed = keyedBoardModel();
+    const screen = render(
+      <DatabaseViewSurface
+        model={keyed}
+        searchQuery="#LAB-13"
+        onOpenPage={() => undefined}
+      />,
+    );
+
+    const pageKey = screen.container.querySelector('[data-page-key="LAB-13"]');
+    expect(pageKey?.nextElementSibling?.textContent).toContain("Focused Page");
+    expect(screen.getAllByRole("article")).toHaveLength(1);
+
+    screen.rerender(
+      <DatabaseViewSurface
+        model={keyed}
+        searchQuery="lab13"
+        onOpenPage={() => undefined}
+      />,
+    );
+    expect(screen.getAllByRole("article")).toHaveLength(1);
   });
 
   test("projects an open Page editor title into the List row immediately", async () => {
@@ -1374,6 +1440,31 @@ function NestedDatabaseListHarness({
 }
 
 describe("DatabaseViewTabSurface", () => {
+  test("uses the effective presentation as the only layout authority", () => {
+    const screen = render(
+      <DatabaseViewTabSurface
+        model={model}
+        presentationLayout="board"
+        effectivePresentation={{
+          layout: "list",
+          presentation: model.query.view.config.presentation,
+        }}
+        activeSearchQuery=""
+        taskSearchOpen={false}
+        searchShortcutLabel="Ctrl+F"
+        taskSearchInputRef={{ current: null }}
+        boardSurface={<div>Stale Board presenter</div>}
+        onSearchQueryChange={() => undefined}
+        onOpenTaskSearch={() => undefined}
+        onCloseTaskSearch={() => undefined}
+        onOpenPage={() => undefined}
+      />,
+    );
+
+    expect(screen.queryByText("Stale Board presenter")).toBeNull();
+    expect(screen.getByRole("grid", { name: "Database List" })).toBeTruthy();
+  });
+
   test("keeps the established Board presenter for canonical Board layouts", () => {
     const screen = render(
       <DatabaseViewTabSurface

@@ -227,9 +227,9 @@ fn core_error(error: StoreError) -> CoreError {
         StoreErrorCode::ResourceExhausted => CoreErrorCode::ResourceExhausted,
         StoreErrorCode::Unauthorized => CoreErrorCode::Unauthorized,
         StoreErrorCode::StaleStoreEpoch => CoreErrorCode::StaleStoreEpoch,
-        StoreErrorCode::Conflict
-        | StoreErrorCode::HeadConflict
-        | StoreErrorCode::RevisionConflict => CoreErrorCode::RevisionConflict,
+        StoreErrorCode::Conflict => CoreErrorCode::Conflict,
+        StoreErrorCode::HeadConflict => CoreErrorCode::HeadConflict,
+        StoreErrorCode::RevisionConflict => CoreErrorCode::RevisionConflict,
         StoreErrorCode::IdempotencyKeyReused => CoreErrorCode::IdempotencyKeyReused,
         StoreErrorCode::ProtectedOwnerDeletion => CoreErrorCode::ProtectedOwnerDeletion,
         StoreErrorCode::GenerationConflict => CoreErrorCode::GenerationConflict,

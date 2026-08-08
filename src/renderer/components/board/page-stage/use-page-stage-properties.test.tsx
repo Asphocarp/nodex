@@ -43,6 +43,7 @@ const tagsItem = {
 const pageModel: PageStagePageModel = {
   page: {
     id: "page-1",
+    pageKey: null,
     archived: false,
     title: "Page",
     richTitle: [],

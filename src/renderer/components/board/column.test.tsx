@@ -18,6 +18,7 @@ describe("Column", () => {
         name: "Build",
         cards: [{
           id: "card-1",
+          pageKey: null,
           status: "build",
           archived: false,
           title: "Task",
@@ -60,6 +61,7 @@ describe("Column", () => {
         cards: [
           {
             id: "card-1",
+            pageKey: null,
             status: "build",
             archived: false,
             title: "Task",
@@ -125,6 +127,7 @@ describe("Column", () => {
         cards: [
           {
             id: "card-1",
+            pageKey: null,
             status: "build",
             archived: false,
             title: "Task",
@@ -171,6 +174,7 @@ describe("Column", () => {
         cards: [
           {
             id: "card-1",
+            pageKey: null,
             status: "build",
             archived: false,
             title: "Task",
@@ -234,6 +238,7 @@ describe("Column", () => {
 
     const existingCard = {
       id: "card-1",
+      pageKey: null,
       status: "build" as const,
       archived: false,
       title: "Task",

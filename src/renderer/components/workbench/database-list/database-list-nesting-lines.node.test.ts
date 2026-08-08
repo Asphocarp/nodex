@@ -19,6 +19,7 @@ const page = (
   pageId,
   row: {
     pageId,
+    pageKey: null,
     groupKey: "build",
     subgroupKey: null,
     title: pageId,

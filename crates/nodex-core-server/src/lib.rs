@@ -2531,6 +2531,7 @@ fn record_core_error(error: CoreError) -> CoreError {
         CoreErrorCode::Unauthorized => "unauthorized",
         CoreErrorCode::NotFound => "not_found",
         CoreErrorCode::Ambiguous => "ambiguous",
+        CoreErrorCode::Conflict => "conflict",
         CoreErrorCode::StaleStoreEpoch => "stale_store_epoch",
         CoreErrorCode::RevisionConflict => "revision_conflict",
         CoreErrorCode::GenerationConflict => "generation_conflict",

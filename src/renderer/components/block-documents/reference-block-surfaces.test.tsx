@@ -15,6 +15,7 @@ import { DatabaseViewReferenceSurface } from "./reference-block-surfaces";
 
 const makeCard = (id: string, title: string): DatabasePageSummary => ({
   id,
+  pageKey: null,
   status: "build",
   archived: false,
   title,

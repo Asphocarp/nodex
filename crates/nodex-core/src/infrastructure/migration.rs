@@ -21,6 +21,9 @@ use yrs::updates::decoder::Decode;
 use yrs::updates::encoder::Encode;
 use yrs::{ReadTxn, StateVector, Transact, Update};
 
+#[cfg(test)]
+use crate::database::create_database_authority_records;
+use crate::database::{create_page_key_namespace, ensure_database_page_key};
 use crate::document::{
     BlockDocumentSchema, CANVAS_SCENE_HASH_VERSION, CanvasHashItemKind, CanvasScene,
     DocumentMaterialization, MAX_DOCUMENT_UPDATE_BYTES, canvas_hash_bucket,
@@ -33,6 +36,10 @@ use crate::document::{
 use crate::domain::fractional_rank::evenly_spaced_rank;
 use crate::domain::project_appearance::{
     legacy_project_appearance, project_marker_color_literal, project_marker_icon_literal,
+};
+use nodex_core_contracts::database::{
+    DatabaseViewField, DatabaseViewFieldInput, DatabaseViewFilter, DatabaseViewIntrinsicField,
+    DatabaseViewPresentation, DatabaseViewPresentationOverrideInput,
 };
 use nodex_core_contracts::workspace::ProjectMarker;
 
@@ -1920,6 +1927,119 @@ BEGIN
 END;
 "#;
 
+const V121_PAGE_KEY_SCHEMA_SQL: &str = r#"
+CREATE UNIQUE INDEX idx_database_containers_block_library
+  ON database_containers(block_id, library_id);
+
+CREATE TABLE page_key_namespaces (
+  database_block_id TEXT PRIMARY KEY,
+  library_id TEXT NOT NULL,
+  next_number INTEGER NOT NULL DEFAULT 1 CHECK (next_number >= 1),
+  revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE (database_block_id, library_id),
+  FOREIGN KEY (database_block_id, library_id)
+    REFERENCES database_containers(block_id, library_id) ON DELETE RESTRICT,
+  CHECK (length(created_at) > 0 AND length(updated_at) > 0)
+) WITHOUT ROWID, STRICT;
+
+CREATE TABLE page_key_prefixes (
+  library_id TEXT NOT NULL,
+  normalized_prefix TEXT NOT NULL,
+  database_block_id TEXT NOT NULL,
+  last_number INTEGER,
+  revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
+  activated_at TEXT NOT NULL,
+  retired_at TEXT,
+  PRIMARY KEY (library_id, normalized_prefix),
+  FOREIGN KEY (database_block_id, library_id)
+    REFERENCES page_key_namespaces(database_block_id, library_id) ON DELETE RESTRICT,
+  CHECK (length(normalized_prefix) BETWEEN 2 AND 8),
+  CHECK (substr(normalized_prefix, 1, 1) BETWEEN 'A' AND 'Z'),
+  CHECK (normalized_prefix NOT GLOB '*[^A-Z0-9]*'),
+  CHECK (length(activated_at) > 0),
+  CHECK (
+    (retired_at IS NULL AND last_number IS NULL)
+    OR (retired_at IS NOT NULL AND length(retired_at) > 0 AND last_number >= 1)
+  )
+) WITHOUT ROWID, STRICT;
+
+CREATE UNIQUE INDEX idx_page_key_prefixes_current_database
+  ON page_key_prefixes(database_block_id)
+  WHERE retired_at IS NULL;
+
+CREATE INDEX idx_page_key_prefixes_database_history
+  ON page_key_prefixes(database_block_id, retired_at, normalized_prefix);
+
+CREATE TABLE page_key_assignments (
+  database_block_id TEXT NOT NULL
+    REFERENCES page_key_namespaces(database_block_id) ON DELETE RESTRICT,
+  page_block_id TEXT NOT NULL,
+  number INTEGER NOT NULL CHECK (number >= 1),
+  assigned_at TEXT NOT NULL CHECK (length(assigned_at) > 0),
+  PRIMARY KEY (database_block_id, page_block_id),
+  UNIQUE (database_block_id, number)
+) WITHOUT ROWID, STRICT;
+
+CREATE INDEX idx_page_key_assignments_page
+  ON page_key_assignments(page_block_id, database_block_id);
+
+CREATE TRIGGER page_key_namespaces_identity_immutable
+  BEFORE UPDATE OF database_block_id, library_id ON page_key_namespaces
+  WHEN NEW.database_block_id <> OLD.database_block_id OR NEW.library_id <> OLD.library_id
+  BEGIN
+    SELECT RAISE(ABORT, 'Page-key namespace identity is immutable');
+  END;
+
+CREATE TRIGGER page_key_namespaces_counter_monotonic
+  BEFORE UPDATE OF next_number ON page_key_namespaces
+  WHEN NEW.next_number < OLD.next_number
+  BEGIN
+    SELECT RAISE(ABORT, 'Page-key namespace counter cannot decrease');
+  END;
+
+CREATE TRIGGER page_key_prefixes_identity_immutable
+  BEFORE UPDATE OF library_id, normalized_prefix, database_block_id ON page_key_prefixes
+  WHEN NEW.library_id <> OLD.library_id
+    OR NEW.normalized_prefix <> OLD.normalized_prefix
+    OR NEW.database_block_id <> OLD.database_block_id
+  BEGIN
+    SELECT RAISE(ABORT, 'Page-key prefix identity is immutable');
+  END;
+
+CREATE TRIGGER page_key_assignments_validate_library
+  BEFORE INSERT ON page_key_assignments
+  WHEN NOT EXISTS (
+    SELECT 1
+    FROM page_key_namespaces namespace
+    JOIN pages page ON page.block_id = NEW.page_block_id
+    JOIN data_source_page_memberships membership
+      ON membership.page_block_id = page.block_id
+    JOIN data_sources source
+      ON source.id = membership.data_source_id
+     AND source.home_database_block_id = namespace.database_block_id
+     AND source.library_id = namespace.library_id
+    WHERE namespace.database_block_id = NEW.database_block_id
+      AND namespace.library_id = page.library_id
+  )
+  BEGIN
+    SELECT RAISE(ABORT, 'Page-key assignment requires same-Library Database membership history');
+  END;
+
+CREATE TRIGGER page_key_assignments_immutable_update
+  BEFORE UPDATE ON page_key_assignments
+  BEGIN
+    SELECT RAISE(ABORT, 'Page-key assignments are immutable');
+  END;
+
+CREATE TRIGGER page_key_assignments_immutable_delete
+  BEFORE DELETE ON page_key_assignments
+  BEGIN
+    SELECT RAISE(ABORT, 'Page-key assignments are immutable');
+  END;
+"#;
+
 const V94_PROJECT_APPEARANCE_SCHEMA_SQL: &str = r#"
 ALTER TABLE projects ADD COLUMN appearance_color TEXT NOT NULL DEFAULT 'black'
   CHECK (appearance_color IN ('black', 'red', 'orange', 'yellow', 'green', 'blue', 'purple', 'pink'));
@@ -2556,6 +2676,9 @@ fn upgrade_owned_store(
         117 => validate_exact_v117_schema(connection)?,
         118 => validate_exact_v118_schema(connection)?,
         119 => validate_exact_v119_schema(connection)?,
+        120 => validate_exact_v120_schema(connection)?,
+        121 => validate_exact_v121_schema(connection)?,
+        122 => validate_exact_v122_schema(connection)?,
         _ => return Err(corrupt("Rust Core forward-migration source is unsupported")),
     }
 
@@ -2686,11 +2809,20 @@ fn upgrade_owned_store(
         if source_version < 115 {
             ensure_v115_task_parent_relation_authority(transaction, migration_now)?;
         }
-        ensure_v116_view_personal_state(transaction)?;
-        ensure_v117_library_content_ownership(transaction)?;
-        ensure_v118_canvas_resource_grants(transaction)?;
-        ensure_v119_library_content_index_cleanup(transaction)?;
-        ensure_v120_document_block_tombstones_schema(transaction)?;
+        if source_version < 120 {
+            ensure_v116_view_personal_state(transaction)?;
+            ensure_v117_library_content_ownership(transaction)?;
+            ensure_v118_canvas_resource_grants(transaction)?;
+            ensure_v119_library_content_index_cleanup(transaction)?;
+            ensure_v120_document_block_tombstones_schema(transaction)?;
+        }
+        if source_version < 121 {
+            ensure_v121_page_key_authority(transaction, migration_now)?;
+        } else {
+            let migrated_at = migration_timestamp(migration_now)?;
+            migrate_page_key_display_fields(transaction, &migrated_at)?;
+            validate_v121_page_key_invariants(transaction)?;
+        }
         let updated = transaction.execute(
             "UPDATE core_store_metadata SET store_format_version = ?1 \
              WHERE id = 1 AND schema_owner = ?2 AND store_format_version = ?3",
@@ -3162,6 +3294,7 @@ fn publish_current_store(
         ensure_v118_canvas_resource_grants(transaction)?;
         ensure_v119_library_content_index_cleanup(transaction)?;
         ensure_v120_document_block_tombstones_schema(transaction)?;
+        ensure_v121_page_key_authority(transaction, now)?;
         import_legacy_writable_roots(transaction, profile_home, now)?;
         import_automation_jitter_salt(transaction, profile_home, now)
     })
@@ -3214,6 +3347,7 @@ fn create_fresh_store(
         ensure_v118_canvas_resource_grants(transaction)?;
         ensure_v119_library_content_index_cleanup(transaction)?;
         ensure_v120_document_block_tombstones_schema(transaction)?;
+        ensure_v121_page_key_authority(transaction, now)?;
         import_legacy_writable_roots(transaction, profile_home, now)?;
         import_automation_jitter_salt(transaction, profile_home, now)
     })
@@ -4000,7 +4134,7 @@ fn ensure_v112_database_view_contract(connection: &Connection, now: u64) -> Resu
         ));
     }
 
-    let migration_timestamp = priority_migration_timestamp(now)?;
+    let migration_timestamp = migration_timestamp(now)?;
     let views = connection
         .prepare(
             "SELECT id, database_block_id, data_source_id, name, kind, config_json, \
@@ -4304,7 +4438,7 @@ fn ensure_v115_task_parent_relation_authority(
     connection: &Connection,
     now: u64,
 ) -> Result<(), StoreError> {
-    let updated_at = priority_migration_timestamp(now)?;
+    let updated_at = migration_timestamp(now)?;
     if !table_has_column(connection, "data_source_relation_properties", "cardinality")? {
         connection.execute_batch(
             "ALTER TABLE data_source_relation_properties \
@@ -4760,6 +4894,437 @@ fn ensure_v116_view_personal_state(connection: &Connection) -> Result<(), StoreE
     Ok(())
 }
 
+fn ensure_v121_page_key_authority(connection: &Connection, now: u64) -> Result<(), StoreError> {
+    connection.execute_batch(V121_PAGE_KEY_SCHEMA_SQL)?;
+    let assigned_at = migration_timestamp(now)?;
+    migrate_page_key_display_fields(connection, &assigned_at)?;
+    backfill_v121_page_keys(connection, &assigned_at)?;
+    validate_v121_page_key_invariants(connection)
+}
+
+fn migrate_page_key_display_fields(
+    connection: &Connection,
+    migrated_at: &str,
+) -> Result<(), StoreError> {
+    let durable_views = connection
+        .prepare(
+            "SELECT view.id, view.config_json FROM database_views view \
+             WHERE EXISTS ( \
+               SELECT 1 FROM project_database_bindings binding \
+               WHERE binding.database_block_id = view.database_block_id \
+             ) ORDER BY view.id",
+        )?
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    for (view_id, config_json) in durable_views {
+        let mut raw = serde_json::from_str::<Value>(&config_json)
+            .map_err(|_| corrupt("Page-key display migration found an invalid Database View"))?;
+        let removed_page_id =
+            remove_v121_legacy_page_id_fields(&mut raw, &["presentation", "layouts"]);
+        let mut stored = serde_json::from_value::<V121StoredViewDefinition>(raw)
+            .map_err(|_| corrupt("Page-key display migration found an invalid Database View"))?;
+        stored.validate()?;
+        let board_changed =
+            canonicalize_board_fields(&mut stored.presentation.layouts.board.fields, |field| {
+                matches!(
+                    field,
+                    DatabaseViewField::Intrinsic {
+                        field: DatabaseViewIntrinsicField::PageKey
+                    }
+                )
+            });
+        let list_changed =
+            canonicalize_list_page_key_fields(&mut stored.presentation.layouts.list.fields);
+        if !removed_page_id && !board_changed && !list_changed {
+            continue;
+        }
+        let encoded = serde_json::to_string(&stored)
+            .map_err(|_| corrupt("Page-key display migration could not encode a Database View"))?;
+        connection.execute(
+            "UPDATE database_views SET config_json = ?1, revision = revision + 1, \
+               updated_at = ?2 WHERE id = ?3",
+            params![encoded, migrated_at, view_id],
+        )?;
+    }
+
+    let personal_presentations = connection
+        .prepare(
+            "SELECT personal.profile_id, personal.view_id, personal.presentation_override_json \
+             FROM database_view_personal_presentations personal \
+             JOIN database_views view ON view.id = personal.view_id \
+             WHERE EXISTS ( \
+               SELECT 1 FROM project_database_bindings binding \
+               WHERE binding.database_block_id = view.database_block_id \
+             ) ORDER BY personal.profile_id, personal.view_id",
+        )?
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    for (profile_id, view_id, override_json) in personal_presentations {
+        let mut raw = serde_json::from_str::<Value>(&override_json)
+            .map_err(|_| corrupt("Page-key display migration found an invalid personal View"))?;
+        let removed_page_id = remove_v121_legacy_page_id_fields(&mut raw, &["layouts"]);
+        let mut presentation = serde_json::from_value::<DatabaseViewPresentationOverrideInput>(raw)
+            .map_err(|_| corrupt("Page-key display migration found an invalid personal View"))?;
+        let canonicalized = normalize_personal_page_key_fields(&mut presentation);
+        if !removed_page_id && !canonicalized {
+            continue;
+        }
+        let encoded = serde_json::to_string(&presentation)
+            .map_err(|_| corrupt("Page-key display migration could not encode a personal View"))?;
+        connection.execute(
+            "UPDATE database_view_personal_presentations \
+             SET presentation_override_json = ?1, revision = revision + 1, updated_at = ?2 \
+             WHERE profile_id = ?3 AND view_id = ?4",
+            params![encoded, migrated_at, profile_id, view_id],
+        )?;
+    }
+    Ok(())
+}
+
+fn remove_v121_legacy_page_id_fields(value: &mut Value, path: &[&str]) -> bool {
+    // Older Stores could persist UUID presentation state that the current
+    // contract intentionally makes unrepresentable. Strip only that retired
+    // discriminant before decoding the rest through the typed contract.
+    let mut cursor = value;
+    for segment in path {
+        let Some(next) = cursor.get_mut(*segment) else {
+            return false;
+        };
+        cursor = next;
+    }
+    let Some(layouts) = cursor.as_object_mut() else {
+        return false;
+    };
+    let mut changed = false;
+    for layout_name in ["board", "list"] {
+        let Some(fields) = layouts
+            .get_mut(layout_name)
+            .and_then(Value::as_object_mut)
+            .and_then(|layout| layout.get_mut("fields"))
+            .and_then(Value::as_array_mut)
+        else {
+            continue;
+        };
+        let original_len = fields.len();
+        fields.retain(|field| {
+            field.get("kind").and_then(Value::as_str) != Some("intrinsic")
+                || field.get("field").and_then(Value::as_str) != Some("page_id")
+        });
+        changed |= fields.len() != original_len;
+    }
+    changed
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct V121StoredViewDefinition {
+    schema_key: String,
+    schema_version: u32,
+    filter: DatabaseViewFilter,
+    presentation: DatabaseViewPresentation,
+}
+
+impl V121StoredViewDefinition {
+    fn validate(&self) -> Result<(), StoreError> {
+        if self.schema_key != "nodex.database-view" || self.schema_version != 4 {
+            return Err(corrupt(
+                "Page-key display migration found a View outside the v4 presentation boundary",
+            ));
+        }
+        Ok(())
+    }
+}
+
+fn canonicalize_list_page_key_fields(fields: &mut Vec<DatabaseViewField>) -> bool {
+    canonicalize_page_key_first(
+        fields,
+        DatabaseViewField::Intrinsic {
+            field: DatabaseViewIntrinsicField::PageKey,
+        },
+        |field| {
+            matches!(
+                field,
+                DatabaseViewField::Intrinsic {
+                    field: DatabaseViewIntrinsicField::PageKey
+                }
+            )
+        },
+    )
+}
+
+fn normalize_personal_page_key_fields(
+    presentation: &mut DatabaseViewPresentationOverrideInput,
+) -> bool {
+    let Some(layouts) = presentation.layouts.as_mut() else {
+        return false;
+    };
+    let mut changed = false;
+    if let Some(fields) = layouts
+        .board
+        .as_mut()
+        .and_then(|layout| layout.fields.as_mut())
+    {
+        changed |= canonicalize_board_fields(fields, |field| {
+            matches!(
+                field,
+                DatabaseViewFieldInput::Intrinsic {
+                    field: DatabaseViewIntrinsicField::PageKey
+                }
+            )
+        });
+    }
+    if let Some(fields) = layouts
+        .list
+        .as_mut()
+        .and_then(|layout| layout.fields.as_mut())
+    {
+        changed |= canonicalize_page_key_first(
+            fields,
+            DatabaseViewFieldInput::Intrinsic {
+                field: DatabaseViewIntrinsicField::PageKey,
+            },
+            |field| {
+                matches!(
+                    field,
+                    DatabaseViewFieldInput::Intrinsic {
+                        field: DatabaseViewIntrinsicField::PageKey
+                    }
+                )
+            },
+        );
+    }
+    changed
+}
+
+fn canonicalize_board_fields<T: Clone + Eq>(
+    fields: &mut Vec<T>,
+    is_page_key: impl Fn(&T) -> bool,
+) -> bool {
+    let mut canonical = Vec::with_capacity(fields.len());
+    for field in fields.iter() {
+        if is_page_key(field) || canonical.contains(field) {
+            continue;
+        }
+        canonical.push(field.clone());
+    }
+    if *fields == canonical {
+        return false;
+    }
+    *fields = canonical;
+    true
+}
+
+fn canonicalize_page_key_first<T: Clone + Eq>(
+    fields: &mut Vec<T>,
+    page_key: T,
+    is_page_key: impl Fn(&T) -> bool,
+) -> bool {
+    let mut canonical = Vec::with_capacity(fields.len() + 1);
+    canonical.push(page_key);
+    for field in fields.iter() {
+        if is_page_key(field) || canonical.contains(field) {
+            continue;
+        }
+        canonical.push(field.clone());
+    }
+    if *fields == canonical {
+        return false;
+    }
+    *fields = canonical;
+    true
+}
+
+fn backfill_v121_page_keys(connection: &Connection, now: &str) -> Result<(), StoreError> {
+    let bindings = connection
+        .prepare(
+            "SELECT binding.library_id, binding.database_block_id, container.library_id, \
+               project.library_id, project.name, project.created, project.id \
+             FROM project_database_bindings binding \
+             JOIN projects project ON project.id = binding.project_id \
+             JOIN database_containers container \
+               ON container.block_id = binding.database_block_id \
+             ORDER BY binding.library_id, project.created, project.id, \
+               binding.database_block_id",
+        )?
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, Option<String>>(3)?,
+                row.get::<_, String>(4)?,
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let mut migrated_databases = BTreeSet::new();
+    for (
+        binding_library_id,
+        database_block_id,
+        database_library_id,
+        project_library_id,
+        project_name,
+    ) in bindings
+    {
+        if database_library_id != binding_library_id
+            || project_library_id.as_deref() != Some(binding_library_id.as_str())
+        {
+            return Err(corrupt(format!(
+                "Project binding for Database {database_block_id} crosses Library ownership"
+            )));
+        }
+        if !migrated_databases.insert(database_block_id.clone()) {
+            continue;
+        }
+        create_page_key_namespace(
+            connection,
+            &binding_library_id,
+            &database_block_id,
+            None,
+            &project_name,
+            now,
+        )?;
+        let page_ids = connection
+            .prepare(
+                "SELECT membership.page_block_id, MIN(membership.created_at), page.created_at \
+                 FROM data_sources source \
+                 JOIN data_source_page_memberships membership \
+                   ON membership.data_source_id = source.id \
+                 JOIN pages page ON page.block_id = membership.page_block_id \
+                 WHERE source.home_database_block_id = ?1 \
+                   AND source.library_id = ?2 AND page.library_id = ?2 \
+                 GROUP BY membership.page_block_id, page.created_at \
+                 ORDER BY MIN(membership.created_at), page.created_at, \
+                   membership.page_block_id",
+            )?
+            .query_map(params![database_block_id, binding_library_id], |row| {
+                row.get::<_, String>(0)
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        for page_id in page_ids {
+            if ensure_database_page_key(
+                connection,
+                &binding_library_id,
+                &database_block_id,
+                &page_id,
+                now,
+            )?
+            .is_none()
+            {
+                return Err(corrupt(format!(
+                    "v121 Page-key namespace disappeared while backfilling Database {database_block_id}"
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_v121_page_key_invariants(connection: &Connection) -> Result<(), StoreError> {
+    let bound_without_namespace = connection
+        .query_row(
+            "SELECT binding.database_block_id \
+             FROM project_database_bindings binding \
+             LEFT JOIN page_key_namespaces namespace \
+               ON namespace.database_block_id = binding.database_block_id \
+              AND namespace.library_id = binding.library_id \
+             WHERE namespace.database_block_id IS NULL LIMIT 1",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+    if let Some(database_id) = bound_without_namespace {
+        return Err(corrupt(format!(
+            "Project-bound Database {database_id} has no Page-key namespace"
+        )));
+    }
+    let missing_current_prefix = connection
+        .query_row(
+            "SELECT namespace.database_block_id \
+             FROM page_key_namespaces namespace \
+             LEFT JOIN page_key_prefixes prefix \
+               ON prefix.database_block_id = namespace.database_block_id \
+              AND prefix.library_id = namespace.library_id \
+              AND prefix.retired_at IS NULL \
+             GROUP BY namespace.database_block_id \
+             HAVING count(prefix.normalized_prefix) <> 1 LIMIT 1",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+    if let Some(database_id) = missing_current_prefix {
+        return Err(corrupt(format!(
+            "Page-key namespace {database_id} does not have exactly one current prefix"
+        )));
+    }
+    let invalid_counter = connection
+        .query_row(
+            "SELECT namespace.database_block_id \
+             FROM page_key_namespaces namespace \
+             LEFT JOIN page_key_assignments assignment \
+               ON assignment.database_block_id = namespace.database_block_id \
+             GROUP BY namespace.database_block_id, namespace.next_number \
+             HAVING namespace.next_number <= COALESCE(MAX(assignment.number), 0) LIMIT 1",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+    if let Some(database_id) = invalid_counter {
+        return Err(corrupt(format!(
+            "Page-key namespace {database_id} counter does not exceed its assignments"
+        )));
+    }
+    let invalid_retired_range = connection
+        .query_row(
+            "SELECT prefix.normalized_prefix \
+             FROM page_key_prefixes prefix \
+             JOIN page_key_namespaces namespace \
+               ON namespace.database_block_id = prefix.database_block_id \
+              AND namespace.library_id = prefix.library_id \
+             WHERE prefix.retired_at IS NOT NULL \
+               AND prefix.last_number >= namespace.next_number LIMIT 1",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+    if let Some(prefix) = invalid_retired_range {
+        return Err(corrupt(format!(
+            "Retired Page-key prefix {prefix} exceeds its namespace counter"
+        )));
+    }
+    let invalid_assignment_authority = connection
+        .query_row(
+            "SELECT assignment.page_block_id \
+             FROM page_key_assignments assignment \
+             JOIN page_key_namespaces namespace \
+               ON namespace.database_block_id = assignment.database_block_id \
+             LEFT JOIN pages page ON page.block_id = assignment.page_block_id \
+             LEFT JOIN retired_block_identities retired \
+               ON retired.block_id = assignment.page_block_id \
+              AND retired.block_type = 'page' \
+             WHERE (page.block_id IS NOT NULL AND page.library_id <> namespace.library_id) \
+                OR (page.block_id IS NULL AND ( \
+                  retired.block_id IS NULL OR retired.library_id <> namespace.library_id \
+                )) LIMIT 1",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+    if let Some(page_id) = invalid_assignment_authority {
+        return Err(corrupt(format!(
+            "Page-key assignment for Page {page_id} has no same-Library live or retired authority"
+        )));
+    }
+    Ok(())
+}
+
 fn validate_database_view_global_rank_invariants(
     connection: &Connection,
 ) -> Result<(), StoreError> {
@@ -5065,12 +5630,12 @@ fn validate_legacy_database_relation_invariants(connection: &Connection) -> Resu
     )))
 }
 
-fn priority_migration_timestamp(now: u64) -> Result<String, StoreError> {
-    let millis = i64::try_from(now)
-        .map_err(|_| internal("Priority migration time exceeds the timestamp range"))?;
+fn migration_timestamp(now: u64) -> Result<String, StoreError> {
+    let millis =
+        i64::try_from(now).map_err(|_| internal("Migration time exceeds the timestamp range"))?;
     DateTime::<Utc>::from_timestamp_millis(millis)
         .map(|timestamp| timestamp.to_rfc3339_opts(SecondsFormat::Millis, true))
-        .ok_or_else(|| internal("Priority migration time is invalid"))
+        .ok_or_else(|| internal("Migration time is invalid"))
 }
 
 fn parse_priority_config(
@@ -5159,7 +5724,7 @@ fn migrate_v110_priority_config(
 }
 
 fn ensure_v111_priority_contract(connection: &Connection, now: u64) -> Result<(), StoreError> {
-    let updated_at = priority_migration_timestamp(now)?;
+    let updated_at = migration_timestamp(now)?;
     let properties = connection
         .prepare(
             "SELECT data_source_id, value_type, config_json \
@@ -6994,6 +7559,20 @@ fn validate_exact_v119_schema(connection: &Connection) -> Result<(), StoreError>
     validate_exact_core_schema(connection, true, true, true, true, true, true, true, 119)
 }
 
+fn validate_exact_v120_schema(connection: &Connection) -> Result<(), StoreError> {
+    validate_exact_core_schema(connection, true, true, true, true, true, true, true, 120)
+}
+
+fn validate_exact_v121_schema(connection: &Connection) -> Result<(), StoreError> {
+    validate_exact_core_schema(connection, true, true, true, true, true, true, true, 121)?;
+    validate_v121_page_key_invariants(connection)
+}
+
+fn validate_exact_v122_schema(connection: &Connection) -> Result<(), StoreError> {
+    validate_exact_core_schema(connection, true, true, true, true, true, true, true, 122)?;
+    validate_v121_page_key_invariants(connection)
+}
+
 fn validate_exact_current_schema(connection: &Connection) -> Result<(), StoreError> {
     validate_exact_core_schema(
         connection,
@@ -7005,7 +7584,8 @@ fn validate_exact_current_schema(connection: &Connection) -> Result<(), StoreErr
         true,
         true,
         CORE_SCHEMA_VERSION,
-    )
+    )?;
+    validate_v121_page_key_invariants(connection)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -7173,6 +7753,9 @@ fn build_expected_core_schema_inventory(
     if schema_version >= 120 {
         ensure_v120_document_block_tombstones_schema(&expected)?;
     }
+    if schema_version >= 121 {
+        ensure_v121_page_key_authority(&expected, 0)?;
+    }
 
     read_schema_inventory(&expected)
 }
@@ -7319,6 +7902,9 @@ pub fn expected_store_schema_fingerprint(version: i64) -> Result<String, StoreEr
     if version >= 120 {
         ensure_v120_document_block_tombstones_schema(&expected)?;
     }
+    if version >= 121 {
+        ensure_v121_page_key_authority(&expected, 0)?;
+    }
     read_schema_inventory(&expected).map(|inventory| schema_inventory_fingerprint(&inventory))
 }
 
@@ -7443,6 +8029,111 @@ mod tests {
 
     const DOCUMENT_ID: &str = "document:migration-page";
 
+    fn remove_v121_page_key_schema(connection: &Connection) -> Result<(), StoreError> {
+        connection
+            .execute_batch(
+                "DROP TABLE page_key_assignments; \
+                 DROP TABLE page_key_prefixes; \
+                 DROP TABLE page_key_namespaces; \
+                 DROP INDEX idx_database_containers_block_library;",
+            )
+            .map_err(StoreError::from)
+    }
+
+    fn seed_v120_project_database_view(
+        connection: &Connection,
+        config: Value,
+        personal_override: Option<Value>,
+    ) -> Result<(), StoreError> {
+        let now = "2026-08-13T00:00:00.000Z";
+        crate::infrastructure::visibility_delta_journal::install_test_maintenance_context(
+            connection,
+        )?;
+        connection.execute(
+            "INSERT INTO profiles(id, created_at, updated_at) \
+             VALUES ('profile:v120-view', ?1, ?1)",
+            [now],
+        )?;
+        connection.execute(
+            "INSERT INTO libraries(id, profile_id, created_at, updated_at) \
+             VALUES ('library:v120-view', 'profile:v120-view', ?1, ?1)",
+            [now],
+        )?;
+        connection.execute(
+            "INSERT INTO projects(id, library_id, name, created, updated) \
+             VALUES ('project:v120-view', 'library:v120-view', 'View migration', ?1, ?1)",
+            [now],
+        )?;
+        connection.execute(
+            "INSERT INTO blocks(\
+               id, library_id, type, lifecycle, placement_revision, metadata_revision, \
+               created_at, updated_at\
+             ) VALUES (\
+               'database:v120-view', 'library:v120-view', 'database', 'active', 1, 1, ?1, ?1\
+             )",
+            [now],
+        )?;
+        create_database_authority_records(
+            connection,
+            "library:v120-view",
+            "database:v120-view",
+            "source:v120-view",
+            "view:v120-view",
+            "View migration DB",
+            now,
+        )?;
+        connection.execute(
+            "INSERT INTO project_database_bindings(\
+               project_id, library_id, database_block_id, lifecycle, revision, created_at, updated_at\
+             ) VALUES (\
+               'project:v120-view', 'library:v120-view', 'database:v120-view', 'active', 1, ?1, ?1\
+             )",
+            [now],
+        )?;
+        connection.execute(
+            "UPDATE projects SET database_block_id = 'database:v120-view' \
+             WHERE id = 'project:v120-view'",
+            [],
+        )?;
+        connection.execute(
+            "UPDATE database_views SET config_json = ?1, revision = 1 WHERE id = 'view:v120-view'",
+            [serde_json::to_string(&config).map_err(internal_json)?],
+        )?;
+        if let Some(personal_override) = personal_override {
+            connection.execute(
+                "INSERT INTO database_view_personal_presentations(\
+                   profile_id, view_id, presentation_override_json, revision, created_at, updated_at\
+                 ) VALUES ('profile:v120-view', 'view:v120-view', ?1, 7, ?2, ?2)",
+                params![
+                    serde_json::to_string(&personal_override).map_err(internal_json)?,
+                    now
+                ],
+            )?;
+        }
+        connection.execute("DELETE FROM local_commit_visibility_context", [])?;
+        Ok(())
+    }
+
+    fn v120_view_definition(board_fields: Value, list_fields: Value) -> Value {
+        json!({
+            "schemaKey": "nodex.database-view",
+            "schemaVersion": 4,
+            "filter": { "kind": "group", "operator": "and", "children": [] },
+            "presentation": {
+                "sort": [],
+                "group": null,
+                "subgroup": null,
+                "groupDirection": "asc",
+                "completion": { "range": "all", "orderByRecency": false },
+                "hierarchy": { "showSubPages": true, "nestedSubPages": false },
+                "layouts": {
+                    "board": { "fields": board_fields, "showEmptyGroups": false },
+                    "list": { "fields": list_fields, "showEmptyGroups": true }
+                }
+            }
+        })
+    }
+
     #[test]
     fn published_current_store_identity_matches_the_exact_schema() {
         assert_eq!(
@@ -7454,6 +8145,423 @@ mod tests {
             expected_store_schema_fingerprint(CORE_SCHEMA_VERSION)
                 .expect("current Store fingerprint"),
         );
+    }
+
+    #[test]
+    fn v120_store_adds_page_key_authority_without_replaying_earlier_migrations() {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        let kernel = SqliteStoreKernel::open(&home).expect("fresh current Store");
+        kernel
+            .writer()
+            .call(|connection| {
+                with_immediate_transaction(connection, |transaction| {
+                    remove_v121_page_key_schema(transaction)?;
+                    transaction.execute(
+                        "UPDATE core_store_metadata SET store_format_version = 120 WHERE id = 1",
+                        [],
+                    )?;
+                    transaction.pragma_update(None, "user_version", 120)?;
+                    Ok(())
+                })
+            })
+            .expect("restore exact v120 schema");
+        drop(kernel);
+
+        let upgraded = SqliteStoreKernel::open(&home).expect("upgrade v120 Page-key authority");
+        assert_eq!(upgraded.preparation().migrated_from_version, Some(120));
+        upgraded
+            .readers()
+            .read_default(|connection| {
+                let tables = connection.query_row(
+                    "SELECT count(*) FROM sqlite_schema \
+                     WHERE type = 'table' AND name IN (\
+                       'page_key_namespaces', 'page_key_prefixes', 'page_key_assignments'\
+                     )",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )?;
+                assert_eq!(tables, 3);
+                validate_exact_current_schema(connection)
+            })
+            .expect("current schema is exact after the v120 upgrade");
+    }
+
+    #[test]
+    fn v120_view_fields_migrate_through_typed_durable_and_personal_boundaries() {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        let kernel = SqliteStoreKernel::open(&home).expect("fresh current Store");
+        kernel
+            .writer()
+            .call(|connection| {
+                with_immediate_transaction(connection, |transaction| {
+                    seed_v120_project_database_view(
+                        transaction,
+                        v120_view_definition(
+                            json!([
+                                { "kind": "property", "propertyId": "status" },
+                                { "kind": "intrinsic", "field": "page_id" },
+                                { "kind": "property", "propertyId": "title" },
+                                { "kind": "property", "propertyId": "status" },
+                                { "kind": "intrinsic", "field": "page_key" }
+                            ]),
+                            json!([
+                                { "kind": "property", "propertyId": "title" },
+                                { "kind": "property", "propertyId": "title" }
+                            ]),
+                        ),
+                        Some(json!({
+                            "layouts": {
+                                "board": {
+                                    "fields": [
+                                        { "kind": "property", "property_id": "title" },
+                                        { "kind": "intrinsic", "field": "page_id" },
+                                        { "kind": "property", "property_id": "title" }
+                                    ]
+                                },
+                                "list": {
+                                    "fields": [
+                                        { "kind": "intrinsic", "field": "page_id" },
+                                        { "kind": "intrinsic", "field": "page_key" },
+                                        { "kind": "intrinsic", "field": "page_id" },
+                                        { "kind": "property", "property_id": "status" }
+                                    ],
+                                    "show_empty_groups": true
+                                }
+                            }
+                        })),
+                    )?;
+                    remove_v121_page_key_schema(transaction)?;
+                    transaction.execute(
+                        "UPDATE core_store_metadata SET store_format_version = 120 WHERE id = 1",
+                        [],
+                    )?;
+                    transaction.pragma_update(None, "user_version", 120)?;
+                    Ok(())
+                })
+            })
+            .expect("seed v120 typed View state");
+        drop(kernel);
+
+        let upgraded = SqliteStoreKernel::open(&home).expect("upgrade v120 typed View state");
+        assert_eq!(upgraded.preparation().migrated_from_version, Some(120));
+        upgraded
+            .readers()
+            .read_default(|connection| {
+                let (config_json, durable_revision) = connection.query_row(
+                    "SELECT config_json, revision FROM database_views WHERE id = 'view:v120-view'",
+                    [],
+                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
+                )?;
+                let durable = serde_json::from_str::<V121StoredViewDefinition>(&config_json)
+                    .map_err(internal_json)?;
+                durable.validate()?;
+                assert_eq!(
+                    durable.presentation.layouts.board.fields,
+                    vec![
+                        DatabaseViewField::Property {
+                            property_id: "status".to_owned(),
+                        },
+                        DatabaseViewField::Property {
+                            property_id: "title".to_owned(),
+                        },
+                    ]
+                );
+                assert_eq!(
+                    durable.presentation.layouts.list.fields,
+                    vec![
+                        DatabaseViewField::Intrinsic {
+                            field: DatabaseViewIntrinsicField::PageKey,
+                        },
+                        DatabaseViewField::Property {
+                            property_id: "title".to_owned(),
+                        },
+                    ]
+                );
+                assert_eq!(durable_revision, 2);
+                assert_eq!(
+                    serde_json::to_string(&durable).map_err(internal_json)?,
+                    config_json
+                );
+
+                let (personal_json, personal_revision) = connection.query_row(
+                    "SELECT presentation_override_json, revision \
+                     FROM database_view_personal_presentations \
+                     WHERE profile_id = 'profile:v120-view' AND view_id = 'view:v120-view'",
+                    [],
+                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
+                )?;
+                let personal =
+                    serde_json::from_str::<DatabaseViewPresentationOverrideInput>(&personal_json)
+                        .map_err(internal_json)?;
+                let layouts = personal.layouts.as_ref().expect("personal layouts");
+                assert_eq!(
+                    layouts
+                        .board
+                        .as_ref()
+                        .and_then(|layout| layout.fields.as_ref())
+                        .expect("Board fields"),
+                    &[DatabaseViewFieldInput::Property {
+                        property_id: "title".to_owned(),
+                    }]
+                );
+                assert_eq!(
+                    layouts
+                        .list
+                        .as_ref()
+                        .and_then(|layout| layout.fields.as_ref())
+                        .expect("List fields"),
+                    &vec![
+                        DatabaseViewFieldInput::Intrinsic {
+                            field: DatabaseViewIntrinsicField::PageKey,
+                        },
+                        DatabaseViewFieldInput::Property {
+                            property_id: "status".to_owned(),
+                        },
+                    ]
+                );
+                assert_eq!(personal_revision, 8);
+                assert_eq!(
+                    serde_json::to_string(&personal).map_err(internal_json)?,
+                    personal_json
+                );
+                Ok(())
+            })
+            .expect("typed v121 presentation migration");
+    }
+
+    #[test]
+    fn v121_store_removes_retired_internal_id_presentation() {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        let kernel = SqliteStoreKernel::open(&home).expect("fresh current Store");
+        kernel
+            .writer()
+            .call(|connection| {
+                with_immediate_transaction(connection, |transaction| {
+                    seed_v120_project_database_view(
+                        transaction,
+                        v120_view_definition(
+                            json!([{ "kind": "intrinsic", "field": "page_id" }]),
+                            json!([{ "kind": "intrinsic", "field": "page_id" }]),
+                        ),
+                        Some(json!({
+                            "layouts": {
+                                "list": {
+                                    "fields": [
+                                        { "kind": "intrinsic", "field": "page_id" }
+                                    ]
+                                }
+                            }
+                        })),
+                    )?;
+                    create_page_key_namespace(
+                        transaction,
+                        "library:v120-view",
+                        "database:v120-view",
+                        None,
+                        "View migration",
+                        "2026-08-13T00:00:00.000Z",
+                    )?;
+                    transaction.execute(
+                        "UPDATE core_store_metadata SET store_format_version = 121 WHERE id = 1",
+                        [],
+                    )?;
+                    transaction.pragma_update(None, "user_version", 121)?;
+                    Ok(())
+                })
+            })
+            .expect("seed v121 Internal ID presentation");
+        drop(kernel);
+
+        let upgraded = SqliteStoreKernel::open(&home).expect("upgrade v121 presentation");
+        assert_eq!(upgraded.preparation().migrated_from_version, Some(121));
+        upgraded
+            .readers()
+            .read_default(|connection| {
+                let config_json: String = connection.query_row(
+                    "SELECT config_json FROM database_views WHERE id = 'view:v120-view'",
+                    [],
+                    |row| row.get(0),
+                )?;
+                let durable = serde_json::from_str::<V121StoredViewDefinition>(&config_json)
+                    .map_err(internal_json)?;
+                let expected = vec![DatabaseViewField::Intrinsic {
+                    field: DatabaseViewIntrinsicField::PageKey,
+                }];
+                assert!(durable.presentation.layouts.board.fields.is_empty());
+                assert_eq!(durable.presentation.layouts.list.fields, expected);
+
+                let personal_json: String = connection.query_row(
+                    "SELECT presentation_override_json \
+                     FROM database_view_personal_presentations \
+                     WHERE profile_id = 'profile:v120-view' AND view_id = 'view:v120-view'",
+                    [],
+                    |row| row.get(0),
+                )?;
+                let personal =
+                    serde_json::from_str::<DatabaseViewPresentationOverrideInput>(&personal_json)
+                        .map_err(internal_json)?;
+                assert_eq!(
+                    personal
+                        .layouts
+                        .and_then(|layouts| layouts.list)
+                        .and_then(|layout| layout.fields),
+                    Some(vec![DatabaseViewFieldInput::Intrinsic {
+                        field: DatabaseViewIntrinsicField::PageKey,
+                    }]),
+                );
+                Ok(())
+            })
+            .expect("retired Internal ID presentation is removed");
+    }
+
+    #[test]
+    fn v122_store_defaults_board_id_off_and_keeps_list_id_on() {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        let kernel = SqliteStoreKernel::open(&home).expect("fresh current Store");
+        kernel
+            .writer()
+            .call(|connection| {
+                with_immediate_transaction(connection, |transaction| {
+                    seed_v120_project_database_view(
+                        transaction,
+                        v120_view_definition(
+                            json!([
+                                { "kind": "intrinsic", "field": "page_key" },
+                                { "kind": "property", "propertyId": "status" }
+                            ]),
+                            json!([
+                                { "kind": "property", "propertyId": "title" },
+                                { "kind": "intrinsic", "field": "page_key" }
+                            ]),
+                        ),
+                        Some(json!({
+                            "layouts": {
+                                "board": {
+                                    "fields": [
+                                        { "kind": "intrinsic", "field": "page_key" },
+                                        { "kind": "property", "property_id": "title" }
+                                    ]
+                                },
+                                "list": {
+                                    "fields": [
+                                        { "kind": "property", "property_id": "status" },
+                                        { "kind": "intrinsic", "field": "page_key" }
+                                    ]
+                                }
+                            }
+                        })),
+                    )?;
+                    create_page_key_namespace(
+                        transaction,
+                        "library:v120-view",
+                        "database:v120-view",
+                        None,
+                        "View migration",
+                        "2026-08-13T00:00:00.000Z",
+                    )?;
+                    transaction.execute(
+                        "UPDATE core_store_metadata SET store_format_version = 122 WHERE id = 1",
+                        [],
+                    )?;
+                    transaction.pragma_update(None, "user_version", 122)?;
+                    Ok(())
+                })
+            })
+            .expect("seed v122 Board ID defaults");
+        drop(kernel);
+
+        let upgraded = SqliteStoreKernel::open(&home).expect("upgrade v122 presentation");
+        assert_eq!(upgraded.preparation().migrated_from_version, Some(122));
+        upgraded
+            .readers()
+            .read_default(|connection| {
+                let config_json: String = connection.query_row(
+                    "SELECT config_json FROM database_views WHERE id = 'view:v120-view'",
+                    [],
+                    |row| row.get(0),
+                )?;
+                let durable = serde_json::from_str::<V121StoredViewDefinition>(&config_json)
+                    .map_err(internal_json)?;
+                assert_eq!(
+                    durable.presentation.layouts.board.fields,
+                    vec![DatabaseViewField::Property {
+                        property_id: "status".to_owned(),
+                    }],
+                );
+                assert_eq!(
+                    durable.presentation.layouts.list.fields,
+                    vec![
+                        DatabaseViewField::Intrinsic {
+                            field: DatabaseViewIntrinsicField::PageKey,
+                        },
+                        DatabaseViewField::Property {
+                            property_id: "title".to_owned(),
+                        },
+                    ],
+                );
+
+                let personal_json: String = connection.query_row(
+                    "SELECT presentation_override_json \
+                     FROM database_view_personal_presentations \
+                     WHERE profile_id = 'profile:v120-view' AND view_id = 'view:v120-view'",
+                    [],
+                    |row| row.get(0),
+                )?;
+                let personal =
+                    serde_json::from_str::<DatabaseViewPresentationOverrideInput>(&personal_json)
+                        .map_err(internal_json)?;
+                let layouts = personal.layouts.expect("personal layouts");
+                assert_eq!(
+                    layouts.board.and_then(|layout| layout.fields),
+                    Some(vec![DatabaseViewFieldInput::Property {
+                        property_id: "title".to_owned(),
+                    }]),
+                );
+                assert_eq!(
+                    layouts.list.and_then(|layout| layout.fields),
+                    Some(vec![
+                        DatabaseViewFieldInput::Intrinsic {
+                            field: DatabaseViewIntrinsicField::PageKey,
+                        },
+                        DatabaseViewFieldInput::Property {
+                            property_id: "status".to_owned(),
+                        },
+                    ]),
+                );
+                Ok(())
+            })
+            .expect("Board ID default converges independently of List");
+    }
+
+    #[test]
+    fn v121_view_field_migration_rejects_malformed_typed_payloads() {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        let kernel = SqliteStoreKernel::open(&home).expect("fresh current Store");
+        kernel
+            .writer()
+            .call(|connection| {
+                with_immediate_transaction(connection, |transaction| {
+                    seed_v120_project_database_view(
+                        transaction,
+                        v120_view_definition(
+                            json!([{ "kind": "intrinsic", "field": "unknown_identity" }]),
+                            json!([]),
+                        ),
+                        None,
+                    )?;
+                    let error =
+                        migrate_page_key_display_fields(transaction, "2026-08-14T00:00:00.000Z")
+                            .expect_err("malformed intrinsic must not survive migration");
+                    assert_eq!(error.code, StoreErrorCode::StoreCorrupt);
+                    Ok(())
+                })
+            })
+            .expect("typed migration rejects malformed payload");
     }
 
     #[test]
@@ -7654,6 +8762,16 @@ mod tests {
                 "view:v110-priority",
                 "Priority Migration",
                 now,
+            )?;
+            transaction.execute(
+                "INSERT INTO project_database_bindings( \
+                   project_id, library_id, database_block_id, lifecycle, revision, \
+                   created_at, updated_at \
+                 ) VALUES ( \
+                   'project:v110-priority', 'library:v110-priority', \
+                   'database:v110-priority', 'active', 1, ?1, ?1 \
+                 )",
+                [now],
             )?;
             transaction.execute(
                 "UPDATE data_source_properties SET config_json = ?1, schema_revision = 5 \
@@ -9147,6 +10265,7 @@ mod tests {
         drop(current);
 
         let connection = open_writer(&home.join("nodex.db")).expect("current writer");
+        remove_v121_page_key_schema(&connection).expect("remove v121 Page-key schema");
         connection
             .execute_batch(
                 "DROP TRIGGER document_block_tombstones_validate_insert; \
@@ -9754,9 +10873,17 @@ mod tests {
 
     #[test]
     fn v111_database_views_migrate_to_the_current_view_contract_once() {
-        fn snapshot(
-            connection: &Connection,
-        ) -> Result<(Value, Option<String>, i64, i64, String), StoreError> {
+        #[derive(Debug, PartialEq)]
+        struct DatabaseViewMigrationSnapshot {
+            views: Value,
+            completed_at: Option<String>,
+            retired_kind_columns: i64,
+            retired_position_group_columns: i64,
+            stable_rank: String,
+            page_key_namespace: (String, i64, i64),
+        }
+
+        fn snapshot(connection: &Connection) -> Result<DatabaseViewMigrationSnapshot, StoreError> {
             let views = connection.query_row(
                 "SELECT json_group_array(json(view_record)) FROM ( \
                    SELECT json_object( \
@@ -9769,6 +10896,14 @@ mod tests {
                      'listFields', json_array_length( \
                        json_extract(config_json, '$.presentation.layouts.list.fields') \
                      ), \
+                     'boardPageKeys', (SELECT count(*) FROM json_each( \
+                       config_json, '$.presentation.layouts.board.fields' \
+                     ) field WHERE json_extract(field.value, '$.kind') = 'intrinsic' \
+                       AND json_extract(field.value, '$.field') = 'page_key'), \
+                     'listPageKeys', (SELECT count(*) FROM json_each( \
+                       config_json, '$.presentation.layouts.list.fields' \
+                     ) field WHERE json_extract(field.value, '$.kind') = 'intrinsic' \
+                       AND json_extract(field.value, '$.field') = 'page_key'), \
                      'revision', revision \
                    ) AS view_record \
                    FROM database_views ORDER BY id \
@@ -9800,13 +10935,29 @@ mod tests {
                 [],
                 |row| row.get::<_, String>(0),
             )?;
-            Ok((
-                serde_json::from_str(&views).map_err(internal_json)?,
+            let page_key_namespace = connection.query_row(
+                "SELECT prefix.normalized_prefix, count(assignment.page_block_id), \
+                   namespace.next_number \
+                 FROM page_key_namespaces namespace \
+                 JOIN page_key_prefixes prefix \
+                   ON prefix.database_block_id = namespace.database_block_id \
+                  AND prefix.library_id = namespace.library_id \
+                  AND prefix.retired_at IS NULL \
+                 LEFT JOIN page_key_assignments assignment \
+                   ON assignment.database_block_id = namespace.database_block_id \
+                 WHERE namespace.database_block_id = 'database:v110-priority' \
+                 GROUP BY prefix.normalized_prefix, namespace.next_number",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )?;
+            Ok(DatabaseViewMigrationSnapshot {
+                views: serde_json::from_str(&views).map_err(internal_json)?,
                 completed_at,
                 retired_kind_columns,
                 retired_position_group_columns,
                 stable_rank,
-            ))
+                page_key_namespace,
+            })
         }
 
         let directory = tempdir().expect("Profile");
@@ -9820,38 +10971,50 @@ mod tests {
             .read_default(snapshot)
             .expect("read migrated Database View contract");
         assert_eq!(
-            first.0,
+            first.views,
             json!([
                 {
                     "id": "view:v110-priority",
                     "layout": "board",
                     "schema": 4,
-                    "boardFields": 4,
-                    "listFields": 4,
-                    "revision": 8
+                    "boardFields": 5,
+                    "listFields": 5,
+                    "boardPageKeys": 1,
+                    "listPageKeys": 1,
+                    "revision": 9
                 },
                 {
                     "id": "view:v111-calendar",
                     "layout": "list",
                     "schema": 4,
-                    "boardFields": 4,
-                    "listFields": 4,
-                    "revision": 5
+                    "boardFields": 5,
+                    "listFields": 5,
+                    "boardPageKeys": 1,
+                    "listPageKeys": 1,
+                    "revision": 6
                 },
                 {
                     "id": "view:v111-list",
                     "layout": "list",
                     "schema": 4,
-                    "boardFields": 4,
-                    "listFields": 4,
-                    "revision": 4
+                    "boardFields": 5,
+                    "listFields": 5,
+                    "boardPageKeys": 1,
+                    "listPageKeys": 1,
+                    "revision": 5
                 }
             ])
         );
-        assert!(first.1.as_deref().is_some_and(|value| value.ends_with('Z')));
-        assert_eq!(first.2, 0);
-        assert_eq!(first.3, 0);
-        assert_eq!(first.4, "7fffffffffffffffffffffffffffffff");
+        assert!(
+            first
+                .completed_at
+                .as_deref()
+                .is_some_and(|value| value.ends_with('Z'))
+        );
+        assert_eq!(first.retired_kind_columns, 0);
+        assert_eq!(first.retired_position_group_columns, 0);
+        assert_eq!(first.stable_rank, "7fffffffffffffffffffffffffffffff");
+        assert_eq!(first.page_key_namespace, ("PM".to_owned(), 1, 2));
 
         drop(upgraded);
         let reopened = SqliteStoreKernel::open(&home).expect("reopen current Database Views");
@@ -9987,7 +11150,7 @@ mod tests {
                         ))
                     },
                 )?;
-                assert_eq!(revisions, (6, 11, 8, 5, 4));
+                assert_eq!(revisions, (6, 11, 9, 5, 4));
 
                 let view_config = connection.query_row(
                     "SELECT config_json FROM database_views \

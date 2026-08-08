@@ -21,7 +21,7 @@ import {
 import type { DatabasePropertyValueType } from "./database-kernel";
 import { parsePage, type Page } from "./page";
 
-export const PAGE_DETAIL_CONTRACT_VERSION = 3 as const;
+export const PAGE_DETAIL_CONTRACT_VERSION = 4 as const;
 
 export interface PageIntrinsicProperty {
   readonly key: string;
@@ -34,6 +34,7 @@ export type PageDataSourceContext =
   | { readonly kind: "standalone" }
   | {
       readonly kind: "member";
+      readonly pageKey: string | null;
       readonly membership: {
         readonly membershipId: string;
         readonly dataSourceId: string;
@@ -459,6 +460,7 @@ const parseDataSourceContext = (
   }
   exactKeys(value, "pageDetail.dataSourceContext", [
     "kind",
+    "pageKey",
     "membership",
     "database",
     "dataSource",
@@ -512,6 +514,9 @@ const parseDataSourceContext = (
   }
   return {
     kind: "member",
+    pageKey: value.pageKey === undefined || value.pageKey === null
+      ? null
+      : boundedText(value.pageKey, "pageDetail.dataSourceContext.pageKey"),
     membership: {
       membershipId: identity(
         value.membership.membershipId,

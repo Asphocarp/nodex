@@ -9,6 +9,7 @@ import {
 
 import { NodexDropdown } from "@/components/ui/dropdown";
 import { APP_SHELL_FLOATING_UI_LAYER_CLASS } from "@/lib/app-shell-layers";
+import { copyPageKeyWithFeedback } from "@/lib/copy-page-key";
 import { cn } from "@/lib/utils";
 import {
   buildDatabaseListRowCommands,
@@ -28,6 +29,7 @@ export function DatabaseListRowContextMenu({
   selected,
   canMoveUp,
   canMoveDown,
+  pageKey,
   onOpen,
   onSelectOnly,
   onToggleSelection,
@@ -37,6 +39,7 @@ export function DatabaseListRowContextMenu({
   readonly selected: boolean;
   readonly canMoveUp: boolean;
   readonly canMoveDown: boolean;
+  readonly pageKey: string | null;
   readonly onOpen: () => void;
   readonly onSelectOnly: () => void;
   readonly onToggleSelection: () => void;
@@ -48,6 +51,7 @@ export function DatabaseListRowContextMenu({
   const redirectedInitialFocusRef = useRef(false);
   const commands = buildDatabaseListRowCommands({
     selected,
+    hasPageKey: Boolean(pageKey),
     canMoveUp,
     canMoveDown,
   });
@@ -60,6 +64,10 @@ export function DatabaseListRowContextMenu({
   const invoke = (command: DatabaseListCommand): void => {
     if (command.id === "open") {
       onOpen();
+      return;
+    }
+    if (command.id === "copy-page-key") {
+      if (pageKey) void copyPageKeyWithFeedback(pageKey);
       return;
     }
     if (command.id === "select-only") {

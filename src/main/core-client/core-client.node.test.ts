@@ -25,20 +25,35 @@ import {
 } from "./types";
 
 const CORE_BINARY = path.resolve("target/debug/nodex-core");
+const CORE_STDERR_LIMIT = 16 * 1024;
+const coreStderr = new WeakMap<ChildProcessWithoutNullStreams, string>();
 
-const spawnCore = (nodexHome: string): ChildProcessWithoutNullStreams =>
-  spawn(CORE_BINARY, ["--home", nodexHome], {
+const spawnCore = (nodexHome: string): ChildProcessWithoutNullStreams => {
+  const child = spawn(CORE_BINARY, ["--home", nodexHome], {
     stdio: ["pipe", "pipe", "pipe"],
   });
+  child.stderr.setEncoding("utf8");
+  child.stderr.on("data", (chunk: string) => {
+    coreStderr.set(
+      child,
+      `${coreStderr.get(child) ?? ""}${chunk}`.slice(-CORE_STDERR_LIMIT),
+    );
+  });
+  return child;
+};
 
 const readDescriptor = (
   child: ChildProcessWithoutNullStreams,
 ): Promise<CoreRuntimeDescriptor> =>
   new Promise((resolve, reject) => {
     const lines = createInterface({ input: child.stdout });
+    const failure = (message: string): Error => {
+      const stderr = coreStderr.get(child)?.trim();
+      return new Error(stderr ? `${message}: ${stderr}` : message);
+    };
     const timeout = setTimeout(() => {
       lines.close();
-      reject(new Error("Core did not publish a runtime descriptor"));
+      reject(failure("Core did not publish a runtime descriptor"));
     }, 10_000);
     lines.once("line", (line) => {
       clearTimeout(timeout);
@@ -52,6 +67,15 @@ const readDescriptor = (
       clearTimeout(timeout);
       lines.close();
       reject(error);
+    });
+    child.once("exit", (code, signal) => {
+      clearTimeout(timeout);
+      lines.close();
+      reject(
+        failure(
+          `Core exited before publishing a runtime descriptor (code ${String(code)}, signal ${String(signal)})`,
+        ),
+      );
     });
   });
 

@@ -3,6 +3,10 @@ import {
   normalizeSearchText,
   resolveFuzzyThreshold,
 } from "@/lib/search-text";
+import {
+  matchPageKeySearchQuery,
+  parsePageKeySearchQuery,
+} from "@/lib/page-key";
 import type { BoardSummary, Project } from "@/lib/types";
 import type { ProjectAppearance } from "../../../../shared/project-appearance";
 
@@ -15,6 +19,7 @@ interface NfmMoveToSearchDocument {
   columnId: string;
   columnName: string;
   pageId: string;
+  pageKey: string;
   pageTitle: string;
   boardOrder: number;
 }
@@ -27,6 +32,9 @@ export interface NfmMoveToPageSearchHit {
   columnId: string;
   columnName: string;
   pageId: string;
+  pageKey: string | null;
+  matchedPageKey: string | null;
+  matchedPageKeyIsCurrent: boolean | null;
   pageTitle: string;
   boardOrder: number;
   score: number;
@@ -112,6 +120,9 @@ function createPageHit(
     columnId: document.columnId,
     columnName: document.columnName,
     pageId: document.pageId,
+    pageKey: document.pageKey || null,
+    matchedPageKey: null,
+    matchedPageKeyIsCurrent: null,
     pageTitle: document.pageTitle,
     boardOrder: document.boardOrder,
     score,
@@ -138,6 +149,7 @@ export function createNfmMoveToSearchIndex({
       columnId: "",
       columnName: "",
       pageId: "",
+      pageKey: "",
       pageTitle: "",
       boardOrder: projectIndex * 1_000_000,
     });
@@ -154,6 +166,7 @@ export function createNfmMoveToSearchIndex({
         columnId: column.id,
         columnName: column.name,
         pageId: "",
+        pageKey: "",
         pageTitle: "",
         boardOrder: columnOrder,
       });
@@ -170,6 +183,7 @@ export function createNfmMoveToSearchIndex({
           columnId: column.id,
           columnName: column.name,
           pageId: page.id,
+          pageKey: page.pageKey ?? "",
           pageTitle: page.title || "Untitled",
           boardOrder: columnOrder + pageIndex,
         });
@@ -185,18 +199,21 @@ export function createNfmMoveToSearchIndex({
 
   return {
     search(query) {
-      const normalizedQuery = normalizeSearchText(query);
+      const pageKeyQuery = parsePageKeySearchQuery(query);
+      const { normalizedQuery } = pageKeyQuery;
       if (!normalizedQuery) return createEmptySearchResult(query);
 
       const matchedProjectIds = new Set<string>();
       const matchedColumnIdsByProjectId = new Map<string, Set<string>>();
       const pageHitsById = new Map<string, NfmMoveToPageSearchHit>();
-      const results = miniSearch.search(normalizedQuery, {
-        combineWith: "AND",
-        prefix: (term) => term.length >= 2,
-        fuzzy: resolveFuzzyThreshold,
-        boost: FIELD_BOOSTS,
-      });
+      const results = pageKeyQuery.explicit
+        ? []
+        : miniSearch.search(normalizedQuery, {
+            combineWith: "AND",
+            prefix: (term) => term.length >= 2,
+            fuzzy: resolveFuzzyThreshold,
+            boost: FIELD_BOOSTS,
+          });
 
       for (const result of results) {
         const document = documentsById.get(String(result.id));
@@ -215,6 +232,15 @@ export function createNfmMoveToSearchIndex({
         const existing = pageHitsById.get(document.id);
         if (existing && existing.score >= result.score) continue;
         pageHitsById.set(document.id, createPageHit(document, result.score));
+      }
+
+      for (const document of documents) {
+        if (document.kind !== "page" || !document.pageKey) continue;
+        const keyMatch = matchPageKeySearchQuery(document.pageKey, pageKeyQuery);
+        if (!keyMatch) continue;
+        const existing = pageHitsById.get(document.id);
+        if (existing && existing.score >= keyMatch.score) continue;
+        pageHitsById.set(document.id, createPageHit(document, keyMatch.score));
       }
 
       const pageHits = Array.from(pageHitsById.values()).sort((left, right) => {

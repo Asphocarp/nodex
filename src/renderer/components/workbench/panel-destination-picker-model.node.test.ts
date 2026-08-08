@@ -51,6 +51,7 @@ function makePage(
 ): DatabasePageSummary {
   return {
     id,
+    pageKey: null,
     status,
     archived: false,
     title,

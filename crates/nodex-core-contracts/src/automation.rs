@@ -5,7 +5,7 @@ use utoipa::ToSchema;
 use crate::collection::{CollectionWindow, CollectionWindowRequest};
 use crate::{ModuleMutationReceipt, ModuleName, VersionedModuleContract};
 
-pub const AUTOMATION_CONTRACT_VERSION: u32 = 2;
+pub const AUTOMATION_CONTRACT_VERSION: u32 = 3;
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
@@ -189,6 +189,7 @@ pub struct PageReminderConfig {
 pub struct ScheduledPageOccurrence {
     pub occurrence_id: String,
     pub page_id: String,
+    pub page_key: Option<String>,
     pub status: String,
     pub status_name: String,
     pub archived: bool,

@@ -17,7 +17,7 @@ import type {
 } from "./database-kernel";
 import type { Page } from "./page";
 
-export const DATABASE_MODULE_V2_CONTRACT_VERSION = 12 as const;
+export const DATABASE_MODULE_V2_CONTRACT_VERSION = 13 as const;
 export const MAX_DATABASE_MODULE_V2_OPERATIONS = 64 as const;
 export const MAX_DATABASE_MODULE_V2_BULK_ENTRIES = 100 as const;
 
@@ -112,6 +112,31 @@ export interface DatabaseContainerDescriptorV2 {
   readonly views: readonly DatabaseViewRecordV2[];
 }
 
+export type DatabasePageKeyPrefixAvailabilityV2 =
+  | "available"
+  | "current"
+  | "reserved";
+
+export interface DatabasePageKeyPrefixPreviewV2 {
+  readonly prefix: string;
+  readonly availability: DatabasePageKeyPrefixAvailabilityV2;
+  readonly alternativePrefix: string | null;
+  readonly nextNumber: number;
+  readonly exampleKeys: readonly string[];
+}
+
+export interface DatabasePageKeyNamespaceV2 {
+  readonly databaseId: DatabaseId;
+  readonly currentPrefix: string;
+  readonly nextNumber: number;
+  readonly assignedPageCount: number;
+  readonly revision: number;
+  readonly retiredPrefixes: readonly {
+    readonly prefix: string;
+    readonly lastNumber: number;
+  }[];
+}
+
 export interface DataSourceDescriptorV2 {
   readonly dataSource: DataSourceRecordV2;
   readonly properties: readonly DataSourcePropertyRecordV2[];
@@ -133,6 +158,8 @@ export interface PageIntrinsicPropertyValueV2 {
 
 export interface DataSourcePageRowV2 {
   readonly page: Page;
+  /** Human-readable key in this Data Source's owning Database namespace. */
+  readonly pageKey: string | null;
   readonly membership: {
     readonly membershipId: string;
     readonly dataSourceId: DataSourceId;
@@ -248,6 +275,22 @@ export type DatabaseReadV2 = (
     }
   | {
       readonly target: {
+        readonly kind: "page_key_namespace";
+        readonly databaseId?: DatabaseId;
+      };
+      readonly mode: "page_key_prefix_preview";
+      readonly nameHint: string;
+      readonly requestedPrefix?: string;
+    }
+  | {
+      readonly target: {
+        readonly kind: "database";
+        readonly databaseId: DatabaseId;
+      };
+      readonly mode: "page_key_namespace";
+    }
+  | {
+      readonly target: {
         readonly kind: "data_source";
         readonly dataSourceId: DataSourceId;
       };
@@ -316,6 +359,14 @@ export type DatabaseReadValueV2 =
       readonly kind: "database";
       readonly value: DatabaseContainerDescriptorV2;
     }
+  | {
+      readonly kind: "page_key_prefix_preview";
+      readonly value: DatabasePageKeyPrefixPreviewV2;
+    }
+  | {
+      readonly kind: "page_key_namespace";
+      readonly value: DatabasePageKeyNamespaceV2;
+    }
   | { readonly kind: "data_source"; readonly value: DataSourceDescriptorV2 }
   | { readonly kind: "view"; readonly value: DatabaseViewRecordV2 }
   | {
@@ -368,6 +419,7 @@ export type DatabaseModuleErrorCodeV2 =
   | "authorization_denied"
   | "revision_conflict"
   | "operation_id_collision"
+  | "resource_exhausted"
   | "state_corrupt"
   | "unsupported_operation"
   | "unknown"
@@ -387,8 +439,9 @@ export type DatabaseModuleReadResultV2 =
   | { readonly ok: false; readonly error: DatabaseModuleErrorV2 };
 
 /**
- * Local Library reads always name a concrete Database, Data Source, or View.
- * `project_default` remains an execution-context concept and is excluded.
+ * Local Library reads name a concrete resource, except for the namespace
+ * prefix preview used before a Project Database exists. `project_default`
+ * remains an execution-context concept and is excluded.
  */
 export type LibraryDatabaseReadV2 = Exclude<
   DatabaseReadV2,
@@ -427,6 +480,13 @@ export interface PutDataSourcePropertyOperationV2 {
   readonly name: string;
   readonly schema: DatabasePropertySchemaV2;
   readonly beforePropertyId?: DataSourcePropertyId;
+}
+
+export interface RenameDatabasePageKeyPrefixOperationV2 {
+  readonly kind: "rename_page_key_prefix";
+  readonly databaseId: DatabaseId;
+  readonly expectedRevision: number;
+  readonly prefix: string;
 }
 
 export interface DeleteDataSourcePropertyOperationV2 {
@@ -683,6 +743,7 @@ export interface SetDatabaseViewOccurrenceDisclosureOperationV2 {
 }
 
 export type DatabaseApplyOperationV2 =
+  | RenameDatabasePageKeyPrefixOperationV2
   | PutDataSourcePropertyOperationV2
   | DeleteDataSourcePropertyOperationV2
   | PutDataSourceOptionOperationV2

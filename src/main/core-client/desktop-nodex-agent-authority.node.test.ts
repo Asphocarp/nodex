@@ -13,6 +13,8 @@ const project = {
   database_id: "database:one",
   lifecycle: "active" as const,
   binding_revision: 1,
+  page_key_prefix: "TEST",
+  page_key_namespace_revision: 1,
   name: "One",
   description: "First Project",
   appearance: {

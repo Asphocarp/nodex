@@ -40,6 +40,7 @@ use crate::infrastructure::writer::StoreWriter;
 
 use super::DatabaseApplyOutcome;
 use super::authorization::{authorize_required, project_primary_database};
+use super::ensure_database_page_key;
 use super::is_trusted_library_database_context;
 use super::relation::RelationValueEdit as RelationEdit;
 
@@ -292,6 +293,19 @@ fn validate_request(request: &ModuleApplyRequest<Vec<DatabaseIntent>>) -> Result
         )));
     }
     for intent in &request.intent {
+        if let DatabaseIntent::RenamePageKeyPrefix {
+            database_id,
+            expected_revision,
+            ..
+        } = intent
+        {
+            validate_id(database_id, "database_id", MAX_ID_LENGTH)?;
+            if *expected_revision < 1 {
+                return Err(invalid(
+                    "Page-key namespace expected revision must be positive",
+                ));
+            }
+        }
         if let DatabaseIntent::EditPropertyValues { edits } = intent
             && (edits.is_empty() || edits.len() > MAX_BULK_VALUES)
         {
@@ -473,6 +487,7 @@ fn validate_list_move_undo_recipe(recipe: &DatabaseListMoveUndoRecipe) -> Result
 
 fn database_intent_kind(intent: &DatabaseIntent) -> &'static str {
     match intent {
+        DatabaseIntent::RenamePageKeyPrefix { .. } => "rename_page_key_prefix",
         DatabaseIntent::PutProperty { .. } => "put_property",
         DatabaseIntent::DeleteProperty { .. } => "delete_property",
         DatabaseIntent::PutOption { .. } => "put_option",
@@ -496,6 +511,9 @@ fn page_detail_dependency_ids(intents: &[DatabaseIntent]) -> (BTreeSet<String>, 
     let mut database_ids = BTreeSet::new();
     for intent in intents {
         match intent {
+            DatabaseIntent::RenamePageKeyPrefix { database_id, .. } => {
+                database_ids.insert(database_id.clone());
+            }
             DatabaseIntent::PutProperty { data_source_id, .. }
             | DatabaseIntent::DeleteProperty { data_source_id, .. }
             | DatabaseIntent::PutOption { data_source_id, .. }
@@ -534,6 +552,21 @@ fn apply_intent(
     let project_id = authority.actor_project_id.as_str();
     let library_scope = authority.is_library();
     match intent {
+        DatabaseIntent::RenamePageKeyPrefix {
+            database_id,
+            expected_revision,
+            prefix,
+        } => rename_page_key_namespace_prefix(
+            connection,
+            library_id,
+            project_id,
+            database_id,
+            *expected_revision,
+            prefix,
+            now,
+            effects,
+            library_scope,
+        ),
         DatabaseIntent::PutProperty {
             data_source_id,
             property_id,
@@ -813,6 +846,47 @@ fn apply_intent(
             false,
         ),
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn rename_page_key_namespace_prefix(
+    connection: &Connection,
+    library_id: &str,
+    project_id: &str,
+    database_id: &str,
+    expected_revision: i64,
+    prefix: &str,
+    now: &str,
+    effects: &mut MutationEffects,
+    library_scope: bool,
+) -> Result<(), StoreError> {
+    let container = require_container(connection, library_id, database_id)?;
+    if container.lifecycle != "active" {
+        return Err(not_found("Database is not active"));
+    }
+    authorize_write(
+        connection,
+        project_id,
+        database_id,
+        DatabaseWriteAction::ManageNamespace,
+        library_scope,
+    )?;
+    let namespace = super::rename_page_key_prefix(
+        connection,
+        library_id,
+        database_id,
+        expected_revision,
+        prefix,
+        now,
+    )?;
+    effects.revisions.insert(
+        format!("page_key_namespace:{database_id}"),
+        namespace.revision,
+    );
+    if namespace.revision != expected_revision {
+        effects.database_ids.insert(database_id.to_owned());
+    }
+    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2397,6 +2471,13 @@ fn place_staged_page_in_data_source_with_access(
             now
         ],
     )?;
+    ensure_database_page_key(
+        connection,
+        library_id,
+        &source.database_id,
+        staged_page_id,
+        now,
+    )?;
     ensure_transferred_built_in_values(
         connection,
         source_membership.as_ref(),
@@ -3177,6 +3258,13 @@ fn transfer_page(
                         .as_ref()
                         .map_or(now, |(_, _, created_at)| created_at),
                 ],
+            )?;
+            ensure_database_page_key(
+                connection,
+                library_id,
+                &target_source.database_id,
+                page_id,
+                now,
             )?;
             ensure_transferred_built_in_values(
                 connection,
@@ -4581,7 +4669,7 @@ pub(super) fn validate_view_definition(
             let identity = match field {
                 DatabaseViewField::Property { property_id } => format!("property:{property_id}"),
                 DatabaseViewField::Intrinsic { field } => match field {
-                    DatabaseViewIntrinsicField::PageId => "intrinsic:page_id".to_owned(),
+                    DatabaseViewIntrinsicField::PageKey => "intrinsic:page_key".to_owned(),
                     DatabaseViewIntrinsicField::CreatedAt => "intrinsic:created_at".to_owned(),
                     DatabaseViewIntrinsicField::UpdatedAt => "intrinsic:updated_at".to_owned(),
                 },
@@ -5887,6 +5975,7 @@ enum DatabaseWriteAction {
     Write,
     ManageSchema,
     ManageViews,
+    ManageNamespace,
 }
 
 fn authorize_write(
@@ -5923,7 +6012,7 @@ fn authorize_write(
     }
     if action != DatabaseWriteAction::Write {
         return Err(unauthorized(
-            "Database schema and View management require the Project's primary Database",
+            "Database administration requires the Project's primary Database",
         ));
     }
     let direct = connection

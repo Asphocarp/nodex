@@ -22,6 +22,7 @@ function makeCard(overrides: Partial<ToggleListCard>): ToggleListCard {
     columnName: "Plan",
     boardIndex: 0,
     ...overrides,
+    pageKey: overrides.pageKey ?? null,
   };
 }
 

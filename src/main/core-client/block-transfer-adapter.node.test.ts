@@ -61,6 +61,7 @@ const coreResult = () => ({
     state_vector: [8, 9],
   }],
   affected_database_ids: [],
+  page_keys: {},
   page_etags: {},
   move_etags: {},
   page_view_placements: {},

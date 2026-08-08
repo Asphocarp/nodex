@@ -47,7 +47,8 @@ import type { OpenPageTabHandler } from "./workbench-page-stage-panel";
 import { primaryCanvasBlockId } from "../../../shared/block-documents";
 import type { OpenCanvasStageHandler } from "@/lib/use-workbench-panel-openers";
 import { Board } from "@/components/board/board";
-import { classicBoardPreferences } from "@/lib/classic-board-adapter";
+import { classicBoardPresentation } from "@/lib/classic-board-adapter";
+import { supportedDatabaseIntrinsicFields } from "@/lib/database-intrinsic-field-registry";
 import type { Project } from "@/lib/types";
 import type {
   OpenPageInNewChatInput,
@@ -97,7 +98,7 @@ export function DatabaseViewTabSurface({
   model,
   presentationLayout = model.query.view.defaultLayout,
   effectivePresentation,
-  toolbarItems = [durableDatabaseToolbarItem(model, presentationLayout)],
+  toolbarItems,
   destinationItems,
   groupPagination,
   onLoadMoreGroup,
@@ -165,10 +166,16 @@ export function DatabaseViewTabSurface({
   const mutationHistory = useDatabaseViewMutationHistory(
     `${model.storeEpoch}:${model.databaseViewId}`,
   );
+  const presentation = effectivePresentation ?? {
+    layout: presentationLayout,
+    presentation: model.query.view.config.presentation,
+  };
+  const activeToolbarItems = toolbarItems
+    ?? [durableDatabaseToolbarItem(model, presentation.layout)];
   return (
     <div className="flex h-full min-h-0 flex-col bg-token-main-surface-primary">
       <DbViewToolbar
-        items={toolbarItems}
+        items={activeToolbarItems}
         destinationItems={destinationItems}
         activeSearchQuery={activeSearchQuery}
         taskSearchOpen={taskSearchOpen}
@@ -184,13 +191,13 @@ export function DatabaseViewTabSurface({
       />
       {overlay}
       <div className="min-h-0 flex-1 overflow-hidden">
-        {presentationLayout === "board" && boardSurface
+        {presentation.layout === "board" && boardSurface
           ? boardSurface
-          : presentationLayout === "list"
+          : presentation.layout === "list"
             ? (
               <DatabaseList
                 model={model}
-                effectivePresentation={effectivePresentation}
+                effectivePresentation={presentation}
                 groupPagination={groupPagination}
                 onLoadMoreGroup={onLoadMoreGroup}
                 searchQuery={activeSearchQuery}
@@ -211,8 +218,7 @@ export function DatabaseViewTabSurface({
             : (
               <DatabaseViewSurface
                 model={model}
-                presentationLayout={presentationLayout}
-                effectivePresentation={effectivePresentation}
+                effectivePresentation={presentation}
                 groupPagination={groupPagination}
                 onLoadMoreGroup={onLoadMoreGroup}
                 searchQuery={activeSearchQuery}
@@ -329,7 +335,7 @@ export function DbViewSessionTab({
       groupable: property.capabilities.groupable,
       finite: property.valueType === "select" || property.valueType === "checkbox",
     })) ?? [],
-    intrinsicFields: ["page_id", "created_at", "updated_at"] as const,
+    intrinsicFields: supportedDatabaseIntrinsicFields(),
     ...(databaseView?.query.properties.some(
       (property) => property.propertyId === "status",
     )
@@ -545,7 +551,7 @@ export function DbViewSessionTab({
       }),
     };
   });
-  const classicBoardPrefs = classicBoardPreferences(effectivePresentation);
+  const classicBoard = classicBoardPresentation(effectivePresentation);
   const searchShortcutLabel = typeof navigator !== "undefined"
     && navigator.platform.toUpperCase().includes("MAC")
     ? "⌘F"
@@ -633,7 +639,7 @@ export function DbViewSessionTab({
           onOpenSort={() => setOpenViewPanel("sort")}
         />
       )}
-      boardSurface={classicBoardPrefs ? (
+      boardSurface={classicBoard ? (
         <Board
           surfaceId={surfaceId}
           panelTabId={tab.id}
@@ -643,7 +649,8 @@ export function DbViewSessionTab({
           presentationOverrideReady={!personalPreference.loading}
           projects={projects}
           searchQuery={searchQuery}
-          dbViewPrefs={classicBoardPrefs}
+          dbViewPrefs={classicBoard.prefs}
+          showPageKey={classicBoard.identity.showPageKey}
           openPageStage={(nextProjectId, pageId, titleSnapshot, options) => {
             void onOpenPageTab(nextProjectId, pageId, titleSnapshot, {
               sourceTabId: tab.id,

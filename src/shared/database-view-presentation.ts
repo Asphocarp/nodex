@@ -179,7 +179,11 @@ export const resolveEffectiveDatabaseView = (
     ]),
   );
   const intrinsicFields = new Set(
-    capabilities.intrinsicFields ?? ["page_id", "created_at", "updated_at"],
+    capabilities.intrinsicFields ?? [
+      "page_key",
+      "created_at",
+      "updated_at",
+    ],
   );
   const overlaid = overlayPresentation(durable, override);
   const group = normalizedGroup(overlaid.group, properties);

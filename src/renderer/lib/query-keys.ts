@@ -23,6 +23,31 @@ export const queryKeys = {
     list: (includeArchived = false) => ["projects", "list", includeArchived] as const,
     detail: (projectId: string) => ["projects", "detail", projectId] as const,
   },
+  pageKeys: {
+    all: () => ["pageKeys"] as const,
+    prefixPreview: (
+      projectId: string | undefined,
+      databaseId: string | undefined,
+      nameHint: string,
+      requestedPrefix: string | undefined,
+    ) => [
+      "pageKeys",
+      "prefixPreview",
+      normalizeNullable(projectId),
+      normalizeNullable(databaseId),
+      nameHint,
+      normalizeNullable(requestedPrefix),
+    ] as const,
+    namespace: (databaseId: string) => ["pageKeys", "namespace", databaseId] as const,
+  },
+  pageSearch: {
+    destinations: (projectIds: readonly string[], normalizedQuery: string) => [
+      "pageSearch",
+      "destinations",
+      [...projectIds].sort(),
+      normalizedQuery,
+    ] as const,
+  },
   boards: {
     all: () => ["boards"] as const,
     byProject: (projectId: string) => ["boards", "byProject", projectId] as const,

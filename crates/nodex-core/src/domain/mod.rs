@@ -7,6 +7,7 @@ pub(crate) mod identity;
 pub mod nfm;
 pub mod nfm_parser;
 pub mod ordered_position;
+pub(crate) mod page_key;
 pub(crate) mod project_appearance;
 pub mod rich_text;
 pub mod subtree;

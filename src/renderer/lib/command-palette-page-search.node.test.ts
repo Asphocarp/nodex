@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
   createCommandPalettePageSearchIndex,
+  createCommandPalettePageFastSearchIndex,
   hydrateCommandPalettePageSearchIndex,
   normalizeCommandPaletteSearchText,
   resetCommandPalettePageSearchCacheForTests,
@@ -17,6 +18,7 @@ function makePage(overrides: Partial<DatabasePageSummary> = {}): DatabasePageSum
   const title = overrides.title ?? "Polish command palette";
   return {
     id: overrides.id ?? "page-1",
+    pageKey: overrides.pageKey ?? null,
     title,
     richTitle: overrides.richTitle ?? plainTextToPortableRichText(title),
     descriptionPreview,
@@ -116,6 +118,53 @@ describe("command palette page search index", () => {
     expect(results.length > 0).toBe(true);
     expect(results[0]?.item.page.id).toBe("fuzzy-target");
     expect(results[0]?.item.searchDecorations?.titleSegments?.some((segment) => segment.highlight)).toBe(true);
+  });
+
+  test.each([
+    ["indexed", createCommandPalettePageSearchIndex],
+    ["fast", createCommandPalettePageFastSearchIndex],
+  ])("keeps Page-key lookup semantics stable in the %s index", (_name, createIndex) => {
+    resetCommandPalettePageSearchCacheForTests();
+    const index = createIndex([
+      makePalettePage({
+        page: makePage({ id: "key-hit", pageKey: "LAB-13", title: "Unrelated title" }),
+      }),
+      makePalettePage({
+        page: makePage({ id: "other-key", pageKey: "LAB-22", title: "Another page" }),
+      }),
+    ]);
+
+    const cases = [
+      { query: "lab-13", expectedPageIds: ["key-hit"] },
+      { query: "#lab-13", expectedPageIds: ["key-hit"] },
+      { query: "lab-1", expectedPageIds: ["key-hit"] },
+      { query: "#", expectedPageIds: [] },
+      { query: "##lab-13", expectedPageIds: [] },
+      { query: "lab-13 unrelated", expectedPageIds: [] },
+      { query: "#lab-13 unrelated", expectedPageIds: [] },
+      { query: "lxb-13", expectedPageIds: [] },
+    ];
+    for (const { query, expectedPageIds } of cases) {
+      expect(index.search(query).map((hit) => hit.item.page.id)).toEqual(expectedPageIds);
+    }
+    expect(index.search("lab-13")[0]?.item.searchDecorations?.pageKeySegments?.some((segment) => segment.highlight)).toBe(true);
+  });
+
+  test.each([
+    ["indexed", createCommandPalettePageSearchIndex],
+    ["fast", createCommandPalettePageFastSearchIndex],
+  ])("ranks an exact Page key above a title match in the %s index", (_name, createIndex) => {
+    resetCommandPalettePageSearchCacheForTests();
+    const index = createIndex([
+      makePalettePage({
+        page: makePage({ id: "key-hit", pageKey: "LAB-13", title: "Other" }),
+      }),
+      makePalettePage({
+        page: makePage({ id: "title-hit", pageKey: "LAB-99", title: "LAB-13" }),
+      }),
+    ]);
+
+    expect(index.search("lab-13")[0]?.item.page.id).toBe("key-hit");
   });
 
   test("matches description-only queries", () => {
@@ -247,7 +296,7 @@ describe("command palette page search index", () => {
     const index = await hydrateCommandPalettePageSearchIndex(pages, store);
 
     expect(index.search("telemetry")).toHaveLength(1);
-    expect(snapshot.version).toBe(2);
+    expect(snapshot.version).toBe(4);
   });
 
   test("hydrates a persisted cache snapshot and incrementally updates changed pages", async () => {

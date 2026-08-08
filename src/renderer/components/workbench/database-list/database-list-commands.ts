@@ -2,6 +2,7 @@ export type DatabaseListMoveDirection = "top" | "up" | "down" | "bottom";
 
 export type DatabaseListCommandId =
   | "open"
+  | "copy-page-key"
   | "select-only"
   | "toggle-selection"
   | `move-${DatabaseListMoveDirection}`;
@@ -50,18 +51,31 @@ const buildMoveCommands = ({
 
 export function buildDatabaseListRowCommands({
   selected,
+  hasPageKey = false,
   canMoveUp,
   canMoveDown,
 }: DatabaseListMoveCommandCapabilities & {
   readonly selected: boolean;
+  readonly hasPageKey?: boolean;
 }): readonly DatabaseListCommand[] {
-  return [
+  const pageCommands: DatabaseListCommand[] = [
     {
       id: "open",
       label: "Open page",
       disabled: false,
       section: "page",
     },
+  ];
+  if (hasPageKey) {
+    pageCommands.push({
+      id: "copy-page-key",
+      label: "Copy Page key",
+      disabled: false,
+      section: "page",
+    });
+  }
+  return [
+    ...pageCommands,
     {
       id: "select-only",
       label: "Select only this row",
