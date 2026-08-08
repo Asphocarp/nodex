@@ -8,6 +8,7 @@ All notable changes to this project will be documented in this file.
 
 - Added Relation Properties for linking Database Pages, with secure previews, paged editing, and contains/empty filters.
 - Added Kanban Page actions to open a Page in a new focused Chat Session or send its canonical content to an existing or new chat.
+- Added an app-level Kanban Page composer with rich descriptions, schema-aware properties, exact multi-panel targeting, recoverable drafts, compact and expanded writing modes, a create-more workflow, and a configurable contextual shortcut.
 
 ### Changed
 - Replaced the Library workspace and ownership tree with a compact Pages section for standalone top-level resources; every Page, Database, and Canvas in a window now shares one restorable tablist with searchable open/new actions, breadcrumbs, and app-wide Back/Forward navigation without switching Projects.

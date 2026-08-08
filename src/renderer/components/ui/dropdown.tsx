@@ -14,6 +14,7 @@ import {
 } from "@/components/shared/icons";
 import { APP_SHELL_FLOATING_UI_LAYER_CLASS } from "@/lib/app-shell-layers";
 import { cn } from "@/lib/utils";
+import { NODEX_RAISED_CONTROL_CHROME_CLASS_NAME } from "./control-chrome";
 import { NodexTooltip } from "./tooltip";
 
 export type NodexDropdownSurface = "menu" | "panel";
@@ -310,7 +311,7 @@ export type NodexDropdownButtonTriggerProps = ComponentPropsWithoutRef<"button">
   size?: "xs" | "sm" | "default" | "settings";
   muted?: boolean;
   showChevron?: boolean;
-  chrome?: "filled" | "transparent" | "outline";
+  chrome?: "filled" | "transparent" | "outline" | "raised";
   shape?: "default" | "pill";
 };
 
@@ -336,12 +337,14 @@ export const NodexDropdownButtonTrigger = forwardRef<
       ref={ref}
       type={type}
       className={cn(
-        "inline-flex min-w-0 items-center justify-between gap-1 border border-transparent outline-hidden disabled:cursor-not-allowed disabled:opacity-40",
+        "inline-flex min-w-0 items-center justify-between gap-1 border-[0.5px] border-transparent outline-hidden disabled:cursor-not-allowed disabled:opacity-40",
         chrome === "outline"
           ? "border-token-border bg-token-bg-fog hover:bg-token-list-hover-background"
-          : chrome === "filled"
-            ? "bg-token-foreground/5 hover:bg-token-foreground/10"
-            : "bg-transparent hover:bg-token-foreground/5",
+          : chrome === "raised"
+            ? NODEX_RAISED_CONTROL_CHROME_CLASS_NAME
+            : chrome === "filled"
+              ? "bg-token-foreground/5 hover:bg-token-foreground/10"
+              : "bg-transparent hover:bg-token-foreground/5",
         "focus-visible:ring-token-focus focus-visible:ring-2",
         muted ? "text-token-description-foreground" : "text-token-foreground",
         "[&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg]:text-token-description-foreground",

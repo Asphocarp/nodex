@@ -6,12 +6,14 @@ import {
   createPageDocumentGenesis,
   materializePageDocument,
 } from "../../../../shared/block-documents/block-document-codec";
+import { scanBlockDocument } from "../../../../shared/block-documents/block-structure";
 import {
   createNfmEditorModeOptions,
   getNfmEditorInstanceKey,
   resolveNfmEditorBlockActionCapabilities,
   type NfmEditorCollaborativeDocumentSource,
 } from "./nfm-editor-source";
+import { createPageCreateDescriptionDraft } from "@/lib/page-create-draft";
 
 function createCollaborativeSource(
   fragment: Y.XmlFragment,
@@ -192,6 +194,25 @@ describe("NfmEditor source boundary", () => {
 
     editor.unmount();
     genesis.document.destroy();
+  });
+
+  test("mounts a blank Page-create draft without inventing a placeholder identity", () => {
+    const draft = createPageCreateDescriptionDraft("request-editor-empty");
+    const editor = BlockNoteEditor.create(createNfmEditorModeOptions(
+      createCollaborativeSource(draft.body),
+    ));
+    const element = globalThis.document.createElement("div");
+
+    editor.mount(element);
+
+    expect(editor.document).toHaveLength(1);
+    expect(editor.document[0]?.id).not.toBe("initialBlockId");
+    expect(() => editor.focus()).not.toThrow();
+    expect(scanBlockDocument(draft.body).issues).toEqual([]);
+    expect(() => materializePageDocument(draft.document)).not.toThrow();
+
+    editor.unmount();
+    draft.document.destroy();
   });
 
   test("preserves long-Card identities across collaboration-origin rerenders", async () => {

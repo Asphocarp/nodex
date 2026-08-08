@@ -27,6 +27,7 @@ import type {
   WorkbenchNavigationDirection,
 } from "../../../shared/window-navigation";
 import {
+  CREATE_PAGE_COMMAND_ID,
   TOGGLE_BOTTOM_PANEL_COMMAND_ID,
   type WorkbenchCommandInvocation,
 } from "../../../shared/workbench-commands";
@@ -44,6 +45,7 @@ import type {
   useWorkbenchSidebarController,
 } from "./use-workbench-sidebar-controller";
 import { CommandPalette } from "./command-palette";
+import { usePageCreateTargetResolution } from "@/lib/page-create-target-registry";
 
 type ProjectSession = WorkbenchSessionRenderProjection;
 type SessionCommands = Pick<
@@ -130,6 +132,7 @@ export function WorkbenchCommandPaletteHost({
   openKeyboardShortcuts,
   onOpenSessionInNewWindow,
 }: WorkbenchCommandPaletteHostProps) {
+  const pageCreateTargetResolution = usePageCreateTargetResolution();
   const panelCapabilities =
     panelCommands.resolveActivePanelCapabilities("right");
   const commandContext: Omit<
@@ -140,6 +143,9 @@ export function WorkbenchCommandPaletteHost({
     canGoForward: canNavigateForward,
     canStartNewChat: true,
     canStartNewChatInProject: Boolean(activeProjectId),
+    pageCreateUnavailableReason: pageCreateTargetResolution.status === "unavailable"
+      ? pageCreateTargetResolution.reason
+      : null,
     hasActiveSession: Boolean(activeSession),
     activeSessionPinned: activeSession?.pinned ?? false,
     hasAttachedThread: Boolean(activeSession?.thread),
@@ -163,6 +169,12 @@ export function WorkbenchCommandPaletteHost({
     },
     newThreadInProject: () => {
       void sessionCommands.startNewChatInProject(activeProjectId);
+    },
+    createPage: () => {
+      executeWorkbenchCommand({
+        commandId: CREATE_PAGE_COMMAND_ID,
+        source: "command_palette",
+      });
     },
     renameThread: () => {
       if (!activeSession) return;

@@ -1,21 +1,17 @@
 import { useCallback, useMemo, useSyncExternalStore } from "react";
 import {
   buildCompleteOrSkipOccurrenceTransform,
-  buildCreateCardTransform,
   buildDeletePageTransform,
   buildMovePageTransform,
   buildMovePagesTransform,
   buildPatchPageTransform,
   conflictKeyForCard,
-  conflictKeysForCreate,
   conflictKeysForDelete,
   conflictKeysForMove,
   conflictKeysForMoveMany,
   conflictKeysForPatch,
-  createOptimisticCard,
 } from "./kanban-optimistic-ops";
 import { createUuidV7 } from "../../shared/uuid-v7";
-import { isWorkflowStatus } from "../../shared/workflow-status";
 import {
   PAGE_DOCUMENT_MUTATION_REQUIRED_MESSAGE,
   findPageDocumentPatchFields,
@@ -24,6 +20,7 @@ import type {
   PageOccurrence,
   DatabasePage,
   PageCreateInput,
+  PageCreateMutationResult,
   PageCreatePlacement,
   PageInput,
   PageUpdateMutationResult,
@@ -31,6 +28,7 @@ import type {
   PageOccurrenceActionInput,
   PageOccurrenceCompleteInput,
   PageOccurrenceUpdateInput,
+  WorkflowStatus,
   MovePageInput,
   MovePagesInput,
 } from "./types";
@@ -52,6 +50,7 @@ import {
   isPageMetadataPatch,
 } from "./page-detail-metadata-runtime";
 import { commitPageMetadataPatchForBoard } from "./page-metadata-board-runtime";
+import { createKanbanPage } from "./kanban-page-create-command";
 
 interface UseKanbanOptions {
   projectId: string;
@@ -84,14 +83,6 @@ function toErrorMessage(value: unknown): string {
   if (value instanceof Error) return value.message;
   if (typeof value === "string") return value;
   return "Unknown error";
-}
-
-function ensureCreateInputId(input: PageCreateInput): PageCreateInput {
-  if (input.id && input.id.trim().length > 0) return input;
-  return {
-    ...input,
-    id: createUuidV7(),
-  };
 }
 
 function normalizeOccurrenceUpdatesToPagePatch(
@@ -168,45 +159,19 @@ export function useKanban(options: UseKanbanOptions) {
       columnId: string,
       input: PageCreateInput,
       placement: PageCreatePlacement = "bottom",
-    ): Promise<DatabasePage | null> => {
-      if (!requireWritableSelectedView()) return null;
-      if (!isWorkflowStatus(columnId)) {
-        throw new Error("Page creation requires a canonical Page status");
-      }
-      const createInput = ensureCreateInputId(input);
-      const optimisticCard = createOptimisticCard(createInput);
-      const operationId = crypto.randomUUID();
-      const outcome = await store.runOptimisticMutation<DatabasePage>({
-        kind: "page:create",
-        conflictKeys: conflictKeysForCreate(columnId, optimisticCard.id),
-        apply: buildCreateCardTransform(columnId, optimisticCard, placement),
-        runRemote: async () => {
-          const committed = await commitPageLifecycleIntent({
-            kind: "create",
-            projectId,
-            operationId,
-            clientSessionId: sessionId,
-            pageId: optimisticCard.id,
-            status: columnId,
-            input: createInput,
-            placement,
-          });
-          if (!committed.boardProjection) {
-            throw new Error("Created Page is missing from canonical authority");
-          }
-          return committed.boardProjection;
-        },
+    ): Promise<PageCreateMutationResult> => {
+      const result = await createKanbanPage({
+        projectId,
+        databaseViewId,
+        clientSessionId: sessionId,
+        status: columnId as WorkflowStatus,
+        input,
+        placement,
       });
-
-      if (!outcome.ok) return null;
-      if (outcome.result) {
-        setDatabaseRowDetail(projectId, outcome.result);
-        store.applyRemoteCard(outcome.result);
-      }
-      onMutation?.();
-      return outcome.result ?? null;
+      if (result.status === "created") onMutation?.();
+      return result;
     },
-    [onMutation, projectId, requireWritableSelectedView, sessionId, store],
+    [databaseViewId, onMutation, projectId, sessionId],
   );
 
   const updatePage = useCallback(

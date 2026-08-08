@@ -163,6 +163,7 @@ export const CODEX_COMMAND_REGISTRY = [
   command("toggleFileTreePanel", "Toggle file tree panel", "Open the Files panel", 190, "app", ["CmdOrCtrl+Shift+E"]),
   command("searchChats", "Search chats", "Search chats in the command palette", 200, "app", ["CmdOrCtrl+G"]),
   command("searchPages", "Search Pages", "Search Pages in the command palette", 210, "app", ["CmdOrCtrl+P"]),
+  command("createPage", "Create Page", "Create a Page in the active Project Board", 212, "app", ["CmdOrCtrl+Shift+C"]),
   command("searchFiles", "Search files", "Search files in the command palette", 215, "app", [], {
     available: false,
   }),

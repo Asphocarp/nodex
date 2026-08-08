@@ -9,7 +9,10 @@ import {
   RENAME_THREAD_COMMAND_ID,
   TOGGLE_SIDEBAR_COMMAND_ID,
 } from "../../shared/window-navigation";
-import { TOGGLE_BOTTOM_PANEL_COMMAND_ID } from "../../shared/workbench-commands";
+import {
+  CREATE_PAGE_COMMAND_ID,
+  TOGGLE_BOTTOM_PANEL_COMMAND_ID,
+} from "../../shared/workbench-commands";
 import type { CommandPaletteCommand, CommandPaletteCommandGroup } from "./command-palette";
 import type { WorkbenchPanelActionKind } from "./workbench-panel-capabilities";
 
@@ -20,6 +23,7 @@ export type CommandPaletteShellCommandId =
   | typeof NAVIGATE_FORWARD_COMMAND_ID
   | "newThread"
   | "newThreadInProject"
+  | typeof CREATE_PAGE_COMMAND_ID
   | typeof RENAME_THREAD_COMMAND_ID
   | "archiveThread"
   | "copyConversationMarkdown"
@@ -47,6 +51,7 @@ export interface CommandPaletteShellCommandContext {
   canGoForward: boolean;
   canStartNewChat: boolean;
   canStartNewChatInProject: boolean;
+  pageCreateUnavailableReason: string | null;
   showMockCommands: boolean;
   hasActiveSession: boolean;
   activeSessionPinned: boolean;
@@ -66,6 +71,7 @@ export function isCommandPaletteShellCommandId(id: string): id is CommandPalette
     || id === NAVIGATE_FORWARD_COMMAND_ID
     || id === "newThread"
     || id === "newThreadInProject"
+    || id === CREATE_PAGE_COMMAND_ID
     || id === RENAME_THREAD_COMMAND_ID
     || id === "archiveThread"
     || id === "copyConversationMarkdown"
@@ -113,6 +119,7 @@ export function buildCommandPaletteCommands(
       shortcut?: string;
       active?: boolean;
       disabled?: boolean;
+      disabledReason?: string;
       mockReason?: string;
     } = {},
   ): CommandPaletteCommand => ({
@@ -126,6 +133,7 @@ export function buildCommandPaletteCommands(
     shortcut: options.shortcut,
     active: options.active,
     disabled: options.disabled,
+    disabledReason: options.disabledReason,
     mockReason: options.mockReason,
   });
   const mockCommand = (
@@ -159,6 +167,11 @@ export function buildCommandPaletteCommands(
     }),
     command("searchPages", "Suggested", "Search pages", "Search pages with Nodex page filters", ["search", "page", "kanban", "task"], 1190, {
       shortcut: shortcutLabel("searchPages", "CmdOrCtrl+P"),
+    }),
+    command(CREATE_PAGE_COMMAND_ID, "Project", "Create Page", "Create a Page in the active Project Board", ["create", "new", "page", "board", "kanban"], 1185, {
+      shortcut: shortcutLabel(CREATE_PAGE_COMMAND_ID, "CmdOrCtrl+Shift+C"),
+      disabled: context.pageCreateUnavailableReason !== null,
+      disabledReason: context.pageCreateUnavailableReason ?? undefined,
     }),
     ...maybeMockCommand("searchFiles", "Suggested", "Search files", "Search workspace files", ["search", "file", "workspace"], 1180, shortcutLabel("searchFiles")),
     command("newThread", "Chat", "New chat", "Start a new chat in the current context", ["new", "chat", "thread", "session"], 1120, {

@@ -269,6 +269,7 @@ export function DbViewSessionTab({
   const scrollStateKey = renderedView === "calendar"
     ? `db-view:${sessionId}:${tab.id}:${projectId}:${selectedDatabaseViewId}:${renderedView}:${calendarState.range}`
     : `db-view:${sessionId}:${tab.id}:${projectId}:${selectedDatabaseViewId}:${renderedView}`;
+  const surfaceId = `db-view:${sessionId}:${tab.id}:${projectId}:${selectedDatabaseViewId}:${renderedView}`;
   const taskSearchInputRef = useRef<HTMLInputElement | null>(null);
   const lastHandledTaskSearchOpenTickRef = useRef(taskSearchOpenTick);
   const searchQuery = searchByProject[projectId]
@@ -527,6 +528,8 @@ export function DbViewSessionTab({
       />
       <div className="min-h-0 flex-1 overflow-hidden">
         <MainViewHost
+          surfaceId={surfaceId}
+          panelTabId={tab.id}
           projectId={projectId}
           databaseViewId={selectedDatabaseViewId}
           projects={projects}

@@ -127,6 +127,7 @@ export interface NodexSwitchProps {
   checked: boolean;
   className?: string;
   disabled?: boolean;
+  size?: "default" | "compact";
   onCheckedChange: (nextChecked: boolean) => void;
 }
 
@@ -135,6 +136,7 @@ export function NodexSwitch({
   checked,
   className,
   disabled = false,
+  size = "default",
   onCheckedChange,
 }: NodexSwitchProps) {
   return (
@@ -155,15 +157,19 @@ export function NodexSwitch({
     >
       <span
         className={cn(
-          "relative inline-flex h-5 w-8 shrink-0 items-center rounded-full transition-colors duration-200 ease-out",
+          "relative inline-flex shrink-0 items-center rounded-full transition-colors duration-200 ease-out",
+          size === "compact" ? "h-3.5 w-[22px]" : "h-5 w-8",
           checked ? "bg-token-charts-blue" : "bg-token-foreground/10",
         )}
         data-state={checked ? "checked" : "unchecked"}
       >
         <span
           className={cn(
-            "h-4 w-4 rounded-full border border-[color:var(--gray-0)] bg-[color:var(--gray-0)] shadow-sm transition-transform duration-200 ease-out",
-            checked ? "translate-x-[14px]" : "translate-x-[2px]",
+            "rounded-full border border-[color:var(--gray-0)] bg-[color:var(--gray-0)] shadow-sm transition-transform duration-200 ease-out",
+            size === "compact" ? "size-3" : "size-4",
+            checked
+              ? size === "compact" ? "translate-x-[9px]" : "translate-x-[14px]"
+              : size === "compact" ? "translate-x-px" : "translate-x-[2px]",
           )}
           data-state={checked ? "checked" : "unchecked"}
         />

@@ -436,7 +436,11 @@ export type {
   WindowSessionSaveLayoutInput,
 } from "../../shared/window-session";
 
-import type { Estimate, PageUpdateResult } from "../../shared/types";
+import type {
+  DatabasePage,
+  Estimate,
+  PageUpdateResult,
+} from "../../shared/types";
 
 export const estimateStyles: Record<
   Estimate,
@@ -468,6 +472,16 @@ export const estimateOptions: Array<{
 
 export type PageUpdateMutationResult =
   | PageUpdateResult
+  | {
+      status: "error";
+      error: string;
+    };
+
+export type PageCreateMutationResult =
+  | {
+      status: "created";
+      page: DatabasePage;
+    }
   | {
       status: "error";
       error: string;

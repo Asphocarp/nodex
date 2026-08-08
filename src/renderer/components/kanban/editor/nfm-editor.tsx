@@ -197,6 +197,7 @@ import {
 } from "@/features/local-conversation/local-conversation-store";
 import type { ModifyShortcutEditor } from "./modify-block-shortcut";
 import { handleNfmEditorModEnterShortcut } from "./nfm-editor-mod-enter-shortcut";
+import { PAGE_DESCRIPTION_PLACEHOLDER } from "@/lib/page-description-placeholder";
 import {
   createNfmEditorModeOptions,
   getNfmEditorInstanceKey,
@@ -281,6 +282,7 @@ interface TypedOwnerSelectionBlock {
 }
 
 export interface NfmEditorBoundaryHandle {
+  focus(): boolean;
   focusBoundary(direction: VerticalArrowDirection): boolean;
 }
 
@@ -436,7 +438,7 @@ function NfmEditorInstance({
   onSendThreadSectionPrompt,
   isActivePanelTab = true,
   headingRail,
-  placeholder = "Add a description...",
+  placeholder = PAGE_DESCRIPTION_PLACEHOLDER,
   className,
   surfaceMutationBarrier,
   embeddedBoundary,
@@ -1458,6 +1460,11 @@ function NfmEditorInstance({
   useImperativeHandle(
     embeddedBoundary?.navigationRef,
     () => ({
+      focus: () => {
+        if (!editor.domElement) return false;
+        editor.focus();
+        return true;
+      },
       focusBoundary: (direction) =>
         focusEmbeddedEditorBoundary(
           editor as unknown as EmbeddedSurfaceHostEditor,

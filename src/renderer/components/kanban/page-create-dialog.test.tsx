@@ -1,0 +1,414 @@
+import type { ReactNode } from "react";
+import { act, fireEvent, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, test, vi } from "vitest";
+import { plainTextToPortableRichText } from "../../../shared/block-documents";
+import { appScope, useScopeHandle } from "@/lib/maitai";
+import { NodexModalHost } from "@/lib/modal-registry";
+import {
+  registerPageCreateTarget,
+  type PageCreateTarget,
+} from "@/lib/page-create-target-registry";
+import { requestPageCreate } from "@/lib/page-create-workflow";
+import {
+  __resetNodexToastStoreForTests,
+  NodexToastProvider,
+} from "@/components/ui/toast";
+import { renderWithMaitai } from "@/test/dom";
+
+const commandState = vi.hoisted(() => ({
+  create: vi.fn(),
+}));
+const editorState = vi.hoisted(() => ({
+  latestFragment: null as null | {
+    readonly length: number;
+    delete: (index: number, length: number) => void;
+  },
+}));
+
+vi.mock("@/lib/kanban-page-create-command", () => ({
+  createKanbanPage: (...args: unknown[]) => commandState.create(...args),
+}));
+
+vi.mock("./editor/nfm-editor", async () => {
+  const React = await import("react");
+  const {
+    materializePageDocument,
+    populateBlockDocumentBodyFromNfm,
+  } = await import("../../../shared/block-documents/block-document-codec");
+
+  return {
+    NfmEditor: ({ source, embeddedBoundary }: {
+      source: {
+        documentId: string;
+        fragment: import("yjs").XmlFragment;
+      };
+      embeddedBoundary: {
+        navigationRef: React.Ref<{
+          focus: () => boolean;
+          focusBoundary: () => boolean;
+        }>;
+      };
+    }) => {
+      editorState.latestFragment = source.fragment;
+      const inputRef = React.useRef<HTMLTextAreaElement>(null);
+      const readValue = () => source.fragment.doc
+        ? materializePageDocument(source.fragment.doc).nfm
+        : "";
+      const [value, setValue] = React.useState(readValue);
+      React.useEffect(() => {
+        setValue(source.fragment.doc
+          ? materializePageDocument(source.fragment.doc).nfm
+          : "");
+      }, [source.documentId, source.fragment]);
+      React.useImperativeHandle(embeddedBoundary.navigationRef, () => ({
+        focus: () => {
+          inputRef.current?.focus();
+          return true;
+        },
+        focusBoundary: () => {
+          inputRef.current?.focus();
+          return true;
+        },
+      }));
+      return (
+        <textarea
+          ref={inputRef}
+          aria-label="Page description"
+          data-document-id={source.documentId}
+          value={value}
+          onChange={(event) => {
+            const nextValue = event.target.value;
+            setValue(nextValue);
+            source.fragment.doc?.transact(() => {
+              if (source.fragment.length > 0) {
+                source.fragment.delete(0, source.fragment.length);
+              }
+              populateBlockDocumentBodyFromNfm(source.fragment, nextValue);
+            });
+          }}
+        />
+      );
+    },
+  };
+});
+
+const target: PageCreateTarget = {
+  surfaceId: "surface-test",
+  panelTabId: "tab-test",
+  project: {
+    id: "project-test",
+    name: "Nodex",
+    appearance: {
+      color: "blue",
+      marker: { kind: "icon", icon: "terminal" },
+    },
+  },
+  databaseViewId: "view-test",
+  clientSessionId: "session-test",
+  accessContext: { kind: "project", projectId: "project-test" },
+  properties: [],
+  columns: [
+    { id: "triage", name: "Triage" },
+    { id: "plan", name: "Plan" },
+    { id: "build", name: "Build" },
+    { id: "ship", name: "Ship" },
+  ],
+  readOnlyReason: null,
+};
+
+const origin = {
+  surfaceId: target.surfaceId,
+  panelTabId: target.panelTabId,
+  projectId: target.project.id,
+  databaseViewId: target.databaseViewId,
+  kind: "header" as const,
+  columnId: "plan" as const,
+};
+
+const createPage = (id: string, title: string) => ({
+  id,
+  status: "plan" as const,
+  archived: false,
+  title,
+  richTitle: plainTextToPortableRichText(title),
+  description: "",
+  tags: [],
+  created: new Date("2026-08-08T00:00:00.000Z"),
+  order: 0,
+});
+
+function ModalLauncher({
+  children,
+  onAncestorPointerDown,
+  visible = true,
+}: {
+  readonly children?: ReactNode;
+  readonly onAncestorPointerDown?: () => void;
+  readonly visible?: boolean;
+}) {
+  const appHandle = useScopeHandle(appScope);
+  if (!visible) return <>{children}</>;
+
+  return (
+    <div onPointerDown={onAncestorPointerDown}>
+      <button
+        type="button"
+        onClick={() => {
+          registerPageCreateTarget(appHandle, "registration-test", target);
+          requestPageCreate(appHandle, { target, origin });
+        }}
+      >
+        Open Page create
+      </button>
+      {children}
+    </div>
+  );
+}
+
+function TestShell({
+  launcherVisible = true,
+  onAncestorPointerDown,
+}: {
+  readonly launcherVisible?: boolean;
+  readonly onAncestorPointerDown?: () => void;
+}) {
+  return (
+    <NodexToastProvider>
+      <ModalLauncher
+        visible={launcherVisible}
+        onAncestorPointerDown={onAncestorPointerDown}
+      />
+      <div
+        data-kanban-board-root
+        data-kanban-surface-id={target.surfaceId}
+        tabIndex={-1}
+      >
+        <button
+          type="button"
+          data-page-create-trigger="header"
+          data-page-create-column-id="plan"
+        >
+          Source trigger
+        </button>
+        <div data-kanban-uuid-v7="created-page" tabIndex={-1} />
+      </div>
+      <NodexModalHost />
+    </NodexToastProvider>
+  );
+}
+
+describe("PageCreateDialog", () => {
+  beforeEach(() => {
+    commandState.create.mockReset();
+    editorState.latestFragment = null;
+    __resetNodexToastStoreForTests();
+  });
+
+  test("is owned by the app modal host and survives its launcher unmounting", async () => {
+    const onAncestorPointerDown = vi.fn();
+    const view = renderWithMaitai(
+      <TestShell onAncestorPointerDown={onAncestorPointerDown} />,
+    );
+
+    fireEvent.click(view.getByRole("button", { name: "Open Page create" }));
+    expect(await view.findByRole("dialog")).toBeTruthy();
+    fireEvent.pointerDown(view.getByLabelText("Page title"));
+    expect(onAncestorPointerDown).not.toHaveBeenCalled();
+
+    view.rerender(<TestShell launcherVisible={false} />);
+    expect(view.getByRole("dialog")).toBeTruthy();
+  });
+
+  test("preserves the draft after failure and focuses the exact created card after retry", async () => {
+    let resolveRetry: (() => void) | null = null;
+    commandState.create
+      .mockResolvedValueOnce({ status: "error", error: "Core is temporarily unavailable" })
+      .mockImplementationOnce((input: { input: { title: string } }) => new Promise((resolve) => {
+        resolveRetry = () => resolve({
+          status: "created",
+          page: createPage("created-page", input.input.title),
+        });
+      }));
+    const view = renderWithMaitai(<TestShell />);
+
+    fireEvent.click(view.getByRole("button", { name: "Open Page create" }));
+    const title = await view.findByLabelText("Page title");
+    const description = view.getByLabelText("Page description");
+    fireEvent.change(title, { target: { value: "Create Page modal" } });
+    fireEvent.change(description, { target: { value: "Failure-safe body" } });
+    fireEvent.click(view.getByRole("button", { name: "Create page" }));
+
+    expect((await view.findByRole("alert")).textContent).toContain(
+      "Core is temporarily unavailable",
+    );
+    expect((title as HTMLInputElement).value).toBe("Create Page modal");
+    expect((description as HTMLTextAreaElement).value).toBe("Failure-safe body");
+    expect(commandState.create).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      projectId: target.project.id,
+      databaseViewId: target.databaseViewId,
+      status: "plan",
+      input: expect.objectContaining({
+        title: "Create Page modal",
+        description: "Failure-safe body",
+      }),
+      placement: "top",
+    }));
+
+    fireEvent.click(view.getByRole("button", { name: "Create page" }));
+    await waitFor(() => expect(view.getByRole("button", { name: "Creating…" })).toBeTruthy());
+    expect(view.getByRole("button", { name: "Close Page creation" }).hasAttribute("disabled")).toBe(true);
+    await act(async () => {
+      resolveRetry?.();
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(view.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(document.activeElement).toBe(
+      view.container.querySelector("[data-kanban-uuid-v7='created-page']"),
+    ));
+  });
+
+  test("creates a Page with a canonical blank description", async () => {
+    commandState.create.mockResolvedValue({
+      status: "created",
+      page: createPage("created-page", "Title only Page"),
+    });
+    const view = renderWithMaitai(<TestShell />);
+
+    fireEvent.click(view.getByRole("button", { name: "Open Page create" }));
+    fireEvent.change(await view.findByLabelText("Page title"), {
+      target: { value: "Title only Page" },
+    });
+    fireEvent.click(view.getByRole("button", { name: "Create page" }));
+
+    await waitFor(() => expect(commandState.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        input: expect.objectContaining({ description: "" }),
+      }),
+    ));
+    await waitFor(() => expect(view.queryByRole("dialog")).toBeNull());
+  });
+
+  test("moves from title to description without remounting it when expanded", async () => {
+    const view = renderWithMaitai(<TestShell />);
+    fireEvent.click(view.getByRole("button", { name: "Open Page create" }));
+    const title = await view.findByLabelText("Page title");
+    const description = view.getByLabelText("Page description");
+    const documentId = description.getAttribute("data-document-id");
+
+    title.focus();
+    fireEvent.keyDown(title, { key: "Enter", isComposing: true });
+    expect(document.activeElement).toBe(title);
+    fireEvent.keyDown(title, { key: "Enter" });
+    expect(document.activeElement).toBe(description);
+
+    fireEvent.change(description, { target: { value: "Keep editor state" } });
+    fireEvent.click(view.getByRole("button", { name: "Expand Page composer" }));
+    expect(view.getByRole("button", { name: "Collapse Page composer" }).getAttribute("aria-expanded")).toBe("true");
+    expect(view.getByLabelText("Page description").getAttribute("data-document-id")).toBe(documentId);
+    expect((view.getByLabelText("Page description") as HTMLTextAreaElement).value).toBe("Keep editor state");
+  });
+
+  test("supports create-more keyboard submission and resets only the writing fields", async () => {
+    commandState.create.mockResolvedValue({
+      status: "created",
+      page: createPage("created-page", "First Page"),
+    });
+    const view = renderWithMaitai(<TestShell />);
+    fireEvent.click(view.getByRole("button", { name: "Open Page create" }));
+    const title = await view.findByLabelText("Page title");
+    const description = view.getByLabelText("Page description");
+    fireEvent.change(title, { target: { value: "First Page" } });
+    fireEvent.change(description, { target: { value: "Body" } });
+
+    await act(async () => {
+      fireEvent.keyDown(description, {
+        key: "Enter",
+        metaKey: true,
+        shiftKey: true,
+      });
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(commandState.create).toHaveBeenCalledOnce());
+    expect(view.getByRole("dialog")).toBeTruthy();
+    expect((title as HTMLInputElement).value).toBe("");
+    expect((view.getByLabelText("Page description") as HTMLTextAreaElement).value).toBe("");
+    await waitFor(() => expect(document.activeElement).toBe(title));
+  });
+
+  test("restores a dirty draft into a fresh collaborative document", async () => {
+    const view = renderWithMaitai(<TestShell />);
+    fireEvent.click(view.getByRole("button", { name: "Open Page create" }));
+    const title = await view.findByLabelText("Page title");
+    const description = view.getByLabelText("Page description");
+    const firstDocumentId = description.getAttribute("data-document-id");
+    fireEvent.change(title, { target: { value: "Recover me" } });
+    fireEvent.change(description, { target: { value: "Recovered body" } });
+    fireEvent.click(view.getByRole("button", { name: "Close Page creation" }));
+
+    expect(await view.findByText("Page draft closed")).toBeTruthy();
+    fireEvent.click(view.getByRole("button", { name: "Restore" }));
+    expect(await view.findByRole("dialog")).toBeTruthy();
+    expect((view.getByLabelText("Page title") as HTMLInputElement).value).toBe("Recover me");
+    expect((view.getByLabelText("Page description") as HTMLTextAreaElement).value).toBe("Recovered body");
+    expect(view.getByLabelText("Page description").getAttribute("data-document-id")).not.toBe(firstDocumentId);
+  });
+
+  test("always closes even when an unexpected draft snapshot cannot be encoded", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const view = renderWithMaitai(<TestShell />);
+
+    try {
+      fireEvent.click(view.getByRole("button", { name: "Open Page create" }));
+      fireEvent.change(await view.findByLabelText("Page title"), {
+        target: { value: "Corrupted local draft" },
+      });
+      const fragment = editorState.latestFragment;
+      if (!fragment) throw new Error("Expected the Page description fragment");
+      fragment.delete(0, fragment.length);
+
+      fireEvent.click(view.getByRole("button", { name: "Close Page creation" }));
+
+      await waitFor(() => expect(view.queryByRole("dialog")).toBeNull());
+      expect(await view.findByText("Page draft couldn’t be preserved.")).toBeTruthy();
+      expect(consoleError).toHaveBeenCalledWith(
+        "[page-create:draft-capture]",
+        expect.any(Error),
+      );
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
+  test("lets the Status menu consume Escape before the dialog", async () => {
+    const view = renderWithMaitai(<TestShell />);
+    fireEvent.click(view.getByRole("button", { name: "Open Page create" }));
+    await view.findByRole("dialog");
+    const statusTrigger = view.getByRole("button", { name: "Status" });
+    fireEvent.pointerDown(statusTrigger, { button: 0, ctrlKey: false });
+    const menu = await view.findByRole("menu");
+    const dialogForm = view.getByRole("dialog").querySelector("form");
+    expect(dialogForm?.contains(menu)).toBe(false);
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => expect(view.queryByRole("menu")).toBeNull());
+    expect(view.getByRole("dialog")).toBeTruthy();
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => expect(view.queryByRole("dialog")).toBeNull());
+  });
+
+  test("keeps the dialog open when a body-portalled property menu is used", async () => {
+    const view = renderWithMaitai(<TestShell />);
+    fireEvent.click(view.getByRole("button", { name: "Open Page create" }));
+    await view.findByRole("dialog");
+
+    fireEvent.pointerDown(view.getByRole("button", { name: "Status" }), {
+      button: 0,
+      ctrlKey: false,
+    });
+    fireEvent.click(await view.findByText("Build"));
+
+    expect(view.getByRole("dialog")).toBeTruthy();
+    expect(view.getByRole("button", { name: "Status" }).textContent).toContain("Build");
+  });
+});

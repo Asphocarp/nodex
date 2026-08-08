@@ -36,6 +36,10 @@
 
 @custom-variant dark (&:is(.dark *));
 
+.nfm-editor .bn-block-content[data-is-only-empty-block="true"]::after {
+  font-style: normal;
+}
+
 /*
  * Nodex Design System - Based on Notion's design language
  * Source: design/tokens.json

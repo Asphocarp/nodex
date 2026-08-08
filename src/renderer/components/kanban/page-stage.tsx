@@ -34,6 +34,7 @@ import type { BlockDocumentSurfaceRuntime } from "@/lib/block-document-surface-r
 import type { EditorSurfaceLease } from "@/lib/document-session-registry";
 import { RIGHT_PANEL_COMPOSER_OVERLAY_SCROLL_RESERVE_STYLE } from "@/lib/right-panel-composer-overlay-reserve";
 import { materializePageDocument } from "../../../shared/block-documents/block-document-codec";
+import { PAGE_DESCRIPTION_PLACEHOLDER } from "@/lib/page-description-placeholder";
 
 export type { PageStageProps } from "./page-stage/types";
 
@@ -176,7 +177,7 @@ const PageStageDescriptionEditor = memo(
           portalElement: headingRailPortalElement,
           scrollContainerRef,
         }}
-        placeholder="Add a description..."
+        placeholder={PAGE_DESCRIPTION_PLACEHOLDER}
         editorSession={editorSession}
       />
     );

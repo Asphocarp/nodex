@@ -39,8 +39,6 @@ import {
 import type {
   DatabasePageSummary,
   WorkflowStatus,
-  PageCreatePlacement,
-  PageInput,
   Project,
 } from "@/lib/types";
 import { buildPageSearchText, matchesSearchTokens, tokenizeSearchQuery } from "@/lib/page-search";
@@ -73,6 +71,15 @@ import { toast } from "@/components/ui/toast";
 import { useKanbanElementDragMonitor } from "./use-kanban-element-drag-monitor";
 import { transferBlocks } from "@/lib/api";
 import { resolveBlockDocumentMutationBarrier } from "@/lib/block-document-mutation-registry";
+import { appScope, useScopeHandle } from "@/lib/maitai";
+import type { PageCreateOriginKind } from "@/lib/page-create-focus";
+import {
+  markPageCreateTargetActive,
+  registerPageCreateTarget,
+  unregisterPageCreateTarget,
+  type PageCreateTarget,
+} from "@/lib/page-create-target-registry";
+import { requestPageCreate } from "@/lib/page-create-workflow";
 
 const KANBAN_CARD_PREVIEW_OPEN_DELAY_MS = 180;
 type KanbanCardOpenMode = NonNullable<OpenPageStageOptions["openMode"]>;
@@ -92,6 +99,8 @@ function hasSameCardSelection(
 }
 
 interface KanbanBoardProps {
+  surfaceId: string;
+  panelTabId: string;
   projectId: string;
   databaseViewId: string;
   projects: Project[];
@@ -112,6 +121,8 @@ interface KanbanBoardProps {
 }
 
 export function KanbanBoard({
+  surfaceId,
+  panelTabId,
   projectId,
   databaseViewId,
   projects,
@@ -125,6 +136,7 @@ export function KanbanBoard({
   pageStageCloseRef,
   scrollStateKey,
 }: KanbanBoardProps) {
+  const appHandle = useScopeHandle(appScope);
   const mutationAuditSessionId = useMutationAuditSessionId();
   const pendingCardPreviewOpenRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -141,7 +153,6 @@ export function KanbanBoard({
     databaseView,
     loading,
     error,
-    createPage,
     updatePage,
     deletePage,
     movePage,
@@ -159,6 +170,7 @@ export function KanbanBoard({
   const [cardSelection, setCardSelection] = useState<CardSelectionState>(() => emptyCardSelection());
   const boardScrollContainerRef = useRef<HTMLDivElement | null>(null);
   const [dragInstanceId] = useState(() => Symbol("kanban-board-dnd"));
+  const [pageCreateRegistrationToken] = useState(() => crypto.randomUUID());
 
   const [dropIndicator, setDropIndicator] = useState<{
     columnId: string;
@@ -235,10 +247,63 @@ export function KanbanBoard({
     setColumnLayoutPrefs(readKanbanColumnLayoutPrefs(projectId));
   }, [projectId]);
 
-  const currentProjectName = useMemo(
-    () => projects.find((project) => project.id === projectId)?.name ?? projectId,
+  const currentProject = useMemo(
+    () => projects.find((project) => project.id === projectId) ?? null,
     [projectId, projects],
   );
+
+  const pageCreateTarget = useMemo<PageCreateTarget | null>(() => {
+    if (!currentProject || !databaseView || !board) return null;
+    return {
+      surfaceId,
+      panelTabId,
+      project: {
+        id: currentProject.id,
+        name: currentProject.name,
+        appearance: currentProject.appearance,
+      },
+      databaseViewId,
+      clientSessionId: mutationAuditSessionId,
+      accessContext: databaseView.accessContext,
+      properties: databaseView.query.properties,
+      columns: board.columns,
+      readOnlyReason: databaseView.primaryWriteCompatible
+        ? null
+        : databaseView.readOnlyReason ?? "The selected Database View is read-only.",
+    };
+  }, [
+    board,
+    currentProject,
+    databaseView,
+    databaseViewId,
+    mutationAuditSessionId,
+    panelTabId,
+    surfaceId,
+  ]);
+
+  useEffect(() => {
+    if (!pageCreateTarget) {
+      unregisterPageCreateTarget(
+        appHandle,
+        surfaceId,
+        pageCreateRegistrationToken,
+      );
+      return;
+    }
+    registerPageCreateTarget(
+      appHandle,
+      pageCreateRegistrationToken,
+      pageCreateTarget,
+    );
+  }, [appHandle, pageCreateRegistrationToken, pageCreateTarget, surfaceId]);
+
+  useEffect(() => () => {
+    unregisterPageCreateTarget(
+      appHandle,
+      surfaceId,
+      pageCreateRegistrationToken,
+    );
+  }, [appHandle, pageCreateRegistrationToken, surfaceId]);
 
   const selectedPageIds = cardSelection.pageIds;
 
@@ -612,13 +677,39 @@ export function KanbanBoard({
     },
   });
 
-  const handleAddCard = useCallback(async (
-    columnId: string,
-    input: PageInput,
-    placement: PageCreatePlacement = "bottom",
+  const handleRequestCreatePage = useCallback((
+    columnId: WorkflowStatus,
+    originKind: PageCreateOriginKind,
   ) => {
-    await createPage(columnId, input, placement);
-  }, [createPage]);
+    if (!pageCreateTarget) {
+      toast.danger("Page creation is unavailable until the Project is loaded.");
+      return;
+    }
+    if (pageCreateTarget.readOnlyReason) {
+      toast.danger(pageCreateTarget.readOnlyReason);
+      return;
+    }
+
+    markPageCreateTargetActive(appHandle, surfaceId, columnId);
+    requestPageCreate(appHandle, {
+      target: pageCreateTarget,
+      origin: {
+        surfaceId,
+        panelTabId,
+        projectId,
+        databaseViewId,
+        kind: originKind,
+        columnId,
+      },
+    });
+  }, [
+    appHandle,
+    databaseViewId,
+    pageCreateTarget,
+    panelTabId,
+    projectId,
+    surfaceId,
+  ]);
 
   const openPageStageFromCard = useCallback(async (
     card: CardType,
@@ -791,15 +882,27 @@ export function KanbanBoard({
     return null;
   }
 
+  const createDisabledReason = databaseView?.primaryWriteCompatible
+    ? null
+    : databaseView?.readOnlyReason
+      ?? "The selected Database View is read-only";
+
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div
+      className="flex h-full min-h-0 flex-col"
+      data-kanban-board-root
+      data-kanban-surface-id={surfaceId}
+      tabIndex={-1}
+      onFocusCapture={() => markPageCreateTargetActive(appHandle, surfaceId)}
+      onPointerDownCapture={() => markPageCreateTargetActive(appHandle, surfaceId)}
+    >
       <KanbanBoardScrollContainer ref={boardScrollContainerRef} scrollStateKey={scrollStateKey}>
         {/* Board container - Notion-style scroll with sticky headers */}
         <div className="flex w-max min-w-full px-4">
           {filteredBoard.columns.map((column) => (
             <Column
               projectId={projectId}
-              projectName={currentProjectName}
+              projectName={currentProject?.name ?? projectId}
               key={column.id}
               column={column}
               pagination={groupPagination.get(groupScopeKeyForColumn(column.id))
@@ -809,7 +912,8 @@ export function KanbanBoard({
               dragInstanceId={dragInstanceId}
               buildDragData={buildDragData}
               layout={getKanbanColumnLayout(columnLayoutPrefs, column.id)}
-              onAddCard={handleAddCard}
+              onRequestCreatePage={handleRequestCreatePage}
+              createDisabledReason={createDisabledReason}
               onEditCard={handleEditCard}
               onUpdatePageProperty={handleUpdatePageProperty}
               onCollapsedChange={(columnId, collapsed) => updateColumnLayout(columnId, { collapsed })}

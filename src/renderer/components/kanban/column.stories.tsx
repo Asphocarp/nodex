@@ -25,8 +25,14 @@ const CARDS = [
 ];
 
 function ColumnStoryFrame({
+  cards = CARDS,
+  createDisabledReason,
+  collapsed = false,
   pagination,
 }: {
+  cards?: CardType[];
+  createDisabledReason?: string;
+  collapsed?: boolean;
   pagination?: ColumnPaginationState;
 }) {
   return (
@@ -35,11 +41,12 @@ function ColumnStoryFrame({
         <Column
           projectId="alpha"
           projectName="Alpha"
-          column={{ id: "build", name: "Build", cards: CARDS }}
+          column={{ id: "build", name: "Build", cards }}
+          createDisabledReason={createDisabledReason}
           pagination={pagination}
           onLoadMore={() => {}}
-          layout={{ width: 320, collapsed: false }}
-          onAddCard={async () => {}}
+          layout={{ width: 320, collapsed }}
+          onRequestCreatePage={() => {}}
           onEditCard={() => {}}
           onUpdatePageProperty={async () => {}}
           onCollapsedChange={() => {}}
@@ -109,6 +116,25 @@ export const ContinuationFailed: Story = {
         loadingMore: false,
         error: "Core is unavailable",
       }}
+    />
+  ),
+};
+
+/** Read-only launchers remain focusable and explain the canonical View reason. */
+export const ReadOnly: Story = {
+  render: () => (
+    <ColumnStoryFrame
+      createDisabledReason="This View is read-only because it is grouped by Tags."
+    />
+  ),
+};
+
+/** An empty read-only group keeps its collapsed create surface keyboard-reachable. */
+export const AutoCollapsedReadOnly: Story = {
+  render: () => (
+    <ColumnStoryFrame
+      cards={[]}
+      createDisabledReason="This View is read-only because it is grouped by Tags."
     />
   ),
 };
