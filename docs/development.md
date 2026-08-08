@@ -171,6 +171,46 @@ The test commands follow production boundaries:
   Playwright config directly after changing Rust authority code; that can run
   against a stale `target/debug/nodex-core` binary.
 
+### Block drag-and-drop smoke
+
+The Electron test named `moves a Block into a Board with native DnD
+@dnd-smoke` exercises the real BlockNote handle and browser drag pipeline. Run
+it after building the development Core and Electron bundle:
+
+```bash
+pnpm run core:build:dev
+pnpm run build
+pnpm exec playwright test --config playwright.e2e.config.ts --grep "@dnd-smoke"
+```
+
+Its `dragBlockToBoardWithMouse` helper remains in
+`tests/e2e/electron-smoke.spec.ts` while it has one caller; move it to
+`tests/e2e/support/nodex-block-dnd.ts` only when a second test reuses it. The
+helper hovers the source Block, waits for the dynamic handle, presses the mouse,
+moves about 12 pixels to activate native dragging, travels to the Board in many
+steps, moves twice more inside the target, and releases. The final extra move is
+required because the first target move may emit only `dragenter`; pages that
+accept a drop in `dragover` need a subsequent move.
+
+`locator.drop` creates a target-side synthetic `DataTransfer` and is useful for
+external-payload contracts, but it does not prove the native source gesture.
+Likewise, cross-tab high-pressure tests that call `blocks:transfer` directly
+prove the Core transaction and renderer convergence, not the drag handle or
+browser event pipeline.
+
+When this smoke fails, follow the first missing boundary: no `dragstart` means
+inspect handle visibility, remounts, activation distance, draggable state, and
+overlays; `dragstart` without Nodex MIME means inspect the source callback; MIME
+without `dragover` means inspect the stepped path and hit target; a completed
+drop without UI convergence means inspect Core, LocalCommit, and projection
+delivery. After changing either the helper or DnD runtime, require ten clean
+isolated runs without gesture retries:
+
+```bash
+pnpm exec playwright test --config playwright.e2e.config.ts \
+  --grep "@dnd-smoke" --repeat-each=10
+```
+
 Use the `.stress.` filename segment for a test that intentionally exercises
 high volume, repeated lifecycle work, concurrent calls, or resource pressure:
 
