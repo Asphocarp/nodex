@@ -17,6 +17,7 @@ const board: BoardSummary = {
       cards: [
         {
           id: "a",
+          pageKey: null,
           status: "build",
           archived: false,
           title: "A",
@@ -31,6 +32,7 @@ const board: BoardSummary = {
         },
         {
           id: "b",
+          pageKey: null,
           status: "build",
           archived: false,
           title: "B",
@@ -51,6 +53,7 @@ const board: BoardSummary = {
       cards: [
         {
           id: "c",
+          pageKey: null,
           status: "review",
           archived: false,
           title: "C",
@@ -65,6 +68,7 @@ const board: BoardSummary = {
         },
         {
           id: "d",
+          pageKey: null,
           status: "review",
           archived: false,
           title: "D",

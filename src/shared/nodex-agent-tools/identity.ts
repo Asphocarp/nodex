@@ -36,6 +36,11 @@ export const NODEX_APP_V5_TOOLSET_REVISION = 5 as const;
 export const NODEX_APP_V5_TOOLS = NODEX_APP_V3_TOOLS;
 export type NodexAgentV5ToolName = (typeof NODEX_APP_V5_TOOLS)[number];
 
-export const NODEX_APP_TOOLSET_REVISION = NODEX_APP_V5_TOOLSET_REVISION;
-export const NODEX_APP_TOOLS = NODEX_APP_V5_TOOLS;
-export type NodexAgentToolName = NodexAgentV5ToolName;
+/** Page-key discovery and projection contract. */
+export const NODEX_APP_V6_TOOLSET_REVISION = 6 as const;
+export const NODEX_APP_V6_TOOLS = NODEX_APP_V5_TOOLS;
+export type NodexAgentV6ToolName = (typeof NODEX_APP_V6_TOOLS)[number];
+
+export const NODEX_APP_TOOLSET_REVISION = NODEX_APP_V6_TOOLSET_REVISION;
+export const NODEX_APP_TOOLS = NODEX_APP_V6_TOOLS;
+export type NodexAgentToolName = NodexAgentV6ToolName;

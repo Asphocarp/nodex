@@ -74,6 +74,12 @@ export interface CommandPalettePage {
   boardIndex: number;
   searchPreview?: CommandPalettePageSearchPreview | null;
   searchDecorations?: CommandPalettePageSearchDecorations | null;
+  pageKeyMatch?: CommandPalettePageKeyMatch | null;
+}
+
+export interface CommandPalettePageKeyMatch {
+  matchedPageKey: string;
+  isCurrent: boolean;
 }
 
 export interface CommandPalettePageSearchPreviewSegment {
@@ -94,6 +100,7 @@ export interface CommandPalettePageSearchPreview {
 }
 
 export interface CommandPalettePageSearchDecorations {
+  pageKeySegments?: CommandPalettePageSearchPreviewSegment[] | null;
   titleSegments?: CommandPalettePageSearchPreviewSegment[] | null;
   projectNameSegments?: CommandPalettePageSearchPreviewSegment[] | null;
   columnNameSegments?: CommandPalettePageSearchPreviewSegment[] | null;

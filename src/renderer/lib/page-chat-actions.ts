@@ -7,6 +7,7 @@ export type ChatDestinationTarget =
 export interface OpenPageInNewChatInput {
   readonly projectId: string;
   readonly pageId: string;
+  readonly pageKey?: string;
   readonly titleSnapshot?: string;
 }
 
@@ -16,6 +17,7 @@ export interface SendPageToChatInput extends OpenPageInNewChatInput {
 
 export interface PagePromptContext {
   readonly pageId: string;
+  readonly pageKey?: string;
   readonly projectId: string;
   readonly title: string;
   readonly source: string;

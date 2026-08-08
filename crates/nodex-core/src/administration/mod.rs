@@ -1488,7 +1488,7 @@ fn core_error(error: StoreError) -> CoreError {
         StoreErrorCode::PatchAmbiguous => CoreErrorCode::PatchAmbiguous,
         StoreErrorCode::PatchOverlap => CoreErrorCode::PatchOverlap,
         StoreErrorCode::StaleStoreEpoch => CoreErrorCode::StaleStoreEpoch,
-        StoreErrorCode::Conflict => CoreErrorCode::RevisionConflict,
+        StoreErrorCode::Conflict => CoreErrorCode::Conflict,
         StoreErrorCode::GenerationConflict => CoreErrorCode::GenerationConflict,
         StoreErrorCode::HeadConflict => CoreErrorCode::HeadConflict,
         StoreErrorCode::RevisionConflict => CoreErrorCode::RevisionConflict,

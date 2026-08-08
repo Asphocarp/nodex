@@ -15,7 +15,8 @@ use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::json;
 
 use crate::database::{
-    create_database_authority_records, resolve_page_transfer_data_source_destination_prevalidated,
+    create_database_authority_records, create_page_key_namespace,
+    resolve_page_transfer_data_source_destination_prevalidated,
 };
 use crate::document::{
     PrimaryCanvasIdentity, create_primary_canvas, primary_canvas_block_id,
@@ -140,6 +141,7 @@ pub(super) fn seed_rootless_default_project_for_test(
                 "",
                 &ProjectAppearance::default(),
                 &[],
+                None,
                 "test:rootless-default-project:v1",
                 &assets_root,
                 None,
@@ -270,6 +272,7 @@ pub(super) fn apply(
                     description,
                     appearance,
                     source_roots,
+                    page_key_prefix,
                     starter_page,
                 } => create_project(
                     transaction,
@@ -283,6 +286,7 @@ pub(super) fn apply(
                     description,
                     appearance.as_ref(),
                     source_roots,
+                    page_key_prefix.as_deref(),
                     Some(starter_page),
                     &assets_root,
                     ProjectCreationMode::Initial,
@@ -293,6 +297,7 @@ pub(super) fn apply(
                     description,
                     appearance,
                     source_roots,
+                    page_key_prefix,
                 } => create_project(
                     transaction,
                     &library_id,
@@ -305,6 +310,7 @@ pub(super) fn apply(
                     description,
                     appearance.as_ref(),
                     source_roots,
+                    page_key_prefix.as_deref(),
                     None,
                     &assets_root,
                     ProjectCreationMode::Subsequent,
@@ -768,6 +774,7 @@ fn create_project(
     description: &str,
     appearance: Option<&ProjectAppearance>,
     source_roots: &[String],
+    page_key_prefix: Option<&str>,
     starter_page: Option<&ProjectWorkspaceStarterPage>,
     assets_root: &Path,
     mode: ProjectCreationMode,
@@ -827,6 +834,7 @@ fn create_project(
                 description,
                 &appearance,
                 &sources,
+                page_key_prefix,
                 operation_id,
                 assets_root,
                 starter_page.map(|page| StarterPageGenesisRequest { page, store_epoch }),
@@ -1091,19 +1099,11 @@ fn update_project(
         .map_err(invalid)?;
     let sources = source_roots.map(normalize_source_roots).transpose()?;
     let now = sqlite_now(connection)?;
-    let metadata_changed = name.is_some() || description.is_some() || appearance.is_some();
     let project_catalog_change = if sources.is_some() {
         ProjectCatalogChangeKind::SourcesUpdated
     } else {
         ProjectCatalogChangeKind::MetadataUpdated
     };
-    let effects = project_mutation_effects(
-        "update_project",
-        project_catalog_change,
-        project_id,
-        Vec::new(),
-        now.clone(),
-    );
     run_mutation(
         connection,
         context,
@@ -1112,6 +1112,7 @@ fn update_project(
         request_hash,
         &now,
         |_| {
+            let metadata_changed = name.is_some() || description.is_some() || appearance.is_some();
             if metadata_changed {
                 let appearance_storage = appearance.as_ref().map(project_appearance_storage);
                 let changed = connection.execute(
@@ -1155,6 +1156,13 @@ fn update_project(
                     }
                 }
             }
+            let effects = project_mutation_effects(
+                "update_project",
+                project_catalog_change,
+                project_id,
+                Vec::new(),
+                now.clone(),
+            );
             Ok(effects)
         },
     )
@@ -1360,6 +1368,7 @@ fn set_project_pinned(
         ProjectCatalogChangeKind::PinUpdated,
         project_id,
         Vec::new(),
+        Vec::new(),
         now,
     )
 }
@@ -1458,16 +1467,18 @@ fn finish_project_mutation(
     operation_kind: &'static str,
     project_catalog_change: ProjectCatalogChangeKind,
     project_id: &str,
+    database_ids: Vec<String>,
     session_summary_scopes: Vec<ProjectSessionInvalidationScope>,
     committed_at: String,
 ) -> Result<ProjectWorkspaceApplyOutcome, StoreError> {
-    let effects = project_mutation_effects(
+    let mut effects = project_mutation_effects(
         operation_kind,
         project_catalog_change,
         project_id,
         session_summary_scopes,
         committed_at,
     );
+    effects.database_ids = database_ids;
     finish_mutation(
         connection,
         context,
@@ -1644,6 +1655,7 @@ fn create_project_records(
     description: &str,
     appearance: &ProjectAppearance,
     sources: &[ProjectSource],
+    page_key_prefix: Option<&str>,
     identity_namespace: &str,
     assets_root: &Path,
     starter_page: Option<StarterPageGenesisRequest<'_>>,
@@ -1723,6 +1735,14 @@ fn create_project_records(
         &identities.data_source_id,
         &identities.view_id,
         &database_name,
+        &now,
+    )?;
+    create_page_key_namespace(
+        connection,
+        library_id,
+        &identities.database_id,
+        page_key_prefix,
+        name,
         &now,
     )?;
     connection.execute(
@@ -2186,6 +2206,7 @@ mod tests {
                     "/workspace/native".to_owned(),
                     "/workspace/secondary".to_owned(),
                 ],
+                page_key_prefix: None,
             },
         )
     }
@@ -2258,11 +2279,12 @@ mod tests {
                         description: String::new(),
                         appearance: None,
                         source_roots: vec!["/workspace/ordinary".to_owned()],
+                        page_key_prefix: None,
                     },
                 ),
             )
             .expect_err("ordinary creation cannot claim the empty catalog");
-        assert_eq!(ordinary_error.code, CoreErrorCode::RevisionConflict);
+        assert_eq!(ordinary_error.code, CoreErrorCode::Conflict);
 
         let projectless_error = module
             .apply(
@@ -2277,7 +2299,7 @@ mod tests {
                 ),
             )
             .expect_err("Projectless mutations wait for initial Project bootstrap");
-        assert_eq!(projectless_error.code, CoreErrorCode::RevisionConflict);
+        assert_eq!(projectless_error.code, CoreErrorCode::Conflict);
 
         let rootless_error = module
             .apply(
@@ -2290,6 +2312,7 @@ mod tests {
                         description: String::new(),
                         appearance: None,
                         source_roots: Vec::new(),
+                        page_key_prefix: None,
                         starter_page: starter_page("rootless"),
                     },
                 ),
@@ -2312,6 +2335,7 @@ mod tests {
                         description: String::new(),
                         appearance: None,
                         source_roots: vec!["/workspace/default-a".to_owned()],
+                        page_key_prefix: None,
                         starter_page: starter_page("concurrent-a"),
                     },
                 ),
@@ -2328,6 +2352,7 @@ mod tests {
                         description: String::new(),
                         appearance: None,
                         source_roots: vec!["/workspace/default-b".to_owned()],
+                        page_key_prefix: None,
                         starter_page: starter_page("concurrent-b"),
                     },
                 ),
@@ -2346,44 +2371,55 @@ mod tests {
             .iter()
             .find_map(|outcome| outcome.as_ref().err())
             .expect("one initial Project loses");
-        assert_eq!(loser.code, CoreErrorCode::RevisionConflict);
+        assert_eq!(loser.code, CoreErrorCode::Conflict);
 
         let ready = read_bootstrap(&module);
         assert_eq!(ready.status, ProjectWorkspaceBootstrapStatus::Ready);
-        let (project_count, page_count, ready_document_count, membership_count) = kernel
-            .writer()
-            .call(|connection| {
-                Ok((
-                    connection.query_row(
-                        "SELECT count(*) FROM projects WHERE library_id = 'library-1'",
-                        [],
-                        |row| row.get::<_, i64>(0),
-                    )?,
-                    connection.query_row(
-                        "SELECT count(*) FROM pages WHERE library_id = 'library-1'",
-                        [],
-                        |row| row.get::<_, i64>(0),
-                    )?,
-                    connection.query_row(
-                        "SELECT count(*) FROM pages page \
+        let (project_count, page_count, ready_document_count, membership_count, starter_page_key) =
+            kernel
+                .writer()
+                .call(|connection| {
+                    Ok((
+                        connection.query_row(
+                            "SELECT count(*) FROM projects WHERE library_id = 'library-1'",
+                            [],
+                            |row| row.get::<_, i64>(0),
+                        )?,
+                        connection.query_row(
+                            "SELECT count(*) FROM pages WHERE library_id = 'library-1'",
+                            [],
+                            |row| row.get::<_, i64>(0),
+                        )?,
+                        connection.query_row(
+                            "SELECT count(*) FROM pages page \
                          JOIN documents document ON document.id = page.document_id \
                          WHERE page.library_id = 'library-1' AND document.readiness = 'ready'",
-                        [],
-                        |row| row.get::<_, i64>(0),
-                    )?,
-                    connection.query_row(
-                        "SELECT count(*) FROM data_source_page_memberships \
+                            [],
+                            |row| row.get::<_, i64>(0),
+                        )?,
+                        connection.query_row(
+                            "SELECT count(*) FROM data_source_page_memberships \
                          WHERE removed_at IS NULL",
-                        [],
-                        |row| row.get::<_, i64>(0),
-                    )?,
-                ))
-            })
-            .expect("initial Project aggregate counts");
+                            [],
+                            |row| row.get::<_, i64>(0),
+                        )?,
+                        connection.query_row(
+                            "SELECT prefix.normalized_prefix || '-' || assignment.number \
+                         FROM page_key_assignments assignment \
+                         JOIN page_key_prefixes prefix \
+                           ON prefix.database_block_id = assignment.database_block_id \
+                          AND prefix.retired_at IS NULL",
+                            [],
+                            |row| row.get::<_, String>(0),
+                        )?,
+                    ))
+                })
+                .expect("initial Project aggregate counts");
         assert_eq!(project_count, 1);
         assert_eq!(page_count, 1);
         assert_eq!(ready_document_count, 1);
         assert_eq!(membership_count, 1);
+        assert_eq!(starter_page_key, "MP-1");
         let winner = outcomes
             .into_iter()
             .find_map(Result::ok)
@@ -2465,6 +2501,7 @@ mod tests {
                         description: String::new(),
                         appearance: None,
                         source_roots: vec!["/workspace/default-invalid".to_owned()],
+                        page_key_prefix: None,
                         starter_page: invalid_starter_page,
                     },
                 ),
@@ -2516,6 +2553,7 @@ mod tests {
                 description: String::new(),
                 appearance: None,
                 source_roots: vec!["/workspace/default".to_owned()],
+                page_key_prefix: None,
                 starter_page: starter_page("replay"),
             },
         );
@@ -3284,7 +3322,7 @@ mod tests {
                 ),
             )
             .expect_err("reject archived Project metadata mutation");
-        assert_eq!(archived_update.code, CoreErrorCode::RevisionConflict);
+        assert_eq!(archived_update.code, CoreErrorCode::Conflict);
 
         let archived_session_create = module
             .apply(
@@ -3564,7 +3602,7 @@ mod tests {
                 ),
             )
             .expect_err("reject mismatched Thread Project");
-        assert_eq!(mismatched.code, CoreErrorCode::RevisionConflict);
+        assert_eq!(mismatched.code, CoreErrorCode::Conflict);
 
         let linked = module
             .apply(

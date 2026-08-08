@@ -35,6 +35,7 @@ function buildPage(overrides: Partial<DatabasePage> = {}): DatabasePage {
     created: new Date("2026-01-01T00:00:00.000Z"),
     order: 1,
     ...overrides,
+    pageKey: overrides.pageKey ?? null,
   };
 }
 

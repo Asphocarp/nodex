@@ -534,6 +534,13 @@ fn create_page(
          ) VALUES (?1, ?2, ?3, 1, ?4, NULL)",
                 params![membership_id, data_source_id, page_id, now],
             )?;
+            database::ensure_database_page_key(
+                connection,
+                library_id,
+                &source.database_id,
+                page_id,
+                &now,
+            )?;
             for (property_id, (value_type, value)) in &values {
                 connection.execute(
                     "INSERT INTO data_source_property_values( \
@@ -1993,7 +2000,9 @@ fn restore_page(
             let mut view_id = None;
             let mut view_rank_key = None;
             if let Some(requested) = requested_membership {
-                restored_membership = Some(restore_membership(connection, page_id, requested)?);
+                restored_membership = Some(restore_membership(
+                    connection, library_id, page_id, requested, &now,
+                )?);
                 if let Some(position) = &requested.position {
                     let rank_key =
                         restore_view_position(connection, page_id, requested, position, &now)?;
@@ -2755,8 +2764,10 @@ fn synchronize_deleted_page(
 
 fn restore_membership(
     connection: &Connection,
+    library_id: &str,
     page_id: &str,
     requested: &LibraryPageLifecycleMutationMembership,
+    now: &str,
 ) -> Result<MembershipCoordinates, StoreError> {
     let row = connection
         .query_row(
@@ -2790,6 +2801,7 @@ fn restore_membership(
     if changed != 1 {
         return Err(conflict("Deleted Page membership changed during restore"));
     }
+    database::ensure_database_page_key(connection, library_id, &database_id, page_id, now)?;
     Ok(MembershipCoordinates {
         membership_id: requested.membership_id.clone(),
         database_id,

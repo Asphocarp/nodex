@@ -49,6 +49,7 @@ pub enum CoreErrorCode {
     Unauthorized,
     NotFound,
     Ambiguous,
+    Conflict,
     StaleStoreEpoch,
     RevisionConflict,
     GenerationConflict,
@@ -273,7 +274,7 @@ mod tests {
                 },
                 ModuleContractVersion {
                     module: ModuleName::Database,
-                    contract_version: 17,
+                    contract_version: DATABASE_CONTRACT_VERSION,
                 },
                 ModuleContractVersion {
                     module: ModuleName::OwnedDocument,
@@ -285,11 +286,11 @@ mod tests {
                 },
                 ModuleContractVersion {
                     module: ModuleName::Automation,
-                    contract_version: 2,
+                    contract_version: AUTOMATION_CONTRACT_VERSION,
                 },
                 ModuleContractVersion {
                     module: ModuleName::StoreAdministration,
-                    contract_version: 2,
+                    contract_version: STORE_ADMINISTRATION_CONTRACT_VERSION,
                 },
             ]
         );

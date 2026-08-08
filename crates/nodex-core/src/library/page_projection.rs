@@ -1,7 +1,7 @@
 use chrono::{DateTime, NaiveDate};
 use nodex_core_contracts::library::{
     LibraryPageDraftProjection, LibraryPageFileKind, LibraryPageFileProjection,
-    LibraryPageFileValidators, LibraryPagePrepareKind, PageMetaProjectionV1, ProjectedIdentityV1,
+    LibraryPageFileValidators, LibraryPagePrepareKind, PageMetaProjectionV2, ProjectedIdentityV1,
     ProjectedPropertyTypeV1, ProjectedPropertyV1, ProjectedPropertyValueV1,
     ProjectedRelationSummaryV1, ProjectedScheduleV1,
 };
@@ -18,7 +18,7 @@ use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 use super::content::page_content;
 use super::mutation::{require_project_in_library, resolve_library_actor_project_id};
 
-const PAGE_FILE_VERSION: u32 = 1;
+const PAGE_FILE_VERSION: u32 = 2;
 const PAGE_DRAFT_VERSION: u32 = 1;
 const MAX_IDENTITY_BYTES: usize = 512;
 const MAX_NAME_BYTES: usize = 4_096;
@@ -54,6 +54,7 @@ pub(super) fn page_file(
         }
         None => resolve_library_actor_project_id(connection, library_id)?,
     };
+    let page_key = crate::database::current_page_key_for_page(connection, library_id, page_id)?;
     let mut validators = LibraryPageFileValidators {
         title_etag: None,
         body_etag: None,
@@ -119,8 +120,9 @@ pub(super) fn page_file(
     let (content, metadata) = match kind {
         LibraryPageFileKind::BodyNestedMarkdown => (with_final_newline(&page.body_nfm), None),
         LibraryPageFileKind::MetaYaml => {
-            let projection = PageMetaProjectionV1 {
+            let projection = PageMetaProjectionV2 {
                 id: page.page_id.clone(),
+                page_key: page_key.clone(),
                 title_markdown: render_title_markdown(&page.rich_title)?,
                 properties: project_properties(
                     connection,
@@ -135,7 +137,7 @@ pub(super) fn page_file(
                     page.metadata_revision,
                 )?,
             };
-            let content = render_meta_yaml_v1(&projection)?;
+            let content = render_meta_yaml_v2(&projection)?;
             (content, Some(projection))
         }
     };
@@ -152,6 +154,7 @@ pub(super) fn page_file(
         document_head_seq: page.document_head_seq,
         kind,
         content,
+        page_key,
         metadata,
         validators,
     })
@@ -685,7 +688,7 @@ fn project_schedule(
     }))
 }
 
-pub(super) fn render_meta_yaml_v1(value: &PageMetaProjectionV1) -> Result<String, StoreError> {
+pub(super) fn render_meta_yaml_v2(value: &PageMetaProjectionV2) -> Result<String, StoreError> {
     bounded_identity(&value.id, "Page identity")?;
     if value.title_markdown.contains(['\n', '\r', '\t']) {
         return Err(corrupt(
@@ -696,6 +699,11 @@ pub(super) fn render_meta_yaml_v1(value: &PageMetaProjectionV1) -> Result<String
     let mut output = String::new();
     output.push_str("id: ");
     output.push_str(&quoted(&value.id)?);
+    output.push_str("\npage_key: ");
+    match &value.page_key {
+        Some(page_key) => output.push_str(&quoted(page_key)?),
+        None => output.push_str("null"),
+    }
     output.push_str("\ntitle: ");
     output.push_str(&quoted(&value.title_markdown)?);
     if value.properties.is_empty() {
@@ -1032,8 +1040,9 @@ mod tests {
 
     #[test]
     fn canonical_yaml_preserves_schema_order_and_typed_values() {
-        let value = PageMetaProjectionV1 {
+        let value = PageMetaProjectionV2 {
             id: "page:one".to_owned(),
+            page_key: Some("LAB-13".to_owned()),
             title_markdown: "Launch **plan**".to_owned(),
             properties: vec![
                 ProjectedPropertyV1 {
@@ -1078,9 +1087,10 @@ mod tests {
         };
 
         assert_eq!(
-            render_meta_yaml_v1(&value).expect("canonical metadata"),
+            render_meta_yaml_v2(&value).expect("canonical metadata"),
             concat!(
                 "id: \"page:one\"\n",
+                "page_key: \"LAB-13\"\n",
                 "title: \"Launch **plan**\"\n",
                 "properties:\n",
                 "  \"status\":\n",
@@ -1116,8 +1126,9 @@ mod tests {
 
     #[test]
     fn canonical_yaml_rejects_mismatched_property_variants() {
-        let value = PageMetaProjectionV1 {
+        let value = PageMetaProjectionV2 {
             id: "page:one".to_owned(),
+            page_key: None,
             title_markdown: "Title".to_owned(),
             properties: vec![ProjectedPropertyV1 {
                 property_id: "priority".to_owned(),
@@ -1128,7 +1139,7 @@ mod tests {
             schedule: None,
         };
 
-        let error = render_meta_yaml_v1(&value).expect_err("mismatched value must fail");
+        let error = render_meta_yaml_v2(&value).expect_err("mismatched value must fail");
         assert_eq!(error.code, StoreErrorCode::StoreCorrupt);
     }
 

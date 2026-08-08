@@ -9,7 +9,7 @@ import type {
   NodexAgentV3ReadCommandResult,
   NodexAgentV3ReadRequest,
 } from "../../shared/nodex-agent-tools";
-import { QueryDatabaseV3OutputSchema } from "../../shared/nodex-agent-tools/v3-read-schemas";
+import { QueryDatabaseV6OutputSchema } from "../../shared/nodex-agent-tools/v6-schemas";
 import { projectNodexAgentQueryV3Data } from "../agent-tools/query-v3-projection";
 import {
   projectCoreDatabaseViewQuery,
@@ -195,7 +195,7 @@ export async function readNativeDatabaseQuery(
     return {
       ok: true,
       tool: request.tool,
-      output: QueryDatabaseV3OutputSchema.parse({
+      output: QueryDatabaseV6OutputSchema.parse({
         data: projectNodexAgentQueryV3Data(query, request.input.select),
         page: {
           hasMore: window.rows.next_cursor !== null,

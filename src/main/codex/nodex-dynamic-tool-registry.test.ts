@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
-  NODEX_APP_V5_TOOLS,
-  NODEX_APP_V5_TOOLSET_REVISION,
+  NODEX_APP_V6_TOOLS,
+  NODEX_APP_V6_TOOLSET_REVISION,
   NODEX_APP_TOOL_NAMESPACE,
 } from "../../shared/nodex-agent-tools";
 import {
@@ -16,12 +16,12 @@ function unimplemented(): never {
 describe("createNodexV3DynamicToolRegistry", () => {
   test("publishes the compact-identity catalog with only common reads eager", () => {
     const handlers = Object.fromEntries(
-      NODEX_APP_V5_TOOLS.map((tool) => [tool, unimplemented]),
+      NODEX_APP_V6_TOOLS.map((tool) => [tool, unimplemented]),
     ) as unknown as NodexAgentV3ToolHandlers<null>;
     const registry = createNodexV3DynamicToolRegistry(handlers);
     const catalog = registry.buildCatalog([{
       namespace: NODEX_APP_TOOL_NAMESPACE,
-      toolsetRevision: NODEX_APP_V5_TOOLSET_REVISION,
+      toolsetRevision: NODEX_APP_V6_TOOLSET_REVISION,
     }]);
     const namespace = catalog[0];
     expect(namespace?.type).toBe("namespace");
@@ -30,7 +30,7 @@ describe("createNodexV3DynamicToolRegistry", () => {
     expect(namespace.description).toContain("Use one literal tab per child level");
     expect(namespace.description).not.toContain("NFM");
     expect(namespace.tools.map((tool) => tool.name).sort()).toEqual(
-      [...NODEX_APP_V5_TOOLS].sort(),
+      [...NODEX_APP_V6_TOOLS].sort(),
     );
     expect(namespace.tools.filter((tool) => tool.deferLoading === false).map(
       (tool) => tool.name,

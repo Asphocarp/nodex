@@ -104,6 +104,7 @@ function buildPage(overrides: Partial<DatabasePage> = {}): DatabasePage {
     created: new Date("2026-01-01T00:00:00.000Z"),
     order: 1,
     ...overrides,
+    pageKey: overrides.pageKey ?? null,
   };
 }
 
@@ -292,6 +293,11 @@ describe("page stage", () => {
         value: originalClipboard,
       });
     }
+  });
+
+  test("does not repeat a Database Page key in Page Stage", () => {
+    const view = renderStage(toStageModel(buildPage({ pageKey: "LAB-13" })));
+    expect(view.queryByText("LAB-13")).toBeNull();
   });
 
   test("raw mode reads the live Y.Doc projection, not the Page row projection", async () => {

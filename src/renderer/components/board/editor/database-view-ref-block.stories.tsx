@@ -18,6 +18,7 @@ const makeCard = (
   status: DatabasePageSummary["status"],
 ): DatabasePageSummary => ({
   id,
+  pageKey: null,
   status,
   archived: false,
   title,

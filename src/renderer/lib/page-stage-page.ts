@@ -23,6 +23,7 @@ const RUN_TARGETS = new Set<PageRunInTarget>([
 
 export interface PageStageCorePage {
   readonly id: string;
+  readonly pageKey: string | null;
   readonly archived: boolean;
   readonly title: string;
   readonly richTitle: PortableRichText;
@@ -156,6 +157,9 @@ export const projectPageDetailToStageModel = (
   }
   const page: PageStageCorePage = {
     id: detail.page.pageId,
+    pageKey: detail.dataSourceContext.kind === "member"
+      ? detail.dataSourceContext.pageKey ?? null
+      : null,
     archived: detail.page.lifecycle === "archived",
     title: detail.page.title,
     richTitle: detail.page.richTitle,

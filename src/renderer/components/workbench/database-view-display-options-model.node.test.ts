@@ -97,25 +97,29 @@ describe("Database View Display option reducer", () => {
     expect(displayFieldForcedByOrdering({ kind: "title" })).toBeNull();
   });
 
-  test("treats Page ID as an ordinary List display field", () => {
-    const shown = reduceDisplayOptionChange(
+  test("keeps the public Page key independently configurable in Board and List", () => {
+    const list = reduceDisplayOptionChange(
       effective(),
-      { kind: "toggle_field", field: { kind: "intrinsic", field: "page_id" } },
+      { kind: "toggle_field", field: { kind: "intrinsic", field: "page_key" } },
       capabilities,
     );
-    expect(shown.presentation.layouts.list.fields).toContainEqual({
+    expect(list.presentation.layouts.list.fields).toContainEqual({
       kind: "intrinsic",
-      field: "page_id",
+      field: "page_key",
+    });
+    expect(list.presentation.layouts.board.fields).not.toContainEqual({
+      kind: "intrinsic",
+      field: "page_key",
     });
 
-    const hidden = reduceDisplayOptionChange(
-      shown,
-      { kind: "toggle_field", field: { kind: "intrinsic", field: "page_id" } },
+    const board = reduceDisplayOptionChange(
+      { ...list, layout: "board" },
+      { kind: "toggle_field", field: { kind: "intrinsic", field: "page_key" } },
       capabilities,
     );
-    expect(hidden.presentation.layouts.list.fields).not.toContainEqual({
+    expect(board.presentation.layouts.board.fields).toContainEqual({
       kind: "intrinsic",
-      field: "page_id",
+      field: "page_key",
     });
   });
 });

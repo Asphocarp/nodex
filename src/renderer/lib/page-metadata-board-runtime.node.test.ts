@@ -13,6 +13,7 @@ import type {
 
 const page = (id = "page-1"): DatabasePage => ({
   id,
+  pageKey: null,
   status: "triage",
   title: "Page",
   richTitle: plainTextToPortableRichText("Page"),

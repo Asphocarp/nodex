@@ -1,12 +1,17 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { fireEvent, getByRole, waitFor } from "@testing-library/dom";
+import { fireEvent, getByRole, getByText, waitFor } from "@testing-library/dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import type { CodexSidebarThreadItem, Project } from "@/lib/types";
 import { NodexDialog } from "@/components/ui/dialog";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
 import { CodexProjectActionsMenu } from "./codex-sidebar";
 import { ProjectArchiveChatsDialog } from "./project-archive-chats-dialog";
-import { ProjectCreateDialog, ProjectEditDialog } from "./project-edit-dialog";
+import {
+  ProjectCreateDialog,
+  ProjectEditDialog,
+  type DatabasePageKeyAuthority,
+} from "./project-edit-dialog";
 import { ProjectRemoveDialog } from "./project-remove-dialog";
 import { RemovedProjectsDialogView } from "./removed-projects-dialog";
 
@@ -73,13 +78,46 @@ const ARCHIVEABLE_THREADS: CodexSidebarThreadItem[] = [0, 1, 2].map((index) => (
   disabled: false,
 }));
 
+const storyQueryClient = new QueryClient({
+  defaultOptions: { queries: { retry: false } },
+});
+
+const STORY_PAGE_KEY_AUTHORITY: DatabasePageKeyAuthority = {
+  previewPrefix: async (input) => {
+    const prefix = input.requestedPrefix
+      ?? (input.nameHint.trim().toUpperCase().slice(0, 5) || "NX");
+    const nextNumber = input.projectId ? 25 : 1;
+    return {
+      prefix,
+      availability: input.projectId && prefix === "TEST" ? "current" : "available",
+      alternativePrefix: null,
+      nextNumber,
+      exampleKeys: [`${prefix}-${nextNumber}`, `${prefix}-${nextNumber + 1}`],
+    };
+  },
+  readNamespace: async (_projectId, databaseId) => ({
+    storeEpoch: "epoch:story",
+    namespace: {
+      databaseId: databaseId as never,
+      currentPrefix: "TEST",
+      nextNumber: 25,
+      assignedPageCount: 24,
+      revision: 1,
+      retiredPrefixes: [{ prefix: "OLD", lastNumber: 12 }],
+    },
+  }),
+  renamePrefix: async () => undefined,
+};
+
 function Surface({ children }: { children: ReactNode }) {
   return (
-    <NodexTooltipProvider>
-      <div className="h-screen w-screen bg-token-main-surface-primary p-10 text-token-foreground">
-        {children}
-      </div>
-    </NodexTooltipProvider>
+    <QueryClientProvider client={storyQueryClient}>
+      <NodexTooltipProvider>
+        <div className="h-screen w-screen bg-token-main-surface-primary p-10 text-token-foreground">
+          {children}
+        </div>
+      </NodexTooltipProvider>
+    </QueryClientProvider>
   );
 }
 
@@ -119,6 +157,7 @@ export const CreateProject: Story = {
       <ProjectCreateDialog
         onClose={() => undefined}
         onCreate={async () => undefined}
+        pageKeyAuthority={STORY_PAGE_KEY_AUTHORITY}
       />
     </Surface>
   ),
@@ -128,6 +167,49 @@ export const CreateProject: Story = {
         story: "The direct add-project destination. Submitting the empty source-folder picker provisions a new Documents/Nodex workspace automatically.",
       },
     },
+  },
+  play: async () => {
+    fireEvent.change(getByRole(document.body, "textbox", { name: "Project name" }), {
+      target: { value: "Lab" },
+    });
+    await waitFor(() => {
+      if (getByRole(document.body, "button", { name: "Create project" }).hasAttribute("disabled")) {
+        throw new Error("Create prefix preview is still pending");
+      }
+    });
+  },
+};
+
+export const CreateProjectReservedPrefix: Story = {
+  render: () => (
+    <Surface>
+      <ProjectCreateDialog
+        onClose={() => undefined}
+        onCreate={async () => undefined}
+        pageKeyAuthority={{
+          ...STORY_PAGE_KEY_AUTHORITY,
+          previewPrefix: async (input) => input.requestedPrefix === "LAB"
+            ? {
+                prefix: "LAB",
+                availability: "reserved",
+                alternativePrefix: "LAB2",
+                nextNumber: 1,
+                exampleKeys: ["LAB-1", "LAB-2"],
+              }
+            : await STORY_PAGE_KEY_AUTHORITY.previewPrefix(input),
+        }}
+      />
+    </Surface>
+  ),
+  play: async () => {
+    fireEvent.change(getByRole(document.body, "textbox", { name: "Project name" }), {
+      target: { value: "Lab" },
+    });
+    fireEvent.click(getByRole(document.body, "button", { name: "Change" }));
+    fireEvent.change(getByRole(document.body, "textbox", { name: "Page key prefix" }), {
+      target: { value: "LAB" },
+    });
+    await waitFor(() => getByRole(document.body, "button", { name: "Use LAB2" }));
   },
 };
 
@@ -139,6 +221,7 @@ export const EditProject: Story = {
         onClose={() => undefined}
         onSubmit={async () => undefined}
         onArchiveProject={async () => ({ kind: "not-found" })}
+        pageKeyAuthority={STORY_PAGE_KEY_AUTHORITY}
       />
     </Surface>
   ),
@@ -148,6 +231,47 @@ export const EditProject: Story = {
         story: "Reference-parity edit surface with multiple source folders and all footer actions.",
       },
     },
+  },
+};
+
+export const EditProjectUsedPrefixRename: Story = {
+  render: () => (
+    <Surface>
+      <ProjectEditDialog
+        project={MULTI_ROOT_PROJECT}
+        onClose={() => undefined}
+        onSubmit={async () => undefined}
+        pageKeyAuthority={STORY_PAGE_KEY_AUTHORITY}
+      />
+    </Surface>
+  ),
+  play: async () => {
+    fireEvent.click(getByRole(document.body, "button", { name: "Change" }));
+    fireEvent.change(getByRole(document.body, "textbox", { name: "Page key prefix" }), {
+      target: { value: "RND" },
+    });
+    await waitFor(() => {
+      if (getByRole(document.body, "button", { name: "Save" }).hasAttribute("disabled")) {
+        throw new Error("Rename preview is still pending");
+      }
+    });
+  },
+};
+
+export const EditProjectPrefixHistory: Story = {
+  render: () => (
+    <Surface>
+      <ProjectEditDialog
+        project={ACTIVE_PROJECT}
+        onClose={() => undefined}
+        onSubmit={async () => undefined}
+        pageKeyAuthority={STORY_PAGE_KEY_AUTHORITY}
+      />
+    </Surface>
+  ),
+  play: async () => {
+    fireEvent.click(getByRole(document.body, "button", { name: "Change" }));
+    await waitFor(() => getByText(document.body, "Previous prefix · OLD"));
   },
 };
 

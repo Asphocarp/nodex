@@ -1141,6 +1141,7 @@ export interface components {
                 /** Format: int64 */
                 readonly metadata_revision: number;
                 readonly page_id: string;
+                readonly page_key?: string | null;
                 /** Format: int64 */
                 readonly parent_revision: number;
                 /** Format: int64 */
@@ -1364,6 +1365,7 @@ export interface components {
                 /** Format: int64 */
                 readonly order: number;
                 readonly page_id: string;
+                readonly page_key?: string | null;
                 readonly priority?: string | null;
                 readonly recurrence?: null | components["schemas"]["PageRecurrenceConfig"];
                 readonly reminders: readonly components["schemas"]["PageReminderConfig"][];
@@ -1450,7 +1452,7 @@ export interface components {
             readonly retryable: boolean;
         };
         /** @enum {string} */
-        readonly CoreErrorCode: "invalid_input" | "unauthorized" | "not_found" | "ambiguous" | "stale_store_epoch" | "revision_conflict" | "generation_conflict" | "head_conflict" | "patch_not_found" | "patch_ambiguous" | "patch_overlap" | "idempotency_key_reused" | "protected_owner_deletion" | "document_update_missing_dependencies" | "invalid_document_schema" | "materialization_stale" | "maintenance_in_progress" | "schema_unsupported" | "store_corrupt" | "protocol_incompatible" | "event_replay_unavailable" | "resource_exhausted" | "core_unavailable";
+        readonly CoreErrorCode: "invalid_input" | "unauthorized" | "not_found" | "ambiguous" | "conflict" | "stale_store_epoch" | "revision_conflict" | "generation_conflict" | "head_conflict" | "patch_not_found" | "patch_ambiguous" | "patch_overlap" | "idempotency_key_reused" | "protected_owner_deletion" | "document_update_missing_dependencies" | "invalid_document_schema" | "materialization_stale" | "maintenance_in_progress" | "schema_unsupported" | "store_corrupt" | "protocol_incompatible" | "event_replay_unavailable" | "resource_exhausted" | "core_unavailable";
         readonly CoreErrorRecovery: {
             /** @enum {string} */
             readonly kind: "none";
@@ -1703,6 +1705,13 @@ export interface components {
             readonly kind: "database";
         };
         readonly DatabaseIntent: {
+            readonly database_id: string;
+            /** Format: int64 */
+            readonly expected_revision: number;
+            /** @enum {string} */
+            readonly kind: "rename_page_key_prefix";
+            readonly prefix: string;
+        } | {
             readonly before_property_id?: string | null;
             readonly data_source_id: string;
             /** Format: int64 */
@@ -1959,6 +1968,27 @@ export interface components {
             readonly operation_index: number;
             readonly restored_page_ids: readonly string[];
         };
+        readonly DatabasePageKeyNamespace: {
+            /** Format: int64 */
+            readonly assigned_page_count: number;
+            readonly current_prefix: string;
+            readonly database_id: string;
+            /** Format: int64 */
+            readonly next_number: number;
+            readonly retired_prefixes: readonly components["schemas"]["DatabaseRetiredPageKeyPrefix"][];
+            /** Format: int64 */
+            readonly revision: number;
+        };
+        /** @enum {string} */
+        readonly DatabasePageKeyPrefixAvailability: "available" | "current" | "reserved";
+        readonly DatabasePageKeyPrefixPreview: {
+            readonly alternative_prefix?: string | null;
+            readonly availability: components["schemas"]["DatabasePageKeyPrefixAvailability"];
+            readonly example_keys: readonly string[];
+            /** Format: int64 */
+            readonly next_number: number;
+            readonly prefix: string;
+        };
         readonly DatabasePagePosition: {
             /** Format: int64 */
             readonly expected_position_revision: number;
@@ -2111,6 +2141,11 @@ export interface components {
             /** Format: int64 */
             readonly value_revision: number;
         };
+        readonly DatabaseRetiredPageKeyPrefix: {
+            /** Format: int64 */
+            readonly last_number: number;
+            readonly prefix: string;
+        };
         readonly DatabaseRowDetail: {
             readonly body_nfm: string;
             readonly summary: components["schemas"]["DatabaseRowSummary"];
@@ -2157,6 +2192,7 @@ export interface components {
             /** Format: int64 */
             readonly metadata_revision: number;
             readonly page_id: string;
+            readonly page_key?: string | null;
             /** Format: int64 */
             readonly parent_revision: number;
             /** Format: int64 */
@@ -2253,7 +2289,7 @@ export interface components {
             readonly kind: "property";
             readonly property_id: string;
         } | {
-            readonly field: string;
+            readonly field: components["schemas"]["DatabaseViewIntrinsicField"];
             /** @enum {string} */
             readonly kind: "intrinsic";
         };
@@ -2321,7 +2357,7 @@ export interface components {
             readonly show_sub_pages?: boolean | null;
         };
         /** @enum {string} */
-        readonly DatabaseViewIntrinsicField: "page_id" | "created_at" | "updated_at";
+        readonly DatabaseViewIntrinsicField: "page_key" | "created_at" | "updated_at";
         /** @enum {string} */
         readonly DatabaseViewLayout: "board" | "list";
         readonly DatabaseViewLayoutDisplay: {
@@ -2915,6 +2951,7 @@ export interface components {
             readonly etags?: null | components["schemas"]["LibraryAgentPageEtags"];
             readonly location: components["schemas"]["LibraryAgentPageLocation"];
             readonly page_id: string;
+            readonly page_key?: string | null;
         };
         readonly LibraryAgentCreatePageDraft: {
             readonly nfm: string;
@@ -2957,6 +2994,7 @@ export interface components {
         readonly LibraryAgentMovedPage: {
             readonly location: components["schemas"]["LibraryAgentPageLocation"];
             readonly page_id: string;
+            readonly page_key?: string | null;
         };
         readonly LibraryAgentMovePagePreparation: {
             readonly page_id: string;
@@ -3010,6 +3048,7 @@ export interface components {
             readonly etags?: null | components["schemas"]["LibraryAgentPageEtags"];
             readonly location: components["schemas"]["LibraryAgentPageLocation"];
             readonly page_id: string;
+            readonly page_key?: string | null;
             readonly source_page_id: string;
         };
         readonly LibraryAgentPageDestination: {
@@ -3048,6 +3087,12 @@ export interface components {
             readonly kind: "data_source";
         };
         readonly LibraryAgentPageSearchMatch: {
+            readonly is_current: boolean;
+            readonly page_key: string;
+            readonly quality: components["schemas"]["LibraryAgentSearchMatchQuality"];
+            /** @enum {string} */
+            readonly source: "page_key";
+        } | {
             readonly excerpt: string;
             readonly quality: components["schemas"]["LibraryAgentSearchMatchQuality"];
             /** @enum {string} */
@@ -3080,6 +3125,7 @@ export interface components {
             readonly kind: "page";
             readonly location: components["schemas"]["LibraryAgentPageLocation"];
             readonly matches: readonly components["schemas"]["LibraryAgentPageSearchMatch"][];
+            readonly page_key?: string | null;
             readonly title: string;
         } | {
             readonly block_type: string;
@@ -3242,6 +3288,14 @@ export interface components {
             };
             readonly page_etags: {
                 readonly [key: string]: string;
+            };
+            /**
+             * @description Current human-readable Page keys for result roots. A present `None`
+             *     value means the root is a Page that is not currently in a keyed
+             *     Database namespace.
+             */
+            readonly page_keys: {
+                readonly [key: string]: string | null;
             };
             readonly page_view_placements: {
                 readonly [key: string]: components["schemas"]["LibraryPageViewPlacementResult"];
@@ -3621,6 +3675,7 @@ export interface components {
                 readonly [key: string]: string;
             };
             readonly page_id: string;
+            readonly page_key?: string | null;
             readonly source_page_id: string;
             readonly title_etag: string;
         };
@@ -3644,6 +3699,7 @@ export interface components {
             readonly document_head_seq: number;
             readonly document_id: string;
             readonly page_id: string;
+            readonly page_key?: string | null;
             readonly title_etag: string;
         };
         readonly LibraryPageDataSourceContext: {
@@ -3655,6 +3711,7 @@ export interface components {
             /** @enum {string} */
             readonly kind: "member";
             readonly membership: components["schemas"]["LibraryPageMembership"];
+            readonly page_key?: string | null;
             readonly properties: readonly components["schemas"]["DatabasePropertyDescriptor"][];
             readonly values: {
                 readonly [key: string]: unknown;
@@ -3714,10 +3771,11 @@ export interface components {
             readonly document_id: string;
             readonly kind: components["schemas"]["LibraryPageFileKind"];
             readonly library_id: string;
-            readonly metadata?: null | components["schemas"]["PageMetaProjectionV1"];
+            readonly metadata?: null | components["schemas"]["PageMetaProjectionV2"];
             /** Format: int64 */
             readonly metadata_revision: number;
             readonly page_id: string;
+            readonly page_key?: string | null;
             readonly store_epoch: string;
             readonly validators: components["schemas"]["LibraryPageFileValidators"];
             /** Format: int32 */
@@ -3838,6 +3896,20 @@ export interface components {
             readonly revision: number;
             readonly value: unknown;
             readonly value_type: string;
+        };
+        readonly LibraryPageKeyTarget: {
+            /** @enum {string} */
+            readonly status: "not_found";
+        } | {
+            /** @enum {string} */
+            readonly status: "ambiguous";
+        } | {
+            readonly current_page_key?: string | null;
+            readonly is_current: boolean;
+            readonly matched_page_key: string;
+            readonly page_id: string;
+            /** @enum {string} */
+            readonly status: "resolved";
         };
         readonly LibraryPageLifecycleAuthority: {
             readonly document: components["schemas"]["LibraryPageLifecycleDocument"];
@@ -4167,7 +4239,10 @@ export interface components {
         };
         readonly LibraryProjectPageSearchHit: {
             readonly excerpt: string;
+            readonly matched_page_key?: string | null;
+            readonly matched_page_key_is_current?: boolean | null;
             readonly page_id: string;
+            readonly page_key?: string | null;
             readonly project_id: string;
             /** Format: int64 */
             readonly score: number;
@@ -4898,6 +4973,7 @@ export interface components {
                 /** @enum {string} */
                 readonly kind: "create_initial_project";
                 readonly name: string;
+                readonly page_key_prefix?: string | null;
                 readonly project_id: string;
                 readonly source_roots: readonly string[];
                 readonly starter_page: components["schemas"]["ProjectWorkspaceStarterPage"];
@@ -4907,6 +4983,7 @@ export interface components {
                 /** @enum {string} */
                 readonly kind: "create_project";
                 readonly name: string;
+                readonly page_key_prefix?: string | null;
                 readonly project_id: string;
                 readonly source_roots: readonly string[];
             } | {
@@ -5116,6 +5193,13 @@ export interface components {
             /** Format: int32 */
             readonly contract_version: number;
             readonly intent: readonly ({
+                readonly database_id: string;
+                /** Format: int64 */
+                readonly expected_revision: number;
+                /** @enum {string} */
+                readonly kind: "rename_page_key_prefix";
+                readonly prefix: string;
+            } | {
                 readonly before_property_id?: string | null;
                 readonly data_source_id: string;
                 /** Format: int64 */
@@ -5323,6 +5407,16 @@ export interface components {
                 readonly kind: "database";
                 readonly target: components["schemas"]["DatabaseIdentityTarget"];
             } | {
+                readonly database_id?: string | null;
+                /** @enum {string} */
+                readonly kind: "page_key_prefix_preview";
+                readonly name_hint: string;
+                readonly requested_prefix?: string | null;
+            } | {
+                readonly database_id: string;
+                /** @enum {string} */
+                readonly kind: "page_key_namespace";
+            } | {
                 readonly database_id: string;
                 /** @enum {string} */
                 readonly kind: "data_source_window";
@@ -5511,6 +5605,10 @@ export interface components {
                 /** @enum {string} */
                 readonly kind: "page_target";
                 readonly page_id: string;
+            } | {
+                /** @enum {string} */
+                readonly kind: "page_key_target";
+                readonly page_key: string;
             } | {
                 /** @enum {string} */
                 readonly kind: "page_ownership_path";
@@ -5842,8 +5940,9 @@ export interface components {
             readonly head_seq: number;
             readonly page_id: string;
         };
-        readonly PageMetaProjectionV1: {
+        readonly PageMetaProjectionV2: {
             readonly id: string;
+            readonly page_key?: string | null;
             readonly properties: readonly components["schemas"]["ProjectedPropertyV1"][];
             readonly schedule?: null | components["schemas"]["ProjectedScheduleV1"];
             readonly title_markdown: string;
@@ -6842,6 +6941,14 @@ export interface components {
                     readonly kind: "database";
                     readonly value: components["schemas"]["DatabaseDescriptor"];
                 } | {
+                    /** @enum {string} */
+                    readonly kind: "page_key_prefix_preview";
+                    readonly value: components["schemas"]["DatabasePageKeyPrefixPreview"];
+                } | {
+                    /** @enum {string} */
+                    readonly kind: "page_key_namespace";
+                    readonly value: components["schemas"]["DatabasePageKeyNamespace"];
+                } | {
                     readonly data_sources: components["schemas"]["CollectionWindow_DatabaseDataSourceRecord"];
                     /** @enum {string} */
                     readonly kind: "data_source_window";
@@ -7025,6 +7132,10 @@ export interface components {
                     /** @enum {string} */
                     readonly kind: "page_target";
                     readonly value?: null | components["schemas"]["LibraryPageTarget"];
+                } | {
+                    /** @enum {string} */
+                    readonly kind: "page_key_target";
+                    readonly value: components["schemas"]["LibraryPageKeyTarget"];
                 } | {
                     /** @enum {string} */
                     readonly kind: "page_ownership_path";

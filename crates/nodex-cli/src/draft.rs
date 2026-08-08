@@ -25,7 +25,7 @@ use crate::runtime::{
 };
 
 const DRAFT_SCHEMA_VERSION: u32 = 1;
-const METADATA_PROJECTION_VERSION: u32 = 1;
+const METADATA_PROJECTION_VERSION: u32 = 2;
 const MAX_MANIFEST_BYTES: usize = 128 * 1024;
 const MAX_APPLY_STATE_BYTES: usize =
     nodex_core_protocol::MAX_DOCUMENT_JSON_REQUEST_BYTES + 16 * 1024 * 1024;
@@ -119,8 +119,8 @@ struct DraftLayout {
 #[derive(Debug)]
 struct LoadedDraft {
     layout: DraftLayout,
-    base_metadata: crate::meta_yaml::PageMetaV1,
-    work_metadata: crate::meta_yaml::PageMetaV1,
+    base_metadata: crate::meta_yaml::PageMetaV2,
+    work_metadata: crate::meta_yaml::PageMetaV2,
     base_body: String,
     work_body: String,
 }
@@ -1370,7 +1370,7 @@ fn decode_body(bytes: &[u8], path: &Path) -> Result<String, CliError> {
     Ok(body)
 }
 
-fn normalized_metadata_hash(metadata: &crate::meta_yaml::PageMetaV1) -> Result<String, CliError> {
+fn normalized_metadata_hash(metadata: &crate::meta_yaml::PageMetaV2) -> Result<String, CliError> {
     serde_json::to_vec(metadata)
         .map(|bytes| digest(&bytes))
         .map_err(internal)
@@ -1677,7 +1677,7 @@ mod tests {
     fn draft_projection(body_etag: &str, body: &str) -> LibraryPageDraftProjection {
         LibraryPageDraftProjection {
             version: 1,
-            metadata_projection_version: 1,
+            metadata_projection_version: 2,
             library_id: "library-1".to_owned(),
             store_epoch: "epoch-1".to_owned(),
             commit_head: 1,
@@ -1704,7 +1704,7 @@ mod tests {
         let parsed = crate::meta_yaml::parse(metadata).expect("fixture metadata");
         let manifest = DraftManifest {
             schema_version: 1,
-            metadata_projection_version: 1,
+            metadata_projection_version: 2,
             draft_id: "11111111-1111-4111-8111-111111111111".to_owned(),
             profile_id: "profile-1".to_owned(),
             project_id: "project-1".to_owned(),

@@ -18,6 +18,7 @@ import type { DatabasePropertyOption } from "../../../shared/database-kernel";
 import { useCardPropertyPosition } from "./card-deps";
 import { useTheme } from "@/lib/use-theme";
 import { cn } from "@/lib/utils";
+import { BoardPageKey } from "./board-page-key";
 import { mergePageDraftOverlay, usePageDraftOverlay } from "../../lib/page-draft-store";
 import { usePresentedPageTitle } from "../../lib/page-title-projection-context";
 import { ChipPropertyEditor } from "./editor/chip-property-editor";
@@ -74,6 +75,7 @@ interface CardProps {
   card: CardType;
   columnId: string;
   displayPrefs?: DbViewDisplayPrefs;
+  showPageKey?: boolean;
   dragInstanceId?: symbol;
   dragDisabled?: boolean;
   dropDisabled?: boolean;
@@ -91,6 +93,7 @@ interface CardProps {
     currentProjectId: string;
     currentProjectName: string;
     onDelete: (input: { pageId: string; columnId: string }) => Promise<void> | void;
+    onCopyPageKey: (input: { pageKey: string }) => Promise<void> | void;
     onCopyLink: (input: { pageId: string; projectId: string }) => Promise<void> | void;
     onOpenPage?: (input: OpenPageInNewChatInput) => Promise<void> | void;
     onOpenPageInNewChat?: (input: OpenPageInNewChatInput) => Promise<void> | void;
@@ -104,6 +107,7 @@ interface CardBodyProps {
   columnId: string;
   tagOptions: readonly DatabasePropertyOption[];
   displayPrefs?: DbViewDisplayPrefs;
+  showPageKey: boolean;
   position: CardPropertyPosition;
   activeProperty: CardEditableProperty | null;
   onOpenPropertyEditor?: (
@@ -297,6 +301,7 @@ const CardBody = memo(function CardBody({
   columnId,
   tagOptions,
   displayPrefs,
+  showPageKey,
   position,
   activeProperty,
   onOpenPropertyEditor,
@@ -308,23 +313,14 @@ const CardBody = memo(function CardBody({
 
   return (
     <>
-      {propertiesAtTop ? (
-        <CardPropertyBadges
-          card={card}
-          columnId={columnId}
-          tagOptions={tagOptions}
-          displayPrefs={displayPrefs}
-          layout="stacked"
-          className="mx-1.5 pt-2 pb-1"
-          activeProperty={activeProperty}
-          onOpenPropertyEditor={onOpenPropertyEditor}
-          onChipPointerDown={onChipPointerDown}
+      <div className="px-2 pb-1 pt-2">
+        <BoardPageKey
+          pageKey={card.pageKey}
+          showPageKey={showPageKey}
+          className="mb-0.5"
         />
-      ) : null}
-
-      <div className={cn("px-2 pb-1", propertiesAtTop ? "pt-0" : "pt-2")}>
-        {propertiesInline ? (
-          <h3 className="text-base/normal font-medium wrap-break-word text-(--foreground)">
+        <h3 className="text-base/normal font-medium wrap-break-word text-(--foreground)">
+          {propertiesInline ? (
             <CardPropertyBadges
               card={card}
               columnId={columnId}
@@ -335,14 +331,24 @@ const CardBody = memo(function CardBody({
               onOpenPropertyEditor={onOpenPropertyEditor}
               onChipPointerDown={onChipPointerDown}
             />
-            <span className="align-middle">{card.title}</span>
-          </h3>
-        ) : (
-          <h3 className="text-base/normal font-medium wrap-break-word text-(--foreground)">
-            {card.title}
-          </h3>
-        )}
+          ) : null}
+          <span>{card.title}</span>
+        </h3>
       </div>
+
+      {propertiesAtTop ? (
+        <CardPropertyBadges
+          card={card}
+          columnId={columnId}
+          tagOptions={tagOptions}
+          displayPrefs={displayPrefs}
+          layout="stacked"
+          className="mx-1.5 pb-1"
+          activeProperty={activeProperty}
+          onOpenPropertyEditor={onOpenPropertyEditor}
+          onChipPointerDown={onChipPointerDown}
+        />
+      ) : null}
 
       {plainDescription ? (
         <p className="line-clamp-2 px-2 pb-1 text-xs/normal wrap-break-word text-(--foreground-secondary)">
@@ -378,6 +384,7 @@ const ResolvedCardBody = memo(function ResolvedCardBody({
   columnId,
   tagOptions,
   displayPrefs,
+  showPageKey,
   position,
   activeProperty,
   onOpenPropertyEditor,
@@ -405,6 +412,7 @@ const ResolvedCardBody = memo(function ResolvedCardBody({
       columnId={columnId}
       tagOptions={tagOptions}
       displayPrefs={displayPrefs}
+      showPageKey={showPageKey}
       position={position}
       activeProperty={activeProperty}
       onOpenPropertyEditor={onOpenPropertyEditor}
@@ -419,6 +427,7 @@ interface CardSurfaceProps extends React.HTMLAttributes<HTMLDivElement> {
   columnId: string;
   tagOptions: readonly DatabasePropertyOption[];
   displayPrefs?: DbViewDisplayPrefs;
+  showPageKey: boolean;
   showStaticDragGhost?: boolean;
   fixedWidth?: number;
   fixedHeight?: number;
@@ -442,6 +451,7 @@ const CardSurface = forwardRef<HTMLDivElement, CardSurfaceProps>(function CardSu
   columnId,
   tagOptions,
   displayPrefs,
+  showPageKey,
   showStaticDragGhost = false,
   fixedWidth,
   fixedHeight,
@@ -509,6 +519,7 @@ const CardSurface = forwardRef<HTMLDivElement, CardSurfaceProps>(function CardSu
         columnId={columnId}
         tagOptions={tagOptions}
         displayPrefs={displayPrefs}
+        showPageKey={showPageKey}
         position={position}
         activeProperty={activeProperty}
         onOpenPropertyEditor={onOpenPropertyEditor}
@@ -523,11 +534,12 @@ export function CardPreview({
   card,
   columnId,
   displayPrefs,
+  showPageKey = false,
   isSelected = false,
   fixedWidth,
   fixedHeight,
   tagOptions = [],
-}: Pick<CardProps, "projectId" | "card" | "columnId" | "displayPrefs" | "isSelected" | "tagOptions"> & {
+}: Pick<CardProps, "projectId" | "card" | "columnId" | "displayPrefs" | "showPageKey" | "isSelected" | "tagOptions"> & {
   fixedWidth?: number;
   fixedHeight?: number;
 }) {
@@ -540,6 +552,7 @@ export function CardPreview({
       columnId={columnId}
       tagOptions={tagOptions}
       displayPrefs={displayPrefs}
+      showPageKey={showPageKey}
       isSelected={isSelected}
       fixedWidth={fixedWidth}
       fixedHeight={fixedHeight}
@@ -554,6 +567,7 @@ export function Card({
   card,
   columnId,
   displayPrefs,
+  showPageKey = false,
   dragInstanceId,
   dragDisabled = false,
   dropDisabled = false,
@@ -776,6 +790,7 @@ export function Card({
       columnId={columnId}
       tagOptions={tagOptions}
       displayPrefs={displayPrefs}
+      showPageKey={showPageKey}
       className="bn-drag-exclude"
       showStaticDragGhost={showStaticDragGhost}
       isDragging={isDragging}
@@ -802,6 +817,7 @@ export function Card({
           currentProjectId={contextMenu.currentProjectId}
           currentProjectName={contextMenu.currentProjectName}
           onDelete={contextMenu.onDelete}
+          onCopyPageKey={contextMenu.onCopyPageKey}
           onCopyLink={contextMenu.onCopyLink}
           onOpenPage={contextMenu.onOpenPage}
           onOpenPageInNewChat={contextMenu.onOpenPageInNewChat}
@@ -827,6 +843,7 @@ export function Card({
                 columnId={columnId}
                 tagOptions={tagOptions}
                 displayPrefs={displayPrefs}
+                showPageKey={showPageKey}
                 isSelected={dragState.itemCount > 1}
                 fixedWidth={dragState.rect.width}
                 fixedHeight={dragState.rect.height}

@@ -19,6 +19,29 @@ mint a new scope or keep a released lease alive.
 
 Canonical Library navigation/Page, Database View/row, Page Detail, and owned-Document descriptor reads carry a Core-authored `AuthorizedReadStamp`. Its subject, request dependencies, dynamic authorization dependencies, address/scope, Store epoch, covered commit, and canonical hash come from the same SQLite read snapshot. Inherited authorization stamps the complete grant-to-subject ownership path. A proof union beyond the contract bound is replaced by the scope's Library/Project aggregate root, which the visibility journal invalidates on every exact change for that scope; journal compilation overflow still uses `ConservativeReset`. Adapters may transport the stamp but cannot add roots or raise its floor. Renderer caches verify it and reject a response below any observed address or matching root floor. Exact revocation therefore cannot be defeated by a late response, an inferred ancestor path, or a cache entry created before its dynamic roots were known. Root, registration, address, and in-flight bounds fail closed; none use drop-oldest eviction.
 
+## Page-key lookup
+
+Page keys are short and guessable, so they are locators rather than secrets or
+capabilities. Core may parse and index-resolve a complete current or historical
+key before broad search, but it must evaluate the caller's current
+Project/Library/Database grant and lifecycle scope before returning Page ID,
+title, current key, matched alias, Database identity, or any other metadata.
+Project-bound CLI and Agent callers cannot use a Library-wide prefix hit to
+cross their selected authority. External missing and unauthorized results share
+the existing non-enumerating error boundary.
+
+Prefix creation and rename validate canonical ASCII grammar and Library-wide
+current/retained uniqueness inside the Core transaction. Renderer suggestions,
+display settings, copied text, and caller-provided Project names cannot reserve
+or allocate a key. `pageKey`, matched aliases, and namespace revisions are
+untrusted input at Adapter boundaries; mutation authority is always canonical
+Page UUID plus the existing ETag, ownership, grant, and exact-Turn evidence.
+
+Page keys may appear in local diagnostics as bounded structured identifiers,
+but they must not replace UUIDs in audit/receipt identity or be joined with
+otherwise inaccessible Page metadata. Ordinary telemetry and remote diagnostics
+follow the same content-redaction policy as Page titles and search queries.
+
 ## Threat Model
 Nodex is local-first. Main risks are malformed local inputs, accidental data loss, renderer capability abuse, and unsafe command/file-change approvals during Codex thread execution.
 
@@ -328,7 +351,7 @@ Nodex is local-first. Main risks are malformed local inputs, accidental data los
 - Nodex does not import Claude.ai or Claude Code subscription tokens and does not offer third-party Claude OAuth. Claude support uses an Anthropic API key or an explicitly configured OpenRouter key; OpenAI authentication remains runtime-managed. Provider/model/harness/reasoning metadata is non-secret and durable, but an existing task cannot change provider or harness in place.
 - External-agent import is an explicit trusted-renderer workflow backed by expiring opaque scan ids. Source homes are canonicalized and read-only; the writable Agent home cannot be selected as its own source. Session content is hashed before and immediately before import, then app-server `thread/fork(path)` creates the target Thread. Native file copies never replace a target, reject symlinks, stage directory trees before rename, and do not copy SQLite/WAL/SHM files. Config translation allowlists passive settings, removes literal MCP environment/header/token material, and omits provider, authentication, approval, and sandbox state. Imported provider and connection credentials must be reauthorized through Nodex's main-owned credential boundary.
 - `nodex_app` reads and writes derive an exact-Turn authority snapshot from the verified launched task; model arguments and renderer responses cannot select another Project, Library, store epoch, Turn, or catalog revision. Ordinary snapshots use Project binding/grants. Main persists the selected Nodex preset separately from raw Codex config and requires both to agree before the built-in Full access preset records `:danger-full-access` provenance and receives temporary same-Library scope; Custom settings with equivalent raw sandbox values do not upgrade a Turn. Missing historical provenance falls back to Project scope, while stale or inconsistent recorded provenance fails closed.
-- Every `nodex_app@5` write performs mutation-free canonical preflight before any required consent, then re-resolves the exact `(thread, turn, root thread, actor Project, Library, Profile, store epoch)` authority. Execution proceeds only when the fresh effect class, target resources, deletions, and ownership transformations equal the approved footprint. Primary-Database and `read_write`-grant operations, including destructive writes, execute without a renderer card. Full-access Library scope also auto-approves. Neither path bypasses ETag/CAS guards, schema revisions, lifecycle checks, footprint equality, or transaction validation.
+- Every `nodex_app@6` write performs mutation-free canonical preflight before any required consent, then re-resolves the exact `(thread, turn, root thread, actor Project, Library, Profile, store epoch)` authority. Execution proceeds only when the fresh effect class, target resources, deletions, and ownership transformations equal the approved footprint. Primary-Database and `read_write`-grant operations, including destructive writes, execute without a renderer card. Full-access Library scope also auto-approves. Neither path bypasses ETag/CAS guards, schema revisions, lifecycle checks, footprint equality, or transaction validation.
 - Native Core prepared operations expose no additional private route: prepare
   and execute are typed intents in the owning Module `read/apply` pair. Only an
   Electron-host connection (or the isolated test role) may submit the exact
@@ -379,7 +402,7 @@ Nodex is local-first. Main risks are malformed local inputs, accidental data los
 ## Current Gaps
 - No role-based access control model (single-user/local trust assumption).
 - Security logging/auditing is still local-first and not audit-grade. Backend logs redact common secret-bearing fields (for example authorization headers, tokens, API keys, passwords, cookies, and session values) before writing JSON-line log records; optional Sentry crash diagnostics are for failure triage, not an audit trail.
-- `full-access` is intentionally high authority: it removes Nodex approval prompts for the exact Turn and permits every read/write/destructive action currently exposed by `nodex_app@5` across the current Library, in addition to unrestricted Codex filesystem and network access.
+- `full-access` is intentionally high authority: it removes Nodex approval prompts for the exact Turn and permits every read/write/destructive action currently exposed by `nodex_app@6` across the current Library, in addition to unrestricted Codex filesystem and network access.
 - Workspace-write sandbox roots are derived from user-configured project sources. Additional allow-listing beyond those local source roots remains future hardening work.
 - A compromised trusted top-level renderer can request exact local file reads through the workspace-file bridge. Webviews, subframes, and unowned renderer contents are rejected, but process-level renderer isolation is still the confidentiality boundary for these reads.
 - Dynamic-tool receipts are an idempotency and recovery ledger, not an audit-grade record of human intent. They intentionally exclude raw Nested Markdown/body content; the authorization preview is not retained as a second document history.

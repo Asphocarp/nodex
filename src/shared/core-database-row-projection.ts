@@ -25,6 +25,7 @@ export const projectCoreDatabaseQueryRow = (
     input.properties.map((property) => [property.propertyId, property] as const),
   );
   return {
+    pageKey: row.page_key ?? null,
     page: {
       pageId: row.page_id,
       libraryId: input.libraryId,

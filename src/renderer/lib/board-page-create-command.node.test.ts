@@ -36,6 +36,7 @@ import { createBoardPage } from "./board-page-create-command";
 
 const page: DatabasePage = {
   id: "0198a4f1-b850-7000-8000-000000000001",
+  pageKey: null,
   status: "plan",
   archived: false,
   title: "Created Page",

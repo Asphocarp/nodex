@@ -9,9 +9,9 @@ import type {
 } from "../../shared/content-access-context";
 import {
   isCursorRejectionCode,
-  type CoreReadError,
-  type CoreReadResult,
-} from "../../shared/core-read-result";
+  type CoreErrorDetail,
+  type CoreResult,
+} from "../../shared/core-result";
 import type {
   DatabaseListWindowInput,
   DatabaseListWindowSnapshot,
@@ -378,7 +378,7 @@ export function listPageHistory(
  * with `isCursorRejection`, never by matching message text.
  */
 export class CoreApiError extends Error {
-  constructor(readonly detail: CoreReadError) {
+  constructor(readonly detail: CoreErrorDetail) {
     super(detail.message);
     this.name = "CoreApiError";
   }
@@ -391,29 +391,33 @@ export class CoreApiError extends Error {
     return this.detail.retryable;
   }
 
+  get recovery(): CoreErrorDetail["recovery"] {
+    return this.detail.recovery;
+  }
+
   isCursorRejection(options: { readonly requestHadCursor: boolean }): boolean {
     return isCursorRejectionCode(this.detail.code, options);
   }
 }
 
-type CoreReadChannel = {
-  [Channel in keyof IpcApi]: IpcApi[Channel]["result"] extends CoreReadResult<unknown>
+type CoreResultChannel = {
+  [Channel in keyof IpcApi]: IpcApi[Channel]["result"] extends CoreResult<unknown>
     ? Channel
     : never;
 }[keyof IpcApi];
 
-type CoreReadChannelValue<Channel extends CoreReadChannel> =
-  IpcApi[Channel]["result"] extends CoreReadResult<infer Value> ? Value : never;
+type CoreResultChannelValue<Channel extends CoreResultChannel> =
+  IpcApi[Channel]["result"] extends CoreResult<infer Value> ? Value : never;
 
 /** Invokes a Core-backed read channel and unwraps its typed error envelope. */
-export async function invokeCoreRead<Channel extends CoreReadChannel>(
+export async function invokeCoreResult<Channel extends CoreResultChannel>(
   channel: Channel,
   ...args: IpcApi[Channel]["args"]
-): Promise<CoreReadChannelValue<Channel>> {
+): Promise<CoreResultChannelValue<Channel>> {
   const result = (await invoke(
     channel,
     ...args,
-  )) as CoreReadResult<CoreReadChannelValue<Channel>>;
+  )) as CoreResult<CoreResultChannelValue<Channel>>;
   if (result.ok) return result.value;
   throw new CoreApiError(result.error);
 }
@@ -422,21 +426,21 @@ export function readDatabaseViewWindow(
   projectId: string,
   input: DatabaseViewWindowInput,
 ): Promise<DatabaseViewWindowSnapshot> {
-  return invokeCoreRead("database:view-window:get", projectId, input);
+  return invokeCoreResult("database:view-window:get", projectId, input);
 }
 
 export function readDatabaseListWindow(
   projectId: string,
   input: DatabaseListWindowInput,
 ): Promise<DatabaseListWindowSnapshot> {
-  return invokeCoreRead("database:list-window:get", projectId, input);
+  return invokeCoreResult("database:list-window:get", projectId, input);
 }
 
 export function readDatabaseViewGroups(
   projectId: string,
   input: DatabaseViewGroupsInput,
 ): Promise<DatabaseViewGroupsSnapshot> {
-  return invokeCoreRead("database:view-groups:get", projectId, input);
+  return invokeCoreResult("database:view-groups:get", projectId, input);
 }
 
 export function readLibraryDatabaseViewWindow(
@@ -445,7 +449,7 @@ export function readLibraryDatabaseViewWindow(
     | { readonly databaseId: string }
   ),
 ): Promise<LibraryDatabaseViewWindowSnapshot> {
-  return invokeCoreRead("library-database:view-window:get", input);
+  return invokeCoreResult("library-database:view-window:get", input);
 }
 
 export function readLibraryDatabaseListWindow(
@@ -454,7 +458,7 @@ export function readLibraryDatabaseListWindow(
     | { readonly databaseId: string }
   ),
 ): Promise<LibraryDatabaseListWindowSnapshot> {
-  return invokeCoreRead("library-database:list-window:get", input);
+  return invokeCoreResult("library-database:list-window:get", input);
 }
 
 export function readLibraryDatabaseViewGroups(
@@ -463,7 +467,7 @@ export function readLibraryDatabaseViewGroups(
     | { readonly databaseId: string }
   ),
 ): Promise<LibraryDatabaseViewGroupsSnapshot> {
-  return invokeCoreRead("library-database:view-groups:get", input);
+  return invokeCoreResult("library-database:view-groups:get", input);
 }
 
 export function readDatabaseModule(

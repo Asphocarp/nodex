@@ -38,7 +38,7 @@ const openStandaloneTasksDatabase = async (
 ) => {
   await settleAsyncRender();
   await settleAsyncRender();
-  const row = screen.getAllByText("Tasks")
+  const row = (await screen.findAllByText("Tasks"))
     .map((element) => element.closest('[role="listitem"]'))
     .find((element): element is HTMLElement => element instanceof HTMLElement);
   if (!(row instanceof HTMLElement)) {
@@ -231,7 +231,7 @@ describe("workbench session shell / routes-threads", () => {
     });
     await openStandaloneTasksDatabase(screen);
 
-    const notesRow = screen.getByText("Notes").closest('[role="listitem"]');
+    const notesRow = (await screen.findByText("Notes")).closest('[role="listitem"]');
     if (!(notesRow instanceof HTMLElement)) throw new Error("Expected Notes row");
     await act(async () => {
       fireEvent.click(notesRow);

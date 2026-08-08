@@ -208,9 +208,21 @@ function PanelDestinationResultRow({
       <span className="flex h-[18px] w-[22px] shrink-0 items-center justify-center text-token-description-foreground">
         <PanelDestinationRowIcon row={row} />
       </span>
-      <span className="min-w-0 flex-1 truncate">
-        {getPanelDestinationRowLabel(row)}
+      <span className="flex min-w-0 flex-1 items-baseline gap-2">
+        {row.kind === "page" && row.pageKey ? (
+          <span className="shrink-0 text-[12px] font-medium tabular-nums text-token-description-foreground">
+            {row.pageKey}
+          </span>
+        ) : null}
+        <span className="min-w-0 truncate">{getPanelDestinationRowLabel(row)}</span>
       </span>
+      {row.kind === "page"
+        && row.matchedPageKey
+        && row.matchedPageKeyIsCurrent === false ? (
+          <span className="ml-1 max-w-[128px] shrink truncate text-[11px] tabular-nums text-token-description-foreground">
+            Matched {row.matchedPageKey}
+          </span>
+        ) : null}
       {metadata ? (
         <span className="ml-1 max-w-[128px] shrink truncate text-[12px] leading-4 text-token-description-foreground">
           {metadata}

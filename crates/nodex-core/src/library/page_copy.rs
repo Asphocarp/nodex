@@ -10,7 +10,8 @@ use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::database::{
     PageCopyDataSourceDestination, PageCopyPositionAnchor, PageCopyValueDraft,
-    PageCopyViewPlacement, copy_relation_edges, place_copied_page_in_data_source,
+    PageCopyViewPlacement, copy_relation_edges, current_page_key_for_page,
+    ensure_database_page_key, place_copied_page_in_data_source,
     place_copied_page_in_data_source_prevalidated, synchronize_membership_completion_timestamp,
     validate_page_copy_data_source_destination,
     validate_page_copy_data_source_destination_prevalidated,
@@ -638,6 +639,7 @@ pub(super) fn execute_page_copy(
         committed_revisions,
         result: LibraryPageCopyResult {
             source_page_id: source_page_id.to_owned(),
+            page_key: current_page_key_for_page(connection, library_id, &target_page_id)?,
             page_id: target_page_id,
             document_id: target_document_id,
             block_ids: plan.block_ids,
@@ -777,6 +779,13 @@ pub(crate) fn clone_page_for_occurrence(
             input.new_page_id,
             input.now
         ],
+    )?;
+    ensure_database_page_key(
+        connection,
+        library_id,
+        &source.database_id,
+        input.new_page_id,
+        input.now,
     )?;
 
     let database_values = connection
@@ -3542,7 +3551,7 @@ mod tests {
                 ),
             )
             .expect_err("reject stale Page copy");
-        assert_eq!(stale.code, CoreErrorCode::RevisionConflict);
+        assert_eq!(stale.code, CoreErrorCode::HeadConflict);
 
         let roots = module
             .read(

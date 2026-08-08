@@ -12,7 +12,7 @@ describe("nodex_app@5 contracts", () => {
     expect(Object.keys(NODEX_AGENT_V5_TOOL_CONTRACTS)).toEqual(
       NODEX_APP_V5_TOOLS,
     );
-    expect(NODEX_APP_TOOLSET_REVISION).toBe(5);
+    expect(NODEX_APP_TOOLSET_REVISION).toBe(6);
   });
 
   test("accepts compact and reserved Property identities at write boundaries", () => {

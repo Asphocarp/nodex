@@ -458,11 +458,16 @@ export function CodexProjectActionsMenu({
           openEditAfterMenuCloseRef.current = false;
           event.preventDefault();
           void waitForProjectCatalogUpdates(project).then((editableProject) => {
+            let expectedBindingRevision = editableProject.bindingRevision;
             openModal(appHandle, ProjectEditDialog, {
               project: editableProject,
-              onSubmit: async ({ appearance, name, sources }) => {
+              onSubmit: async ({
+                appearance,
+                name,
+                sources,
+              }) => {
                 const updated = await onUpdateProject(editableProject.id, {
-                  expectedBindingRevision: editableProject.bindingRevision,
+                  expectedBindingRevision,
                   appearance,
                   name: name.trim() || editableProject.name,
                   sources,
@@ -470,6 +475,7 @@ export function CodexProjectActionsMenu({
                 if (!updated) {
                   throw new Error(`Project ${editableProject.id} not found`);
                 }
+                expectedBindingRevision = updated.bindingRevision;
               },
               onArchiveProject,
             });
@@ -676,18 +682,24 @@ function CodexProjectHoverCardContent({
       ...settledProject,
       appearance: settledProject.appearance,
     };
+    let expectedBindingRevision = editableProject.bindingRevision;
     onRequestClose();
     queueMicrotask(() => {
       openModal(appHandle, ProjectEditDialog, {
         project: editableProject,
-        onSubmit: async ({ appearance: nextAppearance, name, sources }) => {
+        onSubmit: async ({
+          appearance: nextAppearance,
+          name,
+          sources,
+        }) => {
           const updated = await onUpdateProject(project.id, {
-            expectedBindingRevision: editableProject.bindingRevision,
+            expectedBindingRevision,
             appearance: nextAppearance,
             name: name.trim() || editableProject.name,
             sources,
           });
           if (!updated) throw new Error(`Project ${project.id} not found`);
+          expectedBindingRevision = updated.bindingRevision;
         },
         onArchiveProject,
       });

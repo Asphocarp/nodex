@@ -259,6 +259,7 @@ function makePage(overrides: Partial<DatabasePageSummary> = {}): DatabasePageSum
   const title = overrides.title ?? "Misc task";
   return {
     id: overrides.id ?? "page-1",
+    pageKey: overrides.pageKey ?? null,
     title,
     richTitle: overrides.richTitle ?? plainTextToPortableRichText(title),
     descriptionPreview,
@@ -593,6 +594,9 @@ describe("CommandPaletteSurface", () => {
           results: [{
             projectId: "default",
             pageId: "body-only-page",
+            pageKey: null,
+            matchedPageKey: null,
+            matchedPageKeyIsCurrent: null,
             title: "Body-only page",
             status: "build",
             score: -1,

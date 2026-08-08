@@ -109,7 +109,7 @@ const fromCoreViewField = (
   ? { kind: "property", propertyId: field.property_id }
   : {
       kind: "intrinsic",
-      field: field.field as "page_id" | "created_at" | "updated_at",
+      field: field.field,
     };
 
 export const fromCoreDatabaseViewPresentationOverride = (

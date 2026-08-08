@@ -37,8 +37,14 @@ export const emptyDatabaseViewConfig = (): DatabaseViewConfigV4 => ({
     completion: { range: "all", orderByRecency: false },
     hierarchy: { showSubPages: true, nestedSubPages: false },
     layouts: {
-      board: { fields: [], showEmptyGroups: false },
-      list: { fields: [], showEmptyGroups: false },
+      board: {
+        fields: [],
+        showEmptyGroups: false,
+      },
+      list: {
+        fields: [{ kind: "intrinsic", field: "page_key" }],
+        showEmptyGroups: false,
+      },
     },
   },
 });

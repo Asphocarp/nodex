@@ -8,6 +8,7 @@ import type { PageStagePropertyControls } from "./use-page-stage-properties";
 
 const page = {
   id: "nested-page",
+  pageKey: null,
   archived: false,
   title: "Nested Page",
   richTitle: [],

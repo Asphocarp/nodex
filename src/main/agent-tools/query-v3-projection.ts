@@ -65,6 +65,7 @@ export const projectNodexAgentQueryV3Data = (
     } : {}),
     rows: query.rows.map((row) => ({
       pageId: row.page.pageId,
+      pageKey: row.pageKey,
       title: row.page.title,
       values: Object.fromEntries(Object.entries(row.values)
         .filter(([propertyId]) => selected.has(propertyId))

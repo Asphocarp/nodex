@@ -224,6 +224,13 @@ function resultCountSuffix(count: number | null, noun: string): string {
   return count === null ? "" : ` · ${plural(count, noun)}`;
 }
 
+function pageKeySuffix(keys: readonly string[]): string {
+  if (keys.length === 0) return "";
+  const visible = keys.slice(0, 2).join(", ");
+  const remaining = keys.length - Math.min(keys.length, 2);
+  return ` · ${visible}${remaining > 0 ? ` +${remaining}` : ""}`;
+}
+
 function resolveGetContext(call: CodexDynamicToolCallView): NodexDynamicToolCallPresentation {
   const include = asRecord(asRecord(call.arguments)?.include);
   const contextParts = [
@@ -271,13 +278,17 @@ function resolveSearch(call: CodexDynamicToolCallView): NodexDynamicToolCallPres
   const data = outputData(call);
   const results = asArray(data?.results);
   const count = call.completed && data ? results.length : null;
+  const pageKeys = results.flatMap((result) => {
+    const pageKey = stringValue(asRecord(result), "pageKey");
+    return pageKey ? [pageKey] : [];
+  });
   const subject = query ? `${target} for ${quoted(query)}` : target;
   return {
     label: `${phaseLabel(call, {
       active: `Searching ${subject}`,
       completed: `Searched ${subject}`,
       failed: `Failed to search ${subject}`,
-    })}${resultCountSuffix(count, "result")}`,
+    })}${resultCountSuffix(count, "result")}${pageKeySuffix(pageKeys)}`,
     icon: "search",
     markdownChange: null,
   };
@@ -430,10 +441,11 @@ function resolveFetch(call: CodexDynamicToolCallView): NodexDynamicToolCallPrese
   const data = outputData(call);
   const resource = asRecord(data?.resource);
   const title = stringValue(asRecord(resource?.title), "markdown");
+  const pageKey = stringValue(resource, "pageKey");
   const id = stringValue(args, "id");
   const format = stringValue(args, "format") ?? "markdown";
   const target = title
-    ? quoted(inlineMarkdownLabel(title))
+    ? `${pageKey ? `${pageKey} · ` : ""}${quoted(inlineMarkdownLabel(title))}`
     : id
       ? quoted(id)
       : "item";
@@ -492,6 +504,10 @@ function resolveCreatePages(call: CodexDynamicToolCallView): NodexDynamicToolCal
     ? quoted(titles[0])
     : `${plural(count, "page")}${titles.length > 0 ? `: ${compactTitleList(titles)}` : ""}`;
   const outputPages = asArray(outputData(call)?.pages);
+  const pageKeys = outputPages.flatMap((page) => {
+    const pageKey = stringValue(asRecord(page), "pageKey");
+    return pageKey ? [pageKey] : [];
+  });
   const bodyBlockCount = call.completed && outputPages.length > 0
     ? outputPages.reduce<number>((total, page) =>
       total + (numberValue(asRecord(page), "bodyBlocksCreated") ?? 0), 0)
@@ -502,7 +518,7 @@ function resolveCreatePages(call: CodexDynamicToolCallView): NodexDynamicToolCal
       active: `Creating ${subject}`,
       completed: `Created ${subject}`,
       failed: `Failed to create ${subject}`,
-    })}${destination ? ` in ${destination}` : ""}${resultCountSuffix(bodyBlockCount, "body block")}`,
+    })}${destination ? ` in ${destination}` : ""}${resultCountSuffix(bodyBlockCount, "body block")}${pageKeySuffix(pageKeys)}`,
     icon: "write",
     markdownChange: null,
   };
@@ -561,12 +577,16 @@ function resolveMovePages(call: CodexDynamicToolCallView): NodexDynamicToolCallP
   const count = asArray(args?.pageIds).length;
   const destination = pageDestinationLabel(args?.destination);
   const subject = plural(count, "page");
+  const pageKeys = asArray(outputData(call)?.pages).flatMap((page) => {
+    const pageKey = stringValue(asRecord(page), "pageKey");
+    return pageKey ? [pageKey] : [];
+  });
   return {
     label: `${phaseLabel(call, {
       active: `Moving ${subject}`,
       completed: `Moved ${subject}`,
       failed: `Failed to move ${subject}`,
-    })}${destination ? ` to ${destination}` : ""}`,
+    })}${destination ? ` to ${destination}` : ""}${pageKeySuffix(pageKeys)}`,
     icon: "transfer",
     markdownChange: null,
   };
@@ -575,9 +595,15 @@ function resolveMovePages(call: CodexDynamicToolCallView): NodexDynamicToolCallP
 function resolveDuplicatePage(call: CodexDynamicToolCallView): NodexDynamicToolCallPresentation {
   const args = asRecord(call.arguments);
   const sourceId = stringValue(args, "pageId");
-  const resultId = stringValue(outputData(call), "pageId");
+  const resultData = outputData(call);
+  const resultId = stringValue(resultData, "pageId");
+  const resultPageKey = stringValue(resultData, "pageKey");
   const source = sourceId ? `page ${quoted(sourceId)}` : "page";
-  const result = resultId ? ` → ${quoted(resultId)}` : "";
+  const result = resultPageKey
+    ? ` → ${resultPageKey}`
+    : resultId
+      ? ` → ${quoted(resultId)}`
+      : "";
   const destination = pageDestinationLabel(args?.destination);
   return {
     label: `${phaseLabel(call, {

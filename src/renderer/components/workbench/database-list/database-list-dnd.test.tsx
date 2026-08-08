@@ -18,6 +18,7 @@ const page = (input: {
   readonly pageId: string;
   readonly top: number;
   readonly hasChildren?: boolean;
+  readonly pageKey?: string | null;
   readonly priority?: DatabaseListPageRow["row"]["priority"];
   readonly status?: DatabaseListPageRow["row"]["status"];
 }): DatabaseListPageRow => ({
@@ -26,6 +27,7 @@ const page = (input: {
   pageId: input.pageId,
   row: {
     pageId: input.pageId,
+    pageKey: input.pageKey ?? null,
     groupKey: "build",
     subgroupKey: null,
     title: input.pageId,
@@ -89,6 +91,7 @@ describe("Database List dnd-kit controller", () => {
     const source = page({
       key: "source",
       pageId: "page-019ff012-abcd",
+      pageKey: "LAB-13",
       top: 0,
       priority: "p1-high",
       status: "build",
@@ -144,7 +147,7 @@ describe("Database List dnd-kit controller", () => {
       expect(overlay?.querySelector("[data-list-drag-overlay-column=priority]"))
         .not.toBeNull();
       expect(overlay?.querySelector("[data-list-drag-overlay-column=identifier]")
-        ?.textContent).toBe("019FF01");
+        ?.textContent).toBe("LAB-13");
       expect(overlay?.querySelector("[data-list-drag-overlay-column=status]"))
         .not.toBeNull();
       expect(sourceElement.getAttribute("data-active")).toBe("true");

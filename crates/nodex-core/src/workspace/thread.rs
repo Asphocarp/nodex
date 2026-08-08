@@ -2759,7 +2759,7 @@ mod tests {
                 ),
             )
             .expect_err("linked Thread cannot leave its Session Project");
-        assert_eq!(mismatched_move.code, CoreErrorCode::RevisionConflict);
+        assert_eq!(mismatched_move.code, CoreErrorCode::Conflict);
 
         module
             .apply(
@@ -2877,7 +2877,7 @@ mod tests {
                 ),
             )
             .expect_err("metadata upsert cannot clear Project ownership");
-        assert_eq!(project_to_projectless.code, CoreErrorCode::RevisionConflict);
+        assert_eq!(project_to_projectless.code, CoreErrorCode::Conflict);
         assert!(project_to_projectless.retryable);
 
         let projectless_to_project = module
@@ -2895,7 +2895,7 @@ mod tests {
                 ),
             )
             .expect_err("metadata update cannot assign Project ownership");
-        assert_eq!(projectless_to_project.code, CoreErrorCode::RevisionConflict);
+        assert_eq!(projectless_to_project.code, CoreErrorCode::Conflict);
 
         let ProjectWorkspaceReadValue::Thread {
             thread: project_thread,

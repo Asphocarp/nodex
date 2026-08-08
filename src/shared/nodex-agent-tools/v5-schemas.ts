@@ -109,7 +109,7 @@ const checkSort = (
   });
 };
 
-const checkQueryOutput = (
+export const checkQueryV5Output = (
   output: z.output<typeof QueryDatabaseV3OutputSchema>,
   context: z.RefinementCtx,
 ): void => {
@@ -196,34 +196,63 @@ export const FetchV5InputSchema = FetchV3InputSchema.superRefine(
   },
 );
 
-export const FetchV5OutputSchema = FetchV3OutputSchema.superRefine(
-  (output, context) => {
-    const properties = output.data.resource.properties;
-    if (!properties) return;
-    Object.keys(properties).forEach((propertyId) => {
-      checkPropertyId(
-        propertyId,
-        context,
-        ["data", "resource", "properties", propertyId],
-      );
-    });
+export const checkFetchV5Output = (
+  output: {
+    readonly data: {
+      readonly resource: {
+        readonly properties?: Readonly<Record<string, unknown>>;
+      };
+    };
   },
+  context: z.RefinementCtx,
+): void => {
+  const properties = output.data.resource.properties;
+  if (!properties) return;
+  Object.keys(properties).forEach((propertyId) => {
+    checkPropertyId(
+      propertyId,
+      context,
+      ["data", "resource", "properties", propertyId],
+    );
+  });
+};
+
+export const FetchV5OutputSchema = FetchV3OutputSchema.superRefine(
+  checkFetchV5Output,
 );
 
-export const SearchV5OutputSchema = SearchV3OutputSchema.superRefine(
-  (output, context) => {
-    output.data.results.forEach((result, resultIndex) => {
-      if (result.kind !== "page") return;
-      result.matches.forEach((match, matchIndex) => {
-        if (match.source !== "property") return;
-        checkPropertyId(
-          match.propertyId,
-          context,
-          ["data", "results", resultIndex, "matches", matchIndex, "propertyId"],
-        );
-      });
-    });
+export const checkSearchV5Output = (
+  output: {
+    readonly data: {
+      readonly results: readonly (
+        | { readonly kind: "block" }
+        | {
+          readonly kind: "page";
+          readonly matches: readonly {
+            readonly source: string;
+            readonly propertyId?: unknown;
+          }[];
+        }
+      )[];
+    };
   },
+  context: z.RefinementCtx,
+): void => {
+  output.data.results.forEach((result, resultIndex) => {
+    if (result.kind !== "page") return;
+    result.matches.forEach((match, matchIndex) => {
+      if (match.source !== "property") return;
+      checkPropertyId(
+        match.propertyId,
+        context,
+        ["data", "results", resultIndex, "matches", matchIndex, "propertyId"],
+      );
+    });
+  });
+};
+
+export const SearchV5OutputSchema = SearchV3OutputSchema.superRefine(
+  checkSearchV5Output,
 );
 
 export const QueryDatabaseViewV5InputSchema =
@@ -239,7 +268,7 @@ export const QueryDataSourceV5InputSchema =
   });
 
 export const QueryDatabaseV5OutputSchema =
-  QueryDatabaseV3OutputSchema.superRefine(checkQueryOutput);
+  QueryDatabaseV3OutputSchema.superRefine(checkQueryV5Output);
 
 export const CreatePagesV5InputSchema = CreatePagesV3InputSchema.superRefine(
   (input, context) => {

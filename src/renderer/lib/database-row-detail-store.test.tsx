@@ -28,6 +28,7 @@ function buildCard(overrides: Partial<DatabasePage> = {}): DatabasePage {
     order: 1,
     revision: 1,
     ...overrides,
+    pageKey: overrides.pageKey ?? null,
   };
 }
 

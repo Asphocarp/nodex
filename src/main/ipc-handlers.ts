@@ -196,8 +196,8 @@ import type { DesktopLibraryModuleBridge } from "./core-client/desktop-library-m
 import { createProjectWithDefaultSource } from "./default-project-source";
 import { resolveNodexProjectsDirectory } from "./nodex-projects-directory";
 import type { DesktopDatabaseModuleBridge } from "./core-client/desktop-database-module-bridge";
-import { CoreModuleResponseError } from "./core-client/core-client";
-import type { CoreReadResult } from "../shared/core-read-result";
+import type { CoreResult } from "../shared/core-result";
+import { coreResultFrom } from "./core-result-ipc";
 import type { DesktopAutomationModulePort } from "./core-client/desktop-automation-module-bridge";
 import type { DesktopStoreAdministrationPort } from "./core-client/desktop-store-administration-bridge";
 import type { GitWorkerHost } from "./git-worker-host";
@@ -347,38 +347,24 @@ function registerHandle<Channel extends keyof IpcApi>(
   });
 }
 
-type CoreReadChannelValue<Channel extends keyof IpcApi> =
-  IpcApi[Channel]["result"] extends CoreReadResult<infer Value> ? Value : never;
+type CoreResultChannelValue<Channel extends keyof IpcApi> =
+  IpcApi[Channel]["result"] extends CoreResult<infer Value> ? Value : never;
 
 /**
- * Registers a Core-backed read channel behind the `CoreReadResult` envelope:
+ * Registers a Core-backed channel behind the `CoreResult` envelope:
  * typed Core errors travel as data instead of being flattened into IPC error
  * strings, so the renderer can classify cursor rejections and retryable
  * failures without matching message text. Non-Core failures still throw.
  */
-function registerCoreReadHandle<Channel extends keyof IpcApi>(
+function registerCoreResultHandle<Channel extends keyof IpcApi>(
   channel: Channel,
   read: (
     event: IpcMainInvokeEvent,
     ...args: IpcApi[Channel]["args"]
-  ) => Promise<CoreReadChannelValue<Channel>>,
+  ) => Promise<CoreResultChannelValue<Channel>>,
 ): void {
   registerHandle(channel, (async (event, ...args) => {
-    try {
-      return { ok: true, value: await read(event, ...args) };
-    } catch (error) {
-      if (error instanceof CoreModuleResponseError) {
-        return {
-          ok: false,
-          error: {
-            code: error.coreError.code,
-            message: error.coreError.message,
-            retryable: error.coreError.retryable,
-          },
-        };
-      }
-      throw error;
-    }
+    return await coreResultFrom(async () => await read(event, ...args));
   }) as TypedIpcHandler<Channel>);
 }
 
@@ -2181,7 +2167,7 @@ export function registerIpcHandlers(
     await projectWorkspace.readProjectActivitySummaries(projectIds),
   );
 
-  registerHandle("projects:create", async (_, input) =>
+  registerCoreResultHandle("projects:create", async (_, input) =>
     await createProjectWithDefaultSource(input, {
       projectsDirectory: resolveNodexProjectsDirectory(app.getPath("documents")),
       createProject: async (projectInput) =>
@@ -2189,7 +2175,7 @@ export function registerIpcHandlers(
     }),
   );
 
-  registerHandle("projects:update", async (_, projectId: string, updates) =>
+  registerCoreResultHandle("projects:update", async (_, projectId: string, updates) =>
     await projectWorkspace.updateProject(projectId, updates)
   );
 
@@ -2384,7 +2370,7 @@ export function registerIpcHandlers(
     await projectWorkspace.detachProjectSessionThread(sessionId)
   );
 
-  registerCoreReadHandle("database:view-window:get", async (_, projectId, input) => {
+  registerCoreResultHandle("database:view-window:get", async (_, projectId, input) => {
     const startedAt = performance.now();
     const window = await databaseModule.getDatabaseViewWindow(projectId, input);
     ipcPayloadLogger.info("Database View window payload served", {
@@ -2398,7 +2384,7 @@ export function registerIpcHandlers(
     return window;
   });
 
-  registerCoreReadHandle("database:list-window:get", async (_, projectId, input) => {
+  registerCoreResultHandle("database:list-window:get", async (_, projectId, input) => {
     const startedAt = performance.now();
     const window = await databaseModule.getDatabaseListWindow(projectId, input);
     ipcPayloadLogger.info("Database List window payload served", {
@@ -2412,10 +2398,10 @@ export function registerIpcHandlers(
     return window;
   });
 
-  registerCoreReadHandle("database:view-groups:get", async (_, projectId, input) =>
+  registerCoreResultHandle("database:view-groups:get", async (_, projectId, input) =>
     await databaseModule.getDatabaseViewGroups(projectId, input));
 
-  registerCoreReadHandle("library-database:view-window:get", async (_, input) => {
+  registerCoreResultHandle("library-database:view-window:get", async (_, input) => {
     const startedAt = performance.now();
     const window = await databaseModule.getLibraryDatabaseViewWindow(input);
     ipcPayloadLogger.info("Library Database View window payload served", {
@@ -2428,7 +2414,7 @@ export function registerIpcHandlers(
     return window;
   });
 
-  registerCoreReadHandle("library-database:list-window:get", async (_, input) => {
+  registerCoreResultHandle("library-database:list-window:get", async (_, input) => {
     const startedAt = performance.now();
     const window = await databaseModule.getLibraryDatabaseListWindow(input);
     ipcPayloadLogger.info("Library Database List window payload served", {
@@ -2441,7 +2427,7 @@ export function registerIpcHandlers(
     return window;
   });
 
-  registerCoreReadHandle("library-database:view-groups:get", async (_, input) =>
+  registerCoreResultHandle("library-database:view-groups:get", async (_, input) =>
     await databaseModule.getLibraryDatabaseViewGroups(input));
 
   // Database Pages

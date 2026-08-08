@@ -23,6 +23,11 @@ Each row can include `etags.move`. That narrow ETag binds the Page shell,
 membership, grouping value, saved View, and position authority needed for an
 atomic Board move.
 
+Rows also include the current nullable `page_key`. Use it when reporting or
+disambiguating work for the user, but retain the row's canonical Page ID for
+every mutation, anchor, and deeplink. A View may hide keys visually without
+removing them from CLI output.
+
 ## Create directly in a View group
 
 ```sh
@@ -72,7 +77,9 @@ nodex page duplicate --json @SOURCE_PAGE_ID \
   --idempotency-key card-duplicate-SOURCE_PAGE_ID-v1
 ```
 
-The returned receipt is the authority for the new Page ID and final placement.
+The returned receipt is the authority for the new Page ID, current Page key,
+and final placement. Use the ID for later writes; the key is the concise
+human/Agent reference.
 
 ## Open the saved View
 

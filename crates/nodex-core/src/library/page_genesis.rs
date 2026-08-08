@@ -5,8 +5,8 @@ use nodex_core_contracts::library::LibraryPageCreateResult;
 use rusqlite::Connection;
 
 use crate::database::{
-    PageCopyDataSourceDestination, StagedPagePlacementRevisions, place_staged_page_in_data_source,
-    place_staged_page_in_data_source_prevalidated,
+    PageCopyDataSourceDestination, StagedPagePlacementRevisions, current_page_key_for_page,
+    place_staged_page_in_data_source, place_staged_page_in_data_source_prevalidated,
 };
 use crate::document::{mint_document_semantic_etags, parse_inline_markdown_title};
 use crate::infrastructure::local_commit::CommitContext;
@@ -102,6 +102,7 @@ pub(crate) fn create_page_in_data_source(
     .map_err(|error| internal(error.to_string()))?;
     let page_create = LibraryPageCreateResult {
         page_id: input.page_id.to_owned(),
+        page_key: current_page_key_for_page(connection, input.library_id, input.page_id)?,
         document_id: staged.document_id.clone(),
         document_generation: 1,
         document_head_seq: staged.document_head_seq,

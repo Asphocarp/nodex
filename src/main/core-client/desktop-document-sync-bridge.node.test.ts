@@ -18,7 +18,7 @@ import type {
   DocumentSyncSubscribeRequest,
 } from "../../shared/block-documents/document-sync";
 import type { ExecuteNodexAgentDuplicatePageResult } from "../../shared/nodex-agent-tools";
-import { DuplicatePageV3OutputSchema } from "../../shared/nodex-agent-tools/v3-write-schemas";
+import { DuplicatePageV6OutputSchema } from "../../shared/nodex-agent-tools/v6-schemas";
 import { committedLocalCommit } from "../../shared/testing/local-commit";
 import { authorizedReadStampFixture } from "../../shared/testing/authorized-read-stamp-fixture";
 import {
@@ -1695,6 +1695,7 @@ describe("Desktop Document sync bridge", () => {
         state_vector: [6],
       }],
       affected_database_ids: [],
+      page_keys: {},
       page_etags: {},
       move_etags: {},
       page_view_placements: {},
@@ -1816,10 +1817,11 @@ describe("Desktop Document sync bridge", () => {
     const execute = vi.fn(async (): Promise<ExecuteNodexAgentDuplicatePageResult> => ({
       ok: true,
       value: {
-        output: DuplicatePageV3OutputSchema.parse({
+        output: DuplicatePageV6OutputSchema.parse({
           data: {
             sourcePageId: "page:source",
             pageId: "page:copy",
+            pageKey: null,
             location: { kind: "page", pageId: "page:target" },
             bodyBlocksCreated: 1,
           },

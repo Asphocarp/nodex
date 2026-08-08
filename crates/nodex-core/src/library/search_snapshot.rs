@@ -19,7 +19,7 @@ use crate::document::sha256;
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
 const SNAPSHOT_VERSION: u32 = 1;
-const PROJECTION_VERSION: u32 = 1;
+const PROJECTION_VERSION: u32 = 2;
 const LEASE_TTL_MS: i64 = 5 * 60 * 1_000;
 const MAX_SCOPE_PAGES: usize = 10_000;
 const MAX_SNAPSHOT_BYTES: usize = 256 * 1024 * 1024;

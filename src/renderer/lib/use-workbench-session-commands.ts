@@ -334,6 +334,7 @@ export function useWorkbenchSessionCommands({
       const context = await loadPagePromptContext({
         projectId: input.projectId,
         pageId: input.pageId,
+        pageKey: input.pageKey,
         titleSnapshot: input.titleSnapshot,
       });
 

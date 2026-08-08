@@ -1066,6 +1066,9 @@ export function createCoreProjectWorkspaceAdapter(
           description: input.description ?? "",
           appearance: input.appearance ?? null,
           source_roots: input.sources ?? [],
+          ...(input.pageKeyPrefix === undefined
+            ? {}
+            : { page_key_prefix: input.pageKeyPrefix }),
           starter_page: {
             page_id: input.starterPage.pageId,
             document_id: input.starterPage.documentId,
@@ -1089,6 +1092,9 @@ export function createCoreProjectWorkspaceAdapter(
         description: input.description ?? "",
         appearance: input.appearance ?? null,
         source_roots: input.sources ?? [],
+        ...(input.pageKeyPrefix === undefined
+          ? {}
+          : { page_key_prefix: input.pageKeyPrefix }),
       });
       const project = await getProject(projectId);
       if (!project) throw new Error(`Created Project not found: ${projectId}`);

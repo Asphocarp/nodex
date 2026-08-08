@@ -2460,6 +2460,7 @@ fn create_page(
             .map_err(|error| internal(&error.to_string()))?;
             let page_create = LibraryPageCreateResult {
                 page_id: page_id.to_owned(),
+                page_key: None,
                 document_id: document_id.to_owned(),
                 document_generation: 1,
                 document_head_seq: persisted.head_seq,
@@ -4218,7 +4219,7 @@ mod tests {
             .expect_err("stale nested create");
         assert_eq!(
             stale.code,
-            nodex_core_contracts::CoreErrorCode::RevisionConflict
+            nodex_core_contracts::CoreErrorCode::HeadConflict
         );
         kernel
             .readers()
@@ -4838,7 +4839,7 @@ mod tests {
             .expect_err("primary Database cannot archive");
         assert_eq!(
             protected_archive.code,
-            nodex_core_contracts::CoreErrorCode::RevisionConflict
+            nodex_core_contracts::CoreErrorCode::Conflict
         );
 
         module
@@ -5931,6 +5932,7 @@ mod tests {
             .expect("exact Page creation result");
         assert_eq!(created.document_generation, 1);
         assert_eq!(created.document_head_seq, 1);
+        assert_eq!(created.page_key, None);
         assert_eq!(&created.page_id[14..15], "7");
         assert_eq!(&created.document_id[14..15], "7");
         assert_eq!(created.block_ids.len(), 2);
@@ -6040,6 +6042,22 @@ mod tests {
                 create_database_request("native-cli:create-database-for-page"),
             )
             .expect("create Data Source destination");
+        kernel
+            .writer()
+            .call(|connection| {
+                with_immediate_transaction(connection, |transaction| {
+                    crate::database::create_page_key_namespace(
+                        transaction,
+                        "library-1",
+                        "018f0000-0000-7000-8000-000000000001",
+                        Some("LAB"),
+                        "Product work",
+                        "2026-07-01T00:00:00.000Z",
+                    )?;
+                    Ok(())
+                })
+            })
+            .expect("create Page-key namespace for Data Source destination");
         module
             .apply(
                 &storage_context,
@@ -6083,6 +6101,7 @@ mod tests {
             .expect("exact Page creation result");
         assert_eq!(created.document_generation, 1);
         assert_eq!(created.document_head_seq, 1);
+        assert_eq!(created.page_key.as_deref(), Some("LAB-1"));
         assert_eq!(created.block_ids.len(), 2);
         assert_eq!(
             first.committed.receipt.affected_database_ids,
@@ -6101,6 +6120,33 @@ mod tests {
             first.committed.receipt.committed_revisions[&format!("pageParent:{}", created.page_id)],
             2
         );
+
+        let page_file = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    read: LibraryRead::PageFile {
+                        page_id: created.page_id.clone(),
+                        file_kind: LibraryPageFileKind::MetaYaml,
+                        prepare: None,
+                    },
+                },
+            )
+            .expect("read keyed Page metadata");
+        let LibraryReadValue::PageFile { value: page_file } = page_file.value else {
+            panic!("Page file projection")
+        };
+        assert_eq!(page_file.version, 2);
+        assert_eq!(page_file.page_key.as_deref(), Some("LAB-1"));
+        assert_eq!(
+            page_file
+                .metadata
+                .as_ref()
+                .and_then(|metadata| metadata.page_key.as_deref()),
+            Some("LAB-1")
+        );
+        assert!(page_file.content.contains("page_key: \"LAB-1\"\n"));
 
         let evidence = kernel
             .readers()
@@ -6624,6 +6670,22 @@ mod tests {
                 create_database_request("native-cli:create-destination-database"),
             )
             .expect("create Data Source destination");
+        kernel
+            .writer()
+            .call(|connection| {
+                with_immediate_transaction(connection, |transaction| {
+                    crate::database::create_page_key_namespace(
+                        transaction,
+                        "library-1",
+                        "018f0000-0000-7000-8000-000000000001",
+                        Some("LAB"),
+                        "Product work",
+                        "2026-07-01T00:00:00.000Z",
+                    )?;
+                    Ok(())
+                })
+            })
+            .expect("create Page-key namespace for semantic Page transfers");
         module
             .apply(
                 &context(),
@@ -6663,10 +6725,36 @@ mod tests {
             .clone()
             .expect("exact duplicate result");
         assert_eq!(copied.source_page_id, source.page_id);
+        assert_eq!(copied.page_key, None);
         assert_eq!(copied.document_generation, 1);
         assert_eq!(copied.document_head_seq, 1);
         assert!(copied.title_etag.starts_with("nxe1."));
         assert!(copied.body_etag.starts_with("nxe1."));
+
+        let copied_to_data_source = module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "native-cli:duplicate-page-to-data-source".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::DuplicatePage {
+                        source_page_id: source.page_id.clone(),
+                        destination: LibraryPageWriteDestination::DataSource {
+                            data_source_id: "018f0000-0000-7000-8000-000000000002".to_owned(),
+                            view_id: Some("018f0000-0000-7000-8000-000000000003".to_owned()),
+                            group: None,
+                            at: Some(LibraryAgentSiblingAnchor::End),
+                        },
+                    },
+                },
+            )
+            .expect("duplicate Page into keyed Data Source")
+            .committed
+            .value
+            .page_copy
+            .expect("keyed duplicate result");
+        assert_eq!(copied_to_data_source.page_key.as_deref(), Some("LAB-1"));
         let duplicate_replay = module
             .apply(&retry_context, duplicate_request)
             .expect("duplicate replay");
@@ -6716,6 +6804,7 @@ mod tests {
             .block_transfer
             .clone()
             .expect("exact transfer result");
+        assert_eq!(transfer.page_keys.get(&copied.page_id), Some(&None));
         let moved_page_etag = transfer
             .page_etags
             .get(&copied.page_id)
@@ -6757,6 +6846,13 @@ mod tests {
             .value
             .block_transfer
             .expect("Data Source transfer result");
+        assert_eq!(
+            moved_to_data_source
+                .page_keys
+                .get(&copied.page_id)
+                .and_then(Option::as_deref),
+            Some("LAB-2")
+        );
         let preserve_group_etag = moved_to_data_source
             .move_etags
             .get(&copied.page_id)

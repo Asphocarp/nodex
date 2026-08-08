@@ -58,6 +58,7 @@ const run = (overrides: Record<string, unknown> = {}) => ({
 const occurrence = (overrides: Record<string, unknown> = {}) => ({
   occurrence_id: "page:planning:2026-07-20T01:00:00.000Z",
   page_id: "page:planning",
+  page_key: "LAB-13",
   status: "plan",
   status_name: "Plan",
   archived: false,
@@ -101,7 +102,7 @@ const occurrence = (overrides: Record<string, unknown> = {}) => ({
 const readSnapshot = (
   value: AutomationReadSnapshot["value"],
 ): AutomationReadSnapshot => ({
-  contract_version: 2,
+  contract_version: 3,
   store_epoch: "epoch:test",
   commit_head: 7,
   value,
@@ -460,6 +461,7 @@ describe("Desktop Automation Module bridge", () => {
       items: [{
         id: "page:planning:2026-07-20T01:00:00.000Z",
         pageId: "page:planning",
+        pageKey: "LAB-13",
         status: "plan",
         priority: "p1-high",
         scheduledStart: new Date("2026-07-20T01:00:00.000Z"),
@@ -491,6 +493,18 @@ describe("Desktop Automation Module bridge", () => {
     expect(projectClient.automationReads[1]).toMatchObject({
       kind: "occurrences",
       window: { after: "nxc1.occurrences.next", first: 200 },
+    });
+
+    projectClient.enqueueAutomationRead(readSnapshot({
+      kind: "occurrences",
+      window: collectionWindow([occurrence({ page_key: null })]),
+    }));
+    await expect(bridge.listPageOccurrences(
+      "project:one",
+      windowStart,
+      windowEnd,
+    )).resolves.toMatchObject({
+      items: [{ pageKey: null }],
     });
 
     projectClient.enqueueAutomationApply(committed({

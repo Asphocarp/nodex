@@ -14,7 +14,7 @@ use nodex_core_contracts::database::{
 };
 use nodex_core_contracts::library::{
     LibraryCatalogKind, LibraryLifecycle, LibraryNavigationNode, LibraryNavigationParent,
-    LibraryPageFileKind, LibraryPageHistoryCursor, LibraryPageOwnershipPath,
+    LibraryPageFileKind, LibraryPageHistoryCursor, LibraryPageKeyTarget, LibraryPageOwnershipPath,
     LibraryPagePrepareKind, LibraryRead, LibraryReadValue, LibraryResourceTarget,
     LibrarySearchSnapshotScope,
 };
@@ -790,6 +790,7 @@ fn sed_page(
             "content": selected,
             "range": { "start": range.start, "end": range.end },
             "page_id": value.page_id,
+            "page_key": value.page_key,
         })));
     }
     Ok(CommandOutput::Bytes(selected.into_bytes()))
@@ -932,20 +933,92 @@ fn read_all_projects(
     }
 }
 
-pub(crate) fn resolve_page_selector(
-    client: &CoreClient,
-    project_id: &str,
-    selector: &str,
-) -> Result<String, CliError> {
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PageSelectorLookup {
+    PageKey,
+    TitlePath,
+}
+
+const PAGE_SELECTOR_LOOKUP_ORDER: [PageSelectorLookup; 2] =
+    [PageSelectorLookup::PageKey, PageSelectorLookup::TitlePath];
+
+fn canonical_page_selector(selector: &str) -> Result<Option<&str>, CliError> {
     if let Some(page_id) = selector.strip_prefix('@') {
         if !page_id.is_empty() && page_id.len() <= 512 && page_id.trim() == page_id {
-            return Ok(page_id.to_owned());
+            return Ok(Some(page_id));
         }
         return Err(CliError::new(
             CliErrorCode::InvalidInput,
             "a canonical @Page selector must contain one bounded stable ID",
         ));
     }
+    Ok(None)
+}
+
+pub(crate) fn resolve_page_selector(
+    client: &CoreClient,
+    project_id: &str,
+    selector: &str,
+) -> Result<String, CliError> {
+    if let Some(page_id) = canonical_page_selector(selector)? {
+        return Ok(page_id.to_owned());
+    }
+    for lookup in PAGE_SELECTOR_LOOKUP_ORDER {
+        match lookup {
+            PageSelectorLookup::PageKey => {
+                if let Some(page_id) = resolve_page_key_selector(client, project_id, selector)? {
+                    return Ok(page_id);
+                }
+                if selector.trim().starts_with('#') {
+                    return Err(CliError::new(
+                        CliErrorCode::InvalidInput,
+                        "the explicit Page key was not found in this Project",
+                    ));
+                }
+            }
+            PageSelectorLookup::TitlePath => {
+                return resolve_page_title_selector(client, project_id, selector);
+            }
+        }
+    }
+    Err(internal("Page selector resolution has no terminal lookup"))
+}
+
+fn resolve_page_key_selector(
+    client: &CoreClient,
+    project_id: &str,
+    selector: &str,
+) -> Result<Option<String>, CliError> {
+    let key_target = unwrap_library(client.library_read(
+        Some(project_id),
+        LibraryRead::PageKeyTarget {
+            page_key: selector.to_owned(),
+        },
+    ))?;
+    let LibraryReadValue::PageKeyTarget { value: key_target } = key_target.value else {
+        return Err(internal("Core returned the wrong Page-key target snapshot"));
+    };
+    page_key_target_selector_outcome(key_target)
+}
+
+fn page_key_target_selector_outcome(
+    key_target: LibraryPageKeyTarget,
+) -> Result<Option<String>, CliError> {
+    match key_target {
+        LibraryPageKeyTarget::NotFound => Ok(None),
+        LibraryPageKeyTarget::Resolved { page_id, .. } => Ok(Some(page_id)),
+        LibraryPageKeyTarget::Ambiguous => Err(CliError::new(
+            CliErrorCode::InvalidInput,
+            "the Page key is ambiguous; use its canonical hyphenated form (for example LAB-13) or an @Page ID",
+        )),
+    }
+}
+
+fn resolve_page_title_selector(
+    client: &CoreClient,
+    project_id: &str,
+    selector: &str,
+) -> Result<String, CliError> {
     let components = selector.split('/').collect::<Vec<_>>();
     if components.is_empty()
         || components.len() > 64
@@ -1886,6 +1959,35 @@ mod tests {
                 .count(),
             2
         );
+    }
+
+    #[test]
+    fn page_selector_order_keeps_canonical_ids_first_and_titles_last() {
+        assert_eq!(
+            canonical_page_selector("@019b1000-1000-7000-8000-000000000002")
+                .expect("canonical selector"),
+            Some("019b1000-1000-7000-8000-000000000002")
+        );
+        assert!(canonical_page_selector("LAB-13").unwrap().is_none());
+        assert_eq!(
+            PAGE_SELECTOR_LOOKUP_ORDER,
+            [PageSelectorLookup::PageKey, PageSelectorLookup::TitlePath]
+        );
+        assert_eq!(
+            canonical_page_selector("@ ")
+                .expect_err("invalid canonical selector")
+                .code,
+            CliErrorCode::InvalidInput
+        );
+    }
+
+    #[test]
+    fn ambiguous_page_key_selector_requires_a_canonical_key_or_page_id() {
+        let error = page_key_target_selector_outcome(LibraryPageKeyTarget::Ambiguous)
+            .expect_err("compact Page-key ambiguity");
+
+        assert_eq!(error.code, CliErrorCode::InvalidInput);
+        assert!(error.message.contains("canonical hyphenated form"));
     }
 
     #[test]

@@ -23,7 +23,7 @@ use serde_json::json;
 use crate::database::{
     ExistingPageTransferTarget, PageCopyDataSourceDestination, PageCopyPositionAnchor,
     PageCopyValueDraft, PageCopyViewPlacement, StagedPagePlacementRevisions, active_property,
-    normalize_value, place_staged_page_in_data_source_prevalidated,
+    current_page_key_for_page, normalize_value, place_staged_page_in_data_source_prevalidated,
     transfer_existing_page_for_agent_move_prevalidated,
 };
 use crate::document::{
@@ -630,6 +630,7 @@ fn apply_pages(
             .transpose()?;
         created.push(LibraryAgentCreatedPage {
             page_id: page.page_id.clone(),
+            page_key: current_page_key_for_page(connection, library_id, &page.page_id)?,
             location: page_location(library_id, &request.destination),
             body_blocks_created: u32::try_from(page.body_block_ids.len())
                 .map_err(|_| invalid("Created Page body exceeds its block bound"))?,

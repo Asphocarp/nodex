@@ -49,7 +49,7 @@ export type DatabaseViewField =
     }
   | {
       readonly kind: "intrinsic";
-      readonly field: "page_id" | "created_at" | "updated_at";
+      readonly field: "page_key" | "created_at" | "updated_at";
     };
 
 export function databaseGroupValueFromKey(
@@ -1145,7 +1145,7 @@ const parseViewLayoutDisplay = (
     }
     assertExactKeys(field, `${label}.fields[${index}]`, ["kind", "field"]);
     if (
-      field.field !== "page_id"
+      field.field !== "page_key"
       && field.field !== "created_at"
       && field.field !== "updated_at"
     ) {

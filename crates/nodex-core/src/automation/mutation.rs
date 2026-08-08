@@ -3007,7 +3007,7 @@ mod tests {
                             .parse::<chrono::DateTime<Utc>>()
                             .expect("window end")
                             .timestamp_millis(),
-                        search_query: Some("calendar authority".to_owned()),
+                        search_query: Some("nodex-1".to_owned()),
                         window: Default::default(),
                     },
                 },
@@ -3019,6 +3019,7 @@ mod tests {
         let items = window.items;
         assert_eq!(items.len(), 2);
         assert_eq!(items[0].title, "Calendar authority");
+        assert_eq!(items[0].page_key.as_deref(), Some("NODEX-1"));
         assert_eq!(items[0].status, "triage");
         assert_eq!(items[0].status_name, "Triage");
         assert_eq!(items[0].reminders[0].offset_minutes, 30);

@@ -9,7 +9,7 @@ use crate::collection::{CollectionWindow, CollectionWindowRequest};
 use crate::events::ProjectionSnapshotAuthority;
 use crate::{ModuleMutationReceipt, ModuleName, VersionedModuleContract};
 
-pub const DATABASE_CONTRACT_VERSION: u32 = 17;
+pub const DATABASE_CONTRACT_VERSION: u32 = 20;
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
@@ -17,7 +17,6 @@ pub enum DatabaseRelationCardinality {
     One,
     Many,
 }
-
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum DatabasePropertySchema {
@@ -137,7 +136,7 @@ pub struct DatabaseViewHierarchyOverrideInput {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum DatabaseViewFieldInput {
     Property { property_id: String },
-    Intrinsic { field: String },
+    Intrinsic { field: DatabaseViewIntrinsicField },
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -275,7 +274,7 @@ pub struct DatabaseViewHierarchy {
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum DatabaseViewIntrinsicField {
-    PageId,
+    PageKey,
     CreatedAt,
     UpdatedAt,
 }
@@ -399,6 +398,14 @@ pub enum DatabaseRead {
     Database {
         target: DatabaseIdentityTarget,
     },
+    PageKeyPrefixPreview {
+        database_id: Option<String>,
+        name_hint: String,
+        requested_prefix: Option<String>,
+    },
+    PageKeyNamespace {
+        database_id: String,
+    },
     DataSourceWindow {
         database_id: String,
         window: CollectionWindowRequest,
@@ -489,6 +496,39 @@ pub struct DatabaseDescriptor {
     pub database: DatabaseContainerRecord,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DatabasePageKeyPrefixAvailability {
+    Available,
+    Current,
+    Reserved,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct DatabasePageKeyPrefixPreview {
+    pub prefix: String,
+    pub availability: DatabasePageKeyPrefixAvailability,
+    pub alternative_prefix: Option<String>,
+    pub next_number: i64,
+    pub example_keys: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct DatabaseRetiredPageKeyPrefix {
+    pub prefix: String,
+    pub last_number: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct DatabasePageKeyNamespace {
+    pub database_id: String,
+    pub current_prefix: String,
+    pub next_number: i64,
+    pub assigned_page_count: i64,
+    pub revision: i64,
+    pub retired_prefixes: Vec<DatabaseRetiredPageKeyPrefix>,
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 pub struct DatabaseDataSourceRecord {
     pub data_source_id: String,
@@ -539,6 +579,12 @@ pub enum DatabaseReadValue {
     },
     Database {
         value: DatabaseDescriptor,
+    },
+    PageKeyPrefixPreview {
+        value: DatabasePageKeyPrefixPreview,
+    },
+    PageKeyNamespace {
+        value: DatabasePageKeyNamespace,
     },
     DataSourceWindow {
         data_sources: CollectionWindow<DatabaseDataSourceRecord>,
@@ -842,6 +888,7 @@ pub struct DatabaseRowDetail {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 pub struct DatabaseRowSummary {
     pub page_id: String,
+    pub page_key: Option<String>,
     pub lifecycle: String,
     pub title: String,
     pub rich_title: Value,
@@ -877,6 +924,11 @@ pub struct DatabaseRowSummary {
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum DatabaseIntent {
+    RenamePageKeyPrefix {
+        database_id: String,
+        expected_revision: i64,
+        prefix: String,
+    },
     PutProperty {
         data_source_id: String,
         property_id: String,

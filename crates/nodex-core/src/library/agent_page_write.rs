@@ -19,6 +19,7 @@ use nodex_core_contracts::{
 };
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 
+use crate::database::current_page_key_for_page;
 use crate::document::{read_store_epoch, sha256};
 use crate::infrastructure::agent_operations::{
     PreparedAgentOperationBinding, PreparedAgentOperationRegistry,
@@ -355,6 +356,7 @@ pub(super) fn execute_page_copy(
                     &committed_at,
                 )?;
                 let result = agent_result(
+                    &transaction,
                     &library_id,
                     &copy_request,
                     preflight.body_block_count,
@@ -871,6 +873,7 @@ pub(super) fn read_location_anchor(
 }
 
 fn agent_result(
+    connection: &Connection,
     library_id: &str,
     request: &LibraryAgentPageCopyRequest,
     body_block_count: u32,
@@ -892,6 +895,7 @@ fn agent_result(
     };
     Ok(LibraryAgentPageCopyResult {
         source_page_id: request.source_page_id.clone(),
+        page_key: current_page_key_for_page(connection, library_id, &page_id)?,
         page_id,
         location: match &request.destination {
             LibraryAgentPageDestination::Library { .. } => LibraryAgentPageLocation::Library {

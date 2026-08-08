@@ -22,4 +22,14 @@ describe("Project mutation schemas", () => {
       name: "Nodex",
     }).success).toBe(true);
   });
+
+  it("keeps Database-owned Page-key updates out of Project metadata", () => {
+    expect(ProjectUpdateInputSchema.safeParse({
+      expectedPageKeyNamespaceRevision: 2,
+    }).success).toBe(false);
+    expect(ProjectUpdateInputSchema.safeParse({
+      pageKeyPrefix: "LAB",
+      expectedPageKeyNamespaceRevision: 2,
+    }).success).toBe(false);
+  });
 });

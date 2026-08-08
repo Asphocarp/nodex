@@ -419,6 +419,7 @@ export const projectCoreDatabaseRowSummary = (
   }
   const page: DatabasePageSummary = {
     id: row.page_id,
+    pageKey: row.page_key ?? null,
     status: statusValue,
     archived: row.lifecycle === "archived",
     title: row.title,
@@ -623,6 +624,7 @@ export const projectDatabasePage = (
 
   const page: DatabasePage = {
     id: row.page.pageId,
+    pageKey: row.pageKey,
     status: statusValue,
     archived: row.page.lifecycle === "archived",
     title: row.page.title,

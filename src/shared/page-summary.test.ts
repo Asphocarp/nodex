@@ -11,6 +11,7 @@ describe("Card summary rich-title projection", () => {
 
     expect(toDatabasePageSummary({
       id: "card-1",
+      pageKey: "LAB-13",
       status: "triage",
       archived: false,
       title: "Rich title",
@@ -20,6 +21,7 @@ describe("Card summary rich-title projection", () => {
       created: new Date("2026-01-01T00:00:00.000Z"),
       order: 0,
     })).toMatchObject({
+      pageKey: "LAB-13",
       title: "Rich title",
       richTitle,
       descriptionPreview: "Body",

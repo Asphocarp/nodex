@@ -6,6 +6,7 @@ import { resolveFilteredDropOrder } from "./filtered-drag-order";
 function createPage(id: string, status: WorkflowStatus, order: number): DatabasePageSummary {
   return {
     id,
+    pageKey: null,
     status,
     archived: false,
     title: id,

@@ -7,7 +7,7 @@ import type {
   PrepareNodexAgentMovePagesRequest,
   PrepareNodexAgentMovePagesResult,
 } from "../../shared/nodex-agent-tools";
-import { MovePagesV3OutputSchema } from "../../shared/nodex-agent-tools/v3-write-schemas";
+import { MovePagesV6OutputSchema } from "../../shared/nodex-agent-tools/v6-schemas";
 import { TransferBlocksInputSchema } from "../../shared/nodex-agent-tools/write-schemas";
 import type { NodexAgentMutationEnvelope } from "../agent-tools/dynamic-service-v3-port";
 import type { RustDataAuthorityRuntime } from "./desktop-data-authority";
@@ -69,10 +69,11 @@ const coreRequest = (
   destination: toCoreAgentPageDestination(request.input.destination),
 });
 
-const output = (result: CoreMoveResult) => MovePagesV3OutputSchema.parse({
+const output = (result: CoreMoveResult) => MovePagesV6OutputSchema.parse({
   data: {
     pages: result.pages.map((page) => ({
       pageId: page.page_id,
+      pageKey: page.page_key ?? null,
       location: nativeAgentPageLocation(page.location),
     })),
     moved: result.pages.length,

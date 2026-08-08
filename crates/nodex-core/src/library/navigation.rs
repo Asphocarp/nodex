@@ -6,16 +6,17 @@ use nodex_core_contracts::library::{
     LibraryCatalogEntry, LibraryCatalogKind, LibraryLifecycle, LibraryMoveDestinationEntry,
     LibraryMoveDestinationScope, LibraryNavigationNode, LibraryNavigationParent,
     LibraryPageAccessContext, LibraryPageDataSourceContext, LibraryPageDetail,
-    LibraryPageDocumentDescriptor, LibraryPageIntrinsicProperty, LibraryPageLocation,
-    LibraryPageMembership, LibraryPageOwnershipPath, LibraryPageOwnershipPathAncestor,
-    LibraryPageTarget, LibraryRead, LibraryReadValue, LibraryResourceTarget, LibraryRouteTarget,
-    LibraryViewLocation,
+    LibraryPageDocumentDescriptor, LibraryPageIntrinsicProperty, LibraryPageKeyTarget,
+    LibraryPageLocation, LibraryPageMembership, LibraryPageOwnershipPath,
+    LibraryPageOwnershipPathAncestor, LibraryPageTarget, LibraryRead, LibraryReadValue,
+    LibraryResourceTarget, LibraryRouteTarget, LibraryViewLocation,
 };
 use nodex_core_contracts::{AdapterKind, BoundModuleContext};
 use rusqlite::{Connection, OptionalExtension, Row, params};
 use serde_json::Value;
 
 use crate::database::read::{page_data_source_projection, page_record};
+use crate::database::resolve_page_key_matches_in_library;
 use crate::document::is_primary_canvas_block_id;
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
@@ -277,6 +278,15 @@ pub(super) fn read(
                 &page_id,
             )?
             .map(Box::new),
+        }),
+        LibraryRead::PageKeyTarget { page_key } => Ok(LibraryReadValue::PageKeyTarget {
+            value: page_key_target(
+                connection,
+                library_id,
+                requesting_project_id,
+                requesting_adapter,
+                &page_key,
+            )?,
         }),
         LibraryRead::PageOwnershipPath { page_id } => Ok(LibraryReadValue::PageOwnershipPath {
             value: page_ownership_path(
@@ -728,6 +738,92 @@ fn page_target(
     }))
 }
 
+fn page_key_target(
+    connection: &Connection,
+    library_id: &str,
+    requesting_project_id: Option<&str>,
+    requesting_adapter: &AdapterKind,
+    page_key: &str,
+) -> Result<LibraryPageKeyTarget, StoreError> {
+    let Some(authority) = page_projection_authority(
+        connection,
+        library_id,
+        requesting_project_id,
+        requesting_adapter,
+    )?
+    else {
+        return Ok(LibraryPageKeyTarget::NotFound);
+    };
+    let mut authorized = Vec::new();
+    for resolution in resolve_page_key_matches_in_library(connection, library_id, page_key)? {
+        if resolution.page_lifecycle == "deleted" {
+            continue;
+        }
+        if let PageProjectionAuthority::Project(project_id) = &authority
+            && let Err(error) = super::require_page_read_access(
+                connection,
+                library_id,
+                project_id,
+                &resolution.page_block_id,
+            )
+        {
+            if error.code == StoreErrorCode::NotFound {
+                continue;
+            }
+            return Err(error);
+        }
+        authorized.push(resolution);
+    }
+    Ok(page_key_target_from_authorized(authorized))
+}
+
+fn page_key_target_from_authorized(
+    mut authorized: Vec<crate::database::page_key::PageKeyResolution>,
+) -> LibraryPageKeyTarget {
+    match authorized.len() {
+        0 => LibraryPageKeyTarget::NotFound,
+        1 => {
+            let resolution = authorized.pop().expect("one authorized Page-key target");
+            LibraryPageKeyTarget::Resolved {
+                page_id: resolution.page_block_id,
+                current_page_key: resolution.current_page_key,
+                matched_page_key: resolution.matched_page_key,
+                is_current: resolution.is_current,
+            }
+        }
+        _ => LibraryPageKeyTarget::Ambiguous,
+    }
+}
+
+#[cfg(test)]
+mod page_key_target_tests {
+    use super::*;
+    use crate::database::page_key::PageKeyResolution;
+
+    fn resolution(page_id: &str, matched_page_key: &str) -> PageKeyResolution {
+        PageKeyResolution {
+            page_block_id: page_id.to_owned(),
+            matched_page_key: matched_page_key.to_owned(),
+            current_page_key: Some(matched_page_key.to_owned()),
+            matched_database_block_id: "database:test".to_owned(),
+            current_database_block_id: Some("database:test".to_owned()),
+            page_lifecycle: "active".to_owned(),
+            is_current: true,
+        }
+    }
+
+    #[test]
+    fn page_key_target_reports_authorized_ambiguity_without_page_metadata() {
+        assert_eq!(
+            page_key_target_from_authorized(vec![
+                resolution("page:lab", "LAB-13"),
+                resolution("page:lab1", "LAB1-3"),
+            ]),
+            LibraryPageKeyTarget::Ambiguous,
+        );
+    }
+}
+
 fn page_ownership_path(
     connection: &Connection,
     library_id: &str,
@@ -1073,12 +1169,13 @@ fn page_detail(
                 requesting_project_id,
             )?;
             LibraryPageDataSourceContext::Member {
-                membership: LibraryPageMembership {
+                page_key: projection.page_key,
+                membership: Box::new(LibraryPageMembership {
                     membership_id: projection.membership_id,
                     data_source_id: projection.data_source_id,
                     revision: projection.membership_revision,
                     created_at: projection.membership_created_at,
-                },
+                }),
                 database: projection.database,
                 data_source: projection.data_source,
                 properties: projection.properties,
@@ -1088,7 +1185,7 @@ fn page_detail(
         _ => return Err(corrupt("Library Page has an invalid parent kind")),
     };
     Ok(LibraryPageDetail {
-        version: 3,
+        version: 4,
         library_id: library_id.to_owned(),
         store_epoch: store_epoch.to_owned(),
         commit_seq: commit_head,

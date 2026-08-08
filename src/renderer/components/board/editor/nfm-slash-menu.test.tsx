@@ -131,6 +131,7 @@ function makePage(overrides: Partial<DatabasePageSummary> = {}): DatabasePageSum
   const title = overrides.title ?? "Mention search page";
   return {
     id: overrides.id ?? "page-1",
+    pageKey: overrides.pageKey ?? null,
     title,
     richTitle: overrides.richTitle ?? plainTextToPortableRichText(title),
     descriptionPreview,

@@ -8,7 +8,7 @@ import type {
   PrepareNodexAgentCreatePagesRequest,
   PrepareNodexAgentCreatePagesResult,
 } from "../../shared/nodex-agent-tools";
-import { CreatePagesV3OutputSchema } from "../../shared/nodex-agent-tools/v3-write-schemas";
+import { CreatePagesV6OutputSchema } from "../../shared/nodex-agent-tools/v6-schemas";
 import { CreateInputSchema } from "../../shared/nodex-agent-tools/write-schemas";
 import type { NodexAgentMutationEnvelope } from "../agent-tools/dynamic-service-v3-port";
 import type { RustDataAuthorityRuntime } from "./desktop-data-authority";
@@ -81,10 +81,11 @@ const coreRequest = (
 const output = (
   result: CoreCreateResult,
   request: PrepareNodexAgentCreatePagesRequest,
-) => CreatePagesV3OutputSchema.parse({
+) => CreatePagesV6OutputSchema.parse({
   data: {
     pages: result.pages.map((page) => ({
       pageId: page.page_id,
+      pageKey: page.page_key ?? null,
       location: nativeAgentPageLocation(page.location),
       bodyBlocksCreated: page.body_blocks_created,
       ...(request.input.return?.includes("block_ids")

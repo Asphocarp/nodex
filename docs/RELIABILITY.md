@@ -90,6 +90,22 @@ unreachability and permanently retires stable identities.
 
 Read [Document Sync, History, and Retention](reliability/document-sync-history-and-retention.md).
 
+## Page-key allocation
+
+Page-key allocation is part of the same Core transaction that commits Page
+creation or Database placement. Exact receipt replay returns the original
+assignment without consuming another number. Failed transactions consume
+nothing; committed archive, deletion, or relocation never releases a number.
+Cross-Database moves preserve the source assignment and allocate or reuse the
+target assignment atomically with membership and projection effects.
+
+Prefix changes are revision-fenced and retain the exact previously allocated
+range for historical resolution. Projection repair may temporarily hide a key,
+but it cannot synthesize, reserve, renumber, or reclaim one. Whole-Store backup,
+restore, validation, and retention cover namespace, prefix, and assignment
+authority together. Detailed identity and allocation decisions are recorded in
+[ADR 0043](adr/0043-database-scoped-page-keys.md).
+
 ## Backup, restore, and maintenance
 
 A whole-Store backup covers the database and managed assets behind one Core

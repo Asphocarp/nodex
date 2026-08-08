@@ -6,6 +6,7 @@ import { Card } from "./card";
 
 const SAMPLE_CARD: CardType = {
   id: "card-active-panel",
+  pageKey: "LAB-13",
   status: "build",
   archived: false,
   title: "Refine panel-aware card focus",
@@ -26,11 +27,13 @@ function CardStoryFrame({
   isKeyboardActive = false,
   isSelected = false,
   dragDisabled = true,
+  showPageKey = false,
 }: {
   isPresented?: boolean;
   isKeyboardActive?: boolean;
   isSelected?: boolean;
   dragDisabled?: boolean;
+  showPageKey?: boolean;
 }) {
   return (
     <div className="min-h-screen bg-token-main-surface-primary p-8">
@@ -47,6 +50,7 @@ function CardStoryFrame({
             { id: "o_BBBBBBBB", name: "Panels", color: "gray" },
           ]}
           dragDisabled={dragDisabled}
+          showPageKey={showPageKey}
           isPresented={isPresented}
           isKeyboardActive={isKeyboardActive}
           isSelected={isSelected}
@@ -70,6 +74,10 @@ type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {
   render: () => <CardStoryFrame />,
+};
+
+export const WithPageKey: Story = {
+  render: () => <CardStoryFrame showPageKey />,
 };
 
 export const Presented: Story = {

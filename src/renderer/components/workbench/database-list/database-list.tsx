@@ -42,7 +42,10 @@ import {
   DatabaseViewMutationError,
   type DatabaseViewMutationReceipt,
 } from "@/lib/database-view-row-mutations";
-import { matchesSearchTokens, tokenizeSearchQuery } from "@/lib/page-search";
+import {
+  compilePageCollectionSearchQuery,
+  matchesPageCollectionSearchQuery,
+} from "@/lib/page-search";
 import { normalizeSearchText } from "@/lib/search-text";
 import { cn } from "@/lib/utils";
 import { StatusIcon } from "@/lib/status-presentation";
@@ -105,7 +108,12 @@ import {
 import { DatabaseListRowContextMenu } from "./database-list-row-context-menu";
 import { DatabaseListSelectionActionBar } from "./database-list-selection-action-bar";
 import { useDatabaseListGrid } from "./use-database-list-grid";
-import { withForcedDatabaseListField } from "./database-list-grid";
+import {
+  databaseListIdentifierSamples,
+  projectDatabaseListPageIdentity,
+  withForcedDatabaseListField,
+  type DatabaseListPageIdentity,
+} from "./database-list-grid";
 import {
   databaseListDragTargetChangesPlacement,
   databaseListProjectionReflectsMove,
@@ -130,6 +138,10 @@ import { databaseListNestingContinuations } from "./database-list-nesting-lines"
 import { DATABASE_LIST_THEME_CLASS_NAME } from "./database-list-theme";
 
 const INITIAL_OVERSCAN = 100;
+const EMPTY_DATABASE_LIST_PAGE_IDENTITY: DatabaseListPageIdentity = {
+  label: "",
+  title: "",
+};
 const IDLE_OVERSCAN_STEP = 600;
 const IDLE_OVERSCAN_PASSES = 3;
 
@@ -474,8 +486,8 @@ export function DatabaseList({
   const [continuationError, setContinuationError] = useState<string | null>(null);
   const [mutationError, setMutationError] = useState<string | null>(null);
   const mutationPending = pendingMutationCount > 0;
-  const searchTokens = useMemo(
-    () => tokenizeSearchQuery(deferredSearchQuery),
+  const compiledSearchQuery = useMemo(
+    () => compilePageCollectionSearchQuery(deferredSearchQuery),
     [deferredSearchQuery],
   );
   const columns = useMemo(() => {
@@ -486,13 +498,14 @@ export function DatabaseList({
     ).map((column): DatabaseViewRenderColumn => ({
       ...column,
       name: groupLabel(model, presentation.group?.propertyId, column.groupKey),
-      rows: searchTokens.length === 0
+      rows: compiledSearchQuery.normalizedQuery.length === 0
         ? column.rows
-        : column.rows.filter((row) => matchesSearchTokens(
+        : column.rows.filter((row) => matchesPageCollectionSearchQuery(
+            row.pageKey,
             normalizeSearchText(
               `${row.title} ${row.preview} ${row.plainText} ${searchablePropertyValues(model, row.pageId, propertyOptionRegistries.options)}`,
             ),
-            searchTokens,
+            compiledSearchQuery,
           )),
         }));
     return presentation.groupDirection === "desc"
@@ -504,7 +517,7 @@ export function DatabaseList({
     presentation.group?.propertyId,
     presentation.groupDirection,
     propertyOptionRegistries.options,
-    searchTokens,
+    compiledSearchQuery,
   ]);
   const totalRowsByScope = useMemo(() => new Map(columns.map((column) => [
     column.scopeKey,
@@ -547,17 +560,18 @@ export function DatabaseList({
       presentation.subgroup?.propertyId,
       key,
     ),
-    ...(searchTokens.length === 0
+    ...(compiledSearchQuery.normalizedQuery.length === 0
       ? {}
       : {
           matchesPage: (
             row: DatabaseViewRenderRow,
             authority: DataSourcePageRowV2,
-          ) => matchesSearchTokens(
+          ) => matchesPageCollectionSearchQuery(
+            row.pageKey,
             normalizeSearchText(
               `${row.title} ${row.preview} ${row.plainText} ${searchableAuthorityValues(authority, model.query.properties, propertyOptionRegistries.options)}`,
             ),
-            searchTokens,
+            compiledSearchQuery,
           ),
         }),
   }), [
@@ -567,7 +581,7 @@ export function DatabaseList({
     presentation.group?.propertyId,
     presentation.subgroup?.propertyId,
     propertyOptionRegistries.options,
-    searchTokens,
+    compiledSearchQuery,
   ]);
   // Authorized runtime Views have exactly one ordering authority: Core's List
   // occurrence projection. Falling back to the Board query while that window
@@ -678,15 +692,34 @@ export function DatabaseList({
     priority: selectedPropertyIds.has("priority") && activePropertyIds.has("priority"),
     status: selectedPropertyIds.has("status") && activePropertyIds.has("status"),
   }), [activePropertyIds, selectedPropertyIds]);
+  const identifierSamples = useMemo(() => databaseListIdentifierSamples(
+    projection,
+    (row) => row.kind === "page" ? row.row.pageKey : null,
+  ), [projection]);
   const {
-    showIdentifier,
+    identityFields,
     inlineFields,
     trailingFields,
     gridTemplateColumns,
   } = useDatabaseListGrid(
     allFields,
     coreColumnVisibility,
+    identifierSamples,
   );
+  const pageIdentityByOccurrenceKey = useMemo(() => {
+    const identities = new Map<string, DatabaseListPageIdentity>();
+    for (const row of projection) {
+      if (row.kind !== "page") continue;
+      identities.set(
+        row.key,
+        projectDatabaseListPageIdentity(
+          row.row.pageKey,
+          identityFields,
+        ),
+      );
+    }
+    return identities;
+  }, [identityFields, projection]);
   const virtualWindow = useMemo(() => computeDatabaseListVirtualWindow(
     projection,
     scrollTop,
@@ -716,7 +749,7 @@ export function DatabaseList({
     [projection],
   );
   const logicalExtraRows = usesCoreAuthority
-    ? coreWindow.active && searchTokens.length === 0
+    ? coreWindow.active && compiledSearchQuery.normalizedQuery.length === 0
       ? Math.max(0, coreWindow.totalProjectionRowCount - coreWindow.rows.length)
       : 0
     : [...(groupPagination?.values() ?? [])].reduce(
@@ -1504,7 +1537,8 @@ export function DatabaseList({
         }
         showPriority={coreColumnVisibility.priority}
         showStatus={coreColumnVisibility.status}
-        showIdentifier={showIdentifier}
+        identity={pageIdentityByOccurrenceKey.get(item.key)
+          ?? EMPTY_DATABASE_LIST_PAGE_IDENTITY}
         nestingContinuations={nestingContinuationsByKey.get(item.key) ?? []}
       />
     );
@@ -1514,6 +1548,7 @@ export function DatabaseList({
         selected={selected}
         canMoveUp={canMoveUp}
         canMoveDown={canMoveDown}
+        pageKey={item.row.pageKey}
         onOpen={() => onOpenPage(item.pageId, item.row.title)}
         onSelectOnly={() => updateSelection((current) => selectDatabaseListOccurrence({
           state: current,
@@ -1559,7 +1594,7 @@ export function DatabaseList({
       disabled={model.readOnlyReason !== null || !coreWindow.active || optimisticMove !== null}
       overlayColumns={{
         priority: coreColumnVisibility.priority,
-        identifier: showIdentifier,
+        identifier: identityFields.length > 0,
         status: coreColumnVisibility.status,
       }}
       onActiveChange={setDndActive}
@@ -1656,7 +1691,7 @@ export function DatabaseList({
           <div className="flex min-h-40 items-center justify-center text-sm text-token-description-foreground">
             {usesCoreAuthority && coreWindow.loading
               ? "Loading Pages…"
-              : searchTokens.length > 0
+              : compiledSearchQuery.normalizedQuery.length > 0
                 ? "No matching Pages"
                 : "No Pages in this View"}
           </div>

@@ -152,7 +152,11 @@ export function PageStageDevStoryPage({
     if (!result.ok) throw new Error(result.error.message);
     const projected = projectPageDetailToStageModel(result.value);
     if (standalone) {
-      return { ...projected, databaseContext: { kind: "standalone" } };
+      return {
+        ...projected,
+        page: { ...projected.page, pageKey: null },
+        databaseContext: { kind: "standalone" },
+      };
     }
     if (
       schemaVariant === "default"

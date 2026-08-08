@@ -63,6 +63,9 @@ fn database_policy(read: &DatabaseRead) -> ReadBudgetPolicy {
         | DatabaseRead::RelationTargetWindow { .. }
         | DatabaseRead::RelationCandidateWindow { .. } => ReadBudgetPolicy::CollectionWindow,
         DatabaseRead::RowsById { .. } => ReadBudgetPolicy::BoundedBatch,
+        DatabaseRead::PageKeyPrefixPreview { .. } | DatabaseRead::PageKeyNamespace { .. } => {
+            ReadBudgetPolicy::Identity
+        }
         // Group summaries are capped at MAX_VIEW_GROUP_SUMMARIES with an
         // explicit truncation flag, so the response cardinality is finite.
         DatabaseRead::ViewGroups { .. } => ReadBudgetPolicy::FixedDomain,
@@ -142,6 +145,7 @@ fn library_policy(read: &LibraryRead) -> ReadBudgetPolicy {
         | LibraryRead::ReleaseSearchSnapshot { .. }
         | LibraryRead::AgentBlockTarget { .. }
         | LibraryRead::PageTarget { .. }
+        | LibraryRead::PageKeyTarget { .. }
         | LibraryRead::CanvasTarget { .. }
         | LibraryRead::PageLocation { .. }
         | LibraryRead::ViewLocation { .. }

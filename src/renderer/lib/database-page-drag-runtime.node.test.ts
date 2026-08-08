@@ -95,6 +95,7 @@ const snapshot = (): DatabaseModuleReadSnapshotV2 => ({
         updatedAt: timestamp,
       }],
       rows: [{
+        pageKey: null,
         page: {
           pageId: "page-1",
           libraryId: "library-1",

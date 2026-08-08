@@ -31,13 +31,13 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use utoipa::{OpenApi, ToSchema};
 
-pub const TRANSPORT_PROTOCOL_MIN: u32 = 8;
-pub const TRANSPORT_PROTOCOL_MAX: u32 = 8;
+pub const TRANSPORT_PROTOCOL_MIN: u32 = 10;
+pub const TRANSPORT_PROTOCOL_MAX: u32 = 10;
 pub const COMPATIBILITY_MANIFEST_VERSION: u32 = 1;
 pub const STORE_LINEAGE: &str = "nodex-rust-core";
-pub const CURRENT_STORE_VERSION: u32 = 120;
+pub const CURRENT_STORE_VERSION: u32 = 123;
 pub const CURRENT_STORE_SCHEMA_FINGERPRINT: &str =
-    "44166b0a3992507de891cae82323fdb1090ffe2026289cdc1c70c2dde64dcc7d";
+    "c9393a19379cb238cb806ec0d011e2ca0d95884a53c5844e42f9ffef44b0571f";
 pub const MAX_ORDINARY_JSON_REQUEST_BYTES: usize = 2 * 1024 * 1024;
 pub const MAX_ORDINARY_JSON_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
 pub const MAX_EVENT_FRAME_BYTES: usize = (2 * 1024 * 1024) + (256 * 1024);
@@ -101,7 +101,8 @@ pub fn store_format(version: u32) -> Option<StoreFormatIdentity> {
         117 => "cf611cb3bd2c7bd50113f6dfda39dd448f7e38bd00f9ab09ad2c9ba05d2346e4",
         118 => "cf814b86c73f184a76bc1a562505e9b514b58940c29fd15a323c3672de841caf",
         119 => "7778a93bfa274ff9b009bd607d506a34118d1c925369cd6fabf11340d9601160",
-        120 => CURRENT_STORE_SCHEMA_FINGERPRINT,
+        120 => "44166b0a3992507de891cae82323fdb1090ffe2026289cdc1c70c2dde64dcc7d",
+        121 | 122 | 123 => CURRENT_STORE_SCHEMA_FINGERPRINT,
         _ => return None,
     };
     Some(StoreFormatIdentity {

@@ -14,7 +14,8 @@ use rusqlite::{Connection, params_from_iter, types::Value as SqlValue};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
-use crate::database;
+use crate::database::{self, resolve_page_key_matches_in_library};
+use crate::domain::page_key::is_explicit_page_key_search;
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
 use super::{agent_authorization, cursor};
@@ -34,6 +35,7 @@ const MAX_LIMIT: usize = 100;
 #[derive(Clone)]
 struct PageCandidate {
     id: String,
+    page_key: Option<String>,
     title: String,
     parent_kind: String,
     parent_id: String,
@@ -123,37 +125,56 @@ pub(super) fn read(
         return empty();
     }
 
-    let candidates = read_page_candidates(connection, library_id, &scope, include_archived)?;
-    let candidate_ids = candidates
-        .iter()
-        .map(|candidate| candidate.id.clone())
-        .collect::<Vec<_>>();
-    let authorized = agent_authorization::authorized_page_ids(
-        connection,
-        context,
-        library_id,
-        authorization,
-        &candidate_ids,
-    )?;
-    let candidates = candidates
-        .into_iter()
-        .filter(|candidate| authorized.contains(&candidate.id))
-        .collect::<Vec<_>>();
-    let authorized_ids = candidates
-        .iter()
-        .map(|candidate| candidate.id.clone())
-        .collect::<Vec<_>>();
-    let mut items = match target {
-        LibraryAgentSearchTarget::Pages => {
-            search_pages(connection, &terms, candidates, include_archived)?
-        }
-        LibraryAgentSearchTarget::Blocks => search_blocks(
+    let exact_page_keys = if target == LibraryAgentSearchTarget::Pages {
+        exact_page_key_results(
             connection,
-            &terms,
-            &authorized_ids,
-            block_types.as_deref(),
+            context,
+            library_id,
+            authorization,
+            query,
+            &scope,
             include_archived,
-        )?,
+        )?
+    } else {
+        Vec::new()
+    };
+    let mut items = if !exact_page_keys.is_empty() {
+        exact_page_keys
+    } else if target == LibraryAgentSearchTarget::Pages && is_explicit_page_key_search(query) {
+        Vec::new()
+    } else {
+        let candidates = read_page_candidates(connection, library_id, &scope, include_archived)?;
+        let candidate_ids = candidates
+            .iter()
+            .map(|candidate| candidate.id.clone())
+            .collect::<Vec<_>>();
+        let authorized = agent_authorization::authorized_page_ids(
+            connection,
+            context,
+            library_id,
+            authorization,
+            &candidate_ids,
+        )?;
+        let candidates = candidates
+            .into_iter()
+            .filter(|candidate| authorized.contains(&candidate.id))
+            .collect::<Vec<_>>();
+        let authorized_ids = candidates
+            .iter()
+            .map(|candidate| candidate.id.clone())
+            .collect::<Vec<_>>();
+        match target {
+            LibraryAgentSearchTarget::Pages => {
+                search_pages(connection, &terms, candidates, include_archived)?
+            }
+            LibraryAgentSearchTarget::Blocks => search_blocks(
+                connection,
+                &terms,
+                &authorized_ids,
+                block_types.as_deref(),
+                include_archived,
+            )?,
+        }
     };
     let start = after
         .as_deref()
@@ -239,6 +260,16 @@ fn read_page_candidates(
     scope: &LibraryAgentSearchScope,
     include_archived: bool,
 ) -> Result<Vec<PageCandidate>, StoreError> {
+    read_page_candidates_with_exact_id(connection, library_id, scope, include_archived, None)
+}
+
+fn read_page_candidates_with_exact_id(
+    connection: &Connection,
+    library_id: &str,
+    scope: &LibraryAgentSearchScope,
+    include_archived: bool,
+    exact_page_id: Option<&str>,
+) -> Result<Vec<PageCandidate>, StoreError> {
     let lifecycle = if include_archived {
         "page_block.lifecycle <> 'deleted'"
     } else {
@@ -274,6 +305,10 @@ fn read_page_candidates(
             parameters.push(SqlValue::Text(database_id.clone()));
         }
     }
+    if let Some(exact_page_id) = exact_page_id {
+        conditions.push("page.block_id = ?".to_owned());
+        parameters.push(SqlValue::Text(exact_page_id.to_owned()));
+    }
     parameters.push(SqlValue::Integer((MAX_METADATA_PAGES + 1) as i64));
     let sql = format!(
         "WITH RECURSIVE hierarchy(root_page_id, page_id, parent_kind, parent_id, path) AS ( \
@@ -287,7 +322,22 @@ fn read_page_candidates(
            WHERE parent.library_id = ? \
              AND instr(hierarchy.path, '|' || parent.block_id || '|') = 0 \
          ) \
-         SELECT page.block_id, materialization.title, page.parent_kind, page.parent_id \
+         SELECT page.block_id, materialization.title, page.parent_kind, page.parent_id, \
+           (SELECT prefix.normalized_prefix || '-' || assignment.number \
+            FROM data_sources current_source \
+            JOIN page_key_namespaces namespace \
+              ON namespace.database_block_id = current_source.home_database_block_id \
+             AND namespace.library_id = page.library_id \
+            JOIN page_key_prefixes prefix \
+              ON prefix.database_block_id = namespace.database_block_id \
+             AND prefix.library_id = namespace.library_id \
+             AND prefix.retired_at IS NULL \
+            JOIN page_key_assignments assignment \
+              ON assignment.database_block_id = namespace.database_block_id \
+             AND assignment.page_block_id = page.block_id \
+            WHERE page.parent_kind = 'data_source' \
+              AND current_source.id = page.parent_id \
+              AND current_source.library_id = page.library_id) AS page_key \
          FROM pages page \
          JOIN blocks page_block ON page_block.id = page.block_id \
            AND page_block.library_id = page.library_id \
@@ -307,6 +357,7 @@ fn read_page_candidates(
         .query_map(params_from_iter(parameters.iter()), |row| {
             Ok(PageCandidate {
                 id: row.get(0)?,
+                page_key: row.get(4)?,
                 title: row.get(1)?,
                 parent_kind: row.get(2)?,
                 parent_id: row.get(3)?,
@@ -321,6 +372,72 @@ fn read_page_candidates(
         ));
     }
     Ok(candidates)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn exact_page_key_results(
+    connection: &Connection,
+    context: &BoundModuleContext,
+    library_id: &str,
+    authorization: &AgentExecutionAuthorization,
+    query: &str,
+    scope: &LibraryAgentSearchScope,
+    include_archived: bool,
+) -> Result<Vec<LibraryAgentSearchResult>, StoreError> {
+    let mut matches = Vec::new();
+    for resolution in resolve_page_key_matches_in_library(connection, library_id, query)? {
+        let mut candidates = read_page_candidates_with_exact_id(
+            connection,
+            library_id,
+            scope,
+            include_archived,
+            Some(&resolution.page_block_id),
+        )?;
+        let Some(page) = candidates.pop() else {
+            continue;
+        };
+        matches.push((resolution, page));
+    }
+    if matches.is_empty() {
+        agent_authorization::authorized_page_ids(
+            connection,
+            context,
+            library_id,
+            authorization,
+            &[],
+        )?;
+        return Ok(Vec::new());
+    }
+    let candidate_ids = matches
+        .iter()
+        .map(|(_, page)| page.id.clone())
+        .collect::<Vec<_>>();
+    let authorized = agent_authorization::authorized_page_ids(
+        connection,
+        context,
+        library_id,
+        authorization,
+        &candidate_ids,
+    )?;
+    let mut results = Vec::new();
+    for (resolution, page) in matches {
+        if !authorized.contains(&page.id) {
+            continue;
+        }
+        let location = page_location(&page)?;
+        results.push(LibraryAgentSearchResult::Page {
+            id: page.id,
+            page_key: resolution.current_page_key,
+            title: page.title,
+            location,
+            matches: vec![LibraryAgentPageSearchMatch::PageKey {
+                quality: LibraryAgentSearchMatchQuality::Exact,
+                page_key: resolution.matched_page_key,
+                is_current: resolution.is_current,
+            }],
+        });
+    }
+    Ok(results)
 }
 
 fn search_pages(
@@ -423,6 +540,7 @@ fn search_pages(
             let location = page_location(&aggregate.page)?;
             Ok(LibraryAgentSearchResult::Page {
                 id: aggregate.page.id,
+                page_key: aggregate.page.page_key,
                 title: aggregate.page.title,
                 location,
                 matches: representative_evidence(aggregate.evidence, terms),
@@ -1157,6 +1275,7 @@ mod tests {
         let evidence = metadata_evidence(
             &PageCandidate {
                 id: "page:integraton".to_owned(),
+                page_key: None,
                 title: "Unrelated".to_owned(),
                 parent_kind: "library".to_owned(),
                 parent_id: "library:test".to_owned(),

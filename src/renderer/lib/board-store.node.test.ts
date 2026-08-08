@@ -128,6 +128,7 @@ function createDatabaseViewSnapshot(
     properties: [statusProperty],
     view,
     rows: [{
+      pageKey: null,
       membership: {
         membershipId: "membership-1",
         dataSourceId,
@@ -182,6 +183,7 @@ function createDatabaseViewSnapshot(
 function createPageSummary(title = "Initial title"): DatabasePageSummary {
   return {
     id: "card-1",
+    pageKey: null,
     status: "triage",
     archived: false,
     title,
@@ -1210,6 +1212,7 @@ describe("board store", () => {
             code: "stale_store_epoch",
             message: "Collection cursor belongs to another Store epoch",
             retryable: false,
+            recovery: { kind: "none" },
           });
         }
         return requests.length === 1 ? first : recovered;
@@ -1574,6 +1577,7 @@ describe("board store", () => {
 
     store.applyRemoteCard({
       id: "card-1",
+      pageKey: null,
       status: "triage",
       archived: false,
       title: "Remote title",
@@ -1588,6 +1592,7 @@ describe("board store", () => {
     const indexedPage = store.getSnapshot().pageIndex.get("card-1");
     const summary = toDatabasePageSummary({
       id: "card-1",
+      pageKey: null,
       status: "triage",
       archived: false,
       title: "Remote title",
@@ -1616,6 +1621,7 @@ describe("board store", () => {
 
     store.applyRemoteCardSummary({
       id: "card-1",
+      pageKey: null,
       status: "triage",
       archived: false,
       title: "Ack title",

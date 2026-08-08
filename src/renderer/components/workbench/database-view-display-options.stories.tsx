@@ -51,12 +51,15 @@ const durable: EffectiveDatabaseViewPresentation = {
     hierarchy: { showSubPages: true, nestedSubPages: false },
     layouts: {
       board: {
-        fields: [{ kind: "property", propertyId: "priority" }],
+        fields: [
+          { kind: "intrinsic", field: "page_key" },
+          { kind: "property", propertyId: "priority" },
+        ],
         showEmptyGroups: false,
       },
       list: {
         fields: [
-          { kind: "intrinsic", field: "page_id" },
+          { kind: "intrinsic", field: "page_key" },
           { kind: "property", propertyId: "status" },
           { kind: "property", propertyId: "priority" },
           { kind: "property", propertyId: "assignee" },

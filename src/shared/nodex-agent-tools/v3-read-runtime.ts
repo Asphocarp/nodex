@@ -4,15 +4,17 @@ import type { FrozenNodexAgentTurnAuthority } from "../nodex-agent-authority";
 import type { NodexAgentResourceAccessOverlay } from "../nodex-agent-resource-access";
 import type {
   FetchV3InputSchema,
-  FetchV3OutputSchema,
   GetContextV3InputSchema,
   GetContextV3OutputSchema,
-  QueryDatabaseV3OutputSchema,
   QueryDataSourceV3InputSchema,
   QueryDatabaseViewV3InputSchema,
   SearchV3InputSchema,
-  SearchV3OutputSchema,
 } from "./v3-read-schemas";
+import type {
+  FetchV6OutputSchema,
+  QueryDatabaseV6OutputSchema,
+  SearchV6OutputSchema,
+} from "./v6-schemas";
 import type { z } from "zod";
 
 export type NodexAgentV3ReadRequest =
@@ -67,17 +69,17 @@ export type NodexAgentV3ReadSuccess =
   | {
       readonly ok: true;
       readonly tool: "fetch";
-      readonly output: z.infer<typeof FetchV3OutputSchema>;
+      readonly output: z.infer<typeof FetchV6OutputSchema>;
     }
   | {
       readonly ok: true;
       readonly tool: "search";
-      readonly output: z.infer<typeof SearchV3OutputSchema>;
+      readonly output: z.infer<typeof SearchV6OutputSchema>;
     }
   | {
       readonly ok: true;
       readonly tool: "query_database_view" | "query_data_source";
-      readonly output: z.infer<typeof QueryDatabaseV3OutputSchema>;
+      readonly output: z.infer<typeof QueryDatabaseV6OutputSchema>;
     };
 
 export type NodexAgentV3ReadCommandResult =

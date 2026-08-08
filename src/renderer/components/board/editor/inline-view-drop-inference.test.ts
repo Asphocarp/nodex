@@ -23,6 +23,7 @@ function makeCard(id: string, overrides: Partial<DatabasePageSummary> = {}): Dat
     created: new Date("2026-02-16T00:00:00.000Z"),
     order: 0,
     ...overrides,
+    pageKey: overrides.pageKey ?? null,
   };
 }
 

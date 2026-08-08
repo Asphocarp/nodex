@@ -10,7 +10,6 @@ import { ToolCallRawDialog } from "@/features/local-conversation/view/shared/too
 import { createMaitaiStore, MaitaiProvider } from "@/lib/maitai";
 import type { Project, ProjectSession } from "@/lib/types";
 import { createLargeContentFixtures } from "../../../src/main/performance/large-content-fixtures";
-import { makeWorkbenchPanelLayout } from "../../../src/shared/workbench-panel-layout";
 import { formatBoundedWorktreeOutput } from "../../../src/shared/worktree-output";
 import "../../../src/renderer/globals.css";
 

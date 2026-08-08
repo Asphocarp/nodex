@@ -6,7 +6,7 @@ import type {
   PrepareNodexAgentDuplicatePageRequest,
   PrepareNodexAgentDuplicatePageResult,
 } from "../../shared/nodex-agent-tools";
-import { DuplicatePageV3OutputSchema } from "../../shared/nodex-agent-tools/v3-write-schemas";
+import { DuplicatePageV6OutputSchema } from "../../shared/nodex-agent-tools/v6-schemas";
 import { TransferBlocksInputSchema } from "../../shared/nodex-agent-tools/write-schemas";
 import type { NodexAgentMutationEnvelope } from "../agent-tools/dynamic-service-v3-port";
 import type { RustDataAuthorityRuntime } from "./desktop-data-authority";
@@ -72,10 +72,11 @@ const coreRequest = (
 const output = (
   result: CoreCopyResult,
   includeBlockMap: boolean,
-) => DuplicatePageV3OutputSchema.parse({
+) => DuplicatePageV6OutputSchema.parse({
   data: {
     sourcePageId: result.source_page_id,
     pageId: result.page_id,
+    pageKey: result.page_key ?? null,
     location: nativeAgentPageLocation(result.location),
     bodyBlocksCreated: result.body_blocks_created,
     ...(includeBlockMap && result.block_map

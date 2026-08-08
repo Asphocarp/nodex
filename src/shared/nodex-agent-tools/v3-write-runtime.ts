@@ -17,14 +17,16 @@ import type {
   AdvancedUpdatePageV3InputSchema,
   AdvancedUpdatePageV3OutputSchema,
   CreatePagesV3InputSchema,
-  CreatePagesV3OutputSchema,
   DuplicatePageV3InputSchema,
-  DuplicatePageV3OutputSchema,
   MovePagesV3InputSchema,
-  MovePagesV3OutputSchema,
   UpdatePageV3InputSchema,
   UpdatePageV3OutputSchema,
 } from "./v3-write-schemas";
+import type {
+  CreatePagesV6OutputSchema,
+  DuplicatePageV6OutputSchema,
+  MovePagesV6OutputSchema,
+} from "./v6-schemas";
 import type { z } from "zod";
 import type { NodexAgentResourceAccessOverlay } from "../nodex-agent-resource-access";
 
@@ -102,7 +104,7 @@ export type PrepareNodexAgentCreatePagesResult =
       readonly value:
         | {
             readonly kind: "completed";
-            readonly output: z.infer<typeof CreatePagesV3OutputSchema>;
+            readonly output: z.infer<typeof CreatePagesV6OutputSchema>;
           }
         | {
             readonly kind: "prepared";
@@ -122,7 +124,7 @@ export type ExecuteNodexAgentCreatePagesResult =
   | {
       readonly ok: true;
       readonly value: {
-        readonly output: z.infer<typeof CreatePagesV3OutputSchema>;
+        readonly output: z.infer<typeof CreatePagesV6OutputSchema>;
         readonly duplicate: boolean;
         readonly documentCommits: readonly DocumentCommitRef[];
         readonly affectedDatabaseBlockIds: readonly string[];
@@ -155,7 +157,7 @@ export type PrepareNodexAgentDuplicatePageResult =
       readonly value:
         | {
             readonly kind: "completed";
-            readonly output: z.infer<typeof DuplicatePageV3OutputSchema>;
+            readonly output: z.infer<typeof DuplicatePageV6OutputSchema>;
           }
         | {
             readonly kind: "prepared";
@@ -169,7 +171,7 @@ export type ExecuteNodexAgentDuplicatePageResult =
   | {
       readonly ok: true;
       readonly value: {
-        readonly output: z.infer<typeof DuplicatePageV3OutputSchema>;
+        readonly output: z.infer<typeof DuplicatePageV6OutputSchema>;
         readonly duplicate: boolean;
         readonly documentCommits: readonly DocumentCommitRef[];
         readonly affectedDatabaseBlockIds: readonly string[];
@@ -211,7 +213,7 @@ export type PrepareNodexAgentMovePagesResult =
       readonly value:
         | {
             readonly kind: "completed";
-            readonly output: z.infer<typeof MovePagesV3OutputSchema>;
+            readonly output: z.infer<typeof MovePagesV6OutputSchema>;
           }
         | {
             readonly kind: "prepared";
@@ -225,7 +227,7 @@ export type ExecuteNodexAgentMovePagesResult =
   | {
       readonly ok: true;
       readonly value: {
-        readonly output: z.infer<typeof MovePagesV3OutputSchema>;
+        readonly output: z.infer<typeof MovePagesV6OutputSchema>;
         readonly duplicate: boolean;
         readonly documentCommits: readonly DocumentCommitRef[];
         readonly affectedDatabaseBlockIds: readonly string[];

@@ -10,15 +10,18 @@ Start broad only when necessary:
 ```sh
 nodex tree --json
 nodex rg --json "launch plan"
+nodex read --json LAB-13
 nodex read --json @PAGE_ID
 nodex read --json --meta @PAGE_ID
 nodex sed --json -n '1,80p' @PAGE_ID
 nodex history --json @PAGE_ID
 ```
 
-Use `--database @DATABASE_ID` or `--page @PAGE_ID` to narrow discovery. Search
-results and title paths are discovery aids; use the returned full `@PAGE_ID` for
-writes.
+Use `--database @DATABASE_ID` or `--page LAB-13` / `--page @PAGE_ID` to narrow
+discovery. A current or historical Page key resolves inside the selected
+Project and the result reports both current `page_key` and canonical `page_id`.
+Search results, keys, and title paths are discovery aids; use the returned full
+`@PAGE_ID` for writes and stable deeplinks.
 
 Page bodies are canonical Nested Markdown. Read
 [nested-markdown.md](nested-markdown.md) before authoring rich content. Write
@@ -38,6 +41,10 @@ nodex read --json --prepare page.move --view @VIEW_ID @PAGE_ID
 
 Use the returned narrow ETag only with that operation. After a conflict, reread
 and decide again.
+
+Do not place `LAB-13` into a structured `pageId` value or replace `@PAGE_ID` in
+the write examples below. Page keys are human CLI selectors; Core mutations and
+their validators remain bound to canonical IDs.
 
 ## Page workflows
 

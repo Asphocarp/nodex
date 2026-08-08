@@ -23,7 +23,10 @@ import type {
 } from "../../../shared/database-module-v2";
 import type { ColumnPaginationState } from "@/lib/board-store";
 import { NodexIconButton } from "@/components/ui/button";
-import { matchesSearchTokens, tokenizeSearchQuery } from "@/lib/page-search";
+import {
+  compilePageCollectionSearchQuery,
+  matchesPageCollectionSearchQuery,
+} from "@/lib/page-search";
 import {
   databaseViewSupportsManualReorder,
   buildDatabaseViewMovePageRunOperations,
@@ -73,6 +76,7 @@ import {
   type BoardKeyboardDirection,
 } from "../board/board-keyboard-navigation";
 import { PagePresenceRail } from "../board/page-presence-rail";
+import { BoardPageKey } from "../board/board-page-key";
 import { buildDatabaseViewBoardDropOperations } from "@/lib/database-view-drag-operations";
 import {
   buildBlockToDataSourceTransferIntent,
@@ -224,7 +228,8 @@ export const databaseViewMutationErrorMessage = (
 function BoardPageCardSurface({
   model,
   row,
-  presentation,
+  trailingProperties,
+  showPageKey,
   pendingMutationKeys,
   mutationErrors,
   canMoveUp,
@@ -258,7 +263,8 @@ function BoardPageCardSurface({
 }: {
   readonly model: DatabaseViewRenderModel;
   readonly row: DatabaseViewRenderRow;
-  readonly presentation: DatabaseViewPresentationConfig;
+  readonly trailingProperties: readonly DataSourcePropertyRecordV2[];
+  readonly showPageKey: boolean;
   readonly pendingMutationKeys: ReadonlyMap<string, number>;
   readonly mutationErrors: ReadonlyMap<string, string>;
   readonly canMoveUp: boolean;
@@ -334,7 +340,6 @@ function BoardPageCardSurface({
 }) {
   const authority = rowByPageId(model, row.pageId);
   if (!authority) return null;
-  const trailingProperties = displayedProperties(model, "board", presentation);
   const movePending = pendingMutationKeys.has(`page:${row.pageId}`);
   const title = row.title || "Untitled";
   const renderPropertyEditor = (property: DataSourcePropertyRecordV2) => {
@@ -433,6 +438,11 @@ function BoardPageCardSurface({
       )}
     >
       {presented ? <PagePresenceRail /> : null}
+      <BoardPageKey
+        pageKey={row.pageKey}
+        showPageKey={showPageKey}
+        className="mb-0.5"
+      />
       <div className="flex min-h-6 min-w-0 items-center gap-1">
         {draggable ? (
           <button
@@ -449,11 +459,11 @@ function BoardPageCardSurface({
         ) : null}
         <button
           type="button"
-          aria-label={`Open Page ${title}`}
-          className="min-w-0 flex-1 truncate text-left text-sm text-token-text-primary outline-none"
+          aria-label={`Open Page ${showPageKey && row.pageKey ? `${row.pageKey} ` : ""}${title}`}
+          className="min-w-0 flex-1 text-left text-sm text-token-text-primary outline-none"
           onClick={() => onOpenPage(row.pageId, row.title)}
         >
-          {title}
+          <span className="block truncate">{title}</span>
         </button>
         {databaseViewSupportsManualReorder(model) ? (
           <div className="flex shrink-0 opacity-0 group-hover/card:opacity-100 focus-within:opacity-100">
@@ -510,14 +520,15 @@ export function DatabaseViewSurface(props: DatabaseViewSurfaceProps) {
     });
     onSelectedPageIdsChange?.(next);
   }, [onSelectedPageIdsChange]);
-  const activeLayout = props.effectivePresentation?.layout
-    ?? props.presentationLayout
-    ?? props.model.query.view.defaultLayout;
-  if (activeLayout === "list") {
+  const effectivePresentation = props.effectivePresentation ?? {
+    layout: props.presentationLayout ?? props.model.query.view.defaultLayout,
+    presentation: props.model.query.view.config.presentation,
+  };
+  if (effectivePresentation.layout === "list") {
     return (
       <DatabaseList
         model={props.model}
-        effectivePresentation={props.effectivePresentation}
+        effectivePresentation={effectivePresentation}
         groupPagination={props.groupPagination}
         onLoadMoreGroup={props.onLoadMoreGroup}
         searchQuery={props.searchQuery}
@@ -536,6 +547,7 @@ export function DatabaseViewSurface(props: DatabaseViewSurfaceProps) {
   return (
     <BoardDatabaseViewSurface
       {...props}
+      effectivePresentation={effectivePresentation}
       initialSelectedPageIds={selectedPageIds}
       onSelectedPageIdsChange={handleSelectedPageIdsChange}
     />
@@ -544,7 +556,6 @@ export function DatabaseViewSurface(props: DatabaseViewSurfaceProps) {
 
 function BoardDatabaseViewSurface({
   model,
-  presentationLayout = model.query.view.defaultLayout,
   effectivePresentation,
   groupPagination,
   onLoadMoreGroup,
@@ -556,7 +567,9 @@ function BoardDatabaseViewSurface({
   presentedPageIds,
   initialSelectedPageIds,
   onSelectedPageIdsChange,
-}: DatabaseViewSurfaceProps) {
+}: Omit<DatabaseViewSurfaceProps, "effectivePresentation"> & {
+  readonly effectivePresentation: EffectiveDatabaseViewPresentation;
+}) {
   const [pendingMutationKeys, setPendingMutationKeys] = useState<ReadonlyMap<
     string,
     number
@@ -603,12 +616,18 @@ function BoardDatabaseViewSurface({
   useEffect(() => {
     onSelectedPageIdsChange?.(selectedPageIds);
   }, [onSelectedPageIdsChange, selectedPageIds]);
-  const activeLayout = effectivePresentation?.layout ?? presentationLayout;
-  const presentation = effectivePresentation?.presentation
-    ?? model.query.view.config.presentation;
-  const searchTokens = useMemo(
-    () => tokenizeSearchQuery(deferredSearchQuery),
+  const activeLayout = effectivePresentation.layout;
+  const presentation = effectivePresentation.presentation;
+  const compiledSearchQuery = useMemo(
+    () => compilePageCollectionSearchQuery(deferredSearchQuery),
     [deferredSearchQuery],
+  );
+  const trailingBoardProperties = useMemo(
+    () => displayedProperties(model, "board", presentation),
+    [model, presentation],
+  );
+  const showBoardPageKey = presentation.layouts.board.fields.some(
+    (field) => field.kind === "intrinsic" && field.field === "page_key",
   );
   const columns = useMemo(
     () => buildDatabaseViewColumns(
@@ -617,17 +636,18 @@ function BoardDatabaseViewSurface({
       presentation.layouts[activeLayout ?? "list"].showEmptyGroups,
     ).map((column): DatabaseViewRenderColumn => ({
       ...column,
-      rows: searchTokens.length === 0
+      rows: compiledSearchQuery.normalizedQuery.length === 0
         ? column.rows
         : column.rows.filter((row) =>
-            matchesSearchTokens(
-              normalizeSearchText(
-                `${row.title} ${row.preview} ${row.plainText} ${searchablePropertyValues(model, row.pageId, optionRegistries)}`,
-              ),
-              searchTokens,
+              matchesPageCollectionSearchQuery(
+                row.pageKey,
+                normalizeSearchText(
+                  `${row.title} ${row.preview} ${row.plainText} ${searchablePropertyValues(model, row.pageId, optionRegistries)}`,
+                ),
+                compiledSearchQuery,
             )),
     })),
-    [activeLayout, model, optionRegistries, presentation, searchTokens],
+    [activeLayout, compiledSearchQuery, model, optionRegistries, presentation],
   );
   const subgroupsByColumn = useMemo(() => {
     const subgroupPropertyId = presentation.subgroup?.propertyId;
@@ -1220,7 +1240,8 @@ function BoardDatabaseViewSurface({
   const pageProps = (row: DatabaseViewRenderRow) => ({
     model,
     row,
-    presentation,
+    trailingProperties: trailingBoardProperties,
+    showPageKey: showBoardPageKey,
     pendingMutationKeys,
     mutationErrors,
     canMoveUp: canMoveDatabaseViewPage({
@@ -1335,7 +1356,7 @@ function BoardDatabaseViewSurface({
       ) : null}
       {allRows.length === 0 ? (
         <div className="flex min-h-0 flex-1 items-center justify-center px-6 text-sm text-token-description-foreground">
-          {searchTokens.length > 0
+          {compiledSearchQuery.normalizedQuery.length > 0
             ? "No matching Pages"
             : "This View has no Pages"}
         </div>
