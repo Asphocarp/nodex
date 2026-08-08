@@ -243,6 +243,66 @@ describe("Page Detail store realtime convergence", () => {
     expect(mocks.readPageDetail).toHaveBeenCalledTimes(2);
   });
 
+  test("does not refetch when the initial checkpoint is covered by an in-flight read", async () => {
+    const firstRead = deferred<{ ok: true; value: PageDetail }>();
+    mocks.readPageDetail.mockReturnValueOnce(firstRead.promise);
+    const { result } = renderHook(
+      () => usePageDetail("library-1", "project-1", "page-1"),
+      { wrapper },
+    );
+
+    await act(async () => {
+      publish({
+        version: 2,
+        kind: "checkpoint",
+        scope: {
+          kind: "project",
+          libraryId: "library-1",
+          projectId: "project-1",
+        },
+        stream: { storeEpoch: "epoch-1", commitSeq: 2 },
+      });
+      firstRead.resolve({ ok: true, value: detail("Already current", 2) });
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(result.current.detail?.page.title).toBe("Already current");
+    });
+    expect(mocks.readPageDetail).toHaveBeenCalledTimes(1);
+  });
+
+  test("performs a trailing minimum-commit read when a checkpoint outruns the in-flight read", async () => {
+    const firstRead = deferred<{ ok: true; value: PageDetail }>();
+    mocks.readPageDetail
+      .mockReturnValueOnce(firstRead.promise)
+      .mockResolvedValueOnce({ ok: true, value: detail("Latest", 2) });
+    const { result } = renderHook(
+      () => usePageDetail("library-1", "project-1", "page-1"),
+      { wrapper },
+    );
+
+    await act(async () => {
+      publish({
+        version: 2,
+        kind: "checkpoint",
+        scope: {
+          kind: "project",
+          libraryId: "library-1",
+          projectId: "project-1",
+        },
+        stream: { storeEpoch: "epoch-1", commitSeq: 2 },
+      });
+      firstRead.resolve({ ok: true, value: detail("Stale", 1) });
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(result.current.detail?.page.title).toBe("Latest");
+    });
+    expect(mocks.readPageDetail).toHaveBeenCalledTimes(2);
+  });
+
   test("does not reread when an in-flight canonical snapshot covers the impact", async () => {
     const firstRead = deferred<{ ok: true; value: PageDetail }>();
     mocks.readPageDetail.mockReturnValueOnce(firstRead.promise);

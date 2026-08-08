@@ -317,7 +317,17 @@ export const usePageDetail = (
         }
         invalidatePageDetail(projectId, pageId);
       },
-      fence: () => invalidatePageDetail(projectId, pageId),
+      fence: (cause) => {
+        // A projection checkpoint can be delivered synchronously while the
+        // canonical Page Detail read is still in flight. Do not fence that
+        // read: requestPageDetailRefresh awaits it and performs a trailing
+        // minimum-commit read only when the result is actually old.
+        if (
+          cause.kind === "checkpoint"
+          && inFlight.has(detailKey(projectId, pageId))
+        ) return;
+        invalidatePageDetail(projectId, pageId);
+      },
       invalidate: (cause) => requestPageDetailRefresh(projectId, pageId, cause),
     });
   }, [libraryId, pageId, projectId, registry]);
