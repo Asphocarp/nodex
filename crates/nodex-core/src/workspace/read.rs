@@ -474,7 +474,7 @@ mod tests {
     fn seeded_module() -> (TempDir, SqliteStoreKernel, ProjectWorkspaceModule) {
         let directory = tempdir().expect("Profile");
         let home = directory.path().canonicalize().expect("absolute Profile");
-        let kernel = SqliteStoreKernel::open(&home).expect("fresh store");
+        let kernel = SqliteStoreKernel::open_test(&home).expect("fresh store");
         kernel
             .writer()
             .call(|connection| {

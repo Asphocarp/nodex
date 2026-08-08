@@ -268,7 +268,7 @@ mod tests {
     #[test]
     fn finalizes_an_idle_revision_session_at_the_current_document_head() {
         let home = tempfile::tempdir().expect("Profile home");
-        let kernel = SqliteStoreKernel::open(home.path()).expect("fresh store");
+        let kernel = SqliteStoreKernel::open_test(home.path()).expect("fresh store");
         kernel
             .writer()
             .call(|connection| {

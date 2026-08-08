@@ -1309,6 +1309,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "explicit frozen legacy inventory compatibility gate"]
     fn imports_every_frozen_legacy_inventory_and_reopens_idempotently() {
         let migrator = migrator_command();
         for (fixture_name, version) in LEGACY_FIXTURES {

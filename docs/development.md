@@ -160,7 +160,11 @@ The test commands follow production boundaries:
 - `pnpm run test:performance` runs hardware-sensitive latency gates. Run it
   manually on a stable machine; do not use its raw timing thresholds as a
   shared-CI gate.
-- `pnpm run core:fmt`, `pnpm run core:clippy`, and `pnpm run core:test` validate the native authority.
+- `pnpm run core:fmt`, `pnpm run core:clippy`, and `pnpm run core:test`
+  validate the native authority. The complete Core test command runs the
+  ordinary workspace suite with two test threads, then runs the Canvas scale,
+  high-cardinality ledger migration, and frozen legacy inventory gates
+  explicitly and serially.
 - `pnpm run core:protocol:verify` and `pnpm run core:module-boundaries` verify generated contracts and the Rust-only production boundary.
 - `pnpm test:e2e` rebuilds the native Core plus Electron application, then
   exercises the complete Electron/preload/IPC/Core chain. Do not invoke the
@@ -182,6 +186,24 @@ product boundary cheaply and deterministically. Move a case into the stress
 tier when its scale or concurrency is the behavior under test. Keep
 hardware-dependent timing and memory thresholds in explicit benchmark or
 performance commands instead of either Vitest tier.
+
+The native Core has the same separation. `cargo test -p nodex-core` excludes
+tests marked as explicit scale or exhaustive compatibility gates. Repository
+Cargo configuration defaults the I/O-heavy SQLite suite to two test threads;
+an explicit libtest argument can override that default when profiling:
+
+```bash
+cargo test -p nodex-core -- --test-threads=2
+```
+
+Ordinary semantic tests clone an isolated current-schema Store template. Fresh
+Store creation, exact-schema validation, upgrades, recovery, and profile-secret
+generation retain dedicated tests against the real startup path.
+
+Run `pnpm run core:test:scale` when changing Canvas incremental storage,
+high-cardinality migrations, or the closed legacy importer. `pnpm run
+core:test` includes both the ordinary and scale tiers for final source
+verification.
 
 Use the matching runtime when running one test file:
 

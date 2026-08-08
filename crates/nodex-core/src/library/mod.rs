@@ -1047,7 +1047,7 @@ mod tests {
         const NOW: &str = "2026-07-20T09:20:00.000Z";
         let directory = tempdir().expect("Profile");
         let home = directory.path().canonicalize().expect("absolute Profile");
-        let kernel = SqliteStoreKernel::open(&home).expect("fresh store");
+        let kernel = SqliteStoreKernel::open_test(&home).expect("fresh store");
         kernel
             .writer()
             .call(|connection| {
@@ -1427,7 +1427,7 @@ mod tests {
         };
         let directory = tempdir().expect("Profile");
         let home = directory.path().canonicalize().expect("absolute Profile");
-        let kernel = SqliteStoreKernel::open(&home).expect("fresh store");
+        let kernel = SqliteStoreKernel::open_test(&home).expect("fresh store");
         kernel
             .writer()
             .call(|connection| {
@@ -1720,7 +1720,7 @@ mod tests {
         };
         let directory = tempdir().expect("Profile");
         let home = directory.path().canonicalize().expect("absolute Profile");
-        let kernel = SqliteStoreKernel::open(&home).expect("fresh store");
+        let kernel = SqliteStoreKernel::open_test(&home).expect("fresh store");
         kernel
             .writer()
             .call(|connection| {
@@ -1983,7 +1983,7 @@ mod tests {
 
         let directory = tempdir().expect("Profile");
         let home = directory.path().canonicalize().expect("absolute Profile");
-        let kernel = SqliteStoreKernel::open(&home).expect("fresh store");
+        let kernel = SqliteStoreKernel::open_test(&home).expect("fresh store");
         kernel
             .writer()
             .call(|connection| {
@@ -3030,7 +3030,7 @@ mod tests {
         };
         let directory = tempdir().expect("Profile");
         let home = directory.path().canonicalize().expect("absolute Profile");
-        let kernel = SqliteStoreKernel::open(&home).expect("fresh store");
+        let kernel = SqliteStoreKernel::open_test(&home).expect("fresh store");
         kernel
             .writer()
             .call(|connection| {
@@ -3251,7 +3251,7 @@ mod tests {
         let foreign_context = context_for("project-2");
         let directory = tempdir().expect("Profile");
         let home = directory.path().canonicalize().expect("absolute Profile");
-        let kernel = SqliteStoreKernel::open(&home).expect("fresh store");
+        let kernel = SqliteStoreKernel::open_test(&home).expect("fresh store");
         kernel
             .writer()
             .call(|connection| {
@@ -3611,7 +3611,7 @@ mod tests {
         };
         let directory = tempdir().expect("Profile");
         let home = directory.path().canonicalize().expect("absolute Profile");
-        let kernel = SqliteStoreKernel::open(&home).expect("fresh store");
+        let kernel = SqliteStoreKernel::open_test(&home).expect("fresh store");
         kernel
             .writer()
             .call(|connection| {
@@ -4900,7 +4900,7 @@ mod tests {
         };
         let directory = tempdir().expect("Profile");
         let home = directory.path().canonicalize().expect("absolute Profile");
-        let kernel = SqliteStoreKernel::open(&home).expect("fresh store");
+        let kernel = SqliteStoreKernel::open_test(&home).expect("fresh store");
         kernel
             .writer()
             .call(|connection| {

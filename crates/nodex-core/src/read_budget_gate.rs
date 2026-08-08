@@ -476,7 +476,7 @@ fn assert_store_health(connection: &Connection) {
 #[ignore = "explicit large-data reliability gate"]
 fn read_budget_gate_large_fixture() {
     let home = profile_home();
-    let kernel = SqliteStoreKernel::open(&home).expect("open disposable gate Profile");
+    let kernel = SqliteStoreKernel::open_test(&home).expect("open disposable gate Profile");
     seed_identity_and_workspace(&kernel);
     create_database(&kernel);
     seed_database_rows(&kernel);
