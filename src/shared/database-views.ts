@@ -13,7 +13,7 @@ import type {
   Priority,
 } from "./types";
 import type { ContentAccessContext } from "./content-access-context";
-import type { ProjectionCoordinate } from "./projection-stream";
+import type { ProjectionCoordinate, ProjectionCursor } from "./projection-stream";
 
 export interface ReadDatabaseViewReferenceInput {
   /** Authority inherited from the content surface containing the reference. */
@@ -84,6 +84,11 @@ export interface DatabaseViewWindowInput {
   readonly groupScope?: DatabaseViewGroupScopeInput;
   /** Do not return a projection snapshot older than this local commit. */
   readonly minimumCommitSeq?: number;
+  /**
+   * Causal floor with its coordinate space. A different current Store epoch
+   * returns replacement authority instead of waiting on an unreachable seq.
+   */
+  readonly minimumCommitCursor?: ProjectionCursor;
 }
 
 export interface DatabaseViewGroupsInput {
@@ -91,6 +96,7 @@ export interface DatabaseViewGroupsInput {
   readonly databaseId?: string;
   /** Do not return a projection snapshot older than this local commit. */
   readonly minimumCommitSeq?: number;
+  readonly minimumCommitCursor?: ProjectionCursor;
 }
 
 export interface DatabaseViewGroupSummarySnapshot {

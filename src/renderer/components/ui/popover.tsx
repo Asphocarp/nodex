@@ -33,6 +33,7 @@ export function NodexPopoverPortal(
 export interface NodexPopoverContentProps
   extends ComponentPropsWithoutRef<typeof PopoverPrimitive.Content> {
   portalled?: boolean;
+  portalContainer?: HTMLElement | null;
 }
 
 export const NodexPopoverContent = forwardRef<
@@ -46,6 +47,7 @@ export const NodexPopoverContent = forwardRef<
     style,
     collisionPadding = 6,
     portalled = true,
+    portalContainer,
     ...props
   },
   ref,
@@ -69,7 +71,11 @@ export const NodexPopoverContent = forwardRef<
 
   if (!portalled) return content;
 
-  return <NodexPopoverPortal>{content}</NodexPopoverPortal>;
+  return (
+    <NodexPopoverPortal container={portalContainer ?? undefined}>
+      {content}
+    </NodexPopoverPortal>
+  );
 });
 
 export function NodexPopoverTitle({

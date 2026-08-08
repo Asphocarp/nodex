@@ -925,7 +925,10 @@ const translateNfmIntoPageDocument = ({
         materialization: currentMaterialization,
       };
     }
-    targetBlocks = nfmToBlockNote(parseNfm(nfm));
+    const parsedTargetBlocks = nfmToBlockNote(parseNfm(nfm));
+    targetBlocks = parsedTargetBlocks.length > 0
+      ? parsedTargetBlocks
+      : [{ type: "paragraph", content: [], children: [] }];
   } catch (error) {
     throw new LegacyNfmShadowTranslationError(
       `Could not read legacy NFM translation input for Document ${document.guid}`,

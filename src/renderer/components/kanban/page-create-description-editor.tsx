@@ -1,0 +1,50 @@
+import type { RefObject } from "react";
+import { libraryContentAccess } from "../../../shared/content-access-context";
+import type { PageCreateDescriptionDraft } from "@/lib/page-create-draft";
+import { PAGE_DESCRIPTION_PLACEHOLDER } from "@/lib/page-description-placeholder";
+import {
+  NfmEditor,
+  type NfmEditorBoundaryHandle,
+} from "./editor/nfm-editor";
+
+interface PageCreateDescriptionEditorProps {
+  readonly draft: PageCreateDescriptionDraft;
+  readonly navigationRef: RefObject<NfmEditorBoundaryHandle | null>;
+  readonly titleInputRef: RefObject<HTMLInputElement | null>;
+}
+
+export function PageCreateDescriptionEditor({
+  draft,
+  navigationRef,
+  titleInputRef,
+}: PageCreateDescriptionEditorProps) {
+  return (
+    <NfmEditor
+      contentAccessContext={libraryContentAccess}
+      documentScopeId={draft.documentId}
+      isActivePanelTab={false}
+      placeholder={PAGE_DESCRIPTION_PLACEHOLDER}
+      className="min-h-[inherit] text-[15px]/6 [&_.bn-editor]:!text-[15px] [&_.bn-editor]:!leading-6"
+      source={{
+        kind: "collaborative-document",
+        documentId: draft.documentId,
+        storeEpoch: "page-create-draft",
+        generation: draft.generation,
+        clientSessionId: draft.clientSessionId,
+        fragment: draft.body,
+        user: {
+          name: "You",
+          color: "#0285ff",
+        },
+      }}
+      embeddedBoundary={{
+        navigationRef,
+        onBoundaryArrow: (direction) => {
+          if (direction !== "up") return false;
+          titleInputRef.current?.focus();
+          return true;
+        },
+      }}
+    />
+  );
+}

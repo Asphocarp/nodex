@@ -44,6 +44,72 @@ const effect = (
   effect_hash: effectHash,
 });
 
+const databaseRowEffect = (
+  positionOrder: number,
+): AuthorizedDeliveryPacket["projection_effects"][number] => ({
+  scope: {
+    schema_version: 1,
+    canonical_key: "database-view:project-1:view-1",
+    scope: {
+      kind: "database_view",
+      project_id: "project-1",
+      database_id: "database-1",
+      data_source_id: "source-1",
+      view_id: "view-1",
+    },
+  },
+  base_revision: 0,
+  result_revision: 1,
+  covered_commit_seq: 1,
+  patch: {
+    kind: "database_row_upsert",
+    project_id: "project-1",
+    database_id: "database-1",
+    data_source_id: "source-1",
+    view_id: "view-1",
+    row: {
+      page_id: "page-1",
+      lifecycle: "active",
+      title: "Moved Page",
+      rich_title: [{ type: "text", text: "Moved Page", styles: {} }],
+      description_preview: "",
+      description_length: 0,
+      has_description: false,
+      database_values: { status: "ship" },
+      intrinsic_properties: {
+        "run.target": "localProject",
+        "run.localPath": null,
+        "run.baseBranch": null,
+        "run.worktreePath": null,
+        "run.environmentPath": null,
+        "schedule.isAllDay": false,
+        "schedule.timezone": null,
+        "recurrence.config": null,
+        "reminders.config": [],
+      },
+      database_value_revisions: { status: 2 },
+      metadata_revision: 2,
+      parent_revision: 1,
+      document_id: "document-1",
+      document_generation: 1,
+      document_head_seq: 1,
+      membership_id: "membership-1",
+      membership_revision: 1,
+      membership_created_at: "2026-08-09T00:00:00.000Z",
+      created_at: "2026-08-09T00:00:00.000Z",
+      updated_at: "2026-08-09T00:00:00.000Z",
+      effective_group_key: "ship",
+      rank_key: "rank-page-1",
+      position_revision: 2,
+      position_order: positionOrder,
+    },
+    total_rows: 5,
+    group_total: 5,
+  },
+  requires_read_at_least: true,
+  effect_hash: "c".repeat(64),
+});
+
 const packet = (input: {
   readonly authorization?: AuthorizedDeliveryPacket["authorization_scope"];
   readonly projections?: AuthorizedDeliveryPacket["projection_effects"];
@@ -155,6 +221,34 @@ describe("RendererLocalCommitIngress", () => {
     await ingress.admitApply(apply(packet())).then(() => order.push("resolved"));
 
     expect(order).toEqual(["projection", "resolved"]);
+  });
+
+  test("preserves Core order while admitting a singleton Database row", async () => {
+    const ingress = new RendererLocalCommitIngress();
+    const messages: ProjectionStreamMessage[] = [];
+    ingress.subscribeProjection(scope, (message) => messages.push(message));
+
+    await ingress.admitPacket(packet({
+      projections: [databaseRowEffect(3)],
+    }));
+
+    expect(messages).toEqual([
+      expect.objectContaining({
+        kind: "effect",
+        delivery: expect.objectContaining({
+          effect: expect.objectContaining({
+            patch: expect.objectContaining({
+              kind: "database_row_upsert",
+              row: expect.objectContaining({
+                id: "page-1",
+                status: "ship",
+                order: 3,
+              }),
+            }),
+          }),
+        }),
+      }),
+    ]);
   });
 
   test("deduplicates apply-first and broker-first delivery across packet audiences", async () => {

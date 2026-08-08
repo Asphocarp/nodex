@@ -31,6 +31,38 @@ const encodedState = (document: Y.Doc): string =>
   Array.from(Y.encodeStateAsUpdate(document)).join(",");
 
 describe("LegacyNfmShadowTranslator", () => {
+  test("retains an authority-owned editable paragraph when clearing NFM", () => {
+    const genesis = createPageDocumentGenesis({
+      documentId: "legacy-shadow-empty-body",
+      title: "Before",
+      nfm: "Remove this paragraph",
+      allocateBlockId: () => "existing-paragraph",
+    });
+
+    const result = translateLegacyNfmIntoPageDocument({
+      document: genesis.document,
+      authority: "legacy_shadow",
+      readiness: "ready",
+      title: "After",
+      nfm: "",
+      allocateBlockId: () => "canonical-empty-paragraph",
+    });
+
+    expect(result.changed).toBe(true);
+    expect(result.materialization).toMatchObject({
+      title: "After",
+      nfm: "",
+      blockTree: [
+        {
+          type: "paragraph",
+          content: [],
+          children: [],
+        },
+      ],
+    });
+    genesis.document.destroy();
+  });
+
   test("preserves IDs across text, property, and custom Block edits", () => {
     let nextId = 0;
     const genesis = createPageDocumentGenesis({

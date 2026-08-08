@@ -33,6 +33,7 @@ import {
   commitLibraryPageDetailMetadataPatch,
   commitLibraryPageDetailPropertyEdit,
   commitPageDetailMetadataPatch,
+  commitPageDetailMetadataPatchWithReceipt,
   commitPageDetailPropertyEdit,
   type LibraryPageDetailMetadataRuntimeDependencies,
   type PageDetailMetadataRuntimeDependencies,
@@ -247,6 +248,7 @@ const dependencies = (input: {
   readonly databaseResults?: DatabaseApplyResultV2[];
   readonly metadataRequests?: LibraryModuleApplyRequest[];
   readonly metadataResults?: LibraryModuleApplyResult[];
+  readonly refreshDetail?: PageDetailMetadataRuntimeDependencies["refreshDetail"];
 } = {}): PageDetailMetadataRuntimeDependencies => ({
   readDetail: async () => input.detail ?? detail(),
   mutateProperties: async (_projectId, request) => {
@@ -280,9 +282,9 @@ const dependencies = (input: {
     input.metadataRequests?.push(request);
     return input.metadataResults?.shift() ?? metadataSuccess(request);
   },
-  refreshDetail: async (_projectId, pageId) => {
+  refreshDetail: input.refreshDetail ?? (async (_projectId, pageId) => {
     input.refreshes?.push(pageId);
-  },
+  }),
 });
 
 const libraryDependencies = (input: {
@@ -344,6 +346,45 @@ const libraryDependencies = (input: {
 });
 
 describe("Page Detail metadata runtime", () => {
+  test.each([
+    ["Data Source", { priority: "p1-high" }, 5],
+    ["intrinsic", { runInBaseBranch: "main" }, 5],
+    ["atomic mixed", { priority: "p1-high", runInBaseBranch: "main" }, 5],
+    ["semantic no-op", { priority: "p2-medium" }, 4],
+  ] as const)("preserves the %s commit cursor", async (_kind, patch, commitSeq) => {
+    const result = await commitPageDetailMetadataPatchWithReceipt({
+      projectId: "project-1",
+      pageId: "page-1",
+      operationId: `receipt-${commitSeq}`,
+      patch,
+      dependencies: dependencies(),
+    });
+
+    expect(result).toMatchObject({
+      result: { status: "updated" },
+      commitCursor: { storeEpoch: "epoch-1", commitSeq },
+    });
+  });
+
+  test("does not reclassify a durable metadata commit when detail refresh fails", async () => {
+    const result = await commitPageDetailMetadataPatchWithReceipt({
+      projectId: "project-1",
+      pageId: "page-1",
+      operationId: "receipt-refresh-failure",
+      patch: { priority: "p1-high" },
+      dependencies: dependencies({
+        refreshDetail: async () => {
+          throw new Error("detail projection unavailable");
+        },
+      }),
+    });
+
+    expect(result).toEqual({
+      result: { status: "updated", didMutate: true },
+      commitCursor: { storeEpoch: "epoch-1", commitSeq: 5 },
+    });
+  });
+
   test("writes through Library scope without renderer-authored Project or actor fields", async () => {
     const requests: LibraryBlockPropertyMutationRequestV2[] = [];
     const databaseRequests: LibraryDatabaseApplyV2[] = [];

@@ -44,6 +44,7 @@ struct ResolvedView {
     data_source_id: String,
     view_id: String,
     revision: i64,
+    exact_primary_board_config: bool,
     config: ViewConfig,
 }
 
@@ -792,6 +793,131 @@ pub(crate) fn rows_by_id(
     Ok(DatabaseRowsById { rows })
 }
 
+/// Returns a row patch only when this View has the exact primary Board
+/// contract that the singleton patch protocol can represent. Other Views must
+/// converge through their canonical bounded read; an identity read is not
+/// evidence that a row belongs to a filtered or independently sorted View.
+pub(crate) fn exact_primary_board_row_by_id(
+    connection: &Connection,
+    library_id: &str,
+    view_id: &str,
+    page_id: &str,
+) -> Result<Option<DatabaseRowSummary>, StoreError> {
+    validate_identity(page_id, "Database Page identity")?;
+    let view = resolve_view(connection, library_id, view_id)?;
+    if !has_exact_primary_board_patch_contract(connection, &view)? {
+        return Ok(None);
+    }
+    let Some(mut summary) = summary_by_id(connection, &view, page_id)? else {
+        return Ok(None);
+    };
+    if summary.lifecycle != "active" {
+        return Ok(None);
+    }
+    let Some(rank_key) = summary.rank_key.as_deref() else {
+        return Ok(None);
+    };
+    if !has_exact_active_position(
+        connection,
+        &view,
+        page_id,
+        summary.effective_group_key.as_deref(),
+        rank_key,
+    )? {
+        return Ok(None);
+    }
+    summary.position_order = Some(exact_manual_group_position_order(
+        connection,
+        &view,
+        summary.effective_group_key.as_deref(),
+        rank_key,
+        page_id,
+    )?);
+    Ok(Some(summary))
+}
+
+fn has_exact_primary_board_patch_contract(
+    connection: &Connection,
+    view: &ResolvedView,
+) -> Result<bool, StoreError> {
+    let is_default = connection
+        .query_row(
+            "SELECT 1 FROM database_containers \
+             WHERE block_id = ?1 AND default_view_id = ?2 AND lifecycle = 'active'",
+            params![view.database_id, view.view_id],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some();
+    Ok(is_default && view.exact_primary_board_config)
+}
+
+fn has_exact_active_position(
+    connection: &Connection,
+    view: &ResolvedView,
+    page_id: &str,
+    group_key: Option<&str>,
+    rank_key: &str,
+) -> Result<bool, StoreError> {
+    connection
+        .query_row(
+            "SELECT 1 FROM database_view_page_positions position \
+             JOIN data_source_page_memberships membership \
+               ON membership.page_block_id = position.page_block_id \
+               AND membership.data_source_id = ?2 AND membership.removed_at IS NULL \
+             JOIN page_read_model model \
+               ON model.page_block_id = membership.page_block_id \
+               AND model.membership_id = membership.id AND model.lifecycle = 'active' \
+               AND model.view_id = ?1 AND model.view_group_key IS ?4 \
+               AND model.view_rank_key = position.rank_key \
+             WHERE position.view_id = ?1 AND position.page_block_id = ?3 \
+               AND position.group_key IS ?4 AND position.rank_key = ?5",
+            params![
+                view.view_id,
+                view.data_source_id,
+                page_id,
+                group_key,
+                rank_key
+            ],
+            |_| Ok(()),
+        )
+        .optional()
+        .map(|value| value.is_some())
+        .map_err(StoreError::from)
+}
+
+fn exact_manual_group_position_order(
+    connection: &Connection,
+    view: &ResolvedView,
+    group_key: Option<&str>,
+    rank_key: &str,
+    page_id: &str,
+) -> Result<i64, StoreError> {
+    connection
+        .query_row(
+            "SELECT count(*) FROM database_view_page_positions peer \
+             JOIN data_source_page_memberships membership \
+               ON membership.page_block_id = peer.page_block_id \
+               AND membership.data_source_id = ?2 AND membership.removed_at IS NULL \
+             JOIN page_read_model model \
+               ON model.page_block_id = membership.page_block_id \
+               AND model.membership_id = membership.id AND model.lifecycle = 'active' \
+               AND model.view_id = ?1 AND model.view_group_key IS peer.group_key \
+               AND model.view_rank_key = peer.rank_key \
+             WHERE peer.view_id = ?1 AND peer.group_key IS ?3 \
+               AND (peer.rank_key < ?4 OR (peer.rank_key = ?4 AND peer.page_block_id < ?5))",
+            params![
+                view.view_id,
+                view.data_source_id,
+                group_key,
+                rank_key,
+                page_id
+            ],
+            |row| row.get(0),
+        )
+        .map_err(StoreError::from)
+}
+
 pub(super) fn row_detail(
     connection: &Connection,
     library_id: &str,
@@ -841,13 +967,24 @@ fn resolve_view(
             params![library_id, view_id],
             |row| {
                 let config_json = row.get::<_, String>(2)?;
-                let config = serde_json::from_str::<ViewConfig>(&config_json).map_err(|error| {
-                    rusqlite::Error::FromSqlConversionFailure(
-                        config_json.len(),
-                        rusqlite::types::Type::Text,
-                        error.into(),
-                    )
-                })?;
+                let config_value =
+                    serde_json::from_str::<Value>(&config_json).map_err(|error| {
+                        rusqlite::Error::FromSqlConversionFailure(
+                            config_json.len(),
+                            rusqlite::types::Type::Text,
+                            error.into(),
+                        )
+                    })?;
+                let exact_primary_board_config =
+                    super::is_exact_primary_board_config(&config_value);
+                let config =
+                    serde_json::from_value::<ViewConfig>(config_value).map_err(|error| {
+                        rusqlite::Error::FromSqlConversionFailure(
+                            config_json.len(),
+                            rusqlite::types::Type::Text,
+                            error.into(),
+                        )
+                    })?;
                 Ok((
                     row.get::<_, String>(0)?,
                     row.get::<_, String>(1)?,
@@ -856,6 +993,7 @@ fn resolve_view(
                     row.get::<_, String>(4)?,
                     row.get::<_, String>(5)?,
                     row.get::<_, String>(6)?,
+                    exact_primary_board_config,
                 ))
             },
         )
@@ -869,6 +1007,7 @@ fn resolve_view(
                 view_lifecycle,
                 database_lifecycle,
                 source_lifecycle,
+                exact_primary_board_config,
             )| {
                 if view_lifecycle != "active"
                     || database_lifecycle != "active"
@@ -888,6 +1027,7 @@ fn resolve_view(
                     data_source_id,
                     view_id: view_id.to_owned(),
                     revision,
+                    exact_primary_board_config,
                     config,
                 })
             },
@@ -1017,11 +1157,26 @@ fn compact_value_projections(
         .collect::<Vec<_>>()
         .join(", ");
     let predicate = format!("value.property_id IN ({placeholders})");
-    let values = format!(
+    let canonical_values = format!(
         "COALESCE((SELECT json_group_object(value.property_id, json(value.value_json)) \
          FROM data_source_property_values value \
          WHERE value.data_source_id = membership.data_source_id \
            AND value.membership_id = membership.id AND {predicate}), '{{}}')"
+    );
+    // The normalized Property table stores tag option identities. Page
+    // summaries expose their user-facing names from the exact-head read model,
+    // without widening this View's configured Property projection. A missing
+    // display projection removes tags instead of leaking opaque option IDs.
+    let values = format!(
+        "json_patch({canonical_values}, CASE \
+           WHEN json_type({canonical_values}, '$.tags') IS NOT NULL THEN \
+             json_object('tags', CASE \
+               WHEN json_type(model.database_values_json, '$.tags') = 'array' THEN \
+                 json_extract(model.database_values_json, '$.tags') \
+               ELSE NULL \
+             END) \
+           ELSE '{{}}' \
+         END)"
     );
     let revisions = format!(
         "json_object('database', json(COALESCE(( \

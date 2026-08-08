@@ -176,6 +176,60 @@ describe("handleWorkbenchShortcut", () => {
     expect(commands).toEqual(["toggleBottomPanel"]);
   });
 
+  test("Cmd+Shift+C creates a Page only outside editable and terminal surfaces", () => {
+    let requests = 0;
+    const actions = makeActions({
+      onRequestCreatePage: () => {
+        requests += 1;
+      },
+    });
+    const event = (target: EventTarget | null) => ({
+      key: "C",
+      ctrlKey: false,
+      metaKey: true,
+      shiftKey: true,
+      altKey: false,
+      target,
+    });
+
+    expect(handleWorkbenchShortcut(event(null), actions, true)).toBe(true);
+    expect(handleWorkbenchShortcut(event(makeInputTarget()), actions, true)).toBe(false);
+    expect(handleWorkbenchShortcut(event(makeComposerTarget()), actions, true)).toBe(false);
+    expect(handleWorkbenchShortcut(event(makeNfmEditorTarget()), actions, true)).toBe(false);
+    expect(handleWorkbenchShortcut(event(makeTerminalTarget()), actions, true)).toBe(false);
+    expect(requests).toBe(1);
+  });
+
+  test("uses a remapped Create Page binding instead of the default", () => {
+    let requests = 0;
+    const actions = makeActions({
+      commandKeymapState: createCommandKeymapState({
+        createPage: ["CmdOrCtrl+Alt+C"],
+      }, "macOS"),
+      onRequestCreatePage: () => {
+        requests += 1;
+      },
+    });
+
+    expect(handleWorkbenchShortcut({
+      key: "c",
+      ctrlKey: false,
+      metaKey: true,
+      shiftKey: true,
+      altKey: false,
+      target: null,
+    }, actions, true)).toBe(false);
+    expect(handleWorkbenchShortcut({
+      key: "c",
+      ctrlKey: false,
+      metaKey: true,
+      shiftKey: false,
+      altKey: true,
+      target: null,
+    }, actions, true)).toBe(true);
+    expect(requests).toBe(1);
+  });
+
   test("an explicitly unassigned bottom-panel command does not handle Cmd+J", () => {
     const handled = handleWorkbenchShortcut(
       {

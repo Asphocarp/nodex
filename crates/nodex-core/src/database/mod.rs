@@ -7,6 +7,7 @@ pub(crate) mod read;
 mod read_authorization;
 mod relation;
 mod relation_projection;
+mod view_contract;
 mod window;
 
 pub(crate) const MAX_PROPERTY_OPTIONS: usize = 100;
@@ -30,6 +31,7 @@ pub(crate) use mutation::{
 };
 pub(crate) use projection_delta::record_local_projection_delta;
 pub(crate) use relation::copy_relation_edges;
+pub(crate) use view_contract::is_exact_primary_board_config;
 pub(crate) use window::{default_page_move_view_id, mint_page_move_etag};
 
 use nodex_core_contracts::database::{

@@ -129,7 +129,6 @@ jobs:
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
-      - run: cargo build -p nodex-core-server --all-targets
       - run: xvfb-run --auto-servernum pnpm test
 
   stress-tests:

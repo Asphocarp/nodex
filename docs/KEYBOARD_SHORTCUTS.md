@@ -18,6 +18,7 @@ The editable settings tab covers Nodex-supported command ids only. Editor-native
 | `⌘/Ctrl+K` | Search commands and chats | Opens the global command palette in root mode; chat metadata joins at two query characters and chat history at three; works from editable surfaces too |
 | `⌘/Ctrl+G` | Search chats | Opens the global palette in chat-search mode |
 | `⌘/Ctrl+P` | Search Pages | Opens the global palette in Page-search mode, including Page filter controls |
+| `⌘/Ctrl+Shift+C` | Create Page | Opens the app-owned composer for the active writable Project Board; safely falls back when only one writable Board is mounted, reports ambiguous/missing targets, and is ignored in inputs, chat composers, NFM editors, and Terminals |
 | `⌘/Ctrl+[` | Back | Restores the previous shell-owned Project/Session/Library target and its route-local presentation; works from editable surfaces too |
 | `⌘/Ctrl+]` | Forward | Restores the next shell-owned Project/Session/Library target and its route-local presentation; works from editable surfaces too |
 | `⌘/Ctrl+Shift+A` | Archive chat | Archives the active project or projectless session |
@@ -152,8 +153,12 @@ unless a separately listed app command owns an accelerator.
 
 | Shortcut | Action | Scope |
 |----------|--------|-------|
-| `Enter` | Submit / confirm | Inline card creator, project create/rename, tag input |
-| `Escape` | Cancel / close | Inline card creator, project forms, card-stage tag dropdown |
+| `Enter` | Move from title to description | Project Kanban Page creation dialog title |
+| `⌘/Ctrl+Enter` | Create Page | Project Kanban Page creation dialog; when `Create more` is enabled, creates and resets title/body for the next Page |
+| `⌘/Ctrl+Shift+Enter` | Create Page and continue | Project Kanban Page creation dialog; retains Status, Priority, Estimate, and Tags |
+| `Escape` | Close the topmost surface | Project Kanban Page composer and its property menus; an open property menu closes first, a dirty composer offers a 10-second Restore action, and pending creation cannot be dismissed |
+| `Enter` | Submit / confirm | Project create/rename and tag input |
+| `Escape` | Cancel / close | Project forms and card-stage tag dropdown |
 | `↑` / `↓` | Navigate suggestions | Card stage tag input |
 | `Tab` | Select highlighted tag | Card stage tag input |
 | `↑` / `↓` | Navigate entries | History panel |

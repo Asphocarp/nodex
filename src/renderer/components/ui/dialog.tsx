@@ -237,17 +237,22 @@ export function NodexDialogDescription({
 export function NodexDialogAction({
   className,
   tone = "ghost",
+  size = "default",
   type = "button",
   ...props
 }: React.ComponentProps<"button"> & {
   tone?: keyof typeof NODEX_DIALOG_ACTION_STYLES;
+  size?: "default" | "compact";
 }) {
   return (
     <button
       data-slot="codex-dialog-action"
       type={type}
       className={cn(
-        "no-drag flex cursor-interaction items-center gap-1 whitespace-nowrap rounded-lg border border-transparent px-4 py-1.5 text-base leading-[18px] select-none",
+        "no-drag flex cursor-interaction items-center gap-1 whitespace-nowrap border border-transparent select-none",
+        size === "compact"
+          ? "h-7 rounded-full px-2.5 py-0 text-xs font-medium leading-3"
+          : "rounded-lg px-4 py-1.5 text-base leading-[18px]",
         "focus:outline-none disabled:cursor-not-allowed disabled:opacity-40",
         NODEX_DIALOG_ACTION_STYLES[tone],
         className,

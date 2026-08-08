@@ -851,10 +851,18 @@ pub struct LibraryPageLifecycleMutationMembership {
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
-// This is an externally stable, internally tagged protocol union. The large
-// create payload is boxed by `LibraryIntent::ApplyPageLifecycle`; splitting or
-// boxing individual fields would complicate the wire contract without reducing
-// the size of the request retained by the transport.
+pub enum LibraryPageLifecycleViewPlacement {
+    Start,
+    End,
+    Before { page_id: String },
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+// This pre-release tagged union changes through coordinated Core protocol
+// generation. The large create payload is boxed by
+// `LibraryIntent::ApplyPageLifecycle`; boxing individual fields would not
+// reduce the request retained by the transport.
 #[allow(clippy::large_enum_variant)]
 pub enum LibraryPageLifecycleMutation {
     CreatePage {
@@ -879,7 +887,7 @@ pub enum LibraryPageLifecycleMutation {
         run_in_worktree_path: Option<String>,
         run_in_environment_path: Option<String>,
         before_block_id: Option<String>,
-        before_view_page_id: Option<String>,
+        view_placement: LibraryPageLifecycleViewPlacement,
         data_source_id: String,
         tag_option_ids: Vec<String>,
         new_tag_options: Vec<LibraryPageLifecycleTagOption>,

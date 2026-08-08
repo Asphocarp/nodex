@@ -3324,7 +3324,6 @@ export interface components {
         readonly LibraryPageLifecycleMutation: {
             readonly assignee?: string | null;
             readonly before_block_id?: string | null;
-            readonly before_view_page_id?: string | null;
             readonly data_source_id: string;
             readonly due_date?: string | null;
             readonly estimate?: string | null;
@@ -3351,6 +3350,7 @@ export interface components {
             readonly status: components["schemas"]["LibraryPageWorkflowStatus"];
             readonly tag_option_ids: readonly string[];
             readonly title: string;
+            readonly view_placement: components["schemas"]["LibraryPageLifecycleViewPlacement"];
         } | {
             /** Format: int64 */
             readonly expected_metadata_revision: number;
@@ -3476,6 +3476,17 @@ export interface components {
         readonly LibraryPageLifecycleTagOption: {
             readonly name: string;
             readonly option_id: string;
+        };
+        readonly LibraryPageLifecycleViewPlacement: {
+            /** @enum {string} */
+            readonly kind: "start";
+        } | {
+            /** @enum {string} */
+            readonly kind: "end";
+        } | {
+            /** @enum {string} */
+            readonly kind: "before";
+            readonly page_id: string;
         };
         readonly LibraryPageLocation: {
             readonly page_id: string;

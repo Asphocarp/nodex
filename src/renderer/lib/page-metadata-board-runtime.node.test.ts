@@ -1,11 +1,15 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 
 import { plainTextToPortableRichText } from "../../shared/block-documents";
 import type { DatabasePage } from "./types";
 import {
   commitPageMetadataPatchForBoard,
+  commitPageMetadataPatchForBoardWithReceipt,
   type PageMetadataBoardRuntimeDependencies,
 } from "./page-metadata-board-runtime";
+import type {
+  PageDetailMetadataMutationEnvelope,
+} from "./page-detail-metadata-runtime";
 
 const page = (id = "page-1"): DatabasePage => ({
   id,
@@ -24,23 +28,30 @@ const page = (id = "page-1"): DatabasePage => ({
 });
 
 const dependencies = (
-  result: Awaited<
-    ReturnType<PageMetadataBoardRuntimeDependencies["commit"]>
-  >,
-  projected: DatabasePage | null = page(),
+  committed: PageDetailMetadataMutationEnvelope,
+  readBoardProjection: PageMetadataBoardRuntimeDependencies["readBoardProjection"] =
+    async () => page(),
 ): PageMetadataBoardRuntimeDependencies => ({
-  commit: async () => result,
-  readBoardProjection: async () => projected,
+  commit: async () => committed,
+  readBoardProjection,
+});
+
+const updated = (
+  commitSeq = 5,
+): PageDetailMetadataMutationEnvelope => ({
+  result: { status: "updated", didMutate: true },
+  commitCursor: { storeEpoch: "epoch-1", commitSeq },
 });
 
 describe("Page metadata Board adapter", () => {
   test("projects a canonical Page metadata receipt into the current Board result", async () => {
+    const readBoardProjection = vi.fn(async () => page());
     const result = await commitPageMetadataPatchForBoard({
       projectId: "project-1",
       pageId: "page-1",
       operationId: "priority-1",
       patch: { priority: "p1-high" },
-      dependencies: dependencies({ status: "updated", didMutate: true }),
+      dependencies: dependencies(updated(8), readBoardProjection),
     });
 
     expect(result).toMatchObject({
@@ -51,6 +62,11 @@ describe("Page metadata Board adapter", () => {
       changedFields: ["priority"],
       didMutate: true,
     });
+    expect(readBoardProjection).toHaveBeenCalledWith(
+      "project-1",
+      "page-1",
+      { storeEpoch: "epoch-1", commitSeq: 8 },
+    );
   });
 
   test("returns a fresh Board projection for a canonical conflict", async () => {
@@ -59,7 +75,10 @@ describe("Page metadata Board adapter", () => {
       pageId: "page-1",
       operationId: "priority-2",
       patch: { priority: "p1-high" },
-      dependencies: dependencies({ status: "conflict" }),
+      dependencies: dependencies({
+        result: { status: "conflict" },
+        commitCursor: null,
+      }),
     });
 
     expect(result).toEqual({ status: "conflict", page: page() });
@@ -72,11 +91,34 @@ describe("Page metadata Board adapter", () => {
       operationId: "priority-3",
       patch: { priority: "p1-high" },
       dependencies: dependencies(
-        { status: "updated", didMutate: true },
-        page("page-2"),
+        { result: { status: "conflict" }, commitCursor: null },
+        async () => page("page-2"),
       ),
     })).rejects.toThrow(
       "Board projection returned Page page-2 for requested Page page-1",
     );
+  });
+
+  test("keeps a durable acknowledgement when its Board projection read fails", async () => {
+    const result = await commitPageMetadataPatchForBoardWithReceipt({
+      projectId: "project-1",
+      pageId: "page-1",
+      operationId: "priority-4",
+      patch: { priority: "p1-high" },
+      dependencies: dependencies(updated(11), async () => {
+        throw new Error("projection unavailable");
+      }),
+    });
+
+    expect(result).toEqual({
+      result: {
+        status: "updated",
+        projectId: "project-1",
+        pageId: "page-1",
+        changedFields: ["priority"],
+        didMutate: true,
+      },
+      commitCursor: { storeEpoch: "epoch-1", commitSeq: 11 },
+    });
   });
 });

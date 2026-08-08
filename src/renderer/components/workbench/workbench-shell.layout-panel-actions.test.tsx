@@ -9,7 +9,7 @@ import { __getNodexToastSnapshotForTests } from "@/components/ui/toast";
 import { THREAD_QUEUE_FOLLOW_UPS_STORAGE_KEY } from "@/lib/thread-composer-follow-up-mode";
 import { COMPOSER_ENTER_BEHAVIOR_STORAGE_KEY } from "@/lib/composer-enter-behavior";
 import { makeAttachedSession, makeBottomPanelTerminalSession, makePanelLayout, makePanels, makeProject, makeSession, makeSessionTab } from "./workbench-testkit/workbench-shell-fixtures";
-import { BOTTOM_PANEL_HIDDEN_ICON_PREFIX, EXPAND_PANEL_ICON_PREFIX, PANEL_VISIBLE_ICON_PREFIX, RESTORE_PANEL_ICON_PREFIX, clickMenuItem, discardSideChatCalls, executeCommandPaletteCommand, getBottomPanelContentSizer, getConnectedThreadStagePropsByThreadId, getFilesPreviewInteractionTarget, getHeaderShellSlot, getLastTerminalPanelProps, getLastThreadStageActions, getPanelTabById, getThreadRow, getWorkbenchTabProjectionDeleteTabIds, hydrateBackgroundSubagentThreadsCalls, hydrateSubagentPanelCalls, installReducedMotionMatchMediaForTest, installTerminalEventApiMock, invokeCalls, moveSidebarPointer, openBottomPanel, openPanelMenu, pointerActivate, pointerDownAndSettle, releasePointerDrag, renderWorkbench, requestThreadStreamSnapshotCalls, setComposerIntentCalls, setWindowInnerWidthForTest, sideChatConversations, startSideChatCalls, setInvokeCalls, setRequestThreadStreamSnapshotImpl, setSideChatConversationProjectId } from "./workbench-testkit/workbench-shell-harness";
+import { BOTTOM_PANEL_HIDDEN_ICON_PREFIX, EXPAND_PANEL_ICON_PREFIX, PANEL_VISIBLE_ICON_PREFIX, RESTORE_PANEL_ICON_PREFIX, clickMenuItem, discardSideChatCalls, executeCommandPaletteCommand, getBottomPanelContentSizer, getConnectedThreadStagePropsByThreadId, getFilesPreviewInteractionTarget, getHeaderShellSlot, getLastTerminalPanelProps, getLastThreadStageActions, getPanelTabById, getThreadRow, getWorkbenchTabProjectionDeleteTabIds, hydrateBackgroundSubagentThreadsCalls, hydrateSubagentPanelCalls, installReducedMotionMatchMediaForTest, installTerminalEventApiMock, invokeCalls, moveSidebarPointer, openBottomPanel, openPanelMenu, pointerActivate, pointerDownAndSettle, releasePointerDrag, renderWorkbench, requestPageCreateFromContextMock, requestThreadStreamSnapshotCalls, setComposerIntentCalls, setWindowInnerWidthForTest, sideChatConversations, startSideChatCalls, setInvokeCalls, setRequestThreadStreamSnapshotImpl, setSideChatConversationProjectId } from "./workbench-testkit/workbench-shell-harness";
 
 describe("workbench session shell / layout-panel-actions", () => {
   test("collapsed right panel opens from the global side-panel toggle", async () => {
@@ -125,6 +125,21 @@ describe("workbench session shell / layout-panel-actions", () => {
       call[0] === "window-session-view:panel-patch"
       && call[2] === "bottom"
     ).map((call) => call[3])).toEqual([{ collapsed: false }]);
+  });
+
+  test("delegates the Page-create command to the registered workflow", async () => {
+    const screen = renderWorkbench();
+    await settleAsyncRender();
+
+    await act(async () => {
+      screen.requestPageCreateCommand("keyboard_shortcut");
+      await Promise.resolve();
+    });
+
+    expect(requestPageCreateFromContextMock).toHaveBeenCalledTimes(1);
+    expect(requestPageCreateFromContextMock).toHaveBeenCalledWith(
+      expect.any(Object),
+    );
   });
 
   test("bottom-panel commands safely no-op without an active session", async () => {

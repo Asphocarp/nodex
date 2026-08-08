@@ -1,4 +1,4 @@
-import { execFileSync, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -14,9 +14,6 @@ import { createCoreDocumentSyncAdapter } from "./document-sync-adapter";
 import type { CoreRuntimeDescriptor } from "./types";
 
 const CORE_BINARY = path.resolve("target/debug/nodex-core");
-const SEED_BINARY = path.resolve(
-  "target/debug/examples/seed_owned_document_profile",
-);
 const PROJECT_ID = "project:core-renderer-test";
 const PAGE_ID = "019bf52d-6870-7000-8000-000000000101";
 const DOCUMENT_ID = `document:${PAGE_ID}`;
@@ -63,6 +60,65 @@ const readDescriptor = (
     });
   });
 
+const spawnSeededCore = async (
+  nodexHome: string,
+): Promise<ChildProcessWithoutNullStreams> => {
+  const child = spawnCore(nodexHome);
+  await readDescriptor(child);
+  const rootClient = await CoreClient.connect({
+    nodexHome,
+    clientKind: "test",
+    buildId: "renderer-provider-seed",
+  });
+  await rootClient.workspaceApply({
+    operationId: "renderer-provider-seed-project",
+    intent: {
+      kind: "create_initial_project",
+      project_id: PROJECT_ID,
+      name: "Core renderer test",
+      description: "",
+      appearance: null,
+      source_roots: [path.join(nodexHome, "source")],
+      starter_page: {
+        page_id: "page:core-renderer-getting-started",
+        document_id: "document:core-renderer-getting-started",
+        title_markdown: "Welcome to Nodex",
+        nfm: "Welcome to Nodex.",
+      },
+    },
+  });
+  const projectClient = rootClient.forProject(PROJECT_ID);
+  await projectClient.libraryApply({
+    operationId: "renderer-provider-seed-page",
+    intent: {
+      kind: "create_page",
+      page_id: PAGE_ID,
+      document_id: DOCUMENT_ID,
+      title: "",
+      parent: { kind: "library", before: null },
+    },
+  });
+  const seeded = await projectClient.documentApply({
+    operationId: "renderer-provider-seed-body",
+    clientSessionId: "renderer:provider-seed",
+    intent: {
+      kind: "replace_from_nfm",
+      document_id: DOCUMENT_ID,
+      generation: 1,
+      expected_head_seq: 1,
+      nfm: "Base body",
+      actor: {
+        kind: "electron_renderer",
+        clientId: "renderer:provider-seed",
+      },
+    },
+  });
+  if (seeded.outcome.head_seq !== 2) {
+    throw new Error("Core renderer fixture did not reach Document head 2");
+  }
+  return child;
+};
+
 const waitForExit = (
   child: ChildProcessWithoutNullStreams,
 ): Promise<number | null> => {
@@ -84,12 +140,9 @@ const waitUntil = async (
 describe("Rust Core renderer Document adapter", () => {
   test("prepares one exact Agent mutation and replays its receipt without renewed consent", async () => {
     expect(existsSync(CORE_BINARY), "run pnpm run core:test:client").toBe(true);
-    expect(existsSync(SEED_BINARY), "run pnpm run core:test:client").toBe(true);
     const nodexHome = mkdtempSync(path.join(tmpdir(), "nodex-core-agent-prepared-"));
     homes.add(nodexHome);
-    execFileSync(SEED_BINARY, [nodexHome], { stdio: "pipe" });
-    const child = spawnCore(nodexHome);
-    await readDescriptor(child);
+    await spawnSeededCore(nodexHome);
     const [host, otherHost] = await Promise.all([
       CoreClient.connect({
         nodexHome,
@@ -470,12 +523,9 @@ describe("Rust Core renderer Document adapter", () => {
 
   test("converges renderer and semantic edits, then replays a disconnected commit once", async () => {
     expect(existsSync(CORE_BINARY), "run pnpm run core:test:client").toBe(true);
-    expect(existsSync(SEED_BINARY), "run pnpm run core:test:client").toBe(true);
     const nodexHome = mkdtempSync(path.join(tmpdir(), "nodex-core-document-"));
     homes.add(nodexHome);
-    execFileSync(SEED_BINARY, [nodexHome], { stdio: "pipe" });
-    const child = spawnCore(nodexHome);
-    await readDescriptor(child);
+    await spawnSeededCore(nodexHome);
     const client = await CoreClient.connect({
       nodexHome,
       clientKind: "test",
@@ -578,12 +628,9 @@ describe("Rust Core renderer Document adapter", () => {
 
   test("scopes ephemeral Awareness and removes it when a UDS connection closes", async () => {
     expect(existsSync(CORE_BINARY), "run pnpm run core:test:client").toBe(true);
-    expect(existsSync(SEED_BINARY), "run pnpm run core:test:client").toBe(true);
     const nodexHome = mkdtempSync(path.join(tmpdir(), "nodex-core-awareness-"));
     homes.add(nodexHome);
-    execFileSync(SEED_BINARY, [nodexHome], { stdio: "pipe" });
-    const child = spawnCore(nodexHome);
-    await readDescriptor(child);
+    await spawnSeededCore(nodexHome);
     const [clientA, clientB] = await Promise.all([
       CoreClient.connect({
         nodexHome,

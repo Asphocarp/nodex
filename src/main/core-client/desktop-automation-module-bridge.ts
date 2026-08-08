@@ -14,6 +14,7 @@ import type {
   PageOccurrence,
   PageOccurrenceActionInput,
   PageOccurrenceCompleteInput,
+  PageOccurrenceMutationResult,
   PageOccurrenceUpdateInput,
   Estimate,
   PageRunInTarget,
@@ -92,11 +93,6 @@ export interface DesktopReminderClaim {
   readonly title: string;
   readonly attempt: number;
   readonly expiresAt: number;
-}
-
-export interface DesktopPageOccurrenceMutationResult {
-  readonly success: boolean;
-  readonly error?: string;
 }
 
 export interface DesktopPageOccurrenceWindow {
@@ -182,17 +178,17 @@ export interface DesktopAutomationModulePort {
     projectId: string,
     input: PageOccurrenceCompleteInput,
     sessionId?: string,
-  ): Promise<DesktopPageOccurrenceMutationResult>;
+  ): Promise<PageOccurrenceMutationResult>;
   skipPageOccurrence(
     projectId: string,
     input: PageOccurrenceActionInput,
     sessionId?: string,
-  ): Promise<DesktopPageOccurrenceMutationResult>;
+  ): Promise<PageOccurrenceMutationResult>;
   updatePageOccurrence(
     projectId: string,
     input: PageOccurrenceUpdateInput,
     sessionId?: string,
-  ): Promise<DesktopPageOccurrenceMutationResult>;
+  ): Promise<PageOccurrenceMutationResult>;
   snoozeReminder(
     projectId: string,
     pageId: string,
@@ -582,7 +578,7 @@ const createCoreAutomationPort = (
           | "update_page_occurrence";
       }
     >,
-  ): Promise<DesktopPageOccurrenceMutationResult> => {
+  ): Promise<PageOccurrenceMutationResult> => {
     const committed = await clientForProject(projectId).automationApply({
       operationId,
       intent,
@@ -591,9 +587,19 @@ const createCoreAutomationPort = (
     if (!result) {
       throw new Error("Core Automation commit omitted its occurrence result");
     }
-    return result.success
-      ? { success: true }
-      : { success: false, error: result.error ?? "Occurrence update failed" };
+    if (!result.success) {
+      return { success: false, error: result.error ?? "Occurrence update failed" };
+    }
+    const commitCursor = committed.status === "committed"
+      ? {
+          storeEpoch: committed.commit.store_epoch,
+          commitSeq: committed.commit.commit_seq,
+        }
+      : {
+          storeEpoch: committed.observed.store_epoch,
+          commitSeq: committed.observed.commit_head,
+        };
+    return { success: true, commitCursor };
   };
   const readActiveDefinitions = async (): Promise<CoreAutomationDefinition[]> => {
     const snapshot = await client.automationRead({

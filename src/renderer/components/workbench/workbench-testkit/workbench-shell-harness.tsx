@@ -104,9 +104,10 @@ import type {
   WorkbenchPanelTabCycleDirection,
   WorkbenchSidebarToggleCommandSource,
 } from "../../../../shared/window-navigation";
-import type {
-  WorkbenchCommandRequest,
-  WorkbenchCommandSource,
+import {
+  CREATE_PAGE_COMMAND_ID,
+  type WorkbenchCommandRequest,
+  type WorkbenchCommandSource,
 } from "../../../../shared/workbench-commands";
 import {
   findWorkbenchPanelLeafForTab,
@@ -355,6 +356,35 @@ export const mockCodexControl = {
     return true;
   },
 };
+
+const pageCreateWorkflowMocks = vi.hoisted(() => ({
+  requestFromContext: vi.fn(() => true),
+}));
+
+export const requestPageCreateFromContextMock =
+  pageCreateWorkflowMocks.requestFromContext;
+
+vi.mock("@/lib/page-create-workflow", () => ({
+  requestPageCreateFromContext: pageCreateWorkflowMocks.requestFromContext,
+}));
+
+vi.mock("@/features/workspace-files/workspace-pierre-editor", () => ({
+  WorkspacePierreEditor: ({
+    ariaLabel,
+    value,
+    onChange,
+  }: {
+    ariaLabel: string;
+    value: string;
+    onChange: (value: string) => void;
+  }) => createElement("textarea", {
+    "aria-label": ariaLabel,
+    value,
+    onChange: (event: { currentTarget: { value: string } }) => {
+      onChange(event.currentTarget.value);
+    },
+  }),
+}));
 
 vi.mock("@/lib/api", () => {
   const gitWorkerListeners = new Set<(message: unknown) => void>();
@@ -2910,6 +2940,7 @@ export function renderWorkbench({
   let requestPanelTabClose: () => void = () => undefined;
   let requestSidebarToggle: (source: WorkbenchSidebarToggleCommandSource) => void = () => undefined;
   let requestWorkbenchCommand: (source: WorkbenchCommandSource) => void = () => undefined;
+  let requestPageCreateCommand: (source: WorkbenchCommandSource) => void = () => undefined;
   let openCommandPalette: (mode?: "root" | "chats" | "pages" | "files", initialQuery?: string) => void = () => undefined;
   let replaceProjects: (projects: Project[]) => void = () => undefined;
   type TestSidebarState = NonNullable<ComponentProps<typeof WorkbenchShell>["sidebar"]>;
@@ -2948,6 +2979,9 @@ export function renderWorkbench({
     };
     requestWorkbenchCommand = (source) => {
       commandPortRef.current?.execute("toggleBottomPanel", source);
+    };
+    requestPageCreateCommand = (source) => {
+      commandPortRef.current?.execute(CREATE_PAGE_COMMAND_ID, source);
     };
     openCommandPalette = (mode = "root", initialQuery = "") => {
       commandPortRef.current?.openCommandPalette({
@@ -3083,6 +3117,9 @@ export function renderWorkbench({
     requestWorkbenchCommand: (source: WorkbenchCommandSource) => {
       requestWorkbenchCommand(source);
     },
+    requestPageCreateCommand: (source: WorkbenchCommandSource) => {
+      requestPageCreateCommand(source);
+    },
     getScheduledAutomations: () => scheduledAutomations,
     getRunNowAutomationIds: () => runNowAutomationIds,
     getAutomationInboxItems: () => automationInboxItems,
@@ -3147,6 +3184,8 @@ beforeEach(() => {
   codexHostMessageListener = null;
   pendingWorktreeWarningListener = null;
   mockInvokeImpl = null;
+  requestPageCreateFromContextMock.mockReset();
+  requestPageCreateFromContextMock.mockReturnValue(true);
   setWindowInnerWidthForTest(1024);
   localStorage.clear();
   sessionStorage.clear();

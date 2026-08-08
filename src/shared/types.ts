@@ -246,6 +246,21 @@ export type PageOccurrenceUpdateInput = PageOccurrenceActionInput &
       }
   );
 
+export interface PageOccurrenceCommitCursor {
+  readonly storeEpoch: string;
+  readonly commitSeq: number;
+}
+
+export type PageOccurrenceMutationResult =
+  | {
+      readonly success: true;
+      readonly commitCursor: PageOccurrenceCommitCursor;
+    }
+  | {
+      readonly success: false;
+      readonly error?: string;
+    };
+
 /** Compatibility projection for one Page row in a Database View. */
 export interface DatabasePage {
   id: string;
@@ -346,8 +361,10 @@ export type PageUpdateResult =
       status: "updated";
       projectId: string;
       pageId: string;
-      revision: number;
-      summary: DatabasePageSummary;
+      /** Present when a post-commit Board projection was available. */
+      revision?: number;
+      /** A best-effort visual projection, never the durable write receipt. */
+      summary?: DatabasePageSummary;
       changedFields: PageUpdateField[];
       didMutate: boolean;
     }

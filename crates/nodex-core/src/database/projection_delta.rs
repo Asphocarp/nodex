@@ -12,10 +12,9 @@ use crate::infrastructure::durable_mutation::AuthorizedResourceObservation;
 use crate::infrastructure::local_commit::{self, CommitContext};
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
-use super::window::{ViewGroupsRead, rows_by_id, view_groups};
+use super::window::{ViewGroupsRead, exact_primary_board_row_by_id, view_groups};
 
 const MAX_ACTIVE_PROJECTION_AUDIENCES: usize = 200;
-const MAX_ROWS_BY_ID: usize = 100;
 const MAX_INLINE_PROJECTION_PATCH_BYTES: usize = 128 * 1024;
 
 /// Bounded work counters returned by the audience compiler. They are useful to
@@ -63,9 +62,6 @@ enum ViewRowDelta {
     Upsert {
         row: Box<DatabaseRowSummary>,
         group_total: Option<i64>,
-    },
-    Remove {
-        page_id: String,
     },
 }
 
@@ -425,37 +421,57 @@ fn compile_view_delta(
         }));
     }
 
-    let mut rows_by_page = BTreeMap::new();
-    for page_ids in page_ids.chunks(MAX_ROWS_BY_ID) {
-        let mut rows = rows_by_id(connection, library_id, view_id, page_ids)?;
-        super::relation_projection::hydrate_row_previews(
-            connection,
-            library_id,
-            Some(representative_project_id),
-            &groups.data_source_id,
-            &mut rows.rows,
-        )?;
-        rows_by_page.extend(rows.rows.into_iter().map(|row| (row.page_id.clone(), row)));
-    }
-    let entries = page_ids
+    // A packet may carry only a complete reduction of this View scope. The
+    // identity read used for relation hydration does not prove filtered or
+    // independently sorted View membership, so ambiguous and multi-row
+    // transitions deliberately fall back to the canonical read floor.
+    let [page_id] = page_ids else {
+        return Ok(CompiledViewDelta::View(ViewDeltaTemplate {
+            database_id: groups.database_id,
+            data_source_id: groups.data_source_id,
+            view_id: view_id.to_owned(),
+            total_rows: groups.total_rows,
+            entries: Vec::new(),
+        }));
+    };
+    let Some(row) = exact_primary_board_row_by_id(connection, library_id, view_id, page_id)? else {
+        return Ok(CompiledViewDelta::View(ViewDeltaTemplate {
+            database_id: groups.database_id,
+            data_source_id: groups.data_source_id,
+            view_id: view_id.to_owned(),
+            total_rows: groups.total_rows,
+            entries: Vec::new(),
+        }));
+    };
+    let mut rows = vec![row];
+    super::relation_projection::hydrate_row_previews(
+        connection,
+        library_id,
+        Some(representative_project_id),
+        &groups.data_source_id,
+        &mut rows,
+    )?;
+    let row = rows
+        .pop()
+        .ok_or_else(|| internal("Exact projection row hydration returned no row"))?;
+    let group_total = groups
+        .groups
         .iter()
-        .map(|page_id| {
-            let Some(row) = rows_by_page.get(page_id) else {
-                return ViewRowDelta::Remove {
-                    page_id: page_id.clone(),
-                };
-            };
-            let group_total = groups
-                .groups
-                .iter()
-                .find(|group| group.group_key == row.effective_group_key)
-                .map(|group| group.total_rows);
-            ViewRowDelta::Upsert {
-                row: Box::new(row.clone()),
-                group_total,
-            }
-        })
-        .collect();
+        .find(|group| group.group_key == row.effective_group_key)
+        .map(|group| group.total_rows);
+    if groups.grouped && group_total.is_none() {
+        return Ok(CompiledViewDelta::View(ViewDeltaTemplate {
+            database_id: groups.database_id,
+            data_source_id: groups.data_source_id,
+            view_id: view_id.to_owned(),
+            total_rows: groups.total_rows,
+            entries: Vec::new(),
+        }));
+    }
+    let entries = vec![ViewRowDelta::Upsert {
+        row: Box::new(row),
+        group_total,
+    }];
     Ok(CompiledViewDelta::View(ViewDeltaTemplate {
         database_id: groups.database_id,
         data_source_id: groups.data_source_id,
@@ -517,26 +533,15 @@ fn record_compiled_view_delta(
         }
         return local_commit::require_projection_read(connection, commit, scope);
     };
-    let patch = match entry {
-        ViewRowDelta::Upsert { row, group_total } => LocalProjectionPatch::DatabaseRowUpsert {
-            project_id: project_id.to_owned(),
-            database_id: template.database_id.clone(),
-            data_source_id: template.data_source_id.clone(),
-            view_id: template.view_id.clone(),
-            row: row.clone(),
-            total_rows: template.total_rows,
-            group_total: *group_total,
-        },
-        ViewRowDelta::Remove { page_id } => LocalProjectionPatch::DatabaseRowRemove {
-            project_id: project_id.to_owned(),
-            database_id: template.database_id.clone(),
-            data_source_id: template.data_source_id.clone(),
-            view_id: template.view_id.clone(),
-            page_id: page_id.clone(),
-            total_rows: template.total_rows,
-            group_key: None,
-            group_total: None,
-        },
+    let ViewRowDelta::Upsert { row, group_total } = entry;
+    let patch = LocalProjectionPatch::DatabaseRowUpsert {
+        project_id: project_id.to_owned(),
+        database_id: template.database_id.clone(),
+        data_source_id: template.data_source_id.clone(),
+        view_id: template.view_id.clone(),
+        row: row.clone(),
+        total_rows: template.total_rows,
+        group_total: *group_total,
     };
     let encoded =
         serde_json::to_vec(&patch).map_err(|_| internal("Projection patch cannot be encoded"))?;
@@ -553,9 +558,7 @@ fn compiled_view_contains_relation_preview(compiled: &CompiledViewDelta) -> bool
         return false;
     };
     template.entries.iter().any(|entry| {
-        let ViewRowDelta::Upsert { row, .. } = entry else {
-            return false;
-        };
+        let ViewRowDelta::Upsert { row, .. } = entry;
         row.database_values
             .values()
             .any(|value| value.get("kind").and_then(serde_json::Value::as_str) == Some("relation"))

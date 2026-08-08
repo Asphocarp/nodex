@@ -1,6 +1,11 @@
-import { fireEvent } from "@testing-library/react";
+import { fireEvent, waitFor } from "@testing-library/react";
 import { act } from "react";
 import { describe, expect, test, vi } from "vitest";
+import {
+  NodexDialog,
+  NodexDialogContent,
+  NodexDialogTitle,
+} from "@/components/ui/dialog";
 import { render } from "@/test/dom";
 import { PropertyOptionPicker } from "./property-option-picker";
 
@@ -10,6 +15,45 @@ const options = [
 ] as const;
 
 describe("PropertyOptionPicker", () => {
+  test("portals above a clipping dialog while preserving focus and interaction", async () => {
+    const onChange = vi.fn();
+    const view = render(
+      <NodexDialog open>
+        <NodexDialogContent>
+          <NodexDialogTitle>Property dialog</NodexDialogTitle>
+          <PropertyOptionPicker
+            label="Tags"
+            mode="multiple"
+            options={options}
+            selectedIds={[]}
+            onSelectedIdsChange={onChange}
+          />
+        </NodexDialogContent>
+      </NodexDialog>,
+    );
+
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Edit Tags" }));
+      await Promise.resolve();
+    });
+    const dialog = view.getByRole("heading", { name: "Property dialog" }).closest(
+      '[role="dialog"]',
+    );
+    expect(dialog).not.toBeNull();
+    const input = view.getByRole("combobox", { name: "Search Tags options" });
+    expect(dialog?.contains(input)).toBe(false);
+    await waitFor(() => expect(document.activeElement).toBe(input));
+
+    await act(async () => {
+      fireEvent.click(view.getByRole("option", { name: "Needs review" }));
+      await Promise.resolve();
+    });
+    expect(onChange).toHaveBeenCalledWith(["one"]);
+    expect(
+      view.getByRole("heading", { name: "Property dialog" }).closest('[role="dialog"]'),
+    ).not.toBeNull();
+  });
+
   test("renders an empty multi-select as only the shared Empty value", () => {
     const view = render(
       <PropertyOptionPicker
@@ -180,12 +224,14 @@ describe("PropertyOptionPicker", () => {
 
   test("closes an already-open picker when it becomes read-only", async () => {
     const onChange = vi.fn();
+    const onOpenChange = vi.fn();
     const view = render(
       <PropertyOptionPicker
         label="Tags"
         mode="multiple"
         options={options}
         selectedIds={[]}
+        onOpenChange={onOpenChange}
         onSelectedIdsChange={onChange}
       />,
     );
@@ -200,11 +246,13 @@ describe("PropertyOptionPicker", () => {
         options={options}
         selectedIds={[]}
         disabled
+        onOpenChange={onOpenChange}
         onSelectedIdsChange={onChange}
       />,
     );
     expect(view.queryByRole("combobox", { name: "Search Tags options" })).toBeNull();
     expect(onChange).not.toHaveBeenCalled();
+    expect(onOpenChange.mock.calls.map(([open]) => open)).toEqual([true, false]);
   });
 
   test("requests the next option window without closing the picker", async () => {

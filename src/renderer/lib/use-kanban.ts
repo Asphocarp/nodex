@@ -1,29 +1,22 @@
 import { useCallback, useMemo, useSyncExternalStore } from "react";
 import {
+  boardContainsPageIds,
   buildCompleteOrSkipOccurrenceTransform,
-  buildCreateCardTransform,
-  buildDeletePageTransform,
-  buildMovePageTransform,
-  buildMovePagesTransform,
   buildPatchPageTransform,
   conflictKeyForCard,
-  conflictKeysForCreate,
-  conflictKeysForDelete,
-  conflictKeysForMove,
-  conflictKeysForMoveMany,
   conflictKeysForPatch,
-  createOptimisticCard,
 } from "./kanban-optimistic-ops";
 import { createUuidV7 } from "../../shared/uuid-v7";
-import { isWorkflowStatus } from "../../shared/workflow-status";
 import {
   PAGE_DOCUMENT_MUTATION_REQUIRED_MESSAGE,
   findPageDocumentPatchFields,
 } from "../../shared/page-content-authority";
 import type {
   PageOccurrence,
+  PageOccurrenceMutationResult,
   DatabasePage,
   PageCreateInput,
+  PageCreateMutationResult,
   PageCreatePlacement,
   PageInput,
   PageUpdateMutationResult,
@@ -31,6 +24,7 @@ import type {
   PageOccurrenceActionInput,
   PageOccurrenceCompleteInput,
   PageOccurrenceUpdateInput,
+  WorkflowStatus,
   MovePageInput,
   MovePagesInput,
 } from "./types";
@@ -43,15 +37,18 @@ import {
 } from "./kanban-store";
 import { getDatabaseRowDetail, setDatabaseRowDetail } from "./database-row-detail-store";
 import {
-  commitDatabasePageDrag,
-  commitDatabasePagesDrag,
-  databaseViewRenderModelToDragSnapshot,
-} from "./database-page-drag-runtime";
-import { commitPageLifecycleIntent } from "./page-lifecycle-runtime";
+  deleteKanbanPage,
+  moveKanbanPage,
+  moveKanbanPages,
+} from "./kanban-page-mutation-command";
 import {
   isPageMetadataPatch,
 } from "./page-detail-metadata-runtime";
-import { commitPageMetadataPatchForBoard } from "./page-metadata-board-runtime";
+import {
+  commitPageMetadataPatchForBoardWithReceipt,
+  type PageMetadataBoardMutationEnvelope,
+} from "./page-metadata-board-runtime";
+import { createKanbanPage } from "./kanban-page-create-command";
 
 interface UseKanbanOptions {
   projectId: string;
@@ -76,6 +73,11 @@ type NewPageOccurrenceUpdate = Omit<
   "operationId" | "createdPageId"
 >;
 
+type SuccessfulPageOccurrenceMutation = Extract<
+  PageOccurrenceMutationResult,
+  { readonly success: true }
+>;
+
 function asDate(value: Date | string): Date {
   return value instanceof Date ? value : new Date(value);
 }
@@ -86,13 +88,13 @@ function toErrorMessage(value: unknown): string {
   return "Unknown error";
 }
 
-function ensureCreateInputId(input: PageCreateInput): PageCreateInput {
-  if (input.id && input.id.trim().length > 0) return input;
-  return {
-    ...input,
-    id: createUuidV7(),
-  };
-}
+const requireSuccessfulOccurrenceMutation = (
+  result: PageOccurrenceMutationResult,
+  fallbackError: string,
+): SuccessfulPageOccurrenceMutation => {
+  if (result.success) return result;
+  throw new Error(result.error ?? fallbackError);
+};
 
 function normalizeOccurrenceUpdatesToPagePatch(
   input: PageOccurrenceUpdateInput,
@@ -111,7 +113,7 @@ function buildCommittedPageDetailFromUpdate(
   existing: DatabasePage | null,
   result: Extract<PageUpdateResult, { status: "updated" }>,
 ): DatabasePage | null {
-  if (!existing) return null;
+  if (!existing || !result.summary) return null;
 
   return {
     ...result.summary,
@@ -168,45 +170,19 @@ export function useKanban(options: UseKanbanOptions) {
       columnId: string,
       input: PageCreateInput,
       placement: PageCreatePlacement = "bottom",
-    ): Promise<DatabasePage | null> => {
-      if (!requireWritableSelectedView()) return null;
-      if (!isWorkflowStatus(columnId)) {
-        throw new Error("Page creation requires a canonical Page status");
-      }
-      const createInput = ensureCreateInputId(input);
-      const optimisticCard = createOptimisticCard(createInput);
-      const operationId = crypto.randomUUID();
-      const outcome = await store.runOptimisticMutation<DatabasePage>({
-        kind: "page:create",
-        conflictKeys: conflictKeysForCreate(columnId, optimisticCard.id),
-        apply: buildCreateCardTransform(columnId, optimisticCard, placement),
-        runRemote: async () => {
-          const committed = await commitPageLifecycleIntent({
-            kind: "create",
-            projectId,
-            operationId,
-            clientSessionId: sessionId,
-            pageId: optimisticCard.id,
-            status: columnId,
-            input: createInput,
-            placement,
-          });
-          if (!committed.boardProjection) {
-            throw new Error("Created Page is missing from canonical authority");
-          }
-          return committed.boardProjection;
-        },
+    ): Promise<PageCreateMutationResult> => {
+      const result = await createKanbanPage({
+        projectId,
+        databaseViewId,
+        clientSessionId: sessionId,
+        status: columnId as WorkflowStatus,
+        input,
+        placement,
       });
-
-      if (!outcome.ok) return null;
-      if (outcome.result) {
-        setDatabaseRowDetail(projectId, outcome.result);
-        store.applyRemoteCard(outcome.result);
-      }
-      onMutation?.();
-      return outcome.result ?? null;
+      if (result.status === "created") onMutation?.();
+      return result;
     },
-    [onMutation, projectId, requireWritableSelectedView, sessionId, store],
+    [databaseViewId, onMutation, projectId, sessionId],
   );
 
   const updatePage = useCallback(
@@ -230,18 +206,20 @@ export function useKanban(options: UseKanbanOptions) {
       }
       const conflictKeys = conflictKeysForPatch(pageId, updates);
       const metadataMutationId = crypto.randomUUID();
-      const outcome = await store.runOptimisticMutation<PageUpdateResult>({
+      const outcome = await store.runOptimisticMutation<PageMetadataBoardMutationEnvelope>({
         kind: "block:properties",
         conflictKeys,
         apply: buildPatchPageTransform(columnId, pageId, updates, { bumpRevision: true }),
-        runRemote: async () => await commitPageMetadataPatchForBoard({
+        runRemote: async () => await commitPageMetadataPatchForBoardWithReceipt({
           projectId,
           pageId: pageId,
           operationId: metadataMutationId,
           clientSessionId: sessionId,
           patch: updates,
         }),
-        refreshOnSuccess: false,
+        getCommitCursor: (result) => result.commitCursor,
+        isCommitMaterialized: (canonicalBoard) =>
+          boardContainsPageIds(canonicalBoard, [pageId]),
       });
 
       if (!outcome.ok) {
@@ -251,13 +229,15 @@ export function useKanban(options: UseKanbanOptions) {
         };
       }
 
-      const result = outcome.result;
-      if (!result) {
+      const envelope = outcome.result;
+      if (!envelope) {
         return {
           status: "error",
           error: "Missing card update result",
         };
       }
+      const { result } = envelope;
+      if (outcome.superseded) return result;
 
       if (result.status === "updated") {
         const committedDetail = buildCommittedPageDetailFromUpdate(
@@ -267,14 +247,12 @@ export function useKanban(options: UseKanbanOptions) {
         if (committedDetail) {
           setDatabaseRowDetail(projectId, committedDetail, { acceptEqualRevision: true });
         }
-        store.applyRemoteCardSummary(result.summary);
         onMutation?.();
         return result;
       }
 
       if (result.status === "conflict") {
         setDatabaseRowDetail(projectId, result.page);
-        store.applyRemoteCard(result.page);
         store.resolveConflict(conflictKeys);
         await store.refreshBoard();
         if (typeof window !== "undefined") {
@@ -288,6 +266,7 @@ export function useKanban(options: UseKanbanOptions) {
         return result;
       }
 
+      store.resolveConflict(conflictKeys);
       await store.refreshBoard();
       return result;
     },
@@ -306,14 +285,10 @@ export function useKanban(options: UseKanbanOptions) {
           projectId,
           pageId,
           columnId,
-          cursor?.commitSeq,
+          cursor,
         )) as DatabasePage | null;
         if (!card) return null;
         setDatabaseRowDetail(projectId, card);
-        // A row read is already a canonical Core read. Feed it into the
-        // mounted Board immediately; the projection-floor refresh remains a
-        // background reconciliation for ordering, totals, and pagination.
-        store.applyRemoteCard(card, cursor);
         return card;
       } catch (err) {
         store.setError(toErrorMessage(err));
@@ -326,27 +301,15 @@ export function useKanban(options: UseKanbanOptions) {
   const deletePage = useCallback(
     async (columnId: string | undefined, pageId: string): Promise<boolean> => {
       if (!requireWritableSelectedView()) return false;
-      const operationId = crypto.randomUUID();
-      const outcome = await store.runOptimisticMutation<boolean>({
-        kind: "page:delete",
-        conflictKeys: conflictKeysForDelete(pageId),
-        apply: buildDeletePageTransform(columnId, pageId),
-        runRemote: async () => {
-          const committed = await commitPageLifecycleIntent({
-            kind: "delete",
-            projectId,
-            operationId,
-            clientSessionId: sessionId,
-            pageId: pageId,
-          });
-          return committed.receipt.lifecycle === "deleted";
-        },
+      const deleted = await deleteKanbanPage({
+        store,
+        projectId,
+        ...(sessionId ? { clientSessionId: sessionId } : {}),
+        ...(columnId ? { columnId } : {}),
+        pageId,
+        operationId: crypto.randomUUID(),
       });
-      if (!outcome.ok) return false;
-      if (!outcome.result) {
-        store.setError("Failed to delete card");
-        return false;
-      }
+      if (!deleted) return false;
       onMutation?.();
       return true;
     },
@@ -356,29 +319,13 @@ export function useKanban(options: UseKanbanOptions) {
   const movePage = useCallback(
     async (input: MovePageInput): Promise<boolean> => {
       if (!requireWritableSelectedView()) return false;
-      const databaseView = store.getSnapshot().databaseView;
-      if (!databaseView) {
-        store.setError("The Database View is not loaded");
-        return false;
-      }
-      const dragSnapshot = databaseViewRenderModelToDragSnapshot(databaseView);
-      const operationId = crypto.randomUUID();
-      const outcome = await store.runOptimisticMutation<boolean>({
-        kind: "database:position",
-        conflictKeys: conflictKeysForMove(input),
-        apply: buildMovePageTransform(input),
-        runRemote: async () => await commitDatabasePageDrag({
-          projectId,
-          operationId,
-          move: input,
-          snapshot: dragSnapshot,
-        }),
+      const moved = await moveKanbanPage({
+        store,
+        projectId,
+        move: input,
+        operationId: crypto.randomUUID(),
       });
-      if (!outcome.ok) return false;
-      if (!outcome.result) {
-        store.setError("Failed to move card");
-        return false;
-      }
+      if (!moved) return false;
       onMutation?.();
       return true;
     },
@@ -388,29 +335,13 @@ export function useKanban(options: UseKanbanOptions) {
   const movePages = useCallback(
     async (input: MovePagesInput): Promise<boolean> => {
       if (!requireWritableSelectedView()) return false;
-      const databaseView = store.getSnapshot().databaseView;
-      if (!databaseView) {
-        store.setError("The Database View is not loaded");
-        return false;
-      }
-      const dragSnapshot = databaseViewRenderModelToDragSnapshot(databaseView);
-      const operationId = crypto.randomUUID();
-      const outcome = await store.runOptimisticMutation<boolean>({
-        kind: "database:position-many",
-        conflictKeys: conflictKeysForMoveMany(input),
-        apply: buildMovePagesTransform(input),
-        runRemote: async () => await commitDatabasePagesDrag({
-          projectId,
-          operationId,
-          move: input,
-          snapshot: dragSnapshot,
-        }),
+      const moved = await moveKanbanPages({
+        store,
+        projectId,
+        move: input,
+        operationId: crypto.randomUUID(),
       });
-      if (!outcome.ok) return false;
-      if (!outcome.result) {
-        store.setError("Failed to move cards");
-        return false;
-      }
+      if (!moved) return false;
       onMutation?.();
       return true;
     },
@@ -481,23 +412,25 @@ export function useKanban(options: UseKanbanOptions) {
         operationId: crypto.randomUUID(),
         createdPageId: createUuidV7(),
       };
-      const outcome = await store.runOptimisticMutation<{ success: boolean; error?: string }>({
+      const outcome = await store.runOptimisticMutation<SuccessfulPageOccurrenceMutation>({
         kind: "page:occurrence:complete",
         conflictKeys: [conflictKeyForCard(command.pageId)],
         apply: buildCompleteOrSkipOccurrenceTransform(command.pageId),
-        runRemote: async () => (await invoke(
-          "page:occurrence:complete",
-          projectId,
-          command,
-          sessionId,
-        )) as { success: boolean; error?: string },
+        runRemote: async () => requireSuccessfulOccurrenceMutation(
+          (await invoke(
+            "page:occurrence:complete",
+            projectId,
+            command,
+            sessionId,
+          )) as PageOccurrenceMutationResult,
+          "Failed to complete occurrence",
+        ),
+        getCommitCursor: (result) => result.commitCursor,
+        isCommitMaterialized: () => true,
       });
 
       if (!outcome.ok) return false;
-      if (!outcome.result?.success) {
-        store.setError(outcome.result?.error ?? "Failed to complete occurrence");
-        return false;
-      }
+      if (!outcome.result?.success) return false;
       onMutation?.();
       return true;
     },
@@ -511,23 +444,25 @@ export function useKanban(options: UseKanbanOptions) {
         ...input,
         operationId: crypto.randomUUID(),
       };
-      const outcome = await store.runOptimisticMutation<{ success: boolean; error?: string }>({
+      const outcome = await store.runOptimisticMutation<SuccessfulPageOccurrenceMutation>({
         kind: "page:occurrence:skip",
         conflictKeys: [conflictKeyForCard(command.pageId)],
         apply: buildCompleteOrSkipOccurrenceTransform(command.pageId),
-        runRemote: async () => (await invoke(
-          "page:occurrence:skip",
-          projectId,
-          command,
-          sessionId,
-        )) as { success: boolean; error?: string },
+        runRemote: async () => requireSuccessfulOccurrenceMutation(
+          (await invoke(
+            "page:occurrence:skip",
+            projectId,
+            command,
+            sessionId,
+          )) as PageOccurrenceMutationResult,
+          "Failed to skip occurrence",
+        ),
+        getCommitCursor: (result) => result.commitCursor,
+        isCommitMaterialized: () => true,
       });
 
       if (!outcome.ok) return false;
-      if (!outcome.result?.success) {
-        store.setError(outcome.result?.error ?? "Failed to skip occurrence");
-        return false;
-      }
+      if (!outcome.result?.success) return false;
       onMutation?.();
       return true;
     },
@@ -543,23 +478,25 @@ export function useKanban(options: UseKanbanOptions) {
         ...(input.scope === "all" ? {} : { createdPageId: createUuidV7() }),
       } as PageOccurrenceUpdateInput;
       const optimisticPatch = normalizeOccurrenceUpdatesToPagePatch(command);
-      const outcome = await store.runOptimisticMutation<{ success: boolean; error?: string }>({
+      const outcome = await store.runOptimisticMutation<SuccessfulPageOccurrenceMutation>({
         kind: "page:occurrence:update",
         conflictKeys: conflictKeysForPatch(command.pageId, optimisticPatch),
         apply: buildPatchPageTransform(undefined, command.pageId, optimisticPatch),
-        runRemote: async () => (await invoke(
-          "page:occurrence:update",
-          projectId,
-          command,
-          sessionId,
-        )) as { success: boolean; error?: string },
+        runRemote: async () => requireSuccessfulOccurrenceMutation(
+          (await invoke(
+            "page:occurrence:update",
+            projectId,
+            command,
+            sessionId,
+          )) as PageOccurrenceMutationResult,
+          "Failed to update occurrence",
+        ),
+        getCommitCursor: (result) => result.commitCursor,
+        isCommitMaterialized: () => true,
       });
 
       if (!outcome.ok) return false;
-      if (!outcome.result?.success) {
-        store.setError(outcome.result?.error ?? "Failed to update occurrence");
-        return false;
-      }
+      if (!outcome.result?.success) return false;
       onMutation?.();
       return true;
     },

@@ -3,12 +3,11 @@ import type { PageInput, PageUpdateMutationResult } from "@/lib/types";
 import type { PageStageHandlers } from "@/lib/page-stage-handlers";
 import { createUuidV7 } from "../../../shared/uuid-v7";
 import { isWorkflowStatus } from "../../../shared/workflow-status";
-import { commitPageLifecycleIntent } from "@/lib/page-lifecycle-runtime";
-import {
-  commitDatabasePageDrag,
-  databaseViewRenderModelToDragSnapshot,
-} from "@/lib/database-page-drag-runtime";
 import { getKanbanProjectStore } from "@/lib/kanban-store";
+import {
+  deleteKanbanPage,
+  moveKanbanPage,
+} from "@/lib/kanban-page-mutation-command";
 import {
   isPageMetadataPatch,
 } from "@/lib/page-detail-metadata-runtime";
@@ -18,7 +17,10 @@ import {
   findPageDocumentPatchFields,
 } from "../../../shared/page-content-authority";
 
-export function makeRemotePageStageHandlers(projectId: string): PageStageHandlers {
+export function makeRemotePageStageHandlers(
+  projectId: string,
+  databaseViewId: string,
+): PageStageHandlers {
   return {
     onPatch: () => {
       // no-op for remote-opened sessions
@@ -45,31 +47,26 @@ export function makeRemotePageStageHandlers(projectId: string): PageStageHandler
       });
     },
     onDelete: async (columnId: string, pageId: string) => {
-      void columnId;
-      await commitPageLifecycleIntent({
-        kind: "delete",
+      const deleted = await deleteKanbanPage({
+        store: getKanbanProjectStore(projectId, databaseViewId),
         projectId,
+        columnId,
         operationId: crypto.randomUUID(),
-        pageId: pageId,
+        pageId,
       });
+      if (!deleted) throw new Error("Failed to delete Page");
     },
     onMove: async (fromStatus: string, pageId: string, toStatus: string) => {
       if (!isWorkflowStatus(fromStatus) || !isWorkflowStatus(toStatus)) {
         throw new Error("Page Stage move requires canonical Page statuses");
       }
-      const databaseView = getKanbanProjectStore(
-        projectId,
-        null,
-      ).getSnapshot().databaseView;
-      if (!databaseView) {
-        throw new Error("The Database View must be loaded before moving a Page");
-      }
-      await commitDatabasePageDrag({
+      const moved = await moveKanbanPage({
+        store: getKanbanProjectStore(projectId, databaseViewId),
         projectId,
         operationId: crypto.randomUUID(),
         move: { pageId: pageId, fromStatus, toStatus },
-        snapshot: databaseViewRenderModelToDragSnapshot(databaseView),
       });
+      if (!moved) throw new Error("Failed to move Page");
     },
     onCompleteOccurrence: async (pageId: string, occurrenceStart: Date) => {
       await invoke("page:occurrence:complete", projectId, {

@@ -86,6 +86,7 @@ import { NodexTooltip, NodexTooltipProvider } from "@/components/ui/tooltip";
 import { toast } from "@/components/ui/toast";
 import { appScope, useScopeHandle } from "@/lib/maitai";
 import { openModal } from "@/lib/modal-registry";
+import { requestPageCreateFromContext } from "@/lib/page-create-workflow";
 import {
   useCodexAppServerControl,
   useCodexAppServerRegistry,
@@ -338,6 +339,7 @@ import {
   type WorkbenchNavigationCommandState,
 } from "../../../shared/window-navigation";
 import {
+  CREATE_PAGE_COMMAND_ID,
   TOGGLE_BOTTOM_PANEL_COMMAND_ID,
   type WorkbenchCommandInvocation,
 } from "../../../shared/workbench-commands";
@@ -1310,7 +1312,8 @@ export function WorkbenchRuntime({
   const codexAppServerRegistry = useCodexAppServerRegistry();
   const activeProjectKanban = useKanban({
     projectId: activeProject?.id ?? activeProjectId ?? "",
-    enabled: Boolean(activeProject?.id ?? activeProjectId),
+    databaseViewId: activeProject?.defaultDatabaseViewId ?? undefined,
+    enabled: Boolean(activeProject?.id && activeProject.defaultDatabaseViewId),
     sessionId: activeSession ? `${activeSession.id}:right-panel-actions` : "right-panel-actions",
   });
   const [pageStageHistoryModal, setPageStageHistoryModal] = useState<PageStageHistoryModalContext | null>(null);
@@ -2531,9 +2534,14 @@ export function WorkbenchRuntime({
   }, [handleDesktopNotificationAction]);
 
   const executeWorkbenchCommand = useCallback(({ commandId }: WorkbenchCommandInvocation) => {
-    if (commandId !== TOGGLE_BOTTOM_PANEL_COMMAND_ID) return;
-    toggleActiveBottomPanel();
-  }, [toggleActiveBottomPanel]);
+    if (commandId === CREATE_PAGE_COMMAND_ID) {
+      requestPageCreateFromContext(appHandle);
+      return;
+    }
+    if (commandId === TOGGLE_BOTTOM_PANEL_COMMAND_ID) {
+      toggleActiveBottomPanel();
+    }
+  }, [appHandle, toggleActiveBottomPanel]);
 
   const commandPort = useMemo<WorkbenchCommandPort>(() => ({
     navigate: (direction) => {

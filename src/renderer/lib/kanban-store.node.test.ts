@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { plainTextToPortableRichText } from "../../shared/block-documents";
 import {
+  boardContainsPageIds,
   buildCreateCardTransform,
   buildDeletePageTransform,
   buildMovePageTransform,
@@ -22,7 +23,10 @@ import {
   createKanbanStoreRegistry,
   type KanbanStoreDependencies,
 } from "./kanban-store";
-import type { DatabaseViewGroupsSnapshot } from "../../shared/database-views";
+import type {
+  DatabaseViewGroupsSnapshot,
+  DatabaseViewWindowInput,
+} from "../../shared/database-views";
 import { toDatabasePageSummary } from "../../shared/page-summary";
 import type { BoardChangeEvent } from "../../shared/ipc-api";
 import type { ProjectionStreamMessage } from "../../shared/projection-stream";
@@ -341,9 +345,12 @@ function createTestRegistry(
     getProjectionInvalidationRegistry: () => null,
     readViewGroups: async (_projectId, input) => {
       const viewId = input.databaseViewId ?? "view-primary";
-      const revision = input.minimumCommitSeq ?? 1;
+      const revision = input.minimumCommitCursor?.commitSeq
+        ?? input.minimumCommitSeq
+        ?? 1;
       return createGroupsSnapshot({
         viewId,
+        storeEpoch: input.minimumCommitCursor?.storeEpoch ?? "epoch-1",
         commitSeq: revision,
         projection: {
           scopeKey: `scope:${viewId}`,
@@ -510,6 +517,7 @@ function pageRevoked(
 function pageUpserted(
   commitSeq: number,
   page: DatabasePageSummary,
+  rankKey = "b",
 ): ProjectionStreamMessage {
   const message = pageChanged(commitSeq, page.id);
   if (message.kind !== "effect") throw new Error("Projection fixture is invalid");
@@ -548,11 +556,11 @@ function pageUpserted(
             created_at: "2026-08-06T00:00:00.000Z",
             updated_at: "2026-08-06T00:00:00.000Z",
             effective_group_key: page.status,
-            rank_key: "b",
+            rank_key: rankKey,
             position_revision: 1,
           },
           effectiveGroupKey: page.status,
-          rankKey: "b",
+          rankKey,
           totalRows: 2,
           groupTotal: 2,
         },
@@ -937,7 +945,11 @@ describe("kanban store", () => {
 
     expect(requests).toEqual([
       { first: 50 },
-      { after: "cursor-1", first: 50, minimumCommitSeq: 1 },
+      {
+        after: "cursor-1",
+        first: 50,
+        minimumCommitCursor: { storeEpoch: "epoch-1", commitSeq: 1 },
+      },
     ]);
     expect([...store.getSnapshot().pageIndex.keys()]).toEqual([
       "card-1",
@@ -975,8 +987,15 @@ describe("kanban store", () => {
 
     expect(requests).toEqual([
       { first: 50 },
-      { after: "cursor-1", first: 50, minimumCommitSeq: 1 },
-      { first: 50, minimumCommitSeq: 1 },
+      {
+        after: "cursor-1",
+        first: 50,
+        minimumCommitCursor: { storeEpoch: "epoch-1", commitSeq: 1 },
+      },
+      {
+        first: 50,
+        minimumCommitCursor: { storeEpoch: "epoch-1", commitSeq: 1 },
+      },
     ]);
     expect(store.getSnapshot().error).toBe(null);
     expect(store.getSnapshot().loadingMore).toBe(false);
@@ -1378,6 +1397,29 @@ describe("kanban store", () => {
     expect(Object.hasOwn(indexedPage ?? {}, "description")).toBe(false);
   });
 
+  test("does not notify subscribers for a repeated canonical summary", async () => {
+    const board = createBoard();
+    const registry = createTestRegistry({
+      readViewWindow: async () => createBoardSnapshot(board),
+      subscribeBoardChanges: () => () => {},
+    });
+    const store = registry.getStore("default");
+    await store.fetchBoard();
+    let notifications = 0;
+    const unsubscribe = store.subscribe(() => {
+      notifications += 1;
+    });
+
+    const before = store.getSnapshot();
+    const card = before.board?.columns[0]?.cards[0];
+    if (!card) throw new Error("Canonical card fixture is missing");
+    store.applyRemoteCardSummary({ ...card });
+
+    expect(store.getSnapshot()).toBe(before);
+    expect(notifications).toBe(0);
+    unsubscribe();
+  });
+
   test("rejects a stale direct projection delta after a newer row read", async () => {
     const registry = createTestRegistry({
       readViewWindow: async () => createBoardSnapshot(),
@@ -1683,6 +1725,774 @@ describe("kanban store", () => {
     expect(store.getSnapshot().pageIndex.get("018f0f85-6d56-7625-bdea-000000000000")?.title).toBe("Created edited");
   });
 
+  test("converges a pending create when its canonical projection arrives first", async () => {
+    const projection = createProjectionHarness();
+    const remote = createDeferred<{ id: string }>();
+    const pageId = "018f0f85-6d56-7625-bdea-000000000002";
+    const optimisticCard = createOptimisticCard({
+      id: pageId,
+      status: "triage",
+      title: "Optimistic title",
+    });
+    const canonicalCard: DatabasePageSummary = {
+      ...optimisticCard,
+      title: "Canonical title",
+      richTitle: plainTextToPortableRichText("Canonical title"),
+      revision: 1,
+      order: 1,
+    };
+    const registry = createTestRegistry({
+      readViewWindow: async () => createBoardSnapshot(),
+      subscribeBoardChanges: () => () => {},
+      getProjectionInvalidationRegistry: projection.getRegistry,
+    });
+    const store = registry.getStore("project-1");
+    const unsubscribe = store.subscribe(() => {});
+    await waitForMicrotasks();
+
+    const mutation = store.runOptimisticMutation({
+      kind: "page:create",
+      conflictKeys: conflictKeysForCreate("triage", pageId),
+      apply: buildCreateCardTransform("triage", optimisticCard, "bottom"),
+      runRemote: async () => remote.promise,
+      refreshOnSuccess: false,
+    });
+    expect(
+      store.getSnapshot().board?.columns.flatMap((column) => column.cards)
+        .filter((card) => card.id === pageId),
+    ).toHaveLength(1);
+
+    projection.publish(pageUpserted(2, canonicalCard));
+    await waitForMicrotasks();
+
+    const pendingOccurrences = store.getSnapshot().board?.columns
+      .flatMap((column) => column.cards)
+      .filter((card) => card.id === pageId) ?? [];
+    expect(pendingOccurrences).toEqual([canonicalCard]);
+    expect(store.getSnapshot().pendingMutationCount).toBe(1);
+
+    store.applyLocalPatch("triage", pageId, {
+      title: "Edited while create is pending",
+    });
+    const editedOccurrences = store.getSnapshot().board?.columns
+      .flatMap((column) => column.cards)
+      .filter((card) => card.id === pageId) ?? [];
+    expect(editedOccurrences).toHaveLength(1);
+    expect(editedOccurrences[0]?.title).toBe("Edited while create is pending");
+
+    remote.resolve({ id: pageId });
+    await mutation;
+
+    const settledOccurrences =
+      store.getSnapshot().board?.columns.flatMap((column) => column.cards)
+        .filter((card) => card.id === pageId) ?? [];
+    expect(settledOccurrences).toHaveLength(1);
+    expect(settledOccurrences[0]?.title).toBe("Edited while create is pending");
+    expect(store.getSnapshot().pendingMutationCount).toBe(0);
+    unsubscribe();
+  });
+
+  test("keeps a top create in place while its receipt and projection repair interleave", async () => {
+    const projection = createProjectionHarness();
+    const remote = createDeferred<{
+      cursor: { storeEpoch: string; commitSeq: number };
+    }>();
+    const canonicalRepair = createDeferred<DatabaseViewWindowSnapshot>();
+    const initialBoard = createBoard();
+    const pageId = "019fe620-0000-7000-8000-000000000000";
+    const optimisticCard = createOptimisticCard({
+      id: pageId,
+      status: "triage",
+      title: "Optimistic title",
+    });
+    const canonicalCard: DatabasePageSummary = {
+      ...optimisticCard,
+      title: "Canonical title",
+      richTitle: plainTextToPortableRichText("Canonical title"),
+      revision: 1,
+      order: 0,
+    };
+    const existingCard = initialBoard.columns[0]?.cards[0];
+    if (!existingCard) throw new Error("Existing card fixture is missing");
+    const canonicalBoard: BoardSummary = {
+      ...initialBoard,
+      columns: initialBoard.columns.map((column) => column.id === "triage"
+        ? {
+            ...column,
+            cards: [canonicalCard, { ...existingCard, order: 1 }],
+          }
+        : column),
+    };
+    const repairedSnapshot = {
+      ...createBoardSnapshot(canonicalBoard, 2, "view-primary", true, 2),
+      rows: [
+        { page: canonicalCard, groupKey: "triage", rankKey: "0" },
+        { page: { ...existingCard, order: 1 }, groupKey: "triage", rankKey: "a" },
+      ],
+    } satisfies DatabaseViewWindowSnapshot;
+    let readCount = 0;
+    const registry = createTestRegistry({
+      readViewWindow: async () => {
+        readCount += 1;
+        if (readCount === 1) return createBoardSnapshot(initialBoard);
+        return await canonicalRepair.promise;
+      },
+      subscribeBoardChanges: () => () => {},
+      getProjectionInvalidationRegistry: projection.getRegistry,
+    });
+    const store = registry.getStore("project-1");
+    const visibleRuns: string[][] = [];
+    const unsubscribe = store.subscribe(() => {
+      const ids = store.getSnapshot().board?.columns
+        .find((column) => column.id === "triage")
+        ?.cards.map((card) => card.id) ?? [];
+      if (ids.includes(pageId)) visibleRuns.push(ids);
+    });
+    await waitForMicrotasks();
+
+    const mutation = store.runOptimisticMutation({
+      kind: "page:create",
+      conflictKeys: conflictKeysForCreate("triage", pageId),
+      apply: buildCreateCardTransform("triage", optimisticCard, "top"),
+      runRemote: async () => await remote.promise,
+      getCommitCursor: (result) => result.cursor,
+    });
+    projection.publish(pageUpserted(2, canonicalCard, "0"));
+    await waitForMicrotasks();
+    remote.resolve({ cursor: { storeEpoch: "epoch-1", commitSeq: 2 } });
+    await waitForMicrotasks();
+    canonicalRepair.resolve(repairedSnapshot);
+    await mutation;
+
+    expect(visibleRuns.length).toBeGreaterThan(0);
+    expect(visibleRuns.every((ids) => ids[0] === pageId)).toBe(true);
+    expect(store.getSnapshot().pageIndex.get(pageId)?.title).toBe("Canonical title");
+    expect(store.getSnapshot().pendingMutationCount).toBe(0);
+    unsubscribe();
+  });
+
+  test("retains a covered create while the Page remains outside the loaded window", async () => {
+    const pageId = "019fe620-0000-7000-8000-000000000001";
+    const optimisticCard = createOptimisticCard({
+      id: pageId,
+      status: "triage",
+      title: "Outside loaded window",
+    });
+    let canonicalBoard = createBoard();
+    let commitSeq = 1;
+    const registry = createTestRegistry({
+      readViewWindow: async () => createBoardSnapshot(
+        cloneBoard(canonicalBoard),
+        commitSeq,
+        "view-primary",
+        true,
+        commitSeq,
+      ),
+      subscribeBoardChanges: () => () => {},
+    });
+    const store = registry.getStore("default");
+    await store.fetchBoard();
+
+    const mutation = store.runOptimisticMutation({
+      kind: "page:create",
+      conflictKeys: conflictKeysForCreate("triage", pageId),
+      apply: buildCreateCardTransform("triage", optimisticCard, "bottom"),
+      runRemote: async () => ({
+        cursor: { storeEpoch: "epoch-1", commitSeq: 2 },
+      }),
+      getCommitCursor: (result) => result.cursor,
+      isCommitMaterialized: (board) => boardContainsPageIds(board, [pageId]),
+    });
+    commitSeq = 2;
+    await mutation;
+
+    expect(store.getSnapshot().pageIndex.get(pageId)?.title).toBe(
+      "Outside loaded window",
+    );
+    expect(store.getSnapshot().pendingMutationCount).toBe(0);
+
+    const canonicalCard = { ...optimisticCard, order: 1, revision: 1 };
+    canonicalBoard = buildCreateCardTransform(
+      "triage",
+      canonicalCard,
+      "bottom",
+    )(cloneBoard(canonicalBoard));
+    await store.refreshBoardAtLeast(2);
+    store.applyRemoteCardSummary({ ...canonicalCard, archived: true });
+
+    expect(store.getSnapshot().pageIndex.has(pageId)).toBe(false);
+  });
+
+  test("does not treat a repair-bound projection patch as window materialization", async () => {
+    const projection = createProjectionHarness();
+    const repair = createDeferred<DatabaseViewWindowSnapshot>();
+    const remote = createDeferred<{
+      cursor: { storeEpoch: string; commitSeq: number };
+    }>();
+    const pageId = "019fe620-0000-7000-8000-000000000003";
+    const optimisticCard = createOptimisticCard({
+      id: pageId,
+      status: "triage",
+      title: "Pinned beyond first window",
+    });
+    let readCount = 0;
+    const registry = createTestRegistry({
+      readViewWindow: async () => {
+        readCount += 1;
+        if (readCount === 1) return createBoardSnapshot();
+        return await repair.promise;
+      },
+      subscribeBoardChanges: () => () => {},
+      getProjectionInvalidationRegistry: projection.getRegistry,
+    });
+    const store = registry.getStore("project-1");
+    const unsubscribe = store.subscribe(() => {});
+    await waitForMicrotasks();
+
+    const mutation = store.runOptimisticMutation({
+      kind: "page:create",
+      conflictKeys: conflictKeysForCreate("triage", pageId),
+      apply: buildCreateCardTransform("triage", optimisticCard, "bottom"),
+      runRemote: async () => await remote.promise,
+      getCommitCursor: (result) => result.cursor,
+      isCommitMaterialized: (board) => boardContainsPageIds(board, [pageId]),
+    });
+    remote.resolve({ cursor: { storeEpoch: "epoch-1", commitSeq: 2 } });
+    await waitForMicrotasks();
+    projection.publish(pageUpserted(2, { ...optimisticCard, revision: 1 }));
+    await waitForMicrotasks();
+
+    expect(store.getSnapshot().pageIndex.has(pageId)).toBe(true);
+    repair.resolve(createBoardSnapshot(
+      createBoard(),
+      2,
+      "view-primary",
+      true,
+      2,
+    ));
+    await mutation;
+
+    expect(store.getSnapshot().pageIndex.has(pageId)).toBe(true);
+    unsubscribe();
+  });
+
+  test("does not inject an exact tail upsert beyond a bounded loaded window", async () => {
+    const projection = createProjectionHarness();
+    const repair = createDeferred<DatabaseViewWindowSnapshot>();
+    const initial = { ...createBoardSnapshot(), nextCursor: "cursor-1" };
+    const tailCard = {
+      ...createPageSummary("Remote tail create"),
+      id: "019fe620-0000-7000-8000-000000000005",
+      order: 1,
+    };
+    let readCount = 0;
+    const registry = createTestRegistry({
+      readViewWindow: async () => {
+        readCount += 1;
+        if (readCount === 1) return initial;
+        return await repair.promise;
+      },
+      subscribeBoardChanges: () => () => {},
+      getProjectionInvalidationRegistry: projection.getRegistry,
+    });
+    const store = registry.getStore("project-1");
+    const unsubscribe = store.subscribe(() => {});
+    await waitForMicrotasks();
+
+    projection.publish(pageUpserted(2, tailCard, "z"));
+    await waitForMicrotasks();
+
+    expect(store.getSnapshot().pageIndex.has(tailCard.id)).toBe(false);
+    repair.resolve({
+      ...createBoardSnapshot(createBoard(), 2, "view-primary", true, 2),
+      nextCursor: "cursor-2",
+    });
+    await waitForMicrotasks();
+    expect(store.getSnapshot().pageIndex.has(tailCard.id)).toBe(false);
+    unsubscribe();
+  });
+
+  test("retains a covered move when the Page falls outside the loaded window", async () => {
+    const initialBoard = createBoard();
+    const moveInput = {
+      pageId: "card-1",
+      fromStatus: "triage" as const,
+      toStatus: "ship" as const,
+      newOrder: 0,
+    };
+    const fallbackCard = initialBoard.columns[0]?.cards[0];
+    if (!fallbackCard) throw new Error("Move fallback fixture is missing");
+    let canonicalBoard: BoardSummary = {
+      columns: initialBoard.columns.map((column) => ({ ...column, cards: [] })),
+    };
+    let commitSeq = 1;
+    const registry = createTestRegistry({
+      readViewWindow: async () => createBoardSnapshot(
+        cloneBoard(canonicalBoard),
+        commitSeq,
+        "view-primary",
+        true,
+        commitSeq,
+      ),
+      subscribeBoardChanges: () => () => {},
+    });
+    const store = registry.getStore("default");
+    canonicalBoard = cloneBoard(initialBoard);
+    await store.fetchBoard();
+    canonicalBoard = {
+      columns: initialBoard.columns.map((column) => ({ ...column, cards: [] })),
+    };
+
+    const mutation = store.runOptimisticMutation({
+      kind: "database:position",
+      conflictKeys: conflictKeysForMove(moveInput),
+      apply: buildMovePageTransform(moveInput, [fallbackCard]),
+      runRemote: async () => ({
+        cursor: { storeEpoch: "epoch-1", commitSeq: 2 },
+      }),
+      getCommitCursor: (result) => result.cursor,
+      isCommitMaterialized: (board) =>
+        boardContainsPageIds(board, [moveInput.pageId]),
+    });
+    commitSeq = 2;
+    await mutation;
+
+    expect(store.getSnapshot().pageIndex.get("card-1")?.columnId).toBe("ship");
+
+    canonicalBoard = buildMovePageTransform(moveInput)(cloneBoard(initialBoard));
+    await store.refreshBoardAtLeast(2);
+    const canonicalCard = canonicalBoard.columns[1]?.cards[0];
+    if (!canonicalCard) throw new Error("Canonical moved Page fixture is missing");
+    store.applyRemoteCardSummary({ ...canonicalCard, archived: true });
+
+    expect(store.getSnapshot().pageIndex.has("card-1")).toBe(false);
+  });
+
+  test("fences old optimistic receipts when a canonical read opens a new Store epoch", async () => {
+    const pageId = "019fe620-0000-7000-8000-000000000002";
+    const optimisticCard = createOptimisticCard({
+      id: pageId,
+      status: "triage",
+      title: "Old epoch create",
+    });
+    let storeEpoch = "epoch-1";
+    let canonicalBoard = createBoard("Epoch one");
+    const registry = createTestRegistry({
+      readViewWindow: async () => ({
+        ...createBoardSnapshot(cloneBoard(canonicalBoard), 1),
+        storeEpoch,
+      }),
+      readViewGroups: async () => createGroupsSnapshot({ storeEpoch }),
+      subscribeBoardChanges: () => () => {},
+    });
+    const store = registry.getStore("default");
+    await store.fetchBoard();
+
+    await store.runOptimisticMutation({
+      kind: "page:create",
+      conflictKeys: conflictKeysForCreate("triage", pageId),
+      apply: buildCreateCardTransform("triage", optimisticCard, "bottom"),
+      runRemote: async () => ({
+        cursor: { storeEpoch: "epoch-1", commitSeq: 2 },
+      }),
+      getCommitCursor: (result) => result.cursor,
+      isCommitMaterialized: (board) => boardContainsPageIds(board, [pageId]),
+      refreshOnSuccess: false,
+    });
+    expect(store.getSnapshot().pageIndex.has(pageId)).toBe(true);
+
+    storeEpoch = "epoch-2";
+    canonicalBoard = createBoard("Epoch two");
+    await store.refreshBoard();
+
+    expect(store.getSnapshot().pageIndex.has(pageId)).toBe(false);
+    expect(store.getSnapshot().pageIndex.get("card-1")?.title).toBe("Epoch two");
+  });
+
+  test("uses the receipt epoch to accept a lower-sequence replacement Store", async () => {
+    const pageId = "019fe620-0000-7000-8000-000000000004";
+    const optimisticCard = createOptimisticCard({
+      id: pageId,
+      status: "triage",
+      title: "Old Store Page",
+    });
+    let storeEpoch = "epoch:old";
+    let commitSeq = 100;
+    let canonicalBoard = createBoard("Old Store");
+    const windowInputs: DatabaseViewWindowInput[] = [];
+    const registry = createTestRegistry({
+      readViewWindow: async (_projectId, input) => {
+        windowInputs.push(input);
+        return {
+          ...createBoardSnapshot(
+            cloneBoard(canonicalBoard),
+            commitSeq,
+            "view-primary",
+            true,
+            commitSeq,
+          ),
+          storeEpoch,
+        };
+      },
+      readViewGroups: async () => createGroupsSnapshot({
+        storeEpoch,
+        commitSeq,
+        projection: {
+          scopeKey: "scope:view-primary",
+          schemaVersion: 1,
+          revision: commitSeq,
+          coveredCommitSeq: commitSeq,
+          effectHash: String(commitSeq).padStart(64, "a").slice(-64),
+        },
+      }),
+      subscribeBoardChanges: () => () => {},
+    });
+    const store = registry.getStore("default");
+    await store.fetchBoard();
+
+    const outcome = await store.runOptimisticMutation({
+      kind: "page:create",
+      conflictKeys: conflictKeysForCreate("triage", pageId),
+      apply: buildCreateCardTransform("triage", optimisticCard, "bottom"),
+      runRemote: async () => {
+        storeEpoch = "epoch:new";
+        commitSeq = 1;
+        canonicalBoard = createBoard("New Store");
+        return { cursor: { storeEpoch: "epoch:old", commitSeq: 101 } };
+      },
+      getCommitCursor: (result) => result.cursor,
+      isCommitMaterialized: (board) => boardContainsPageIds(board, [pageId]),
+    });
+
+    expect(windowInputs.some((input) => (
+      input.minimumCommitCursor?.storeEpoch === "epoch:old"
+      && input.minimumCommitCursor.commitSeq === 101
+    ))).toBe(true);
+    expect(outcome.superseded).toBe(true);
+    expect(store.getSnapshot().pageIndex.has(pageId)).toBe(false);
+    expect(store.getSnapshot().pageIndex.get("card-1")?.title).toBe("New Store");
+  });
+
+  test("fences an old receipt when the first canonical read opens another epoch", async () => {
+    const pageId = "019fe620-0000-7000-8000-000000000005";
+    const optimisticCard = createOptimisticCard({
+      id: pageId,
+      status: "triage",
+      title: "Unloaded old Store Page",
+    });
+    const replacement = {
+      ...createBoardSnapshot(createBoard("Replacement Store"), 1),
+      storeEpoch: "epoch:new",
+    };
+    const registry = createTestRegistry({
+      readViewWindow: async () => replacement,
+      readViewGroups: async () => createGroupsSnapshot({
+        storeEpoch: "epoch:new",
+        commitSeq: 1,
+      }),
+      subscribeBoardChanges: () => () => {},
+    });
+    const store = registry.getStore("default");
+
+    const outcome = await store.runOptimisticMutation({
+      kind: "page:create",
+      conflictKeys: conflictKeysForCreate("triage", pageId),
+      apply: buildCreateCardTransform("triage", optimisticCard, "bottom"),
+      runRemote: async () => ({
+        cursor: { storeEpoch: "epoch:old", commitSeq: 101 },
+      }),
+      getCommitCursor: (result) => result.cursor,
+      isCommitMaterialized: (board) => boardContainsPageIds(board, [pageId]),
+    });
+
+    expect(outcome.ok).toBe(true);
+    expect(outcome.superseded).toBe(true);
+    expect(store.getSnapshot().pageIndex.has(pageId)).toBe(false);
+    expect(store.getSnapshot().pageIndex.get("card-1")?.title).toBe(
+      "Replacement Store",
+    );
+  });
+
+  test("keeps an acknowledged move visible until canonical base converges", async () => {
+    const initialBoard = createBoard();
+    const moveInput = {
+      pageId: "card-1",
+      fromStatus: "triage" as const,
+      toStatus: "ship" as const,
+      newOrder: 0,
+    };
+    const canonicalBoard = buildMovePageTransform(moveInput)(
+      cloneBoard(initialBoard),
+    );
+    const remote = createDeferred<{ ok: true }>();
+    const canonicalRefresh = createDeferred<DatabaseViewWindowSnapshot>();
+    let readCount = 0;
+    const registry = createTestRegistry({
+      readViewWindow: async () => {
+        readCount += 1;
+        if (readCount === 1) {
+          return createBoardSnapshot(cloneBoard(initialBoard));
+        }
+        return canonicalRefresh.promise;
+      },
+      subscribeBoardChanges: () => () => {},
+    });
+    const store = registry.getStore("default");
+    await store.fetchBoard();
+
+    const observedColumns: string[] = [];
+    const recordColumn = () => {
+      const columnId = store.getSnapshot().pageIndex.get("card-1")?.columnId;
+      if (columnId) observedColumns.push(columnId);
+    };
+    const unsubscribe = store.subscribe(recordColumn);
+    const mutation = store.runOptimisticMutation({
+      kind: "database:position",
+      conflictKeys: conflictKeysForMove(moveInput),
+      apply: buildMovePageTransform(moveInput),
+      runRemote: async () => remote.promise,
+    });
+    recordColumn();
+
+    expect(store.getSnapshot().pageIndex.get("card-1")?.columnId).toBe("ship");
+    remote.resolve({ ok: true });
+    await waitForMicrotasks();
+
+    expect(readCount).toBe(2);
+    expect(store.getSnapshot().pendingMutationCount).toBe(0);
+    expect(store.getSnapshot().pageIndex.get("card-1")?.columnId).toBe("ship");
+
+    store.applyRemoteCardSummary({
+      ...createPageSummary("Unrelated canonical update"),
+      id: "card-2",
+      order: 1,
+    });
+    expect(store.getSnapshot().pageIndex.get("card-1")?.columnId).toBe("ship");
+
+    canonicalRefresh.resolve(createBoardSnapshot(canonicalBoard));
+    await mutation;
+
+    expect(store.getSnapshot().pageIndex.get("card-1")?.columnId).toBe("ship");
+    expect(new Set(observedColumns)).toEqual(new Set(["ship"]));
+
+    const movedCard = canonicalBoard.columns[1]?.cards[0];
+    if (!movedCard) throw new Error("Canonical moved Page fixture is missing");
+    store.applyRemoteCardSummary({
+      ...movedCard,
+      status: "triage",
+      order: 0,
+    });
+    expect(store.getSnapshot().pageIndex.get("card-1")?.columnId).toBe(
+      "triage",
+    );
+    unsubscribe();
+  });
+
+  test("serializes placement commands through the preceding receipt refresh", async () => {
+    const firstRemote = createDeferred<{
+      cursor: { storeEpoch: string; commitSeq: number };
+    }>();
+    const firstRefresh = createDeferred<DatabaseViewWindowSnapshot>();
+    let readCount = 0;
+    let secondRemoteStarted = false;
+    const registry = createTestRegistry({
+      readViewWindow: async () => {
+        readCount += 1;
+        if (readCount === 1) return createBoardSnapshot();
+        return await firstRefresh.promise;
+      },
+      subscribeBoardChanges: () => () => {},
+    });
+    const store = registry.getStore("default");
+    await store.fetchBoard();
+
+    const first = store.runOptimisticMutation({
+      kind: "database:position",
+      conflictKeys: ["card:card-1:position"],
+      apply: (board) => board,
+      remoteLane: "database:position",
+      runRemote: async () => await firstRemote.promise,
+      getCommitCursor: (result) => result.cursor,
+      isCommitMaterialized: () => true,
+    });
+    const second = store.runOptimisticMutation({
+      kind: "database:position",
+      conflictKeys: ["card:card-2:position"],
+      apply: (board) => board,
+      remoteLane: "database:position",
+      runRemote: async () => {
+        secondRemoteStarted = true;
+        return { ok: true } as const;
+      },
+      refreshOnSuccess: false,
+    });
+
+    expect(secondRemoteStarted).toBe(false);
+    firstRemote.resolve({
+      cursor: { storeEpoch: "epoch-1", commitSeq: 2 },
+    });
+    await waitForMicrotasks();
+    expect(readCount).toBe(2);
+    expect(secondRemoteStarted).toBe(false);
+
+    firstRefresh.resolve(createBoardSnapshot(
+      createBoard(),
+      2,
+      "view-primary",
+      true,
+      2,
+    ));
+    await first;
+    await second;
+
+    expect(secondRemoteStarted).toBe(true);
+  });
+
+  test("does not execute a queued placement after Store authority is replaced", async () => {
+    const firstRemote = createDeferred<{ ok: true }>();
+    let storeEpoch = "epoch-1";
+    let secondRemoteStarted = false;
+    const registry = createTestRegistry({
+      readViewWindow: async () => ({
+        ...createBoardSnapshot(),
+        storeEpoch,
+      }),
+      readViewGroups: async () => createGroupsSnapshot({ storeEpoch }),
+      subscribeBoardChanges: () => () => {},
+    });
+    const store = registry.getStore("default");
+    await store.fetchBoard();
+
+    const first = store.runOptimisticMutation({
+      kind: "database:position",
+      conflictKeys: ["card:card-1:position"],
+      apply: (board) => board,
+      remoteLane: "database:position",
+      runRemote: async () => await firstRemote.promise,
+      refreshOnSuccess: false,
+    });
+    const second = store.runOptimisticMutation({
+      kind: "database:position",
+      conflictKeys: ["card:card-2:position"],
+      apply: (board) => board,
+      remoteLane: "database:position",
+      runRemote: async () => {
+        secondRemoteStarted = true;
+        return { ok: true } as const;
+      },
+      refreshOnSuccess: false,
+    });
+
+    storeEpoch = "epoch-2";
+    await store.refreshBoard();
+    firstRemote.resolve({ ok: true });
+
+    const firstOutcome = await first;
+    const secondOutcome = await second;
+    expect(firstOutcome.superseded).toBe(true);
+    expect(secondOutcome.ok).toBe(false);
+    expect(secondOutcome.superseded).toBe(true);
+    expect(secondRemoteStarted).toBe(false);
+  });
+
+  test("fails a placement lane closed when receipt refresh cannot converge", async () => {
+    const firstRemote = createDeferred<{
+      cursor: { storeEpoch: string; commitSeq: number };
+    }>();
+    let readCount = 0;
+    let secondRemoteStarted = false;
+    const registry = createTestRegistry({
+      readViewWindow: async () => {
+        readCount += 1;
+        if (readCount === 2) throw new Error("canonical refresh unavailable");
+        return createBoardSnapshot();
+      },
+      subscribeBoardChanges: () => () => {},
+    });
+    const store = registry.getStore("default");
+    await store.fetchBoard();
+
+    const first = store.runOptimisticMutation({
+      kind: "database:position",
+      conflictKeys: ["card:card-1:position"],
+      apply: (board) => board,
+      remoteLane: "database:position",
+      runRemote: async () => await firstRemote.promise,
+      getCommitCursor: (result) => result.cursor,
+      isCommitMaterialized: () => true,
+    });
+    const second = store.runOptimisticMutation({
+      kind: "database:position",
+      conflictKeys: ["card:card-2:position"],
+      apply: (board) => board,
+      remoteLane: "database:position",
+      runRemote: async () => {
+        secondRemoteStarted = true;
+        return { ok: true } as const;
+      },
+      refreshOnSuccess: false,
+    });
+
+    firstRemote.resolve({
+      cursor: { storeEpoch: "epoch-1", commitSeq: 2 },
+    });
+    const firstOutcome = await first;
+    const secondOutcome = await second;
+
+    expect(firstOutcome.ok).toBe(true);
+    expect(secondOutcome.ok).toBe(false);
+    expect(secondRemoteStarted).toBe(false);
+    expect(store.getSnapshot().pageIndex.has("card-1")).toBe(true);
+  });
+
+  test("collects a pending move after its canonical projection arrives first", async () => {
+    const initialBoard = createBoard();
+    const moveInput = {
+      pageId: "card-1",
+      fromStatus: "triage" as const,
+      toStatus: "ship" as const,
+      newOrder: 0,
+    };
+    const canonicalBoard = buildMovePageTransform(moveInput)(
+      cloneBoard(initialBoard),
+    );
+    const canonicalCard = canonicalBoard.columns[1]?.cards[0];
+    if (!canonicalCard) throw new Error("Canonical moved Page fixture is missing");
+    const remote = createDeferred<{ ok: true }>();
+    const registry = createTestRegistry({
+      readViewWindow: async () => createBoardSnapshot(cloneBoard(initialBoard)),
+      subscribeBoardChanges: () => () => {},
+    });
+    const store = registry.getStore("default");
+    await store.fetchBoard();
+
+    const mutation = store.runOptimisticMutation({
+      kind: "database:position",
+      conflictKeys: conflictKeysForMove(moveInput),
+      apply: buildMovePageTransform(moveInput),
+      runRemote: async () => remote.promise,
+      refreshOnSuccess: false,
+    });
+    store.applyRemoteCardSummary(canonicalCard);
+
+    expect(store.getSnapshot().pageIndex.get("card-1")?.columnId).toBe("ship");
+    expect(store.getSnapshot().pendingMutationCount).toBe(1);
+
+    remote.resolve({ ok: true });
+    await mutation;
+
+    expect(store.getSnapshot().pageIndex.get("card-1")?.columnId).toBe("ship");
+    expect(store.getSnapshot().pendingMutationCount).toBe(0);
+    store.applyRemoteCardSummary({
+      ...canonicalCard,
+      status: "triage",
+      order: 0,
+    });
+    expect(store.getSnapshot().pageIndex.get("card-1")?.columnId).toBe(
+      "triage",
+    );
+  });
+
   test("failed delete rolls back automatically", async () => {
     const board = createBoard();
     const registry = createTestRegistry({
@@ -1715,7 +2525,9 @@ describe("kanban store", () => {
     const registry = createTestRegistry({
       readViewWindow: async (_projectId, input) => {
         boardFetchCount += 1;
-        const revision = input.minimumCommitSeq ?? 1;
+        const revision = input.minimumCommitCursor?.commitSeq
+          ?? input.minimumCommitSeq
+          ?? 1;
         return createBoardSnapshot(
           board,
           revision,
@@ -1840,6 +2652,44 @@ describe("kanban store", () => {
 
     expect(readCount).toBe(3);
     expect(store.getSnapshot().pageIndex.has("card-1")).toBe(false);
+    unsubscribe();
+  });
+
+  test("removes a revoked Page create overlay before it reaches canonical base", async () => {
+    const projection = createProjectionHarness();
+    const remote = createDeferred<{ ok: true }>();
+    const pageId = "019fe620-0000-7000-8000-000000000099";
+    const optimisticCard = createOptimisticCard({
+      id: pageId,
+      status: "triage",
+      title: "Pending but revoked",
+    });
+    const registry = createTestRegistry({
+      readViewWindow: async () => createBoardSnapshot(),
+      subscribeBoardChanges: () => () => {},
+      getProjectionInvalidationRegistry: projection.getRegistry,
+    });
+    const store = registry.getStore("project-1");
+    const unsubscribe = store.subscribe(() => {});
+    await waitForMicrotasks();
+
+    const mutation = store.runOptimisticMutation({
+      kind: "page:create",
+      conflictKeys: conflictKeysForCreate("triage", pageId),
+      apply: buildCreateCardTransform("triage", optimisticCard, "top"),
+      runRemote: async () => await remote.promise,
+      refreshOnSuccess: false,
+    });
+    expect(store.getSnapshot().pageIndex.has(pageId)).toBe(true);
+    expect(store.getSnapshot().pendingMutationCount).toBe(1);
+
+    projection.publish(pageRevoked(2, pageId));
+    expect(store.getSnapshot().pageIndex.has(pageId)).toBe(false);
+    expect(store.getSnapshot().pendingMutationCount).toBe(0);
+
+    remote.resolve({ ok: true });
+    await mutation;
+    expect(store.getSnapshot().pageIndex.has(pageId)).toBe(false);
     unsubscribe();
   });
 

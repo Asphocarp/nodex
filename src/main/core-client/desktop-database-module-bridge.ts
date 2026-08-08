@@ -11,6 +11,7 @@ import type {
   LibraryDatabaseViewWindowSnapshot,
   ReadDatabaseViewReferenceInput,
 } from "../../shared/database-views";
+import type { ProjectionCursor } from "../../shared/projection-stream";
 import { evaluateDatabaseViewRows } from "../../shared/database-views";
 import {
   DATABASE_MODULE_V2_CONTRACT_VERSION,
@@ -107,7 +108,7 @@ export interface DesktopDatabaseModuleBridge {
     projectId: string,
     pageId: string,
     status?: DatabasePage["status"],
-    minimumCommitSeq?: number,
+    minimumCommitCursor?: ProjectionCursor,
   ): Promise<DatabasePage | null>;
   resolveDatabaseViewReference(
     input: ReadDatabaseViewReferenceInput,
@@ -118,18 +119,32 @@ type DescriptorReadResult =
   | DatabaseModuleReadResultV2
   | LibraryDatabaseModuleReadResultV2;
 
+const minimumCommitSeqForEpoch = (
+  input: DatabaseViewWindowInput | DatabaseViewGroupsInput,
+  currentStoreEpoch: string,
+): number => {
+  const cursor = input.minimumCommitCursor;
+  if (!cursor) return input.minimumCommitSeq ?? 0;
+  if (cursor.storeEpoch !== currentStoreEpoch) return 0;
+  return Math.max(input.minimumCommitSeq ?? 0, cursor.commitSeq);
+};
+
 const readBoundedDatabaseViewWindow = async <
   ProjectScope extends string | null,
 >(input: {
   readonly projectId: ProjectScope;
   readonly libraryId: string;
+  readonly currentStoreEpoch: string;
   readonly windowInput: DatabaseViewWindowInput;
   readonly readCore: CoreDatabaseModuleAdapter["readCore"];
   readonly readDescriptor: (
     read: DatabaseReadV2,
   ) => Promise<DescriptorReadResult>;
 }): Promise<DatabaseViewWindowSnapshot<ProjectScope>> => {
-  const minimumCommitSeq = input.windowInput.minimumCommitSeq ?? 0;
+  const minimumCommitSeq = minimumCommitSeqForEpoch(
+    input.windowInput,
+    input.currentStoreEpoch,
+  );
   const snapshot = await input.readCore({
     target: input.windowInput.databaseViewId
       ? { kind: "view", view_id: input.windowInput.databaseViewId }
@@ -262,10 +277,14 @@ const readBoundedDatabaseViewGroups = async <
 >(input: {
   readonly projectId: ProjectScope;
   readonly libraryId: string;
+  readonly currentStoreEpoch: string;
   readonly groupsInput: DatabaseViewGroupsInput;
   readonly readCore: CoreDatabaseModuleAdapter["readCore"];
 }): Promise<DatabaseViewGroupsSnapshot<ProjectScope>> => {
-  const minimumCommitSeq = input.groupsInput.minimumCommitSeq ?? 0;
+  const minimumCommitSeq = minimumCommitSeqForEpoch(
+    input.groupsInput,
+    input.currentStoreEpoch,
+  );
   const snapshot = await input.readCore({
     target: input.groupsInput.databaseViewId
       ? { kind: "view", view_id: input.groupsInput.databaseViewId }
@@ -316,10 +335,18 @@ export const createDesktopDatabaseModuleBridge = (
 ): DesktopDatabaseModuleBridge => {
   const coreAdapters = new Map<string, CoreDatabaseModuleAdapter>();
   let libraryCoreAdapter: CoreLibraryDatabaseModuleAdapter | null = null;
+  let adapterStoreEpoch: string | null = null;
+  const fenceAdaptersForEpoch = (storeEpoch: string): void => {
+    if (adapterStoreEpoch === storeEpoch) return;
+    coreAdapters.clear();
+    libraryCoreAdapter = null;
+    adapterStoreEpoch = storeEpoch;
+  };
   const coreAdapterFor = (
     runtime: RustDataAuthorityRuntime,
     projectId: string,
   ): CoreDatabaseModuleAdapter => {
+    fenceAdaptersForEpoch(runtime.identity.storeEpoch);
     const existing = coreAdapters.get(projectId);
     if (existing) return existing;
     const adapter = createCoreDatabaseModuleAdapter({
@@ -335,6 +362,7 @@ export const createDesktopDatabaseModuleBridge = (
   const libraryAdapterFor = (
     runtime: RustDataAuthorityRuntime,
   ): CoreLibraryDatabaseModuleAdapter => {
+    fenceAdaptersForEpoch(runtime.identity.storeEpoch);
     libraryCoreAdapter ??= createCoreLibraryDatabaseModuleAdapter({
       client: runtime.rootClient,
       libraryId: runtime.identity.libraryId,
@@ -366,6 +394,7 @@ export const createDesktopDatabaseModuleBridge = (
       return await readBoundedDatabaseViewWindow({
         projectId,
         libraryId: runtime.identity.libraryId,
+        currentStoreEpoch: runtime.identity.storeEpoch,
         windowInput,
         readCore: adapter.readCore,
         readDescriptor: async (read) => await adapter.read({
@@ -381,6 +410,7 @@ export const createDesktopDatabaseModuleBridge = (
       return await readBoundedDatabaseViewGroups({
         projectId,
         libraryId: runtime.identity.libraryId,
+        currentStoreEpoch: runtime.identity.storeEpoch,
         groupsInput,
         readCore: adapter.readCore,
       });
@@ -391,6 +421,7 @@ export const createDesktopDatabaseModuleBridge = (
       return await readBoundedDatabaseViewWindow({
         projectId: null,
         libraryId: runtime.identity.libraryId,
+        currentStoreEpoch: runtime.identity.storeEpoch,
         windowInput,
         readCore: adapter.readCore,
         readDescriptor: async (read) => await adapter.read({
@@ -405,12 +436,17 @@ export const createDesktopDatabaseModuleBridge = (
       return await readBoundedDatabaseViewGroups({
         projectId: null,
         libraryId: runtime.identity.libraryId,
+        currentStoreEpoch: runtime.identity.storeEpoch,
         groupsInput,
         readCore: adapter.readCore,
       });
     },
-    getDatabaseRowPage: async (projectId, pageId, status, minimumCommitSeq) => {
+    getDatabaseRowPage: async (projectId, pageId, status, minimumCommitCursor) => {
       const runtime = await input.authority;
+      const minimumCommitSeq = minimumCommitCursor
+        && minimumCommitCursor.storeEpoch === runtime.identity.storeEpoch
+        ? minimumCommitCursor.commitSeq
+        : 0;
       try {
         const snapshot = await coreAdapterFor(runtime, projectId).readCore({
           target: { kind: "page", page_id: pageId },

@@ -51,6 +51,7 @@ import type {
   OwnedDocumentDescriptor,
 } from "./block-documents/contracts";
 import type { BlockTransferCommandResult } from "./block-transfer";
+import type { ProjectionCursor } from "./projection-stream";
 import type { PublicBlockTransferIntent } from "./block-transfer-transport";
 import type {
   DocumentMutationRequest,
@@ -299,6 +300,7 @@ import type {
   ClipboardPasteInspectionResult,
   PageOccurrenceActionInput,
   PageOccurrenceCompleteInput,
+  PageOccurrenceMutationResult,
   PageOccurrenceUpdateInput,
   DatabasePage,
   DatabasePageSummary,
@@ -930,7 +932,7 @@ export interface IpcApi {
       projectId: string,
       pageId: string,
       status?: DatabasePage["status"],
-      minimumCommitSeq?: number,
+      minimumCommitCursor?: ProjectionCursor,
     ];
     result: DatabasePage | null;
   };
@@ -953,7 +955,7 @@ export interface IpcApi {
       input: PageOccurrenceCompleteInput,
       sessionId?: string,
     ];
-    result: { success: boolean; error?: string };
+    result: PageOccurrenceMutationResult;
   };
   "page:occurrence:skip": {
     args: [
@@ -961,7 +963,7 @@ export interface IpcApi {
       input: PageOccurrenceActionInput,
       sessionId?: string,
     ];
-    result: { success: boolean; error?: string };
+    result: PageOccurrenceMutationResult;
   };
   "page:occurrence:update": {
     args: [
@@ -969,7 +971,7 @@ export interface IpcApi {
       input: PageOccurrenceUpdateInput,
       sessionId?: string,
     ];
-    result: { success: boolean; error?: string };
+    result: PageOccurrenceMutationResult;
   };
   "backup:list": { args: []; result: BackupRecord[] };
   "backup:create": { args: [input?: CreateBackupInput]; result: BackupRecord };

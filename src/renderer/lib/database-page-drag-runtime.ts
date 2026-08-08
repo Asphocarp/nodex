@@ -1,5 +1,6 @@
 import {
   DATABASE_MODULE_V2_CONTRACT_VERSION,
+  type DatabaseApplyReceiptV2,
   type DatabaseApplyResultV2,
   type DatabaseApplyV2,
   type DatabaseModuleErrorV2,
@@ -56,7 +57,7 @@ const commitCompiledDrag = async (input: {
   ) => DatabaseApplyV2["operations"];
   readonly snapshot: DatabaseModuleReadSnapshotV2;
   readonly dependencies: DatabasePageDragRuntimeDependencies;
-}): Promise<boolean> => {
+}): Promise<DatabaseApplyReceiptV2> => {
   const request: DatabaseApplyV2 = {
     version: DATABASE_MODULE_V2_CONTRACT_VERSION,
     operationId: input.operationId,
@@ -77,7 +78,7 @@ const commitCompiledDrag = async (input: {
   if (!result.ok && result.error.retryable && !retried) {
     result = await input.dependencies.apply(input.projectId, request);
   }
-  if (result.ok) return true;
+  if (result.ok) return result.value;
   throw new DatabasePageDragMutationError(result.error);
 };
 
@@ -87,7 +88,7 @@ export const commitDatabasePageDrag = async (input: {
   readonly move: MovePageInput;
   readonly snapshot: DatabaseModuleReadSnapshotV2;
   readonly dependencies?: DatabasePageDragRuntimeDependencies;
-}): Promise<boolean> =>
+}): Promise<DatabaseApplyReceiptV2> =>
   await commitCompiledDrag({
     projectId: input.projectId,
     operationId: input.operationId,
@@ -103,7 +104,7 @@ export const commitDatabasePagesDrag = async (input: {
   readonly move: MovePagesInput;
   readonly snapshot: DatabaseModuleReadSnapshotV2;
   readonly dependencies?: DatabasePageDragRuntimeDependencies;
-}): Promise<boolean> =>
+}): Promise<DatabaseApplyReceiptV2> =>
   await commitCompiledDrag({
     projectId: input.projectId,
     operationId: input.operationId,

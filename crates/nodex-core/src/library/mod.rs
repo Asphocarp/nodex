@@ -951,8 +951,9 @@ mod tests {
         LibraryBlockTransferLogicalIntent, LibraryBlockTransferMode, LibraryBlockTransferSource,
         LibraryBlockTransferTarget, LibraryDocumentHead, LibraryNavigationParent,
         LibraryPageFileKind, LibraryPageLifecycleMutation, LibraryPageLifecycleState,
-        LibraryPageLifecycleTagOption, LibraryPagePrepareKind, LibraryPageWorkflowStatus,
-        LibraryPageWriteDestination, LibraryProjectAccessChange, LibraryWriteParent,
+        LibraryPageLifecycleTagOption, LibraryPageLifecycleViewPlacement, LibraryPagePrepareKind,
+        LibraryPageWorkflowStatus, LibraryPageWriteDestination, LibraryProjectAccessChange,
+        LibraryWriteParent,
     };
     use nodex_core_contracts::workspace::{
         PROJECT_WORKSPACE_CONTRACT_VERSION, ProjectWorkspaceIntent, ProjectWorkspaceThreadPatch,
@@ -1750,6 +1751,7 @@ mod tests {
         const SOURCE: &str = "019b1000-0000-7000-8000-000000000002";
         const VIEW: &str = "019b1000-0000-7000-8000-000000000003";
         const PAGE: &str = "019b1000-0000-7000-8000-000000000004";
+        const REBALANCED_PAGE: &str = "019b1000-0000-7000-8000-000000000005";
         let persistent_context = BoundModuleContext {
             profile_id: ProfileId("profile-1".to_owned()),
             library_id: LibraryId("library-1".to_owned()),
@@ -1847,7 +1849,7 @@ mod tests {
                     run_in_worktree_path: None,
                     run_in_environment_path: None,
                     before_block_id: None,
-                    before_view_page_id: None,
+                    view_placement: LibraryPageLifecycleViewPlacement::End,
                     data_source_id: SOURCE.to_owned(),
                     tag_option_ids: vec!["tag:native".to_owned()],
                     new_tag_options: vec![LibraryPageLifecycleTagOption {
@@ -1873,11 +1875,110 @@ mod tests {
         assert_eq!(receipt.view_id.as_deref(), Some(VIEW));
         assert!(!receipt.created_block_ids.is_empty());
         assert_eq!(receipt.created_tag_option_ids, vec!["tag:native"]);
+        let create_commit = kernel
+            .readers()
+            .read_default(|connection| {
+                local_commit::read_manifest(connection, created.committed.commit_seq)
+            })
+            .expect("Page create CommitManifest");
+        let create_view_effect = create_commit
+            .projection_effects
+            .iter()
+            .find(|effect| {
+                matches!(
+                    &effect.scope.scope,
+                    LocalProjectionScope::DatabaseView { view_id, .. } if view_id == VIEW
+                )
+            })
+            .expect("exact primary View projection effect");
+        assert!(create_view_effect.requires_read_at_least);
+        let Some(LocalProjectionPatch::DatabaseRowUpsert { row, .. }) = &create_view_effect.patch
+        else {
+            panic!("exact primary View row patch");
+        };
+        assert_eq!(row.page_id, PAGE);
+        assert_eq!(row.position_order, Some(0));
+        assert_eq!(
+            row.database_values.get("tags"),
+            Some(&serde_json::json!(["Native"]))
+        );
         let replay = module
-            .apply(&persistent_context, create_request)
+            .apply(&persistent_context, create_request.clone())
             .expect("replay Page create");
         assert!(replay.committed.receipt.mutation.duplicate);
         assert!(replay.event.is_none());
+        kernel
+            .writer()
+            .call(|connection| {
+                connection.execute(
+                    "UPDATE database_view_page_positions SET rank_key = 'invalid-rank' \
+                     WHERE view_id = ?1 AND page_block_id = ?2",
+                    params![VIEW, PAGE],
+                )?;
+                connection.execute(
+                    "UPDATE page_read_model SET view_rank_key = 'invalid-rank' \
+                     WHERE view_id = ?1 AND page_block_id = ?2",
+                    params![VIEW, PAGE],
+                )?;
+                Ok(())
+            })
+            .expect("exhaust create rank space");
+        let mut rebalance_request = create_request;
+        rebalance_request.operation_id = "lifecycle:create-page-rebalanced".to_owned();
+        let LibraryIntent::ApplyPageLifecycle { mutation } = &mut rebalance_request.intent else {
+            panic!("Page lifecycle create request");
+        };
+        let LibraryPageLifecycleMutation::CreatePage {
+            page_id,
+            title,
+            new_tag_options,
+            expected_tags_property_revision,
+            ..
+        } = mutation.as_mut()
+        else {
+            panic!("Create Page mutation");
+        };
+        *page_id = REBALANCED_PAGE.to_owned();
+        *title = "Rebalanced lifecycle".to_owned();
+        new_tag_options.clear();
+        *expected_tags_property_revision = 2;
+        let rebalanced = module
+            .apply(&persistent_context, rebalance_request)
+            .expect("create Page through rank rebalance");
+        let rebalance_commit = kernel
+            .readers()
+            .read_default(|connection| {
+                local_commit::read_manifest(connection, rebalanced.committed.commit_seq)
+            })
+            .expect("rebalanced Page create CommitManifest");
+        let rebalance_view_effect = rebalance_commit
+            .projection_effects
+            .iter()
+            .find(|effect| {
+                matches!(
+                    &effect.scope.scope,
+                    LocalProjectionScope::DatabaseView { view_id, .. } if view_id == VIEW
+                )
+            })
+            .expect("rebalanced View projection effect");
+        assert!(rebalance_view_effect.requires_read_at_least);
+        assert!(rebalance_view_effect.patch.is_none());
+        let synchronized_rebalanced_siblings = kernel
+            .readers()
+            .read_default(|connection| {
+                connection
+                    .query_row(
+                        "SELECT count(*) FROM database_view_page_positions position \
+                     JOIN page_read_model model ON model.page_block_id = position.page_block_id \
+                     WHERE position.view_id = ?1 AND position.page_block_id = ?2 \
+                       AND position.rank_key = model.view_rank_key",
+                        params![VIEW, PAGE],
+                        |row| row.get::<_, i64>(0),
+                    )
+                    .map_err(StoreError::from)
+            })
+            .expect("rebalanced sibling projection rank");
+        assert_eq!(synchronized_rebalanced_siblings, 1);
         let LibraryReadValue::PageContent { value } = module
             .read(
                 &persistent_context,
@@ -5359,7 +5460,7 @@ mod tests {
                             run_in_worktree_path: None,
                             run_in_environment_path: None,
                             before_block_id: None,
-                            before_view_page_id: None,
+                            view_placement: LibraryPageLifecycleViewPlacement::End,
                             data_source_id: SOURCE.to_owned(),
                             tag_option_ids: vec!["o_AAAAAAAA".to_owned()],
                             new_tag_options: vec![LibraryPageLifecycleTagOption {

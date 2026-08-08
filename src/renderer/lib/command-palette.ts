@@ -34,6 +34,7 @@ export interface CommandPaletteCommand {
   shortcut?: string;
   active?: boolean;
   disabled?: boolean;
+  disabledReason?: string;
   mockReason?: string;
   priority: number;
   searchTitleSegments?: CommandPalettePageSearchPreviewSegment[] | null;
