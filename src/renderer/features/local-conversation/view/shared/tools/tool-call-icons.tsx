@@ -1,6 +1,9 @@
 import {
+  AppActivityIcon,
   SettingsGeneralIcon,
+  StopIcon,
 } from "@/components/shared/icons";
+import { SparklesIcon } from "@/components/shared/icons/generic-icons";
 import {
   cloneElement,
   useEffect,
@@ -15,6 +18,18 @@ import type {
   ProtocolAppInfo,
 } from "../../../../../lib/types";
 import { resolveCodexMcpVisualSource } from "../../../../../../shared/codex-mcp-tool-call";
+import {
+  extractCommandActions,
+} from "../../../projection/tool-metadata/command-actions";
+import {
+  isCurlWebSearchCommand,
+  resolveConversationCommandText,
+} from "../../../projection/tool-metadata/command-activity-classification";
+import {
+  getDynamicToolRegistryEntry,
+} from "../../../projection/tool-metadata/dynamic-tool-call-utils";
+import { resolveNodexDynamicToolCallPresentation } from "../../../projection/tool-metadata/nodex-dynamic-tool-call-presentation";
+import { resolveThreadVisualizationCommandKind } from "../../../projection/agent-activity-v2";
 import { useTheme } from "../../../../../lib/use-theme";
 import { cn } from "../../../../../lib/utils";
 import type { ThreadBlockModel } from "../../../thread-stage-types";
@@ -38,6 +53,7 @@ import {
 } from "@/components/shared/icons";
 
 export type ToolActivityIconId =
+  | "app"
   | "approved"
   | "automatic-review"
   | "browser-use"
@@ -54,6 +70,8 @@ export type ToolActivityIconId =
   | "run-command"
   | "settings"
   | "skill"
+  | "stopped"
+  | "visualization"
   | "web-search";
 
 export type ToolActivityIconDescriptor =
@@ -95,6 +113,8 @@ function SemanticToolIcon({
 }) {
   const iconClassName = withActivityIconClass(ACTIVITY_ICON_CLASS_NAME, className);
   switch (icon) {
+    case "app":
+      return <AppActivityIcon aria-hidden className={iconClassName} />;
     case "approved":
       return <SuccessCircleIcon aria-hidden className={iconClassName} />;
     case "automatic-review":
@@ -125,6 +145,10 @@ function SemanticToolIcon({
       return <SettingsGeneralIcon className={iconClassName} />;
     case "skill":
       return <SkillIcon aria-hidden className={iconClassName} />;
+    case "stopped":
+      return <StopIcon aria-hidden className={iconClassName} />;
+    case "visualization":
+      return <SparklesIcon aria-hidden className={iconClassName} />;
     case "web-search":
       return <ConnectorGlobeIcon aria-hidden className={iconClassName} />;
     case "run-command":
@@ -346,53 +370,54 @@ export function resolveApprovalIcon(status: string | undefined): ToolActivityIco
   return null;
 }
 
-function resolveTranscriptEntryIcon(
+export function resolveToolActivityEntryIcon(
   block: Extract<ThreadBlockModel, { type: "agentActivityGroup" }>["entries"][number],
   resolvedApps: readonly ProtocolAppInfo[],
 ): ToolActivityIconDescriptor | null {
   if (block.type === "webSearch") return resolveWebSearchIcon();
   if (block.type === "fileChange") return semanticToolIcon("edit-files");
-  if (block.type === "exec") return semanticToolIcon("run-command");
+  if (block.type === "exec") {
+    const actions = extractCommandActions(block.entry);
+    const explorationAction = actions.findLast((action) => (
+      action.type === "read" || action.type === "search" || action.type === "listFiles"
+    ));
+    if (explorationAction) return semanticToolIcon(resolveExplorationActionIcon(explorationAction));
+
+    if (block.entry.executionStatus === "interrupted" || block.status === "interrupted") {
+      return semanticToolIcon("stopped");
+    }
+
+    const command = resolveConversationCommandText(block.entry);
+    if (command && isCurlWebSearchCommand(command)) return resolveWebSearchIcon();
+    if (command && resolveThreadVisualizationCommandKind(command) != null) {
+      return semanticToolIcon("visualization");
+    }
+    return semanticToolIcon("run-command");
+  }
   if (block.type === "automaticApprovalReview") return semanticToolIcon("automatic-review");
   if (block.type === "hook") return semanticToolIcon("hooks");
   if (block.type === "mcpToolCall") return resolveMcpSourceIcon(block.entry, resolvedApps);
-  return null;
-}
+  if (block.type === "dynamicToolCall") {
+    const call = block.entry.dynamicToolCall;
+    if (!call) return null;
 
-export function resolveAgentActivityGroupIcon(
-  entries: Extract<ThreadBlockModel, { type: "agentActivityGroup" }>["entries"],
-  resolvedApps: readonly ProtocolAppInfo[] = [],
-): ToolActivityIconDescriptor | null {
-  for (let index = entries.length - 1; index >= 0; index -= 1) {
-    const activeEntry = entries[index];
-    if (!activeEntry || activeEntry.status !== "inProgress") continue;
-    const activeIcon = resolveTranscriptEntryIcon(activeEntry, resolvedApps);
-    if (activeIcon) return activeIcon;
-  }
-
-  for (let index = entries.length - 1; index >= 0; index -= 1) {
-    const entry = entries[index];
-    if (!entry) continue;
-    const explicitIcon = resolveTranscriptEntryIcon(entry, resolvedApps);
-    if (explicitIcon) return explicitIcon;
-  }
-
-  const priority: Array<(entry: (typeof entries)[number]) => ToolActivityIconDescriptor | null> = [
-    (entry) => (entry.type === "webSearch" ? resolveWebSearchIcon() : null),
-    (entry) => (entry.type === "fileChange" ? semanticToolIcon("edit-files") : null),
-    (entry) => (entry.type === "exec" ? semanticToolIcon("run-command") : null),
-    (entry) => (entry.type === "automaticApprovalReview" ? semanticToolIcon("automatic-review") : null),
-    (entry) => (entry.type === "hook" ? semanticToolIcon("hooks") : null),
-    (entry) => (entry.type === "mcpToolCall" ? resolveMcpSourceIcon(entry.entry, resolvedApps) : null),
-  ];
-
-  for (const resolve of priority) {
-    for (const entry of entries) {
-      const descriptor = resolve(entry);
-      if (descriptor) return descriptor;
+    const nodexPresentation = resolveNodexDynamicToolCallPresentation(call);
+    switch (nodexPresentation?.icon) {
+      case "read": return semanticToolIcon("list-files");
+      case "search": return semanticToolIcon("code-searching");
+      case "transfer":
+      case "write": return semanticToolIcon("edit-files");
+      case "database": return semanticToolIcon("settings");
     }
-  }
 
+    const registryEntry = getDynamicToolRegistryEntry(call);
+    if (registryEntry?.rendererKind === "settings" || registryEntry?.rendererKind === "automationUpdate") {
+      return semanticToolIcon("settings");
+    }
+    if (registryEntry?.rendererKind === "chromeTabContext") return resolveWebSearchIcon();
+    if (call.namespace === "codex_app") return semanticToolIcon("app");
+    return semanticToolIcon("plugin");
+  }
   return null;
 }
 

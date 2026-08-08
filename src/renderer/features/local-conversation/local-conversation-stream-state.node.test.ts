@@ -1,6 +1,15 @@
 import { describe, expect, test } from "vitest";
 import { LocalConversationStreamState } from "./local-conversation-stream-state";
 
+function checkpoint(revision: number, ownerEpoch = 1, marker = "a") {
+  return {
+    protocolVersion: 1 as const,
+    ownerEpoch,
+    revision,
+    canonicalHash: marker.repeat(64),
+  };
+}
+
 function createManualTimers() {
   let nextTimerId = 1;
   const timers = new Map<number, () => void>();
@@ -45,31 +54,35 @@ describe("LocalConversationStreamState", () => {
 
     expect(streamState.evaluatePatch({
       conversationId: "thread-1",
-      baseRevision: 0,
+      baseCheckpoint: checkpoint(0),
+      checkpoint: checkpoint(1),
       sourceClientId: "owner-a",
     }).type).toBe("drop");
 
     streamState.acceptSnapshot({
       conversationId: "thread-1",
-      revision: 3,
+      checkpoint: checkpoint(3),
       sourceClientId: "owner-a",
     });
 
     expect(streamState.evaluatePatch({
       conversationId: "thread-1",
-      baseRevision: 3,
+      baseCheckpoint: checkpoint(3),
+      checkpoint: checkpoint(4),
       sourceClientId: "owner-a",
     }).type).toBe("apply");
     expect(streamState.evaluatePatch({
       conversationId: "thread-1",
-      baseRevision: 3,
+      baseCheckpoint: checkpoint(3),
+      checkpoint: checkpoint(4),
       sourceClientId: "owner-b",
-    }).type).toBe("drop");
+    })).toEqual({ type: "resync", reason: "owner-mismatch" });
     expect(streamState.evaluatePatch({
       conversationId: "thread-1",
-      baseRevision: 2,
+      baseCheckpoint: checkpoint(2),
+      checkpoint: checkpoint(3),
       sourceClientId: "owner-a",
-    }).type).toBe("drop");
+    })).toEqual({ type: "resync", reason: "revision-gap" });
   });
 
   test("tracks streaming conversation ids without inventing an unowned stream role", () => {
@@ -90,7 +103,7 @@ describe("LocalConversationStreamState", () => {
     streamState.setConversationFollowing("thread-1", true);
     streamState.acceptSnapshot({
       conversationId: "thread-1",
-      revision: 4,
+      checkpoint: checkpoint(4),
       sourceClientId: "owner-a",
     });
 
@@ -107,13 +120,32 @@ describe("LocalConversationStreamState", () => {
     streamState.setConversationFollowing("thread-1", true);
     streamState.acceptSnapshot({
       conversationId: "thread-1",
-      revision: 2,
+      checkpoint: checkpoint(2),
       sourceClientId: "owner-a",
     });
 
     expect(streamState.handleTransportReset()).toEqual(["thread-1"]);
     expect(streamState.isConversationFollowing("thread-1")).toBe(true);
     expect(streamState.getRevision("thread-1")).toBe(null);
+  });
+
+  test("adopts the authoritative follower baseline returned by resume", () => {
+    const streamState = new LocalConversationStreamState();
+
+    streamState.markOwner("thread-1", checkpoint(7, 1, "a"));
+    streamState.adoptFollowerBaseline({
+      conversationId: "thread-1",
+      checkpoint: checkpoint(11, 2, "b"),
+      sourceClientId: "owner-b",
+    });
+
+    expect(streamState.getRole("thread-1")).toEqual({
+      role: "follower",
+      ownerClientId: "owner-b",
+    });
+    expect(streamState.getCheckpoint("thread-1")).toEqual(
+      checkpoint(11, 2, "b"),
+    );
   });
 
   test("resolves revision waiters when matching owner reaches the target revision", async () => {
@@ -126,7 +158,7 @@ describe("LocalConversationStreamState", () => {
 
     streamState.acceptSnapshot({
       conversationId: "thread-1",
-      revision: 1,
+      checkpoint: checkpoint(1),
       sourceClientId: "owner-a",
     });
     const waiter = streamState.waitForRevision({
@@ -140,7 +172,7 @@ describe("LocalConversationStreamState", () => {
 
     streamState.acceptPatch({
       conversationId: "thread-1",
-      revision: 2,
+      checkpoint: checkpoint(2),
       sourceClientId: "owner-a",
     });
 
@@ -158,7 +190,7 @@ describe("LocalConversationStreamState", () => {
 
     streamState.acceptSnapshot({
       conversationId: "thread-1",
-      revision: 1,
+      checkpoint: checkpoint(1),
       sourceClientId: "owner-a",
     });
     const waiter = streamState.waitForRevision({
@@ -170,7 +202,7 @@ describe("LocalConversationStreamState", () => {
 
     streamState.acceptSnapshot({
       conversationId: "thread-1",
-      revision: 2,
+      checkpoint: checkpoint(2, 2),
       sourceClientId: "owner-b",
     });
 
@@ -184,7 +216,7 @@ describe("LocalConversationStreamState", () => {
 
     streamState.acceptSnapshot({
       conversationId: "thread-1",
-      revision: 1,
+      checkpoint: checkpoint(1),
       sourceClientId: "owner-a",
     });
     const waiter = streamState.waitForRevision({
@@ -211,7 +243,7 @@ describe("LocalConversationStreamState", () => {
 
     streamState.acceptSnapshot({
       conversationId: "thread-1",
-      revision: 1,
+      checkpoint: checkpoint(1),
       sourceClientId: "owner-a",
     });
     const waiter = streamState.waitForRevision({

@@ -15,6 +15,8 @@ import type {
   CodexHostMessage,
   CodexThreadSummary,
 } from "../../../lib/types";
+import { buildCodexThreadStreamCheckpoint } from "../../../../shared/codex-owner-follower-replication";
+import type { CodexThreadStreamStateChangedEvent } from "../app-server-message-bus";
 import type { ThreadStageActions, ThreadStageRouteInput } from "../thread-stage-types";
 import type { RightPanelComposerOverlayVisibility } from "./right-panel-composer-overlay";
 
@@ -257,6 +259,32 @@ function buildConversation(
     },
     ...overrides,
   };
+}
+
+type TestThreadStreamDispatch = (
+  type: "thread-stream-state-changed",
+  event: CodexThreadStreamStateChangedEvent,
+) => void;
+
+function dispatchTestThreadStreamSnapshot(
+  dispatch: TestThreadStreamDispatch,
+  event: Omit<
+    CodexThreadStreamStateChangedEvent,
+    "checkpoint" | "baseCheckpoint"
+  >,
+): void {
+  if (event.change.type !== "snapshot") {
+    throw new Error("Expected a snapshot stream fixture");
+  }
+  dispatch("thread-stream-state-changed", {
+    ...event,
+    checkpoint: buildCodexThreadStreamCheckpoint({
+      ownerEpoch: 1,
+      revision: event.change.revision,
+      conversation: event.change.conversationState,
+    }),
+    baseCheckpoint: null,
+  });
 }
 
 function buildActions(): ThreadStageActions {
@@ -719,7 +747,7 @@ describe("ConnectedThreadStage archived resume behavior", () => {
     const { dispatchCodexAppServerMessage } = await import("../app-server-message-bus");
 
     await act(async () => {
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamSnapshot(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread_child",
         version: 1,
@@ -742,7 +770,7 @@ describe("ConnectedThreadStage archived resume behavior", () => {
           }),
         },
       });
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamSnapshot(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread_active",
         version: 1,
@@ -792,7 +820,7 @@ describe("ConnectedThreadStage archived resume behavior", () => {
     const { dispatchCodexAppServerMessage } = await import("../app-server-message-bus");
 
     await act(async () => {
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamSnapshot(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread_active",
         version: 1,
@@ -828,7 +856,7 @@ describe("ConnectedThreadStage archived resume behavior", () => {
     const { dispatchCodexAppServerMessage } = await import("../app-server-message-bus");
 
     await act(async () => {
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamSnapshot(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: "thread_active",
         version: 1,
@@ -988,7 +1016,7 @@ describe("ConnectedThreadStage read-state control plane", () => {
     try {
       invokeCalls = [];
       await act(async () => {
-        dispatchCodexAppServerMessage("thread-stream-state-changed", {
+        dispatchTestThreadStreamSnapshot(dispatchCodexAppServerMessage, {
           hostId: "default",
           conversationId: "thread_active",
           version: 1,
@@ -1036,7 +1064,7 @@ describe("ConnectedThreadStage read-state control plane", () => {
 
     try {
       await act(async () => {
-        dispatchCodexAppServerMessage("thread-stream-state-changed", {
+        dispatchTestThreadStreamSnapshot(dispatchCodexAppServerMessage, {
           hostId: "default",
           conversationId: "thread_active",
           version: 1,
@@ -1089,7 +1117,7 @@ describe("ConnectedThreadStage read-state control plane", () => {
 
     try {
       await act(async () => {
-        dispatchCodexAppServerMessage("thread-stream-state-changed", {
+        dispatchTestThreadStreamSnapshot(dispatchCodexAppServerMessage, {
           hostId: "default",
           conversationId: "thread_active",
           version: 1,
@@ -1227,7 +1255,7 @@ describe("ConnectedThreadStage new-chat home", () => {
     const { dispatchCodexAppServerMessage } = await import("../app-server-message-bus");
 
     await act(async () => {
-      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      dispatchTestThreadStreamSnapshot(dispatchCodexAppServerMessage, {
         hostId: "default",
         conversationId: threadId,
         version: 1,

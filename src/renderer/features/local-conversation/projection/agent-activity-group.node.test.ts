@@ -10,13 +10,10 @@ import { buildCodexFileChangeMap } from "../../../../shared/codex-file-change";
 import type { ThreadTranscriptBlockModel } from "../thread-stage-types";
 import {
   attachAutomaticApprovalReviewsToToolTargets,
-  buildAgentActivityGroupSummary,
   buildAgentActivityGroupSummaryFact,
   buildV2AgentActivityGroupBlock,
-  collectAgentActivityGroupSummaryStats,
+  collectAgentActivityGroupCanonicalFacts,
   resolveAgentActivityGroupActiveSummary,
-  resolveAgentActivityGroupSummaryCues,
-  shouldDisplayAgentActivityGroupActiveSummary,
 } from "./agent-activity-group";
 
 type ProtocolMcpToolCallItem = Extract<ThreadItem, { type: "mcpToolCall" }>;
@@ -189,7 +186,11 @@ describe("generic v2 agent activity group projection", () => {
       })),
       buildAgentActivityGroupSummaryFact(mcpBlock("mcp")),
       buildAgentActivityGroupSummaryFact(buildBlock("web", "webSearch", {
-        status: "inProgress",
+        webSearch: {
+          query: "Nodex",
+          action: null,
+          completed: false,
+        },
         toolCall: {
           toolName: "web",
           subtype: "webSearch",
@@ -210,7 +211,7 @@ describe("generic v2 agent activity group projection", () => {
     expect(facts[5]?.type === "webSearch" ? `${facts[5].count}:${facts[5].runningCount}` : "").toBe("1:1");
   });
 
-  test("builds one generic v2 group without family-specific child units", () => {
+  test("keeps immutable full items separate from filtered body and typed header evidence", () => {
     const patch = buildBlock("patch", "fileChange", {
       callId: "patch",
       kind: "fileChange",
@@ -237,11 +238,16 @@ describe("generic v2 agent activity group projection", () => {
 
     expect(block.type).toBe("agentActivityGroup");
     expect(block.renderKey).toBe("agent-activity-group:patch");
-    expect(block.entries.map((entry) => entry.type).join(",")).toBe("fileChange,webSearch");
-    expect(block.summary).toBe("Used the browser integration, edited a file, searched the web");
+    expect(block.entries.map((entry) => entry.type).join(",")).toBe("fileChange,webSearch,mcpToolCall");
+    expect(block.bodyEntries.map((entry) => entry.type).join(",")).toBe("fileChange,webSearch");
+    expect(block.completedHeader.parts.map((part) => part.kind).join(",")).toBe(
+      "mcpSources,fileChanges,webSearch",
+    );
+    expect(block.completedHeader.iconItem?.type).toBe("mcpToolCall");
+    expect(block.header.kind).toBe("summary");
   });
 
-  test("resolves active state and completed continuity without a legacy live-group pass", () => {
+  test("keeps active state and completed header evidence on separate paths", () => {
     const runningCommand = buildBlock("run", "exec", {
       status: "inProgress",
       command: "pnpm test",
@@ -263,13 +269,27 @@ describe("generic v2 agent activity group projection", () => {
 
     const active = resolveAgentActivityGroupActiveSummary([runningCommand, completedPatch]);
     const completedActive = resolveAgentActivityGroupActiveSummary([completedPatch]);
-    const continuity = resolveAgentActivityGroupSummaryCues([completedPatch]).continuitySummary;
+    const completed = buildV2AgentActivityGroupBlock([completedPatch], "completed");
 
     expect(active?.label ?? "").toBe("Running pnpm test");
     expect(completedActive).toBe(null);
-    expect(continuity?.label ?? "").toBe("Editing files");
-    expect(shouldDisplayAgentActivityGroupActiveSummary(continuity, "STEPS_COMMANDS")).toBe(true);
-    expect(shouldDisplayAgentActivityGroupActiveSummary(continuity, "STEPS_PROSE")).toBe(true);
+    expect(completed.header.kind).toBe("summary");
+    expect(completed.completedHeader.parts).toEqual([{ kind: "fileChanges", count: 1 }]);
+  });
+
+  test("resolves MCP active headers from app identity, operation, and invocation context", () => {
+    const app = mcpApp("connector_notion", "Notion");
+    const item = mcpBlock("notion-search", {
+      server: "notion_mcp_server",
+      tool: "notion_mcp_server_search",
+      arguments: { query: "quarterly roadmap" },
+      completed: false,
+      status: "inProgress",
+    });
+
+    const active = resolveAgentActivityGroupActiveSummary([item], [app]);
+
+    expect(active?.label).toBe('Searching Notion "quarterly roadmap"');
   });
 
   test("deduplicates repeated file paths while preserving aggregate line counts", () => {
@@ -286,18 +306,16 @@ describe("generic v2 agent activity group projection", () => {
           }]),
         },
       }));
-    const stats = collectAgentActivityGroupSummaryStats(edits);
+    const facts = collectAgentActivityGroupCanonicalFacts(edits);
+    const block = buildV2AgentActivityGroupBlock(edits, "deduplicated-edits");
 
-    expect(stats.editedFileCount).toBe(1);
-    expect(stats.changedLineCount).toBe(10);
-    expect(buildAgentActivityGroupSummary(stats)?.summary ?? "").toBe("Edited a file");
-    expect(
-      buildAgentActivityGroupSummary(stats, { showFileChangeLineCount: true })?.summary ?? "",
-    ).toBe("Edited a file • 10 lines");
+    expect(facts.editedFileCount).toBe(1);
+    expect(facts.changedLineCount).toBe(10);
+    expect(block.completedHeader.parts).toEqual([{ kind: "fileChanges", count: 1 }]);
   });
 
   test("preserves MCP source identity and native-app metadata in group facts", () => {
-    const stats = collectAgentActivityGroupSummaryStats([
+    const facts = collectAgentActivityGroupCanonicalFacts([
       mcpBlock("browser-running", {
         status: "inProgress",
         source: { kind: "browserUse", backend: "chrome" },
@@ -316,19 +334,19 @@ describe("generic v2 agent activity group projection", () => {
     ]);
 
     expect(
-      stats.mcpToolCallSources
+      facts.mcpToolCallSources
         .map((source) => `${source.key}:${source.count}:${source.runningCount}`)
         .join("|"),
     ).toBe("browser-use:chrome:1:1|native-app:Preview:1:0|server:node_repl:1:0");
-    expect(JSON.stringify(stats.mcpToolCallSources[1]?.nativeAppReference ?? null)).toBe(
+    expect(JSON.stringify(facts.mcpToolCallSources[1]?.nativeAppReference ?? null)).toBe(
       '{"kind":"displayName","displayName":"Preview"}',
     );
   });
 
   test("reprojects grouped MCP identity when late AppInfo becomes available", () => {
     const entries = [mcpBlock("docs", { server: "docs", status: "completed" })];
-    const unresolved = collectAgentActivityGroupSummaryStats(entries);
-    const resolved = collectAgentActivityGroupSummaryStats(entries, [mcpApp("connector_docs", "Docs")]);
+    const unresolved = collectAgentActivityGroupCanonicalFacts(entries);
+    const resolved = collectAgentActivityGroupCanonicalFacts(entries, [mcpApp("connector_docs", "Docs")]);
 
     expect(unresolved.mcpToolCallSources[0]?.key).toBe("server:docs");
     expect(resolved.mcpToolCallSources[0]?.key).toBe("app:connector_docs");
@@ -363,7 +381,7 @@ describe("generic v2 agent activity group projection", () => {
     const attachedPatch = attached.find((entry) => entry.type === "fileChange");
     const attachedExec = attached.find((entry) => entry.type === "exec");
     const attachedMcp = attached.find((entry) => entry.type === "mcpToolCall");
-    const stats = collectAgentActivityGroupSummaryStats(
+    const facts = collectAgentActivityGroupCanonicalFacts(
       attached.filter((entry): entry is ThreadTranscriptBlockModel => "entry" in entry),
     );
 
@@ -371,7 +389,7 @@ describe("generic v2 agent activity group projection", () => {
     expect(attachedPatch?.type === "fileChange" ? attachedPatch.automaticApprovalReviews?.length ?? 0 : 0).toBe(1);
     expect(attachedExec?.type === "exec" ? attachedExec.automaticApprovalReviews?.length ?? 0 : 0).toBe(1);
     expect(attachedMcp?.type === "mcpToolCall" ? attachedMcp.automaticApprovalReviews?.length ?? 0 : 0).toBe(1);
-    expect(`${stats.deniedRequestCount}:${stats.timedOutRequestCount}`).toBe("1:1");
+    expect(`${facts.deniedRequestCount}:${facts.timedOutRequestCount}`).toBe("1:1");
   });
 
   test("does not attach reviews through non-canonical transcript ids", () => {

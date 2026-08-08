@@ -4,30 +4,12 @@ import type {
   ProtocolListMcpServerStatusResponse,
 } from "../../../lib/types";
 import { stripCodexRemarkDirectiveLines } from "../../../../shared/codex-remark-directives";
-import {
-  attachAutomaticApprovalReviewsToToolTargets,
-  buildV2AgentActivityGroupBlock,
-  materializeAgentRenderUnits,
-  resolveAgentActivityGroupActiveSummary,
-} from "./agent-activity-group";
-import {
-  buildThreadAgentActivityTargetAttribute,
-  buildThreadAgentActivityUnits,
-  filterThreadAgentActivityGroupBodyItems,
-  isThreadClassifiableActivityItem,
-  projectThreadIndexedAgentActivityItems,
-  type ThreadClassifiableActivityItem,
-} from "./agent-activity-v2";
-import {
-  formatThreadAgentActivityGroupHeader,
-  resolveThreadAgentActivityGroupState,
-} from "./agent-activity-v2-summary";
+import { materializeAgentRenderUnits } from "./agent-activity-group";
 import { resolveGeneratedImageOutputState } from "./generated-image-output";
 import { collectHookFeedbackSources } from "./hook-feedback-settings";
 import type {
   ThreadAssistantActionsBlockModel,
   ThreadAssistantMessageActionsModel,
-  ThreadAgentEntryModel,
   ThreadAgentItemModel,
   ThreadAgentRenderUnit,
   ThreadBlockModel,
@@ -41,15 +23,8 @@ import type {
   ThreadUserAttachmentStripBlockModel,
   ThreadWorkedForBlockModel,
 } from "../thread-stage-types";
-import {
-  resolveThreadLiveActivityInputState,
-  resolveThreadLiveActivityPresentation,
-} from "./thread-live-activity";
+import { projectThreadActivityPresentation } from "./thread-activity-presentation";
 import type { ThreadWorkedForTiming } from "../thread-worked-for-time";
-import {
-  extractCommandActions,
-  isExplorationAction,
-} from "./tool-metadata/command-actions";
 
 interface BuildTurnViewModelInput {
   turnId: string | null;
@@ -64,6 +39,7 @@ interface BuildTurnViewModelInput {
   isBlocked: boolean;
   canEditTurnUserPrefix?: boolean;
   canForkTurn?: boolean;
+  mcpApps?: readonly ProtocolAppInfo[];
   mcpServerStatuses?: ProtocolListMcpServerStatusResponse | null;
   endResourcePaths?: readonly string[];
   subagentActivityState?: ThreadTurnSubagentActivityState;
@@ -104,6 +80,12 @@ function resolveTurnOwnerHiddenBlockIds(
   return ids;
 }
 
+function hasBlockingTurnRequest(buckets: ThreadTurnRenderBuckets): boolean {
+  if (buckets.approvalItem || buckets.userInputItem || buckets.interactiveRequestItem) return true;
+  if (buckets.permissionRequestItems.length > 0) return true;
+  return buckets.mcpServerElicitationItems.some((item) => item.status !== "completed");
+}
+
 function collectSearchableText(blocks: ThreadBlockModel[]): string {
   return blocks
     .flatMap((block) => {
@@ -113,8 +95,7 @@ function collectSearchableText(blocks: ThreadBlockModel[]): string {
           : "";
       if (block.type === "agentActivityGroup") {
         return [
-          block.summary,
-          ...block.entries.map((entry) => entry.searchableText),
+          block.searchableText,
           nestedAssistantAfter,
         ];
       }
@@ -378,204 +359,6 @@ function buildSearchUnits(input: {
   return [...userUnits, ...assistantUnits];
 }
 
-export function buildV2AgentRenderUnits(
-  agentItems: readonly ThreadAgentItemModel[],
-  options: {
-    mcpApps?: readonly ProtocolAppInfo[];
-    mcpServerStatuses?: ProtocolListMcpServerStatusResponse | null;
-    isTurnCancelled?: boolean;
-    liveActivity?: {
-      isActivitySliceClosed: boolean;
-      isExploring: boolean;
-      isTurnInProgress: boolean;
-      reasoningFallbackLabel?: string;
-    };
-  } = {},
-): {
-  sourceItems: ThreadClassifiableActivityItem[];
-  units: ThreadAgentRenderUnit[];
-} {
-  const workedForItems = agentItems.filter(
-    (item): item is ThreadWorkedForBlockModel => item.type === "workedFor",
-  );
-  const activityItems = agentItems.filter((item) => item.type !== "workedFor");
-  const attachedEntries = attachAutomaticApprovalReviewsToToolTargets([...activityItems]);
-  const sourceItems = attachedEntries.filter(
-    (entry): entry is ThreadClassifiableActivityItem =>
-      ("entry" in entry || entry.type === "workedFor")
-      && isThreadClassifiableActivityItem(entry as ThreadAgentItemModel),
-  );
-  const activityUnits = buildThreadAgentActivityUnits(
-    projectThreadIndexedAgentActivityItems(sourceItems, {
-      mcpServerStatuses: options.mcpServerStatuses ?? null,
-    }),
-  );
-  const units = activityUnits.map((unit, unitIndex): ThreadAgentRenderUnit => {
-    const targetAttributes = buildThreadAgentActivityTargetAttribute(unit);
-    if (unit.kind === "standalone") {
-      return {
-        kind: "entry",
-        targetAttributes,
-        block: {
-          ...unit.item.item,
-          renderKey: unit.key,
-        },
-      };
-    }
-
-    const entries = unit.items.map(({ item }) => {
-      if (item.type === "workedFor") {
-        throw new Error("worked-for cannot be groupable in v2 activity");
-      }
-      return item;
-    });
-    const body = filterThreadAgentActivityGroupBodyItems(
-      unit.items,
-      options.isTurnCancelled ?? false,
-    );
-    const bodyEntries = body.items.map(({ item }) => {
-      if (item.type === "workedFor") {
-        throw new Error("worked-for cannot be groupable in v2 activity body");
-      }
-      return item;
-    });
-    const block = buildV2AgentActivityGroupBlock(entries, unit.key, {
-      bodyEntries,
-      canExpand: body.canExpand,
-      resolvedApps: options.mcpApps,
-    });
-    const projectedLiveState = options.liveActivity
-      ? resolveThreadAgentActivityGroupState({
-          unit,
-          isLatestVisibleUnit: unitIndex === activityUnits.length - 1,
-          isTurnInProgress: options.liveActivity.isTurnInProgress,
-          isActivitySliceClosed: options.liveActivity.isActivitySliceClosed,
-          isExploring: options.liveActivity.isExploring,
-        })
-      : { kind: "summary" as const };
-    const liveState = projectedLiveState;
-    const liveItemSummary = liveState.kind === "active" && "entry" in liveState.item.item
-      ? resolveAgentActivityGroupActiveSummary([liveState.item.item])
-      : null;
-    const liveHeaderKind = liveState.kind === "summary" ? undefined : liveState.kind;
-    const defaultRunningLabel = formatThreadAgentActivityGroupHeader({
-      state: liveState,
-      completedParts: [],
-      activeExplorationLabel: liveItemSummary?.label,
-      formatMcpToolCall: () => liveItemSummary?.label ?? null,
-      formatDynamicToolCall: () => liveItemSummary?.label ?? null,
-    });
-    const runningSummary = options.liveActivity == null
-      ? block.runningSummary
-      : liveHeaderKind == null
-        ? null
-        : {
-          kind: "text" as const,
-          key: liveState.kind === "thinking"
-            ? `${unit.key}:thinking`
-            : liveItemSummary?.key ?? `${unit.key}:active`,
-          label: liveState.kind === "thinking"
-            ? options.liveActivity.reasoningFallbackLabel ?? defaultRunningLabel
-            : defaultRunningLabel,
-        };
-
-    return {
-      kind: "agentActivityGroup",
-      targetAttributes,
-      block: {
-        ...block,
-        liveHeaderKind,
-        runningSummary,
-      },
-    };
-  });
-
-  const adapterOnlyUnits = attachedEntries.flatMap((entry): ThreadAgentRenderUnit[] => {
-    if (!("entry" in entry || entry.type === "workedFor")) return [];
-    if (isThreadClassifiableActivityItem(entry as ThreadAgentItemModel)) return [];
-    return [{ kind: "entry", block: entry as ThreadAgentItemModel }];
-  });
-
-  // workedFor is a timing row, not an activity unit. It is inserted before
-  // the first non-user item by buildTurnRenderModel, so preserve that order
-  // while keeping it out of the Electron-shaped activity classifier above.
-  const workedForUnits: ThreadAgentRenderUnit[] = workedForItems.map((item) => ({
-    kind: "entry",
-    block: item,
-  }));
-
-  return {
-    sourceItems,
-    units: [...workedForUnits, ...units, ...adapterOnlyUnits],
-  };
-}
-
-function reconcileExplorationState(
-  agentBodyBlocks: ThreadAgentEntryModel[],
-  input: Pick<BuildTurnViewModelInput, "isStreamingTurn" | "isBlocked">,
-  sourceItems: readonly ThreadClassifiableActivityItem[] = [],
-): {
-  agentBodyBlocks: ThreadAgentEntryModel[];
-  isExploring: boolean;
-} {
-  const trailingEntry = agentBodyBlocks[agentBodyBlocks.length - 1];
-  const trailingV2Group = trailingEntry?.type === "agentActivityGroup" ? trailingEntry : null;
-  const trailingV2ExplorationEntries = trailingV2Group?.entries.filter((entry) => {
-    if (entry.type !== "exec") return false;
-    const actions = extractCommandActions(entry.entry);
-    return actions.length > 0 && actions.every(isExplorationAction);
-  }) ?? [];
-  const isTrailingV2ExplorationGroup = trailingV2Group != null
-    && trailingV2ExplorationEntries.length === trailingV2Group.entries.length;
-  let hasTrailingSourceExploration = false;
-  let trailingSourceExplorationInProgress = false;
-  for (const sourceItem of sourceItems) {
-    if (sourceItem.type === "exec" && "entry" in sourceItem) {
-      const actions = extractCommandActions(sourceItem.entry);
-      if (actions.length > 0 && actions.every(isExplorationAction)) {
-        hasTrailingSourceExploration = true;
-        trailingSourceExplorationInProgress ||= sourceItem.status === "inProgress";
-        continue;
-      }
-    }
-    if (sourceItem.type === "reasoning" && hasTrailingSourceExploration) {
-      trailingSourceExplorationInProgress ||= sourceItem.status === "inProgress";
-      continue;
-    }
-    hasTrailingSourceExploration = false;
-    trailingSourceExplorationInProgress = false;
-  }
-  const explorationEntryInProgress = (
-    trailingV2ExplorationEntries.some((entry) => entry.status === "inProgress")
-  ) || trailingSourceExplorationInProgress;
-  const isExploring =
-    !input.isBlocked
-    && input.isStreamingTurn
-    && (isTrailingV2ExplorationGroup || hasTrailingSourceExploration)
-    && explorationEntryInProgress;
-
-  const nextAgentBodyBlocks = agentBodyBlocks;
-
-  return {
-    agentBodyBlocks: nextAgentBodyBlocks,
-    isExploring,
-  };
-}
-
-function reconcileAgentBodyUnitBlocks(
-  units: ThreadAgentRenderUnit[],
-  blocks: ThreadAgentEntryModel[],
-): ThreadAgentRenderUnit[] {
-  return units.map((unit, index) => {
-    const block = blocks[index];
-    if (!block || block === unit.block) return unit;
-    return {
-      ...unit,
-      block: block as ThreadAgentRenderUnit["block"],
-    } as ThreadAgentRenderUnit;
-  });
-}
-
 function hasRenderableAssistantContent(block: ThreadTranscriptBlockModel | null): boolean {
   if (!block || block.type !== "assistantMessage") return false;
   return block.status === "completed"
@@ -634,21 +417,6 @@ export function buildTurnViewModel(input: BuildTurnViewModelInput): ThreadTurnMo
   );
   const isCancelledTurn = input.turn?.status === "interrupted";
   const shouldRenderWorkedForInAgentBody = input.turn?.status === "inProgress";
-  const initialVisibleAgentItems = shouldRenderWorkedForInAgentBody
-    ? initialBuckets.agentItems
-    : initialBuckets.agentItems.filter((item) => item.type !== "workedFor");
-  const initialAgentBodyUnits = buildV2AgentRenderUnits(
-    initialVisibleAgentItems,
-    {
-      mcpServerStatuses: input.mcpServerStatuses ?? null,
-      isTurnCancelled: isCancelledTurn,
-    },
-  ).units;
-  const initialExplorationState = reconcileExplorationState(
-    materializeAgentRenderUnits(initialAgentBodyUnits),
-    input,
-    initialVisibleAgentItems.filter(isThreadClassifiableActivityItem),
-  );
   let buckets: ThreadTurnRenderBuckets = { ...initialBuckets };
 
   const userMessageSearchBlocks = collectUserMessageSearchBlocks(buckets);
@@ -733,50 +501,23 @@ export function buildTurnViewModel(input: BuildTurnViewModelInput): ThreadTurnMo
   const visibleAgentItems = shouldRenderWorkedForInAgentBody
     ? buckets.agentItems
     : buckets.agentItems.filter((item) => item.type !== "workedFor");
-  const liveActivityInputState = resolveThreadLiveActivityInputState({
+  const activityPresentation = projectThreadActivityPresentation({
+    agentItems: visibleAgentItems,
+    assistantItem: buckets.assistantItem,
+    proposedPlanItem: buckets.proposedPlanItem,
     isLatestTurn: input.isLatestTurn,
-    isStreamingTurn: input.isStreamingTurn,
+    isTurnInProgress: input.isStreamingTurn,
+    isTurnCancelled: isCancelledTurn,
     isBlocked: input.isBlocked,
     showSafetyBufferingUi: input.turn?.safetyBuffering?.showBufferingUi === true,
-    latestAssistantMessage: buckets.latestAssistantMessage,
-    proposedPlanItem: buckets.proposedPlanItem,
-    agentItems: visibleAgentItems,
-    isExploring: initialExplorationState.isExploring,
+    hasBlockingRequest: hasBlockingTurnRequest(buckets),
+    hasPendingGeneratedOutput: (generatedImageGalleryBlock?.pendingImageCount ?? 0) > 0,
+    hasPostAssistantUnits: buckets.postAssistantItems.length > 0,
+    mcpApps: input.mcpApps,
+    mcpServerStatuses: input.mcpServerStatuses ?? null,
   });
-  const v2AgentProjection = buildV2AgentRenderUnits(
-    visibleAgentItems,
-    {
-      mcpServerStatuses: input.mcpServerStatuses ?? null,
-      isTurnCancelled: isCancelledTurn,
-      liveActivity: {
-        isTurnInProgress: input.isStreamingTurn,
-        isActivitySliceClosed: liveActivityInputState.isActivitySliceClosed,
-        isExploring: initialExplorationState.isExploring,
-        reasoningFallbackLabel: liveActivityInputState.reasoningSummary?.text,
-      },
-    },
-  );
-  const agentBodyUnitsBeforeReconcile = v2AgentProjection.units;
-  const explorationState = reconcileExplorationState(
-    materializeAgentRenderUnits(agentBodyUnitsBeforeReconcile),
-    input,
-    v2AgentProjection.sourceItems,
-  );
-  const agentBodyUnits = reconcileAgentBodyUnitBlocks(
-    agentBodyUnitsBeforeReconcile,
-    explorationState.agentBodyBlocks,
-  );
-  const liveActivity: ThreadLiveActivityPresentation = resolveThreadLiveActivityPresentation({
-    isLatestTurn: input.isLatestTurn,
-    isStreamingTurn: input.isStreamingTurn,
-    isBlocked: input.isBlocked,
-    showSafetyBufferingUi: input.turn?.safetyBuffering?.showBufferingUi === true,
-    latestAssistantMessage: buckets.latestAssistantMessage,
-    proposedPlanItem: buckets.proposedPlanItem,
-    agentItems: visibleAgentItems,
-    agentBodyUnits,
-    isExploring: explorationState.isExploring,
-  });
+  const agentBodyUnits = activityPresentation.units;
+  const liveActivity: ThreadLiveActivityPresentation = activityPresentation.liveActivity;
 
   const leadingBlocks: ThreadBlockModel[] = [
     ...buckets.modelChangedItems,
@@ -817,7 +558,6 @@ export function buildTurnViewModel(input: BuildTurnViewModelInput): ThreadTurnMo
     turnKey,
     turn: input.turn,
     buckets,
-    agentActivitySourceItems: visibleAgentItems,
     leadingBlocks,
     agentBodyUnits,
     trailingBlocks,

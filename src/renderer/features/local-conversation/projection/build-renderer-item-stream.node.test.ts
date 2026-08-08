@@ -906,7 +906,7 @@ describe("buildRendererItemStream", () => {
     expect(items.length).toBe(0);
   });
 
-  test("keeps an empty in-progress fileChange row for live patch visibility", () => {
+  test("omits an empty in-progress fileChange row until a change materializes", () => {
     const items = buildRendererItemStream({
       entries: [
         buildEntry({
@@ -926,7 +926,7 @@ describe("buildRendererItemStream", () => {
       isLatestTurn: true,
     });
 
-    expect(items.map((item) => item.type).join(",")).toBe("fileChange");
+    expect(items).toEqual([]);
   });
 
   test("injects turn-scoped requests into the renderer item stream", () => {

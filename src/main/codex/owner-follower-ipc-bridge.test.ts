@@ -3,6 +3,7 @@ import { EventEmitter } from "node:events";
 import type {
   CodexHostMessage,
   CodexThreadOwnerNotificationAckInput,
+  CodexThreadOwnerStreamStatePublishResult,
   CodexThreadOwnerStreamStatePublishInput,
 } from "../../shared/types";
 import {
@@ -57,12 +58,22 @@ class FakeOwnerFollowerService implements CodexOwnerFollowerService {
     this.disposedClientIds.push(clientId);
   }
 
+  acknowledgeRendererFollowerSnapshotApplied(): boolean {
+    return true;
+  }
+
+  requestRendererThreadStreamResync(): boolean {
+    return true;
+  }
+
   publishRendererThreadStreamStateChange(
     sourceClientId: string,
     input: CodexThreadOwnerStreamStatePublishInput,
-  ): boolean {
+  ): CodexThreadOwnerStreamStatePublishResult {
     const ownerClientId = this.ownerByThread.get(input.conversationId);
-    if (!ownerClientId || ownerClientId !== sourceClientId) return false;
+    if (!ownerClientId || ownerClientId !== sourceClientId) {
+      return { accepted: false, reason: "not-owner", recovery: null };
+    }
 
     this.hostMessages.push({
       type: "threadStreamStateChanged",
@@ -71,13 +82,24 @@ class FakeOwnerFollowerService implements CodexOwnerFollowerService {
       change: input.change,
       version: this.hostMessages.length + 1,
       sourceClientId,
+      baseCheckpoint: input.baseCheckpoint,
+      checkpoint: input.checkpoint,
     });
-    return true;
+    return { accepted: true, checkpoint: input.checkpoint };
   }
 
   setOwner(threadId: string, clientId: string): void {
     this.ownerByThread.set(threadId, clientId);
   }
+}
+
+function checkpoint(revision: number) {
+  return {
+    protocolVersion: 1 as const,
+    ownerEpoch: 1,
+    revision,
+    canonicalHash: "a".repeat(64),
+  };
 }
 
 function createIdFactory(prefix: string): () => string {
@@ -154,6 +176,8 @@ describe("owner/follower IPC bridge", () => {
         revision: 1,
         patches: [],
       },
+      baseCheckpoint: checkpoint(0),
+      checkpoint: checkpoint(1),
     });
     const rejected = publishRendererThreadOwnerStreamState(service, "client-stale", {
       conversationId: "thread-1",
@@ -163,10 +187,12 @@ describe("owner/follower IPC bridge", () => {
         revision: 2,
         patches: [],
       },
+      baseCheckpoint: checkpoint(1),
+      checkpoint: checkpoint(2),
     });
 
-    expect(accepted).toBe(true);
-    expect(rejected).toBe(false);
+    expect(accepted.accepted).toBe(true);
+    expect(rejected).toMatchObject({ accepted: false, reason: "not-owner" });
     expect(String(service.hostMessages.length)).toBe("1");
 
     const hostMessage = service.hostMessages[0];

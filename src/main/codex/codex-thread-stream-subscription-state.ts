@@ -1,3 +1,6 @@
+import type { CodexThreadStreamCheckpoint } from "../../shared/types";
+import { areCodexThreadStreamCheckpointsEqual } from "../../shared/codex-owner-follower-replication";
+
 export const CODEX_THREAD_STREAM_FOLLOWER_RECONNECT_GRACE_MS = 5_000;
 
 export interface CodexThreadStreamSubscriptionStateOptions {
@@ -36,7 +39,8 @@ interface ConversationSubscriptionState {
   ownerEpoch: number;
   followedClientIds: Set<string>;
   connectedClientIds: Set<string>;
-  snapshotPendingClientIds: Set<string>;
+  /** null means a snapshot is required; a checkpoint means sent and awaiting apply ACK. */
+  snapshotBarrierByClientId: Map<string, CodexThreadStreamCheckpoint | null>;
   membershipEpoch: number;
   followerReconnectDeadlineMs: number | null;
   ownerDetachedAtMs: number | null;
@@ -50,7 +54,14 @@ export interface CodexThreadStreamFollowingResult {
 
 export interface CodexThreadStreamOwnerResult {
   changed: boolean;
+  ownerEpoch: number;
   snapshotClientIds: readonly string[];
+  actions: readonly CodexThreadStreamSubscriptionAction[];
+}
+
+export interface CodexThreadStreamSnapshotAckResult {
+  accepted: boolean;
+  shouldSendSnapshot: boolean;
   actions: readonly CodexThreadStreamSubscriptionAction[];
 }
 
@@ -84,7 +95,7 @@ export class CodexThreadStreamSubscriptionState {
     const normalizedConversationId = normalizeId(conversationId);
     const normalizedOwnerClientId = normalizeId(ownerClientId);
     if (!normalizedConversationId || !normalizedOwnerClientId) {
-      return { changed: false, snapshotClientIds: [], actions: [] };
+      return { changed: false, ownerEpoch: 0, snapshotClientIds: [], actions: [] };
     }
 
     const state = this.getOrCreate(normalizedConversationId);
@@ -92,20 +103,23 @@ export class CodexThreadStreamSubscriptionState {
     state.ownerClientId = normalizedOwnerClientId;
     if (changed) state.ownerEpoch += 1;
     if (state.followedClientIds.delete(normalizedOwnerClientId)) {
-      state.snapshotPendingClientIds.delete(normalizedOwnerClientId);
+      state.snapshotBarrierByClientId.delete(normalizedOwnerClientId);
       state.membershipEpoch += 1;
     }
     if (changed) {
       for (const followerClientId of state.followedClientIds) {
-        state.snapshotPendingClientIds.add(followerClientId);
+        state.snapshotBarrierByClientId.set(followerClientId, null);
       }
     }
     state.followerReconnectDeadlineMs = null;
     state.ownerDetachedAtMs = null;
-    if (!changed) return { changed: false, snapshotClientIds: [], actions: [] };
+    if (!changed) {
+      return { changed: false, ownerEpoch: state.ownerEpoch, snapshotClientIds: [], actions: [] };
+    }
 
     return {
       changed: true,
+      ownerEpoch: state.ownerEpoch,
       snapshotClientIds: this.resolveSnapshotClientIds(state),
       actions: this.buildOwnerActions(normalizedConversationId, state),
     };
@@ -120,7 +134,7 @@ export class CodexThreadStreamSubscriptionState {
     state.ownerClientId = null;
     state.ownerDetachedAtMs = this.now();
     for (const followerClientId of state.followedClientIds) {
-      state.snapshotPendingClientIds.add(followerClientId);
+      state.snapshotBarrierByClientId.set(followerClientId, null);
     }
     this.removeIfEmpty(normalizedConversationId, state);
   }
@@ -140,10 +154,17 @@ export class CodexThreadStreamSubscriptionState {
     const state = this.getOrCreate(normalizedConversationId);
     const wasFollowing = state.followedClientIds.has(normalizedClientId);
     if (following === wasFollowing) {
+      const shouldForceSnapshot = following
+        && options.forceSnapshot === true
+        && state.ownerClientId !== normalizedClientId
+        && state.connectedClientIds.has(normalizedClientId);
+      if (shouldForceSnapshot) {
+        state.snapshotBarrierByClientId.set(normalizedClientId, null);
+      }
       return {
         changed: false,
         shouldSendSnapshot: following
-          && (options.forceSnapshot === true || state.snapshotPendingClientIds.has(normalizedClientId))
+          && (shouldForceSnapshot || state.snapshotBarrierByClientId.get(normalizedClientId) === null)
           && state.ownerClientId !== normalizedClientId
           && state.connectedClientIds.has(normalizedClientId),
         actions: [],
@@ -153,12 +174,12 @@ export class CodexThreadStreamSubscriptionState {
     if (following) {
       state.followedClientIds.add(normalizedClientId);
       if (state.ownerClientId !== normalizedClientId) {
-        state.snapshotPendingClientIds.add(normalizedClientId);
+        state.snapshotBarrierByClientId.set(normalizedClientId, null);
       }
       state.followerReconnectDeadlineMs = null;
     } else {
       state.followedClientIds.delete(normalizedClientId);
-      state.snapshotPendingClientIds.delete(normalizedClientId);
+      state.snapshotBarrierByClientId.delete(normalizedClientId);
       state.followerReconnectDeadlineMs = null;
     }
     state.membershipEpoch += 1;
@@ -169,23 +190,87 @@ export class CodexThreadStreamSubscriptionState {
       shouldSendSnapshot: following
         && state.ownerClientId !== normalizedClientId
         && state.connectedClientIds.has(normalizedClientId)
-        && state.snapshotPendingClientIds.has(normalizedClientId),
+        && state.snapshotBarrierByClientId.get(normalizedClientId) === null,
       actions: this.buildFollowerActions(normalizedConversationId, state),
     };
   }
 
-  markSnapshotDelivered(
+  markSnapshotSent(
     conversationId: string,
     clientId: string,
-  ): readonly CodexThreadStreamSubscriptionAction[] {
+    checkpoint: CodexThreadStreamCheckpoint,
+  ): boolean {
     const normalizedConversationId = normalizeId(conversationId);
     const normalizedClientId = normalizeId(clientId);
     const state = this.conversations.get(normalizedConversationId);
-    if (!state || !state.followedClientIds.has(normalizedClientId)) return [];
-    if (state.ownerClientId === normalizedClientId) return [];
-    if (!state.connectedClientIds.has(normalizedClientId)) return [];
-    if (!state.snapshotPendingClientIds.delete(normalizedClientId)) return [];
-    return this.buildFollowerActions(normalizedConversationId, state);
+    if (!state || !state.followedClientIds.has(normalizedClientId)) return false;
+    if (state.ownerClientId === normalizedClientId) return false;
+    if (!state.connectedClientIds.has(normalizedClientId)) return false;
+    if (state.snapshotBarrierByClientId.get(normalizedClientId) !== null) return false;
+    state.snapshotBarrierByClientId.set(normalizedClientId, checkpoint);
+    return true;
+  }
+
+  acknowledgeSnapshotApplied(input: {
+    conversationId: string;
+    clientId: string;
+    ownerClientId: string;
+    checkpoint: CodexThreadStreamCheckpoint;
+    currentCheckpoint: CodexThreadStreamCheckpoint;
+  }): CodexThreadStreamSnapshotAckResult {
+    const conversationId = normalizeId(input.conversationId);
+    const clientId = normalizeId(input.clientId);
+    const ownerClientId = normalizeId(input.ownerClientId);
+    const state = this.conversations.get(conversationId);
+    if (
+      !state
+      || !state.followedClientIds.has(clientId)
+      || !state.connectedClientIds.has(clientId)
+      || state.ownerClientId !== ownerClientId
+      || state.ownerClientId === clientId
+    ) {
+      return { accepted: false, shouldSendSnapshot: false, actions: [] };
+    }
+
+    const sentCheckpoint = state.snapshotBarrierByClientId.get(clientId);
+    if (
+      sentCheckpoint
+      && areCodexThreadStreamCheckpointsEqual(sentCheckpoint, input.checkpoint)
+      && areCodexThreadStreamCheckpointsEqual(input.checkpoint, input.currentCheckpoint)
+      && input.checkpoint.ownerEpoch === state.ownerEpoch
+    ) {
+      state.snapshotBarrierByClientId.delete(clientId);
+      return {
+        accepted: true,
+        shouldSendSnapshot: false,
+        actions: this.buildFollowerActions(conversationId, state),
+      };
+    }
+
+    if (!sentCheckpoint || !areCodexThreadStreamCheckpointsEqual(sentCheckpoint, input.currentCheckpoint)) {
+      state.snapshotBarrierByClientId.set(clientId, null);
+      return { accepted: false, shouldSendSnapshot: true, actions: [] };
+    }
+    return { accepted: false, shouldSendSnapshot: false, actions: [] };
+  }
+
+  requireSnapshot(conversationId: string, clientId: string): boolean {
+    const normalizedConversationId = normalizeId(conversationId);
+    const normalizedClientId = normalizeId(clientId);
+    const state = this.conversations.get(normalizedConversationId);
+    if (!state || !state.followedClientIds.has(normalizedClientId)) return false;
+    if (state.ownerClientId === normalizedClientId) return false;
+    if (!state.connectedClientIds.has(normalizedClientId)) return false;
+    state.snapshotBarrierByClientId.set(normalizedClientId, null);
+    return true;
+  }
+
+  invalidateSnapshotBarriers(conversationId: string): void {
+    const state = this.conversations.get(normalizeId(conversationId));
+    if (!state) return;
+    for (const clientId of state.snapshotBarrierByClientId.keys()) {
+      state.snapshotBarrierByClientId.set(clientId, null);
+    }
   }
 
   handleClientConnected(clientId: string): readonly CodexThreadStreamSubscriptionAction[] {
@@ -220,7 +305,7 @@ export class CodexThreadStreamSubscriptionState {
       state.connectedClientIds.delete(normalizedClientId);
       const wasOwner = state.ownerClientId === normalizedClientId;
       const wasFollower = state.followedClientIds.delete(normalizedClientId);
-      state.snapshotPendingClientIds.delete(normalizedClientId);
+      state.snapshotBarrierByClientId.delete(normalizedClientId);
       if (wasOwner) {
         ownerConversationIds.push(conversationId);
         const targetClientIds = this.resolveFollowerClientIds(state);
@@ -287,7 +372,7 @@ export class CodexThreadStreamSubscriptionState {
         state.ownerClientId = null;
         state.ownerDetachedAtMs = this.now();
         for (const followerClientId of state.followedClientIds) {
-          state.snapshotPendingClientIds.add(followerClientId);
+          state.snapshotBarrierByClientId.set(followerClientId, null);
         }
         actions.push({
           type: "transport-reset",
@@ -297,7 +382,7 @@ export class CodexThreadStreamSubscriptionState {
         continue;
       }
       if (!state.followedClientIds.has(normalizedClientId)) continue;
-      state.snapshotPendingClientIds.add(normalizedClientId);
+      state.snapshotBarrierByClientId.set(normalizedClientId, null);
       state.followerReconnectDeadlineMs = this.now() + this.reconnectGraceMs;
       state.membershipEpoch += 1;
       actions.push(...this.buildFollowerActions(conversationId, state));
@@ -350,7 +435,7 @@ export class CodexThreadStreamSubscriptionState {
       ownerEpoch: 0,
       followedClientIds: new Set(),
       connectedClientIds: new Set(this.connectedClientIds),
-      snapshotPendingClientIds: new Set(),
+      snapshotBarrierByClientId: new Map(),
       membershipEpoch: 0,
       followerReconnectDeadlineMs: null,
       ownerDetachedAtMs: null,
@@ -364,17 +449,20 @@ export class CodexThreadStreamSubscriptionState {
       [...state.followedClientIds].filter((clientId) =>
         clientId !== state.ownerClientId
         && state.connectedClientIds.has(clientId)
-        && !state.snapshotPendingClientIds.has(clientId),
+        && !state.snapshotBarrierByClientId.has(clientId),
       ),
     );
   }
 
   private resolveSnapshotClientIds(state: ConversationSubscriptionState): string[] {
     return sortIds(
-      [...state.snapshotPendingClientIds].filter((clientId) =>
-        clientId !== state.ownerClientId
-        && state.followedClientIds.has(clientId)
-        && state.connectedClientIds.has(clientId),
+      [...state.snapshotBarrierByClientId.entries()].flatMap(([clientId, checkpoint]) =>
+        checkpoint === null
+          && clientId !== state.ownerClientId
+          && state.followedClientIds.has(clientId)
+          && state.connectedClientIds.has(clientId)
+          ? [clientId]
+          : [],
       ),
     );
   }

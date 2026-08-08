@@ -31,13 +31,59 @@ export interface VisibleConversationTurnEntry {
   turnSearchKey: string;
   requests: CodexTurnScopedConversationRequest[];
   isMostRecentTurn: boolean;
+  /**
+   * Immutable render-facing revision of the turn and its scoped requests.
+   * Canonical item objects stay identity-stable across streaming updates; this
+   * snapshot lets memoized consumers observe their new revision without
+   * serializing the complete item payload.
+   */
+  readonly renderRevision?: VisibleConversationTurnRenderRevision;
+}
+
+interface VisibleConversationTurnItemRevision {
+  readonly item: CodexConversationTurn["items"][number];
+  readonly itemId: string;
+  readonly updatedAt: number;
+  readonly status: CodexConversationTurn["items"][number]["status"];
+  readonly assistantPhase: string | undefined;
+}
+
+interface VisibleConversationTurnRequestRevision {
+  readonly request: CodexTurnScopedConversationRequest;
+  readonly completed: boolean | undefined;
+  readonly response: unknown;
+}
+
+export interface VisibleConversationTurnRenderRevision {
+  readonly turnStatus: CodexConversationTurn["status"];
+  readonly errorMessage: string | undefined;
+  readonly diff: string | undefined;
+  readonly turnStartedAtMs: number | null | undefined;
+  readonly firstTurnWorkItemStartedAtMs: number | null | undefined;
+  readonly finalAssistantStartedAtMs: number | null | undefined;
+  readonly startedAt: number | null | undefined;
+  readonly completedAt: number | null | undefined;
+  readonly durationMs: number | null | undefined;
+  readonly commandExecutionStartedAtMsById:
+    CodexConversationTurn["commandExecutionStartedAtMsById"];
+  readonly interruptedCommandExecutionItemIds:
+    CodexConversationTurn["interruptedCommandExecutionItemIds"];
+  readonly hookRuns: CodexConversationTurn["hookRuns"];
+  readonly tokenUsage: CodexConversationTurn["tokenUsage"];
+  readonly safetyBuffering: CodexConversationTurn["safetyBuffering"];
+  readonly itemIds: readonly string[];
+  readonly items: readonly VisibleConversationTurnItemRevision[];
+  readonly requests: readonly VisibleConversationTurnRequestRevision[];
 }
 
 const EMPTY_VISIBLE_TURN_ENTRIES: VisibleConversationTurnEntry[] = [];
 const EMPTY_PARENT_TURNS: CodexConversationTurn[] = [];
 const visibleTurnEntriesByTurn = new WeakMap<
   CodexConversationTurn,
-  VisibleConversationTurnEntry[]
+  {
+    revision: VisibleConversationTurnRenderRevision;
+    entries: VisibleConversationTurnEntry[];
+  }
 >();
 const visibleTurnEntrySelectionsByTurns = new WeakMap<
   readonly CodexConversationTurn[],
@@ -45,9 +91,128 @@ const visibleTurnEntrySelectionsByTurns = new WeakMap<
     parentTurns: readonly CodexConversationTurn[];
     requestsByTurnId: ReadonlyMap<string, CodexTurnScopedConversationRequest[]>;
     resumeState: CodexConversationResumeState;
+    revisions: readonly VisibleConversationTurnRenderRevision[];
     entries: VisibleConversationTurnEntry[];
   }>
 >();
+
+function readRequestCompleted(
+  request: CodexTurnScopedConversationRequest,
+): boolean | undefined {
+  if (!("completed" in request)) return undefined;
+  return typeof request.completed === "boolean" ? request.completed : undefined;
+}
+
+function readRequestResponse(
+  request: CodexTurnScopedConversationRequest,
+): unknown {
+  return "response" in request ? request.response : undefined;
+}
+
+export function buildVisibleConversationTurnRenderRevision(
+  turn: CodexConversationTurn,
+  requests: readonly CodexTurnScopedConversationRequest[],
+): VisibleConversationTurnRenderRevision {
+  return {
+    turnStatus: turn.status,
+    errorMessage: turn.errorMessage,
+    diff: turn.diff,
+    turnStartedAtMs: turn.turnStartedAtMs,
+    firstTurnWorkItemStartedAtMs: turn.firstTurnWorkItemStartedAtMs,
+    finalAssistantStartedAtMs: turn.finalAssistantStartedAtMs,
+    startedAt: turn.startedAt,
+    completedAt: turn.completedAt,
+    durationMs: turn.durationMs,
+    commandExecutionStartedAtMsById: turn.commandExecutionStartedAtMsById,
+    interruptedCommandExecutionItemIds: turn.interruptedCommandExecutionItemIds,
+    hookRuns: turn.hookRuns,
+    tokenUsage: turn.tokenUsage,
+    safetyBuffering: turn.safetyBuffering,
+    itemIds: [...turn.itemIds],
+    items: turn.items.map((item) => ({
+      item,
+      itemId: item.itemId,
+      updatedAt: item.updatedAt,
+      status: item.status,
+      assistantPhase: item.assistantPhase,
+    })),
+    requests: requests.map((request) => ({
+      request,
+      completed: readRequestCompleted(request),
+      response: readRequestResponse(request),
+    })),
+  };
+}
+
+export function areVisibleConversationTurnRenderRevisionsEqual(
+  left: VisibleConversationTurnRenderRevision,
+  right: VisibleConversationTurnRenderRevision,
+): boolean {
+  if (
+    left.turnStatus !== right.turnStatus
+    || left.errorMessage !== right.errorMessage
+    || left.diff !== right.diff
+    || left.turnStartedAtMs !== right.turnStartedAtMs
+    || left.firstTurnWorkItemStartedAtMs !== right.firstTurnWorkItemStartedAtMs
+    || left.finalAssistantStartedAtMs !== right.finalAssistantStartedAtMs
+    || left.startedAt !== right.startedAt
+    || left.completedAt !== right.completedAt
+    || left.durationMs !== right.durationMs
+    || left.commandExecutionStartedAtMsById !== right.commandExecutionStartedAtMsById
+    || left.interruptedCommandExecutionItemIds !== right.interruptedCommandExecutionItemIds
+    || left.hookRuns !== right.hookRuns
+    || left.tokenUsage !== right.tokenUsage
+    || left.safetyBuffering !== right.safetyBuffering
+    || left.itemIds.length !== right.itemIds.length
+    || left.items.length !== right.items.length
+    || left.requests.length !== right.requests.length
+  ) {
+    return false;
+  }
+
+  for (let index = 0; index < left.itemIds.length; index += 1) {
+    if (left.itemIds[index] !== right.itemIds[index]) return false;
+  }
+  for (let index = 0; index < left.items.length; index += 1) {
+    const leftItem = left.items[index];
+    const rightItem = right.items[index];
+    if (!leftItem || !rightItem) return false;
+    if (
+      leftItem.item !== rightItem.item
+      || leftItem.itemId !== rightItem.itemId
+      || leftItem.updatedAt !== rightItem.updatedAt
+      || leftItem.status !== rightItem.status
+      || leftItem.assistantPhase !== rightItem.assistantPhase
+    ) {
+      return false;
+    }
+  }
+  for (let index = 0; index < left.requests.length; index += 1) {
+    const leftRequest = left.requests[index];
+    const rightRequest = right.requests[index];
+    if (!leftRequest || !rightRequest) return false;
+    if (
+      leftRequest.request !== rightRequest.request
+      || leftRequest.completed !== rightRequest.completed
+      || leftRequest.response !== rightRequest.response
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function areTurnRenderRevisionListsEqual(
+  left: readonly VisibleConversationTurnRenderRevision[],
+  right: readonly VisibleConversationTurnRenderRevision[],
+): boolean {
+  if (left.length !== right.length) return false;
+  return left.every((revision, index) => {
+    const nextRevision = right[index];
+    return nextRevision !== undefined
+      && areVisibleConversationTurnRenderRevisionsEqual(revision, nextRevision);
+  });
+}
 
 function isRenderableConversationTurn(
   turn: CodexConversationTurn,
@@ -75,28 +240,49 @@ function createVisibleConversationTurnEntry(input: {
   index: number;
   requests: CodexTurnScopedConversationRequest[];
   isMostRecentTurn: boolean;
+  renderRevision: VisibleConversationTurnRenderRevision;
 }): VisibleConversationTurnEntry {
   const turnKey = buildCodexTurnOccurrenceKey(input.turn.turnId, input.index);
-  const candidates = visibleTurnEntriesByTurn.get(input.turn) ?? [];
+  const cachedTurn = visibleTurnEntriesByTurn.get(input.turn);
+  const candidates = cachedTurn !== undefined
+    && areVisibleConversationTurnRenderRevisionsEqual(
+      cachedTurn.revision,
+      input.renderRevision,
+    )
+    ? cachedTurn.entries
+    : [];
   const cached = candidates.find((candidate) =>
     candidate.requests === input.requests
     && candidate.isMostRecentTurn === input.isMostRecentTurn
     && candidate.turnKey === turnKey
-    && candidate.turnSearchKey === turnKey,
+    && candidate.turnSearchKey === turnKey
+    && candidate.renderRevision !== undefined
+    && areVisibleConversationTurnRenderRevisionsEqual(
+      candidate.renderRevision,
+      input.renderRevision,
+    )
   );
   if (cached) {
     return cached;
   }
 
   const entry: VisibleConversationTurnEntry = {
-    turn: input.turn,
+    turn: {
+      ...input.turn,
+      itemIds: [...input.turn.itemIds],
+      items: [...input.turn.items],
+    },
     turnId: input.turn.turnId,
     turnKey,
     turnSearchKey: turnKey,
     requests: input.requests,
     isMostRecentTurn: input.isMostRecentTurn,
+    renderRevision: input.renderRevision,
   };
-  visibleTurnEntriesByTurn.set(input.turn, [...candidates, entry]);
+  visibleTurnEntriesByTurn.set(input.turn, {
+    revision: input.renderRevision,
+    entries: [...candidates, entry],
+  });
   return entry;
 }
 
@@ -150,11 +336,20 @@ export function selectVisibleConversationTurnEntries(input: {
 
   const requestsByTurnId = selectConversationTurnRequestsByTurnId(conversation);
   const parentTurns = input.parentTurns ?? EMPTY_PARENT_TURNS;
+  const requestsByTurn = turns.map((turn) => (
+    turn.turnId === null
+      ? []
+      : selectTurnScopedConversationRequests(requestsByTurnId, turn.turnId)
+  ));
+  const revisions = turns.map((turn, index) => (
+    buildVisibleConversationTurnRenderRevision(turn, requestsByTurn[index] ?? [])
+  ));
   const cachedSelections = visibleTurnEntrySelectionsByTurns.get(turns);
   const cached = cachedSelections?.find((selection) =>
     selection.parentTurns === parentTurns
     && selection.requestsByTurnId === requestsByTurnId
-    && selection.resumeState === conversation.resumeState,
+    && selection.resumeState === conversation.resumeState
+    && areTurnRenderRevisionListsEqual(selection.revisions, revisions),
   );
   if (cached) {
     return cached.entries;
@@ -167,9 +362,7 @@ export function selectVisibleConversationTurnEntries(input: {
     resumeState: conversation.resumeState,
   });
   const entries = turns.flatMap((turn, index) => {
-    const requests = turn.turnId === null
-      ? []
-      : selectTurnScopedConversationRequests(requestsByTurnId, turn.turnId);
+    const requests = requestsByTurn[index] ?? [];
     if (!isRenderableConversationTurn(turn, requests)) {
       return [];
     }
@@ -187,6 +380,7 @@ export function selectVisibleConversationTurnEntries(input: {
       index,
       requests,
       isMostRecentTurn: latestTurnIndex === index,
+      renderRevision: revisions[index] ?? buildVisibleConversationTurnRenderRevision(turn, requests),
     })];
   });
 
@@ -194,22 +388,21 @@ export function selectVisibleConversationTurnEntries(input: {
     return EMPTY_VISIBLE_TURN_ENTRIES;
   }
 
-  const nextSelections = cachedSelections
-    ? [
-        ...cachedSelections,
-        {
-          parentTurns,
-          requestsByTurnId,
-          resumeState: conversation.resumeState,
-          entries,
-        },
-      ]
-    : [{
-        parentTurns,
-        requestsByTurnId,
-        resumeState: conversation.resumeState,
-        entries,
-      }];
+  const retainedSelections = cachedSelections?.filter((selection) => !(
+    selection.parentTurns === parentTurns
+    && selection.requestsByTurnId === requestsByTurnId
+    && selection.resumeState === conversation.resumeState
+  )) ?? [];
+  const nextSelections = [
+    ...retainedSelections,
+    {
+      parentTurns,
+      requestsByTurnId,
+      resumeState: conversation.resumeState,
+      revisions,
+      entries,
+    },
+  ];
   visibleTurnEntrySelectionsByTurns.set(turns, nextSelections);
   return entries;
 }

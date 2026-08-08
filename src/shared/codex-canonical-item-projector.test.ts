@@ -225,7 +225,7 @@ describe("projectCodexCanonicalTurnItemViews", () => {
     expect(byId.get("reasoning-live")?.status).toBe("inProgress");
   });
 
-  test("keeps an empty in-progress fileChange as a live streaming placeholder", () => {
+  test("suppresses an empty in-progress fileChange semantic view", () => {
     const item = materializeCodexCanonicalProtocolItem({
       type: "fileChange",
       id: "empty-live-patch",
@@ -233,12 +233,7 @@ describe("projectCodexCanonicalTurnItemViews", () => {
       changes: [],
     });
 
-    const [view] = project([item]);
-
-    expect(view?.itemId).toBe("empty-live-patch");
-    expect(view?.normalizedKind).toBe("fileChange");
-    expect(view?.fileChange?.changes).toEqual({});
-    expect(view?.fileChange?.success).toBe(null);
+    expect(project([item])).toEqual([]);
   });
 
   test("exhaustively projects every generated discriminant with typed 0/1/N policy", () => {

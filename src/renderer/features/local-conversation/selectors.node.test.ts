@@ -382,6 +382,34 @@ describe("local-conversation selectors", () => {
     expect(entriesA[0] === entriesB[0]).toBe(true);
   });
 
+  test("publishes a fresh immutable turn snapshot when an identity-stable item advances", () => {
+    const item = buildItem({ markdownText: "Initial reasoning" });
+    const turn = buildTurn({
+      itemIds: [item.itemId],
+      items: [item],
+      status: "inProgress",
+    });
+    const conversation = buildConversation({ turns: [turn] });
+
+    const initialEntries = selectVisibleConversationTurnEntries({ conversation });
+    const initialEntry = initialEntries[0];
+    if (!initialEntry) throw new Error("expected initial visible turn");
+
+    item.markdownText = "Updated reasoning";
+    item.updatedAt = 2;
+
+    const updatedEntries = selectVisibleConversationTurnEntries({ conversation });
+    const updatedEntry = updatedEntries[0];
+    if (!updatedEntry) throw new Error("expected updated visible turn");
+
+    expect(updatedEntries).not.toBe(initialEntries);
+    expect(updatedEntry).not.toBe(initialEntry);
+    expect(updatedEntry.turn).not.toBe(initialEntry.turn);
+    expect(updatedEntry.turn.items[0]).toBe(initialEntry.turn.items[0]);
+    expect(updatedEntry.turn.items[0]).toBe(item);
+    expect(updatedEntry.renderRevision).not.toBe(initialEntry.renderRevision);
+  });
+
   test("prefers the newest turn when selecting the primary live request", () => {
     const conversation = buildConversation({
       turns: [

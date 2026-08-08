@@ -4,6 +4,32 @@ import {
   CodexThreadStreamSubscriptionState,
 } from "./codex-thread-stream-subscription-state";
 
+function checkpoint(revision = 0, ownerEpoch = 1, marker = "a") {
+  return {
+    protocolVersion: 1 as const,
+    ownerEpoch,
+    revision,
+    canonicalHash: marker.repeat(64),
+  };
+}
+
+function applyFollowerSnapshot(
+  state: CodexThreadStreamSubscriptionState,
+  conversationId = "thread-1",
+  clientId = "follower",
+  ownerClientId = "owner",
+  value = checkpoint(),
+): void {
+  expect(state.markSnapshotSent(conversationId, clientId, value)).toBe(true);
+  expect(state.acknowledgeSnapshotApplied({
+    conversationId,
+    clientId,
+    ownerClientId,
+    checkpoint: value,
+    currentCheckpoint: value,
+  }).accepted).toBe(true);
+}
+
 describe("CodexThreadStreamSubscriptionState", () => {
   test("tracks explicit followers and excludes the owner from targets", () => {
     const state = new CodexThreadStreamSubscriptionState();
@@ -19,7 +45,7 @@ describe("CodexThreadStreamSubscriptionState", () => {
     ]);
     state.setFollowing("thread-1", "owner", true);
     state.setFollowing("thread-1", "follower", true);
-    state.markSnapshotDelivered("thread-1", "follower");
+    applyFollowerSnapshot(state);
 
     expect(state.getFollowerClientIds("thread-1")).toEqual(["follower"]);
   });
@@ -32,7 +58,14 @@ describe("CodexThreadStreamSubscriptionState", () => {
 
     const first = state.setFollowing("thread-1", "follower", true);
     const second = state.setFollowing("thread-1", "follower", true);
-    const snapshotActions = state.markSnapshotDelivered("thread-1", "follower");
+    expect(state.markSnapshotSent("thread-1", "follower", checkpoint())).toBe(true);
+    const snapshotAck = state.acknowledgeSnapshotApplied({
+      conversationId: "thread-1",
+      clientId: "follower",
+      ownerClientId: "owner",
+      checkpoint: checkpoint(),
+      currentCheckpoint: checkpoint(),
+    });
     const third = state.setFollowing("thread-1", "follower", false);
 
     expect(first.changed).toBe(true);
@@ -42,7 +75,7 @@ describe("CodexThreadStreamSubscriptionState", () => {
       followerClientIds: [],
       membershipEpoch: 1,
     });
-    expect(snapshotActions[0]).toMatchObject({
+    expect(snapshotAck.actions[0]).toMatchObject({
       type: "followers-changed",
       followerClientIds: ["follower"],
       membershipEpoch: 1,
@@ -64,7 +97,7 @@ describe("CodexThreadStreamSubscriptionState", () => {
     state.handleClientConnected("owner");
     state.handleClientConnected("follower");
     state.setFollowing("thread-1", "follower", true);
-    state.markSnapshotDelivered("thread-1", "follower");
+    applyFollowerSnapshot(state);
     state.handleClientDisposed("follower");
 
     expect(state.hasFollowersOrPendingReconnect("thread-1")).toBe(true);
@@ -98,8 +131,20 @@ describe("CodexThreadStreamSubscriptionState", () => {
     expect(state.getSnapshotClientIds("thread-1")).toEqual(["follower"]);
     expect(state.getFollowerClientIds("thread-1")).toEqual([]);
 
-    state.markSnapshotDelivered("thread-1", "follower");
+    expect(state.markSnapshotSent("thread-1", "follower", checkpoint())).toBe(true);
 
+    expect(state.getSnapshotClientIds("thread-1")).toEqual([]);
+    expect(state.getFollowerClientIds("thread-1")).toEqual([]);
+
+    const ack = state.acknowledgeSnapshotApplied({
+      conversationId: "thread-1",
+      clientId: "follower",
+      ownerClientId: "owner",
+      checkpoint: checkpoint(),
+      currentCheckpoint: checkpoint(),
+    });
+
+    expect(ack.accepted).toBe(true);
     expect(state.getSnapshotClientIds("thread-1")).toEqual([]);
     expect(state.getFollowerClientIds("thread-1")).toEqual(["follower"]);
   });
@@ -111,7 +156,7 @@ describe("CodexThreadStreamSubscriptionState", () => {
     }
     state.setOwner("thread-1", "owner-a");
     state.setFollowing("thread-1", "follower", true);
-    state.markSnapshotDelivered("thread-1", "follower");
+    applyFollowerSnapshot(state, "thread-1", "follower", "owner-a");
 
     const ownerChange = state.setOwner("thread-1", "owner-b");
 
@@ -126,7 +171,7 @@ describe("CodexThreadStreamSubscriptionState", () => {
     state.handleClientConnected("follower");
     state.setOwner("thread-1", "owner");
     state.setFollowing("thread-1", "follower", true);
-    state.markSnapshotDelivered("thread-1", "follower");
+    applyFollowerSnapshot(state);
 
     const resetActions = state.handleIpcConnectionReset("follower");
 
@@ -147,10 +192,56 @@ describe("CodexThreadStreamSubscriptionState", () => {
     state.setFollowing("thread-1", "follower", true);
 
     state.handleIpcConnectionReset("follower");
-    state.markSnapshotDelivered("thread-1", "follower");
+    expect(state.markSnapshotSent("thread-1", "follower", checkpoint())).toBe(false);
     state.handleClientConnected("follower");
 
     expect(state.getSnapshotClientIds("thread-1")).toEqual(["follower"]);
     expect(state.getFollowerClientIds("thread-1")).toEqual([]);
+  });
+
+  test("does not open the barrier until the exact applied checkpoint is acknowledged", () => {
+    const state = new CodexThreadStreamSubscriptionState();
+    state.handleClientConnected("owner");
+    state.handleClientConnected("follower");
+    state.setOwner("thread-1", "owner");
+    state.setFollowing("thread-1", "follower", true);
+    const sent = checkpoint(3, 1, "a");
+    const advanced = checkpoint(4, 1, "b");
+
+    expect(state.markSnapshotSent("thread-1", "follower", sent)).toBe(true);
+    const stale = state.acknowledgeSnapshotApplied({
+      conversationId: "thread-1",
+      clientId: "follower",
+      ownerClientId: "owner",
+      checkpoint: sent,
+      currentCheckpoint: advanced,
+    });
+
+    expect(stale).toMatchObject({ accepted: false, shouldSendSnapshot: true });
+    expect(state.getFollowerClientIds("thread-1")).toEqual([]);
+    expect(state.getSnapshotClientIds("thread-1")).toEqual(["follower"]);
+  });
+
+  test("rejects an old owner epoch ACK after owner replacement", () => {
+    const state = new CodexThreadStreamSubscriptionState();
+    for (const clientId of ["owner-a", "owner-b", "follower"]) {
+      state.handleClientConnected(clientId);
+    }
+    state.setOwner("thread-1", "owner-a");
+    state.setFollowing("thread-1", "follower", true);
+    expect(state.markSnapshotSent("thread-1", "follower", checkpoint(2, 1))).toBe(true);
+    state.setOwner("thread-1", "owner-b");
+
+    const stale = state.acknowledgeSnapshotApplied({
+      conversationId: "thread-1",
+      clientId: "follower",
+      ownerClientId: "owner-a",
+      checkpoint: checkpoint(2, 1),
+      currentCheckpoint: checkpoint(2, 2),
+    });
+
+    expect(stale.accepted).toBe(false);
+    expect(state.getFollowerClientIds("thread-1")).toEqual([]);
+    expect(state.getSnapshotClientIds("thread-1")).toEqual(["follower"]);
   });
 });

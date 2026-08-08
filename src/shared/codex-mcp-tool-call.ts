@@ -431,7 +431,14 @@ function getMcpAppAliases(app: ProtocolAppInfo): string[][] {
   ));
 }
 
-function resolveMcpAppInfo(input: {
+/**
+ * Resolve the app identity attached to an MCP invocation.
+ *
+ * Tool activity labels, icons, summaries, and standalone rows must all use
+ * this matcher. Keeping app identity late-bound avoids baking an app-list
+ * snapshot into canonical conversation state.
+ */
+export function resolveCodexMcpAppInfo(input: {
   functionName: string;
   invocation: CodexMcpToolCallView["invocation"];
   resolvedApps: readonly ProtocolAppInfo[];
@@ -511,7 +518,7 @@ export function resolveCodexMcpVisualSource(input: {
   });
   if (specialSource !== null) return specialSource;
 
-  const app = resolveMcpAppInfo(input);
+  const app = resolveCodexMcpAppInfo(input);
   if (app !== null) {
     return {
       key: `app:${app.id}`,

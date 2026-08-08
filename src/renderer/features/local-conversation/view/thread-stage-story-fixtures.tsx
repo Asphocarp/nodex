@@ -1384,6 +1384,17 @@ export const THREAD_TOOL_CALL_STORY_ITEMS = {
     itemId: "tool_story_web_search",
     type: "web_search",
     semanticKind: "webSearch",
+    webSearch: {
+      query: "storybook react vite args decorators loaders play",
+      action: {
+        type: "search",
+        queries: [
+          "storybook react vite args decorators loaders play",
+          "storybook react vite args",
+        ],
+      },
+      completed: true,
+    },
     toolCall: {
       subtype: "webSearch",
       toolName: "web_search",
@@ -1412,6 +1423,15 @@ export const THREAD_TOOL_CALL_STORY_ITEMS = {
     type: "web_search",
     semanticKind: "webSearch",
     status: "completed",
+    webSearch: {
+      query: "storyboard find in page",
+      action: {
+        type: "findInPage",
+        pattern: "play function",
+        url: "https://storybook.js.org/docs/writing-stories/play-function",
+      },
+      completed: true,
+    },
     toolCall: {
       subtype: "webSearch",
       toolName: "web_search",
@@ -1435,6 +1455,14 @@ export const THREAD_TOOL_CALL_STORY_ITEMS = {
     type: "web_search",
     semanticKind: "webSearch",
     status: "inProgress",
+    webSearch: {
+      query: "storybook args decorators",
+      action: {
+        type: "search",
+        query: "storybook args decorators",
+      },
+      completed: false,
+    },
     toolCall: {
       subtype: "webSearch",
       toolName: "web_search",

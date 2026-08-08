@@ -601,40 +601,6 @@ export interface ThreadGeneratedImageGalleryBlockModel extends ThreadRenderKeyed
 
 export type ThreadAgentActivityGroupEntryModel = ThreadTranscriptBlockModel;
 
-export interface ThreadAgentActivityGroupSummaryStats {
-  createdFileCount: number;
-  runningCreatedFileCount: number;
-  stoppedCreatedFileCount: number;
-  editedFileCount: number;
-  runningEditedFileCount: number;
-  deletedFileCount: number;
-  runningDeletedFileCount: number;
-  changedLineCount: number;
-  runningCreatedLineCount: number;
-  exploredFileCount: number;
-  runningExploredFileCount: number;
-  loadedToolCount: number;
-  runningLoadedToolCount: number;
-  searchCount: number;
-  runningSearchCount: number;
-  listCount: number;
-  runningListCount: number;
-  commandCount: number;
-  runningCommandCount: number;
-  completedWebSearchCommandCount: number;
-  runningFolderCreationCommandCount: number;
-  runningWebSearchCommandCount: number;
-  deniedRequestCount: number;
-  timedOutRequestCount: number;
-  hookCount: number;
-  runningHookCount: number;
-  mcpToolCallCount: number;
-  runningMcpToolCallCount: number;
-  mcpToolCallSources: ThreadAgentActivityGroupMcpSourceStats[];
-  webSearchCount: number;
-  runningWebSearchCount: number;
-}
-
 export interface ThreadAgentActivityGroupMcpSourceStats {
   key: string;
   logoUrl: string | null;
@@ -644,6 +610,52 @@ export interface ThreadAgentActivityGroupMcpSourceStats {
   count: number;
   runningCount: number;
 }
+
+export type ThreadAgentActivityCompletedSummaryPart<
+  TDynamicItem = ThreadAgentActivityGroupEntryModel,
+> =
+  | { kind: "mcpSources"; sources: readonly ThreadAgentActivityGroupMcpSourceStats[] }
+  | { kind: "loadedTools"; count: number }
+  | { kind: "unnamedMcpCalls"; count: number }
+  | { kind: "fileChanges"; count: number }
+  | { kind: "stoppedFileCreation"; count: number }
+  | { kind: "exploration" }
+  | {
+      kind: "visualization";
+      activity: {
+        kind: "create" | "update";
+        isInProgress: boolean;
+      };
+    }
+  | { kind: "commands"; count: number }
+  | { kind: "webSearch" }
+  | {
+      kind: "dynamicToolCall";
+      item: TDynamicItem;
+      key: string;
+    };
+
+export interface ThreadAgentActivityCompletedHeader {
+  parts: readonly ThreadAgentActivityCompletedSummaryPart[];
+  iconItem: ThreadAgentActivityGroupEntryModel | null;
+}
+
+export type ThreadAgentActivityGroupHeader =
+  | {
+      kind: "summary";
+      key: "summary";
+    }
+  | {
+      kind: "active";
+      key: string;
+      item: ThreadAgentActivityGroupEntryModel;
+      label: string;
+    }
+  | {
+      kind: "thinking";
+      key: "thinking";
+      message: string | null;
+    };
 
 export type ThreadAgentActivityGroupActiveSummary =
   | {
@@ -660,11 +672,6 @@ export type ThreadAgentActivityGroupActiveSummary =
     deletions: number;
   };
 
-export interface ThreadAgentActivityGroupSummaryCues {
-  runningSummary: ThreadAgentActivityGroupActiveSummary | null;
-  continuitySummary: ThreadAgentActivityGroupActiveSummary | null;
-}
-
 export interface ThreadAgentActivityGroupBlockModel extends ThreadRenderKeyedBlockFields {
   id: string;
   turnId: string | null;
@@ -672,15 +679,15 @@ export interface ThreadAgentActivityGroupBlockModel extends ThreadRenderKeyedBlo
   updatedAt: number;
   searchableText: string;
   type: "agentActivityGroup";
-  canExpand?: boolean;
-  entries: ThreadAgentActivityGroupEntryModel[];
+  canExpand: boolean;
+  /** Immutable full group topology. Never replace this with filtered body rows. */
+  entries: readonly ThreadAgentActivityGroupEntryModel[];
+  /** Rows visible only inside the expanded disclosure body. */
+  bodyEntries: readonly ThreadAgentActivityGroupEntryModel[];
+  completedHeader: ThreadAgentActivityCompletedHeader;
+  header: ThreadAgentActivityGroupHeader;
   mcpApps?: readonly ProtocolAppInfo[];
-  summary: string;
-  summaryStats?: ThreadAgentActivityGroupSummaryStats;
-  summaryParts?: string[];
-  liveHeaderKind?: "active" | "thinking";
-  runningSummary?: ThreadAgentActivityGroupActiveSummary | null;
-  continuitySummary?: ThreadAgentActivityGroupActiveSummary | null;
+  shouldAnimateInitialCollapse: boolean;
   status?: CodexConversationItem["status"];
 }
 
@@ -760,8 +767,71 @@ export type ThreadBlockModel =
   | ThreadWorkedForBlockModel
   | ThreadAgentActivityGroupBlockModel;
 
-export type ThreadLiveActivityState = "none" | "thinking" | "exploring" | "active";
-export type ThreadLiveActivityPlacement = "none" | "standalone" | "activity-group";
+export type ThreadGlobalActivityState =
+  | { type: "none" }
+  | { type: "exploring" }
+  | { type: "planning" }
+  | { type: "thinking"; isVisible: true };
+
+export type ThreadThinkingFallbackOwner = "none" | "group" | "standalone";
+
+export type ThreadGlobalActivityReason =
+  | "force-thinking"
+  | "not-latest-turn"
+  | "turn-settled"
+  | "exploring"
+  | "planning"
+  | "blocking-request"
+  | "assistant-visible-output"
+  | "active-web-search"
+  | "active-dynamic-summary"
+  | "assistant-in-progress"
+  | "active-tool"
+  | "between-activities";
+
+export interface ThreadGlobalActivityPresentation {
+  state: ThreadGlobalActivityState;
+  reason: ThreadGlobalActivityReason;
+}
+
+export type ThreadActivitySliceState =
+  | { kind: "open"; reason: "turn-streaming" }
+  | {
+      kind: "closed";
+      reason:
+        | "not-latest-turn"
+        | "turn-settled"
+        | "blocking-request"
+        | "safety-buffering"
+        | "pending-generated-output"
+        | "planning"
+        | "assistant-visible-output";
+    };
+
+export interface ThreadActivitySlicePresentation {
+  kind: "main";
+  state: ThreadActivitySliceState;
+  latestVisibleUnit: {
+    key: string;
+    kind: ThreadAgentActivityUnit["kind"];
+  } | null;
+}
+
+export type ThreadThinkingFallbackReason =
+  | "latest-open-group"
+  | "global-thinking"
+  | "post-assistant-thinking"
+  | "global-state-suppressed"
+  | "safety-buffering"
+  | "pending-generated-output";
+
+export interface ThreadThinkingFallbackPresentation {
+  owner: ThreadThinkingFallbackOwner;
+  reason: ThreadThinkingFallbackReason;
+  /** Custom live reasoning heading. Generic `Thinking` remains a renderer fallback. */
+  message: string | null;
+  isVisible: boolean;
+}
 
 export interface ThreadLiveReasoningSummary {
   itemId: string;
@@ -769,10 +839,10 @@ export interface ThreadLiveReasoningSummary {
 }
 
 export interface ThreadLiveActivityPresentation {
-  state: ThreadLiveActivityState;
-  placement: ThreadLiveActivityPlacement;
+  global: ThreadGlobalActivityPresentation;
+  mainSlice: ThreadActivitySlicePresentation;
+  fallback: ThreadThinkingFallbackPresentation;
   reasoningSummary: ThreadLiveReasoningSummary | null;
-  isActivitySliceClosed: boolean;
 }
 
 export interface ThreadTurnRenderBuckets {
@@ -805,7 +875,6 @@ export interface ThreadTurnModel {
   turnKey: string;
   turn: CodexConversationTurn | null;
   buckets: ThreadTurnRenderBuckets;
-  agentActivitySourceItems: ThreadAgentItemModel[];
   leadingBlocks: ThreadBlockModel[];
   agentBodyUnits: ThreadAgentRenderUnit[];
   trailingBlocks: ThreadBlockModel[];

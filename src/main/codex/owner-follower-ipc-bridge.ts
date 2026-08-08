@@ -1,8 +1,11 @@
 import type {
   CodexHostMessage,
   CodexThreadFollowerActionInput,
+  CodexThreadFollowerSnapshotAppliedInput,
   CodexThreadOwnerNotificationAckInput,
+  CodexThreadOwnerStreamStatePublishResult,
   CodexThreadOwnerStreamStatePublishInput,
+  CodexThreadStreamResyncRequestInput,
 } from "../../shared/types";
 import {
   COMPLETE_HISTORY_RENDERER_CLIENT_REQUEST_TIMEOUT_MS,
@@ -46,10 +49,18 @@ export interface CodexOwnerFollowerService {
   getRendererConversationFollowerClientIds?(threadId: string): readonly string[] | null;
   handleRendererClientDisposed(clientId: string): void;
   handleRendererClientDeliveryFailure?(clientIds: readonly string[]): void;
+  acknowledgeRendererFollowerSnapshotApplied(
+    sourceClientId: string,
+    input: CodexThreadFollowerSnapshotAppliedInput,
+  ): boolean;
+  requestRendererThreadStreamResync(
+    sourceClientId: string,
+    input: CodexThreadStreamResyncRequestInput,
+  ): boolean;
   publishRendererThreadStreamStateChange(
     sourceClientId: string,
     input: CodexThreadOwnerStreamStatePublishInput,
-  ): boolean;
+  ): CodexThreadOwnerStreamStatePublishResult;
 }
 
 export interface CodexRendererOwnerHostMessage {
@@ -159,10 +170,30 @@ export function publishRendererThreadOwnerStreamState(
   service: CodexOwnerFollowerService,
   sourceClientId: string | null,
   input: CodexThreadOwnerStreamStatePublishInput,
-): boolean {
-  if (!sourceClientId) return false;
+): CodexThreadOwnerStreamStatePublishResult {
+  if (!sourceClientId) {
+    return { accepted: false, reason: "not-owner", recovery: null };
+  }
 
   return service.publishRendererThreadStreamStateChange(sourceClientId, input);
+}
+
+export function acknowledgeRendererFollowerSnapshotApplied(
+  service: CodexOwnerFollowerService,
+  sourceClientId: string | null,
+  input: CodexThreadFollowerSnapshotAppliedInput,
+): boolean {
+  if (!sourceClientId) return false;
+  return service.acknowledgeRendererFollowerSnapshotApplied(sourceClientId, input);
+}
+
+export function requestRendererThreadStreamResync(
+  service: CodexOwnerFollowerService,
+  sourceClientId: string | null,
+  input: CodexThreadStreamResyncRequestInput,
+): boolean {
+  if (!sourceClientId) return false;
+  return service.requestRendererThreadStreamResync(sourceClientId, input);
 }
 
 export function ackRendererThreadOwnerNotification(

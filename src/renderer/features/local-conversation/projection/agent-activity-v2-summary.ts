@@ -1,4 +1,7 @@
-import type { ThreadAgentActivityGroupMcpSourceStats } from "../thread-stage-types";
+import type {
+  ThreadAgentActivityCompletedSummaryPart,
+  ThreadAgentActivityGroupMcpSourceStats,
+} from "../thread-stage-types";
 import type {
   ThreadAgentActivityItem,
   ThreadAgentActivityUnit,
@@ -8,7 +11,10 @@ import {
   type CodexAutomaticApprovalReviewStatus,
 } from "../../../../shared/codex-transcript-special-items";
 import { resolveCodexPatchSuccess } from "../../../../shared/codex-file-change";
-import type { ThreadClassifiableActivityItem } from "./agent-activity-v2";
+import { isCodexWebSearchActivityInProgress } from "../../../../shared/codex-web-search";
+import {
+  type ThreadClassifiableActivityItem,
+} from "./agent-activity-v2";
 import { describeWebSearchAction } from "../web-search-display";
 
 export type ThreadAgentActivityApprovalFailure = {
@@ -103,18 +109,6 @@ export interface ThreadAgentActivitySummaryFacts {
   runningWebSearchCount: number;
 }
 
-export type ThreadAgentActivityCompletedSummaryPart<TDynamicItem = unknown> =
-  | { kind: "mcpSources"; sources: ThreadAgentActivityGroupMcpSourceStats[] }
-  | { kind: "loadedTools"; count: number }
-  | { kind: "unnamedMcpCalls"; count: number }
-  | { kind: "fileChanges"; count: number }
-  | { kind: "stoppedFileCreation"; count: number }
-  | { kind: "exploration" }
-  | { kind: "visualization"; activity: NonNullable<ThreadAgentActivitySummaryFacts["visualizationActivity"]> }
-  | { kind: "commands"; count: number }
-  | { kind: "webSearch" }
-  | { kind: "dynamicToolCall"; item: TDynamicItem; key: string };
-
 const NODE_REPL_MCP_SOURCE_KEY = "server:node_repl";
 const BROWSER_USE_MCP_SOURCE_KEY = "browser-use";
 const NON_INTEGRATION_MCP_SOURCE_KEY = "navigate_to_codex_page";
@@ -142,7 +136,7 @@ export type ThreadAgentActivityGroupState<TItem = ThreadClassifiableActivityItem
   | { kind: "thinking" }
   | { kind: "active"; item: ThreadAgentActivityItem<TItem> };
 
-function isThreadExplorationActivityItem(item: ThreadClassifiableActivityItem): boolean {
+export function isThreadExplorationActivityItem(item: ThreadClassifiableActivityItem): boolean {
   if (item.type !== "exec" || !("entry" in item)) return false;
   const parsedType = item.entry.parsedCmd?.type;
   if (parsedType === "read" || parsedType === "search" || parsedType === "list_files") return true;
@@ -170,7 +164,7 @@ export function isThreadAgentActivityItemInProgress(
     case "mcpToolCall":
       return item.entry.mcpToolCall?.completed === false;
     case "webSearch":
-      return item.entry.webSearch?.completed === false;
+      return isCodexWebSearchActivityInProgress(item.entry);
     case "fileChange":
       return resolveCodexPatchSuccess(item.entry.status) === null;
     default:
@@ -221,6 +215,28 @@ export function resolveThreadAgentActivityGroupState(input: {
   return { kind: "thinking" };
 }
 
+export function demoteSettledThreadAgentActivitySingleton(
+  unit: Extract<ThreadAgentActivityUnit<ThreadClassifiableActivityItem>, { kind: "group" }>,
+  state: ThreadAgentActivityGroupState,
+): ThreadAgentActivityUnit<ThreadClassifiableActivityItem> {
+  if (state.kind !== "summary" || unit.items.length !== 1) return unit;
+  const onlyItem = unit.items[0];
+  if (isThreadAgentActivityItemInProgress(onlyItem)) return unit;
+
+  const item = onlyItem.item;
+  if (item.type === "fileChange" && "entry" in item) {
+    const changedFileCount = Object.keys(item.entry.fileChange?.changes ?? {}).length;
+    const visualizationCount = item.entry.fileChange?.visualizationActivities?.length ?? 0;
+    if (changedFileCount !== 1 || visualizationCount > 0) return unit;
+  }
+
+  return {
+    kind: "standalone",
+    key: unit.key,
+    item: onlyItem,
+  };
+}
+
 export function buildThreadAgentActivityDynamicCompletedParts<TItem>(
   items: readonly ThreadAgentActivityDynamicCompletedEvidence<TItem>[],
 ): Array<Extract<
@@ -244,6 +260,55 @@ function formatEnglishConjunction(values: readonly string[]): string {
   return new Intl.ListFormat("en", { style: "long", type: "conjunction" }).format(values);
 }
 
+export function formatThreadAgentActivityCompletedSummaryPart<TDynamicItem>(
+  part: ThreadAgentActivityCompletedSummaryPart<TDynamicItem>,
+  options: {
+    isLeading: boolean;
+    formatDynamicToolCall?: (item: TDynamicItem) => string | null;
+  },
+): string | null {
+  const leading = options.isLeading;
+  switch (part.kind) {
+    case "mcpSources": {
+      const wording = buildThreadAgentActivityMcpSourcesWording(part.sources);
+      const sourceNames = formatEnglishConjunction(wording.names);
+      const verb = leading ? "Used" : "used";
+      if (wording.subject === "sources") return `${verb} ${sourceNames}`;
+      return `${verb} ${sourceNames} ${wording.sourceCount === 1 ? "integration" : "integrations"}`;
+    }
+    case "unnamedMcpCalls":
+      return leading
+        ? part.count === 1 ? "Called a tool" : "Called tools"
+        : part.count === 1 ? "called a tool" : "called tools";
+    case "loadedTools":
+      return leading
+        ? part.count === 1 ? "Loaded a tool" : "Loaded tools"
+        : part.count === 1 ? "loaded a tool" : "loaded tools";
+    case "fileChanges":
+      return leading
+        ? part.count === 1 ? "Edited a file" : "Edited files"
+        : part.count === 1 ? "edited a file" : "edited files";
+    case "stoppedFileCreation":
+      return leading
+        ? part.count === 1 ? "Stopped creating a file" : "Stopped creating files"
+        : part.count === 1 ? "stopped creating a file" : "stopped creating files";
+    case "exploration":
+      return leading ? "Read files" : "read files";
+    case "visualization": {
+      const verb = part.activity.kind === "create" ? "created" : "updated";
+      return leading ? `${verb[0]?.toUpperCase() ?? ""}${verb.slice(1)} visualization` : `${verb} visualization`;
+    }
+    case "commands":
+      return leading
+        ? part.count === 1 ? "Ran a command" : "Ran commands"
+        : part.count === 1 ? "ran a command" : "ran commands";
+    case "webSearch":
+      return leading ? "Searched the web" : "searched the web";
+    case "dynamicToolCall":
+      return options.formatDynamicToolCall?.(part.item)?.trim() || null;
+  }
+}
+
 export function formatThreadAgentActivityCompletedSummary<TDynamicItem>(
   parts: readonly ThreadAgentActivityCompletedSummaryPart<TDynamicItem>[],
   options: {
@@ -251,48 +316,11 @@ export function formatThreadAgentActivityCompletedSummary<TDynamicItem>(
   } = {},
 ): string {
   const labels = parts.flatMap((part, index) => {
-    const leading = index === 0;
-    switch (part.kind) {
-      case "mcpSources": {
-        const wording = buildThreadAgentActivityMcpSourcesWording(part.sources);
-        const sourceNames = formatEnglishConjunction(wording.names);
-        const verb = leading ? "Used" : "used";
-        if (wording.subject === "sources") return [`${verb} ${sourceNames}`];
-        return [`${verb} ${sourceNames} ${wording.sourceCount === 1 ? "integration" : "integrations"}`];
-      }
-      case "unnamedMcpCalls":
-        return [leading
-          ? part.count === 1 ? "Called a tool" : "Called tools"
-          : part.count === 1 ? "called a tool" : "called tools"];
-      case "loadedTools":
-        return [leading
-          ? part.count === 1 ? "Loaded a tool" : "Loaded tools"
-          : part.count === 1 ? "loaded a tool" : "loaded tools"];
-      case "fileChanges":
-        return [leading
-          ? part.count === 1 ? "Edited a file" : "Edited files"
-          : part.count === 1 ? "edited a file" : "edited files"];
-      case "stoppedFileCreation":
-        return [leading
-          ? part.count === 1 ? "Stopped creating a file" : "Stopped creating files"
-          : part.count === 1 ? "stopped creating a file" : "stopped creating files"];
-      case "exploration":
-        return [leading ? "Read files" : "read files"];
-      case "visualization": {
-        const verb = part.activity.kind === "create" ? "created" : "updated";
-        return [`${leading ? `${verb[0]?.toUpperCase() ?? ""}${verb.slice(1)}` : verb} visualization`];
-      }
-      case "commands":
-        return [leading
-          ? part.count === 1 ? "Ran a command" : "Ran commands"
-          : part.count === 1 ? "ran a command" : "ran commands"];
-      case "webSearch":
-        return [leading ? "Searched the web" : "searched the web"];
-      case "dynamicToolCall": {
-        const label = options.formatDynamicToolCall?.(part.item)?.trim();
-        return label ? [label] : [];
-      }
-    }
+    const label = formatThreadAgentActivityCompletedSummaryPart(part, {
+      isLeading: index === 0,
+      formatDynamicToolCall: options.formatDynamicToolCall,
+    });
+    return label == null ? [] : [label];
   });
   return labels.length === 0 ? "Worked" : labels.join(", ");
 }

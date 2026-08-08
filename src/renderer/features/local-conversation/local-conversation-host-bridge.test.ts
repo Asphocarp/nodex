@@ -56,6 +56,59 @@ describe("local conversation host bridge", () => {
     __resetLocalConversationHostBridgeForTests();
   });
 
+  test("preserves checkpoint replication evidence on thread stream events", async () => {
+    const received: Array<{
+      checkpointHash: string | null;
+      baseCheckpointHash: string | null;
+    }> = [];
+    const unsubscribe = subscribeCodexAppServerMessage(
+      "thread-stream-state-changed",
+      (event) => {
+        received.push({
+          checkpointHash: event.checkpoint?.canonicalHash ?? null,
+          baseCheckpointHash: event.baseCheckpoint?.canonicalHash ?? null,
+        });
+      },
+    );
+
+    const { startLocalConversationHostBridge, __resetLocalConversationHostBridgeForTests } = await loadHostBridgeModule();
+    const stop = startLocalConversationHostBridge();
+    hostMessageListener?.({
+      type: "threadStreamStateChanged",
+      hostId: "default",
+      conversationId: "thread-1",
+      change: {
+        type: "patches",
+        baseRevision: 1,
+        revision: 2,
+        patches: [],
+      },
+      version: 2,
+      sourceClientId: "owner-a",
+      baseCheckpoint: {
+        protocolVersion: 1,
+        ownerEpoch: 3,
+        revision: 1,
+        canonicalHash: "base-hash",
+      },
+      checkpoint: {
+        protocolVersion: 1,
+        ownerEpoch: 3,
+        revision: 2,
+        canonicalHash: "next-hash",
+      },
+    });
+
+    expect(received).toEqual([{
+      checkpointHash: "next-hash",
+      baseCheckpointHash: "base-hash",
+    }]);
+
+    stop();
+    unsubscribe();
+    __resetLocalConversationHostBridgeForTests();
+  });
+
   test("dispatches host errors onto the app-server message bus", async () => {
     const received: Array<{ message: string; detail?: string }> = [];
     const unsubscribe = subscribeCodexAppServerMessage("error", (event) => {

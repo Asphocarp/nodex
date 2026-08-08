@@ -33,6 +33,8 @@ import type {
   CodexThreadStartForSessionInput,
   CodexThreadStartForSessionResult,
   CodexThreadOwnerStreamStatePublishInput,
+  CodexThreadOwnerStreamStatePublishResult,
+  CodexThreadStreamCheckpoint,
   CodexThreadSummary,
   CodexTurnSummary,
   CommandPaletteThreadSearchResult,
@@ -85,6 +87,7 @@ import {
   applyCodexConversationStateUpdates,
   buildCodexConversationStateUpdates,
 } from "../../shared/codex-conversation-patches";
+import { buildCodexThreadStreamCheckpoint } from "../../shared/codex-owner-follower-replication";
 import type { CodexFrameTextDeltaUpdate } from "../../shared/codex-conversation-state/codex-frame-text-delta-queue";
 import type { CodexCommandOutputUpdate } from "../../shared/codex-conversation-state/codex-command-output-queue";
 import type {
@@ -354,7 +357,7 @@ interface TestableCodexService {
   publishRendererThreadStreamStateChange: (
     sourceClientId: string,
     input: CodexThreadOwnerStreamStatePublishInput,
-  ) => boolean;
+  ) => CodexThreadOwnerStreamStatePublishResult;
 }
 
 function makeThreadDetail(threadId: string): CodexThreadDetail {
@@ -727,6 +730,70 @@ function makeConversationSnapshot(input: {
       canSearch: false,
       canCollapseTurns: false,
     },
+  };
+}
+
+function buildTestStreamCheckpoint(
+  conversation: CodexConversationSnapshot,
+  revision: number,
+  ownerEpoch = 1,
+): CodexThreadStreamCheckpoint {
+  return buildCodexThreadStreamCheckpoint({
+    ownerEpoch,
+    revision,
+    conversation,
+  });
+}
+
+function buildTestSnapshotPublication(input: {
+  conversation: CodexConversationSnapshot;
+  revision: number;
+  baseCheckpoint?: CodexThreadStreamCheckpoint | null;
+  ownerEpoch?: number;
+  ownerNotificationSequence?: number;
+}): CodexThreadOwnerStreamStatePublishInput {
+  const checkpoint = buildTestStreamCheckpoint(
+    input.conversation,
+    input.revision,
+    input.ownerEpoch ?? 1,
+  );
+  return {
+    conversationId: input.conversation.threadId,
+    change: {
+      type: "snapshot",
+      revision: input.revision,
+      conversationState: input.conversation,
+    },
+    baseCheckpoint: input.baseCheckpoint ?? null,
+    checkpoint,
+    ownerNotificationSequence: input.ownerNotificationSequence,
+  };
+}
+
+function buildTestPatchPublication(input: {
+  before: CodexConversationSnapshot;
+  after: CodexConversationSnapshot;
+  baseCheckpoint: CodexThreadStreamCheckpoint;
+  revision?: number;
+  patches?: ReturnType<typeof buildCodexConversationStateUpdates>;
+  ownerNotificationSequence?: number;
+}): CodexThreadOwnerStreamStatePublishInput {
+  const revision = input.revision ?? input.baseCheckpoint.revision + 1;
+  return {
+    conversationId: input.before.threadId,
+    change: {
+      type: "patches",
+      baseRevision: input.baseCheckpoint.revision,
+      revision,
+      patches: input.patches ?? buildCodexConversationStateUpdates(input.before, input.after),
+    },
+    baseCheckpoint: input.baseCheckpoint,
+    checkpoint: buildTestStreamCheckpoint(
+      input.after,
+      revision,
+      input.baseCheckpoint.ownerEpoch,
+    ),
+    ownerNotificationSequence: input.ownerNotificationSequence,
   };
 }
 
@@ -2411,6 +2478,11 @@ describe("codex-service renderer owner stream publishing", () => {
       ) => void;
     }).on("rendererOwnerHostMessage", (message) => {
       ownerMessages.push(message);
+      if (message.message.type !== "threadOwnerNotification") return;
+      service.ackRendererThreadOwnerNotification(message.targetClientId, {
+        conversationId: "thread-owner-migrated",
+        sequence: message.message.sequence,
+      });
     });
     const serviceInternals = service as unknown as {
       handleNotification: (
@@ -3358,24 +3430,20 @@ describe("codex-service renderer owner stream publishing", () => {
       const baseConversation = makeConversationSnapshot({ threadId: "thread-owner" });
       const nextConversation = makeConversationSnapshot({ threadId: "thread-owner", text: "hello" });
       service.setRendererConversationOwner("thread-owner", "owner-a");
+      const baseCheckpoint = buildTestStreamCheckpoint(baseConversation, 1);
 
-      expect(service.publishRendererThreadStreamStateChange("owner-a", {
-        conversationId: "thread-owner",
-        change: {
-          type: "snapshot",
-          revision: 1,
-          conversationState: baseConversation,
-        },
-      })).toBe(true);
-      expect(service.publishRendererThreadStreamStateChange("owner-a", {
-        conversationId: "thread-owner",
-        change: {
-          type: "patches",
-          baseRevision: 1,
-          revision: 2,
-          patches: buildCodexConversationStateUpdates(baseConversation, nextConversation),
-        },
-      })).toBe(true);
+      expect(service.publishRendererThreadStreamStateChange(
+        "owner-a",
+        buildTestSnapshotPublication({ conversation: baseConversation, revision: 1 }),
+      )).toEqual({ accepted: true, checkpoint: baseCheckpoint });
+      expect(service.publishRendererThreadStreamStateChange(
+        "owner-a",
+        buildTestPatchPublication({
+          before: baseConversation,
+          after: nextConversation,
+          baseCheckpoint,
+        }),
+      ).accepted).toBe(true);
 
       const latest = projectConversationFromHostMessages(hostMessages);
       const lastMessage = hostMessages[hostMessages.length - 1];
@@ -3408,14 +3476,11 @@ describe("codex-service renderer owner stream publishing", () => {
       const baseConversation = makeConversationSnapshot({ threadId: "thread-owner" });
       const repairedConversation = makeConversationSnapshot({ threadId: "thread-owner", text: "live text" });
       service.setRendererConversationOwner("thread-owner", "owner-a");
-      expect(service.publishRendererThreadStreamStateChange("owner-a", {
-        conversationId: "thread-owner",
-        change: {
-          type: "snapshot",
-          revision: 1,
-          conversationState: baseConversation,
-        },
-      })).toBe(true);
+      const baseCheckpoint = buildTestStreamCheckpoint(baseConversation, 1);
+      expect(service.publishRendererThreadStreamStateChange(
+        "owner-a",
+        buildTestSnapshotPublication({ conversation: baseConversation, revision: 1 }),
+      ).accepted).toBe(true);
 
       for (let index = 0; index < 5; index += 1) {
         serviceInternals.getNextOwnerNotificationSequence("thread-owner");
@@ -3425,15 +3490,15 @@ describe("codex-service renderer owner stream publishing", () => {
         drained = true;
       })).toBe(true);
 
-      expect(service.publishRendererThreadStreamStateChange("owner-a", {
-        conversationId: "thread-owner",
-        ownerNotificationSequence: 5,
-        change: {
-          type: "snapshot",
-          revision: 5,
-          conversationState: repairedConversation,
-        },
-      })).toBe(true);
+      expect(service.publishRendererThreadStreamStateChange(
+        "owner-a",
+        buildTestSnapshotPublication({
+          conversation: repairedConversation,
+          revision: 2,
+          baseCheckpoint,
+          ownerNotificationSequence: 5,
+        }),
+      ).accepted).toBe(true);
 
       const latest = projectConversationFromHostMessages(hostMessages);
       const lastMessage = hostMessages[hostMessages.length - 1];
@@ -3443,7 +3508,7 @@ describe("codex-service renderer owner stream publishing", () => {
       if (lastMessage?.type === "threadStreamStateChanged") {
         expect(lastMessage.sourceClientId).toBe("owner-a");
         expect(lastMessage.change.type).toBe("snapshot");
-        expect(lastMessage.change.revision).toBe(5);
+        expect(lastMessage.change.revision).toBe(2);
       }
       expect(latest?.turns[0]?.items[0]?.markdownText).toBe("live text");
     } finally {
@@ -3484,14 +3549,11 @@ describe("codex-service renderer owner stream publishing", () => {
         threadId: "thread-source-null-guard",
         text: "owner remains authoritative",
       });
-      expect(service.publishRendererThreadStreamStateChange("owner-a", {
-        conversationId: "thread-source-null-guard",
-        change: {
-          type: "snapshot",
-          revision: 1,
-          conversationState: ownerBase,
-        },
-      })).toBe(true);
+      const ownerBaseCheckpoint = buildTestStreamCheckpoint(ownerBase, 1);
+      expect(service.publishRendererThreadStreamStateChange(
+        "owner-a",
+        buildTestSnapshotPublication({ conversation: ownerBase, revision: 1 }),
+      ).accepted).toBe(true);
 
       serviceInternals.syncDormantConversationFromRecord("thread-source-null-guard", "owner-unavailable");
       serviceInternals.syncAcceptedConversationDocumentSilently("thread-source-null-guard");
@@ -3502,15 +3564,14 @@ describe("codex-service renderer owner stream publishing", () => {
         },
       );
       expect(String(hostMessages.length)).toBe("1");
-      expect(service.publishRendererThreadStreamStateChange("owner-a", {
-        conversationId: "thread-source-null-guard",
-        change: {
-          type: "patches",
-          baseRevision: 1,
-          revision: 2,
-          patches: buildCodexConversationStateUpdates(ownerBase, ownerNext),
-        },
-      })).toBe(true);
+      expect(service.publishRendererThreadStreamStateChange(
+        "owner-a",
+        buildTestPatchPublication({
+          before: ownerBase,
+          after: ownerNext,
+          baseCheckpoint: ownerBaseCheckpoint,
+        }),
+      ).accepted).toBe(true);
       expect(hostMessages).toHaveLength(2);
       expect(projectConversationFromHostMessages(hostMessages)?.turns[0]?.items[0]?.markdownText)
         .toBe("owner remains authoritative");
@@ -4229,24 +4290,20 @@ describe("codex-service renderer owner stream publishing", () => {
       const baseConversation = makeConversationSnapshot({ threadId: "thread-owner" });
       const nextConversation = makeConversationSnapshot({ threadId: "thread-owner", text: "wrong" });
       service.setRendererConversationOwner("thread-owner", "owner-a");
+      const baseCheckpoint = buildTestStreamCheckpoint(baseConversation, 1);
 
-      expect(service.publishRendererThreadStreamStateChange("owner-a", {
-        conversationId: "thread-owner",
-        change: {
-          type: "snapshot",
-          revision: 1,
-          conversationState: baseConversation,
-        },
-      })).toBe(true);
-      expect(service.publishRendererThreadStreamStateChange("owner-b", {
-        conversationId: "thread-owner",
-        change: {
-          type: "patches",
-          baseRevision: 1,
-          revision: 2,
-          patches: buildCodexConversationStateUpdates(baseConversation, nextConversation),
-        },
-      })).toBe(false);
+      expect(service.publishRendererThreadStreamStateChange(
+        "owner-a",
+        buildTestSnapshotPublication({ conversation: baseConversation, revision: 1 }),
+      ).accepted).toBe(true);
+      expect(service.publishRendererThreadStreamStateChange(
+        "owner-b",
+        buildTestPatchPublication({
+          before: baseConversation,
+          after: nextConversation,
+          baseCheckpoint,
+        }),
+      )).toMatchObject({ accepted: false, reason: "not-owner" });
 
       const latest = projectConversationFromHostMessages(hostMessages);
       expect(String(hostMessages.length)).toBe("1");
@@ -4269,24 +4326,27 @@ describe("codex-service renderer owner stream publishing", () => {
       const baseConversation = makeConversationSnapshot({ threadId: "thread-owner" });
       const nextConversation = makeConversationSnapshot({ threadId: "thread-owner", text: "stale" });
       service.setRendererConversationOwner("thread-owner", "owner-a");
+      const baseCheckpoint = buildTestStreamCheckpoint(baseConversation, 3);
 
+      expect(service.publishRendererThreadStreamStateChange(
+        "owner-a",
+        buildTestSnapshotPublication({ conversation: baseConversation, revision: 3 }),
+      ).accepted).toBe(true);
+      const staleBase = { ...baseCheckpoint, revision: 2 };
       expect(service.publishRendererThreadStreamStateChange("owner-a", {
-        conversationId: "thread-owner",
-        change: {
-          type: "snapshot",
-          revision: 3,
-          conversationState: baseConversation,
-        },
-      })).toBe(true);
-      expect(service.publishRendererThreadStreamStateChange("owner-a", {
-        conversationId: "thread-owner",
+        ...buildTestPatchPublication({
+          before: baseConversation,
+          after: nextConversation,
+          baseCheckpoint,
+        }),
+        baseCheckpoint: staleBase,
         change: {
           type: "patches",
           baseRevision: 2,
           revision: 4,
           patches: buildCodexConversationStateUpdates(baseConversation, nextConversation),
         },
-      })).toBe(false);
+      })).toMatchObject({ accepted: false, reason: "base-checkpoint-mismatch" });
 
       const latest = projectConversationFromHostMessages(hostMessages);
       expect(String(hostMessages.length)).toBe("1");
@@ -4296,7 +4356,7 @@ describe("codex-service renderer owner stream publishing", () => {
     }
   });
 
-  test("rejects unapplicable owner patches and accepts the repair snapshot at the same revision", async () => {
+  test("rejects unapplicable owner patches and accepts a rebased next-revision snapshot", async () => {
     const service = createService();
     const hostMessages: CodexHostMessage[] = [];
     service.on("hostMessage", (message) => {
@@ -4316,15 +4376,12 @@ describe("codex-service renderer owner stream publishing", () => {
         text: "repaired",
       });
       service.setRendererConversationOwner("thread-owner-repair", "owner-a");
+      const baseCheckpoint = buildTestStreamCheckpoint(baseConversation, 1);
 
-      expect(service.publishRendererThreadStreamStateChange("owner-a", {
-        conversationId: "thread-owner-repair",
-        change: {
-          type: "snapshot",
-          revision: 1,
-          conversationState: baseConversation,
-        },
-      })).toBe(true);
+      expect(service.publishRendererThreadStreamStateChange(
+        "owner-a",
+        buildTestSnapshotPublication({ conversation: baseConversation, revision: 1 }),
+      ).accepted).toBe(true);
       expect(serviceInternals.getNextOwnerNotificationSequence("thread-owner-repair"))
         .toBe(1);
       let notificationDrained = false;
@@ -4334,30 +4391,36 @@ describe("codex-service renderer owner stream publishing", () => {
           notificationDrained = true;
         },
       )).toBe(true);
-      expect(service.publishRendererThreadStreamStateChange("owner-a", {
-        conversationId: "thread-owner-repair",
+      const invalidPublication = buildTestPatchPublication({
+        before: baseConversation,
+        after: repairedConversation,
+        baseCheckpoint,
         ownerNotificationSequence: 1,
-        change: {
-          type: "patches",
-          baseRevision: 1,
-          revision: 2,
-          patches: [{
+        patches: [{
             op: "replace",
             path: ["canonicalState", "turns", 0, "items", 0],
             value: { id: "missing-parent" },
-          }],
-        },
-      })).toBe(false);
+        }],
+      });
+      const rejected = service.publishRendererThreadStreamStateChange(
+        "owner-a",
+        invalidPublication,
+      );
+      expect(rejected).toMatchObject({
+        accepted: false,
+        reason: "patch-apply-failed",
+        recovery: { checkpoint: baseCheckpoint },
+      });
       expect(notificationDrained).toBe(false);
-      expect(service.publishRendererThreadStreamStateChange("owner-a", {
-        conversationId: "thread-owner-repair",
-        ownerNotificationSequence: 1,
-        change: {
-          type: "snapshot",
+      expect(service.publishRendererThreadStreamStateChange(
+        "owner-a",
+        buildTestSnapshotPublication({
+          conversation: repairedConversation,
           revision: 2,
-          conversationState: repairedConversation,
-        },
-      })).toBe(true);
+          baseCheckpoint,
+          ownerNotificationSequence: 1,
+        }),
+      ).accepted).toBe(true);
 
       expect(notificationDrained).toBe(true);
       expect(hostMessages).toHaveLength(2);
@@ -4377,34 +4440,30 @@ describe("codex-service renderer owner stream publishing", () => {
       const baseConversation = makeConversationSnapshot({ threadId: "thread-owner-claim" });
       const nextConversation = makeConversationSnapshot({ threadId: "thread-owner-claim", text: "owner" });
 
-      expect(service.publishRendererThreadStreamStateChange("client-stale", {
-        conversationId: "thread-owner-claim",
-        change: {
-          type: "patches",
-          baseRevision: 7,
-          revision: 8,
-          patches: buildCodexConversationStateUpdates(baseConversation, nextConversation),
-        },
-      })).toBe(false);
+      expect(service.publishRendererThreadStreamStateChange(
+        "client-stale",
+        buildTestPatchPublication({
+          before: baseConversation,
+          after: nextConversation,
+          baseCheckpoint: buildTestStreamCheckpoint(baseConversation, 7),
+        }),
+      )).toMatchObject({ accepted: false, reason: "not-owner" });
 
       service.setRendererConversationOwner("thread-owner-claim", "client-owner");
-      expect(service.publishRendererThreadStreamStateChange("client-owner", {
-        conversationId: "thread-owner-claim",
-        change: {
-          type: "snapshot",
-          revision: 1,
-          conversationState: baseConversation,
-        },
-      })).toBe(true);
+      const baseCheckpoint = buildTestStreamCheckpoint(baseConversation, 1);
+      expect(service.publishRendererThreadStreamStateChange(
+        "client-owner",
+        buildTestSnapshotPublication({ conversation: baseConversation, revision: 1 }),
+      ).accepted).toBe(true);
 
-      expect(service.publishRendererThreadStreamStateChange("client-stale", {
-        conversationId: "thread-owner-claim",
-        change: {
-          type: "snapshot",
+      expect(service.publishRendererThreadStreamStateChange(
+        "client-stale",
+        buildTestSnapshotPublication({
+          conversation: nextConversation,
           revision: 2,
-          conversationState: nextConversation,
-        },
-      })).toBe(false);
+          baseCheckpoint,
+        }),
+      )).toMatchObject({ accepted: false, reason: "not-owner" });
     } finally {
       await service.shutdown();
     }
@@ -4415,14 +4474,11 @@ describe("codex-service renderer owner stream publishing", () => {
     try {
       const baseline = makeConversationSnapshot({ threadId: "thread-owner-adoption-race" });
       service.setRendererConversationOwner("thread-owner-adoption-race", "owner-a");
-      expect(service.publishRendererThreadStreamStateChange("owner-a", {
-        conversationId: "thread-owner-adoption-race",
-        change: {
-          type: "snapshot",
-          revision: 7,
-          conversationState: baseline,
-        },
-      })).toBe(true);
+      const checkpoint = buildTestStreamCheckpoint(baseline, 7);
+      expect(service.publishRendererThreadStreamStateChange(
+        "owner-a",
+        buildTestSnapshotPublication({ conversation: baseline, revision: 7 }),
+      ).accepted).toBe(true);
 
       const result = await service.requestRendererConversationResume(
         "thread-owner-adoption-race",
@@ -4433,6 +4489,7 @@ describe("codex-service renderer owner stream publishing", () => {
         conversation: baseline,
         revision: 7,
         ownerClientId: "owner-a",
+        checkpoint,
       });
       expect(service.getRendererConversationOwner("thread-owner-adoption-race")).toBe("owner-a");
     } finally {
@@ -4646,14 +4703,11 @@ describe("codex-service renderer owner stream publishing", () => {
       );
       await Promise.resolve();
       service.setRendererConversationOwner("thread-owner-concurrent-race", "owner-a");
-      expect(service.publishRendererThreadStreamStateChange("owner-a", {
-        conversationId: "thread-owner-concurrent-race",
-        change: {
-          type: "snapshot",
-          revision: 7,
-          conversationState: baseline,
-        },
-      })).toBe(true);
+      const checkpoint = buildTestStreamCheckpoint(baseline, 7);
+      expect(service.publishRendererThreadStreamStateChange(
+        "owner-a",
+        buildTestSnapshotPublication({ conversation: baseline, revision: 7 }),
+      ).accepted).toBe(true);
       releaseResume();
 
       await expect(competingResume).resolves.toEqual({
@@ -4661,6 +4715,7 @@ describe("codex-service renderer owner stream publishing", () => {
         conversation: baseline,
         revision: 7,
         ownerClientId: "owner-a",
+        checkpoint,
       });
       expect(service.getRendererConversationOwner("thread-owner-concurrent-race")).toBe("owner-a");
     } finally {
@@ -16104,16 +16159,11 @@ describe("codex-service terminal turn reconciliation", () => {
       });
 
       let snapshot = service.serializeConversationSnapshot("thr_hidden_patch_replacement");
-      let target = snapshot?.turns[0]?.items[1];
-      const targetRaw = target?.rawItem as {
-        type?: string;
-        changes?: unknown;
-      } | undefined;
+      let target = snapshot?.turns[0]?.items.find((item) => item.itemId === "target");
       expect(snapshot?.turns[0]?.items.map((item) => item.itemId).join(",")).toBe(
-        "before,target,after",
+        "before,after",
       );
-      expect(target?.itemId).toBe("target");
-      expect(targetRaw?.type).toBe("fileChange");
+      expect(target).toBeUndefined();
       expect(serviceInternals.getConversationRecord("thr_hidden_patch_replacement")
         .canonicalState?.turns[0]?.items[1]?.type).toBe("fileChange");
 
@@ -16139,7 +16189,7 @@ describe("codex-service terminal turn reconciliation", () => {
       });
 
       snapshot = service.serializeConversationSnapshot("thr_hidden_patch_replacement");
-      target = snapshot?.turns[0]?.items[1];
+      target = snapshot?.turns[0]?.items.find((item) => item.itemId === "target");
       expect(snapshot?.turns[0]?.items.map((item) => item.itemId).join(",")).toBe(
         "before,target,after",
       );

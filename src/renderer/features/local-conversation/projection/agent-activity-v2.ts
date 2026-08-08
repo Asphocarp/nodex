@@ -87,11 +87,21 @@ export function classifyThreadExecPatchWebActivityItem<TItem extends ThreadExecP
 ): ThreadAgentActivityClassification<TItem> {
   switch (item.type) {
     case "exec":
-    case "fileChange":
       return createThreadAgentActivityItem(
         removeApprovedThreadAutomaticApprovalReviews(item),
         "groupable",
       );
+    case "fileChange": {
+      const activity = resolveCodexFileChangeActivity({
+        status: item.entry.status,
+        fileChange: item.entry.fileChange,
+      });
+      if (activity.visibility === "suppressed") return null;
+      return createThreadAgentActivityItem(
+        removeApprovedThreadAutomaticApprovalReviews(item),
+        "groupable",
+      );
+    }
     case "webSearch":
       return (item.entry.webSearch?.query ?? "").trim().length === 0
         ? null
@@ -159,6 +169,7 @@ export type ThreadClassifiableActivityTranscriptType =
   | "fileChange"
   | "forkedFromConversation"
   | "generatedImage"
+  | "hook"
   | "imageView"
   | "mcpServerElicitation"
   | "mcpToolCall"
@@ -199,6 +210,7 @@ const THREAD_CLASSIFIABLE_ACTIVITY_TYPES = new Set<ThreadTranscriptBlockModel["t
   "fileChange",
   "forkedFromConversation",
   "generatedImage",
+  "hook",
   "imageView",
   "mcpServerElicitation",
   "mcpToolCall",
@@ -305,6 +317,7 @@ export function classifyThreadAgentActivityItem<TItem extends ThreadClassifiable
     case "assistantMessage":
     case "autoReviewInterruptionWarning":
     case "contextCompaction":
+    case "hook":
     case "imageView":
     case "multiAgentAction":
     case "realtimeTranscript":
@@ -451,11 +464,6 @@ function shouldRenderThreadActivityItemInGroupBody(
       fileChange: item.entry.fileChange,
     });
     if (activity.hasMaterializedChanges) return true;
-    if (activity.lifecycle === "inProgress") {
-      if (activity.visualizationActivities.length === 0) return true;
-      return activity.success !== false
-        && (activity.success === true || item.entry.approvalRequestId != null || !isTurnCancelled);
-    }
     const hasVisualization = activity.visualizationActivities.length > 0;
     if (!hasVisualization) return false;
     return activity.success !== false
@@ -553,6 +561,7 @@ function resolveThreadAgentActivityBundleType(type: ThreadClassifiableActivityIt
     case "workedFor": return "worked-for";
     case "worktreeInit": return "worktree-init";
   }
+  return type;
 }
 
 const PROJECTED_ID_ACTIVITY_TYPES = new Set<ThreadClassifiableActivityItem["type"]>([

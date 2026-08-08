@@ -136,7 +136,10 @@ import type {
   CodexBackgroundProcessRow,
   CodexBackgroundProcessRunActionInput,
   CodexThreadActiveFlag,
+  CodexThreadOwnerStreamStatePublishResult,
   CodexThreadRuntimeStatus,
+  CodexThreadStreamCheckpoint,
+  CodexThreadStreamResyncRequestInput,
   CodexTurnStatus,
 } from "../../../shared/types";
 import { getCodexThreadOwnerNotificationThreadId } from "../../../shared/types";
@@ -146,6 +149,10 @@ import {
   applyCodexConversationStateUpdates,
   buildCodexConversationStateUpdates,
 } from "../../../shared/codex-conversation-patches";
+import {
+  buildCodexThreadStreamCheckpoint,
+  hashCodexConversationReplica,
+} from "../../../shared/codex-owner-follower-replication";
 import {
   reduceCodexConversationEventWithEffects,
   type CodexItemLifecycleNotification,
@@ -573,7 +580,7 @@ interface OwnerFrameTextDeltaFlushOptions {
 type OwnerStreamPublishPatches = ReturnType<typeof buildCodexConversationStateUpdates>;
 
 interface OwnerStreamPublishCursor {
-  acceptedRevision: number;
+  acceptedCheckpoint: CodexThreadStreamCheckpoint;
   acceptedDocument: CodexConversationSnapshot;
   inFlight: boolean;
   dirty: boolean;
@@ -1774,6 +1781,25 @@ function toSharedConversationDocument(
   return requests.length === conversation.requests.length
     ? conversation
     : { ...conversation, requests };
+}
+
+function resolveAcceptedConversationReplica(input: {
+  conversation: CodexConversationSnapshot;
+  revision: number;
+  checkpoint: CodexThreadStreamCheckpoint;
+  context: string;
+}): CodexConversationSnapshot {
+  if (input.checkpoint.revision !== input.revision) {
+    throw new Error(
+      `${input.context} revision ${input.revision} does not match checkpoint revision ${input.checkpoint.revision}`,
+    );
+  }
+
+  const replica = toSharedConversationDocument(input.conversation);
+  if (hashCodexConversationReplica(replica) !== input.checkpoint.canonicalHash) {
+    throw new Error(`${input.context} checkpoint diverged`);
+  }
+  return replica;
 }
 
 type OwnerTurnLifecycleMethod = "turn/started" | "turn/completed";
@@ -3483,6 +3509,10 @@ export class CodexAppServerManager {
   private readonly loadedThreadSummariesByProject = new Set<string>();
   private readonly threadSummaryLoadsInFlightByProject = new Map<string, Promise<CodexThreadSummary[]>>();
   private readonly conversationsById = new Map<string, CodexConversationSnapshot>();
+  private readonly followerAcceptedReplicasByConversationId = new Map<
+    string,
+    CodexConversationSnapshot
+  >();
   private readonly ownerHiddenLifecycleItemTypesByConversationId = new Map<
     string,
     Map<string, Map<string, string>>
@@ -3916,23 +3946,36 @@ export class CodexAppServerManager {
     try {
       const result = await invoke("codex:thread:resume:request", threadId);
       if (result) {
+        const acceptedReplica = resolveAcceptedConversationReplica({
+          conversation: result.conversation,
+          revision: result.revision,
+          checkpoint: result.checkpoint,
+          context: `Thread resume for ${threadId}`,
+        });
         const materialized = materializeOwnerCanonicalConversationSnapshot(result.conversation);
         if (result.role === "follower") {
+          const checkpoint = result.checkpoint;
           await this.waitForOwnerStreamPublishIdle(threadId);
-          this.applyConversationSnapshot(threadId, materialized);
-          this.streamState.acceptSnapshot({
+          this.ownerStreamPublishCursorsByConversationId.delete(threadId);
+          this.followerAcceptedReplicasByConversationId.set(
+            threadId,
+            acceptedReplica,
+          );
+          this.streamState.adoptFollowerBaseline({
             conversationId: threadId,
-            revision: result.revision,
+            checkpoint,
             sourceClientId: result.ownerClientId,
           });
+          this.applyConversationSnapshot(threadId, materialized);
           return this.conversationsById.get(threadId) ?? materialized;
         }
 
         await this.waitForOwnerStreamPublishIdle(threadId);
+        this.followerAcceptedReplicasByConversationId.delete(threadId);
         this.applyConversationSnapshot(threadId, materialized);
-        const streamRevision = result.revision;
-        this.streamState.markOwner(threadId, streamRevision);
-        this.seedOwnerStreamPublishCursor(threadId, streamRevision, materialized);
+        const checkpoint = result.checkpoint;
+        this.streamState.markOwner(threadId, checkpoint);
+        this.seedOwnerStreamPublishCursor(threadId, checkpoint, acceptedReplica);
         await invoke("codex:thread:resume-buffer:release", threadId);
         const latestConversation = this.conversationsById.get(threadId) ?? materialized;
         await this.publishOwnerSnapshotTransaction(
@@ -4122,22 +4165,22 @@ export class CodexAppServerManager {
     options: { notifyMode?: ConversationNotifyMode } = {},
   ): Promise<number> {
     const role = this.streamState.getRole(threadId);
-    const currentRevision = this.streamState.getRevision(threadId) ?? 0;
+    const currentCheckpoint = this.streamState.getCheckpoint(threadId);
     const currentConversation = this.conversationsById.get(threadId) ?? conversation;
-    if (!role || role.role !== "owner") {
+    if (!role || role.role !== "owner" || !currentCheckpoint) {
       throw new Error(`Cannot publish ${label} snapshot because renderer is not owner for ${threadId}`);
     }
 
     const cursor = this.ensureOwnerStreamPublishCursor(
       threadId,
-      currentRevision,
+      currentCheckpoint,
       currentConversation,
     );
     if (cursor.inFlight || cursor.dirty) {
       throw new Error(`Cannot publish ${label} snapshot because owner stream cursor is still busy for ${threadId}`);
     }
 
-    const revision = cursor.acceptedRevision + 1;
+    const revision = cursor.acceptedCheckpoint.revision + 1;
     cursor.inFlight = true;
     this.applyConversationSnapshot(
       threadId,
@@ -4147,23 +4190,33 @@ export class CodexAppServerManager {
     );
     const latestConversation = this.conversationsById.get(threadId) ?? conversation;
     const sharedConversation = toSharedConversationDocument(latestConversation);
-    const accepted = await this.dispatchOwnerStreamSnapshot(threadId, revision, sharedConversation);
+    const checkpoint = buildCodexThreadStreamCheckpoint({
+      ownerEpoch: cursor.acceptedCheckpoint.ownerEpoch,
+      revision,
+      conversation: sharedConversation,
+    });
+    const result = await this.dispatchOwnerStreamSnapshot(
+      threadId,
+      cursor.acceptedCheckpoint,
+      checkpoint,
+      sharedConversation,
+    );
     if (this.ownerStreamPublishCursorsByConversationId.get(threadId) !== cursor) {
       throw new Error(`Could not publish ${label} snapshot for ${threadId}`);
     }
-    if (!accepted) {
+    if (!result.accepted) {
       cursor.inFlight = false;
       this.markOwnerStreamPublishUnavailable(threadId);
       throw new Error(`Could not publish ${label} snapshot for ${threadId}`);
     }
 
-    cursor.acceptedRevision = revision;
+    cursor.acceptedCheckpoint = result.checkpoint;
     cursor.acceptedDocument = this.consumeOwnerStandaloneUnreadStateOverride(
       cursor,
       sharedConversation,
     );
     cursor.inFlight = false;
-    this.streamState.recordOwnerRevision(threadId, revision);
+    this.streamState.recordOwnerCheckpoint(threadId, result.checkpoint);
     this.processOwnerStreamPublishCursor(threadId);
     this.resolveOwnerStreamPublishIdleWaiters(threadId);
     return revision;
@@ -4281,15 +4334,23 @@ export class CodexAppServerManager {
       launch.threadId,
       launch.launchId,
     );
+    const acceptedReplica = resolveAcceptedConversationReplica({
+      conversation: result.conversation,
+      revision: result.revision,
+      checkpoint: result.checkpoint,
+      context: `Fresh owner adoption for ${launch.threadId}`,
+    });
     const conversation = materializeOwnerCanonicalConversationSnapshot(
       result.conversation,
     );
+    this.followerAcceptedReplicasByConversationId.delete(launch.threadId);
     this.applyConversationSnapshot(launch.threadId, conversation);
-    this.streamState.markOwner(launch.threadId, result.revision);
+    const checkpoint = result.checkpoint;
+    this.streamState.markOwner(launch.threadId, checkpoint);
     this.seedOwnerStreamPublishCursor(
       launch.threadId,
-      result.revision,
-      conversation,
+      checkpoint,
+      acceptedReplica,
     );
     await invoke("codex:thread:resume-buffer:release", launch.threadId);
     await invoke(
@@ -5517,7 +5578,7 @@ export class CodexAppServerManager {
     if (this.streamState.getRole(threadId)?.role === "owner") {
       const cleaned = (await invoke("codex:thread:background-terminals:clean-silent", threadId)) as boolean;
       if (cleaned) {
-        this.applyOwnerSilentConversationMutation(
+        this.publishOwnerActionConversationMutation(
           threadId,
           applyOwnerBackgroundTerminalCleanupToConversation,
         );
@@ -6604,6 +6665,7 @@ export class CodexAppServerManager {
     this.threadSummaryLoadsInFlightByProject.clear();
     this.resumeInFlightByThreadId.clear();
     this.conversationsById.clear();
+    this.followerAcceptedReplicasByConversationId.clear();
     this.ownerHiddenLifecycleItemTypesByConversationId.clear();
     this.conversationVersionById.clear();
     this.streamState.reset();
@@ -7757,7 +7819,7 @@ export class CodexAppServerManager {
       return;
     }
 
-    this.applyOwnerLocalConversationMutation(
+    this.publishOwnerConversationMutation(
       update.conversationId,
       event.sequence,
       (conversation) => {
@@ -7787,7 +7849,6 @@ export class CodexAppServerManager {
         this.applyOwnerCanonicalHiddenTurns(update.conversationId, projection.hiddenTurns);
         return { ...projection.conversation, canonicalState: result.state };
       },
-      { publishRecoverySnapshot: true },
     );
   }
 
@@ -7891,7 +7952,7 @@ export class CodexAppServerManager {
       void this.ackOwnerNotification(payload.threadId, event.sequence);
       return;
     }
-    this.applyOwnerLocalConversationMutation(
+    this.publishOwnerConversationMutation(
       payload.threadId,
       event.sequence,
       (conversation) => {
@@ -7991,6 +8052,7 @@ export class CodexAppServerManager {
       ...event.conversationIds,
     ]);
     for (const conversationId of targetConversationIds) {
+      this.followerAcceptedReplicasByConversationId.delete(conversationId);
       this.ownerTextDeltaQueue.discardConversation(conversationId);
       this.outputDeltaQueue.discardConversation(conversationId);
       this.discardOwnerNotificationState(conversationId);
@@ -8043,6 +8105,8 @@ export class CodexAppServerManager {
 
     const affectedConversationIds = this.streamState.handleTransportReset(event.conversationIds);
     for (const conversationId of affectedConversationIds) {
+      this.followerAcceptedReplicasByConversationId.delete(conversationId);
+      this.conversationVersionById.delete(conversationId);
       void this.setThreadStreamFollowingWithOptions(conversationId, true, { reannounce: true }).catch(() => {
         // The owner may be reconnecting while this renderer is recovering its stream role.
       });
@@ -8361,7 +8425,7 @@ export class CodexAppServerManager {
 
   private ensureOwnerStreamPublishCursor(
     conversationId: string,
-    acceptedRevision: number,
+    acceptedCheckpoint: CodexThreadStreamCheckpoint,
     acceptedDocument: CodexConversationSnapshot,
   ): OwnerStreamPublishCursor {
     const existing = this.ownerStreamPublishCursorsByConversationId.get(conversationId);
@@ -8370,7 +8434,7 @@ export class CodexAppServerManager {
     }
 
     const cursor: OwnerStreamPublishCursor = {
-      acceptedRevision,
+      acceptedCheckpoint,
       acceptedDocument: toSharedConversationDocument(acceptedDocument),
       inFlight: false,
       dirty: false,
@@ -8381,32 +8445,24 @@ export class CodexAppServerManager {
 
   private seedOwnerStreamPublishCursor(
     conversationId: string,
-    acceptedRevision: number,
-    acceptedDocument: CodexConversationSnapshot,
+    acceptedCheckpoint: CodexThreadStreamCheckpoint,
+    acceptedReplica: CodexConversationSnapshot,
   ): void {
     const existing = this.ownerStreamPublishCursorsByConversationId.get(conversationId);
     if (existing && !existing.inFlight && !existing.dirty) {
-      existing.acceptedRevision = acceptedRevision;
-      existing.acceptedDocument = toSharedConversationDocument(acceptedDocument);
+      existing.acceptedCheckpoint = acceptedCheckpoint;
+      existing.acceptedDocument = acceptedReplica;
       return;
     }
 
     if (!existing) {
-      this.ensureOwnerStreamPublishCursor(
-        conversationId,
-        acceptedRevision,
-        acceptedDocument,
-      );
+      this.ownerStreamPublishCursorsByConversationId.set(conversationId, {
+        acceptedCheckpoint,
+        acceptedDocument: acceptedReplica,
+        inFlight: false,
+        dirty: false,
+      });
     }
-  }
-
-  private adoptOwnerStreamLocalBase(conversationId: string, conversation: CodexConversationSnapshot): void {
-    const cursor = this.ownerStreamPublishCursorsByConversationId.get(conversationId);
-    if (!cursor || cursor.inFlight || cursor.dirty) {
-      return;
-    }
-
-    cursor.acceptedDocument = toSharedConversationDocument(conversation);
   }
 
   private consumeOwnerStandaloneUnreadStateOverride(
@@ -8499,16 +8555,21 @@ export class CodexAppServerManager {
       return;
     }
 
-    const baseRevision = cursor.acceptedRevision;
+    const baseRevision = cursor.acceptedCheckpoint.revision;
     const revision = baseRevision + 1;
     const publishedConversation = conversation;
+    const checkpoint = buildCodexThreadStreamCheckpoint({
+      ownerEpoch: cursor.acceptedCheckpoint.ownerEpoch,
+      revision,
+      conversation: publishedConversation,
+    });
     cursor.inFlight = true;
 
     void (async () => {
-      const accepted = await this.dispatchOwnerStreamPatches(
+      const result = await this.dispatchOwnerStreamPatches(
         conversationId,
-        baseRevision,
-        revision,
+        cursor.acceptedCheckpoint,
+        checkpoint,
         patches,
         ownerNotificationSequence || undefined,
       );
@@ -8517,15 +8578,15 @@ export class CodexAppServerManager {
         return;
       }
 
-      if (accepted) {
-        cursor.acceptedRevision = revision;
+      if (result.accepted) {
+        cursor.acceptedCheckpoint = result.checkpoint;
         cursor.acceptedDocument = this.consumeOwnerStandaloneUnreadStateOverride(
           cursor,
           publishedConversation,
         );
         cursor.inFlight = false;
         this.confirmOwnerNotificationAck(conversationId, ownerNotificationSequence);
-        this.streamState.recordOwnerRevision(conversationId, revision);
+        this.streamState.recordOwnerCheckpoint(conversationId, result.checkpoint);
         this.processOwnerStreamPublishCursor(conversationId);
         this.flushOwnerNotificationCompletions(conversationId);
         this.resolveOwnerStreamPublishIdleWaiters(conversationId);
@@ -8536,6 +8597,7 @@ export class CodexAppServerManager {
         conversationId,
         cursor,
         ownerNotificationSequence,
+        result,
       );
     })();
   }
@@ -8543,7 +8605,8 @@ export class CodexAppServerManager {
   private async repairOwnerStreamPublishCursor(
     conversationId: string,
     cursor: OwnerStreamPublishCursor,
-    failedOwnerNotificationSequence: number,
+    ownerNotificationSequence: number,
+    rejection: Exclude<CodexThreadOwnerStreamStatePublishResult, { accepted: true }>,
   ): Promise<void> {
     const localConversation = this.conversationsById.get(conversationId);
     const role = this.streamState.getRole(conversationId);
@@ -8552,36 +8615,48 @@ export class CodexAppServerManager {
       this.markOwnerStreamPublishUnavailable(conversationId);
       return;
     }
-    const conversation = toSharedConversationDocument(localConversation);
-
-    const ownerNotificationSequence = failedOwnerNotificationSequence;
-    cursor.dirty = false;
-    const revision = cursor.acceptedRevision + 1;
-    const accepted = await this.dispatchOwnerStreamSnapshot(
-      conversationId,
-      revision,
-      conversation,
-      ownerNotificationSequence || undefined,
-    );
-
-    if (this.ownerStreamPublishCursorsByConversationId.get(conversationId) !== cursor) {
-      return;
-    }
-
-    if (!accepted) {
+    if (!rejection.recovery) {
       cursor.inFlight = false;
       this.markOwnerStreamPublishUnavailable(conversationId);
       return;
     }
 
-    cursor.acceptedRevision = revision;
+    cursor.acceptedCheckpoint = rejection.recovery.checkpoint;
+    cursor.acceptedDocument = rejection.recovery.conversationState;
+    this.streamState.recordOwnerCheckpoint(
+      conversationId,
+      rejection.recovery.checkpoint,
+    );
+    const conversation = toSharedConversationDocument(localConversation);
+    const revision = rejection.recovery.checkpoint.revision + 1;
+    const checkpoint = buildCodexThreadStreamCheckpoint({
+      ownerEpoch: rejection.recovery.checkpoint.ownerEpoch,
+      revision,
+      conversation,
+    });
+    cursor.dirty = false;
+    const result = await this.dispatchOwnerStreamSnapshot(
+      conversationId,
+      rejection.recovery.checkpoint,
+      checkpoint,
+      conversation,
+      ownerNotificationSequence || undefined,
+    );
+    if (this.ownerStreamPublishCursorsByConversationId.get(conversationId) !== cursor) return;
+    if (!result.accepted) {
+      cursor.inFlight = false;
+      this.markOwnerStreamPublishUnavailable(conversationId);
+      return;
+    }
+
+    cursor.acceptedCheckpoint = result.checkpoint;
     cursor.acceptedDocument = this.consumeOwnerStandaloneUnreadStateOverride(
       cursor,
       conversation,
     );
     cursor.inFlight = false;
     this.confirmOwnerNotificationAck(conversationId, ownerNotificationSequence);
-    this.streamState.recordOwnerRevision(conversationId, revision);
+    this.streamState.recordOwnerCheckpoint(conversationId, result.checkpoint);
     this.processOwnerStreamPublishCursor(conversationId);
     this.flushOwnerNotificationCompletions(conversationId);
     this.resolveOwnerStreamPublishIdleWaiters(conversationId);
@@ -8594,9 +8669,9 @@ export class CodexAppServerManager {
     options: { notifyMode?: ConversationNotifyMode } = {},
   ): void {
     const role = this.streamState.getRole(conversationId);
-    const acceptedRevision = this.streamState.getRevision(conversationId);
+    const acceptedCheckpoint = this.streamState.getCheckpoint(conversationId);
     const currentConversation = this.conversationsById.get(conversationId);
-    if (!currentConversation || !role || role.role !== "owner" || typeof acceptedRevision !== "number") {
+    if (!currentConversation || !role || role.role !== "owner" || !acceptedCheckpoint) {
       this.handleOwnerReducerUnavailable(conversationId);
       void this.ackOwnerNotification(conversationId, ownerNotificationSequence);
       return;
@@ -8621,7 +8696,7 @@ export class CodexAppServerManager {
 
     const cursor = this.ensureOwnerStreamPublishCursor(
       conversationId,
-      acceptedRevision,
+      acceptedCheckpoint,
       currentConversation,
     );
     this.applyConversationSnapshot(
@@ -8639,9 +8714,9 @@ export class CodexAppServerManager {
     buildNextConversation: (conversation: CodexConversationSnapshot) => CodexConversationSnapshot | null,
   ): void {
     const role = this.streamState.getRole(conversationId);
-    const acceptedRevision = this.streamState.getRevision(conversationId);
+    const acceptedCheckpoint = this.streamState.getCheckpoint(conversationId);
     const currentConversation = this.conversationsById.get(conversationId);
-    if (!currentConversation || !role || role.role !== "owner" || typeof acceptedRevision !== "number") {
+    if (!currentConversation || !role || role.role !== "owner" || !acceptedCheckpoint) {
       this.handleOwnerReducerUnavailable(conversationId);
       void this.ackOwnerNotification(conversationId, ownerNotificationSequence);
       return;
@@ -8655,62 +8730,11 @@ export class CodexAppServerManager {
 
     const cursor = this.ensureOwnerStreamPublishCursor(
       conversationId,
-      acceptedRevision,
+      acceptedCheckpoint,
       currentConversation,
     );
     this.applyConversationSnapshot(conversationId, nextConversation);
     this.queueOwnerStreamCursorPublish(conversationId, ownerNotificationSequence, cursor);
-  }
-
-  private applyOwnerLocalConversationMutation(
-    conversationId: string,
-    ownerNotificationSequence: number,
-    buildNextConversation: (conversation: CodexConversationSnapshot) => CodexConversationSnapshot | null,
-    options: { publishRecoverySnapshot?: boolean } = {},
-  ): void {
-    const role = this.streamState.getRole(conversationId);
-    const baseRevision = this.streamState.getRevision(conversationId);
-    const currentConversation = this.conversationsById.get(conversationId);
-    if (!currentConversation || !role || role.role !== "owner" || typeof baseRevision !== "number") {
-      this.handleOwnerReducerUnavailable(conversationId);
-      void this.ackOwnerNotification(conversationId, ownerNotificationSequence);
-      return;
-    }
-
-    const nextConversation = buildNextConversation(currentConversation);
-    if (!nextConversation || nextConversation === currentConversation) {
-      void this.ackOwnerNotification(conversationId, ownerNotificationSequence);
-      return;
-    }
-
-    this.applyConversationSnapshot(conversationId, nextConversation);
-    this.adoptOwnerStreamLocalBase(conversationId, nextConversation);
-    if (options.publishRecoverySnapshot !== true) {
-      void this.ackOwnerNotification(conversationId, ownerNotificationSequence);
-      return;
-    }
-    void this.dispatchOwnerStreamRecoverySnapshot(conversationId, baseRevision, nextConversation)
-      .finally(() => {
-        void this.ackOwnerNotification(conversationId, ownerNotificationSequence);
-      });
-  }
-
-  private applyOwnerSilentConversationMutation(
-    conversationId: string,
-    buildNextConversation: (conversation: CodexConversationSnapshot) => CodexConversationSnapshot | null,
-  ): void {
-    const role = this.streamState.getRole(conversationId);
-    const currentConversation = this.conversationsById.get(conversationId);
-    if (!currentConversation || !role || role.role !== "owner") {
-      this.handleOwnerReducerUnavailable(conversationId);
-      return;
-    }
-
-    const nextConversation = buildNextConversation(currentConversation);
-    if (nextConversation && nextConversation !== currentConversation) {
-      this.applyConversationSnapshot(conversationId, nextConversation);
-      this.adoptOwnerStreamLocalBase(conversationId, nextConversation);
-    }
   }
 
   private publishOwnerActionConversationMutation(
@@ -8719,9 +8743,9 @@ export class CodexAppServerManager {
     options: { notifyMode?: ConversationNotifyMode } = {},
   ): number | null {
     const role = this.streamState.getRole(conversationId);
-    const acceptedRevision = this.streamState.getRevision(conversationId);
+    const acceptedCheckpoint = this.streamState.getCheckpoint(conversationId);
     const currentConversation = this.conversationsById.get(conversationId);
-    if (!currentConversation || !role || role.role !== "owner" || typeof acceptedRevision !== "number") {
+    if (!currentConversation || !role || role.role !== "owner" || !acceptedCheckpoint) {
       this.handleOwnerReducerUnavailable(conversationId);
       return null;
     }
@@ -8742,16 +8766,15 @@ export class CodexAppServerManager {
         undefined,
         options.notifyMode ?? "default",
       );
-      this.adoptOwnerStreamLocalBase(conversationId, nextConversation);
-      return acceptedRevision;
+      return acceptedCheckpoint.revision;
     }
 
     const cursor = this.ensureOwnerStreamPublishCursor(
       conversationId,
-      acceptedRevision,
+      acceptedCheckpoint,
       currentConversation,
     );
-    const streamRevision = cursor.acceptedRevision + (cursor.inFlight ? 2 : 1);
+    const streamRevision = cursor.acceptedCheckpoint.revision + (cursor.inFlight ? 2 : 1);
     this.applyConversationSnapshot(
       conversationId,
       nextConversation,
@@ -8773,68 +8796,60 @@ export class CodexAppServerManager {
 
   private async dispatchOwnerStreamPatches(
     conversationId: string,
-    baseRevision: number,
-    revision: number,
+    baseCheckpoint: CodexThreadStreamCheckpoint,
+    checkpoint: CodexThreadStreamCheckpoint,
     patches: OwnerStreamPublishPatches,
     ownerNotificationSequence?: number,
-  ): Promise<boolean> {
+  ): Promise<CodexThreadOwnerStreamStatePublishResult> {
     try {
-      const accepted = (await invoke("codex:thread-owner:stream-state:publish", {
+      const result = await invoke("codex:thread-owner:stream-state:publish", {
         conversationId,
         change: {
           type: "patches",
-          baseRevision,
-          revision,
+          baseRevision: baseCheckpoint.revision,
+          revision: checkpoint.revision,
           patches,
         },
+        baseCheckpoint,
+        checkpoint,
         ownerNotificationSequence,
-      })) as boolean;
-      return accepted === true;
+      }) as CodexThreadOwnerStreamStatePublishResult | boolean;
+      if (result === true) return { accepted: true, checkpoint };
+      if (result === false) {
+        return { accepted: false, reason: "base-checkpoint-mismatch", recovery: null };
+      }
+      return result;
     } catch {
-      return false;
+      return { accepted: false, reason: "not-owner", recovery: null };
     }
   }
 
   private async dispatchOwnerStreamSnapshot(
     conversationId: string,
-    revision: number,
+    baseCheckpoint: CodexThreadStreamCheckpoint,
+    checkpoint: CodexThreadStreamCheckpoint,
     conversation: CodexConversationSnapshot,
     ownerNotificationSequence?: number,
-  ): Promise<boolean> {
+  ): Promise<CodexThreadOwnerStreamStatePublishResult> {
     try {
-      const accepted = (await invoke("codex:thread-owner:stream-state:publish", {
+      const result = await invoke("codex:thread-owner:stream-state:publish", {
         conversationId,
         change: {
           type: "snapshot",
-          revision,
+          revision: checkpoint.revision,
           conversationState: toSharedConversationDocument(conversation),
         },
+        baseCheckpoint,
+        checkpoint,
         ownerNotificationSequence,
-      })) as boolean;
-      return accepted === true;
+      }) as CodexThreadOwnerStreamStatePublishResult | boolean;
+      if (result === true) return { accepted: true, checkpoint };
+      if (result === false) {
+        return { accepted: false, reason: "base-checkpoint-mismatch", recovery: null };
+      }
+      return result;
     } catch {
-      return false;
-    }
-  }
-
-  private async dispatchOwnerStreamRecoverySnapshot(
-    conversationId: string,
-    revision: number,
-    conversation: CodexConversationSnapshot,
-  ): Promise<boolean> {
-    try {
-      const accepted = (await invoke("codex:thread-owner:stream-state:publish", {
-        conversationId,
-        change: {
-          type: "snapshot",
-          revision,
-          conversationState: toSharedConversationDocument(conversation),
-        },
-        broadcastPatchesToFollowers: false,
-      })) as boolean;
-      return accepted === true;
-    } catch {
-      return false;
+      return { accepted: false, reason: "not-owner", recovery: null };
     }
   }
 
@@ -8951,19 +8966,45 @@ export class CodexAppServerManager {
         hasUnreadTurn: state.sidecar.hasUnreadTurn,
       };
 
-      this.applyConversationSnapshot(conversationId, nextConversation);
-      this.adoptOwnerStreamLocalBase(conversationId, nextConversation);
-      void this.ackOwnerNotification(conversationId, completedOwnerSequences);
+      this.publishOwnerConversationMutation(
+        conversationId,
+        completedOwnerSequences,
+        () => nextConversation,
+      );
     }
+  }
+
+  private requestOwnerFollowerStreamResync(
+    conversationId: string,
+    ownerClientId: string,
+    reason: CodexThreadStreamResyncRequestInput["reason"],
+  ): void {
+    if (this.resyncInFlight.has(conversationId)) return;
+    this.resyncInFlight.add(conversationId);
+    void invoke("codex:thread:stream-resync:request", {
+      conversationId,
+      ownerClientId,
+      observedCheckpoint: this.streamState.getCheckpoint(conversationId),
+      reason,
+    }).finally(() => {
+      this.resyncInFlight.delete(conversationId);
+    });
+  }
+
+  private acknowledgeOwnerFollowerSnapshot(
+    conversationId: string,
+    ownerClientId: string,
+    checkpoint: CodexThreadStreamCheckpoint,
+  ): void {
+    void invoke("codex:thread-follower:snapshot-applied", {
+      conversationId,
+      ownerClientId,
+      checkpoint,
+    });
   }
 
   private handleThreadStreamStateChanged(event: CodexThreadStreamStateChangedEvent): void {
     if (event.hostId !== this.hostId) {
-      return;
-    }
-
-    const currentVersion = this.conversationVersionById.get(event.conversationId) ?? 0;
-    if (event.version <= currentVersion) {
       return;
     }
 
@@ -8973,53 +9014,159 @@ export class CodexAppServerManager {
     if (existingRole?.role === "owner") {
       return;
     }
+    const checkpoint = event.checkpoint;
+    if (!checkpoint || checkpoint.revision !== event.change.revision) {
+      this.requestOwnerFollowerStreamResync(
+        event.conversationId,
+        existingRole?.role === "follower" ? existingRole.ownerClientId : sourceClientId,
+        "missing-snapshot",
+      );
+      return;
+    }
     if (event.change.type === "snapshot") {
+      if (
+        hashCodexConversationReplica(event.change.conversationState)
+        !== checkpoint.canonicalHash
+      ) {
+        this.requestOwnerFollowerStreamResync(
+          event.conversationId,
+          sourceClientId,
+          "checkpoint-hash-mismatch",
+        );
+        return;
+      }
+      const decision = this.streamState.acceptSnapshot({
+        conversationId: event.conversationId,
+        checkpoint,
+        sourceClientId,
+      });
+      if (decision.type === "resync") {
+        this.requestOwnerFollowerStreamResync(
+          event.conversationId,
+          existingRole?.role === "follower" ? existingRole.ownerClientId : sourceClientId,
+          decision.reason,
+        );
+        return;
+      }
+      if (decision.type === "drop") return;
       this.ownerStreamPublishCursorsByConversationId.delete(event.conversationId);
+      this.followerAcceptedReplicasByConversationId.set(
+        event.conversationId,
+        event.change.conversationState,
+      );
       const materialized = materializeOwnerCanonicalConversationSnapshot(
         event.change.conversationState,
       );
-      this.applyConversationSnapshot(event.conversationId, materialized, event.version);
-      this.streamState.acceptSnapshot({
-        conversationId: event.conversationId,
-        revision: event.change.revision,
+      this.applyConversationSnapshot(event.conversationId, materialized);
+      this.conversationVersionById.set(
+        event.conversationId,
+        Math.max(
+          event.version,
+          this.conversationVersionById.get(event.conversationId) ?? 0,
+        ),
+      );
+      this.acknowledgeOwnerFollowerSnapshot(
+        event.conversationId,
         sourceClientId,
-      });
+        checkpoint,
+      );
       return;
     }
 
+    const baseCheckpoint = event.baseCheckpoint;
+    if (
+      !baseCheckpoint
+      || baseCheckpoint.revision !== event.change.baseRevision
+      || checkpoint.revision !== event.change.revision
+    ) {
+      this.requestOwnerFollowerStreamResync(
+        event.conversationId,
+        existingRole?.role === "follower" ? existingRole.ownerClientId : sourceClientId,
+        "revision-gap",
+      );
+      return;
+    }
     const patchDecision = this.streamState.evaluatePatch({
       conversationId: event.conversationId,
-      baseRevision: event.change.baseRevision,
+      baseCheckpoint,
+      checkpoint,
       sourceClientId,
     });
-    if (patchDecision.type !== "apply") {
+    if (patchDecision.type === "resync") {
+      this.requestOwnerFollowerStreamResync(
+        event.conversationId,
+        existingRole?.role === "follower" ? existingRole.ownerClientId : sourceClientId,
+        patchDecision.reason,
+      );
+      return;
+    }
+    if (patchDecision.type === "drop") {
       return;
     }
 
-    const currentConversation = this.conversationsById.get(event.conversationId);
-    if (!currentConversation) {
+    const currentReplica = this.followerAcceptedReplicasByConversationId.get(
+      event.conversationId,
+    );
+    if (!currentReplica) {
+      this.requestOwnerFollowerStreamResync(
+        event.conversationId,
+        sourceClientId,
+        "missing-snapshot",
+      );
       return;
     }
 
     try {
-      const nextConversation = applyCodexConversationStateUpdates(
-        currentConversation,
+      const nextReplica = applyCodexConversationStateUpdates(
+        currentReplica,
         event.change.patches,
       );
+      if (hashCodexConversationReplica(nextReplica) !== checkpoint.canonicalHash) {
+        this.requestOwnerFollowerStreamResync(
+          event.conversationId,
+          sourceClientId,
+          "checkpoint-hash-mismatch",
+        );
+        return;
+      }
+      this.followerAcceptedReplicasByConversationId.set(
+        event.conversationId,
+        nextReplica,
+      );
+      const currentPresentation = this.conversationsById.get(event.conversationId);
+      const materialized = materializeOwnerCanonicalConversationSnapshot(nextReplica);
+      const nextConversation = currentPresentation
+        ? applyStandaloneUnreadStateToSnapshot(
+            materialized,
+            currentPresentation.hasUnreadTurn === true,
+          )
+        : materialized;
       this.applyConversationSnapshot(
         event.conversationId,
         nextConversation,
-        event.version,
+        undefined,
         shouldSynchronouslyNotifyStreamingProsePatch(nextConversation, event.change.patches)
           ? "sync"
           : "default",
       );
       this.streamState.acceptPatch({
         conversationId: event.conversationId,
-        revision: event.change.revision,
+        checkpoint,
         sourceClientId,
       });
+      this.conversationVersionById.set(
+        event.conversationId,
+        Math.max(
+          event.version,
+          this.conversationVersionById.get(event.conversationId) ?? 0,
+        ),
+      );
     } catch {
+      this.requestOwnerFollowerStreamResync(
+        event.conversationId,
+        sourceClientId,
+        "patch-apply-failed",
+      );
     }
   }
 
@@ -9235,6 +9382,7 @@ export class CodexAppServerManager {
 
     this.threadSummariesById.delete(normalizedThreadId);
     this.conversationsById.delete(normalizedThreadId);
+    this.followerAcceptedReplicasByConversationId.delete(normalizedThreadId);
     this.ownerHiddenLifecycleItemTypesByConversationId.delete(normalizedThreadId);
     this.primaryConversationRequestByThread.delete(normalizedThreadId);
     this.conversationVersionById.delete(normalizedThreadId);
