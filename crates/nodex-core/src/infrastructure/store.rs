@@ -9,6 +9,8 @@ use super::legacy_migration::migrate_legacy_profile_if_needed_with_observer;
 use super::migration::{
     StorePreparation, StorePreparationEvent, prepare_profile_store_with_observer,
 };
+#[cfg(test)]
+use super::schema::CORE_SCHEMA_VERSION;
 use super::sqlite::{StoreError, StoreErrorCode, open_writer};
 use super::store_lock::ProfileStoreLock;
 use super::store_replacement::recover_interrupted_store_replacement;
@@ -30,6 +32,26 @@ pub struct SqliteStoreKernel {
 impl SqliteStoreKernel {
     pub fn open(profile_home: &Path) -> Result<Self, StoreError> {
         Self::open_with_observer(profile_home, |_| {})
+    }
+
+    #[cfg(test)]
+    pub fn open_test(profile_home: &Path) -> Result<Self, StoreError> {
+        let lock = ProfileStoreLock::acquire(profile_home)?;
+        let database_path = profile_home.join(STORE_FILE_NAME);
+        let mut connection = open_writer(&database_path)?;
+        super::migration::prepare_test_current_store(&mut connection, profile_home)?;
+        drop(connection);
+        Self::start_runtime(
+            database_path,
+            StorePreparation {
+                schema_version: CORE_SCHEMA_VERSION,
+                created_fresh: false,
+                migrated_from_version: None,
+                migration_backup_path: None,
+                validated_yjs_documents: 0,
+            },
+            lock,
+        )
     }
 
     pub fn open_with_observer(
@@ -62,6 +84,14 @@ impl SqliteStoreKernel {
         validate_local_commit_index(&migration_connection)?;
         drop(migration_connection);
 
+        Self::start_runtime(database_path, preparation, lock)
+    }
+
+    fn start_runtime(
+        database_path: PathBuf,
+        preparation: StorePreparation,
+        lock: ProfileStoreLock,
+    ) -> Result<Self, StoreError> {
         let runtime = StoreRuntime::start(
             &database_path,
             DEFAULT_WRITER_QUEUE_CAPACITY,
@@ -106,5 +136,44 @@ impl SqliteStoreKernel {
 
     pub(crate) fn document_runtime_cache(&self) -> Arc<Mutex<DocumentRuntimeCache>> {
         Arc::clone(&self.document_runtime_cache)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use tempfile::tempdir;
+
+    use super::*;
+
+    #[test]
+    fn test_store_template_remints_profile_secrets() {
+        let first_home = tempdir().expect("first Profile");
+        let second_home = tempdir().expect("second Profile");
+        let first = SqliteStoreKernel::open_test(first_home.path()).expect("first test Store");
+        let second = SqliteStoreKernel::open_test(second_home.path()).expect("second test Store");
+
+        let first_secrets = read_profile_secrets(&first);
+        let second_secrets = read_profile_secrets(&second);
+
+        assert_ne!(first_secrets.0, second_secrets.0);
+        assert_ne!(first_secrets.1, second_secrets.1);
+    }
+
+    fn read_profile_secrets(kernel: &SqliteStoreKernel) -> (Vec<u8>, String) {
+        kernel
+            .readers()
+            .read_default(|connection| {
+                connection
+                    .query_row(
+                        "SELECT token.key_material, runtime.jitter_salt \
+                         FROM nodex_agent_token_keys token \
+                         CROSS JOIN core_automation_runtime_metadata runtime \
+                         WHERE token.id = 1 AND runtime.id = 1",
+                        [],
+                        |row| Ok((row.get(0)?, row.get(1)?)),
+                    )
+                    .map_err(StoreError::from)
+            })
+            .expect("profile secrets")
     }
 }

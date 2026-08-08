@@ -13,7 +13,8 @@ import {
   parseDatabaseViewId,
 } from "../../../shared/database-identities";
 import type { LibraryDatabaseNavigationNode } from "../../../shared/library-module";
-import { getHeaderShellSlot, getLastThreadStageActions, getPanelTabById, installShellBodyMeasurementForTest, installTerminalEventApiMock, invokeCalls, makeAttachedSession, makeBlankSession, makePanelLayout, makeProject, makeScheduledAutomation, makeSession, makeSessionTab, mockInvokeImpl, mockThreadStartProgress, renderWorkbench, setMockConversationHasVisibleTurn, setMockInvokeImpl, setMockThreadStartProgress } from "./workbench-testkit/workbench-shell-harness";
+import { makeAttachedSession, makeBlankSession, makePanelLayout, makeProject, makeScheduledAutomation, makeSession, makeSessionTab } from "./workbench-testkit/workbench-shell-fixtures";
+import { getHeaderShellSlot, getLastThreadStageActions, getPanelTabById, installShellBodyMeasurementForTest, installTerminalEventApiMock, invokeCalls, mockInvokeImpl, mockThreadStartProgress, renderWorkbench, setMockConversationHasVisibleTurn, setMockInvokeImpl, setMockThreadStartProgress } from "./workbench-testkit/workbench-shell-harness";
 
 const standaloneTasksDatabase: LibraryDatabaseNavigationNode = {
   kind: "database",

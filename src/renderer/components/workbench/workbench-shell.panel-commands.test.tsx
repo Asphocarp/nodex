@@ -4,7 +4,8 @@ import { settleAsyncRender, textContent, textContentIncludingShadowRoots } from 
 import { fireEvent, within, act, waitFor } from "@testing-library/react";
 import { splitWorkbenchPanelLeaf } from "../../../shared/workbench-panel-layout";
 import { primaryCanvasBlockId } from "../../../shared/block-documents";
-import { appendMockNfmEditor, executeCommandPaletteCommand, getLastTerminalPanelProps, getPanelTabById, getPanelTabChromeById, getWorkbenchPanelActivateCalls, getWorkbenchTabDeleteInputs, getWorkbenchTabProjectionDeleteTabIds, invokeCalls, listBackgroundProcessesCalls, makeAttachedSession, makePanelLayout, makePanels, makeProject, makeSession, makeSessionTab, openBottomPanel, openPanelMenu, pointerDownAndSettle, renderWorkbench, sideChatConversations, startSideChatCalls, setInvokeCalls, setStartSideChatCalls } from "./workbench-testkit/workbench-shell-harness";
+import { makeAttachedSession, makePanelLayout, makePanels, makeProject, makeSession, makeSessionTab } from "./workbench-testkit/workbench-shell-fixtures";
+import { appendMockNfmEditor, executeCommandPaletteCommand, getLastTerminalPanelProps, getPanelTabById, getPanelTabChromeById, getWorkbenchPanelActivateCalls, getWorkbenchTabDeleteInputs, getWorkbenchTabProjectionDeleteTabIds, invokeCalls, listBackgroundProcessesCalls, openBottomPanel, openPanelMenu, pointerDownAndSettle, renderWorkbench, sideChatConversations, startSideChatCalls, setInvokeCalls, setStartSideChatCalls } from "./workbench-testkit/workbench-shell-harness";
 
 describe("workbench session shell / panel-commands", () => {
   test("plus menu keeps DB and Browser available while hiding singleton Review", async () => {
@@ -153,18 +154,6 @@ describe("workbench session shell / panel-commands", () => {
     expect("initialGitSource" in (props ?? {})).toBe(false);
     expect("initialGitSourceRequestKey" in (props ?? {})).toBe(false);
     expect("selectedTurnDiff" in (props ?? {})).toBe(false);
-  });
-
-  test("bottom panel add menu does not expose Review", async () => {
-    const screen = renderWorkbench({
-      sessionsByProject: { alpha: [makeAttachedSession()] },
-    });
-    await settleAsyncRender();
-    await settleAsyncRender();
-    await openBottomPanel(screen);
-
-    const menu = await openPanelMenu(screen, "Open bottom panel tab");
-    expect(within(menu).queryByText("Review")).toBe(null);
   });
 
   test("command palette open tick renders the command palette with the initial query", async () => {

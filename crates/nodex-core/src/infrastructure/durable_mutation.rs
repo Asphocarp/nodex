@@ -711,7 +711,7 @@ mod tests {
     #[test]
     fn same_operation_and_intent_replays_the_original_manifest_without_reapplying() {
         let directory = tempdir().expect("temporary Profile");
-        let kernel = SqliteStoreKernel::open(directory.path()).expect("Core store");
+        let kernel = SqliteStoreKernel::open_test(directory.path()).expect("Core store");
         let executions = AtomicUsize::new(0);
         kernel
             .writer()
@@ -764,7 +764,7 @@ mod tests {
     #[test]
     fn intent_collision_fails_closed_and_failed_closure_rolls_back_all_evidence() {
         let directory = tempdir().expect("temporary Profile");
-        let kernel = SqliteStoreKernel::open(directory.path()).expect("Core store");
+        let kernel = SqliteStoreKernel::open_test(directory.path()).expect("Core store");
         kernel
             .writer()
             .call(|connection| {

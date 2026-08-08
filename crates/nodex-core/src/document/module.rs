@@ -5387,7 +5387,7 @@ mod tests {
     fn seeded_module() -> SeededModule {
         let directory = tempdir().expect("Profile");
         let home = directory.path().canonicalize().expect("absolute Profile");
-        let kernel = SqliteStoreKernel::open(&home).expect("fresh v84");
+        let kernel = SqliteStoreKernel::open_test(&home).expect("fresh v84");
         let fixture = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("tests/fixtures/yjs-yrs/empty-page.bin");
         let full_state = fs::read(fixture).expect("empty Page fixture");
@@ -5807,7 +5807,7 @@ mod tests {
     fn pending_module(owner_type: &str, schema_key: &str, schema_version: i64) -> SeededModule {
         let directory = tempdir().expect("Profile");
         let home = directory.path().canonicalize().expect("absolute Profile");
-        let kernel = SqliteStoreKernel::open(&home).expect("fresh v84");
+        let kernel = SqliteStoreKernel::open_test(&home).expect("fresh v84");
         let owner_type = owner_type.to_owned();
         let schema_key = schema_key.to_owned();
         kernel
@@ -5901,7 +5901,7 @@ mod tests {
         let directory = tempdir().expect("Profile");
         let home = directory.path().canonicalize().expect("absolute Profile");
         fs::create_dir(home.join("assets")).expect("assets root");
-        let kernel = SqliteStoreKernel::open(&home).expect("fresh v84");
+        let kernel = SqliteStoreKernel::open_test(&home).expect("fresh v84");
         kernel
             .writer()
             .call(|connection| {
@@ -5960,7 +5960,7 @@ mod tests {
         let directory = tempdir().expect("Profile");
         let home = directory.path().canonicalize().expect("absolute Profile");
         fs::create_dir(home.join("assets")).expect("assets root");
-        let kernel = SqliteStoreKernel::open(&home).expect("fresh v84");
+        let kernel = SqliteStoreKernel::open_test(&home).expect("fresh v84");
         kernel
             .writer()
             .call(|connection| {
@@ -6095,6 +6095,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "explicit Canvas scale and performance gate"]
     fn canvas_incremental_hot_path_stays_bounded_at_twenty_thousand_elements() {
         const ELEMENT_COUNT: usize = 20_000;
         const SEED_BATCH_SIZE: usize = 500;

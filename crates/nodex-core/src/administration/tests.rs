@@ -48,7 +48,7 @@ impl Fixture {
         hook: impl Fn(&str) -> Result<(), StoreError> + Send + Sync + 'static,
     ) -> Self {
         let home = tempfile::tempdir().expect("Profile home");
-        let kernel = SqliteStoreKernel::open(home.path()).expect("fresh store");
+        let kernel = SqliteStoreKernel::open_test(home.path()).expect("fresh store");
         kernel
             .writer()
             .call(|connection| {

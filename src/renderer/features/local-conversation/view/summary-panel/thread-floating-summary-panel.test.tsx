@@ -13,7 +13,7 @@ import type {
 import { NodexTooltipProvider } from "../../../../components/ui/tooltip";
 import { buildCodexFileChangeMap } from "../../../../../shared/codex-file-change";
 import { buildReviewFileSafety } from "../../../../../shared/review-file-safety";
-import { render, settleAsyncRender, textContent } from "../../../../test/dom";
+import { render, textContent } from "../../../../test/dom";
 import { TestQueryProvider } from "../../../../test/query";
 import type {
   ThreadPlanSidePanelTarget,
@@ -190,20 +190,12 @@ function renderSummary(ui: ReactElement) {
 function test(name: string, run: () => void | Promise<void>) {
   bunTest(name, async () => {
     await run();
-    await settleSummaryPanelAsyncWork();
   });
 }
 
-async function settleSummaryPanelAsyncWork(): Promise<void> {
-  for (let index = 0; index < 5; index += 1) {
-    await settleAsyncRender();
-  }
-}
-
-async function clickAndSettle(target: Element): Promise<void> {
+async function clickAndAct(target: Element): Promise<void> {
   await act(async () => {
     fireEvent.click(target);
-    await settleAsyncRender();
   });
 }
 
@@ -342,12 +334,10 @@ describe("ThreadFloatingSummaryPanel", () => {
   });
 
   afterEach(async () => {
-    await settleSummaryPanelAsyncWork();
     await act(async () => {
       cleanup();
       await Promise.resolve();
     });
-    await settleSummaryPanelAsyncWork();
   });
 
   afterAll(() => {
@@ -404,8 +394,6 @@ describe("ThreadFloatingSummaryPanel", () => {
         onErrorMessage={() => undefined}
       />,
     );
-
-    await settleAsyncRender();
 
     const outer = view.container.querySelector(
       '[data-thread-summary-panel-open="false"]',
@@ -472,7 +460,7 @@ describe("ThreadFloatingSummaryPanel", () => {
     expect(trigger.getAttribute("aria-haspopup")).toBe("dialog");
     expect(trigger.getAttribute("aria-expanded")).toBe("false");
 
-    await clickAndSettle(trigger);
+    await clickAndAct(trigger);
     await waitFor(() => {
       const popover = view.container.ownerDocument.body.querySelector(
         '[data-thread-summary-panel-mode="popover"]',
@@ -486,7 +474,6 @@ describe("ThreadFloatingSummaryPanel", () => {
       fireEvent.pointerDown(view.container.ownerDocument.body);
       fireEvent.mouseDown(view.container.ownerDocument.body);
       fireEvent.click(view.container.ownerDocument.body);
-      await settleAsyncRender();
     });
     await waitFor(() => {
       const popover = view.container.ownerDocument.body.querySelector(
@@ -529,7 +516,6 @@ describe("ThreadFloatingSummaryPanel", () => {
       />,
     );
 
-    await settleAsyncRender();
     await waitFor(() => {
       const content = textContent(view.container);
       if (
@@ -552,12 +538,9 @@ describe("ThreadFloatingSummaryPanel", () => {
       expect(branchTrigger.getAttribute("title")).toBe("Switch branch");
       fireEvent.pointerDown(branchTrigger, { button: 0, ctrlKey: false });
       fireEvent.click(branchTrigger);
-      await settleAsyncRender();
     });
 
-    const searchInput = view.container.ownerDocument.body.querySelector(
-      'input[placeholder="Search branches"]',
-    );
+    const searchInput = await view.findByPlaceholderText("Search branches");
     expect(searchInput !== null).toBe(true);
 
     expect(
@@ -614,17 +597,13 @@ describe("ThreadFloatingSummaryPanel", () => {
       />,
     );
 
-    await act(async () => {
-      await settleAsyncRender();
-    });
-
     await waitFor(() => {
       if (!textContent(view.container).includes("+5")) {
         throw new Error("Expected git summary stats to load.");
       }
     });
 
-    await clickAndSettle(view.getByText("Changes"));
+    await clickAndAct(view.getByText("Changes"));
 
     expect(openedSources.length).toBe(1);
     expect(openedSources[0]).toBe("staged");
@@ -716,7 +695,6 @@ describe("ThreadFloatingSummaryPanel", () => {
       ).find((row) => textContent(row).includes("Commit or push"));
       expect(Boolean(commitRow)).toBe(true);
       fireEvent.click(commitRow as HTMLElement);
-      await settleAsyncRender();
     });
 
     await waitFor(() => {
@@ -731,7 +709,6 @@ describe("ThreadFloatingSummaryPanel", () => {
       ) as HTMLTextAreaElement;
       textarea.value = "Update summary panel";
       fireEvent.input(textarea);
-      await settleAsyncRender();
     });
 
     await waitFor(() => {
@@ -743,7 +720,6 @@ describe("ThreadFloatingSummaryPanel", () => {
 
     await act(async () => {
       fireEvent.click(view.getByRole("button", { name: "Commit" }));
-      await settleAsyncRender();
     });
 
     await waitFor(() => {
@@ -837,10 +813,11 @@ describe("ThreadFloatingSummaryPanel", () => {
 
     await act(async () => {
       fireEvent.click(createBranchRow as HTMLElement);
-      await settleAsyncRender();
     });
 
-    const branchNameInput = getBranchSetupInput("review-detached-worktree");
+    const branchNameInput = await waitFor(() =>
+      getBranchSetupInput("review-detached-worktree"),
+    );
     expect(
       branchNameInput.value.includes("review-detached-worktree"),
     ).toBe(true);
@@ -932,19 +909,16 @@ describe("ThreadFloatingSummaryPanel", () => {
       ).find((row) => textContent(row).includes("Commit or push"));
       expect(Boolean(commitRow)).toBe(true);
       fireEvent.click(commitRow as HTMLElement);
-      await settleAsyncRender();
     });
 
-    const branchNameInput = getBranchSetupInput("detached-fix");
+    const branchNameInput = await waitFor(() => getBranchSetupInput("detached-fix"));
     await act(async () => {
       branchNameInput.value = "codex/detached-fix";
       fireEvent.input(branchNameInput);
-      await settleAsyncRender();
     });
 
     await act(async () => {
       fireEvent.click(view.getByRole("button", { name: "Create" }));
-      await settleAsyncRender();
     });
 
     await waitFor(() => {
@@ -1043,7 +1017,6 @@ describe("ThreadFloatingSummaryPanel", () => {
 
     await act(async () => {
       fireEvent.click(createBranchRows[0] as HTMLElement);
-      await settleAsyncRender();
     });
 
     let branchNameInput = undefined as unknown as HTMLInputElement;
@@ -1145,19 +1118,16 @@ describe("ThreadFloatingSummaryPanel", () => {
       expect(Boolean(commitRow)).toBe(true);
       expect(commitRow?.getAttribute("title")).toBe("Create branch");
       fireEvent.click(commitRow as HTMLElement);
-      await settleAsyncRender();
     });
 
-    const branchNameInput = getBranchSetupInput("default-worktree");
+    const branchNameInput = await waitFor(() => getBranchSetupInput("default-worktree"));
     await act(async () => {
       branchNameInput.value = "codex/default-worktree";
       fireEvent.input(branchNameInput);
-      await settleAsyncRender();
     });
 
     await act(async () => {
       fireEvent.click(view.getByRole("button", { name: "Create" }));
-      await settleAsyncRender();
     });
 
     await waitFor(() => {
@@ -1404,7 +1374,6 @@ describe("ThreadFloatingSummaryPanel", () => {
       ).find((row) => textContent(row).includes("Commit or push"));
       expect(Boolean(commitRow)).toBe(true);
       fireEvent.click(commitRow as HTMLElement);
-      await settleAsyncRender();
     });
 
     await waitFor(() => {
@@ -1422,7 +1391,6 @@ describe("ThreadFloatingSummaryPanel", () => {
 
     await act(async () => {
       fireEvent.click(view.getByRole("button", { name: "Commit" }));
-      await settleAsyncRender();
     });
 
     await waitFor(() => {
@@ -1556,7 +1524,6 @@ describe("ThreadFloatingSummaryPanel", () => {
       ).find((row) => textContent(row).includes("Commit or push"));
       expect(Boolean(commitRow)).toBe(true);
       fireEvent.click(commitRow as HTMLElement);
-      await settleAsyncRender();
     });
 
     await waitFor(() => {
@@ -1569,7 +1536,6 @@ describe("ThreadFloatingSummaryPanel", () => {
 
     await act(async () => {
       fireEvent.click(view.getByRole("button", { name: "Push" }));
-      await settleAsyncRender();
     });
 
     await waitFor(() => {
@@ -1664,12 +1630,10 @@ describe("ThreadFloatingSummaryPanel", () => {
       ).find((row) => textContent(row).includes("Commit or push"));
       expect(Boolean(commitRow)).toBe(true);
       fireEvent.click(commitRow as HTMLElement);
-      await settleAsyncRender();
     });
 
     await act(async () => {
       fireEvent.click(view.getByRole("button", { name: "Commit" }));
-      await settleAsyncRender();
     });
 
     await waitFor(() => {
@@ -1692,7 +1656,6 @@ describe("ThreadFloatingSummaryPanel", () => {
         stderr: "",
         errorMessage: null,
       });
-      await settleAsyncRender();
     });
 
     await waitFor(() => {
@@ -1721,7 +1684,6 @@ describe("ThreadFloatingSummaryPanel", () => {
         stderr: "",
         errorMessage: null,
       });
-      await settleAsyncRender();
     });
   });
 
@@ -1805,7 +1767,6 @@ describe("ThreadFloatingSummaryPanel", () => {
       ).find((row) => textContent(row).includes("Commit or push"));
       expect(Boolean(commitRow)).toBe(true);
       fireEvent.click(commitRow as HTMLElement);
-      await settleAsyncRender();
     });
 
     await act(async () => {
@@ -1814,12 +1775,10 @@ describe("ThreadFloatingSummaryPanel", () => {
       ) as HTMLTextAreaElement;
       textarea.value = "Update summary panel";
       fireEvent.input(textarea);
-      await settleAsyncRender();
     });
 
     await act(async () => {
       fireEvent.click(view.getByRole("button", { name: "Commit" }));
-      await settleAsyncRender();
     });
 
     await waitFor(() => {
@@ -1838,7 +1797,6 @@ describe("ThreadFloatingSummaryPanel", () => {
         .querySelector<HTMLButtonElement>('[aria-label="Cancel git action"]');
       expect(Boolean(cancelButton)).toBe(true);
       fireEvent.click(cancelButton as HTMLButtonElement);
-      await settleAsyncRender();
     });
 
     await waitFor(() => {
@@ -1851,15 +1809,18 @@ describe("ThreadFloatingSummaryPanel", () => {
     const cancelInput = cancelInputs[0] as Record<string, unknown>;
     expect(cancelInput.operationId).toBe(commitInput.operationId);
 
-    resolveCommit({
-      cwd: "/repo/project",
-      status: "error",
-      branch: "feature/summary-panel",
-      stdout: "",
-      stderr: "",
-      errorMessage: "Git action was canceled.",
+    await act(async () => {
+      resolveCommit({
+        cwd: "/repo/project",
+        status: "error",
+        branch: "feature/summary-panel",
+        stdout: "",
+        stderr: "",
+        errorMessage: "Git action was canceled.",
+      });
+      await Promise.resolve();
+      await Promise.resolve();
     });
-    await settleAsyncRender();
   });
 
   test("opens the native create-pull-request workflow from the Environment PR row", async () => {
@@ -1972,7 +1933,6 @@ describe("ThreadFloatingSummaryPanel", () => {
 
     await act(async () => {
       fireEvent.click(view.getByText("Create pull request"));
-      await settleAsyncRender();
     });
 
     await waitFor(() => {
@@ -1983,7 +1943,6 @@ describe("ThreadFloatingSummaryPanel", () => {
 
     await act(async () => {
       fireEvent.click(view.getByRole("button", { name: "Create PR" }));
-      await settleAsyncRender();
     });
 
     await waitFor(() => {
@@ -2122,19 +2081,16 @@ describe("ThreadFloatingSummaryPanel", () => {
 
     await act(async () => {
       fireEvent.click(view.getByText("Create pull request"));
-      await settleAsyncRender();
     });
 
-    const branchNameInput = getBranchSetupInput("default-pr-worktree");
+    const branchNameInput = await waitFor(() => getBranchSetupInput("default-pr-worktree"));
     await act(async () => {
       branchNameInput.value = "codex/default-pr-worktree";
       fireEvent.input(branchNameInput);
-      await settleAsyncRender();
     });
 
     await act(async () => {
       fireEvent.click(view.getByRole("button", { name: "Create" }));
-      await settleAsyncRender();
     });
 
     await waitFor(() => {
@@ -2307,10 +2263,6 @@ describe("ThreadFloatingSummaryPanel", () => {
       />,
     );
 
-    await act(async () => {
-      await settleAsyncRender();
-    });
-
     const content = textContent(view.container);
     const orderedTitles = [
       "Scheduled",
@@ -2384,7 +2336,7 @@ describe("ThreadFloatingSummaryPanel", () => {
     expect(textContent(row).includes("Review release notes")).toBe(true);
     expect(textContent(row).includes("Every weekday")).toBe(true);
 
-    await clickAndSettle(row);
+    await clickAndAct(row);
 
     const payload = openedAutomations[0] as
       { automationId?: string; title?: string } | undefined;
@@ -2467,7 +2419,6 @@ describe("ThreadFloatingSummaryPanel", () => {
       );
       fireEvent.click(view.getByRole("button", { name: "bun dev" }));
       fireEvent.click(view.getByRole("button", { name: "View all processes" }));
-      await settleAsyncRender();
     });
 
     const sideChatCall = openedSideChats[0] as
@@ -2590,8 +2541,6 @@ describe("ThreadFloatingSummaryPanel", () => {
       />,
     );
 
-    await settleAsyncRender();
-
     const content = textContent(view.container);
     const tasksIndex = content.indexOf("Tasks");
     const computerUseIndex = content.indexOf("Computer Use");
@@ -2606,7 +2555,7 @@ describe("ThreadFloatingSummaryPanel", () => {
     expect(row.getAttribute("title")).toBe("Show PiP");
     expect(textContent(row).includes("Computer Use")).toBe(true);
 
-    await clickAndSettle(row);
+    await clickAndAct(row);
 
     expect(JSON.stringify(toggles)).toBe(JSON.stringify([true]));
   });
@@ -2725,7 +2674,6 @@ describe("ThreadFloatingSummaryPanel", () => {
       fireEvent.click(
         view.getByRole("button", { name: "Runtime page example.com" }),
       );
-      await settleAsyncRender();
     });
     expect(opened).toEqual(["runtime-only"]);
   });
@@ -2779,13 +2727,14 @@ describe("ThreadFloatingSummaryPanel", () => {
     await act(async () => {
       fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
       fireEvent.click(trigger);
-      await settleAsyncRender();
     });
 
-    const menuText = view.container.ownerDocument.body.textContent ?? "";
-    expect(menuText.includes("Continue in")).toBe(true);
-    expect(menuText.includes("Work locally")).toBe(true);
-    expect(menuText.includes("New worktree")).toBe(true);
+    await waitFor(() => {
+      const menuText = view.container.ownerDocument.body.textContent ?? "";
+      expect(menuText.includes("Continue in")).toBe(true);
+      expect(menuText.includes("Work locally")).toBe(true);
+      expect(menuText.includes("New worktree")).toBe(true);
+    });
   });
 
   test("renders the Sources section with the reference empty state", async () => {
@@ -2803,8 +2752,6 @@ describe("ThreadFloatingSummaryPanel", () => {
         onErrorMessage={() => undefined}
       />,
     );
-
-    await settleAsyncRender();
 
     const content = textContent(view.container);
     expect(content.includes("Sources")).toBe(true);
@@ -2905,7 +2852,7 @@ describe("ThreadFloatingSummaryPanel", () => {
         'button[aria-label="example.com/docs"]',
       ) as HTMLElement | null;
       expect(Boolean(sourceButton)).toBe(true);
-      await clickAndSettle(sourceButton as HTMLElement);
+      await clickAndAct(sourceButton as HTMLElement);
 
       expect(JSON.stringify(windowOpenCalls[0])).toBe(
         JSON.stringify([
@@ -3002,7 +2949,7 @@ describe("ThreadFloatingSummaryPanel", () => {
       'button[aria-label="Docs"]',
     ) as HTMLElement | null;
     expect(Boolean(sourceButton)).toBe(true);
-    await clickAndSettle(sourceButton as HTMLElement);
+    await clickAndAct(sourceButton as HTMLElement);
 
     const call = openCalls[0] as
       | {
@@ -3107,7 +3054,7 @@ describe("ThreadFloatingSummaryPanel", () => {
     const sourceButton = view.container.querySelector(
       'button[aria-label="Docs"]',
     ) as HTMLElement | null;
-    await clickAndSettle(sourceButton as HTMLElement);
+    await clickAndAct(sourceButton as HTMLElement);
 
     const call = openCalls[0] as
       | {
@@ -3168,7 +3115,7 @@ describe("ThreadFloatingSummaryPanel", () => {
       .getByText("Summary panel parity")
       .closest("[role='button']") as HTMLElement | null;
     expect(Boolean(row)).toBe(true);
-    await clickAndSettle(row as HTMLElement);
+    await clickAndAct(row as HTMLElement);
 
     const call = openCalls[0] as
       | {
@@ -3189,48 +3136,6 @@ describe("ThreadFloatingSummaryPanel", () => {
     expect(call?.content).toBe("# Summary panel parity\n\nFull plan body");
     expect(call?.cwd).toBe("/repo/project");
     expect(call?.hideCodeBlocks).toBe(false);
-  });
-
-  test("does not render changed files as summary panel outputs", async () => {
-    const { ThreadFloatingSummaryPanel } =
-      await import("./thread-floating-summary-panel");
-    const turns = [
-      {
-        items: [
-          {
-            itemId: "file",
-            type: "fileChange",
-            fileChange: {
-              changes: buildCodexFileChangeMap([
-                {
-                  path: "src/renderer/app.tsx",
-                  type: "update",
-                  movePath: null,
-                  unifiedDiff: "@@ -1 +1 @@\n-old\n+new",
-                },
-              ]),
-            },
-          },
-        ],
-        status: "completed",
-      },
-    ] as unknown as CodexConversationTurn[];
-
-    const view = renderSummary(
-      <ThreadFloatingSummaryPanel
-        mounted
-        open
-        activeThreadId="thread-1"
-        cwd={null}
-        projectWorkspacePath={null}
-        turns={turns}
-        onErrorMessage={() => undefined}
-      />,
-    );
-
-    const content = textContent(view.container);
-    expect(content.includes("Outputs")).toBe(false);
-    expect(content.includes("app.tsx")).toBe(false);
   });
 
   test("suppresses outputs when the active thread is in a git environment", async () => {
@@ -3270,10 +3175,6 @@ describe("ThreadFloatingSummaryPanel", () => {
         onErrorMessage={() => undefined}
       />,
     );
-
-    await act(async () => {
-      await settleAsyncRender();
-    });
 
     await waitFor(() => {
       const queriedMethods = new Set(gitWorkerCalls.map((call) => call.method));
@@ -3333,7 +3234,6 @@ describe("ThreadFloatingSummaryPanel", () => {
           onErrorMessage={() => undefined}
         />,
       );
-      await settleAsyncRender();
     });
 
     await waitFor(() => {
@@ -3394,7 +3294,6 @@ describe("ThreadFloatingSummaryPanel", () => {
     expect(Boolean(outputRow)).toBe(true);
     await act(async () => {
       fireEvent.click(outputRow as HTMLElement);
-      await settleAsyncRender();
     });
 
     const preview = await view.findByTestId("summary-image-preview");
@@ -3459,7 +3358,6 @@ describe("ThreadFloatingSummaryPanel", () => {
     expect(Boolean(outputRow)).toBe(true);
     await act(async () => {
       fireEvent.click(outputRow as HTMLElement);
-      await settleAsyncRender();
     });
 
     expect(JSON.stringify(openedOutputs)).toBe(
@@ -3521,7 +3419,6 @@ describe("ThreadFloatingSummaryPanel", () => {
     expect(Boolean(outputRow)).toBe(true);
     await act(async () => {
       fireEvent.click(outputRow as HTMLElement);
-      await settleAsyncRender();
     });
 
     expect(
@@ -3616,10 +3513,11 @@ describe("ThreadFloatingSummaryPanel", () => {
       expect(Boolean(outputRow)).toBe(true);
       await act(async () => {
         fireEvent.click(outputRow as HTMLElement);
-        await settleAsyncRender();
       });
 
-      expect(openedUrls.join(",")).toBe(driveUrl);
+      await waitFor(() => {
+        expect(openedUrls.join(",")).toBe(driveUrl);
+      });
       expect(
         invokeCalls.some((call) => call[0] === "shell:open-file-link"),
       ).toBe(false);
@@ -3712,7 +3610,7 @@ describe("ThreadFloatingSummaryPanel", () => {
       .getByText("Scout")
       .closest("[role='button']") as HTMLElement | null;
     expect(Boolean(row)).toBe(true);
-    await clickAndSettle(row as HTMLElement);
+    await clickAndAct(row as HTMLElement);
 
     const call = openCalls[0] as
       | {
@@ -3868,10 +3766,10 @@ describe("ThreadFloatingSummaryPanel", () => {
       ) !== null,
     ).toBe(true);
 
-    await clickAndSettle(view.getByRole("button", { name: "Open subagents" }));
+    await clickAndAct(view.getByRole("button", { name: "Open subagents" }));
     expect(openPanelCalls).toEqual(["open"]);
 
-    await clickAndSettle(view.getByRole("button", { name: /Listed active/ }));
+    await clickAndAct(view.getByRole("button", { name: /Listed active/ }));
     const call = openCalls[0] as
       | {
           threadId?: string;

@@ -152,6 +152,23 @@ Treat `CHANGELOG.md` as a required deliverable only for **release-note-worthy** 
 - If a check fails, first determine whether the current change caused it. Fix caused failures and rerun the failed and related targeted checks. For an unrelated or plausibly flaky failure, isolate or rerun it and report the evidence; do not expand scope to fix it without a demonstrated connection to the task.
 - In the handoff, list the checks that ran and briefly explain any intentionally skipped broader check when its omission might otherwise be surprising.
 
+### Electron HTML5 DnD E2E
+
+- The internal Block → Board native smoke must use the shared realistic
+  `page.mouse` helper in `tests/e2e/electron-smoke.spec.ts` and a real
+  `button[draggable="true"]` handle.
+- Do not replace it with `locator.drop`, synthetic `dragstart`, direct
+  `blocks:transfer`, or CDP `Input.dispatchDragEvent`; those exercise different
+  boundaries.
+- Do not use one-jump `dragTo` or invent another mouse path. Reuse the helper,
+  which waits for the hover-only handle, crosses the activation threshold,
+  moves in steps, and moves again inside the target to produce `dragover`.
+- If `dragstart` is missing, inspect the Playwright trace for handle remount,
+  hit target, draggable state, activation distance, and overlays before changing
+  frameworks or adding `Input.setInterceptDrags`.
+- Keep high-pressure and performance coverage on the direct typed transfer
+  boundary; those are convergence tests, not native DnD gesture tests.
+
 ## Commit and PR Expectations
 - Keep changes scoped and atomic.
 - For ordinary commits, use `<area>: <precise imperative summary>`. Do not default to Conventional Commits or type prefixes such as `feat:`, `fix:`, `chore:`, or `refactor:`.

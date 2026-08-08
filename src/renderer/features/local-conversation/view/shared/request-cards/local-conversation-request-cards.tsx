@@ -43,10 +43,14 @@ import {
   type RequestQuestionnaireDraft,
   type RequestQuestionnairePolicy,
 } from "./request-card-questionnaire-state";
+import {
+  canMoveUserInputFocusToOptionsFromOtherField,
+  resolveUserInputQuestionFocusTarget,
+  type UserInputFocusTarget,
+} from "./request-card-focus";
 
 type CodexUserInputQuestion = CodexUserInputRequest["questions"][number];
 const USER_INPUT_TEXTAREA_MAX_HEIGHT_PX = 160;
-type UserInputFocusTarget = "options" | "other" | "answer";
 
 const USER_INPUT_FOCUS_TARGET_ATTRIBUTE = "data-user-input-focus-target";
 
@@ -209,31 +213,6 @@ function resolveUserInputFocusTargetFromElement(element: Element | null): UserIn
   }
 
   return null;
-}
-
-export function resolveUserInputQuestionFocusTarget(
-  question: RequestComposerQuestion,
-  target: UserInputFocusTarget | null,
-): UserInputFocusTarget | null {
-  if (target === null) return null;
-
-  if (!question.options?.length) {
-    return "answer";
-  }
-
-  if (target === "other" || target === "answer") {
-    return "other";
-  }
-
-  return "options";
-}
-
-export function canMoveUserInputFocusToOptionsFromOtherField(
-  selectionStart: number | null,
-  selectionEnd: number | null,
-): boolean {
-  if (selectionStart === null || selectionEnd === null) return false;
-  return selectionStart === 0 && selectionEnd === 0;
 }
 
 function ArrowKeysIndicator({ visible, canGoUp, canGoDown }: { visible: boolean; canGoUp: boolean; canGoDown: boolean }) {

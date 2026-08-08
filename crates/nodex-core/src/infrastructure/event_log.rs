@@ -1188,7 +1188,7 @@ mod tests {
     #[test]
     fn ledger_append_canonicalizes_required_projection_impact() {
         let directory = tempdir().expect("temporary Profile");
-        let kernel = SqliteStoreKernel::open(directory.path()).expect("Core store");
+        let kernel = SqliteStoreKernel::open_test(directory.path()).expect("Core store");
         let encoded = kernel
             .writer()
             .call(|connection| {
@@ -1247,7 +1247,7 @@ mod tests {
     #[test]
     fn authorized_stream_boundaries_and_pages_use_epoch_indexes() {
         let directory = tempdir().expect("temporary Profile");
-        let kernel = SqliteStoreKernel::open(directory.path()).expect("Core store");
+        let kernel = SqliteStoreKernel::open_test(directory.path()).expect("Core store");
 
         kernel
             .readers()
@@ -1284,7 +1284,7 @@ mod tests {
     #[test]
     fn replays_typed_module_events_from_durable_change_log() {
         let directory = tempdir().expect("temporary Profile");
-        let kernel = SqliteStoreKernel::open(directory.path()).expect("Core store");
+        let kernel = SqliteStoreKernel::open_test(directory.path()).expect("Core store");
         kernel
             .writer()
             .call(|connection| {
@@ -1354,7 +1354,7 @@ mod tests {
     #[test]
     fn groups_multiple_physical_effects_into_one_semantic_local_commit() {
         let directory = tempdir().expect("temporary Profile");
-        let kernel = SqliteStoreKernel::open(directory.path()).expect("Core store");
+        let kernel = SqliteStoreKernel::open_test(directory.path()).expect("Core store");
         kernel
             .writer()
             .call(|connection| {
@@ -1408,7 +1408,7 @@ mod tests {
     #[test]
     fn rejects_tampered_local_commit_canonical_hash() {
         let directory = tempdir().expect("temporary Profile");
-        let kernel = SqliteStoreKernel::open(directory.path()).expect("Core store");
+        let kernel = SqliteStoreKernel::open_test(directory.path()).expect("Core store");
         kernel
             .writer()
             .call(|connection| {
@@ -1461,7 +1461,7 @@ mod tests {
     #[test]
     fn rejects_change_payload_bytes_that_diverge_from_effect_evidence() {
         let directory = tempdir().expect("temporary Profile");
-        let kernel = SqliteStoreKernel::open(directory.path()).expect("Core store");
+        let kernel = SqliteStoreKernel::open_test(directory.path()).expect("Core store");
         kernel
             .writer()
             .call(|connection| {
@@ -1512,7 +1512,7 @@ mod tests {
     #[test]
     fn rejects_physical_effects_that_claim_a_different_project() {
         let directory = tempdir().expect("temporary Profile");
-        let kernel = SqliteStoreKernel::open(directory.path()).expect("Core store");
+        let kernel = SqliteStoreKernel::open_test(directory.path()).expect("Core store");
         kernel
             .writer()
             .call(|connection| {
@@ -1560,7 +1560,7 @@ mod tests {
     #[test]
     fn rejects_local_commit_effects_that_escape_the_parent_epoch() {
         let directory = tempdir().expect("temporary Profile");
-        let kernel = SqliteStoreKernel::open(directory.path()).expect("Core store");
+        let kernel = SqliteStoreKernel::open_test(directory.path()).expect("Core store");
         let error = kernel
             .writer()
             .call(|connection| {
@@ -1597,7 +1597,7 @@ mod tests {
     #[test]
     fn bounded_replay_requires_resync_instead_of_returning_a_partial_prefix() {
         let directory = tempdir().expect("temporary Profile");
-        let kernel = SqliteStoreKernel::open(directory.path()).expect("Core store");
+        let kernel = SqliteStoreKernel::open_test(directory.path()).expect("Core store");
         kernel
             .writer()
             .call(|connection| {
@@ -1640,7 +1640,7 @@ mod tests {
     #[test]
     fn corrupt_post_floor_projection_impact_fails_closed() {
         let directory = tempdir().expect("temporary Profile");
-        let kernel = SqliteStoreKernel::open(directory.path()).expect("Core store");
+        let kernel = SqliteStoreKernel::open_test(directory.path()).expect("Core store");
         kernel
             .writer()
             .call(|connection| {
@@ -1678,7 +1678,7 @@ mod tests {
     #[test]
     fn upgrades_legacy_workspace_move_events_to_global_session_invalidation() {
         let directory = tempdir().expect("temporary Profile");
-        let kernel = SqliteStoreKernel::open(directory.path()).expect("Core store");
+        let kernel = SqliteStoreKernel::open_test(directory.path()).expect("Core store");
         kernel
             .writer()
             .call(|connection| {
@@ -1728,7 +1728,7 @@ mod tests {
     #[test]
     fn authorized_scan_uses_explicit_checkpoint_across_sequence_gaps_and_filters() {
         let directory = tempdir().expect("temporary Profile");
-        let kernel = SqliteStoreKernel::open(directory.path()).expect("Core store");
+        let kernel = SqliteStoreKernel::open_test(directory.path()).expect("Core store");
         let (store_epoch, library_id, first_commit, second_commit) = kernel
             .writer()
             .call(|connection| {
@@ -1840,7 +1840,7 @@ mod tests {
     #[test]
     fn exact_document_live_delivery_skips_unrelated_manifest_reconstruction() {
         let directory = tempdir().expect("temporary Profile");
-        let kernel = SqliteStoreKernel::open(directory.path()).expect("Core store");
+        let kernel = SqliteStoreKernel::open_test(directory.path()).expect("Core store");
         let (store_epoch, library_id, commit_seq) = kernel
             .writer()
             .call(|connection| {
@@ -1903,7 +1903,7 @@ mod tests {
     #[test]
     fn authorized_scan_returns_typed_resync_when_cursor_predates_retention() {
         let directory = tempdir().expect("temporary Profile");
-        let kernel = SqliteStoreKernel::open(directory.path()).expect("Core store");
+        let kernel = SqliteStoreKernel::open_test(directory.path()).expect("Core store");
         let (library_id, retained_commit) = kernel
             .writer()
             .call(|connection| {
@@ -1996,7 +1996,7 @@ mod tests {
     #[test]
     fn post_state_delivery_revokes_source_project_and_grants_target_project() {
         let directory = tempdir().expect("temporary Profile");
-        let kernel = SqliteStoreKernel::open(directory.path()).expect("Core store");
+        let kernel = SqliteStoreKernel::open_test(directory.path()).expect("Core store");
         let (store_epoch, library_id, commit_seq) = kernel
             .writer()
             .call(|connection| {

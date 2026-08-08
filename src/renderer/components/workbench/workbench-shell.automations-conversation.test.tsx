@@ -1,10 +1,11 @@
 import "./workbench-testkit/workbench-shell-harness";
-import { describe, test, expect } from "vitest";
+import { describe, test, expect, vi } from "vitest";
 import { waitFor, act, fireEvent, within } from "@testing-library/react";
 import { __getNodexToastSnapshotForTests } from "@/components/ui/toast";
 import { settleAsyncRender, textContent } from "../../test/dom";
 import { WORKBENCH_AUTOMATION_CREATE_WITH_CHAT_PROMPT, WORKBENCH_AUTOMATION_FIRST_RUN_SUGGESTIONS } from "./workbench-automation-templates";
-import { cleanBackgroundTerminalsCalls, editLastUserTurnCalls, getHeaderShellSlot, getLastThreadStageActions, installTerminalEventApiMock, invokeCalls, makeAttachedSession, makeAutomationInboxItem, makeBlankSession, makeProject, makeScheduledAutomation, mockInvokeImpl, pendingWorktreeWarningListener, removePlanImplementationRequestCalls, removeQueuedFollowUpCalls, renderWorkbench, reorderQueuedFollowUpsCalls, requestThreadStreamSnapshotCalls, sendQueuedFollowUpNowCalls, setComposerIntentCalls, setWindowInnerWidthForTest, startThreadForSessionCalls, setMockInvokeImpl, setStartThreadForSessionResult } from "./workbench-testkit/workbench-shell-harness";
+import { makeAttachedSession, makeAutomationInboxItem, makeBlankSession, makeProject, makeScheduledAutomation } from "./workbench-testkit/workbench-shell-fixtures";
+import { cleanBackgroundTerminalsCalls, editLastUserTurnCalls, getHeaderShellSlot, getLastThreadStageActions, installTerminalEventApiMock, invokeCalls, mockInvokeImpl, pendingWorktreeWarningListener, removePlanImplementationRequestCalls, removeQueuedFollowUpCalls, renderWorkbench, reorderQueuedFollowUpsCalls, requestThreadStreamSnapshotCalls, sendQueuedFollowUpNowCalls, setComposerIntentCalls, setWindowInnerWidthForTest, startThreadForSessionCalls, setMockInvokeImpl, setStartThreadForSessionResult } from "./workbench-testkit/workbench-shell-harness";
 
 describe("workbench session shell / automations-conversation", () => {
   test("surfaces pending heartbeat handoff failure from the app-level coordinator", async () => {
@@ -264,31 +265,40 @@ describe("workbench session shell / automations-conversation", () => {
       fireEvent.input(nameInput);
       await Promise.resolve();
     });
-    await act(async () => {
-      await new Promise((resolve) => window.setTimeout(resolve, 700));
-    });
-    await settleAsyncRender();
+    vi.useFakeTimers();
+    try {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(700);
+      });
 
-    const updateCallCountAfterInvalid = invokeCalls.filter((call) =>
-      call[0] === "codex:scheduled-automations:update"
-    ).length;
-    expect(updateCallCountAfterInvalid).toBe(0);
-    expect(screen.getScheduledAutomations()[0]?.name).toBe("Autosave report");
+      const updateCallCountAfterInvalid = invokeCalls.filter((call) =>
+        call[0] === "codex:scheduled-automations:update"
+      ).length;
+      expect(updateCallCountAfterInvalid).toBe(0);
+      expect(screen.getScheduledAutomations()[0]?.name).toBe("Autosave report");
 
-    await act(async () => {
-      const nameInput = screen.getByLabelText("Name") as HTMLInputElement;
-      nameInput.value = "Autosaved report";
-      fireEvent.input(nameInput);
-      await Promise.resolve();
-    });
+      await act(async () => {
+        const nameInput = screen.getByLabelText("Name") as HTMLInputElement;
+        nameInput.value = "Autosaved report";
+        fireEvent.input(nameInput);
+        await Promise.resolve();
+      });
 
-    await waitFor(() => {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(600);
+      });
+      await act(async () => {
+        await Promise.resolve();
+      });
+
       const updateCallCount = invokeCalls.filter((call) =>
         call[0] === "codex:scheduled-automations:update"
       ).length;
       expect(updateCallCount).toBe(1);
       expect(screen.getScheduledAutomations()[0]?.name).toBe("Autosaved report");
-    }, { timeout: 2_000 });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   test("automations route saves a valid edited model before switching route state", async () => {
