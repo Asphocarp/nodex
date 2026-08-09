@@ -12,12 +12,27 @@ import type {
 import type { ContentSearchDomain } from "@/features/content-search/content-search-context";
 import {
   createCommandKeymapState,
+  EMPTY_KEYBOARD_SHORTCUT_SEQUENCE_STATE,
+  matchKeyboardShortcutSequence,
   matchesKeyboardEventToCommand,
   matchesMouseEventToCommand,
+  type CommandId,
   type CommandKeymapState,
+  type KeyboardShortcutSequenceState,
   type KeyboardShortcutEventLike,
 } from "../../shared/command-keybindings";
 import type { CommandMenuOpenRequest } from "./command-palette";
+import {
+  classifyKeyboardActionSurface,
+  keyboardActionHasContext,
+  keyboardActionMayRun,
+  type KeyboardActionEventLike,
+  type KeyboardActionPolicy,
+} from "./keyboard-action-runtime";
+import {
+  canExecuteContextualKeyboardAction,
+  executeContextualKeyboardAction,
+} from "./contextual-keyboard-actions";
 
 export interface WorkbenchShortcutActions {
   projectOrder: string[];
@@ -27,8 +42,12 @@ export interface WorkbenchShortcutActions {
   onRequestContentSearch?: (preferredDomain?: ContentSearchDomain) => void;
   onRequestSettingsToggle?: () => void;
   onRequestKeyboardShortcuts?: () => void;
+  onRequestGoToPages?: () => void;
+  onRequestGoToSettings?: () => void;
+  onRequestLatestToastAction?: () => boolean;
   onRequestProcessManager?: () => void;
-  onRequestCreatePage?: () => void;
+  onRequestCreatePage?: () => boolean;
+  onRequestCreatePageExpanded?: () => boolean;
   onRequestWorkbenchCommand?: (commandId: WorkbenchCommandId) => void;
   navigateBack?: (source: WorkbenchNavigationCommandSource) => void;
   navigateForward?: (source: WorkbenchNavigationCommandSource) => void;
@@ -37,54 +56,56 @@ export interface WorkbenchShortcutActions {
   commandKeymapState?: CommandKeymapState | null;
 }
 
+export interface WorkbenchShortcutRuntimeState {
+  sequence: KeyboardShortcutSequenceState;
+}
+
+export const createWorkbenchShortcutRuntimeState = (): WorkbenchShortcutRuntimeState => ({
+  sequence: EMPTY_KEYBOARD_SHORTCUT_SEQUENCE_STATE,
+});
+
 export function shouldUseRendererWorkbenchCommandFallback(
   hasNativeWorkbenchCommandIngress: boolean,
 ): boolean {
   return !hasNativeWorkbenchCommandIngress;
 }
 
-const EDITOR_SURFACE_SELECTOR = ".nfm-editor, .bn-editor, .bn-container";
-const COMPOSER_SURFACE_SELECTOR = "[data-composer-prompt-frame]";
-const TERMINAL_SURFACE_SELECTOR = "[data-codex-terminal]";
-
-interface ShortcutTargetLike {
-  tagName?: string;
-  isContentEditable?: boolean;
-  closest?: (selector: string) => Element | null;
-}
-
 type WorkbenchKeyboardEventLike = KeyboardShortcutEventLike & {
   target: EventTarget | null;
+  defaultPrevented?: boolean;
+  isComposing?: boolean;
+  repeat?: boolean;
+  keyCode?: number;
+  composedPath?: () => readonly EventTarget[];
 };
 
-function isTextInputTarget(target: EventTarget | null): boolean {
-  const element = target as ShortcutTargetLike | null;
-  if (!element?.tagName) return false;
-  return element.tagName === "INPUT" || element.tagName === "TEXTAREA";
-}
+const APP_COMMAND_POLICY: KeyboardActionPolicy = {
+  runWithEditableFocus: true,
+  runInsideLocalSurface: true,
+  runInsideTerminal: false,
+  allowRepeat: false,
+};
 
-function isEditorSurfaceTarget(target: EventTarget | null): boolean {
-  const element = target as ShortcutTargetLike | null;
-  if (!element?.closest) return false;
-  return Boolean(element.closest(EDITOR_SURFACE_SELECTOR));
-}
+const CREATE_PAGE_COMMAND_POLICY: KeyboardActionPolicy = {
+  runWithEditableFocus: false,
+  runInsideLocalSurface: false,
+  runInsideTerminal: false,
+  allowRepeat: false,
+};
 
-function isComposerSurfaceTarget(target: EventTarget | null): boolean {
-  const element = target as ShortcutTargetLike | null;
-  if (!element?.closest) return false;
-  return Boolean(element.closest(COMPOSER_SURFACE_SELECTOR));
-}
-
-function isTerminalSurfaceTarget(target: EventTarget | null): boolean {
-  const element = target as ShortcutTargetLike | null;
-  if (!element?.closest) return false;
-  return Boolean(element.closest(TERMINAL_SURFACE_SELECTOR));
-}
-
-function isEditableTarget(target: EventTarget | null): boolean {
-  const element = target as ShortcutTargetLike | null;
-  if (!element) return false;
-  return Boolean(element.isContentEditable) || isTextInputTarget(target) || isEditorSurfaceTarget(target);
+function toKeyboardActionEvent(
+  event: WorkbenchKeyboardEventLike,
+): KeyboardActionEventLike {
+  return {
+    target: event.target,
+    defaultPrevented: event.defaultPrevented ?? false,
+    isComposing: event.isComposing ?? false,
+    repeat: event.repeat ?? false,
+    keyCode: event.keyCode ?? 0,
+    composedPath: event.composedPath
+      ? () => event.composedPath?.() ?? []
+      : undefined,
+  };
 }
 
 function fallbackCommandKeymapState(isMac: boolean): CommandKeymapState {
@@ -100,15 +121,114 @@ function matchesCommandShortcut(
   return matchesKeyboardEventToCommand(e, actions.commandKeymapState ?? fallbackCommandKeymapState(isMac), commandId);
 }
 
+const CONTEXTUAL_COMMAND_IDS = [
+  "workOnPage",
+  "boardFocusNext",
+  "boardFocusPrevious",
+  "boardFocusLeft",
+  "boardFocusRight",
+  "boardPeek",
+  "boardOpen",
+  "boardToggleSelection",
+  "boardClearSelection",
+  "boardSetStatus",
+  "boardSetPriority",
+  "boardSetEstimate",
+  "boardSetTags",
+  "boardMoveUp",
+  "boardMoveDown",
+  "boardMoveTop",
+  "boardMoveBottom",
+  "boardMoveLeft",
+  "boardMoveRight",
+] as const satisfies readonly CommandId[];
+
+function canExecuteShortcutCommand(
+  commandId: CommandId,
+  actions: WorkbenchShortcutActions,
+): boolean {
+  if (CONTEXTUAL_COMMAND_IDS.includes(
+    commandId as (typeof CONTEXTUAL_COMMAND_IDS)[number],
+  )) {
+    return canExecuteContextualKeyboardAction(commandId);
+  }
+  if (commandId === "goToPages") return Boolean(actions.onRequestGoToPages);
+  if (commandId === "goToSettings") return Boolean(actions.onRequestGoToSettings);
+  if (commandId === "openPage" || commandId === "openChat") {
+    return Boolean(actions.onRequestCommandPalette);
+  }
+  return true;
+}
+
+function executeShortcutCommand(
+  commandId: CommandId,
+  actions: WorkbenchShortcutActions,
+): boolean {
+  if (CONTEXTUAL_COMMAND_IDS.includes(
+    commandId as (typeof CONTEXTUAL_COMMAND_IDS)[number],
+  )) {
+    return executeContextualKeyboardAction(commandId);
+  }
+  if (commandId === "goToPages" && actions.onRequestGoToPages) {
+    actions.onRequestGoToPages();
+    return true;
+  }
+  if (commandId === "goToSettings" && actions.onRequestGoToSettings) {
+    actions.onRequestGoToSettings();
+    return true;
+  }
+  if (commandId === "openPage" && actions.onRequestCommandPalette) {
+    actions.onRequestCommandPalette({ mode: "pages" });
+    return true;
+  }
+  if (commandId === "openChat" && actions.onRequestCommandPalette) {
+    actions.onRequestCommandPalette({ mode: "chats" });
+    return true;
+  }
+  return false;
+}
+
 export function handleWorkbenchShortcut(
   e: WorkbenchKeyboardEventLike,
   actions: WorkbenchShortcutActions,
   isMac: boolean,
+  runtimeState: WorkbenchShortcutRuntimeState = createWorkbenchShortcutRuntimeState(),
 ): boolean {
+  const actionEvent = toKeyboardActionEvent(e);
+  if (!keyboardActionMayRun(actionEvent, APP_COMMAND_POLICY)) return false;
+
+  const isBareGesture = !e.metaKey && !e.ctrlKey && !e.altKey;
+  if (
+    isBareGesture
+    && !keyboardActionMayRun(actionEvent, CREATE_PAGE_COMMAND_POLICY)
+  ) {
+    runtimeState.sequence = EMPTY_KEYBOARD_SHORTCUT_SEQUENCE_STATE;
+    return false;
+  }
+
+  const keymapState = actions.commandKeymapState
+    ?? fallbackCommandKeymapState(isMac);
+  const sequence = matchKeyboardShortcutSequence(
+    e,
+    keymapState,
+    runtimeState.sequence,
+    {
+      commandAvailable: (commandId) =>
+        canExecuteShortcutCommand(commandId, actions),
+    },
+  );
+  runtimeState.sequence = sequence.state;
+  if (sequence.kind === "pending") return true;
+  if (sequence.kind === "matched") {
+    return executeShortcutCommand(sequence.commandId, actions);
+  }
+
   const modifier = isMac ? e.metaKey : e.ctrlKey;
-  const targetIsEditable = isEditableTarget(e.target);
-  const targetIsComposerSurface = isComposerSurfaceTarget(e.target);
-  if (isTerminalSurfaceTarget(e.target)) return false;
+  const targetIsEditable = classifyKeyboardActionSurface(actionEvent) === "editable";
+  const targetIsComposerSurface = keyboardActionHasContext(
+    actionEvent,
+    "composer",
+  );
 
   if (matchesCommandShortcut(e, actions, "newWindow", isMac)) {
     actions.onRequestNewWindow?.();
@@ -130,11 +250,26 @@ export function handleWorkbenchShortcut(
     return true;
   }
 
+  if (matchesCommandShortcut(e, actions, "searchAll", isMac)) {
+    actions.onRequestCommandPalette?.({ mode: "root" });
+    return Boolean(actions.onRequestCommandPalette);
+  }
+
   if (matchesCommandShortcut(e, actions, CREATE_PAGE_COMMAND_ID, isMac)) {
-    if (targetIsEditable || targetIsComposerSurface) return false;
+    if (!keyboardActionMayRun(actionEvent, CREATE_PAGE_COMMAND_POLICY)) return false;
     if (!actions.onRequestCreatePage) return false;
-    actions.onRequestCreatePage();
-    return true;
+    return actions.onRequestCreatePage();
+  }
+
+  if (matchesCommandShortcut(e, actions, "createPageExpanded", isMac)) {
+    if (!keyboardActionMayRun(actionEvent, CREATE_PAGE_COMMAND_POLICY)) return false;
+    return actions.onRequestCreatePageExpanded?.() ?? false;
+  }
+
+  for (const commandId of CONTEXTUAL_COMMAND_IDS) {
+    if (!matchesCommandShortcut(e, actions, commandId, isMac)) continue;
+    if (!keyboardActionMayRun(actionEvent, CREATE_PAGE_COMMAND_POLICY)) return false;
+    return executeContextualKeyboardAction(commandId);
   }
 
   if (matchesCommandShortcut(e, actions, "navigateBack", isMac)) {
@@ -172,6 +307,10 @@ export function handleWorkbenchShortcut(
   if (matchesCommandShortcut(e, actions, "openProcessManager", isMac) && actions.onRequestProcessManager) {
     actions.onRequestProcessManager();
     return true;
+  }
+
+  if (matchesCommandShortcut(e, actions, "openLastToastAction", isMac)) {
+    return actions.onRequestLatestToastAction?.() ?? false;
   }
 
   if (matchesCommandShortcut(e, actions, TOGGLE_BOTTOM_PANEL_COMMAND_ID, isMac)) {
@@ -237,9 +376,17 @@ export function handleWorkbenchMouseNavigationShortcut(
 export function useWorkbenchShortcuts(actions: WorkbenchShortcutActions): void {
   useEffect(() => {
     const isMac = navigator.platform.toUpperCase().includes("MAC");
+    const runtimeState = createWorkbenchShortcutRuntimeState();
 
     const onKeyDown = (e: KeyboardEvent) => {
-      if (!handleWorkbenchShortcut(e, actions, isMac)) return;
+      if (!handleWorkbenchShortcut(e, actions, isMac, runtimeState)) return;
+      e.preventDefault();
+    };
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (!matchesCommandShortcut(e, actions, "boardPeek", isMac)) return;
+      const actionEvent = toKeyboardActionEvent(e);
+      if (!keyboardActionMayRun(actionEvent, CREATE_PAGE_COMMAND_POLICY)) return;
+      if (!executeContextualKeyboardAction("boardPeek", "keyup")) return;
       e.preventDefault();
     };
     const onMouseUp = (e: MouseEvent) => {
@@ -247,10 +394,12 @@ export function useWorkbenchShortcuts(actions: WorkbenchShortcutActions): void {
       e.preventDefault();
     };
 
-    document.addEventListener("keydown", onKeyDown, true);
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
     document.addEventListener("mouseup", onMouseUp);
     return () => {
-      document.removeEventListener("keydown", onKeyDown, true);
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
       document.removeEventListener("mouseup", onMouseUp);
     };
   }, [actions]);

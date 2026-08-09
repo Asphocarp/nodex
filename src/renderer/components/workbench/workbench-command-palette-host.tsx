@@ -132,7 +132,9 @@ export function WorkbenchCommandPaletteHost({
   openKeyboardShortcuts,
   onOpenSessionInNewWindow,
 }: WorkbenchCommandPaletteHostProps) {
-  const pageCreateTargetResolution = usePageCreateTargetResolution();
+  const pageCreateTargetResolution = usePageCreateTargetResolution(
+    activeProjectId,
+  );
   const panelCapabilities =
     panelCommands.resolveActivePanelCapabilities("right");
   const commandContext: Omit<

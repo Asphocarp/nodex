@@ -1,8 +1,11 @@
-import { describe, expect, test, vi } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vitest";
 import { fireEvent, waitFor } from "@testing-library/react";
 import { act, useRef, useState } from "react";
 import type { DatabaseViewRenderModel } from "@/lib/database-view-render-model";
-import { DatabaseViewMutationError } from "@/lib/database-view-row-mutations";
+import {
+  commitDatabaseViewOperations,
+  DatabaseViewMutationError,
+} from "@/lib/database-view-row-mutations";
 import { plainTextToPortableRichText } from "../../../shared/block-documents";
 import {
   parseDatabaseId,
@@ -17,6 +20,8 @@ import {
   DatabaseViewSurface,
 } from "./database-view-surface";
 import { DatabaseViewTabSurface } from "./workbench-db-view-panel";
+import { handleWorkbenchShortcut } from "@/lib/use-workbench-shortcuts";
+import { resetContextualKeyboardActionRegistryForTests } from "@/lib/contextual-keyboard-actions";
 
 const optionRuntime = vi.hoisted(() => ({ read: vi.fn() }));
 vi.mock("@/lib/database-property-options-runtime", async (importOriginal) => ({
@@ -160,7 +165,59 @@ const model: DatabaseViewRenderModel = {
   }],
 };
 
+const boardModel = (): DatabaseViewRenderModel => {
+  const firstAuthority = model.query.rows[0]!;
+  const firstRow = model.columns[0]!.rows[0]!;
+  const secondAuthority = {
+    ...firstAuthority,
+    membership: {
+      ...firstAuthority.membership,
+      membershipId: "membership-next",
+    },
+    page: {
+      ...firstAuthority.page,
+      pageId: "page-next",
+      documentId: "document-next",
+      title: "Next Page",
+      richTitle: plainTextToPortableRichText("Next Page"),
+    },
+    position: { groupKey: null, rankKey: "b", revision: 2 },
+  };
+  return {
+    ...model,
+    query: {
+      ...model.query,
+      view: { ...model.query.view, kind: "kanban" },
+      rows: [firstAuthority, secondAuthority],
+    },
+    columns: [{
+      ...model.columns[0]!,
+      rows: [firstRow, {
+        ...firstRow,
+        pageId: "page-next",
+        title: "Next Page",
+      }],
+    }],
+  };
+};
+
+const shortcutEvent = (key: string, input: {
+  readonly code?: string;
+  readonly altKey?: boolean;
+  readonly shiftKey?: boolean;
+} = {}) => ({
+  key,
+  code: input.code,
+  ctrlKey: false,
+  metaKey: false,
+  shiftKey: input.shiftKey ?? false,
+  altKey: input.altKey ?? false,
+  target: null,
+});
+
 describe("DatabaseViewSurface", () => {
+  beforeEach(() => resetContextualKeyboardActionRegistryForTests());
+
   test("classifies missing page moves separately from missing Properties", () => {
     const error = new DatabaseViewMutationError({
       code: "resource_not_found",
@@ -185,6 +242,101 @@ describe("DatabaseViewSurface", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Open Page Focused Page" }));
     expect(opened[0]).toEqual(["page-focused", "Focused Page"]);
+  });
+
+  test("keeps Board navigation and selection active across reactive renders", () => {
+    const screen = render(
+      <DatabaseViewSurface
+        model={boardModel()}
+        searchQuery=""
+        keyboardSurface={{ surfaceId: "board", presentationId: "tab" }}
+        onOpenPage={() => undefined}
+      />,
+    );
+    const actions = { projectOrder: [], switchToProjectIndex: () => undefined };
+    const press = (event: ReturnType<typeof shortcutEvent>) => {
+      let handled = false;
+      act(() => {
+        handled = handleWorkbenchShortcut(event, actions, true);
+      });
+      return handled;
+    };
+
+    expect(press(shortcutEvent("j", { code: "KeyJ" }))).toBe(true);
+    expect(screen.getAllByRole("article")[0]?.tabIndex).toBe(0);
+
+    expect(press(shortcutEvent("x", { code: "KeyX" }))).toBe(true);
+    expect(screen.getAllByRole("article")[0]?.getAttribute("aria-selected"))
+      .toBe("true");
+
+    expect(press(shortcutEvent("j", { code: "KeyJ" }))).toBe(true);
+    expect(screen.getAllByRole("article")[1]?.tabIndex).toBe(0);
+  });
+
+  test("keeps Board hover transient until pointer activation", () => {
+    const screen = render(
+      <DatabaseViewSurface
+        model={boardModel()}
+        searchQuery=""
+        keyboardSurface={{ surfaceId: "board", presentationId: "tab" }}
+        onOpenPage={() => undefined}
+      />,
+    );
+    const first = screen.getAllByRole("article")[0]!;
+
+    fireEvent.pointerEnter(first);
+    expect(first.tabIndex).toBe(-1);
+    expect(first.getAttribute("aria-selected")).toBe("false");
+
+    fireEvent.pointerDown(first);
+    expect(first.tabIndex).toBe(0);
+    expect(first.getAttribute("aria-selected")).toBe("false");
+  });
+
+  test("commits a Board boundary move through the global shortcut route", async () => {
+    const commitOperations = vi.fn<typeof commitDatabaseViewOperations>(
+      async () => null,
+    );
+    render(
+      <DatabaseViewSurface
+        model={boardModel()}
+        searchQuery=""
+        keyboardSurface={{ surfaceId: "board", presentationId: "tab" }}
+        onOpenPage={() => undefined}
+        commitOperations={commitOperations}
+      />,
+    );
+    const actions = { projectOrder: [], switchToProjectIndex: () => undefined };
+
+    await act(async () => {
+      expect(handleWorkbenchShortcut(
+        shortcutEvent("j", { code: "KeyJ" }),
+        actions,
+        true,
+      )).toBe(true);
+      await Promise.resolve();
+    });
+    await act(async () => {
+      expect(handleWorkbenchShortcut(
+        shortcutEvent("ArrowDown", {
+          code: "ArrowDown",
+          altKey: true,
+          shiftKey: true,
+        }),
+        actions,
+        true,
+      )).toBe(true);
+      await Promise.resolve();
+    });
+
+    await waitFor(() => expect(commitOperations).toHaveBeenCalledTimes(1));
+    expect(commitOperations.mock.calls[0]?.[0].operations[0]).toMatchObject({
+      kind: "position_pages",
+      pages: [
+        { pageId: "page-next" },
+        { pageId: "page-focused" },
+      ],
+    });
   });
 
   test("writes a displayed custom property through Page and Data Source identity", async () => {

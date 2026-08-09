@@ -1662,6 +1662,108 @@ test("converges a Move to operation in the live standalone Pages projection", as
   }
 });
 
+test("creates one stable Board Page through the app modal @create-modal-smoke", async () => {
+  test.setTimeout(120_000);
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nx-create-modal-"));
+  const nodexHome = path.join(fixtureRoot, "profile");
+  const workspace = path.join(fixtureRoot, "workspace");
+  fs.mkdirSync(workspace, { recursive: true });
+  prepareRuntimeFixture(fixtureRoot);
+
+  let application: ElectronApplication | undefined;
+  try {
+    application = await launchApplication(fixtureRoot, nodexHome);
+    const page = await application.firstWindow();
+    await page.evaluate(() => window.api?.awaitInitialization?.());
+
+    const project = await createConvergenceProject(
+      page,
+      "Create modal convergence",
+      workspace,
+    );
+    await page.getByRole("button", {
+      name: "Open Create modal convergence",
+      exact: true,
+    }).click();
+    await page.getByRole("tab", { name: "Project Home" }).waitFor();
+    const triageColumn = page.locator(
+      '[data-kanban-column-root][data-kanban-column-id="triage"]',
+    );
+    await expect(triageColumn).toBeVisible({ timeout: 15_000 });
+
+    const createButton = triageColumn.locator(
+      '[data-page-create-trigger="auto-collapsed-column"]',
+    );
+    await expect(createButton).toHaveAttribute("aria-disabled", "false", {
+      timeout: 15_000,
+    });
+    await createButton.click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+    await dialog.getByLabel("Page title").fill("Modal-created Page");
+
+    await page.evaluate(() => {
+      const state = window as typeof window & {
+        __createModalFrameCounts?: number[];
+        __createModalFrameObserverActive?: boolean;
+      };
+      state.__createModalFrameCounts = [];
+      state.__createModalFrameObserverActive = true;
+      const sample = () => {
+        if (!state.__createModalFrameObserverActive) return;
+        const count = [...document.querySelectorAll(
+          '[data-kanban-column-root][data-kanban-column-id="triage"] [data-kanban-uuid-v7]',
+        )].filter((card) => card.textContent?.includes("Modal-created Page")).length;
+        if (count > 0 || state.__createModalFrameCounts?.length) {
+          state.__createModalFrameCounts?.push(count);
+        }
+        requestAnimationFrame(sample);
+      };
+      requestAnimationFrame(sample);
+    });
+
+    await dialog.getByRole("button", { name: "Create page", exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+    const createdCard = triageColumn.locator("[data-kanban-uuid-v7]").filter({
+      hasText: "Modal-created Page",
+    });
+    await expect(createdCard).toHaveCount(1, { timeout: 15_000 });
+    await expect.poll(
+      async () => await readConvergenceBoardTotal(page, project),
+      { timeout: 15_000 },
+    ).toBe(1);
+    await page.evaluate(async () => {
+      await new Promise<void>((resolve) => {
+        let remaining = 8;
+        const next = () => {
+          remaining -= 1;
+          if (remaining === 0) {
+            resolve();
+            return;
+          }
+          requestAnimationFrame(next);
+        };
+        requestAnimationFrame(next);
+      });
+      (window as typeof window & {
+        __createModalFrameObserverActive?: boolean;
+      }).__createModalFrameObserverActive = false;
+    });
+    const frameCounts = await page.evaluate(() =>
+      (window as typeof window & {
+        __createModalFrameCounts?: number[];
+      }).__createModalFrameCounts ?? []
+    );
+    expect(frameCounts.length).toBeGreaterThan(0);
+    expect(new Set(frameCounts)).toEqual(new Set([1]));
+    await expect(createdCard).toHaveCount(1);
+  } finally {
+    if (application) await stopApplication(application);
+    await shutdownTemporaryCore(nodexHome);
+    fs.rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
 test("converges a Block transfer into the live Board Page projection", async () => {
   test.setTimeout(120_000);
   const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nx-board-"));
@@ -1690,7 +1792,9 @@ test("converges a Block transfer into the live Board Page projection", async () 
       exact: true,
     }).click();
     await page.getByRole("tab", { name: "Project Home" }).waitFor();
-    await expect(page.locator('[data-kanban-column-id="triage"]')).toBeVisible({
+    await expect(page.locator(
+      '[data-kanban-column-root][data-kanban-column-id="triage"]',
+    )).toBeVisible({
       timeout: 10_000,
     });
 
@@ -1825,7 +1929,9 @@ test("moves a Block into a Board with native DnD @dnd-smoke", async () => {
       exact: true,
     }).click();
     await page.getByRole("tab", { name: "Project Home" }).waitFor();
-    const triageColumn = page.locator('[data-kanban-column-id="triage"]');
+    const triageColumn = page.locator(
+      '[data-kanban-column-root][data-kanban-column-id="triage"]',
+    );
     await expect(triageColumn).toBeVisible({ timeout: 15_000 });
     await expect(triageColumn.locator("[data-kanban-uuid-v7]")).toHaveCount(3, {
       timeout: 15_000,
@@ -2315,7 +2421,9 @@ test("converges a high-pressure Page promotion across tab groups and WebContents
       exact: true,
     }).click();
     await page.getByRole("tab", { name: "Project Home" }).waitFor();
-    const triageColumn = page.locator('[data-kanban-column-id="triage"]');
+    const triageColumn = page.locator(
+      '[data-kanban-column-root][data-kanban-column-id="triage"]',
+    );
     await expect(triageColumn).toBeVisible({ timeout: 15_000 });
     await expect.poll(
       async () => await page.locator("[data-kanban-uuid-v7]").count(),
@@ -2341,6 +2449,11 @@ test("converges a high-pressure Page promotion across tab groups and WebContents
     expect(await invokeIpc(page, "window:new", {})).toBe(true);
     const audiencePage = await audienceWindowOpened;
     await audiencePage.evaluate(() => window.api?.awaitInitialization?.());
+    await audiencePage.getByRole("button", {
+      name: "Open Cross-tab Board stress",
+      exact: true,
+    }).click();
+    await audiencePage.getByRole("tab", { name: "Project Home" }).waitFor();
     const webContentsIds = await application.evaluate(({ BrowserWindow }) =>
       BrowserWindow.getAllWindows()
         .filter((window) => !window.isDestroyed())
@@ -2349,7 +2462,7 @@ test("converges a high-pressure Page promotion across tab groups and WebContents
     expect(new Set(webContentsIds).size).toBeGreaterThanOrEqual(2);
 
     const audienceTriageColumn = audiencePage.locator(
-      '[data-kanban-column-id="triage"]',
+      '[data-kanban-column-root][data-kanban-column-id="triage"]',
     );
     await expect(audienceTriageColumn).toBeVisible({ timeout: 15_000 });
     await expect.poll(
@@ -2360,9 +2473,8 @@ test("converges a high-pressure Page promotion across tab groups and WebContents
       `[data-kanban-uuid-v7="${source.pageId}"]`,
     );
     await expect(audienceSourceCard).toBeVisible({ timeout: 15_000 });
-    await audienceSourceCard.evaluate((element) =>
-      (element as HTMLElement).click()
-    );
+    await audienceSourceCard.locator('[data-card-context-menu-trigger="true"]')
+      .evaluate((element) => (element as HTMLElement).click());
     await audiencePage.getByRole("tab", { name: "Cross-tab source" }).waitFor();
     await expect(audienceTriageColumn).toBeVisible({ timeout: 15_000 });
     const audienceSourceEditor = audiencePage.locator(
@@ -2787,7 +2899,9 @@ test("measures high-pressure nested Block transfer into a populated Board", asyn
       exact: true,
     }).click();
     await page.getByRole("tab", { name: "Project Home" }).waitFor();
-    const boardColumn = page.locator('[data-kanban-column-id="triage"]');
+    const boardColumn = page.locator(
+      '[data-kanban-column-root][data-kanban-column-id="triage"]',
+    );
     await expect(boardColumn).toBeVisible({ timeout: 15_000 });
     const initialBoardCards = page.locator("[data-kanban-uuid-v7]");
     await expect.poll(

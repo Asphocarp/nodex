@@ -19,10 +19,14 @@ import {
   tokenToEstimateValue,
   tokenToStatusId,
 } from "@/lib/toggle-list/meta-chips";
+import type { DatabasePropertyOption } from "../../../../shared/database-kernel";
+import { propertyOptionColorClassName } from "@/lib/data-source-property-options";
 
 export interface ChipPropertyEditorProps {
-  propertyType: Exclude<MetaChipPropertyType, "tag">;
+  propertyType: MetaChipPropertyType;
   currentToken: string;
+  selectedValues?: readonly string[];
+  options?: readonly DatabasePropertyOption[];
   pageId: string;
   anchorRect: DOMRect;
   onSelect: (propertyType: string, pageId: string, value: string) => void;
@@ -55,6 +59,8 @@ function computePosition(
 export function ChipPropertyEditor({
   propertyType,
   currentToken,
+  selectedValues = [],
+  options = [],
   pageId,
   anchorRect,
   onSelect,
@@ -65,6 +71,7 @@ export function ChipPropertyEditor({
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
 
   const currentValue = resolveCurrentValue(propertyType, currentToken);
+  const selectedSet = new Set(selectedValues);
 
   useLayoutEffect(() => {
     const el = menuRef.current;
@@ -106,12 +113,12 @@ export function ChipPropertyEditor({
   const handleSelect = useCallback(
     (value: string) => {
       onSelect(propertyType, pageId, value);
-      onClose();
+      if (propertyType !== "tag") onClose();
     },
     [pageId, onClose, onSelect, propertyType],
   );
 
-  const items = getItemsForType(propertyType);
+  const items = getItemsForType(propertyType, options);
 
   // Keyboard navigation
   useEffect(() => {
@@ -144,7 +151,9 @@ export function ChipPropertyEditor({
         <NodexDropdownActionRow
           key={item.value}
           role="option"
-          aria-selected={item.value === currentValue}
+          aria-selected={propertyType === "tag"
+            ? selectedSet.has(item.value)
+            : item.value === currentValue}
           className={cn(
             "grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 border-none bg-transparent text-left text-inherit",
             index === highlightedIndex && "bg-token-list-hover-background",
@@ -156,7 +165,9 @@ export function ChipPropertyEditor({
           <span className="min-w-0 truncate">
             {renderItemContent(propertyType, item)}
           </span>
-          {item.value === currentValue && (
+          {(propertyType === "tag"
+            ? selectedSet.has(item.value)
+            : item.value === currentValue) && (
             <Check className="h-3.5 w-3.5 shrink-0 text-token-foreground" />
           )}
         </NodexDropdownActionRow>
@@ -172,7 +183,10 @@ interface MenuItemData {
   className?: string;
 }
 
-function getItemsForType(propertyType: string): MenuItemData[] {
+function getItemsForType(
+  propertyType: string,
+  options: readonly DatabasePropertyOption[],
+): MenuItemData[] {
   switch (propertyType) {
     case "priority":
       return KANBAN_PRIORITY_SELECT_OPTIONS.map((opt) => ({
@@ -190,6 +204,12 @@ function getItemsForType(propertyType: string): MenuItemData[] {
       return TOGGLE_LIST_STATUS_ORDER.map((statusId) => ({
         value: statusId,
         label: TOGGLE_LIST_STATUS_LABELS[statusId],
+      }));
+    case "tag":
+      return options.map((option) => ({
+        value: option.id,
+        label: option.name,
+        className: propertyOptionColorClassName(option.color),
       }));
     default:
       return [];
@@ -234,6 +254,17 @@ function renderItemContent(propertyType: string, item: MenuItemData) {
 
   if (propertyType === "status") {
     return <StatusChip statusId={item.value} label={item.label} />;
+  }
+
+  if (propertyType === "tag") {
+    return (
+      <span className={cn(
+        "inline-flex h-5 items-center rounded-sm px-1.5 text-sm/5",
+        item.className,
+      )}>
+        {item.label}
+      </span>
+    );
   }
 
   return <span>{item.label}</span>;

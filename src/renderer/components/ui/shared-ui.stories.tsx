@@ -62,6 +62,7 @@ import {
 } from "./settings";
 import { NodexToastProvider, toast } from "./toast";
 import { NodexTooltip, NodexTooltipProvider } from "./tooltip";
+import { ShortcutKeycaps } from "./shortcut-keycaps";
 
 function StorySurface({ children }: { children: React.ReactNode }) {
   return (
@@ -70,6 +71,32 @@ function StorySurface({ children }: { children: React.ReactNode }) {
         {children}
       </div>
     </NodexTooltipProvider>
+  );
+}
+
+function ShortcutKeycapsDemo() {
+  return (
+    <StorySurface>
+      <div className="flex max-w-xl flex-col gap-5 rounded-xl bg-token-main-surface-secondary p-5 text-token-foreground ring-[0.5px] ring-token-border">
+        <div className="flex items-center gap-2">
+          <ShortcutKeycaps keys={["C"]} density="compact" />
+          <ShortcutKeycaps keys={["⌘⇧C"]} />
+          <ShortcutKeycaps keys={["Ctrl+Shift+C"]} />
+          <ShortcutKeycaps keys={["Shift + Tab"]} density="settings" />
+        </div>
+        <div className="flex items-center gap-3 rounded-lg bg-token-foreground px-3 py-2 text-token-main-surface-primary">
+          <span className="text-sm">Current-color surface</span>
+          <ShortcutKeycaps keys={["C"]} tone="current" />
+        </div>
+        <NodexTooltip
+          defaultOpen
+          tooltipContent="Create Page"
+          shortcut={<ShortcutKeycaps keys={["C"]} density="compact" />}
+        >
+          <NodexButton size="xs">Tooltip keycap</NodexButton>
+        </NodexTooltip>
+      </div>
+    </StorySurface>
   );
 }
 
@@ -612,4 +639,8 @@ export const SettingsPrimitives: Story = {
 
 export const ToastGlobalStack: Story = {
   render: () => <ToastDemo />,
+};
+
+export const ShortcutKeycapsSurface: Story = {
+  render: () => <ShortcutKeycapsDemo />,
 };

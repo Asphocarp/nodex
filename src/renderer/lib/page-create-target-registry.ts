@@ -32,8 +32,27 @@ export interface PageCreateTargetRegistration {
   readonly activitySequence: number;
 }
 
+export type PageCreateTargetCapability =
+  | {
+      readonly status: "ready";
+      readonly target: PageCreateTarget;
+    }
+  | {
+      readonly status: "loading" | "unavailable";
+      readonly reason: string;
+    };
+
+export interface ProjectDefaultPageCreateTargetRegistration {
+  readonly token: string;
+  readonly projectId: string;
+  readonly capability: PageCreateTargetCapability;
+}
+
 export interface PageCreateTargetRegistryState {
-  readonly registrations: Readonly<Record<string, PageCreateTargetRegistration>>;
+  readonly boardRegistrations: Readonly<Record<string, PageCreateTargetRegistration>>;
+  readonly projectDefaultRegistrations: Readonly<
+    Record<string, ProjectDefaultPageCreateTargetRegistration>
+  >;
   readonly activeSurfaceId: string | null;
   readonly nextActivitySequence: number;
 }
@@ -50,7 +69,8 @@ export type PageCreateTargetResolution =
     };
 
 const INITIAL_PAGE_CREATE_TARGET_REGISTRY_STATE: PageCreateTargetRegistryState = {
-  registrations: {},
+  boardRegistrations: {},
+  projectDefaultRegistrations: {},
   activeSurfaceId: null,
   nextActivitySequence: 1,
 };
@@ -73,24 +93,44 @@ function resolveColumnId(
 
 export function resolvePageCreateTarget(
   state: PageCreateTargetRegistryState,
+  activeProjectId: string | null,
 ): PageCreateTargetResolution {
-  const registrations = Object.values(state.registrations);
+  const registrations = Object.values(state.boardRegistrations);
   const active = state.activeSurfaceId
-    ? state.registrations[state.activeSurfaceId] ?? null
+    ? state.boardRegistrations[state.activeSurfaceId] ?? null
     : null;
-  const writable = registrations.filter((registration) => (
-    !registration.target.readOnlyReason && resolveColumnId(registration)
-  ));
 
-  if (active && !active.target.readOnlyReason) {
+  if (active?.target.readOnlyReason) {
+    return {
+      status: "unavailable",
+      reason: active.target.readOnlyReason,
+    };
+  }
+  if (active) {
     const columnId = resolveColumnId(active);
     if (columnId) {
       return { status: "resolved", target: active.target, columnId };
     }
+    return {
+      status: "unavailable",
+      reason: "This Database View has no workflow columns.",
+    };
   }
 
-  const recentlyActive = writable
-    .filter((registration) => registration.activitySequence > 0)
+  if (!activeProjectId) {
+    return {
+      status: "unavailable",
+      reason: "Select a Project before creating a Page.",
+    };
+  }
+
+  const recentlyActive = registrations
+    .filter((registration) => (
+      registration.target.project.id === activeProjectId
+      && registration.activitySequence > 0
+      && !registration.target.readOnlyReason
+      && resolveColumnId(registration)
+    ))
     .toSorted((left, right) => right.activitySequence - left.activitySequence)[0];
   if (recentlyActive) {
     const columnId = resolveColumnId(recentlyActive);
@@ -99,31 +139,32 @@ export function resolvePageCreateTarget(
     }
   }
 
-  if (writable.length === 1) {
-    const registration = writable[0];
-    const columnId = registration ? resolveColumnId(registration) : null;
-    if (registration && columnId) {
-      return { status: "resolved", target: registration.target, columnId };
-    }
-  }
-
-  if (writable.length > 1) {
+  const projectDefault = state.projectDefaultRegistrations[activeProjectId];
+  if (!projectDefault) {
     return {
       status: "unavailable",
-      reason: "Focus a Board before creating a Page.",
+      reason: "Preparing this Project’s default Database View…",
+    };
+  }
+  if (projectDefault.capability.status !== "ready") {
+    return {
+      status: "unavailable",
+      reason: projectDefault.capability.reason,
     };
   }
 
-  const closest = active
-    ?? registrations.toSorted((left, right) => (
-      right.activitySequence - left.activitySequence
-    ))[0]
-    ?? null;
-  return {
-    status: "unavailable",
-    reason: closest?.target.readOnlyReason
-      ?? "Open a writable Project Board before creating a Page.",
-  };
+  const defaultTarget = projectDefault.capability.target;
+  if (defaultTarget.readOnlyReason) {
+    return { status: "unavailable", reason: defaultTarget.readOnlyReason };
+  }
+  const columnId = defaultTarget.columns[0]?.id ?? null;
+  if (!columnId) {
+    return {
+      status: "unavailable",
+      reason: "This Database View has no workflow columns.",
+    };
+  }
+  return { status: "resolved", target: defaultTarget, columnId };
 }
 
 export function registerPageCreateTarget(
@@ -132,11 +173,11 @@ export function registerPageCreateTarget(
   target: PageCreateTarget,
 ): void {
   appHandle.set(pageCreateTargetRegistryAtom, (previous) => {
-    const existing = previous.registrations[target.surfaceId];
+    const existing = previous.boardRegistrations[target.surfaceId];
     return {
       ...previous,
-      registrations: {
-        ...previous.registrations,
+      boardRegistrations: {
+        ...previous.boardRegistrations,
         [target.surfaceId]: {
           token,
           target,
@@ -154,14 +195,14 @@ export function unregisterPageCreateTarget(
   token: string,
 ): void {
   appHandle.set(pageCreateTargetRegistryAtom, (previous) => {
-    const existing = previous.registrations[surfaceId];
+    const existing = previous.boardRegistrations[surfaceId];
     if (!existing || existing.token !== token) return previous;
 
-    const registrations = { ...previous.registrations };
-    delete registrations[surfaceId];
+    const boardRegistrations = { ...previous.boardRegistrations };
+    delete boardRegistrations[surfaceId];
     return {
       ...previous,
-      registrations,
+      boardRegistrations,
       activeSurfaceId: previous.activeSurfaceId === surfaceId
         ? null
         : previous.activeSurfaceId,
@@ -175,12 +216,13 @@ export function markPageCreateTargetActive(
   columnId?: WorkflowStatus,
 ): void {
   appHandle.set(pageCreateTargetRegistryAtom, (previous) => {
-    const existing = previous.registrations[surfaceId];
+    const existing = previous.boardRegistrations[surfaceId];
     if (!existing) return previous;
 
     return {
-      registrations: {
-        ...previous.registrations,
+      ...previous,
+      boardRegistrations: {
+        ...previous.boardRegistrations,
         [surfaceId]: {
           ...existing,
           activeColumnId: columnId ?? existing.activeColumnId,
@@ -197,15 +239,65 @@ export function getPageCreateTarget(
   appHandle: ScopeHandle,
   surfaceId: string,
 ): PageCreateTarget | null {
-  return appHandle.get(pageCreateTargetRegistryAtom).registrations[surfaceId]?.target ?? null;
+  const state = appHandle.get(pageCreateTargetRegistryAtom);
+  const boardTarget = state.boardRegistrations[surfaceId]?.target;
+  if (boardTarget) return boardTarget;
+
+  for (const registration of Object.values(state.projectDefaultRegistrations)) {
+    const { capability } = registration;
+    if (capability.status !== "ready") continue;
+    if (capability.target.surfaceId === surfaceId) return capability.target;
+  }
+  return null;
+}
+
+export function registerProjectDefaultPageCreateTarget(
+  appHandle: ScopeHandle,
+  projectId: string,
+  token: string,
+  capability: PageCreateTargetCapability,
+): void {
+  appHandle.set(pageCreateTargetRegistryAtom, (previous) => ({
+    ...previous,
+    projectDefaultRegistrations: {
+      ...previous.projectDefaultRegistrations,
+      [projectId]: { token, projectId, capability },
+    },
+  }));
+}
+
+export function unregisterProjectDefaultPageCreateTarget(
+  appHandle: ScopeHandle,
+  projectId: string,
+  token: string,
+): void {
+  appHandle.set(pageCreateTargetRegistryAtom, (previous) => {
+    const existing = previous.projectDefaultRegistrations[projectId];
+    if (!existing || existing.token !== token) return previous;
+
+    const projectDefaultRegistrations = {
+      ...previous.projectDefaultRegistrations,
+    };
+    delete projectDefaultRegistrations[projectId];
+    return { ...previous, projectDefaultRegistrations };
+  });
 }
 
 export function resolveRegisteredPageCreateTarget(
   appHandle: ScopeHandle,
+  activeProjectId: string | null,
 ): PageCreateTargetResolution {
-  return resolvePageCreateTarget(appHandle.get(pageCreateTargetRegistryAtom));
+  return resolvePageCreateTarget(
+    appHandle.get(pageCreateTargetRegistryAtom),
+    activeProjectId,
+  );
 }
 
-export function usePageCreateTargetResolution(): PageCreateTargetResolution {
-  return resolvePageCreateTarget(useScopedAtomValue(pageCreateTargetRegistryAtom));
+export function usePageCreateTargetResolution(
+  activeProjectId: string | null,
+): PageCreateTargetResolution {
+  return resolvePageCreateTarget(
+    useScopedAtomValue(pageCreateTargetRegistryAtom),
+    activeProjectId,
+  );
 }

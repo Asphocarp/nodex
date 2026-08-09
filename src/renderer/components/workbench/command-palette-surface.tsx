@@ -60,6 +60,7 @@ import {
 } from "./command-palette-filters";
 import { ThreadsIcon } from "./threads-icon";
 import { NodexIconButton } from "@/components/ui/button";
+import { ShortcutKeycaps } from "@/components/ui/shortcut-keycaps";
 import {
   NAVIGATE_BACK_COMMAND_ID,
   NAVIGATE_FORWARD_COMMAND_ID,
@@ -391,9 +392,7 @@ function CommandRow({
         ) : null}
       </div>
       {item.shortcut ? (
-        <kbd className="shrink-0 rounded-sm bg-token-foreground/5 px-1.5 py-0.5 text-[11px] font-sans font-medium leading-none tracking-wide text-token-description-foreground">
-          {item.shortcut}
-        </kbd>
+        <ShortcutKeycaps keys={[item.shortcut]} density="compact" />
       ) : null}
     </div>
   );

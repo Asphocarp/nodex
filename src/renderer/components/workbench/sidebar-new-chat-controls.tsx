@@ -11,6 +11,7 @@ import {
 } from "react";
 import { NewChatIcon, SettingsSearchIcon, TitlebarNewChatIcon } from "@/components/shared/icons";
 import { NodexTooltip } from "@/components/ui/tooltip";
+import { ShortcutKeycaps } from "@/components/ui/shortcut-keycaps";
 import { cn } from "@/lib/utils";
 
 export const SIDEBAR_NEW_CHAT_ROW_CLASS = "focus-visible:outline-token-border relative h-[var(--height-token-nav-row)] px-row-x py-row-y cursor-interaction shrink-0 items-center overflow-hidden rounded-lg text-left text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-50 gap-2 flex w-full hover:bg-token-list-hover-background group";
@@ -105,7 +106,7 @@ export function SidebarExpandedHeader({
 }: {
   productName: string;
   searchShortcutLabel: ReactNode;
-  newChatShortcutLabel: ReactNode;
+  newChatShortcutLabel: string;
   scrolledContentUnderHeader: boolean;
   onSearch: () => void;
   onNewChat: () => void;
@@ -150,7 +151,7 @@ export function SidebarNewChatButton({
   shortcutLabel,
   onClick,
 }: {
-  shortcutLabel: ReactNode;
+  shortcutLabel: string;
   onClick: () => void;
 }) {
   return (
@@ -170,9 +171,7 @@ export function SidebarNewChatButton({
               aria-hidden="true"
               className="opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100"
             >
-              <kbd className="inline-flex !rounded-md !border-0 !bg-current/10 !font-sans !text-xs !text-current !shadow-none !px-1.5 !py-0.5 !leading-none">
-                {shortcutLabel}
-              </kbd>
+              <ShortcutKeycaps keys={[shortcutLabel]} tone="current" />
             </span>
           </button>
         </div>

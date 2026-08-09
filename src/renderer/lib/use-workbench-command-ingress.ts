@@ -45,8 +45,10 @@ export interface WorkbenchCommandPort {
   readonly execute: (
     commandId: WorkbenchCommandId,
     source: WorkbenchCommandSource,
-  ) => void;
+  ) => boolean;
   readonly openCommandPalette: (request?: CommandMenuOpenRequest) => void;
+  readonly goToPages: () => void;
+  readonly goToSettings: () => void;
   readonly toggleSettings: () => void;
   readonly openKeyboardShortcuts: () => void;
   readonly openDesktopNotification: (
@@ -230,13 +232,23 @@ export function useWorkbenchCommandIngress(
     [],
   );
   const execute = useCallback<WorkbenchCommandPort["execute"]>(
-    (commandId, source) => portRef.current?.execute(commandId, source),
+    (commandId, source) => (
+      portRef.current?.execute(commandId, source) ?? false
+    ),
     [],
   );
   const openCommandPalette = useCallback<
     WorkbenchCommandPort["openCommandPalette"]
   >(
     (request) => portRef.current?.openCommandPalette(request),
+    [],
+  );
+  const goToPages = useCallback<WorkbenchCommandPort["goToPages"]>(
+    () => portRef.current?.goToPages(),
+    [],
+  );
+  const goToSettings = useCallback<WorkbenchCommandPort["goToSettings"]>(
+    () => portRef.current?.goToSettings(),
     [],
   );
   const toggleSettings = useCallback<WorkbenchCommandPort["toggleSettings"]>(
@@ -354,6 +366,8 @@ export function useWorkbenchCommandIngress(
     closePanelTab,
     execute,
     openCommandPalette,
+    goToPages,
+    goToSettings,
     toggleSettings,
     openKeyboardShortcuts,
     openDesktopNotification,
@@ -361,6 +375,8 @@ export function useWorkbenchCommandIngress(
     closePanelTab,
     cyclePanelTab,
     execute,
+    goToPages,
+    goToSettings,
     navigate,
     openCommandPalette,
     openContentSearch,

@@ -162,10 +162,14 @@ const createPage = (id: string, title: string) => ({
 function ModalLauncher({
   children,
   onAncestorPointerDown,
+  seedTitle,
+  initialExpanded = false,
   visible = true,
 }: {
   readonly children?: ReactNode;
   readonly onAncestorPointerDown?: () => void;
+  readonly seedTitle?: string;
+  readonly initialExpanded?: boolean;
   readonly visible?: boolean;
 }) {
   const appHandle = useScopeHandle(appScope);
@@ -177,10 +181,24 @@ function ModalLauncher({
         type="button"
         onClick={() => {
           registerPageCreateTarget(appHandle, "registration-test", target);
-          requestPageCreate(appHandle, { target, origin });
+          requestPageCreate(appHandle, seedTitle
+            ? { target, origin, seed: { title: seedTitle }, initialExpanded }
+            : { target, origin, initialExpanded });
         }}
       >
         Open Page create
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          requestPageCreate(appHandle, {
+            target,
+            origin,
+            initialExpanded: true,
+          });
+        }}
+      >
+        Open Page create expanded
       </button>
       {children}
     </div>
@@ -190,15 +208,21 @@ function ModalLauncher({
 function TestShell({
   launcherVisible = true,
   onAncestorPointerDown,
+  seedTitle,
+  initialExpanded = false,
 }: {
   readonly launcherVisible?: boolean;
   readonly onAncestorPointerDown?: () => void;
+  readonly seedTitle?: string;
+  readonly initialExpanded?: boolean;
 }) {
   return (
     <NodexToastProvider>
       <ModalLauncher
         visible={launcherVisible}
         onAncestorPointerDown={onAncestorPointerDown}
+        seedTitle={seedTitle}
+        initialExpanded={initialExpanded}
       />
       <div
         data-kanban-board-root
@@ -239,6 +263,31 @@ describe("PageCreateDialog", () => {
 
     view.rerender(<TestShell launcherVisible={false} />);
     expect(view.getByRole("dialog")).toBeTruthy();
+  });
+
+  test("uses selected text only as the initial title of a new draft", async () => {
+    const view = renderWithMaitai(<TestShell seedTitle="Fix release notes" />);
+
+    fireEvent.click(view.getByRole("button", { name: "Open Page create" }));
+
+    expect((await view.findByLabelText("Page title") as HTMLInputElement).value)
+      .toBe("Fix release notes");
+    expect((view.getByLabelText("Page description") as HTMLTextAreaElement).value)
+      .toBe("");
+  });
+
+  test("treats a repeated create request as focus, not a second draft", async () => {
+    const view = renderWithMaitai(<TestShell />);
+    const trigger = view.getByRole("button", { name: "Open Page create" });
+    fireEvent.click(trigger);
+    const title = await view.findByLabelText("Page title");
+    title.blur();
+
+    fireEvent.click(trigger);
+
+    expect(view.getAllByRole("dialog")).toHaveLength(1);
+    await waitFor(() => expect(document.activeElement).toBe(title));
+    expect(view.queryByRole("alert")).toBeNull();
   });
 
   test("preserves the draft after failure and focuses the exact created card after retry", async () => {
@@ -328,6 +377,40 @@ describe("PageCreateDialog", () => {
     expect(view.getByRole("button", { name: "Collapse Page composer" }).getAttribute("aria-expanded")).toBe("true");
     expect(view.getByLabelText("Page description").getAttribute("data-document-id")).toBe(documentId);
     expect((view.getByLabelText("Page description") as HTMLTextAreaElement).value).toBe("Keep editor state");
+  });
+
+  test("opens directly in expanded mode when the request asks for it", async () => {
+    const view = renderWithMaitai(<TestShell initialExpanded />);
+    fireEvent.click(view.getByRole("button", { name: "Open Page create" }));
+
+    expect((await view.findByRole(
+      "button",
+      { name: "Collapse Page composer" },
+    )).getAttribute("aria-expanded")).toBe("true");
+  });
+
+  test("expands an existing draft without replacing its editor state", async () => {
+    const view = renderWithMaitai(<TestShell />);
+    fireEvent.click(view.getByRole("button", { name: "Open Page create" }));
+    const title = await view.findByLabelText("Page title");
+    fireEvent.change(title, { target: { value: "Keep this draft" } });
+
+    fireEvent.click(view.getByText("Open Page create expanded"));
+
+    expect(await view.findByRole(
+      "button",
+      { name: "Collapse Page composer" },
+    )).not.toBeNull();
+    expect((view.getByLabelText("Page title") as HTMLInputElement).value)
+      .toBe("Keep this draft");
+
+    fireEvent.click(view.getByRole("button", { name: "Collapse Page composer" }));
+    fireEvent.click(view.getByText("Open Page create expanded"));
+
+    expect(await view.findByRole(
+      "button",
+      { name: "Collapse Page composer" },
+    )).not.toBeNull();
   });
 
   test("supports create-more keyboard submission and resets only the writing fields", async () => {
@@ -451,6 +534,9 @@ describe("PageCreateDialog", () => {
     const view = renderWithMaitai(<TestShell />);
     fireEvent.click(view.getByRole("button", { name: "Open Page create" }));
     await view.findByRole("dialog");
+    await waitFor(() => expect(document.activeElement).toBe(
+      view.getByRole("textbox", { name: "Page title" }),
+    ));
 
     await act(async () => {
       fireEvent.click(view.getByRole("button", { name: "Priority" }));

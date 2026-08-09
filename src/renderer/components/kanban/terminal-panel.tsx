@@ -134,6 +134,7 @@ function TerminalSurface({
     <div
       id={`terminal-panel-${terminalId}`}
       data-codex-terminal="true"
+      data-nodex-keyboard-scope="terminal"
       data-codex-xterm="true"
       className="app-theme relative flex h-full w-full flex-col"
       style={{

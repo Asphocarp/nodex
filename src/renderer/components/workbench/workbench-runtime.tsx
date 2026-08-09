@@ -87,6 +87,8 @@ import { toast } from "@/components/ui/toast";
 import { appScope, useScopeHandle } from "@/lib/maitai";
 import { openModal } from "@/lib/modal-registry";
 import { requestPageCreateFromContext } from "@/lib/page-create-workflow";
+import { useProjectPageCreateTarget } from "@/lib/use-project-page-create-target";
+import { useMutationAuditSessionId } from "@/lib/mutation-audit-session";
 import {
   useCodexAppServerControl,
   useCodexAppServerRegistry,
@@ -340,12 +342,14 @@ import {
 } from "../../../shared/window-navigation";
 import {
   CREATE_PAGE_COMMAND_ID,
+  CREATE_PAGE_EXPANDED_COMMAND_ID,
   TOGGLE_BOTTOM_PANEL_COMMAND_ID,
   type WorkbenchCommandInvocation,
 } from "../../../shared/workbench-commands";
 import {
   type CommandKeymapState,
 } from "../../../shared/command-keybindings";
+import { KeyboardShortcutHelpDialog } from "./keyboard-shortcut-help-dialog";
 import type {
   CommandMenuMode,
 } from "@/lib/command-palette";
@@ -513,6 +517,7 @@ export function WorkbenchRuntime({
 }: WorkbenchRuntimeProps) {
   const queryClient = useQueryClient();
   const appHandle = useScopeHandle(appScope);
+  const mutationAuditSessionId = useMutationAuditSessionId();
   const workbenchWindow = useWorkbenchWindowState(
     initialWindowLayoutSnapshot,
   );
@@ -835,6 +840,7 @@ export function WorkbenchRuntime({
     panelTabPresentationRegistry.dispose();
   }, [panelTabPresentationRegistry]);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [keyboardShortcutHelpOpen, setKeyboardShortcutHelpOpen] = useState(false);
   const [commandPaletteOpenRequest, setCommandPaletteOpenRequest] = useState({
     tick: 0,
     mode: "root" as CommandMenuMode,
@@ -1316,6 +1322,14 @@ export function WorkbenchRuntime({
     enabled: Boolean(activeProject?.id && activeProject.defaultDatabaseViewId),
     sessionId: activeSession ? `${activeSession.id}:right-panel-actions` : "right-panel-actions",
   });
+  useProjectPageCreateTarget({
+    appHandle,
+    project: activeProject,
+    board: activeProjectKanban.board,
+    databaseView: activeProjectKanban.databaseView,
+    error: activeProjectKanban.error,
+    clientSessionId: mutationAuditSessionId,
+  });
   const [pageStageHistoryModal, setPageStageHistoryModal] = useState<PageStageHistoryModalContext | null>(null);
   const activeSessionPanelModel = useMemo(() => activeRenderSession ? buildSessionPanelRenderModel({
     session: activeRenderSession,
@@ -1581,6 +1595,11 @@ export function WorkbenchRuntime({
     setLocalEnvironmentSettingsInitial(null);
     setSettingsPath(buildSettingsPath("keyboard-shortcuts"));
   }, [closePendingWorktreeRoute, setAutomationsPath, setSettingsPath]);
+
+  const openKeyboardShortcutHelp = useCallback(() => {
+    setCommandPaletteOpen(false);
+    setKeyboardShortcutHelpOpen(true);
+  }, []);
 
   const toggleSettings = useCallback(() => {
     setAutomationsPath(null);
@@ -2533,15 +2552,24 @@ export function WorkbenchRuntime({
     return action;
   }, [handleDesktopNotificationAction]);
 
-  const executeWorkbenchCommand = useCallback(({ commandId }: WorkbenchCommandInvocation) => {
-    if (commandId === CREATE_PAGE_COMMAND_ID) {
-      requestPageCreateFromContext(appHandle);
-      return;
+  const executeWorkbenchCommand = useCallback(({ commandId, source }: WorkbenchCommandInvocation): boolean => {
+    if (
+      commandId === CREATE_PAGE_COMMAND_ID
+      || commandId === CREATE_PAGE_EXPANDED_COMMAND_ID
+    ) {
+      return requestPageCreateFromContext(appHandle, {
+        activeProjectId: activeProject?.id ?? activeProjectId,
+        unavailableFeedback: source === "keyboard_shortcut" ? "silent" : "toast",
+        captureSelection: source === "keyboard_shortcut",
+        expanded: commandId === CREATE_PAGE_EXPANDED_COMMAND_ID,
+      });
     }
     if (commandId === TOGGLE_BOTTOM_PANEL_COMMAND_ID) {
       toggleActiveBottomPanel();
+      return true;
     }
-  }, [appHandle, toggleActiveBottomPanel]);
+    return false;
+  }, [activeProject?.id, activeProjectId, appHandle, toggleActiveBottomPanel]);
 
   const commandPort = useMemo<WorkbenchCommandPort>(() => ({
     navigate: (direction) => {
@@ -2568,18 +2596,26 @@ export function WorkbenchRuntime({
       closeFocusedPanelTab(null, { respectActiveElementGuard: true });
     },
     execute: (commandId, source) => {
+      if (
+        commandId === CREATE_PAGE_COMMAND_ID
+        || commandId === CREATE_PAGE_EXPANDED_COMMAND_ID
+      ) {
+        return executeWorkbenchCommand({ commandId, source });
+      }
       if (!selectedSessionDetailReady) {
         pendingWorkbenchCommandInvocationsRef.current.push({
           commandId,
           source,
         });
-        return;
+        return true;
       }
-      executeWorkbenchCommand({ commandId, source });
+      return executeWorkbenchCommand({ commandId, source });
     },
     openCommandPalette,
+    goToPages: workbenchWindow.selectPages,
+    goToSettings: openSettings,
     toggleSettings,
-    openKeyboardShortcuts: openKeyboardShortcutsSettings,
+    openKeyboardShortcuts: openKeyboardShortcutHelp,
     openDesktopNotification,
   }), [
     activeSession,
@@ -2588,7 +2624,9 @@ export function WorkbenchRuntime({
     executeShellNavigation,
     executeWorkbenchCommand,
     openCommandPalette,
-    openKeyboardShortcutsSettings,
+    workbenchWindow.selectPages,
+    openSettings,
+    openKeyboardShortcutHelp,
     openDesktopNotification,
     openRenameSessionDialog,
     requestContentSearchOpen,
@@ -2993,7 +3031,7 @@ export function WorkbenchRuntime({
       openAutomations={openAutomations}
       openProcessManager={() => setProcessManagerOpen(true)}
       openSettings={openSettings}
-      openKeyboardShortcuts={openKeyboardShortcutsSettings}
+      openKeyboardShortcuts={openKeyboardShortcutHelp}
       onOpenSessionInNewWindow={
         onOpenProjectSessionInNewWindow
       }
@@ -3456,6 +3494,10 @@ export function WorkbenchRuntime({
         <WorkbenchDatabaseViewSurface
           accessContext={surface.config.accessContext}
           target={surface.config.target}
+          keyboardSurface={{
+            surfaceId: surface.id,
+            presentationId: surface.id,
+          }}
           onPresentationChange={({ databaseName, viewName }) => {
             publishTitle(
               surface.config.target.kind === "database-default"
@@ -4231,6 +4273,12 @@ export function WorkbenchRuntime({
           >
           <ContentSearchSurface />
           {commandPalette}
+          <KeyboardShortcutHelpDialog
+            open={keyboardShortcutHelpOpen}
+            onOpenChange={setKeyboardShortcutHelpOpen}
+            commandKeymapState={commandKeymapState}
+            onCustomize={openKeyboardShortcutsSettings}
+          />
           <WorkbenchProcessManagerDialog
             open={processManagerOpen}
             activeThreadId={activeSession?.thread?.threadId ?? null}
@@ -4242,6 +4290,8 @@ export function WorkbenchRuntime({
           />
           <motion.div
             ref={workbenchRootRef}
+            data-page-create-project-focus-root={activeProject?.id ?? activeProjectId ?? undefined}
+            tabIndex={-1}
             className="relative flex flex-col text-token-text-primary"
             style={{
               "--spacing-token-safe-header-left": `${safeHeaderLeftWidth}px`,

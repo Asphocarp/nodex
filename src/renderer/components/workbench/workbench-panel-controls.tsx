@@ -29,8 +29,6 @@ import type { Project } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const PANEL_ACTION_ROW_CLASS = "cursor-interaction flex min-h-10 w-full items-center gap-2 rounded-md bg-token-bg-secondary px-2.5 py-2 text-left hover:bg-token-list-hover-background focus-visible:outline focus-visible:outline-2 focus-visible:outline-token-border-xstrong";
-const PANEL_ACTION_KBD_CLASS = "inline-flex !rounded-md !border-0 !bg-current/10 !font-sans !text-xs !text-current !shadow-none !px-1.5 !py-0.5 !leading-none";
-
 type PanelActionCardProps = ComponentPropsWithoutRef<"button"> & {
   action: PanelNewTabAction;
   isMac: boolean;
@@ -65,7 +63,7 @@ const PanelActionCard = forwardRef<HTMLButtonElement, PanelActionCardProps>(
         </span>
         {shortcut ? (
           <span className="ml-auto shrink-0 pl-2 text-token-text-secondary">
-            <kbd className={PANEL_ACTION_KBD_CLASS}>{shortcut}</kbd>
+            <ShortcutKeycaps keys={[shortcut]} tone="current" />
           </span>
         ) : null}
       </button>

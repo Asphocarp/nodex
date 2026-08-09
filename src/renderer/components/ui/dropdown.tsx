@@ -126,6 +126,7 @@ const NodexDropdownSubmenuContent = forwardRef<
         className,
       )}
       {...props}
+      data-nodex-keyboard-scope="local"
     />
   );
 });
@@ -302,6 +303,7 @@ export const NodexDropdownContent = forwardRef<
         className,
       )}
       {...props}
+      data-nodex-keyboard-scope="local"
     >
       {children}
     </DropdownMenuPrimitive.Content>
