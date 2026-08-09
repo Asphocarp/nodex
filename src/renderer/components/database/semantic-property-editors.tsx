@@ -124,13 +124,20 @@ const semanticOption = (
 export function SemanticSelectPropertyEditor({
   kind,
   label,
+  triggerAriaLabel,
+  triggerPrefix,
   options,
   selectedId,
   disabled,
   pending = false,
   registryState = "ready",
   presentation,
+  searchPlaceholder,
+  searchLeading,
+  contentClassName,
+  emptyOptionLabel,
   onRequestOptions,
+  onOpenChange,
   hasMore = false,
   loadingMore = false,
   onRequestMoreOptions,
@@ -138,13 +145,20 @@ export function SemanticSelectPropertyEditor({
 }: {
   readonly kind: "status" | "priority" | "estimate";
   readonly label: string;
+  readonly triggerAriaLabel?: string;
+  readonly triggerPrefix?: ReactNode;
   readonly options: readonly DatabasePropertyOption[];
   readonly selectedId: string | null;
   readonly disabled: boolean;
   readonly pending?: boolean;
   readonly registryState?: DataSourcePropertyOptionRegistryState;
-  readonly presentation: "compact" | "page";
+  readonly presentation: "compact" | "page" | "chip";
+  readonly searchPlaceholder?: string;
+  readonly searchLeading?: ReactNode;
+  readonly contentClassName?: string;
+  readonly emptyOptionLabel?: string;
   readonly onRequestOptions?: () => void;
+  readonly onOpenChange?: (open: boolean) => void;
   readonly hasMore?: boolean;
   readonly loadingMore?: boolean;
   readonly onRequestMoreOptions?: () => void;
@@ -153,6 +167,7 @@ export function SemanticSelectPropertyEditor({
   return (
     <PropertyOptionPicker
       label={label}
+      triggerAriaLabel={triggerAriaLabel}
       mode="single"
       options={presentSemanticPropertyOptions(kind, options, selectedId, registryState)}
       selectedIds={selectedId ? [selectedId] : []}
@@ -165,7 +180,13 @@ export function SemanticSelectPropertyEditor({
       loadingMore={loadingMore}
       onLoadMore={onRequestMoreOptions}
       presentation={presentation}
+      triggerPrefix={triggerPrefix}
+      searchPlaceholder={searchPlaceholder}
+      searchLeading={searchLeading}
+      contentClassName={contentClassName}
       allowClear={kind !== "status"}
+      emptyOptionLabel={emptyOptionLabel}
+      onOpenChange={onOpenChange}
       onSelectedIdsChange={(ids) => onChange(ids[0] ?? null)}
       renderOption={(option) => semanticOption(kind, option)}
     />

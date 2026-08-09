@@ -7,6 +7,7 @@ import {
 import { AlertCircle, AlertTriangle, CheckCircle2, Info, X } from "@/components/shared/icons/generic-icons";
 import { NodexButton } from "@/components/ui/button";
 import { motion } from "motion/react";
+import { APP_SHELL_TOAST_LAYER_CLASS } from "@/lib/app-shell-layers";
 import { cn } from "@/lib/utils";
 
 const DEFAULT_TOAST_DURATION_MS = 5000;
@@ -286,18 +287,18 @@ function ToastDismissButton({ onClick }: { onClick: () => void }) {
 
 function ToastLevelIcon({ level }: { level: ToastLevel }) {
   if (level === "success") {
-    return <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-token-charts-green" />;
+    return <CheckCircle2 className="size-4 shrink-0 text-token-charts-green" />;
   }
 
   if (level === "warning") {
-    return <AlertTriangle className="mt-0.5 size-4 shrink-0 text-[var(--color-text-warning)]" />;
+    return <AlertTriangle className="size-4 shrink-0 text-[var(--color-text-warning)]" />;
   }
 
   if (level === "danger") {
-    return <AlertCircle className="mt-0.5 size-4 shrink-0 text-token-charts-red" />;
+    return <AlertCircle className="size-4 shrink-0 text-token-charts-red" />;
   }
 
-  return <Info className="mt-0.5 size-4 shrink-0 text-token-description-foreground" />;
+  return <Info className="size-4 shrink-0 text-token-description-foreground" />;
 }
 
 function plainToastToneClassName(level: ToastLevel): string {
@@ -327,7 +328,7 @@ function NodexToastPlainSurface({
     <div
       role="alert"
       className={cn(
-        "pointer-events-auto flex min-w-0 items-start gap-2 rounded-[14px] px-3 py-2 shadow-lg ring-[0.5px] backdrop-blur-sm",
+        "no-drag pointer-events-auto flex min-w-0 items-center gap-2 rounded-[14px] px-3 py-2 shadow-lg ring-[0.5px] backdrop-blur-sm",
         plainToastToneClassName(record.level),
       )}
     >
@@ -347,7 +348,6 @@ function NodexToastPlainSurface({
           type="button"
           variant="secondary"
           size="xs"
-          className="mt-px"
           onClick={() => {
             const shouldClose = record.action?.onClick();
             if (shouldClose !== false) onClose();
@@ -371,7 +371,7 @@ function NodexToastCustomSurface({
   return (
     <div
       className={cn(
-        "pointer-events-auto relative rounded-[16px] bg-token-dropdown-background/90 shadow-lg ring-[0.5px] ring-token-border backdrop-blur-sm",
+        "no-drag pointer-events-auto relative rounded-[16px] bg-token-dropdown-background/90 shadow-lg ring-[0.5px] ring-token-border backdrop-blur-sm",
         record.hasCloseButton ? "pr-10" : "",
       )}
     >
@@ -467,7 +467,7 @@ export function NodexToastProvider({ children }: { children: ReactNode }) {
   return (
     <>
       {children}
-      <div className="pointer-events-none fixed inset-0 z-[60]">
+      <div className={cn("pointer-events-none fixed inset-0", APP_SHELL_TOAST_LAYER_CLASS)}>
         <div
           data-slot="toast-viewport"
           className="pointer-events-none mx-auto flex w-full max-w-[440px] flex-col items-center gap-2 px-3 pt-3"

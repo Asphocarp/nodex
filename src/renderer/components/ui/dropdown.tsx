@@ -140,7 +140,8 @@ const dropdownItemBaseClassName =
   "text-token-foreground outline-hidden rounded-lg px-[var(--padding-row-x)] py-[var(--padding-row-y)] text-sm";
 const dropdownItemInteractiveClassName =
   "hover:bg-token-list-hover-background focus:bg-token-list-hover-background cursor-interaction";
-const dropdownItemLeftSlotClassName = "shrink-0 text-token-text-secondary";
+const dropdownItemLeftSlotClassName =
+  "shrink-0 text-token-text-secondary [&_svg]:size-4 [&_svg]:shrink-0";
 const dropdownItemLeftSlotInteractiveClassName =
   "group-focus:text-token-foreground group-hover:text-token-foreground";
 const dropdownSectionLabelClassName =
@@ -349,13 +350,13 @@ export const NodexDropdownButtonTrigger = forwardRef<
         muted ? "text-token-description-foreground" : "text-token-foreground",
         "[&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg]:text-token-description-foreground",
         size === "xs"
-          ? "h-6 rounded-md px-2 py-0 text-xs [&_svg]:size-3"
+          ? "h-6 rounded-md px-2 py-0 text-xs [&_svg]:size-4"
           : size === "sm"
             ? "h-7 rounded-lg px-2 py-0 text-sm/4.5"
           : size === "settings"
             ? "h-token-button-composer rounded-lg px-3 py-0 text-base leading-[18px]"
             : "h-7 rounded-lg px-2 py-0 text-sm/4.5",
-        shape === "pill" && "rounded-full",
+        shape === "pill" && "rounded-full pl-1 pr-2",
         className,
       )}
       {...props}

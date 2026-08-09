@@ -430,7 +430,7 @@ const meta = {
     layout: "fullscreen",
     docs: {
       description: {
-        component: "Floating text action menu for expanded NFM rich-text selections. Its exit transition preserves the final open geometry even when the selected content is deleted.",
+        component: "Floating text action menu for expanded NFM rich-text selections. Its exit transition preserves the final open geometry even when the selected content is deleted, while globally portalled action tooltips remain above the editor-owned menu layer.",
       },
     },
   },

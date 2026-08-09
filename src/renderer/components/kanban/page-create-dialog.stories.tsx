@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { fireEvent, getByRole, waitFor } from "@testing-library/dom";
 import {
   parseDataSourceId,
   parseDataSourcePropertyId,
@@ -107,8 +108,84 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
+const openPropertyPicker = async (
+  canvasElement: HTMLElement,
+  label: "Status" | "Priority" | "Estimate",
+) => {
+  await waitFor(() => {
+    const title = getByRole(canvasElement, "textbox", { name: "Page title" });
+    if (document.activeElement !== title) {
+      throw new Error("Waiting for Page create autofocus.");
+    }
+  });
+  fireEvent.click(getByRole(canvasElement, "button", { name: label }));
+  await waitFor(() => getByRole(document.body, "combobox", {
+    name: `Search ${label} options`,
+  }));
+};
+
 export const Default: Story = {
   parameters: { viewport: referenceViewport },
+};
+
+export const StatusPickerOpen: Story = {
+  parameters: {
+    viewport: referenceViewport,
+    docs: {
+      description: {
+        story: "The Status pill opens the compact searchable property picker with the current workflow state highlighted.",
+      },
+    },
+  },
+  play: ({ canvasElement }) => openPropertyPicker(canvasElement, "Status"),
+};
+
+export const PriorityPickerOpen: Story = {
+  parameters: {
+    viewport: referenceViewport,
+    docs: {
+      description: {
+        story: "Priority uses the same searchable semantic picker, including an explicit No priority action once a value is selected.",
+      },
+    },
+  },
+  args: {
+    restoredSnapshot: {
+      title: "Choose a priority",
+      descriptionNfm: "",
+      status: "plan",
+      priority: "p1-high",
+      estimate: null,
+      tagNames: [],
+      createMore: false,
+      expanded: false,
+    },
+  },
+  play: ({ canvasElement }) => openPropertyPicker(canvasElement, "Priority"),
+};
+
+export const EstimatePickerOpen: Story = {
+  parameters: {
+    viewport: referenceViewport,
+    docs: {
+      description: {
+        story: "Estimate shares the searchable semantic picker and presents the canonical size scale in order.",
+      },
+    },
+  },
+  args: {
+    restoredSnapshot: {
+      title: "Choose an estimate",
+      descriptionNfm: "",
+      status: "plan",
+      priority: null,
+      estimate: "m",
+      tagNames: [],
+      createMore: false,
+      expanded: false,
+    },
+  },
+  play: ({ canvasElement }) => openPropertyPicker(canvasElement, "Estimate"),
 };
 
 export const ExpandedRestoredDraft: Story = {

@@ -60,7 +60,7 @@ export const NodexPopoverContent = forwardRef<
       sideOffset={sideOffset}
       collisionPadding={collisionPadding}
       className={cn(
-        "bg-token-dropdown-background/90 text-token-foreground ring-token-border flex w-72 origin-[var(--radix-popover-content-transform-origin)] flex-col overflow-y-auto rounded-xl px-1 py-1 shadow-lg ring-[0.5px] backdrop-blur-sm outline-hidden",
+        "no-drag bg-token-dropdown-background/90 text-token-foreground ring-token-border flex w-72 origin-[var(--radix-popover-content-transform-origin)] flex-col overflow-y-auto rounded-xl px-1 py-1 shadow-lg ring-[0.5px] backdrop-blur-sm outline-hidden",
         APP_SHELL_FLOATING_UI_LAYER_CLASS,
         className,
       )}

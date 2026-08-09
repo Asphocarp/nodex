@@ -41,6 +41,7 @@ export interface PropertyOptionRenderContext {
 
 export interface PropertyOptionPickerProps {
   readonly label: string;
+  readonly triggerAriaLabel?: string;
   readonly mode: PropertyOptionPickerMode;
   readonly options: readonly DatabasePropertyOption[];
   readonly selectedIds: readonly string[];
@@ -52,8 +53,12 @@ export interface PropertyOptionPickerProps {
   readonly hasMore?: boolean;
   readonly presentation?: "compact" | "page" | "chip";
   readonly triggerPrefix?: ReactNode;
+  readonly searchPlaceholder?: string;
+  readonly searchLeading?: ReactNode;
+  readonly contentClassName?: string;
   readonly allowCreate?: boolean;
   readonly allowClear?: boolean;
+  readonly emptyOptionLabel?: string;
   readonly onOpen?: () => void;
   readonly onOpenChange?: (open: boolean) => void;
   readonly onLoadMore?: () => void;
@@ -89,6 +94,7 @@ const dedupe = (values: readonly string[]): readonly string[] => [...new Set(val
 
 export function PropertyOptionPicker({
   label,
+  triggerAriaLabel,
   mode,
   options,
   selectedIds,
@@ -100,8 +106,12 @@ export function PropertyOptionPicker({
   hasMore = false,
   presentation = "compact",
   triggerPrefix,
+  searchPlaceholder = "Search options…",
+  searchLeading = <SearchIcon className="icon-2xs shrink-0 text-token-description-foreground" />,
+  contentClassName,
   allowCreate = false,
   allowClear = true,
+  emptyOptionLabel = PROPERTY_EMPTY_VALUE_LABEL,
   onOpen,
   onOpenChange,
   onLoadMore,
@@ -132,6 +142,10 @@ export function PropertyOptionPicker({
     && onCreateOption !== undefined
     && canCreateDataSourcePropertyOption(options, query);
   const changeOpen = (next: boolean) => {
+    if (next) {
+      const selectedIndex = options.findIndex((option) => selectedSet.has(option.id));
+      setActiveIndex(selectedIndex >= 0 ? selectedIndex : 0);
+    }
     setOpen(next);
     onOpenChange?.(next);
   };
@@ -249,7 +263,7 @@ export function PropertyOptionPicker({
       <NodexPopoverTrigger asChild disabled={triggerDisabled}>
         <button
           type="button"
-          aria-label={`Edit ${label}`}
+          aria-label={triggerAriaLabel ?? `Edit ${label}`}
           className={cn(
             "inline-flex min-h-6 min-w-0 max-w-full items-center text-left outline-hidden",
             "hover:bg-token-foreground/5 focus-visible:ring-2 focus-visible:ring-token-focus disabled:opacity-50",
@@ -257,7 +271,7 @@ export function PropertyOptionPicker({
               ? "rounded-md px-1 text-sm"
               : presentation === "chip"
                 ? cn(
-                    "h-6 gap-1 rounded-full border-[0.5px] px-2 text-xs/3 font-medium",
+                    "h-6 gap-1 rounded-full border-[0.5px] pl-1.5 pr-2 text-xs/4 font-medium [&_svg]:size-4 [&_svg]:shrink-0",
                     NODEX_RAISED_CONTROL_CHROME_CLASS_NAME,
                   )
                 : "rounded-md px-1 text-[11px]",
@@ -274,7 +288,10 @@ export function PropertyOptionPicker({
       </NodexPopoverTrigger>
       <NodexPopoverContent
         align="start"
-        className="w-[min(320px,calc(100vw-16px))] overflow-hidden p-0"
+        className={cn(
+          "w-[min(320px,calc(100vw-16px))] overflow-hidden p-0",
+          contentClassName,
+        )}
         onOpenAutoFocus={(event) => event.preventDefault()}
         onEscapeKeyDown={(event) => event.stopPropagation()}
       >
@@ -304,7 +321,7 @@ export function PropertyOptionPicker({
           </div>
         ) : null}
         <div className="flex min-h-9 items-center gap-1.5 px-2">
-          <SearchIcon className="icon-2xs shrink-0 text-token-description-foreground" />
+          {searchLeading}
           <input
             ref={inputRef}
             role="combobox"
@@ -362,7 +379,7 @@ export function PropertyOptionPicker({
                 else void createOption();
               }
             }}
-            placeholder="Search options…"
+            placeholder={searchPlaceholder}
             className="h-8 min-w-0 flex-1 bg-transparent text-sm text-token-text-primary outline-none placeholder:text-token-description-foreground"
           />
         </div>
@@ -392,7 +409,7 @@ export function PropertyOptionPicker({
               }}
               className="flex min-h-7 w-full items-center rounded-lg px-2 text-left text-sm text-token-description-foreground hover:bg-token-list-hover-background"
             >
-              {PROPERTY_EMPTY_VALUE_LABEL}
+              {emptyOptionLabel}
             </button>
           ) : null}
           {filtered.map((option, index) => {
