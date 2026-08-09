@@ -1,5 +1,12 @@
 import { CalendarIcon } from "@/components/shared/icons";
-import { useDeferredValue, useMemo, useState } from "react";
+import {
+  useDeferredValue,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { ArrowDown, ArrowUp, List } from "@/components/shared/icons/generic-icons";
 import {
   stableStringifyDatabaseJson,
@@ -15,7 +22,7 @@ import { NodexIconButton } from "@/components/ui/button";
 import { matchesSearchTokens, tokenizeSearchQuery } from "@/lib/page-search";
 import {
   databaseViewSupportsManualReorder,
-  buildDatabaseViewMoveOperations,
+  buildDatabaseViewMovePageRunOperations,
   buildDatabaseViewPropertyValueOperations,
   canMoveDatabaseViewPage,
   commitDatabaseViewOperations,
@@ -48,6 +55,17 @@ import {
   readDataSourceRelationTargetDescriptor,
   searchDataSourceRelationCandidates,
 } from "@/lib/data-source-relation-runtime";
+import { useContextualKeyboardActionTarget } from "@/lib/use-contextual-keyboard-action-target";
+import { markContextualKeyboardActionTargetActive } from "@/lib/contextual-keyboard-actions";
+import type { CommandId } from "../../../shared/command-keybindings";
+import {
+  resolveBoardKeyboardActionPageIds,
+  findBoardKeyboardLocation,
+  resolveBoardKeyboardNavigation,
+  type BoardKeyboardDirection,
+} from "../kanban/board-keyboard-navigation";
+import { compileDatabasePagesDragFromQuery } from "../../../shared/database-page-drag";
+import { isWorkflowStatus } from "../../../shared/workflow-status";
 
 interface DatabaseViewSurfaceProps {
   readonly model: DatabaseViewRenderModel;
@@ -61,6 +79,10 @@ interface DatabaseViewSurfaceProps {
   ) => void;
   readonly onCommitted?: () => void | Promise<void>;
   readonly commitOperations?: typeof commitDatabaseViewOperations;
+  readonly keyboardSurface?: {
+    readonly surfaceId: string;
+    readonly presentationId: string;
+  };
 }
 
 const rowByPageId = (
@@ -146,6 +168,9 @@ function DurablePageSurface({
   optionRegistryHasMore,
   optionRegistryLoadingMore,
   onMove,
+  highlighted,
+  selected,
+  onHighlight,
 }: {
   readonly model: DatabaseViewRenderModel;
   readonly row: DatabaseViewRenderRow;
@@ -202,6 +227,9 @@ function DurablePageSurface({
   readonly optionRegistryHasMore: Readonly<Record<string, boolean>>;
   readonly optionRegistryLoadingMore: Readonly<Record<string, boolean>>;
   readonly onMove: (pageId: string, direction: "up" | "down") => void;
+  readonly highlighted: boolean;
+  readonly selected: boolean;
+  readonly onHighlight: (pageId: string) => void;
 }) {
   const authority = rowByPageId(model, row.pageId);
   if (!authority) return null;
@@ -209,10 +237,23 @@ function DurablePageSurface({
   const showTitle = model.query.view.config.display.showTitle;
   const movePending = pendingMutationKeys.has(`page:${row.pageId}`);
   return (
-    <article className={cn(
-      "group/card min-w-0 rounded-lg bg-token-foreground/5",
-      compact ? "px-2.5 py-2" : "px-2 py-1.5",
-    )}>
+    <article
+      data-database-view-page-id={row.pageId}
+      tabIndex={highlighted ? 0 : -1}
+      aria-selected={selected}
+      onPointerDown={() => onHighlight(row.pageId)}
+      onFocus={() => onHighlight(row.pageId)}
+      className={cn(
+        "group/card min-w-0 rounded-lg bg-token-foreground/5 outline-none",
+        "hover:bg-token-foreground/8",
+        (highlighted || selected) && "ring-1 ring-inset",
+        highlighted && !selected
+          && "ring-[color-mix(in_srgb,var(--accent-blue)_50%,transparent)]",
+        selected
+          && "bg-[color-mix(in_srgb,var(--accent-blue)_7%,transparent)] ring-[color-mix(in_srgb,var(--accent-blue)_72%,transparent)]",
+        compact ? "px-2.5 py-2" : "px-2 py-1.5",
+      )}
+    >
       <div className="flex min-h-6 items-center gap-1">
         <button
           type="button"
@@ -372,6 +413,7 @@ export function DatabaseViewSurface({
   onOpenPage,
   onCommitted,
   commitOperations = commitDatabaseViewOperations,
+  keyboardSurface,
 }: DatabaseViewSurfaceProps) {
   const [pendingMutationKeys, setPendingMutationKeys] = useState<ReadonlyMap<
     string,
@@ -380,6 +422,16 @@ export function DatabaseViewSurface({
   const [mutationErrors, setMutationErrors] = useState<ReadonlyMap<string, string>>(
     () => new Map(),
   );
+  const [highlightedPageId, setHighlightedPageId] = useState<string | null>(null);
+  const [selectedPageIds, setSelectedPageIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const keyboardSurfaceFallbackId = useId();
+  const surfaceId = keyboardSurface?.surfaceId
+    ?? `database-view:${model.databaseViewId}:${keyboardSurfaceFallbackId}`;
+  const presentationId = keyboardSurface?.presentationId
+    ?? `database-view-presentation:${keyboardSurfaceFallbackId}`;
+  const surfaceRef = useRef<HTMLDivElement | null>(null);
   const propertyOptionRegistries = usePropertyOptionRegistries({
     accessContext: model.accessContext,
     properties: model.query.properties,
@@ -412,7 +464,32 @@ export function DatabaseViewSurface({
     })),
     [model, searchTokens],
   );
-  const allRows = columns.flatMap((column) => column.rows);
+  const allRows = useMemo(
+    () => columns.flatMap((column) => column.rows),
+    [columns],
+  );
+  const keyboardBoard = useMemo(() => ({
+    columns: columns.map((column) => ({
+      id: column.id,
+      cards: column.rows.map((row) => ({ id: row.pageId })),
+    })),
+  }), [columns]);
+  const visiblePageIds = useMemo(
+    () => new Set(allRows.map((row) => row.pageId)),
+    [allRows],
+  );
+
+  useEffect(() => {
+    setHighlightedPageId((current) =>
+      current && !visiblePageIds.has(current) ? null : current
+    );
+    setSelectedPageIds((current) => {
+      const next = new Set(
+        [...current].filter((pageId) => visiblePageIds.has(pageId)),
+      );
+      return next.size === current.size ? current : next;
+    });
+  }, [visiblePageIds]);
   const continuableScopes = [...(groupPagination?.values() ?? [])]
     .filter((state) => state.hasMore);
   const anyContinuationLoading = continuableScopes
@@ -495,11 +572,191 @@ export function DatabaseViewSurface({
     buildDatabaseViewPropertyValueOperations({ model, pageId, propertyId, value }),
     [`value:${pageId}:${propertyId}`],
   );
-  const move = (pageId: string, direction: "up" | "down") =>
-    void commit(
-      buildDatabaseViewMoveOperations({ model, pageId, direction }),
-      [`page:${pageId}`],
+  const isPageRunGroupComplete = (pageIds: readonly string[]): boolean => {
+    const owningColumns = pageIds.map((pageId) =>
+      columns.find((column) =>
+        column.rows.some((row) => row.pageId === pageId)
+      )
     );
+    const first = owningColumns[0];
+    if (!first || owningColumns.some((column) => column?.id !== first.id)) {
+      return false;
+    }
+    return groupPagination?.get(first.scopeKey)?.hasMore !== true;
+  };
+  const move = (
+    pageIds: string | readonly string[],
+    direction: "up" | "down" | "top" | "bottom",
+  ) => {
+    const orderedPageIds = typeof pageIds === "string" ? [pageIds] : pageIds;
+    const groupComplete = isPageRunGroupComplete(orderedPageIds);
+    void commit(
+      buildDatabaseViewMovePageRunOperations({
+        model,
+        pageIds: orderedPageIds,
+        direction,
+        groupComplete,
+      }),
+      orderedPageIds.map((pageId) => `page:${pageId}`),
+    );
+  };
+  const highlightPage = (pageId: string, focus = false) => {
+    setHighlightedPageId(pageId);
+    markContextualKeyboardActionTargetActive(surfaceId);
+    if (!focus) return;
+    requestAnimationFrame(() => {
+      const element = Array.from(
+        surfaceRef.current?.querySelectorAll<HTMLElement>(
+          "[data-database-view-page-id]",
+        ) ?? [],
+      ).find((candidate) =>
+        candidate.dataset.databaseViewPageId === pageId
+      );
+      element?.focus({ preventScroll: true });
+      element?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    });
+  };
+  const navigateHighlight = (direction: BoardKeyboardDirection): boolean => {
+    const next = resolveBoardKeyboardNavigation(
+      keyboardBoard,
+      highlightedPageId,
+      direction,
+    );
+    if (!next) return false;
+    highlightPage(next.pageId, true);
+    return true;
+  };
+  const activeRow = highlightedPageId
+    ? allRows.find((row) => row.pageId === highlightedPageId) ?? null
+    : null;
+  const actionPageIds = resolveBoardKeyboardActionPageIds(
+    keyboardBoard,
+    highlightedPageId,
+    selectedPageIds,
+  );
+  const moveDirectionForCommand = (
+    commandId: CommandId,
+  ): "up" | "down" | "top" | "bottom" | null => {
+    if (commandId === "boardMoveUp") return "up";
+    if (commandId === "boardMoveDown") return "down";
+    if (commandId === "boardMoveTop") return "top";
+    if (commandId === "boardMoveBottom") return "bottom";
+    return null;
+  };
+  const buildHorizontalMoveOperations = (
+    commandId: "boardMoveLeft" | "boardMoveRight",
+  ) => {
+    if (model.readOnlyReason) return null;
+    const active = findBoardKeyboardLocation(keyboardBoard, highlightedPageId);
+    if (!active || actionPageIds.length === 0) return null;
+    const offset = commandId === "boardMoveRight" ? 1 : -1;
+    const destinationColumn = keyboardBoard.columns[active.columnIndex + offset];
+    if (!destinationColumn || !isWorkflowStatus(destinationColumn.id)) return null;
+    const sourceStatuses = actionPageIds.map((pageId) =>
+      model.query.rows.find((row) => row.page.pageId === pageId)?.effectiveGroupKey
+    );
+    if (sourceStatuses.some((status) => !isWorkflowStatus(status))) return null;
+    const sharedSource = sourceStatuses.every((status) => status === sourceStatuses[0])
+      ? sourceStatuses[0]
+      : undefined;
+    const selected = new Set(actionPageIds);
+    const remainingDestinationPageIds = destinationColumn.cards.flatMap((card) =>
+      selected.has(card.id) ? [] : [card.id]
+    );
+    const newOrder = Math.min(active.cardIndex, remainingDestinationPageIds.length);
+    try {
+      return compileDatabasePagesDragFromQuery({
+        query: model.query,
+        move: {
+          pageIds: [...actionPageIds],
+          ...(isWorkflowStatus(sharedSource) ? { fromStatus: sharedSource } : {}),
+          toStatus: destinationColumn.id,
+          newOrder,
+        },
+      }).operations;
+    } catch {
+      return null;
+    }
+  };
+  const canMoveHighlightedPage = (commandId: CommandId): boolean => {
+    if (model.readOnlyReason) return false;
+    if (commandId === "boardMoveLeft" || commandId === "boardMoveRight") {
+      return buildHorizontalMoveOperations(commandId) !== null;
+    }
+    const direction = moveDirectionForCommand(commandId);
+    if (!direction || actionPageIds.length === 0) return false;
+    try {
+      return buildDatabaseViewMovePageRunOperations({
+        model,
+        pageIds: actionPageIds,
+        direction,
+        groupComplete: isPageRunGroupComplete(actionPageIds),
+      }).length > 0;
+    } catch {
+      return false;
+    }
+  };
+
+  useContextualKeyboardActionTarget({
+    surfaceId,
+    presentationId,
+    canExecute: (commandId) => {
+      if (model.query.view.kind !== "kanban") return false;
+      if (
+        commandId === "boardFocusNext"
+        || commandId === "boardFocusPrevious"
+        || commandId === "boardFocusLeft"
+        || commandId === "boardFocusRight"
+      ) return allRows.length > 0;
+      if (commandId === "boardClearSelection") {
+        return selectedPageIds.size > 0;
+      }
+      if (
+        commandId === "boardOpen"
+        || commandId === "boardToggleSelection"
+      ) return activeRow !== null;
+      if (commandId.startsWith("boardMove")) {
+        return canMoveHighlightedPage(commandId);
+      }
+      return false;
+    },
+    execute: (commandId) => {
+      if (commandId === "boardFocusNext") return navigateHighlight("next");
+      if (commandId === "boardFocusPrevious") return navigateHighlight("previous");
+      if (commandId === "boardFocusLeft") return navigateHighlight("left");
+      if (commandId === "boardFocusRight") return navigateHighlight("right");
+      if (commandId === "boardClearSelection") {
+        setSelectedPageIds(new Set());
+        return true;
+      }
+      if (commandId === "boardOpen" && activeRow) {
+        onOpenPage(activeRow.pageId, activeRow.title);
+        return true;
+      }
+      if (commandId === "boardToggleSelection" && activeRow) {
+        setSelectedPageIds((current) => {
+          const next = new Set(current);
+          if (next.has(activeRow.pageId)) next.delete(activeRow.pageId);
+          else next.add(activeRow.pageId);
+          return next;
+        });
+        return true;
+      }
+      if (commandId === "boardMoveLeft" || commandId === "boardMoveRight") {
+        const operations = buildHorizontalMoveOperations(commandId);
+        if (!operations) return false;
+        void commit(
+          operations,
+          actionPageIds.map((pageId) => `page:${pageId}`),
+        );
+        return true;
+      }
+      const direction = moveDirectionForCommand(commandId);
+      if (!direction || !canMoveHighlightedPage(commandId)) return false;
+      move(actionPageIds, direction);
+      return true;
+    },
+  });
   const patchRelation = (
     pageId: string,
     propertyId: string,
@@ -589,36 +846,52 @@ export function DatabaseViewSurface({
     property,
   });
   const pageProps = (row: DatabaseViewRenderRow) => ({
+    model,
+    row,
+    pendingMutationKeys,
+    mutationErrors,
+    canMoveUp: canMoveDatabaseViewPage({
       model,
-      row,
-      pendingMutationKeys,
-      mutationErrors,
-      canMoveUp: canMoveDatabaseViewPage({ model, pageId: row.pageId, direction: "up" }),
-      canMoveDown: canMoveDatabaseViewPage({ model, pageId: row.pageId, direction: "down" }),
-      onOpenPage,
-      onSetValue: setValue,
-      onPatchOptions: patchOptions,
-      onPatchRelation: patchRelation,
-      onCreateOption: createOption,
-      onLoadRelationTargets: loadRelationTargets,
-      onSearchRelationCandidates: searchRelationCandidates,
-      onLoadRelationTargetDescriptor: loadRelationTargetDescriptor,
-      onRelationValueStale: () => {
-        void onCommitted?.();
-      },
-      onRequestOptions: requestOptions,
-      onRequestMoreOptions: requestMoreOptions,
-      optionRegistries,
-      optionRegistryStates,
-      optionRegistryHasMore,
-      optionRegistryLoadingMore,
-      onMove: move,
-    } as const);
+      pageId: row.pageId,
+      direction: "up",
+      groupComplete: isPageRunGroupComplete([row.pageId]),
+    }),
+    canMoveDown: canMoveDatabaseViewPage({
+      model,
+      pageId: row.pageId,
+      direction: "down",
+      groupComplete: isPageRunGroupComplete([row.pageId]),
+    }),
+    onOpenPage,
+    onSetValue: setValue,
+    onPatchOptions: patchOptions,
+    onPatchRelation: patchRelation,
+    onCreateOption: createOption,
+    onLoadRelationTargets: loadRelationTargets,
+    onSearchRelationCandidates: searchRelationCandidates,
+    onLoadRelationTargetDescriptor: loadRelationTargetDescriptor,
+    onRelationValueStale: () => {
+      void onCommitted?.();
+    },
+    onRequestOptions: requestOptions,
+    onRequestMoreOptions: requestMoreOptions,
+    optionRegistries,
+    optionRegistryStates,
+    optionRegistryHasMore,
+    optionRegistryLoadingMore,
+    onMove: move,
+    highlighted: row.pageId === highlightedPageId,
+    selected: selectedPageIds.has(row.pageId),
+    onHighlight: highlightPage,
+  } as const);
 
   return (
     <div
+      ref={surfaceRef}
       className="flex h-full min-h-0 flex-col bg-token-main-surface-primary"
       data-database-view-id={model.databaseViewId}
+      onFocusCapture={() => markContextualKeyboardActionTargetActive(surfaceId)}
+      onPointerDownCapture={() => markContextualKeyboardActionTargetActive(surfaceId)}
     >
       {failedContinuations.length > 0 && onLoadMoreGroup ? (
         <div

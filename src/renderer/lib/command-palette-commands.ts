@@ -274,7 +274,7 @@ export function buildCommandPaletteCommands(
     }),
     ...maybeMockCommand("mcpSettings", "Configure", "MCP settings", "Open MCP server settings", ["mcp", "settings", "tools"], 730),
     ...maybeMockCommand("personalitySettings", "Configure", "Personality settings", "Open assistant personality settings", ["personality", "settings"], 720),
-    command("showKeyboardShortcuts", "Configure", "Keyboard shortcuts", "Open keyboard shortcut settings", ["keyboard", "shortcuts", "hotkeys", "settings"], 710, {
+    command("showKeyboardShortcuts", "Configure", "Keyboard shortcuts", "Show available shortcuts and open customization", ["keyboard", "shortcuts", "hotkeys", "settings"], 710, {
       shortcut: shortcutLabel("showKeyboardShortcuts", "CmdOrCtrl+Shift+/"),
     }),
     ...maybeMockCommand("installPrimaryRuntime", "Configure", "Install Codex Workspace", "Install the primary Codex workspace runtime", ["install", "workspace", "runtime"], 700),

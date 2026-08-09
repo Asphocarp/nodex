@@ -68,6 +68,16 @@ export const restorePageCreateFocus = (
     const panelTabFocusTarget = panelTab?.matches("button,[role='tab']")
       ? panelTab
       : panelTab?.querySelector<HTMLElement>("button,[role='tab'],[tabindex='0']") ?? null;
-    panelTabFocusTarget?.focus();
+    if (panelTabFocusTarget) {
+      panelTabFocusTarget.focus({ preventScroll: true });
+      return;
+    }
+
+    const projectRoot = findElementByDataset(
+      "[data-page-create-project-focus-root]",
+      "pageCreateProjectFocusRoot",
+      origin.projectId,
+    );
+    projectRoot?.focus({ preventScroll: true });
   });
 };

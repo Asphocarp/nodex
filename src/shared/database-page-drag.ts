@@ -120,9 +120,9 @@ const compileValue = (input: {
   };
 };
 
-const compilePageRun = (input: {
+const compilePageRunFromQuery = (input: {
   readonly move: MovePagesInput;
-  readonly snapshot: DatabaseModuleReadSnapshotV2;
+  readonly query: DatabaseViewQueryResultV2;
 }): CompiledDatabasePageDrag => {
   const pageIds = input.move.pageIds;
   if (pageIds.length < 1 || new Set(pageIds).size !== pageIds.length) {
@@ -138,7 +138,7 @@ const compilePageRun = (input: {
     );
   }
 
-  const query = queryFromSnapshot(input.snapshot);
+  const query = input.query;
   if (
     query.database.lifecycle !== "active"
     || query.dataSource.lifecycle !== "active"
@@ -332,7 +332,7 @@ export const compileDatabasePageDrag = (input: {
   readonly move: MovePageInput;
   readonly snapshot: DatabaseModuleReadSnapshotV2;
 }): CompiledDatabasePageDrag =>
-  compilePageRun({
+  compilePageRunFromQuery({
     move: {
       pageIds: [input.move.pageId],
       ...(input.move.fromStatus ? { fromStatus: input.move.fromStatus } : {}),
@@ -343,7 +343,18 @@ export const compileDatabasePageDrag = (input: {
       ...(input.move.fieldPatch ? { fieldPatch: input.move.fieldPatch } : {}),
       ...(input.move.groupId ? { groupId: input.move.groupId } : {}),
     },
-    snapshot: input.snapshot,
+    query: queryFromSnapshot(input.snapshot),
   });
 
-export const compileDatabasePagesDrag = compilePageRun;
+export const compileDatabasePagesDrag = (input: {
+  readonly move: MovePagesInput;
+  readonly snapshot: DatabaseModuleReadSnapshotV2;
+}): CompiledDatabasePageDrag => compilePageRunFromQuery({
+  move: input.move,
+  query: queryFromSnapshot(input.snapshot),
+});
+
+export const compileDatabasePagesDragFromQuery = (input: {
+  readonly move: MovePagesInput;
+  readonly query: DatabaseViewQueryResultV2;
+}): CompiledDatabasePageDrag => compilePageRunFromQuery(input);

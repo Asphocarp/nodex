@@ -1,36 +1,44 @@
 import { describe, expect, test } from "vitest";
 import type {
   PageCreateTarget,
+  PageCreateTargetCapability,
   PageCreateTargetRegistryState,
 } from "./page-create-target-registry";
 import { resolvePageCreateTarget } from "./page-create-target-registry";
 
 const target = (
   surfaceId: string,
+  projectId: string,
   readOnlyReason: string | null = null,
 ): PageCreateTarget => ({
   surfaceId,
   panelTabId: `tab:${surfaceId}`,
   project: {
-    id: `project:${surfaceId}`,
-    name: surfaceId,
+    id: projectId,
+    name: projectId,
     appearance: { color: "blue", marker: { kind: "icon", icon: "terminal" } },
   },
   databaseViewId: `view:${surfaceId}`,
   clientSessionId: "session-test",
-  accessContext: { kind: "project", projectId: `project:${surfaceId}` },
+  accessContext: { kind: "project", projectId },
   properties: [],
   columns: [{ id: "triage", name: "Triage" }, { id: "plan", name: "Plan" }],
   readOnlyReason,
 });
 
+const ready = (value: PageCreateTarget): PageCreateTargetCapability => ({
+  status: "ready",
+  target: value,
+});
+
 const state = (
-  targets: readonly PageCreateTarget[],
+  boardTargets: readonly PageCreateTarget[],
   activeSurfaceId: string | null,
+  projectDefaults: Readonly<Record<string, PageCreateTargetCapability>> = {},
 ): PageCreateTargetRegistryState => ({
   activeSurfaceId,
-  nextActivitySequence: targets.length + 1,
-  registrations: Object.fromEntries(targets.map((item, index) => [
+  nextActivitySequence: boardTargets.length + 1,
+  boardRegistrations: Object.fromEntries(boardTargets.map((item, index) => [
     item.surfaceId,
     {
       token: `token:${item.surfaceId}`,
@@ -39,14 +47,21 @@ const state = (
       activitySequence: item.surfaceId === activeSurfaceId ? index + 1 : 0,
     },
   ])),
+  projectDefaultRegistrations: Object.fromEntries(Object.entries(projectDefaults).map(
+    ([projectId, capability]) => [projectId, {
+      token: `token:${projectId}`,
+      projectId,
+      capability,
+    }],
+  )),
 });
 
 describe("Page create target resolution", () => {
-  test("prefers the active writable surface and its active column", () => {
+  test("prefers the exact active Board and its active column", () => {
     const resolution = resolvePageCreateTarget(state(
-      [target("left"), target("right")],
+      [target("left", "project:alpha"), target("right", "project:beta")],
       "right",
-    ));
+    ), "project:alpha");
 
     expect(resolution).toMatchObject({
       status: "resolved",
@@ -55,47 +70,91 @@ describe("Page create target resolution", () => {
     });
   });
 
-  test("uses the only writable surface but refuses an ambiguous pair", () => {
-    expect(resolvePageCreateTarget(state(
-      [target("left"), target("right", "Read only")],
-      null,
-    ))).toMatchObject({ status: "resolved", target: { surfaceId: "left" } });
+  test("does not silently fall back when the exact active Board is read-only", () => {
+    const resolution = resolvePageCreateTarget(state(
+      [target("readonly", "project:alpha", "This View is grouped by Tags")],
+      "readonly",
+      {
+        "project:alpha": ready(target("ambient", "project:alpha")),
+      },
+    ), "project:alpha");
 
-    expect(resolvePageCreateTarget(state(
-      [target("left"), target("right")],
-      null,
-    ))).toEqual({
+    expect(resolution).toEqual({
       status: "unavailable",
-      reason: "Focus a Board before creating a Page.",
+      reason: "This View is grouped by Tags",
     });
   });
 
-  test("keeps the most recently interacted mounted surface after the active one unmounts", () => {
-    const previous = state([target("left"), target("center"), target("right")], null);
+  test("uses recent Board intent only within the active Project", () => {
+    const previous = state(
+      [target("alpha", "project:alpha"), target("beta", "project:beta")],
+      null,
+      {
+        "project:alpha": ready(target("ambient", "project:alpha")),
+      },
+    );
     const resolution = resolvePageCreateTarget({
       ...previous,
-      registrations: {
-        ...previous.registrations,
-        left: { ...previous.registrations.left!, activitySequence: 4 },
-        center: { ...previous.registrations.center!, activitySequence: 7 },
+      boardRegistrations: {
+        ...previous.boardRegistrations,
+        alpha: { ...previous.boardRegistrations.alpha!, activitySequence: 4 },
+        beta: { ...previous.boardRegistrations.beta!, activitySequence: 9 },
       },
-      nextActivitySequence: 9,
-    });
+      nextActivitySequence: 10,
+    }, "project:alpha");
 
     expect(resolution).toMatchObject({
       status: "resolved",
-      target: { surfaceId: "center" },
+      target: { surfaceId: "alpha" },
       columnId: "triage",
     });
   });
 
-  test("surfaces the canonical unavailable reason when no target is writable", () => {
-    expect(resolvePageCreateTarget(state(
-      [target("left", "This View is grouped by Tags")],
-      "left",
-    ))).toEqual({
+  test("falls back to the active Project default target without Board focus", () => {
+    const resolution = resolvePageCreateTarget(state(
+      [target("beta", "project:beta")],
+      null,
+      {
+        "project:alpha": ready(target("ambient", "project:alpha")),
+      },
+    ), "project:alpha");
+
+    expect(resolution).toMatchObject({
+      status: "resolved",
+      target: { surfaceId: "ambient" },
+      columnId: "triage",
+    });
+  });
+
+  test("surfaces ambient loading and unavailable reasons", () => {
+    expect(resolvePageCreateTarget(state([], null, {
+      "project:alpha": {
+        status: "loading",
+        reason: "Preparing this Project’s default Database View…",
+      },
+    }), "project:alpha")).toEqual({
       status: "unavailable",
-      reason: "This View is grouped by Tags",
+      reason: "Preparing this Project’s default Database View…",
+    });
+
+    expect(resolvePageCreateTarget(state([], null, {
+      "project:alpha": {
+        status: "unavailable",
+        reason: "This Project has no active default Database View.",
+      },
+    }), "project:alpha")).toEqual({
+      status: "unavailable",
+      reason: "This Project has no active default Database View.",
+    });
+  });
+
+  test("never guesses a target without an active Project or exact Board", () => {
+    expect(resolvePageCreateTarget(state(
+      [target("alpha", "project:alpha")],
+      null,
+    ), null)).toEqual({
+      status: "unavailable",
+      reason: "Select a Project before creating a Page.",
     });
   });
 });

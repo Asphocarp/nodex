@@ -40,4 +40,27 @@ describe("restorePageCreateFocus", () => {
     expect(focus).toHaveBeenCalledWith({ preventScroll: true });
     expect(surface.scrollTop).toBe(240);
   });
+
+  test("returns an ambient create request to its Project scene", () => {
+    let runFrame: FrameRequestCallback = () => undefined;
+    globalThis.requestAnimationFrame = vi.fn((callback: FrameRequestCallback) => {
+      runFrame = callback;
+      return 1;
+    });
+    const projectRoot = document.createElement("div");
+    projectRoot.dataset.pageCreateProjectFocusRoot = origin.projectId;
+    projectRoot.tabIndex = -1;
+    const focus = vi.spyOn(projectRoot, "focus");
+    document.body.append(projectRoot);
+
+    restorePageCreateFocus({
+      ...origin,
+      surfaceId: "project-default:project-1",
+      panelTabId: "project-scene:project-1",
+      kind: "keyboard",
+    });
+    runFrame(0);
+
+    expect(focus).toHaveBeenCalledWith({ preventScroll: true });
+  });
 });

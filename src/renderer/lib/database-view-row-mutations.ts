@@ -92,7 +92,8 @@ export const databaseViewSupportsManualReorder = (
 export const buildDatabaseViewMoveOperations = (input: {
   readonly model: DatabaseViewRenderModel;
   readonly pageId: string;
-  readonly direction: "up" | "down";
+  readonly direction: "up" | "down" | "top" | "bottom";
+  readonly groupComplete?: boolean;
 }): readonly DatabaseApplyOperationV2[] => {
   if (!databaseViewSupportsManualReorder(input.model)) return [];
   const row = findRow(input.model, input.pageId);
@@ -104,11 +105,16 @@ export const buildDatabaseViewMoveOperations = (input: {
   );
   const targetIndex = input.direction === "up"
     ? currentIndex - 1
-    : currentIndex + 1;
+    : input.direction === "down"
+      ? currentIndex + 1
+      : input.direction === "top"
+        ? 0
+        : visibleGroup.length - 1;
   if (
     currentIndex < 0
     || targetIndex < 0
     || targetIndex >= visibleGroup.length
+    || targetIndex === currentIndex
   ) {
     return [];
   }
@@ -122,7 +128,7 @@ export const buildDatabaseViewMoveOperations = (input: {
       ? [...desired].reverse()
       : desired;
 
-  if (hasEmptyAndFilter(input.model)) {
+  if (hasEmptyAndFilter(input.model) && input.groupComplete === true) {
     if (visibleGroup.length > MAX_DATABASE_MODULE_V2_BULK_ENTRIES) {
       throw localError(
         "This View group is too large for one atomic manual-order mutation",
@@ -157,13 +163,110 @@ export const buildDatabaseViewMoveOperations = (input: {
 export const canMoveDatabaseViewPage = (input: {
   readonly model: DatabaseViewRenderModel;
   readonly pageId: string;
-  readonly direction: "up" | "down";
+  readonly direction: "up" | "down" | "top" | "bottom";
+  readonly groupComplete?: boolean;
 }): boolean => {
   try {
     return buildDatabaseViewMoveOperations(input).length > 0;
   } catch {
     return false;
   }
+};
+
+export const buildDatabaseViewMovePageRunOperations = (input: {
+  readonly model: DatabaseViewRenderModel;
+  readonly pageIds: readonly string[];
+  readonly direction: "up" | "down" | "top" | "bottom";
+  readonly groupComplete?: boolean;
+}): readonly DatabaseApplyOperationV2[] => {
+  const uniquePageIds = [...new Set(input.pageIds)];
+  if (uniquePageIds.length === 0) return [];
+  if (uniquePageIds.length === 1) {
+    return buildDatabaseViewMoveOperations({
+      model: input.model,
+      pageId: uniquePageIds[0]!,
+      direction: input.direction,
+      ...(input.groupComplete === undefined
+        ? {}
+        : { groupComplete: input.groupComplete }),
+    });
+  }
+  if (
+    !databaseViewSupportsManualReorder(input.model)
+    || !hasEmptyAndFilter(input.model)
+    || input.groupComplete !== true
+  ) return [];
+
+  const selectedPageIds = new Set(uniquePageIds);
+  const selectedRows = input.model.query.rows.filter((candidate) =>
+    selectedPageIds.has(candidate.page.pageId)
+  );
+  if (selectedRows.length !== selectedPageIds.size) return [];
+  const groupKey = selectedRows[0]?.effectiveGroupKey ?? null;
+  if (selectedRows.some((row) => row.effectiveGroupKey !== groupKey)) return [];
+
+  const visibleGroup = input.model.query.rows.filter(
+    (candidate) => candidate.effectiveGroupKey === groupKey,
+  );
+  if (visibleGroup.length > MAX_DATABASE_MODULE_V2_BULK_ENTRIES) {
+    throw localError(
+      "This View group is too large for one atomic manual-order mutation",
+    );
+  }
+  const desired = [...visibleGroup];
+  if (input.direction === "top" || input.direction === "bottom") {
+    const selected = desired.filter((row) => selectedPageIds.has(row.page.pageId));
+    const unselected = desired.filter((row) => !selectedPageIds.has(row.page.pageId));
+    desired.splice(
+      0,
+      desired.length,
+      ...(input.direction === "top"
+        ? [...selected, ...unselected]
+        : [...unselected, ...selected]),
+    );
+  } else if (input.direction === "up") {
+    for (let index = 1; index < desired.length; index += 1) {
+      const current = desired[index];
+      const previous = desired[index - 1];
+      if (
+        current
+        && previous
+        && selectedPageIds.has(current.page.pageId)
+        && !selectedPageIds.has(previous.page.pageId)
+      ) {
+        desired[index - 1] = current;
+        desired[index] = previous;
+      }
+    }
+  } else {
+    for (let index = desired.length - 2; index >= 0; index -= 1) {
+      const current = desired[index];
+      const next = desired[index + 1];
+      if (
+        current
+        && next
+        && selectedPageIds.has(current.page.pageId)
+        && !selectedPageIds.has(next.page.pageId)
+      ) {
+        desired[index] = next;
+        desired[index + 1] = current;
+      }
+    }
+  }
+
+  if (desired.every((row, index) => row === visibleGroup[index])) return [];
+  const authorityOrder = input.model.query.view.config.sort[0]?.direction === "desc"
+    ? [...desired].reverse()
+    : desired;
+  return [{
+    kind: "position_pages",
+    viewId: input.model.databaseViewId,
+    pages: authorityOrder.map((candidate) => ({
+      pageId: candidate.page.pageId,
+      expectedPositionRevision: candidate.position?.revision ?? 0,
+    })),
+    groupKey,
+  }];
 };
 
 export interface DatabaseViewMutationDependencies {

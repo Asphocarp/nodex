@@ -1,5 +1,10 @@
 import { memo, useEffect, useRef } from "react";
-import { Card, type CardPropertyUpdateInput } from "./card";
+import {
+  Card,
+  type CardKeyboardPropertyRequest,
+  type CardPropertyUpdateInput,
+} from "./card";
+import type { DatabasePropertyOption } from "../../../shared/database-kernel";
 import type { OpenPageStageOptions } from "./open-page-stage";
 import { ColumnActionPopover } from "./column-action-popover";
 import type { DbViewDisplayPrefs } from "../../lib/db-view-prefs";
@@ -75,6 +80,10 @@ interface ColumnProps {
   focusedPageId?: string;
   activePanelPageStagePageIds?: ReadonlySet<string>;
   selectedPageIds?: ReadonlySet<string>;
+  highlightedPageId?: string | null;
+  keyboardPropertyRequest?: CardKeyboardPropertyRequest | null;
+  tagOptions?: readonly DatabasePropertyOption[];
+  onCardHighlight?: (pageId: string) => void;
   onExternalBlockDragOver?: (
     columnId: CardType["status"],
     event: React.DragEvent<HTMLDivElement>,
@@ -122,6 +131,10 @@ export const Column = memo(function Column({
   focusedPageId,
   activePanelPageStagePageIds,
   selectedPageIds = new Set<string>(),
+  highlightedPageId = null,
+  keyboardPropertyRequest,
+  tagOptions = [],
+  onCardHighlight,
   onExternalBlockDragOver,
   onExternalBlockDragLeave,
   onExternalBlockDrop,
@@ -394,8 +407,12 @@ export const Column = memo(function Column({
                   <div
                     key={card.id}
                     data-kanban-uuid-v7={card.id}
-                    tabIndex={-1}
-                    className="relative rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-token-focus"
+                    data-kanban-column-id={column.id}
+                    tabIndex={card.id === highlightedPageId ? 0 : -1}
+                    aria-selected={selectedPageIds.has(card.id)}
+                    onPointerDown={() => onCardHighlight?.(card.id)}
+                    onFocus={() => onCardHighlight?.(card.id)}
+                    className="relative rounded-lg outline-none"
                   >
                     {dropIndicatorPlacement.beforePageId === card.id ? (
                           <DropIndicator
@@ -412,12 +429,14 @@ export const Column = memo(function Column({
                       buildDragData={buildDragData}
                       dragDisabled={dragDisabled}
                       dropDisabled={cardDropDisabled}
-                      isFocused={card.id === focusedPageId}
+                      isFocused={card.id === focusedPageId || card.id === highlightedPageId}
                       isActiveInPanel={activePanelPageStagePageIds?.has(card.id) ?? false}
                       isSelected={selectedPageIds.has(card.id)}
                       onClick={(event) => onEditCard(column.id, card, event)}
                       onDoubleClick={(event) => onEditCard(column.id, card, event, "durable")}
                       onUpdateProperty={onUpdatePageProperty}
+                      keyboardPropertyRequest={keyboardPropertyRequest}
+                      tagOptions={tagOptions}
                       contextMenu={{
                         currentColumnId: column.id,
                         currentProjectId: projectId,

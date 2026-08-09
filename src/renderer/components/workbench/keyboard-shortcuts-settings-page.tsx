@@ -6,6 +6,9 @@ import { useCommandKeymapState } from "@/lib/use-command-keymap-state";
 import { cn } from "@/lib/utils";
 import { NodexButton } from "../ui/button";
 import {
+  ShortcutKeycapSequence,
+} from "../ui/shortcut-keycaps";
+import {
   NodexDialog,
   NodexDialogAction,
   NodexDialogBody,
@@ -56,9 +59,6 @@ interface CommitPayload {
   commandId: string;
   update: CommandKeybindingUpdate;
 }
-
-const KEYCAP_CLASSNAME =
-  "inline-flex !rounded-md !border-0 !bg-current/10 !font-sans !text-xs !text-current !shadow-none !px-1.5 !py-0.5 !leading-none !px-2 !py-1 !text-sm";
 
 const ROW_ICON_BUTTON_CLASSNAME =
   "border-token-border no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap select-none focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-lg text-token-text-tertiary enabled:hover:bg-token-list-hover-background data-[state=open]:bg-token-list-hover-background border-transparent h-token-button-composer px-2 py-0 text-base leading-[18px] aspect-square items-center justify-center !px-0";
@@ -392,6 +392,11 @@ function ShortcutTableRow({
 }) {
   const { entry, binding, isFirst, rowCount } = row;
   const label = binding?.key && state ? formatAcceleratorLabel(binding.key, state.platform) : "";
+  const chordLabels = binding?.key && state
+    ? binding.key.split(/\s+/).map((chord) =>
+        formatAcceleratorLabel(chord, state.platform),
+      )
+    : [];
   const keybindingPadding = isFirst && rowCount > 1
     ? "px-4 pt-2 pb-0.5"
     : !isFirst && rowCount > 1
@@ -427,7 +432,11 @@ function ShortcutTableRow({
             </div>
           ) : binding?.key ? (
             <span className="flex min-h-8 items-center gap-1 text-token-text-secondary">
-              <kbd className={KEYCAP_CLASSNAME}>{label}</kbd>
+              <ShortcutKeycapSequence
+                chords={chordLabels.length > 0 ? chordLabels : [label]}
+                density="settings"
+                tone="current"
+              />
             </span>
           ) : (
             <span className="flex min-h-8 items-center gap-1 text-token-text-secondary">Unassigned</span>

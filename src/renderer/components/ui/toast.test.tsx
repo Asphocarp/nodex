@@ -220,6 +220,31 @@ describe("Nodex toast system", () => {
     expect(Boolean(view.baseElement.textContent?.includes("Page draft closed"))).toBe(true);
   });
 
+  test("runs the newest visible toast action from the keyboard command", async () => {
+    render(<ToastHarness />);
+    const calls: string[] = [];
+
+    await act(async () => {
+      toast.info("Older action", {
+        duration: 0,
+        action: { label: "Older", onClick: () => { calls.push("older"); } },
+      });
+      toast.info("Latest action", {
+        duration: 0,
+        action: { label: "Latest", onClick: () => { calls.push("latest"); } },
+      });
+      await settleAsyncRender();
+    });
+
+    await act(async () => {
+      expect(toast.runLatestAction()).toBe(true);
+      await settleAsyncRender();
+    });
+
+    expect(calls).toEqual(["latest"]);
+    expect(__getNodexToastSnapshotForTests()[0]?.isShown).toBe(false);
+  });
+
   test("renders custom toasts and lets the custom content close itself", async () => {
     const view = render(<ToastHarness />);
 

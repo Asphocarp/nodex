@@ -8,6 +8,7 @@ import {
   formatCommandShortcutLabel,
   getPrimaryCommandAccelerator,
   keyboardEventToAccelerator,
+  matchKeyboardShortcutSequence,
   matchesKeyboardEventToCommand,
   matchesMouseEventToCommand,
   normalizeAccelerator,
@@ -129,5 +130,51 @@ describe("command keybindings", () => {
     expect(byId.get("searchChats")?.available).toBe(true);
     expect(byId.get("searchFiles")?.available).toBe(false);
     expect(byId.get("toggleBrowserPanel")?.available).toBe(false);
+  });
+
+  test("offers bare C as the primary Create Page shortcut with a modifier fallback", () => {
+    const state = createCommandKeymapState({}, "macOS");
+    const entry = state.entries.find((candidate) => candidate.id === "createPage");
+
+    expect(entry?.keybindings).toEqual([
+      { key: "C" },
+      { key: "CmdOrCtrl+Shift+C" },
+    ]);
+    expect(entry?.allowsMultiple).toBe(true);
+    expect(getPrimaryCommandAccelerator(state, "createPage")).toBe("C");
+    expect(formatCommandShortcutLabel(state, "createPage")).toBe("C");
+  });
+
+  test("matches configurable two-chord sequences without treating their prefix as a command", () => {
+    const state = createCommandKeymapState({}, "macOS");
+    const first = matchKeyboardShortcutSequence(
+      keyboardEvent("g"),
+      state,
+      { prefix: [], expiresAt: 0 },
+      { now: 100 },
+    );
+    expect(first.kind).toBe("pending");
+    if (first.kind !== "pending") return;
+
+    const second = matchKeyboardShortcutSequence(
+      keyboardEvent("p"),
+      state,
+      first.state,
+      { now: 200 },
+    );
+    expect(second.kind).toBe("matched");
+    expect(second.kind === "matched" ? second.commandId : null).toBe("goToPages");
+  });
+
+  test("expires sequences and displays question mark as one keycap", () => {
+    const state = createCommandKeymapState({}, "macOS");
+    const stale = matchKeyboardShortcutSequence(
+      keyboardEvent("p"),
+      state,
+      { prefix: ["G"], expiresAt: 100 },
+      { now: 101 },
+    );
+    expect(stale.kind).toBe("none");
+    expect(formatAcceleratorLabel("Shift+/", "macOS")).toBe("?");
   });
 });

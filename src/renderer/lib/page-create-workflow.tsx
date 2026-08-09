@@ -1,19 +1,50 @@
 import { toast } from "@/components/ui/toast";
 import { PageCreateDialog } from "@/components/kanban/page-create-dialog";
 import type { ScopeHandle } from "./maitai";
-import { isModalOpen, openModal } from "./modal-registry";
+import {
+  isModalOpen,
+  openModal,
+  updateOpenModalProps,
+} from "./modal-registry";
 import type { PageCreateDraftSnapshot } from "./page-create-draft";
 import type { PageCreateOrigin, PageCreateOriginKind } from "./page-create-focus";
+import {
+  capturePageCreateSeed,
+  type PageCreateSeed,
+} from "./page-create-selection";
 import {
   getPageCreateTarget,
   resolveRegisteredPageCreateTarget,
   type PageCreateTarget,
 } from "./page-create-target-registry";
 
-export interface PageCreateRequest {
+interface PageCreateRequestBase {
   readonly target: PageCreateTarget;
   readonly origin: PageCreateOrigin;
-  readonly snapshot?: PageCreateDraftSnapshot;
+  readonly initialExpanded?: boolean;
+}
+
+export type PageCreateRequest = PageCreateRequestBase & (
+  | {
+      readonly snapshot: PageCreateDraftSnapshot;
+      readonly seed?: never;
+    }
+  | {
+      readonly snapshot?: undefined;
+      readonly seed?: PageCreateSeed;
+    }
+);
+
+type PageCreateDraftRestoreRequest = PageCreateRequestBase & {
+  readonly snapshot: PageCreateDraftSnapshot;
+};
+
+export interface PageCreateContextRequest {
+  readonly activeProjectId: string | null;
+  readonly originKind?: PageCreateOriginKind;
+  readonly unavailableFeedback?: "silent" | "toast";
+  readonly captureSelection?: boolean;
+  readonly expanded?: boolean;
 }
 
 function focusOpenPageCreateDialog(): void {
@@ -30,11 +61,13 @@ export function requestPageCreate(
   request: PageCreateRequest,
 ): boolean {
   if (isModalOpen(appHandle, PageCreateDialog)) {
+    if (request.initialExpanded) {
+      updateOpenModalProps(appHandle, PageCreateDialog, {
+        expandRequestId: crypto.randomUUID(),
+      });
+    }
     focusOpenPageCreateDialog();
-    toast.info("Finish or close the current Page draft first.", {
-      id: "page-create-already-open",
-    });
-    return false;
+    return true;
   }
 
   openModal(appHandle, PageCreateDialog, {
@@ -42,23 +75,41 @@ export function requestPageCreate(
     target: request.target,
     origin: request.origin,
     restoredSnapshot: request.snapshot,
+    seed: request.seed,
+    initialExpanded: request.initialExpanded,
   });
   return true;
 }
 
 export function requestPageCreateFromContext(
   appHandle: ScopeHandle,
-  originKind: PageCreateOriginKind = "keyboard",
+  {
+    activeProjectId,
+    originKind = "keyboard",
+    unavailableFeedback = "toast",
+    captureSelection = false,
+    expanded = false,
+  }: PageCreateContextRequest,
 ): boolean {
-  const resolution = resolveRegisteredPageCreateTarget(appHandle);
+  const resolution = resolveRegisteredPageCreateTarget(
+    appHandle,
+    activeProjectId,
+  );
   if (resolution.status === "unavailable") {
-    toast.info(resolution.reason, { id: "page-create-target-unavailable" });
+    if (unavailableFeedback === "toast") {
+      toast.info(resolution.reason, { id: "page-create-target-unavailable" });
+    }
     return false;
   }
 
   const { target, columnId } = resolution;
+  const seed = captureSelection && typeof window !== "undefined"
+    ? capturePageCreateSeed(window.getSelection()) ?? undefined
+    : undefined;
   return requestPageCreate(appHandle, {
     target,
+    seed,
+    initialExpanded: expanded,
     origin: {
       surfaceId: target.surfaceId,
       panelTabId: target.panelTabId,
@@ -72,7 +123,7 @@ export function requestPageCreateFromContext(
 
 export function restorePageCreateDraft(
   appHandle: ScopeHandle,
-  request: PageCreateRequest,
+  request: PageCreateDraftRestoreRequest,
 ): boolean {
   const mountedTarget = getPageCreateTarget(appHandle, request.target.surfaceId);
   if (!mountedTarget) {
@@ -83,7 +134,8 @@ export function restorePageCreateDraft(
   }
 
   return requestPageCreate(appHandle, {
-    ...request,
     target: mountedTarget,
+    origin: request.origin,
+    snapshot: request.snapshot,
   });
 }

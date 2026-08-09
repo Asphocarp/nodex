@@ -13,11 +13,13 @@ import { resolveKanbanPriorityOption } from "../../lib/kanban-options";
 import { EMPTY_DISPLAY_VALUE_TOKEN, getMetaChipClassName } from "../../lib/toggle-list/meta-chips";
 import { estimateStyles } from "@/lib/types";
 import type { DatabasePageSummary, Priority } from "@/lib/types";
+import type { DatabasePropertyOption } from "../../../shared/database-kernel";
 import { useCardPropertyPosition } from "./card-deps";
 import { useTheme } from "@/lib/use-theme";
 import { cn } from "@/lib/utils";
 import { mergePageDraftOverlay, usePageDraftOverlay } from "../../lib/page-draft-store";
 import { ChipPropertyEditor } from "./editor/chip-property-editor";
+import { TOGGLE_LIST_STATUS_LABELS } from "@/lib/toggle-list/types";
 import { CardContextMenu } from "./card-context-menu";
 import type {
   OpenPageInNewChatInput,
@@ -30,7 +32,8 @@ import {
   type KanbanCardDragData,
 } from "./pragmatic-drag-data";
 
-type CardEditableProperty = "priority" | "estimate";
+export type CardEditableProperty = "status" | "priority" | "estimate" | "tags";
+type CardBadgeEditableProperty = Extract<CardEditableProperty, "priority" | "estimate">;
 type CardPropertyBadgeLayout = "stacked" | "inline";
 type KanbanCardDisplayProperty = Extract<DbViewDisplayPropertyKey, "priority" | "estimate" | "tags" | "assignee">;
 type CardType = DatabasePageSummary;
@@ -45,11 +48,22 @@ const TAG_CHIP_CLASS_NAME =
   "inline-flex h-4.5 items-center rounded-sm bg-(--gray-bg) px-1.5 text-xs/snug-plus text-(--foreground-secondary)";
 const EMPTY_VALUE_CHIP_CLASS_NAME = getMetaChipClassName(EMPTY_DISPLAY_VALUE_TOKEN);
 
-export interface CardPropertyUpdateInput {
+export type CardPropertyUpdateInput = {
   pageId: string;
   columnId: string;
-  property: CardEditableProperty;
+  property: Exclude<CardEditableProperty, "tags">;
   value: string;
+} | {
+  pageId: string;
+  columnId: string;
+  property: "tags";
+  value: readonly string[];
+};
+
+export interface CardKeyboardPropertyRequest {
+  readonly requestId: number;
+  readonly pageId: string;
+  readonly property: CardEditableProperty;
 }
 
 interface CardProps {
@@ -67,6 +81,8 @@ interface CardProps {
   onDoubleClick?: (event: React.MouseEvent<HTMLDivElement>) => void;
   buildDragData?: (card: CardType, columnId: string) => KanbanCardDragData;
   onUpdateProperty?: (input: CardPropertyUpdateInput) => Promise<void> | void;
+  keyboardPropertyRequest?: CardKeyboardPropertyRequest | null;
+  tagOptions?: readonly DatabasePropertyOption[];
   contextMenu?: {
     currentColumnId: string;
     currentProjectId: string;
@@ -87,7 +103,7 @@ interface CardBodyProps {
   position: CardPropertyPosition;
   activeProperty: CardEditableProperty | null;
   onOpenPropertyEditor?: (
-    property: CardEditableProperty,
+    property: CardBadgeEditableProperty,
     currentToken: string,
     event: React.MouseEvent<HTMLButtonElement>,
   ) => void;
@@ -119,7 +135,7 @@ function CardPropertyBadges({
   className?: string;
   activeProperty: CardEditableProperty | null;
   onOpenPropertyEditor?: (
-    property: CardEditableProperty,
+    property: CardBadgeEditableProperty,
     currentToken: string,
     event: React.MouseEvent<HTMLButtonElement>,
   ) => void;
@@ -149,7 +165,7 @@ function CardPropertyBadges({
   const showEmptyPriority = displayPrefs?.showEmptyPriority ?? false;
 
   const renderEditableChip = (
-    property: CardEditableProperty,
+    property: CardBadgeEditableProperty,
     currentToken: string,
     label: string,
     className: string,
@@ -194,7 +210,7 @@ function CardPropertyBadges({
     </span>
   );
 
-  const renderEmptyValueChip = (property: CardEditableProperty) =>
+  const renderEmptyValueChip = (property: CardBadgeEditableProperty) =>
     renderEditableChip(
       property,
       EMPTY_DISPLAY_VALUE_TOKEN,
@@ -398,7 +414,7 @@ interface CardSurfaceProps extends React.HTMLAttributes<HTMLDivElement> {
   position: CardPropertyPosition;
   activeProperty: CardEditableProperty | null;
   onOpenPropertyEditor?: (
-    property: CardEditableProperty,
+    property: CardBadgeEditableProperty,
     currentToken: string,
     event: React.MouseEvent<HTMLButtonElement>,
   ) => void;
@@ -528,10 +544,13 @@ export function Card({
   onDoubleClick,
   buildDragData,
   onUpdateProperty,
+  keyboardPropertyRequest,
+  tagOptions = [],
   contextMenu,
 }: CardProps) {
   const { position } = useCardPropertyPosition();
   const cardSurfaceRef = useRef<HTMLDivElement | null>(null);
+  const lastKeyboardPropertyRequestIdRef = useRef<number | null>(null);
   const activeDragDataRef = useRef<KanbanCardDragData | null>(null);
   const [activeChipEdit, setActiveChipEdit] = useState<{
     property: CardEditableProperty;
@@ -554,7 +573,7 @@ export function Card({
 
   const handleOpenPropertyEditor = useCallback(
     (
-      property: CardEditableProperty,
+      property: CardBadgeEditableProperty,
       currentToken: string,
       event: React.MouseEvent<HTMLButtonElement>,
     ) => {
@@ -579,9 +598,26 @@ export function Card({
         return;
       }
 
-      if (propertyType !== "priority" && propertyType !== "estimate") {
+      if (propertyType === "tag") {
+        const option = tagOptions.find((candidate) => candidate.id === value);
+        if (!option) return;
+        const nextTags = card.tags.includes(option.name)
+          ? card.tags.filter((tag) => tag !== option.name)
+          : [...card.tags, option.name];
+        void onUpdateProperty({
+          pageId: card.id,
+          columnId,
+          property: "tags",
+          value: nextTags,
+        });
         return;
       }
+
+      if (
+        propertyType !== "status"
+        && propertyType !== "priority"
+        && propertyType !== "estimate"
+      ) return;
 
       void onUpdateProperty({
         pageId: card.id,
@@ -590,8 +626,36 @@ export function Card({
         value,
       });
     },
-    [card.id, columnId, onUpdateProperty],
+    [card.id, card.tags, columnId, onUpdateProperty, tagOptions],
   );
+
+  useEffect(() => {
+    if (!keyboardPropertyRequest) return;
+    if (keyboardPropertyRequest.pageId !== card.id) return;
+    if (
+      lastKeyboardPropertyRequestIdRef.current
+      === keyboardPropertyRequest.requestId
+    ) return;
+    const element = cardSurfaceRef.current;
+    if (!element) return;
+    lastKeyboardPropertyRequestIdRef.current = keyboardPropertyRequest.requestId;
+
+    const property = keyboardPropertyRequest.property;
+    const currentToken = property === "priority"
+      ? card.priority
+        ? PRIORITY_TOKEN_BY_VALUE[card.priority]
+        : EMPTY_DISPLAY_VALUE_TOKEN
+      : property === "estimate"
+        ? card.estimate?.toUpperCase() ?? EMPTY_DISPLAY_VALUE_TOKEN
+        : property === "status"
+          ? TOGGLE_LIST_STATUS_LABELS[card.status]
+          : "";
+    setActiveChipEdit({
+      property,
+      currentToken,
+      anchorRect: element.getBoundingClientRect(),
+    });
+  }, [card.estimate, card.id, card.priority, card.status, keyboardPropertyRequest]);
 
   useEffect(() => {
     if (dragDisabled) {
@@ -758,8 +822,16 @@ export function Card({
         : null}
       {activeChipEdit && onUpdateProperty && (
         <ChipPropertyEditor
-          propertyType={activeChipEdit.property}
+          propertyType={activeChipEdit.property === "tags"
+            ? "tag"
+            : activeChipEdit.property}
           currentToken={activeChipEdit.currentToken}
+          selectedValues={activeChipEdit.property === "tags"
+            ? tagOptions
+                .filter((option) => card.tags.includes(option.name))
+                .map((option) => option.id)
+            : undefined}
+          options={activeChipEdit.property === "tags" ? tagOptions : undefined}
           pageId={card.id}
           anchorRect={activeChipEdit.anchorRect}
           onSelect={handleChipSelect}

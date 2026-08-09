@@ -29,15 +29,40 @@ function makePort(): WorkbenchCommandPort {
     openContentSearch: vi.fn(),
     cyclePanelTab: vi.fn(),
     closePanelTab: vi.fn(),
-    execute: vi.fn(),
+    execute: vi.fn(() => true),
     openCommandPalette: vi.fn(),
     toggleSettings: vi.fn(),
     openKeyboardShortcuts: vi.fn(),
     openDesktopNotification: vi.fn(),
+    goToPages: vi.fn(),
+    goToSettings: vi.fn(),
   };
 }
 
 describe("useWorkbenchCommandIngress", () => {
+  test("reports whether the active command port accepted a command", () => {
+    Object.defineProperty(window, "api", {
+      configurable: true,
+      value: {},
+    });
+    const { result } = renderHook(() => useWorkbenchCommandIngress());
+    const port = makePort();
+
+    expect(result.current.execute("createPage", "keyboard_shortcut"))
+      .toBe(false);
+
+    act(() => {
+      result.current.register(port);
+    });
+
+    expect(result.current.execute("createPage", "keyboard_shortcut"))
+      .toBe(true);
+    expect(port.execute).toHaveBeenCalledWith(
+      "createPage",
+      "keyboard_shortcut",
+    );
+  });
+
   test("forwards native commands directly to the registered port", () => {
     const handlers: Record<string, (...args: unknown[]) => void> = {};
     const subscribe = (name: string) =>

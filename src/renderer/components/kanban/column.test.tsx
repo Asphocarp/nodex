@@ -8,6 +8,48 @@ import type { DatabasePageSummary } from "@/lib/types";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
 
 describe("Column", () => {
+  test("keeps pointer hover transient and activates a Page on pointer down", () => {
+    const highlighted: string[] = [];
+    const { container } = render(createElement(Column, {
+      projectId: "default",
+      projectName: "Default",
+      column: {
+        id: "build",
+        name: "Build",
+        cards: [{
+          id: "card-1",
+          status: "build",
+          archived: false,
+          title: "Task",
+          richTitle: plainTextToPortableRichText("Task"),
+          descriptionPreview: "",
+          descriptionLength: 0,
+          hasDescription: false,
+          tags: [],
+          created: new Date("2026-03-17T00:00:00.000Z"),
+          order: 0,
+        }],
+      },
+      layout: { width: 320, collapsed: false },
+      onRequestCreatePage: () => {},
+      onEditCard: () => {},
+      onUpdatePageProperty: async () => {},
+      onCollapsedChange: () => {},
+      onWidthChange: () => {},
+      onCardHighlight: (pageId) => highlighted.push(pageId),
+    }));
+    const card = container.querySelector<HTMLElement>(
+      "[data-kanban-uuid-v7='card-1']",
+    );
+    if (!card) throw new Error("Expected the Board card interaction boundary");
+
+    fireEvent.pointerEnter(card);
+    expect(highlighted).toEqual([]);
+
+    fireEvent.pointerDown(card);
+    expect(highlighted).toEqual(["card-1"]);
+  });
+
   test("renders the blocked-sort feedback message in the header", () => {
     const { container } = render(createElement(Column, {
       projectId: "default",
