@@ -150,7 +150,6 @@ export const filterOperatorsForProperty = (
   const common = ["equals", "not_equals", "is_empty", "is_not_empty"] as const;
   if (
     property.valueType === "text" ||
-    property.valueType === "person" ||
     property.valueType === "multi_select"
   ) {
     return [

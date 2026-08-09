@@ -9,6 +9,10 @@ import type {
   DataSourceRecordV2,
 } from "./database-module-v2";
 import {
+  parseAuthorizedReadStamp,
+  type AuthorizedReadStamp,
+} from "./authorized-read-stamp";
+import {
   parseDatabaseId,
   parseDatabaseViewId,
   parseDataSourceId,
@@ -48,6 +52,7 @@ export interface PageDetail {
   readonly libraryId: string;
   readonly storeEpoch: string;
   readonly commitSeq: number;
+  readonly authorization: AuthorizedReadStamp;
   readonly page: Page;
   readonly document: {
     readonly readiness: "pending_genesis" | "ready" | "failed";
@@ -185,7 +190,6 @@ const valueType = (
     value === "multi_select" ||
     value === "date" ||
     value === "datetime" ||
-    value === "person" ||
     value === "relation"
   ) {
     return value;
@@ -580,6 +584,7 @@ export const parsePageDetailResult = (value: unknown): PageDetailResult => {
     "libraryId",
     "storeEpoch",
     "commitSeq",
+    "authorization",
     "page",
     "document",
     "intrinsicProperties",
@@ -631,6 +636,15 @@ export const parsePageDetailResult = (value: unknown): PageDetailResult => {
     detail.commitSeq,
     "pageDetail.commitSeq",
   );
+  const authorization = parseAuthorizedReadStamp(detail.authorization, libraryId);
+  if (
+    authorization.store_epoch !== storeEpoch
+    || authorization.covered_commit_seq !== commitSeq
+    || authorization.subject.kind !== "page"
+    || authorization.subject.page_id !== page.pageId
+  ) {
+    throw new PageDetailContractError("Page Detail authorization stamp diverges");
+  }
   const intrinsicProperties: PageIntrinsicProperty[] = [];
   for (const [index, property] of detail.intrinsicProperties.entries()) {
     if (!isRecord(property)) {
@@ -689,6 +703,7 @@ export const parsePageDetailResult = (value: unknown): PageDetailResult => {
       libraryId,
       storeEpoch,
       commitSeq,
+      authorization,
       page,
       document,
       intrinsicProperties,
@@ -721,6 +736,7 @@ export const parseLibraryPageDetailResult = (
     "libraryId",
     "storeEpoch",
     "commitSeq",
+    "authorization",
     "page",
     "document",
     "intrinsicProperties",

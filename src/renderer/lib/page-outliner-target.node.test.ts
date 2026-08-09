@@ -6,6 +6,7 @@ import {
 import type { PageTargetReadModel } from "../../shared/page-targets";
 import type { Page } from "../../shared/page";
 import { projectContentAccess } from "../../shared/content-access-context";
+import { AUTHORIZED_READ_STAMP_EXAMPLE } from "../../shared/testing/authorized-read-stamp-example";
 import {
   pageOutlinerInlineStateLabel,
   pageOutlinerPlainTitle,
@@ -35,6 +36,7 @@ const available: Extract<PageTargetReadModel, { readonly status: "available" }> 
   libraryId: "library:target",
   storeEpoch: "epoch:test",
   commitSeq: 1,
+  authorization: AUTHORIZED_READ_STAMP_EXAMPLE,
   status: "available",
   targetPageId: page.pageId,
   page,

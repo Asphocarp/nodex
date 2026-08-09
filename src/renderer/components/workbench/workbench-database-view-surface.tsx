@@ -27,7 +27,10 @@ import {
 import { queryKeys } from "../../lib/query-keys";
 import { useProjectionInvalidationRegistry } from "../../lib/projection-invalidation-context";
 import type { ProjectionInvalidationCause } from "../../lib/projection-invalidation-registry";
-import { resourceAuthorityQueryMeta } from "../../lib/resource-authority-query-cache";
+import {
+  admitResourceAuthorityQuery,
+  resourceAuthorityQueryMeta,
+} from "../../lib/resource-authority-query-cache";
 import { DatabaseViewTabSurface } from "./workbench-db-view-panel";
 
 type DatabaseReadTarget =
@@ -44,6 +47,21 @@ interface ScopedWindow {
   readonly scope?: DatabaseViewGroupScopeInput;
   readonly snapshot: DatabaseViewWindowSnapshot<string | null>;
 }
+
+const resolveDatabaseSurfaceAuthority = (_queryKey: readonly unknown[], data: unknown) => {
+  const snapshot = data as {
+    readonly groups: DatabaseViewGroupsSnapshot<string | null>;
+    readonly scopedWindows: readonly ScopedWindow[];
+  } | undefined;
+  return snapshot
+    ? {
+        authorizations: [
+          snapshot.groups.authorization,
+          ...snapshot.scopedWindows.map((window) => window.snapshot.authorization),
+        ],
+      }
+    : null;
+};
 
 interface ContinuationState {
   readonly windows: readonly DatabaseViewWindowSnapshot<string | null>[];
@@ -214,38 +232,12 @@ export function WorkbenchDatabaseViewSurface({
           ),
         })),
       );
-      return { groups, scopedWindows };
+      return await admitResourceAuthorityQuery(
+        { groups, scopedWindows },
+        resolveDatabaseSurfaceAuthority,
+      );
     },
-    meta: resourceAuthorityQueryMeta((_queryKey, data) => {
-      const snapshot = data as {
-        readonly groups: DatabaseViewGroupsSnapshot<string | null>;
-        readonly scopedWindows: readonly ScopedWindow[];
-      } | undefined;
-      if (!snapshot) return null;
-      return {
-        scope: accessProjectId
-          ? {
-              kind: "project",
-              libraryId: snapshot.groups.libraryId,
-              projectId: accessProjectId,
-            }
-          : {
-              kind: "library",
-              libraryId: snapshot.groups.libraryId,
-            },
-        cursor: {
-          storeEpoch: snapshot.groups.storeEpoch,
-          commitSeq: snapshot.groups.commitSeq,
-        },
-        dependencies: {
-          databaseIds: [snapshot.groups.databaseId],
-          dataSourceIds: [snapshot.groups.dataSourceId],
-          viewIds: [snapshot.groups.viewId],
-          pageIds: snapshot.scopedWindows.flatMap((window) =>
-            window.snapshot.rows.map((row) => row.page.id)),
-        },
-      };
-    }),
+    meta: resourceAuthorityQueryMeta(resolveDatabaseSurfaceAuthority),
   });
 
   useEffect(() => {

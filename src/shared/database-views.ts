@@ -61,6 +61,7 @@ export interface DatabaseViewReadModel {
   readonly libraryId: string;
   readonly storeEpoch: string;
   readonly commitSeq: number;
+  readonly authorization: import("./authorized-read-stamp").AuthorizedReadStamp;
   readonly dataSourceId: string;
   readonly view: DatabaseViewDefinition<string | null>;
   readonly rows: readonly DatabaseViewPageRow[];
@@ -113,6 +114,7 @@ export interface DatabaseViewGroupsSnapshot<
   readonly viewId: string;
   readonly storeEpoch: string;
   readonly commitSeq: number;
+  readonly authorization: import("./authorized-read-stamp").AuthorizedReadStamp;
   readonly projection: Omit<ProjectionCoordinate, "storeEpoch">;
   readonly grouped: boolean;
   readonly totalRows: number;
@@ -138,6 +140,7 @@ export interface DatabaseViewWindowSnapshot<
   readonly viewId: string;
   readonly storeEpoch: string;
   readonly commitSeq: number;
+  readonly authorization: import("./authorized-read-stamp").AuthorizedReadStamp;
   readonly projection: Omit<ProjectionCoordinate, "storeEpoch">;
   readonly nextCursor: string | null;
   readonly rows: readonly DatabaseViewPageRow[];

@@ -1,7 +1,9 @@
 import { describe, expect, test } from "vitest";
 import type { DocumentSyncRealtimeEvent } from "../../shared/block-documents/document-sync";
+import { createCoreLocalCommitFixture } from "../../main/core-client/testing/local-commit-fixture";
 import { createElectronDocumentSyncAdapter } from "./electron-document-sync-adapter";
 import type { ElectronRendererBridge } from "./electron-renderer-transport";
+import { rendererLocalCommitIngress } from "./local-commit-ingress";
 
 interface Deferred<T> {
   readonly promise: Promise<T>;
@@ -20,6 +22,7 @@ class FakeBridge {
   readonly calls: Array<{ readonly channel: string; readonly args: unknown[] }> = [];
   readonly listeners = new Map<string, Set<(...args: unknown[]) => void>>();
   readonly subscription = deferred<unknown>();
+  applyResult: unknown = null;
 
   invoke = async (channel: string, ...args: unknown[]): Promise<unknown> => {
     this.calls.push({ channel, args });
@@ -41,6 +44,9 @@ class FakeBridge {
     }
     if (channel === "document-sync:unsubscribe") {
       return { ok: true, value: { unsubscribed: true } };
+    }
+    if (channel === "document-sync:apply" && this.applyResult) {
+      return this.applyResult;
     }
     return {
       ok: false,
@@ -69,6 +75,72 @@ class FakeBridge {
 }
 
 describe("createElectronDocumentSyncAdapter", () => {
+  test("admits a committed delivery before resolving the document ACK", async () => {
+    const bridge = new FakeBridge();
+    const delivery = createCoreLocalCommitFixture({
+      authorizationScope: {
+        kind: "project",
+        library_id: "library-1",
+        project_id: "project-1",
+      },
+      commitSeq: 91,
+      payload: {
+        module: "library",
+        library_id: "library-1",
+        event: {
+          kind: "library_changed",
+          database_ids: [],
+          page_ids: [],
+          parent_keys: [],
+          view_ids: [],
+        },
+      },
+    });
+    bridge.applyResult = {
+      ok: true,
+      value: {
+        documentId: "doc-1",
+        storeEpoch: "epoch-1",
+        generation: 1,
+        updateId: "update-1",
+        committedSeq: 91,
+        headSeq: 1,
+        stateVector: new Uint8Array([0]),
+        duplicate: false,
+        status: "committed",
+        commit: delivery.manifest.identity,
+        delivery,
+      },
+    };
+    const adapter = createElectronDocumentSyncAdapter(
+      bridge as unknown as ElectronRendererBridge,
+      "project-1",
+    );
+    adapter.subscribe(
+      { documentId: "doc-1", clientSessionId: "session-1" },
+      () => undefined,
+    );
+    bridge.subscription.resolve({ ok: true, value: { subscribed: true } });
+    const order: string[] = [];
+    const release = rendererLocalCommitIngress.subscribeAtoms(
+      () => order.push("admitted"),
+    );
+
+    await adapter.applyUpdate({
+      documentId: "doc-1",
+      storeEpoch: "epoch-1",
+      generation: 1,
+      updateId: "update-1",
+      clientSessionId: "session-1",
+      baseHeadSeq: 0,
+      touchedBlockIds: [],
+      update: new Uint8Array([1]),
+    }).then(() => order.push("resolved"));
+
+    expect(order).toEqual(["admitted", "resolved"]);
+    release();
+  });
+
   test("installs realtime listening and awaits subscribe before state-vector sync", async () => {
     const bridge = new FakeBridge();
     const adapter = createElectronDocumentSyncAdapter(

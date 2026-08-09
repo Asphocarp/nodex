@@ -10,15 +10,16 @@ use nodex_core_contracts::agent::{
 use nodex_core_contracts::workspace::{
     ProjectWorkspaceTurnAuthority, ProjectWorkspaceTurnAuthorityScope,
 };
-use nodex_core_contracts::{AdapterKind, BoundModuleContext};
+use nodex_core_contracts::{AdapterKind, BoundModuleContext, ModuleName};
 use rusqlite::{Connection, OptionalExtension, params, params_from_iter, types::Value as SqlValue};
 
 use crate::document::sha256;
+use crate::infrastructure::durable_mutation::{self, OperationIdentity};
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 use crate::workspace::validate_persisted_turn_authority;
 
 use super::LibraryApplyOutcome;
-use super::mutation::{MutationEffects, finish_prepared_mutation, prepare_mutation, sqlite_now};
+use super::mutation::{MutationEffects, library_commit_result, seal_mutation, sqlite_now};
 
 const MAX_ID_BYTES: usize = 512;
 const MAX_INTENTS: usize = 64;
@@ -487,153 +488,161 @@ pub(super) fn persist_project_grants(
     }
 
     let now = sqlite_now(connection)?;
-    let prepared = prepare_mutation(
+    let result = durable_mutation::run(
         connection,
-        context,
-        store_epoch,
-        operation_id,
-        request_hash,
-        &now,
-    )?;
-    let mut did_mutate = false;
-    let mut affected_page_ids = Vec::new();
-    let mut affected_database_ids = Vec::new();
-    let mut committed_revisions = BTreeMap::new();
-    for grant in grants {
-        let (resource_kind, resource_id) = match grant.root {
-            AgentResourceGrantRoot::Page { page_id } => ("page", page_id),
-            AgentResourceGrantRoot::Database { database_id } => ("database", database_id),
-            AgentResourceGrantRoot::Library { .. } => {
-                return Err(invalid(
-                    "Library consent cannot be persisted as a Project resource grant",
-                ));
-            }
-        };
-        let table = if resource_kind == "page" {
-            "pages"
-        } else {
-            "database_containers"
-        };
-        let exists = connection
-            .query_row(
-                &format!(
-                    "SELECT 1 FROM {table} WHERE block_id = ?1 AND library_id = ?2 \
+        OperationIdentity {
+            module: ModuleName::Library,
+            module_name: "library",
+            operation_id,
+            intent_hash: request_hash,
+            store_epoch,
+            committed_at: &now,
+            context,
+        },
+        |scope| {
+            let mut did_mutate = false;
+            let mut affected_page_ids = Vec::new();
+            let mut affected_database_ids = Vec::new();
+            let mut committed_revisions = BTreeMap::new();
+            for grant in grants {
+                let (resource_kind, resource_id) = match grant.root {
+                    AgentResourceGrantRoot::Page { page_id } => ("page", page_id),
+                    AgentResourceGrantRoot::Database { database_id } => ("database", database_id),
+                    AgentResourceGrantRoot::Library { .. } => {
+                        return Err(invalid(
+                            "Library consent cannot be persisted as a Project resource grant",
+                        ));
+                    }
+                };
+                let table = if resource_kind == "page" {
+                    "pages"
+                } else {
+                    "database_containers"
+                };
+                let exists = connection
+                    .query_row(
+                        &format!(
+                            "SELECT 1 FROM {table} WHERE block_id = ?1 AND library_id = ?2 \
                      AND lifecycle <> 'deleted'"
-                ),
-                params![resource_id, library_id],
-                |_| Ok(()),
-            )
-            .optional()?;
-        if exists.is_none() {
-            return Err(StoreError::new(
-                StoreErrorCode::NotFound,
-                format!("Agent Project grant {resource_kind} is unavailable"),
-                false,
-            ));
-        }
-        let access = match grant.access {
-            AgentProjectResourceAccess::Read => "read",
-            AgentProjectResourceAccess::ReadWrite => "read_write",
-        };
-        let existing = connection
-            .query_row(
-                "SELECT id, access, lifecycle, revision FROM project_resource_grants \
+                        ),
+                        params![resource_id, library_id],
+                        |_| Ok(()),
+                    )
+                    .optional()?;
+                if exists.is_none() {
+                    return Err(StoreError::new(
+                        StoreErrorCode::NotFound,
+                        format!("Agent Project grant {resource_kind} is unavailable"),
+                        false,
+                    ));
+                }
+                let access = match grant.access {
+                    AgentProjectResourceAccess::Read => "read",
+                    AgentProjectResourceAccess::ReadWrite => "read_write",
+                };
+                let existing = connection
+                    .query_row(
+                        "SELECT id, access, lifecycle, revision FROM project_resource_grants \
                  WHERE project_id = ?1 AND root_kind = ?2 AND root_id = ?3",
-                params![project_id, resource_kind, resource_id],
-                |row| {
-                    Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, String>(2)?,
-                        row.get::<_, i64>(3)?,
-                    ))
-                },
-            )
-            .optional()?;
-        let revision = if let Some((grant_id, current_access, lifecycle, revision)) = existing {
-            if current_access == access && lifecycle == "active" {
-                revision
-            } else {
-                let changed = connection.execute(
+                        params![project_id, resource_kind, resource_id],
+                        |row| {
+                            Ok((
+                                row.get::<_, String>(0)?,
+                                row.get::<_, String>(1)?,
+                                row.get::<_, String>(2)?,
+                                row.get::<_, i64>(3)?,
+                            ))
+                        },
+                    )
+                    .optional()?;
+                let revision =
+                    if let Some((grant_id, current_access, lifecycle, revision)) = existing {
+                        if current_access == access && lifecycle == "active" {
+                            revision
+                        } else {
+                            let changed = connection.execute(
                     "UPDATE project_resource_grants SET access = ?1, lifecycle = 'active', \
                        revision = revision + 1, updated_at = ?2 \
                      WHERE id = ?3 AND revision = ?4",
                     params![access, now, grant_id, revision],
                 )?;
-                if changed != 1 {
-                    return Err(StoreError::new(
-                        StoreErrorCode::RevisionConflict,
-                        "Project grant changed during Agent consent persistence",
-                        true,
-                    ));
-                }
-                did_mutate = true;
-                revision + 1
-            }
-        } else {
-            let identity = serde_json::to_vec(&(project_id, resource_kind, &resource_id))
-                .map_err(|_| corrupt("Agent Project grant identity is invalid"))?;
-            let grant_id = format!("grant:{}", sha256(&identity));
-            connection.execute(
-                "INSERT INTO project_resource_grants(\
+                            if changed != 1 {
+                                return Err(StoreError::new(
+                                    StoreErrorCode::RevisionConflict,
+                                    "Project grant changed during Agent consent persistence",
+                                    true,
+                                ));
+                            }
+                            did_mutate = true;
+                            revision + 1
+                        }
+                    } else {
+                        let identity =
+                            serde_json::to_vec(&(project_id, resource_kind, &resource_id))
+                                .map_err(|_| corrupt("Agent Project grant identity is invalid"))?;
+                        let grant_id = format!("grant:{}", sha256(&identity));
+                        connection.execute(
+                            "INSERT INTO project_resource_grants(\
                    id, project_id, library_id, root_kind, root_id, access, recursive, revision, \
                    lifecycle, created_at, updated_at\
                  ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1, 1, 'active', ?7, ?7)",
-                params![
-                    grant_id,
-                    project_id,
-                    library_id,
-                    resource_kind,
-                    resource_id,
-                    access,
-                    now
-                ],
-            )?;
-            did_mutate = true;
-            1
-        };
-        committed_revisions.insert(
-            format!("projectGrant:{project_id}:{resource_kind}:{resource_id}"),
-            revision,
-        );
-        if resource_kind == "page" {
-            affected_page_ids.push(resource_id);
-        } else {
-            affected_database_ids.push(resource_id);
-        }
-    }
+                            params![
+                                grant_id,
+                                project_id,
+                                library_id,
+                                resource_kind,
+                                resource_id,
+                                access,
+                                now
+                            ],
+                        )?;
+                        did_mutate = true;
+                        1
+                    };
+                committed_revisions.insert(
+                    format!("projectGrant:{project_id}:{resource_kind}:{resource_id}"),
+                    revision,
+                );
+                if resource_kind == "page" {
+                    affected_page_ids.push(resource_id);
+                } else {
+                    affected_database_ids.push(resource_id);
+                }
+            }
 
-    finish_prepared_mutation(
-        connection,
-        prepared,
-        context,
-        operation_id,
-        MutationEffects {
-            project_id: project_id.to_owned(),
-            operation_kind: "persist_agent_project_resource_grants",
-            change_kind: "library.changed",
-            did_mutate,
-            created_target: None,
-            affected_parent_keys: Vec::new(),
-            affected_block_ids: Vec::new(),
-            affected_page_ids,
-            affected_database_ids,
-            affected_view_ids: Vec::new(),
-            affected_document_ids: Vec::new(),
-            committed_revisions,
-            page_create: None,
-            page_copy: None,
-            canvas_mutation: None,
-            block_transfer: None,
-            page_lifecycle: None,
-            block_property_mutation: None,
-            agent_page_copy: None,
-            agent_create_pages: None,
-            agent_move_pages: None,
-            change_payload: None,
-            committed_at: now,
+            seal_mutation(
+                scope,
+                context,
+                operation_id,
+                MutationEffects {
+                    project_id: project_id.to_owned(),
+                    operation_kind: "persist_agent_project_resource_grants",
+                    change_kind: "library.changed",
+                    did_mutate,
+                    created_target: None,
+                    affected_parent_keys: Vec::new(),
+                    affected_block_ids: Vec::new(),
+                    affected_page_ids,
+                    affected_database_ids,
+                    affected_view_ids: Vec::new(),
+                    affected_document_ids: Vec::new(),
+                    committed_revisions,
+                    page_create: None,
+                    page_copy: None,
+                    canvas_mutation: None,
+                    block_transfer: None,
+                    page_lifecycle: None,
+                    block_property_mutation: None,
+                    agent_page_copy: None,
+                    agent_create_pages: None,
+                    agent_move_pages: None,
+                    change_payload: None,
+                    committed_at: now.clone(),
+                },
+            )
         },
-    )
+    )?;
+    library_commit_result(connection, result)
 }
 
 fn read_project(

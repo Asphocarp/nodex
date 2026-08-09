@@ -93,6 +93,10 @@ describe("Kanban Card Block transfer drop", () => {
         void args;
         return {
           ok: true as const,
+          localCommit: {
+            status: "no_op" as const,
+            observed: { store_epoch: "epoch-a", commit_head: 1 },
+          },
           value: {
             version: 1 as const,
             operationId: "operation-a",
@@ -169,6 +173,10 @@ describe("Kanban Card Block transfer drop", () => {
       void args;
       return {
         ok: true as const,
+        localCommit: {
+          status: "no_op" as const,
+          observed: { store_epoch: "epoch-a", commit_head: 2 },
+        },
         value: {
           version: 1 as const,
           operationId: "operation-editor",

@@ -3,9 +3,14 @@ import type { ReactNode } from "react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
 import { plainTextToPortableRichText } from "../../shared/block-documents";
+import type { AuthorityResource } from "../../shared/authorized-read-stamp";
 import type { PageDetail } from "../../shared/page-detail";
+import { authorizedReadStampFixture } from "../../shared/testing/authorized-read-stamp-fixture";
 import type { ProjectionStreamMessage } from "../../shared/projection-stream";
-import type { ResourceRevocationMessage } from "../../shared/resource-revocation-stream";
+import type {
+  ResourceRevocationDeliveryMessage,
+  ResourceRevocationMessage,
+} from "../../shared/resource-revocation-stream";
 import { ProjectionInvalidationProvider } from "./projection-invalidation-context";
 import { ProjectionInvalidationRegistry } from "./projection-invalidation-registry";
 
@@ -20,9 +25,12 @@ vi.mock("./api", () => ({
 import {
   getPageDetail,
   invalidatePageDetail,
+  pageDetailStoreDiagnostics,
   resetPageDetailStoreForTests,
+  setPageDetail,
   usePageDetail,
 } from "./page-detail-store";
+import { rendererAuthorityFreshnessIndex } from "./authority-freshness-index";
 
 const timestamp = "2026-07-22T00:00:00.000Z";
 
@@ -30,12 +38,24 @@ const detail = (
   title: string,
   headSeq: number,
   storeEpoch = "epoch-1",
+  authorizationDependencies?: readonly AuthorityResource[],
 ): PageDetail => ({
   version: 3,
   projectId: "project-1",
   libraryId: "library-1",
   storeEpoch,
   commitSeq: headSeq,
+  authorization: authorizedReadStampFixture({
+    deliveryAddress: {
+      kind: "project",
+      library_id: "library-1",
+      project_id: "project-1",
+    },
+    subject: { kind: "page", page_id: "page-1" },
+    storeEpoch,
+    commitSeq: headSeq,
+    authorizationDependencies,
+  }),
   page: {
     pageId: "page-1",
     libraryId: "library-1",
@@ -116,7 +136,7 @@ const pageEvent = (
 
 const pageRevocation = (
   commitSeq: number,
-): ResourceRevocationMessage => ({
+): ResourceRevocationDeliveryMessage => ({
   version: 1,
   kind: "revocation",
   scope: {
@@ -164,7 +184,7 @@ describe("Page Detail store realtime convergence", () => {
   );
   const publish = (message: ProjectionStreamMessage | ResourceRevocationMessage) => {
     latestMessage = message;
-    if (message.kind === "revocation") {
+    if (message.version === 1) {
       revocationListener?.(message);
       return;
     }
@@ -198,6 +218,27 @@ describe("Page Detail store realtime convergence", () => {
           if (revocationListener === listener) revocationListener = null;
         };
       },
+    });
+  });
+
+  test("bounds inactive Page Detail entries across 10k-key churn", () => {
+    const template = detail("Bounded", 1);
+    for (let index = 0; index < 10_000; index += 1) {
+      setPageDetail({
+        ...template,
+        page: {
+          ...template.page,
+          pageId: `page-${index}`,
+          documentId: `document-${index}`,
+        },
+      });
+    }
+
+    expect(pageDetailStoreDiagnostics()).toMatchObject({
+      entries: 128,
+      inFlight: 0,
+      projectionRegistrations: 0,
+      freshnessRegistrations: 0,
     });
   });
 
@@ -242,6 +283,65 @@ describe("Page Detail store realtime convergence", () => {
     });
     await waitFor(() => expect(result.current.detail?.page.title).toBe("Latest"));
     expect(mocks.readPageDetail).toHaveBeenCalledTimes(2);
+    expect(mocks.readPageDetail).toHaveBeenNthCalledWith(
+      2,
+      "project-1",
+      "page-1",
+      2,
+    );
+  });
+
+  test("rereads when admission rejects an unknown dynamic root change", async () => {
+    const firstRead = deferred<{ ok: true; value: PageDetail }>();
+    mocks.readPageDetail
+      .mockReturnValueOnce(firstRead.promise)
+      .mockResolvedValueOnce({ ok: true, value: detail("Latest", 2) });
+    const { result } = renderHook(
+      () => usePageDetail("library-1", "project-1", "page-1"),
+      { wrapper },
+    );
+    await waitFor(() => expect(result.current.loading).toBe(true));
+
+    rendererAuthorityFreshnessIndex.admitVisibility({
+      deliveryAddress: {
+        kind: "project",
+        library_id: "library-1",
+        project_id: "project-1",
+      },
+      storeEpoch: "epoch-1",
+      commitSeq: 2,
+      change: "revoke",
+      roots: [{ kind: "document", document_id: "document-1" }],
+    });
+    const stale = detail("Stale", 1);
+    await act(async () => {
+      firstRead.resolve({
+        ok: true,
+        value: {
+          ...stale,
+          authorization: authorizedReadStampFixture({
+            deliveryAddress: stale.authorization.delivery_address,
+            subject: { kind: "page", page_id: "page-1" },
+            storeEpoch: "epoch-1",
+            commitSeq: 1,
+            authorizationDependencies: [
+              { kind: "page", page_id: "page-1" },
+              { kind: "document", document_id: "document-1" },
+            ],
+          }),
+        },
+      });
+      await firstRead.promise;
+    });
+
+    await waitFor(() => expect(result.current.detail?.page.title).toBe("Latest"));
+    expect(mocks.readPageDetail).toHaveBeenCalledTimes(2);
+    expect(mocks.readPageDetail).toHaveBeenNthCalledWith(
+      2,
+      "project-1",
+      "page-1",
+      2,
+    );
   });
 
   test("does not refetch when the initial checkpoint is covered by an in-flight read", async () => {
@@ -399,30 +499,35 @@ describe("Page Detail store realtime convergence", () => {
       loading: false,
       error: "Page not found",
     });
+    await waitFor(() => expect(pageDetailStoreDiagnostics().inFlight).toBe(0));
   });
 
   test("refreshes Page detail without tombstoning it when only a dependency is revoked", async () => {
     mocks.readPageDetail
-      .mockResolvedValueOnce({ ok: true, value: detail("Before", 1) })
+      .mockResolvedValueOnce({
+        ok: true,
+        value: detail("Before", 1, "epoch-1", [
+          { kind: "page", page_id: "page-1" },
+          { kind: "page", page_id: "page-ancestor" },
+        ]),
+      })
       .mockResolvedValueOnce({ ok: true, value: detail("Still readable", 2) });
     const { result } = renderHook(
       () => usePageDetail("library-1", "project-1", "page-1"),
       { wrapper },
     );
     await waitFor(() => expect(result.current.detail?.page.title).toBe("Before"));
-    const revocation = pageRevocation(2);
-
     await act(async () => {
-      publish({
-        ...revocation,
-        delivery: {
-          ...revocation.delivery,
-          revocation: {
-            ...revocation.delivery.revocation,
-            resource_kind: "document",
-            resource_id: "document-1",
-          },
+      rendererAuthorityFreshnessIndex.admitVisibility({
+        deliveryAddress: {
+          kind: "project",
+          library_id: "library-1",
+          project_id: "project-1",
         },
+        storeEpoch: "epoch-1",
+        commitSeq: 2,
+        change: "revoke",
+        roots: [{ kind: "page", page_id: "page-ancestor" }],
       });
       await Promise.resolve();
     });
@@ -431,6 +536,46 @@ describe("Page Detail store realtime convergence", () => {
       expect(result.current.detail?.page.title).toBe("Still readable");
     });
     expect(result.current.error).toBe(null);
+  });
+
+  test("keeps revoked dependency data empty after the trailing read fails", async () => {
+    mocks.readPageDetail
+      .mockResolvedValueOnce({
+        ok: true,
+        value: detail("Before", 1, "epoch-1", [
+          { kind: "page", page_id: "page-1" },
+          { kind: "page", page_id: "page-ancestor" },
+        ]),
+      })
+      .mockRejectedValueOnce(new Error("canonical read unavailable"));
+    const { result } = renderHook(
+      () => usePageDetail("library-1", "project-1", "page-1"),
+      { wrapper },
+    );
+    await waitFor(() => expect(result.current.detail?.page.title).toBe("Before"));
+    await act(async () => {
+      rendererAuthorityFreshnessIndex.admitVisibility({
+        deliveryAddress: {
+          kind: "project",
+          library_id: "library-1",
+          project_id: "project-1",
+        },
+        storeEpoch: "epoch-1",
+        commitSeq: 2,
+        change: "revoke",
+        roots: [{ kind: "page", page_id: "page-ancestor" }],
+      });
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(result.current).toMatchObject({
+        detail: null,
+        loading: false,
+        error: "canonical read unavailable",
+      });
+    });
+    expect(mocks.readPageDetail).toHaveBeenCalledTimes(2);
   });
 
   test("retains an authorized Page across surface remounts without serving it past an effect", async () => {

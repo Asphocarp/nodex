@@ -17,6 +17,7 @@ import {
 } from "../../../shared/block-documents";
 import { MemoryCanvasSceneOutbox } from "@/lib/canvas-scene-outbox";
 import type { CanvasSceneSyncAdapter } from "@/lib/canvas-scene-provider";
+import { noOpLocalCommit } from "../../../shared/testing/local-commit";
 import {
   readCanvasViewportPreference,
   writeCanvasViewportPreference,
@@ -189,6 +190,7 @@ const adapter: CanvasSceneSyncAdapter = {
     serverHead += 1;
     return {
       ok: true,
+      localCommit: noOpLocalCommit(request.storeEpoch, serverHead),
       value: {
         version: CANVAS_SCENE_SYNC_VERSION,
         mutationId: request.mutationId,

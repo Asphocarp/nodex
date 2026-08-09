@@ -14,6 +14,7 @@ import {
   type CanvasSceneJsonValue,
   type PortableCanvasScene,
 } from "./canvas-scene";
+import type { LocalCommitCommandSuccess } from "../local-commit-delivery";
 
 export const CANVAS_SCENE_SYNC_VERSION = 1 as const;
 export const MAX_CANVAS_SCENE_MUTATION_BYTES = 2 * 1024 * 1024;
@@ -105,12 +106,10 @@ export interface CanvasSceneMutationError {
 }
 
 export type CanvasSceneMutationCommandResult =
-  | {
-      readonly ok: true;
-      readonly value: CanvasSceneMutationResult;
+  | (LocalCommitCommandSuccess<CanvasSceneMutationResult> & {
       /** Present only for a first effective commit; safe to fan out after ACK. */
       readonly event?: CanvasSceneCommittedEvent;
-    }
+    })
   | { readonly ok: false; readonly error: CanvasSceneMutationError };
 
 export type CanvasSceneSyncCommandResult =

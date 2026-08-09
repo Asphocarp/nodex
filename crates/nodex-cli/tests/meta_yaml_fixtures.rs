@@ -40,10 +40,6 @@ fn accepted_metadata_fixtures_cover_the_closed_projection_types() {
         value("datetime"),
         ProjectedPropertyValueV1::Datetime(_)
     ));
-    assert!(matches!(
-        value("person"),
-        ProjectedPropertyValueV1::Identity(_)
-    ));
     assert!(metadata.schedule.is_some());
 
     let standalone = parse(&read_fixture("accept/standalone.yaml")).expect("standalone fixture");

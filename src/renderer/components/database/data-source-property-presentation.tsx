@@ -12,7 +12,6 @@ import {
   Hash,
   Tags,
   TextCursorInput,
-  UserRound,
 } from "@/components/shared/icons/generic-icons";
 import type { DatabasePropertyValueType } from "../../../shared/database-kernel";
 import type { DataSourcePropertyRecordV2 } from "../../../shared/database-module-v2";
@@ -26,7 +25,6 @@ export const DATA_SOURCE_PROPERTY_TYPE_LABELS = {
   multi_select: "Multi-select",
   date: "Date",
   datetime: "Date & time",
-  person: "Person",
   relation: "Relation",
 } as const satisfies Record<DatabasePropertyValueType, string>;
 
@@ -44,8 +42,6 @@ export const dataSourcePropertyTypeIcon = (
     case "date":
     case "datetime":
       return CalendarIcon;
-    case "person":
-      return UserRound;
     case "text":
       return TextCursorInput;
     case "relation":

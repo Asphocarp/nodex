@@ -12,7 +12,7 @@ export const BUILT_IN_DATA_SOURCE_PROPERTY_DEFINITIONS = {
   due_date: { valueType: "date" },
   scheduled_start: { valueType: "datetime" },
   scheduled_end: { valueType: "datetime" },
-  assignee: { valueType: "person" },
+  assignee: { valueType: "text" },
 } as const satisfies Readonly<
   Record<BuiltInDataSourcePropertyId, { readonly valueType: DatabasePropertyValueType }>
 >;

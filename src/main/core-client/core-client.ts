@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { CORE_CLIENT_REQUIREMENTS } from "@nodex/core-protocol";
 import type { components } from "@nodex/core-protocol";
-import type { ProjectionImpact } from "../../shared/projection-stream";
+import type { ProjectionImpact, ProjectionScope } from "../../shared/projection-stream";
 import {
   decodeCanvasSceneSyncHttpResponse,
   decodeDocumentApplyHttpAck,
@@ -38,6 +38,7 @@ import type {
   CoreEventEnvelope,
   CoreEventReplayRequired,
   CoreEventSubscription,
+  CoreProjectionEventSubscription,
   CoreDocumentEventSubscription,
   CoreStreamCheckpoint,
   CoreHandshakeResponse,
@@ -63,6 +64,7 @@ import type {
   LibraryReadResponse,
   LibraryReadSnapshot,
   DocumentLiveRepair,
+  ProjectionLiveRepair,
   OwnedDocumentApplyInput,
   OwnedDocumentApplyResponse,
   OwnedDocumentApplyResult,
@@ -540,6 +542,21 @@ export class CoreClient implements CoreClientPort {
       undefined,
       onResyncRequired,
       onCheckpoint,
+      signal,
+    );
+  }
+
+  openProjectionEventStream(
+    scopes: readonly ProjectionScope[],
+    onEvent: (event: CoreEventEnvelope) => void,
+    onRepair: (repair: ProjectionLiveRepair) => void,
+    signal?: AbortSignal,
+  ): Promise<CoreProjectionEventSubscription> {
+    return this.#transport.openProjectionLiveStream(
+      scopes,
+      this.#moduleHeaders(),
+      onEvent,
+      onRepair,
       signal,
     );
   }

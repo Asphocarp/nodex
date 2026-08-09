@@ -156,6 +156,7 @@ describe("collaborative NFM undo in Chromium", () => {
         ownerType: "page",
         ownerLifecycle: "active",
         documentId: document.guid,
+        authorization: null,
         storeEpoch: "epoch-relative-cursor",
         generation: 1,
         headSeq: 1,

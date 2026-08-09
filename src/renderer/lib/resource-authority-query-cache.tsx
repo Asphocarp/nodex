@@ -7,25 +7,19 @@ import {
 } from "@tanstack/react-query";
 import { useEffect } from "react";
 
+import type { AuthorizedReadStamp } from "../../shared/authorized-read-stamp";
 import {
-  projectionCursorCovers,
-  projectionScopeKey,
-  type ProjectionCursor,
-  type ProjectionScope,
-} from "../../shared/projection-stream";
-import { useProjectionInvalidationRegistry } from "./projection-invalidation-context";
-import {
-  revocationMatches,
-  type ProjectionDependencies,
-  type ProjectionInvalidationRegistry,
-} from "./projection-invalidation-registry";
+  AuthorityFreshnessCapacityError,
+  rendererAuthorityFreshnessIndex,
+  StaleAuthorizedReadError,
+  type AuthorityFreshnessIndex,
+  type AuthorityRegistration,
+} from "./authority-freshness-index";
 
 const RESOURCE_AUTHORITY_META_KEY = "nodexResourceAuthority";
 
 export interface ResourceAuthorityQueryResolution {
-  readonly scope: ProjectionScope;
-  readonly dependencies: ProjectionDependencies;
-  readonly cursor: ProjectionCursor;
+  readonly authorizations: readonly AuthorizedReadStamp[];
   /** Additional cached resources invalidated by the same authority loss. */
   readonly relatedQueryKeys?: readonly QueryKey[];
 }
@@ -36,6 +30,106 @@ export interface ResourceAuthorityQueryMetadata {
     data: unknown,
   ) => ResourceAuthorityQueryResolution | null;
 }
+
+const MAX_PENDING_ADMISSIONS = 256;
+const PENDING_ADMISSION_TIMEOUT_MS = 30_000;
+
+interface PendingAuthorityAdmission {
+  readonly registrations: readonly AuthorityRegistration[];
+  fenced: boolean;
+  onFence: (() => void) | null;
+  timer: ReturnType<typeof setTimeout> | null;
+}
+
+const pendingAdmissions = new Map<string, PendingAuthorityAdmission[]>();
+
+const resolutionKey = (resolution: ResourceAuthorityQueryResolution): string =>
+  resolution.authorizations.map((stamp) => stamp.stamp_hash).join(":");
+
+const releasePendingAdmission = (admission: PendingAuthorityAdmission): void => {
+  if (admission.timer) clearTimeout(admission.timer);
+  for (const registration of admission.registrations) registration.release();
+};
+
+const removePendingAdmission = (
+  key: string,
+  admission: PendingAuthorityAdmission,
+): void => {
+  const pending = pendingAdmissions.get(key);
+  if (!pending) return;
+  const next = pending.filter((candidate) => candidate !== admission);
+  if (next.length > 0) pendingAdmissions.set(key, next);
+  else pendingAdmissions.delete(key);
+};
+
+const claimPendingAdmission = (
+  resolution: ResourceAuthorityQueryResolution,
+  onFence: () => void,
+): readonly AuthorityRegistration[] | null => {
+  const key = resolutionKey(resolution);
+  const pending = pendingAdmissions.get(key);
+  const admission = pending?.shift();
+  if (!admission) return null;
+  if (pending?.length === 0) pendingAdmissions.delete(key);
+  if (admission.timer) clearTimeout(admission.timer);
+  admission.onFence = onFence;
+  if (admission.fenced) {
+    releasePendingAdmission(admission);
+    onFence();
+    return [];
+  }
+  return admission.registrations;
+};
+
+/** Verifies and registers authority before a TanStack query publishes data. */
+export const admitResourceAuthorityQuery = async <Data,>(
+  data: Data,
+  resolve: ResourceAuthorityQueryMetadata["resolve"],
+  freshnessIndex: AuthorityFreshnessIndex = rendererAuthorityFreshnessIndex,
+): Promise<Data> => {
+  const resolution = resolve([], data);
+  if (!resolution || resolution.authorizations.length === 0) return data;
+  const registrations: AuthorityRegistration[] = [];
+  const admission: PendingAuthorityAdmission = {
+    registrations,
+    fenced: false,
+    onFence: null,
+    timer: null,
+  };
+  try {
+    for (const authorization of resolution.authorizations) {
+      registrations.push(await freshnessIndex.registerSnapshot(
+        authorization,
+        () => {
+          admission.fenced = true;
+          admission.onFence?.();
+        },
+      ));
+    }
+  } catch (error) {
+    for (const registration of registrations) registration.release();
+    throw error;
+  }
+  if (admission.fenced) {
+    for (const registration of registrations) registration.release();
+    throw new StaleAuthorizedReadError();
+  }
+  const pendingCount = [...pendingAdmissions.values()]
+    .reduce((total, values) => total + values.length, 0);
+  if (pendingCount >= MAX_PENDING_ADMISSIONS) {
+    for (const registration of registrations) registration.release();
+    throw new AuthorityFreshnessCapacityError();
+  }
+  const key = resolutionKey(resolution);
+  const timer = setTimeout(() => {
+    removePendingAdmission(key, admission);
+    releasePendingAdmission(admission);
+  }, PENDING_ADMISSION_TIMEOUT_MS);
+  (timer as { unref?: () => void }).unref?.();
+  admission.timer = timer;
+  pendingAdmissions.set(key, [...(pendingAdmissions.get(key) ?? []), admission]);
+  return data;
+};
 
 export const resourceAuthorityQueryMeta = (
   resolve: ResourceAuthorityQueryMetadata["resolve"],
@@ -66,14 +160,11 @@ const evictExactQuery = (
   void queryClient.resetQueries({ queryKey, exact: true }).catch(() => undefined);
 };
 
-interface ScopeRegistration {
-  readonly release: () => void;
-}
-
 interface IndexedAuthorityQuery {
   readonly queryHash: string;
   readonly queryKey: QueryKey;
   readonly resolution: ResourceAuthorityQueryResolution;
+  readonly registrations: readonly AuthorityRegistration[];
 }
 
 /**
@@ -82,24 +173,23 @@ interface IndexedAuthorityQuery {
  */
 export class ResourceAuthorityQueryCache {
   readonly #queryClient: QueryClient;
-  readonly #registry: ProjectionInvalidationRegistry;
-  readonly #scopeRegistrations = new Map<string, ScopeRegistration>();
+  readonly #freshnessIndex: AuthorityFreshnessIndex;
   readonly #indexedQueries = new Map<string, IndexedAuthorityQuery>();
-  readonly #queriesByScope = new Map<string, Map<string, IndexedAuthorityQuery>>();
+  readonly #pending = new Map<string, symbol>();
   #releaseCacheSubscription: (() => void) | null = null;
 
   constructor(input: {
     readonly queryClient: QueryClient;
-    readonly registry: ProjectionInvalidationRegistry;
+    readonly freshnessIndex?: AuthorityFreshnessIndex;
   }) {
     this.#queryClient = input.queryClient;
-    this.#registry = input.registry;
+    this.#freshnessIndex = input.freshnessIndex ?? rendererAuthorityFreshnessIndex;
   }
 
   start(): () => void {
     if (this.#releaseCacheSubscription) return () => this.dispose();
     for (const query of this.#queryClient.getQueryCache().getAll()) {
-      this.#indexQuery(query);
+      void this.#indexQuery(query);
     }
     this.#releaseCacheSubscription = this.#queryClient
       .getQueryCache()
@@ -110,12 +200,11 @@ export class ResourceAuthorityQueryCache {
   dispose(): void {
     this.#releaseCacheSubscription?.();
     this.#releaseCacheSubscription = null;
-    for (const registration of this.#scopeRegistrations.values()) {
-      registration.release();
+    for (const indexed of this.#indexedQueries.values()) {
+      for (const registration of indexed.registrations) registration.release();
     }
-    this.#scopeRegistrations.clear();
+    this.#pending.clear();
     this.#indexedQueries.clear();
-    this.#queriesByScope.clear();
   }
 
   #handleCacheEvent(event: QueryCacheNotifyEvent): void {
@@ -123,127 +212,112 @@ export class ResourceAuthorityQueryCache {
       this.#removeIndexedQuery(event.query.queryHash);
       return;
     }
-    this.#indexQuery(event.query);
+    void this.#indexQuery(event.query);
   }
 
-  #indexQuery(query: Query): void {
+  async #indexQuery(query: Query): Promise<void> {
     const metadata = metadataFrom(query.meta);
     const resolution = metadata?.resolve(query.queryKey, query.state.data);
-    if (!resolution) {
+    if (!resolution || resolution.authorizations.length === 0) {
       this.#removeIndexedQuery(query.queryHash);
       return;
     }
 
-    const key = projectionScopeKey(resolution.scope);
-    const indexed = {
-      queryHash: query.queryHash,
-      queryKey: query.queryKey,
+    const claimed = claimPendingAdmission(
       resolution,
-    } satisfies IndexedAuthorityQuery;
+      () => this.#evictQuery(query.queryHash),
+    );
+    if (claimed) {
+      this.#removeIndexedQuery(query.queryHash);
+      if (claimed.length === 0) return;
+      this.#indexedQueries.set(query.queryHash, {
+        queryHash: query.queryHash,
+        queryKey: query.queryKey,
+        resolution,
+        registrations: claimed,
+      });
+      return;
+    }
+
     const existing = this.#indexedQueries.get(query.queryHash);
     if (
       existing
-      && projectionScopeKey(existing.resolution.scope) === key
+      && existing.resolution.authorizations.map((stamp) => stamp.stamp_hash).join(":")
+        === resolution.authorizations.map((stamp) => stamp.stamp_hash).join(":")
     ) {
-      this.#indexedQueries.set(query.queryHash, indexed);
-      const scoped = this.#queriesByScope.get(key);
-      if (scoped) scoped.set(query.queryHash, indexed);
-      this.#ensureScopeRegistration(key, resolution.scope);
+      this.#indexedQueries.set(query.queryHash, {
+        ...existing,
+        queryKey: query.queryKey,
+        resolution,
+      });
       return;
     }
 
     this.#removeIndexedQuery(query.queryHash);
-    const scoped = this.#queriesByScope.get(key)
-      ?? new Map<string, IndexedAuthorityQuery>();
-    scoped.set(query.queryHash, indexed);
-    this.#queriesByScope.set(key, scoped);
-    this.#indexedQueries.set(query.queryHash, indexed);
-    this.#ensureScopeRegistration(key, resolution.scope);
+    const generation = Symbol("authority-query-registration");
+    this.#pending.set(query.queryHash, generation);
+    try {
+      const registrations: AuthorityRegistration[] = [];
+      try {
+        for (const authorization of resolution.authorizations) {
+          registrations.push(await this.#freshnessIndex.registerSnapshot(
+            authorization,
+            () => this.#evictQuery(query.queryHash),
+          ));
+        }
+      } catch (error) {
+        for (const registration of registrations) registration.release();
+        throw error;
+      }
+      if (this.#pending.get(query.queryHash) !== generation) {
+        for (const registration of registrations) registration.release();
+        return;
+      }
+      this.#pending.delete(query.queryHash);
+      this.#indexedQueries.set(query.queryHash, {
+        queryHash: query.queryHash,
+        queryKey: query.queryKey,
+        resolution,
+        registrations,
+      });
+    } catch {
+      if (this.#pending.get(query.queryHash) !== generation) return;
+      this.#pending.delete(query.queryHash);
+      this.#evictQuery(query.queryHash, query.queryKey, resolution.relatedQueryKeys);
+    }
   }
 
   #removeIndexedQuery(queryHash: string): void {
+    this.#pending.delete(queryHash);
     const indexed = this.#indexedQueries.get(queryHash);
     if (!indexed) return;
     this.#indexedQueries.delete(queryHash);
-    const key = projectionScopeKey(indexed.resolution.scope);
-    const scoped = this.#queriesByScope.get(key);
-    scoped?.delete(queryHash);
-    if (scoped && scoped.size > 0) return;
-    this.#queriesByScope.delete(key);
-    this.#scopeRegistrations.get(key)?.release();
-    this.#scopeRegistrations.delete(key);
+    for (const registration of indexed.registrations) registration.release();
   }
 
-  #ensureScopeRegistration(key: string, scope: ProjectionScope): void {
-    if (this.#scopeRegistrations.has(key)) return;
-    // Registration may synchronously deliver the initial checkpoint. Install
-    // a placeholder first so a resulting cache event cannot double-register.
-    this.#scopeRegistrations.set(key, { release: () => undefined });
-    const release = this.#registry.register({
-      scope,
-      consumerKey: `resource-authority-query-cache:${key}`,
-      projectionEffects: "ignore",
-      getDependencies: () => ({ aggregate: true }),
-      getCursor: () => this.#scopeCursor(key),
-      revoke: (cause) => {
-        for (const indexed of this.#scopeQueries(key)) {
-          if (!revocationMatches(
-            indexed.resolution.dependencies,
-            cause.delivery.revocation,
-          )) continue;
-          this.#evictIndexedQuery(indexed);
-        }
-      },
-      fence: (cause) => {
-        for (const indexed of this.#scopeQueries(key)) {
-          if (
-            cause.kind === "checkpoint"
-            && projectionCursorCovers(indexed.resolution.cursor, cause.stream)
-          ) continue;
-          this.#evictIndexedQuery(indexed);
-        }
-      },
-      invalidate: () => undefined,
-    });
-    if (!this.#queriesByScope.has(key)) {
-      release();
-      this.#scopeRegistrations.delete(key);
-      return;
-    }
-    this.#scopeRegistrations.set(key, { release });
-  }
-
-  #scopeQueries(key: string): IndexedAuthorityQuery[] {
-    return [...(this.#queriesByScope.get(key)?.values() ?? [])];
-  }
-
-  #evictIndexedQuery(indexed: IndexedAuthorityQuery): void {
-    evictExactQuery(this.#queryClient, indexed.queryKey);
-    for (const relatedQueryKey of indexed.resolution.relatedQueryKeys ?? []) {
+  #evictQuery(
+    queryHash: string,
+    queryKey?: QueryKey,
+    relatedQueryKeys: readonly QueryKey[] = [],
+  ): void {
+    const indexed = this.#indexedQueries.get(queryHash);
+    const targetKey = queryKey ?? indexed?.queryKey;
+    const related = relatedQueryKeys.length > 0
+      ? relatedQueryKeys
+      : indexed?.resolution.relatedQueryKeys ?? [];
+    this.#removeIndexedQuery(queryHash);
+    if (targetKey) evictExactQuery(this.#queryClient, targetKey);
+    for (const relatedQueryKey of related) {
       evictExactQuery(this.#queryClient, relatedQueryKey);
     }
-  }
-
-  #scopeCursor(key: string): ProjectionCursor | null {
-    const cursors = this.#scopeQueries(key)
-      .map((indexed) => indexed.resolution.cursor);
-    const storeEpoch = cursors[0]?.storeEpoch;
-    if (!storeEpoch || cursors.some((cursor) => cursor.storeEpoch !== storeEpoch)) {
-      return null;
-    }
-    return {
-      storeEpoch,
-      commitSeq: Math.min(...cursors.map((cursor) => cursor.commitSeq)),
-    };
   }
 }
 
 export function ResourceAuthorityQueryCacheBridge(): null {
   const queryClient = useQueryClient();
-  const registry = useProjectionInvalidationRegistry();
   useEffect(() => {
-    const cache = new ResourceAuthorityQueryCache({ queryClient, registry });
+    const cache = new ResourceAuthorityQueryCache({ queryClient });
     return cache.start();
-  }, [queryClient, registry]);
+  }, [queryClient]);
   return null;
 }

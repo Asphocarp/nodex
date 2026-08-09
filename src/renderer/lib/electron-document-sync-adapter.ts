@@ -18,6 +18,7 @@ import {
   createExactRemoteSubscriptionLifecycle,
   type ExactRemoteSubscriptionLifecycle,
 } from "./exact-remote-subscription-lifecycle";
+import { rendererLocalCommitIngress } from "./local-commit-ingress";
 
 interface SubscriptionEntry {
   readonly subscribers: Set<{
@@ -492,12 +493,20 @@ const createScopedElectronDocumentSyncAdapter = (
       if (blocked) {
         return blocked;
       }
-      return normalizeApplyResult(
+      const result = normalizeApplyResult(
         await invokeCommand<DocumentSyncApplyAck>(
           channel("apply"),
           scope(request),
         ),
       );
+      if (
+        result.ok
+        && result.value.status === "committed"
+        && result.value.delivery
+      ) {
+        await rendererLocalCommitIngress.admitPacket(result.value.delivery);
+      }
+      return result;
     },
     publishAwareness: async (request: DocumentAwarenessPublishRequest) => {
       const blocked =
@@ -533,6 +542,12 @@ const createScopedElectronDocumentSyncAdapter = (
             subscribers.forEach((subscriber) =>
               subscriber.listener(event)
             );
+          },
+        );
+        const removeLocalListener = rendererLocalCommitIngress.subscribeDocument(
+          request.documentId,
+          (event) => {
+            subscribers.forEach((subscriber) => subscriber.listener(event));
           },
         );
         const lifecycle = createExactRemoteSubscriptionLifecycle<
@@ -572,6 +587,7 @@ const createScopedElectronDocumentSyncAdapter = (
               subscriptions.delete(key);
             }
             removeBridgeListener();
+            removeLocalListener();
           },
         });
         const createdEntry: SubscriptionEntry = {

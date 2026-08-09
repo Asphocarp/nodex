@@ -30,8 +30,23 @@ import {
   queryFamilyProjectionCursor,
 } from "./query-invalidation";
 import { useProjectionInvalidationRegistry } from "./projection-invalidation-context";
+import type { AuthorizedReadStamp } from "../../shared/authorized-read-stamp";
+import {
+  admitResourceAuthorityQuery,
+  resourceAuthorityQueryMeta,
+} from "./resource-authority-query-cache";
 
 export const libraryModuleQueryKey = queryKeys.library.all();
+
+const resolveLibraryReadAuthority = (_queryKey: readonly unknown[], data: unknown) => {
+  const authorization = (data as { readonly authorization?: AuthorizedReadStamp | null } | null)
+    ?.authorization;
+  return authorization ? { authorizations: [authorization] } : null;
+};
+
+const libraryReadAuthorityMeta = resourceAuthorityQueryMeta(
+  resolveLibraryReadAuthority,
+);
 
 export const libraryMetadataQueryOptions = () => queryOptions({
   queryKey: queryKeys.library.metadata(),
@@ -41,8 +56,12 @@ export const libraryMetadataQueryOptions = () => queryOptions({
       read: { mode: "metadata" },
     });
     if (!result.ok) throw new Error(result.error.message);
-    return result.value;
+    return await admitResourceAuthorityQuery(
+      result.value,
+      resolveLibraryReadAuthority,
+    );
   },
+  meta: libraryReadAuthorityMeta,
   staleTime: 30_000,
 });
 
@@ -53,22 +72,25 @@ const requireReadValue = async <Kind extends LibraryReadValue["kind"]>(
   readonly libraryId: string;
   readonly storeEpoch: string;
   readonly commitSeq: number;
+  readonly authorization: AuthorizedReadStamp | null;
 }> => {
   const result = await readLibraryModule(libraryContentAccess, request);
   if (!result.ok) throw new Error(result.error.message);
   if (result.value.value.kind !== kind) {
     throw new Error(`Library read returned ${result.value.value.kind}, expected ${kind}`);
   }
-  return {
+  return await admitResourceAuthorityQuery({
     ...result.value.value,
     libraryId: result.value.libraryId,
     storeEpoch: result.value.storeEpoch,
     commitSeq: result.value.commitSeq,
+    authorization: result.value.authorization,
   } as Extract<LibraryReadValue, { kind: Kind }> & {
     readonly libraryId: string;
     readonly storeEpoch: string;
     readonly commitSeq: number;
-  };
+    readonly authorization: AuthorizedReadStamp | null;
+  }, resolveLibraryReadAuthority);
 };
 
 const parentKey = (parent: LibraryNavigationParent): string => {
@@ -97,6 +119,7 @@ export const libraryChildrenQueryOptions = (
       ...input,
     },
   }, "children"),
+  meta: libraryReadAuthorityMeta,
   staleTime: 30_000,
 });
 
@@ -111,6 +134,7 @@ export const libraryStandaloneRootsQueryOptions = (
     version: LIBRARY_MODULE_CONTRACT_VERSION,
     read: { mode: "standalone_roots", ...input },
   }, "standalone_roots"),
+  meta: libraryReadAuthorityMeta,
   staleTime: 30_000,
 });
 
@@ -125,6 +149,7 @@ export const libraryCatalogQueryOptions = (
     version: LIBRARY_MODULE_CONTRACT_VERSION,
     read: { mode: "catalog", ...input },
   }, "catalog"),
+  meta: libraryReadAuthorityMeta,
   staleTime: 30_000,
 });
 
@@ -135,6 +160,7 @@ export const libraryPathQueryOptions = (target: LibraryRouteTarget) =>
       version: LIBRARY_MODULE_CONTRACT_VERSION,
       read: { mode: "path", target },
     }, "path"),
+    meta: libraryReadAuthorityMeta,
     staleTime: 30_000,
   });
 
@@ -145,6 +171,7 @@ export const libraryCanvasTargetQueryOptions = (canvasId: string) =>
       version: LIBRARY_MODULE_CONTRACT_VERSION,
       read: { mode: "canvas_target", canvasId },
     }, "canvas_target"),
+    meta: libraryReadAuthorityMeta,
     staleTime: 30_000,
   });
 
@@ -156,6 +183,7 @@ export const libraryResourceProjectAccessQueryOptions = (
     version: LIBRARY_MODULE_CONTRACT_VERSION,
     read: { mode: "resource_project_access", target },
   }, "resource_project_access"),
+  meta: libraryReadAuthorityMeta,
   staleTime: 30_000,
 });
 
@@ -248,6 +276,7 @@ export const useInfiniteLibraryChildren = (
       ...(pageParam ? { cursor: pageParam } : {}),
     },
   }, "children"),
+  meta: libraryReadAuthorityMeta,
   getNextPageParam: (page) => page.nextCursor ?? undefined,
   staleTime: 30_000,
   enabled,
@@ -270,6 +299,7 @@ export const useInfiniteLibraryStandaloneRoots = (
       ...(pageParam ? { cursor: pageParam } : {}),
     },
   }, "standalone_roots"),
+  meta: libraryReadAuthorityMeta,
   getNextPageParam: (page) => page.nextCursor ?? undefined,
   staleTime: 30_000,
   enabled,

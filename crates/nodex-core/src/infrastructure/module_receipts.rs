@@ -93,6 +93,23 @@ pub fn read_module_receipt(
         committed_at,
     )) = raw
     else {
+        let foreign_module = connection
+            .query_row(
+                "SELECT module_name FROM core_module_receipts
+                 WHERE operation_id = ?1 AND module_name <> ?2
+                 ORDER BY module_name LIMIT 1",
+                params![operation_id, module_name],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .map_err(|_| corrupt("Core Module receipt identity is invalid"))?;
+        if foreign_module.is_some() {
+            return Err(StoreError::new(
+                StoreErrorCode::IdempotencyKeyReused,
+                "operation_id is already bound to another Module",
+                false,
+            ));
+        }
         return Ok(None);
     };
     if profile_id.is_empty() || store_epoch.is_empty() {

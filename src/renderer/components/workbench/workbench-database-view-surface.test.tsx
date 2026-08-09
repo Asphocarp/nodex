@@ -11,6 +11,7 @@ import type {
   DatabaseViewWindowSnapshot,
 } from "../../../shared/database-views";
 import { TestQueryProvider } from "../../test/query";
+import { AUTHORIZED_READ_STAMP_EXAMPLE } from "../../../shared/testing/authorized-read-stamp-example";
 import { WorkbenchDatabaseViewSurface } from "./workbench-database-view-surface";
 
 const api = vi.hoisted(() => ({
@@ -60,6 +61,7 @@ const makeWindow = <ProjectScope extends string | null>(
   viewId,
   storeEpoch: "epoch:test",
   commitSeq: 1,
+  authorization: AUTHORIZED_READ_STAMP_EXAMPLE,
   projection: {
     scopeKey: `scope:${String(viewId)}`,
     schemaVersion: 1,
@@ -141,6 +143,7 @@ const makeGroups = <ProjectScope extends string | null>(
   viewId,
   storeEpoch: "epoch:test",
   commitSeq: 1,
+  authorization: AUTHORIZED_READ_STAMP_EXAMPLE,
   projection: {
     scopeKey: `database_view:library:test:${projectId ?? "library"}:${databaseId}:${dataSourceId}:${viewId}`,
     schemaVersion: 1,

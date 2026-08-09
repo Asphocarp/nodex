@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
 
+import { revocationsFromVisibilityDelta } from "../../shared/local-commit-delivery";
+
 import {
   encodeAdditionalDocumentCommandSemanticHashInput,
   parseAdditionalDocumentCommandRequest,
@@ -58,7 +60,11 @@ import type {
   DocumentSyncSubscribeRequest,
 } from "../../shared/block-documents/document-sync";
 import { CoreModuleResponseError } from "./core-client";
-import { applyResultCursor, applyResultStoreEpoch } from "./types";
+import {
+  applyResultCursor,
+  applyResultStoreEpoch,
+  rendererLocalCommitApply,
+} from "./types";
 import { isRetryableCoreEventStreamError } from "./core-event-stream-supervisor";
 import {
   superviseDocumentLiveStream,
@@ -101,7 +107,10 @@ const decodeCoreOwnedDocumentDescriptor = (
     throw new Error("Core Owned Document descriptor is invalid");
   }
   if (value.sync.kind !== "yjs") {
-    return decodeOwnedDocumentDescriptorHttp(JSON.stringify(value));
+    return decodeOwnedDocumentDescriptorHttp(JSON.stringify({
+      ...value,
+      authorization: null,
+    }));
   }
   const stateVector = value.sync.stateVector;
   if (
@@ -113,6 +122,7 @@ const decodeCoreOwnedDocumentDescriptor = (
   }
   return decodeOwnedDocumentDescriptorHttp(JSON.stringify({
     ...value,
+    authorization: null,
     sync: {
       kind: "yjs",
       stateVector: documentBytesToBase64(Uint8Array.from(stateVector)),
@@ -719,10 +729,13 @@ export const createCoreDocumentSyncAdapter = (
     const descriptor = decodeCoreOwnedDocumentDescriptor(
       snapshot.value.descriptor,
     );
+    if (!snapshot.authorization) {
+      throw new Error("Core Owned Document descriptor omitted canonical authorization");
+    }
     if (descriptor.ownerBlockId !== input.ownerBlockId) {
       throw new Error("Core Owned Document descriptor escaped its owner boundary");
     }
-    return descriptor;
+    return { ...descriptor, authorization: snapshot.authorization };
   };
 
   const readUpdateResource = async (
@@ -1011,7 +1024,11 @@ export const createCoreDocumentSyncAdapter = (
           "Core Document mutation result escaped its public identity boundary",
         );
       }
-      return { ok: true, value: result };
+      return {
+        ok: true,
+        value: result,
+        localCommit: rendererLocalCommitApply(committed),
+      };
     } catch (error) {
       return documentMutationAdapterFailure(request, error);
     }
@@ -1081,6 +1098,7 @@ export const createCoreDocumentSyncAdapter = (
           .digest("hex");
         return parseAdditionalDocumentCommandResult({
           ok: true,
+          localCommit: rendererLocalCommitApply(committed),
           value: {
             version: 1,
             operationId: request.operationId,
@@ -1262,7 +1280,7 @@ const documentEvents = async (
 ): Promise<readonly DocumentSyncRealtimeEvent[]> => {
   const identity = envelope.packet.manifest.identity;
   const events: DocumentSyncRealtimeEvent[] = [];
-  const requiresResync = envelope.packet.effects.some((effect) =>
+  const requiresResync = envelope.packet.atoms.some((effect) =>
     effect.payload.module === "owned_document"
     && effect.payload.event.document_id === request.documentId
     && (
@@ -1282,7 +1300,7 @@ const documentEvents = async (
       fetchUpdateResource,
     )
   )));
-  envelope.packet.effects.forEach((effect) => {
+  envelope.packet.atoms.forEach((effect) => {
     const payload = effect.payload;
     if (payload.module !== "owned_document") return;
     const event = payload.event;
@@ -1295,7 +1313,7 @@ const documentEvents = async (
         generation: event.generation,
         headSeq: event.head_seq,
         commitSeq: identity.commit_seq,
-        effectSequence: effect.semantic.effect_order,
+        effectSequence: effect.descriptor.atom_order,
         reason: "history-compacted",
       });
       return;
@@ -1308,14 +1326,16 @@ const documentEvents = async (
         generation: 1,
         headSeq: 0,
         commitSeq: identity.commit_seq,
-        effectSequence: effect.semantic.effect_order,
+        effectSequence: effect.descriptor.atom_order,
         reason: event.reason === "access_changed"
           ? "access-revoked"
           : "identity-boundary-changed",
       });
     }
   });
-  if (envelope.packet.revocations.some((revocation) =>
+  if (envelope.packet.visibility_deltas
+    .flatMap(revocationsFromVisibilityDelta)
+    .some((revocation) =>
     revocation.resource_kind === "document"
     && revocation.resource_id === request.documentId
   )) {

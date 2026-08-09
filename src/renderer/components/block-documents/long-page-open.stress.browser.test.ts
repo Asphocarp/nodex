@@ -149,6 +149,7 @@ describe("long Card collaborative open lifecycle", () => {
       ownerType: "page",
       ownerLifecycle: "active",
       documentId: serverDocument.guid,
+      authorization: null,
       storeEpoch: "store-edited-long-card",
       generation: 1,
       headSeq: adapter.headSeq,

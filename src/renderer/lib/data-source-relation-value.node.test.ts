@@ -8,6 +8,7 @@ const relationValue = {
     total_count: 2,
     targets: [{
       kind: "visible",
+      edge_id: "a".repeat(64),
       page_id: "page-visible",
       title: "Visible task",
       lifecycle: "active",
@@ -25,6 +26,7 @@ describe("Relation value preview", () => {
       totalCount: 2,
       targets: [{
         kind: "visible",
+        edgeId: "a".repeat(64),
         pageId: "page-visible",
         title: "Visible task",
         lifecycle: "active",

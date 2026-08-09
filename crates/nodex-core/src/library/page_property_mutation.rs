@@ -20,14 +20,12 @@ use crate::automation::{
     validate_timezone_input,
 };
 use crate::document::sha256;
-use crate::infrastructure::durable_mutation::{
-    self, OperationIdentity, PreparedDurableMutation, ReceiptMetadata,
-};
+use crate::infrastructure::durable_mutation::{self, OperationIdentity, ReceiptMetadata};
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
 use super::mutation::{
-    MutationEffects, finish_prepared_mutation, prepare_mutation, refresh_page_intrinsic_projection,
-    resolve_library_mutation_authority,
+    MutationEffects, library_commit_result, refresh_page_intrinsic_projection,
+    resolve_library_mutation_authority, seal_mutation,
 };
 use super::{LibraryApplyOutcome, require_page_write_access};
 
@@ -125,7 +123,7 @@ struct MutationEvidence {
 pub(super) struct PagePropertyApplySupplement<'a> {
     pub(super) core_request_hash: &'a str,
     pub(super) database_receipt: Option<&'a DatabaseReceipt>,
-    pub(super) prepared: Option<PreparedDurableMutation<'a>>,
+    pub(super) committed_at: Option<&'a str>,
 }
 
 pub(super) fn apply(
@@ -140,11 +138,10 @@ pub(super) fn apply(
     let PagePropertyApplySupplement {
         core_request_hash,
         database_receipt,
-        prepared,
+        committed_at,
     } = supplement;
-    let now = prepared
-        .as_ref()
-        .map(PreparedDurableMutation::committed_at)
+    let compound_mutation = database_receipt.is_some();
+    let now = committed_at
         .map(str::to_owned)
         .map_or_else(|| sqlite_now(connection), Ok)?;
     let ledger_project_id = ledger_project_id(connection, context, library_id)?;
@@ -157,7 +154,7 @@ pub(super) fn apply(
     ) {
         Ok(evidence) => evidence,
         Err(PropertyApplyError::Rejected(error)) => {
-            if prepared.is_some() {
+            if compound_mutation {
                 return Err(rejection_store_error(error));
             }
             let evidence =
@@ -196,7 +193,7 @@ pub(super) fn apply(
         mutation.client_session_id.as_deref(),
         &evidence,
     )? {
-        if prepared.is_some() {
+        if compound_mutation {
             return Err(rejection_store_error(collision));
         }
         return finish_rejection(
@@ -213,7 +210,7 @@ pub(super) fn apply(
     let resolved = match resolve_fields(connection, context, library_id, operation_id, mutation) {
         Ok(fields) => fields,
         Err(PropertyApplyError::Rejected(error)) => {
-            if prepared.is_some() {
+            if compound_mutation {
                 return Err(rejection_store_error(error));
             }
             persist_property_ledger(
@@ -242,129 +239,144 @@ pub(super) fn apply(
         Err(PropertyApplyError::Store(error)) => return Err(error),
     };
 
-    let prepared = match prepared {
-        Some(prepared) => prepared,
-        None => prepare_mutation(
-            connection,
-            context,
-            store_epoch,
+    let mut property_result = None;
+    let result = durable_mutation::run(
+        connection,
+        OperationIdentity {
+            module: ModuleName::Library,
+            module_name: MODULE_NAME,
             operation_id,
-            core_request_hash,
-            &now,
-        )?,
-    };
+            intent_hash: core_request_hash,
+            store_epoch,
+            committed_at: &now,
+            context,
+        },
+        |scope| {
+            let field_results = resolved
+                .iter()
+                .map(|field| persist_field(connection, operation_id, field, &now))
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|error| match error {
+                    PropertyApplyError::Rejected(error) => {
+                        StoreError::new(StoreErrorCode::RevisionConflict, error.message, false)
+                    }
+                    PropertyApplyError::Store(error) => error,
+                })?;
 
-    let field_results = resolved
-        .iter()
-        .map(|field| persist_field(connection, operation_id, field, &now))
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|error| match error {
-            PropertyApplyError::Rejected(error) => {
-                StoreError::new(StoreErrorCode::RevisionConflict, error.message, false)
-            }
-            PropertyApplyError::Store(error) => error,
-        })?;
-
-    let block_metadata_revisions =
-        bump_page_metadata_revisions(connection, operation_id, &evidence.target_page_ids, &now)?;
-    let intrinsic_pages = resolved
-        .iter()
-        .map(|field| match field {
-            ResolvedField::Intrinsic(field) => (
-                field.page.page_id.clone(),
-                field.page.storage_project_id.clone(),
-            ),
-        })
-        .collect::<BTreeSet<_>>();
-    for (page_id, storage_project_id) in intrinsic_pages {
-        refresh_page_intrinsic_projection(connection, &page_id, &storage_project_id, &now)?;
-        connection.execute(
-            "UPDATE page_read_model SET metadata_revision = ?1, \
+            let block_metadata_revisions = bump_page_metadata_revisions(
+                connection,
+                operation_id,
+                &evidence.target_page_ids,
+                &now,
+            )?;
+            let intrinsic_pages = resolved
+                .iter()
+                .map(|field| match field {
+                    ResolvedField::Intrinsic(field) => (
+                        field.page.page_id.clone(),
+                        field.page.storage_project_id.clone(),
+                    ),
+                })
+                .collect::<BTreeSet<_>>();
+            for (page_id, storage_project_id) in intrinsic_pages {
+                refresh_page_intrinsic_projection(connection, &page_id, &storage_project_id, &now)?;
+                connection.execute(
+                    "UPDATE page_read_model SET metadata_revision = ?1, \
                projection_version = projection_version + 1, updated_at = ?2 \
              WHERE page_block_id = ?3",
-            params![block_metadata_revisions[&page_id], now, page_id],
-        )?;
-    }
-    for page_id in schedule_pages(&resolved) {
-        refresh_scheduled_index(connection, &page_id, &now)?;
-    }
+                    params![block_metadata_revisions[&page_id], now, page_id],
+                )?;
+            }
+            for page_id in schedule_pages(&resolved) {
+                refresh_scheduled_index(connection, &page_id, &now)?;
+            }
 
-    let outcome = LibraryBlockPropertyMutationOutcome::Committed {
-        fields: field_results.clone(),
-        block_metadata_revisions: block_metadata_revisions.clone(),
-    };
-    let mut committed_revisions = field_results
-        .iter()
-        .map(|result| {
-            (
-                field_result_path(result).to_owned(),
-                field_result_revision(result),
-            )
-        })
-        .collect::<BTreeMap<_, _>>();
-    committed_revisions.extend(
-        block_metadata_revisions
-            .iter()
-            .map(|(page_id, revision)| (format!("page:{page_id}:metadata"), *revision)),
-    );
-    let mut affected_database_ids = evidence.database_ids.clone();
-    let mut affected_view_ids = Vec::new();
-    let mut affected_parent_keys = Vec::new();
-    if let Some(database_receipt) = database_receipt {
-        committed_revisions.extend(database_receipt.committed_revisions.clone());
-        affected_database_ids.extend(database_receipt.affected_database_ids.clone());
-        affected_view_ids.extend(database_receipt.affected_view_ids.clone());
-        affected_parent_keys.extend(
-            database_receipt
-                .affected_data_source_ids
+            let outcome = LibraryBlockPropertyMutationOutcome::Committed {
+                fields: field_results.clone(),
+                block_metadata_revisions: block_metadata_revisions.clone(),
+            };
+            let mut committed_revisions = field_results
                 .iter()
-                .map(|id| format!("data_source:{id}")),
-        );
-        affected_database_ids.sort();
-        affected_database_ids.dedup();
-        affected_view_ids.sort();
-        affected_view_ids.dedup();
-        affected_parent_keys.sort();
-        affected_parent_keys.dedup();
-    }
-    let outcome_receipt = LibraryBlockPropertyMutationReceipt { outcome };
-    let change_payload = change_payload(
-        &evidence,
-        &resolved,
-        &field_results,
-        &block_metadata_revisions,
-    );
-    let result = finish_prepared_mutation(
-        connection,
-        prepared,
-        context,
-        operation_id,
-        MutationEffects {
-            project_id: ledger_project_id.clone(),
-            operation_kind: MUTATION_KIND,
-            change_kind: "block_mutation",
-            did_mutate: true,
-            created_target: None,
-            affected_parent_keys,
-            affected_block_ids: evidence.target_page_ids.clone(),
-            affected_page_ids: evidence.target_page_ids.clone(),
-            affected_database_ids,
-            affected_view_ids,
-            affected_document_ids: Vec::new(),
-            committed_revisions,
-            page_create: None,
-            page_copy: None,
-            canvas_mutation: None,
-            block_transfer: None,
-            page_lifecycle: None,
-            block_property_mutation: Some(outcome_receipt),
-            agent_page_copy: None,
-            agent_create_pages: None,
-            agent_move_pages: None,
-            change_payload: Some(change_payload),
-            committed_at: now.clone(),
+                .map(|result| {
+                    (
+                        field_result_path(result).to_owned(),
+                        field_result_revision(result),
+                    )
+                })
+                .collect::<BTreeMap<_, _>>();
+            committed_revisions.extend(
+                block_metadata_revisions
+                    .iter()
+                    .map(|(page_id, revision)| (format!("page:{page_id}:metadata"), *revision)),
+            );
+            let mut affected_database_ids = evidence.database_ids.clone();
+            let mut affected_view_ids = Vec::new();
+            let mut affected_parent_keys = Vec::new();
+            if let Some(database_receipt) = database_receipt {
+                committed_revisions.extend(database_receipt.committed_revisions.clone());
+                affected_database_ids.extend(database_receipt.affected_database_ids.clone());
+                affected_view_ids.extend(database_receipt.affected_view_ids.clone());
+                affected_parent_keys.extend(
+                    database_receipt
+                        .affected_data_source_ids
+                        .iter()
+                        .map(|id| format!("data_source:{id}")),
+                );
+                affected_database_ids.sort();
+                affected_database_ids.dedup();
+                affected_view_ids.sort();
+                affected_view_ids.dedup();
+                affected_parent_keys.sort();
+                affected_parent_keys.dedup();
+            }
+            let outcome_receipt = LibraryBlockPropertyMutationReceipt { outcome };
+            let change_payload = change_payload(
+                &evidence,
+                &resolved,
+                &field_results,
+                &block_metadata_revisions,
+            );
+            property_result = Some((field_results.clone(), block_metadata_revisions.clone()));
+            seal_mutation(
+                scope,
+                context,
+                operation_id,
+                MutationEffects {
+                    project_id: ledger_project_id.clone(),
+                    operation_kind: MUTATION_KIND,
+                    change_kind: "block_mutation",
+                    did_mutate: true,
+                    created_target: None,
+                    affected_parent_keys,
+                    affected_block_ids: evidence.target_page_ids.clone(),
+                    affected_page_ids: evidence.target_page_ids.clone(),
+                    affected_database_ids,
+                    affected_view_ids,
+                    affected_document_ids: Vec::new(),
+                    committed_revisions,
+                    page_create: None,
+                    page_copy: None,
+                    canvas_mutation: None,
+                    block_transfer: None,
+                    page_lifecycle: None,
+                    block_property_mutation: Some(outcome_receipt),
+                    agent_page_copy: None,
+                    agent_create_pages: None,
+                    agent_move_pages: None,
+                    change_payload: Some(change_payload),
+                    committed_at: now.clone(),
+                },
+            )
         },
     )?;
+    let result = library_commit_result(connection, result)?;
+    let (field_results, block_metadata_revisions) = property_result.ok_or_else(|| {
+        StoreError::new(
+            StoreErrorCode::Internal,
+            "Property mutation omitted its ledger result",
+            false,
+        )
+    })?;
     // The property ledger still links its history row to the physical
     // change_log effect. The public receipt cursor is the semantic
     // LocalCommit sequence and may differ after a multi-effect mutation.

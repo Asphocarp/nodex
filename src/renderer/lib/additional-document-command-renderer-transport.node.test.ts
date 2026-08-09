@@ -3,6 +3,7 @@ import type {
   AdditionalDocumentCommandResult,
 } from "../../shared/additional-document-commands";
 import type { PublicAdditionalDocumentCommandRequest } from "../../shared/additional-document-command-transport";
+import { noOpLocalCommit } from "../../shared/testing/local-commit";
 import {
   createElectronRendererTransport,
   type ElectronRendererBridge,
@@ -27,6 +28,7 @@ const request: PublicAdditionalDocumentCommandRequest = {
 
 const result: AdditionalDocumentCommandResult = {
   ok: true,
+  localCommit: noOpLocalCommit(request.storeEpoch),
   value: {
     version: 1,
     operationId: request.operationId,

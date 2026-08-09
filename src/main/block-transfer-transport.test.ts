@@ -24,6 +24,10 @@ const intent: PublicBlockTransferIntent = {
 
 const committed = (bound: BlockTransferIntent): BlockTransferCommandResult => ({
   ok: true,
+  localCommit: {
+    status: "no_op",
+    observed: { store_epoch: bound.storeEpoch, commit_head: 9 },
+  },
   value: {
     version: 1,
     operationId: bound.operationId,

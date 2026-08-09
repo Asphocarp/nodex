@@ -18,6 +18,10 @@ import {
 } from "./page-limits";
 import { isWorkflowStatus, type WorkflowStatus } from "./workflow-status";
 import { isFractionalRankKey } from "./fractional-rank";
+import {
+  parseLocalCommitApply,
+  type LocalCommitCommandSuccess,
+} from "./local-commit-delivery";
 import type {
   Estimate,
   PageRunInTarget,
@@ -279,7 +283,7 @@ export interface PageLifecycleMutationCommandErrorV2 {
 }
 
 export type PageLifecycleMutationCommandResultV2 =
-  | { readonly ok: true; readonly value: PageLifecycleMutationReceiptV2 }
+  | LocalCommitCommandSuccess<PageLifecycleMutationReceiptV2>
   | { readonly ok: false; readonly error: PageLifecycleMutationCommandErrorV2 };
 
 const readRecord = (
@@ -1380,10 +1384,15 @@ export const parsePageLifecycleMutationCommandResultV2 = (
 ): PageLifecycleMutationCommandResultV2 => {
   const result = readRecord(value, "pageLifecycleResultV2");
   if (result.ok === true) {
-    assertExactKeys(result, "pageLifecycleResultV2", ["ok", "value"]);
+    assertExactKeys(result, "pageLifecycleResultV2", [
+      "ok",
+      "value",
+      "localCommit",
+    ]);
     return {
       ok: true,
       value: parsePageLifecycleMutationReceiptV2(result.value),
+      localCommit: parseLocalCommitApply(result.localCommit),
     };
   }
   if (result.ok === false) {

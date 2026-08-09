@@ -56,15 +56,8 @@ const replacementValue = (
         };
       }
       break;
-    case "person":
-      if (typeof value === "string") return { kind: "person", personId: value };
-      break;
-    case "relation":
-      if (Array.isArray(value) && value.every((entry) => typeof entry === "string")) {
-        return { kind: "relation", pageIds: value };
-      }
-      break;
     case "multi_select":
+    case "relation":
       break;
   }
   throw localError(property.propertyId);
@@ -83,6 +76,24 @@ export const buildDataSourcePropertyValueOperations = (input: {
     === stableStringifyDatabaseJson(input.value)
   ) {
     return [];
+  }
+
+  if (input.property.valueType === "relation") {
+    if (!Array.isArray(input.value) || input.value.length !== 0) {
+      throw localError(input.property.propertyId);
+    }
+    return [{
+      kind: "edit_property_values",
+      edits: [{
+        pageId: input.pageId,
+        dataSourceId: input.dataSourceId,
+        propertyId: input.property.propertyId,
+        edit: {
+          kind: "clear_relation",
+          expectedValueRevision: input.current?.revision ?? 0,
+        },
+      }],
+    }];
   }
 
   if (input.property.valueType === "multi_select") {
@@ -137,16 +148,14 @@ export const buildDataSourceRelationPatchOperations = (input: {
   readonly dataSourceId: DataSourceId;
   readonly property: DataSourcePropertyRecordV2;
   readonly addPageIds: readonly string[];
-  readonly removePageIds: readonly string[];
+  readonly removeEdgeIds: readonly string[];
 }): readonly DatabaseApplyOperationV2[] => {
   if (input.property.valueType !== "relation") {
     throw localError(input.property.propertyId);
   }
   const addPageIds = [...new Set(input.addPageIds)].sort();
-  const removePageIds = [...new Set(input.removePageIds)]
-    .filter((pageId) => !addPageIds.includes(pageId))
-    .sort();
-  if (addPageIds.length === 0 && removePageIds.length === 0) return [];
+  const removeEdgeIds = [...new Set(input.removeEdgeIds)].sort();
+  if (addPageIds.length === 0 && removeEdgeIds.length === 0) return [];
   return [{
     kind: "edit_property_values",
     edits: [{
@@ -155,7 +164,7 @@ export const buildDataSourceRelationPatchOperations = (input: {
       propertyId: input.property.propertyId,
       edit: {
         kind: "patch_set",
-        delta: { kind: "relation", addPageIds, removePageIds },
+        delta: { kind: "relation", addPageIds, removeEdgeIds },
       },
     }],
   }];

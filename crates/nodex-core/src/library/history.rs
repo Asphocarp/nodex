@@ -1,6 +1,7 @@
 use std::cmp::Ordering;
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 
+use nodex_core_contracts::events::ResourceKey;
 use nodex_core_contracts::library::{
     LibraryBlockRelocationDirection, LibraryDocumentRevisionKind, LibraryDocumentVersionMetadata,
     LibraryPageHistoryCategory, LibraryPageHistoryCursor, LibraryPageHistoryDisplay,
@@ -109,6 +110,15 @@ pub(crate) fn require_page_read_access(
     require_page_access(connection, library_id, project_id, page_id, false)
 }
 
+pub(crate) fn page_read_authorization_roots(
+    connection: &Connection,
+    library_id: &str,
+    project_id: &str,
+    page_id: &str,
+) -> Result<Option<Vec<ResourceKey>>, StoreError> {
+    page_authorization_roots(connection, library_id, project_id, page_id, false)
+}
+
 pub(crate) fn require_page_write_access(
     connection: &Connection,
     library_id: &str,
@@ -125,6 +135,21 @@ fn require_page_access(
     page_id: &str,
     write_required: bool,
 ) -> Result<(), StoreError> {
+    if page_authorization_roots(connection, library_id, project_id, page_id, write_required)?
+        .is_some()
+    {
+        return Ok(());
+    }
+    Err(not_found("Page is not available to the bound Project"))
+}
+
+fn page_authorization_roots(
+    connection: &Connection,
+    library_id: &str,
+    project_id: &str,
+    page_id: &str,
+    write_required: bool,
+) -> Result<Option<Vec<ResourceKey>>, StoreError> {
     let project: Option<Option<String>> = connection
         .query_row(
             "SELECT database_block_id FROM projects WHERE id = ?1 AND library_id = ?2",
@@ -133,7 +158,7 @@ fn require_page_access(
         )
         .optional()?;
     let Some(primary_database_id) = project else {
-        return Err(not_found("Page is not available to the bound Project"));
+        return Ok(None);
     };
     let storage_project_id = connection
         .query_row(
@@ -145,18 +170,38 @@ fn require_page_access(
         )
         .optional()?;
     let database_id = owning_database(connection, library_id, page_id)?;
-    if page_is_authorized(
-        connection,
-        project_id,
-        page_id,
-        storage_project_id.as_deref(),
-        primary_database_id.as_deref(),
-        database_id.as_deref(),
-        write_required,
-    )? {
-        return Ok(());
+    let mut roots = BTreeSet::from([ResourceKey::Page {
+        page_id: page_id.to_owned(),
+    }]);
+    let owned_by_project = storage_project_id.as_deref() == Some(project_id);
+    let primary_database = database_id.is_some() && database_id == primary_database_id;
+    let mut database_grant = false;
+    if let Some(database_id) = database_id.as_ref() {
+        database_grant = connection
+            .query_row(
+                "SELECT 1 FROM project_resource_grants WHERE project_id = ?1 \
+                 AND root_kind = 'database' AND root_id = ?2 AND lifecycle = 'active' \
+                 AND (?3 = 0 OR access = 'read_write')",
+                params![project_id, database_id, i64::from(write_required)],
+                |_| Ok(()),
+            )
+            .optional()?
+            .is_some();
+        if primary_database || database_grant {
+            roots.insert(ResourceKey::Database {
+                database_id: database_id.clone(),
+            });
+        }
     }
-    Err(not_found("Page is not available to the bound Project"))
+    let page_grant_proof =
+        super::page_grant_ownership_proof(connection, project_id, page_id, write_required)?;
+    if let Some(proof) = &page_grant_proof {
+        roots.extend(proof.iter().cloned());
+    }
+    if owned_by_project || primary_database || database_grant || page_grant_proof.is_some() {
+        return Ok(Some(roots.into_iter().collect()));
+    }
+    Ok(None)
 }
 
 pub(super) fn page_history(
@@ -210,17 +255,9 @@ fn read_scope(
     project_id: &str,
     page_id: &str,
 ) -> Result<PageScope, StoreError> {
-    let project: Option<Option<String>> = connection
-        .query_row(
-            "SELECT database_block_id FROM projects \
-             WHERE id = ?1 AND library_id = ?2",
-            params![project_id, library_id],
-            |row| row.get::<_, Option<String>>(0),
-        )
-        .optional()?;
-    let Some(primary_database_id) = project else {
+    if page_read_authorization_roots(connection, library_id, project_id, page_id)?.is_none() {
         return Err(not_found("Page is not available to the bound Project"));
-    };
+    }
     let row = connection
         .query_row(
             "SELECT block.project_id, page.document_id, \
@@ -244,18 +281,6 @@ fn read_scope(
         )
         .optional()?
         .ok_or_else(|| not_found("Page is not available to the bound Project"))?;
-    let database_id = owning_database(connection, library_id, page_id)?;
-    if !page_is_authorized(
-        connection,
-        project_id,
-        page_id,
-        None,
-        primary_database_id.as_deref(),
-        database_id.as_deref(),
-        false,
-    )? {
-        return Err(not_found("Page is not available to the bound Project"));
-    }
     if row.2.as_deref() != Some(row.0.as_str())
         || row.3.is_none_or(|generation| !safe_integer(generation, 1))
         || row.4.as_deref() != Some("ready")
@@ -310,55 +335,6 @@ fn owning_database(
             .ok_or_else(|| not_found("Page is not available to the bound Project")),
         _ => Err(not_found("Page is not available to the bound Project")),
     }
-}
-
-fn page_is_authorized(
-    connection: &Connection,
-    project_id: &str,
-    page_id: &str,
-    storage_project_id: Option<&str>,
-    primary_database_id: Option<&str>,
-    database_id: Option<&str>,
-    write_required: bool,
-) -> Result<bool, StoreError> {
-    if storage_project_id == Some(project_id) {
-        return Ok(true);
-    }
-    if database_id.is_some() && database_id == primary_database_id {
-        return Ok(true);
-    }
-    if let Some(database_id) = database_id {
-        let direct = connection
-            .query_row(
-                "SELECT 1 FROM project_resource_grants WHERE project_id = ?1 \
-                 AND root_kind = 'database' AND root_id = ?2 AND lifecycle = 'active' \
-                 AND (?3 = 0 OR access = 'read_write')",
-                params![project_id, database_id, i64::from(write_required)],
-                |_| Ok(()),
-            )
-            .optional()?;
-        if direct.is_some() {
-            return Ok(true);
-        }
-    }
-    let inherited = connection
-        .query_row(
-            "WITH RECURSIVE ancestors(page_id, path) AS ( \
-               SELECT ?2, '|' || ?2 || '|' UNION ALL \
-               SELECT page.parent_id, ancestors.path || page.parent_id || '|' \
-               FROM pages page JOIN ancestors ON page.block_id = ancestors.page_id \
-               WHERE page.parent_kind = 'page' \
-                 AND instr(ancestors.path, '|' || page.parent_id || '|') = 0) \
-             SELECT 1 FROM project_resource_grants grant_row JOIN ancestors \
-               ON grant_row.root_id = ancestors.page_id \
-             WHERE grant_row.project_id = ?1 AND grant_row.root_kind = 'page' \
-               AND grant_row.lifecycle = 'active' \
-               AND (?3 = 0 OR grant_row.access = 'read_write') LIMIT 1",
-            params![project_id, page_id, i64::from(write_required)],
-            |_| Ok(()),
-        )
-        .optional()?;
-    Ok(inherited.is_some())
 }
 
 fn read_versions(

@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 
 import { describe, expect, test, vi } from "vitest";
 
+import { committedLocalCommit } from "../../shared/testing/local-commit";
+import { authorizedReadStampFixture } from "../../shared/testing/authorized-read-stamp-fixture";
 import { CoreModuleResponseError } from "./core-client";
 import { createCoreDocumentSyncAdapter } from "./document-sync-adapter";
 import { FakeCoreClient } from "./testing/fake-core-client";
@@ -87,6 +89,21 @@ const descriptorSnapshot = () => ({
   contract_version: 1 as const,
   store_epoch: "epoch:test",
   commit_head: 4,
+  authorization: authorizedReadStampFixture({
+    deliveryAddress: {
+      kind: "document",
+      library_id: "library:test",
+      project_id: "project:one",
+      document_id: "document:one",
+    },
+    subject: { kind: "page", page_id: "page:one" },
+    storeEpoch: "epoch:test",
+    commitSeq: 4,
+    authorizationDependencies: [
+      { kind: "document", document_id: "document:one" },
+      { kind: "page", page_id: "page:one" },
+    ],
+  }),
   value: {
     kind: "descriptor" as const,
     descriptor: {
@@ -700,6 +717,7 @@ describe("Core Document sync adapter", () => {
 
     await expect(adapter.restoreVersion(request)).resolves.toEqual({
       ok: true,
+      localCommit: committedLocalCommit(request.storeEpoch, 9),
       value: {
         version: 1,
         mutationKind: "document_version_restore",

@@ -34,15 +34,14 @@ use crate::domain::fractional_rank::{
 };
 use crate::domain::identity::stable_uuid_v7;
 use crate::infrastructure::durable_mutation::{
-    self, CommitResult, DurableMutationScope, OperationIdentity, PreparedDurableMutation,
-    ReceiptMetadata, SealedOutcome,
+    self, CommitResult, DurableMutationScope, OperationIdentity, ReceiptMetadata, ReplayIdentity,
+    SealedOutcome,
 };
 use crate::infrastructure::event_log::{
     NewChangeLogEntry, append_change_log, load_committed_event_by_sequence,
 };
 use crate::infrastructure::local_commit;
 use crate::infrastructure::local_commit::CommitContext;
-use crate::infrastructure::module_receipts::read_module_receipt;
 #[cfg(test)]
 use crate::infrastructure::module_receipts::{NewModuleReceipt, insert_module_receipt};
 use crate::infrastructure::projection_impact::expand_database_coordinates;
@@ -185,29 +184,17 @@ pub(super) fn apply(
                     sha256(&fingerprint)
                 }
             };
-            if let Some(stored) =
-                read_module_receipt(transaction, MODULE_NAME, &request.operation_id)?
-            {
-                if stored.request_hash != request_hash {
-                    return Err(StoreError::new(
-                        StoreErrorCode::IdempotencyKeyReused,
-                        "operation_id is already bound to another Library intent",
-                        false,
-                    ));
-                }
-                let mut committed = serde_json::from_value::<
-                    crate::ModuleWriterResult<LibraryCommitValue, LibraryReceipt>,
-                >(stored.result)
-                .map_err(|_| corrupt("Stored Library receipt is invalid"))?;
-                committed.receipt.mutation.duplicate = true;
-                let event = load_committed_event_by_sequence(
-                    transaction,
-                    committed.event_sequence,
-                )?;
-                return Ok(LibraryApplyOutcome {
-                    committed,
-                    event: Some(event),
-                });
+            if let Some(replayed) = durable_mutation::replay_existing(
+                transaction,
+                ReplayIdentity {
+                    module: ModuleName::Library,
+                    module_name: MODULE_NAME,
+                    operation_id: &request.operation_id,
+                    intent_hash: &request_hash,
+                    store_epoch: &store_epoch,
+                },
+            )? {
+                return library_commit_result(transaction, replayed);
             }
             match &request.intent {
                 LibraryIntent::CreatePage {
@@ -481,7 +468,7 @@ pub(super) fn apply(
                         super::page_property_mutation::PagePropertyApplySupplement {
                             core_request_hash: &request_hash,
                             database_receipt: None,
-                            prepared: None,
+                            committed_at: None,
                         },
                     )
                 }
@@ -494,14 +481,6 @@ pub(super) fn apply(
                         intrinsic_mutation,
                     )?;
                     let database_committed_at = sqlite_now(transaction)?;
-                    let prepared = prepare_mutation(
-                        transaction,
-                        &context,
-                        &store_epoch,
-                        &request.operation_id,
-                        &request_hash,
-                        &database_committed_at,
-                    )?;
                     let database_receipt = crate::database::apply_intents_as_collaborator(
                         transaction,
                         &library_id,
@@ -520,7 +499,7 @@ pub(super) fn apply(
                         super::page_property_mutation::PagePropertyApplySupplement {
                             core_request_hash: &request_hash,
                             database_receipt: Some(&database_receipt),
-                            prepared: Some(prepared),
+                            committed_at: Some(&database_committed_at),
                         },
                     )?;
                     if let Some(receipt) = &outcome.committed.value.block_property_mutation
@@ -752,15 +731,6 @@ fn move_block(
             context,
         },
         |scope| {
-            scope.observe_authorization_before(super::authorization_loss::capture(
-                connection,
-                library_id,
-                super::authorization_loss::AuthorizationRoots::typed(
-                    authority.resource_kind,
-                    authority.id.clone(),
-                )?,
-                None,
-            )?);
             if authority.location_kind == "space" && target_document_id.is_some() {
                 connection.execute(
                     "DELETE FROM top_level_block_placements WHERE block_id = ?1",
@@ -1079,141 +1049,140 @@ fn change_resource_lifecycle(
         }
     }
     let now = sqlite_now(connection)?;
-    let prepared = prepare_mutation(
+    let result = durable_mutation::run(
         connection,
-        context,
-        store_epoch,
-        operation_id,
-        request_hash,
-        &now,
-    )?;
-    prepared.observe_authorization_before(super::authorization_loss::capture(
-        connection,
-        library_id,
-        super::authorization_loss::AuthorizationRoots::typed(
-            authority.resource_kind,
-            authority.id.clone(),
-        )?,
-        None,
-    )?);
-    let changed = connection.execute(
-        "UPDATE blocks SET lifecycle = ?1, metadata_revision = metadata_revision + 1, \
+        OperationIdentity {
+            module: ModuleName::Library,
+            module_name: MODULE_NAME,
+            operation_id,
+            intent_hash: request_hash,
+            store_epoch,
+            committed_at: &now,
+            context,
+        },
+        |scope| {
+            let changed = connection.execute(
+                "UPDATE blocks SET lifecycle = ?1, metadata_revision = metadata_revision + 1, \
            updated_at = ?2 WHERE id = ?3 AND lifecycle = ?4 AND metadata_revision = ?5",
-        params![
-            to,
-            now,
-            authority.id,
-            from,
-            authority.block_metadata_revision
-        ],
-    )?;
-    if changed != 1 {
-        return Err(StoreError::new(
-            StoreErrorCode::RevisionConflict,
-            "Library resource changed during lifecycle transition",
-            true,
-        ));
-    }
-    if authority.resource_kind == "page" {
-        let changed = connection.execute(
-            "UPDATE pages SET lifecycle = ?1, metadata_revision = ?2, updated_at = ?3 \
+                params![
+                    to,
+                    now,
+                    authority.id,
+                    from,
+                    authority.block_metadata_revision
+                ],
+            )?;
+            if changed != 1 {
+                return Err(StoreError::new(
+                    StoreErrorCode::RevisionConflict,
+                    "Library resource changed during lifecycle transition",
+                    true,
+                ));
+            }
+            if authority.resource_kind == "page" {
+                let changed = connection.execute(
+                    "UPDATE pages SET lifecycle = ?1, metadata_revision = ?2, updated_at = ?3 \
              WHERE block_id = ?4 AND library_id = ?5",
-            params![
-                to,
-                authority.block_metadata_revision + 1,
-                now,
-                authority.id,
-                library_id
-            ],
-        )?;
-        if changed != 1 {
-            return Err(corrupt("Page lifecycle authority disappeared"));
-        }
-        connection.execute(
+                    params![
+                        to,
+                        authority.block_metadata_revision + 1,
+                        now,
+                        authority.id,
+                        library_id
+                    ],
+                )?;
+                if changed != 1 {
+                    return Err(corrupt("Page lifecycle authority disappeared"));
+                }
+                connection.execute(
             "UPDATE page_read_model SET lifecycle = ?1, metadata_revision = ?2, updated_at = ?3 \
              WHERE page_block_id = ?4",
             params![to, authority.block_metadata_revision + 1, now, authority.id],
         )?;
-    } else {
-        let changed = connection.execute(
-            "UPDATE database_containers SET lifecycle = ?1, \
+            } else {
+                let changed = connection.execute(
+                    "UPDATE database_containers SET lifecycle = ?1, \
                metadata_revision = metadata_revision + 1, updated_at = ?2 \
              WHERE block_id = ?3 AND lifecycle = ?4 AND metadata_revision = ?5",
-            params![
-                to,
-                now,
-                authority.id,
-                from,
-                authority.resource_metadata_revision
-            ],
-        )?;
-        if changed != 1 {
-            return Err(StoreError::new(
-                StoreErrorCode::RevisionConflict,
-                "Database changed during lifecycle transition",
-                true,
-            ));
-        }
-    }
-    let parent_key = resource_parent_key(connection, &authority)?;
-    let affected_document_ids = if authority.resource_kind == "page" {
-        vec![connection.query_row(
-            "SELECT document_id FROM pages WHERE block_id = ?1",
-            [&authority.id],
-            |row| row.get::<_, String>(0),
-        )?]
-    } else {
-        Vec::new()
-    };
-    finish_prepared_mutation(
-        connection,
-        prepared,
-        context,
-        operation_id,
-        MutationEffects {
-            project_id: authority.project_id,
-            operation_kind,
-            change_kind: "library.changed",
-            did_mutate: true,
-            created_target: None,
-            affected_parent_keys: vec![parent_key],
-            affected_block_ids: Vec::new(),
-            affected_page_ids: (authority.resource_kind == "page")
-                .then(|| authority.id.clone())
-                .into_iter()
-                .collect(),
-            affected_database_ids: (authority.resource_kind == "database")
-                .then(|| authority.id.clone())
-                .into_iter()
-                .collect(),
-            affected_view_ids: Vec::new(),
-            affected_document_ids,
-            committed_revisions: BTreeMap::from_iter(
-                [(
-                    format!("blockMetadata:{}", authority.id),
-                    authority.block_metadata_revision + 1,
-                )]
-                .into_iter()
-                .chain((authority.resource_kind == "database").then(|| {
-                    (
-                        format!("databaseMetadata:{}", authority.id),
-                        authority.resource_metadata_revision + 1,
-                    )
-                })),
-            ),
-            page_create: None,
-            page_copy: None,
-            canvas_mutation: None,
-            block_transfer: None,
-            page_lifecycle: None,
-            block_property_mutation: None,
-            agent_page_copy: None,
-            agent_create_pages: None,
-            agent_move_pages: None,
-            change_payload: None,
-            committed_at: now,
+                    params![
+                        to,
+                        now,
+                        authority.id,
+                        from,
+                        authority.resource_metadata_revision
+                    ],
+                )?;
+                if changed != 1 {
+                    return Err(StoreError::new(
+                        StoreErrorCode::RevisionConflict,
+                        "Database changed during lifecycle transition",
+                        true,
+                    ));
+                }
+            }
+            let parent_key = resource_parent_key(connection, &authority)?;
+            let affected_document_ids = if authority.resource_kind == "page" {
+                vec![connection.query_row(
+                    "SELECT document_id FROM pages WHERE block_id = ?1",
+                    [&authority.id],
+                    |row| row.get::<_, String>(0),
+                )?]
+            } else {
+                Vec::new()
+            };
+            seal_mutation(
+                scope,
+                context,
+                operation_id,
+                MutationEffects {
+                    project_id: authority.project_id,
+                    operation_kind,
+                    change_kind: "library.changed",
+                    did_mutate: true,
+                    created_target: None,
+                    affected_parent_keys: vec![parent_key],
+                    affected_block_ids: Vec::new(),
+                    affected_page_ids: (authority.resource_kind == "page")
+                        .then(|| authority.id.clone())
+                        .into_iter()
+                        .collect(),
+                    affected_database_ids: (authority.resource_kind == "database")
+                        .then(|| authority.id.clone())
+                        .into_iter()
+                        .collect(),
+                    affected_view_ids: Vec::new(),
+                    affected_document_ids,
+                    committed_revisions: BTreeMap::from_iter(
+                        [(
+                            format!("blockMetadata:{}", authority.id),
+                            authority.block_metadata_revision + 1,
+                        )]
+                        .into_iter()
+                        .chain(
+                            (authority.resource_kind == "database").then(|| {
+                                (
+                                    format!("databaseMetadata:{}", authority.id),
+                                    authority.resource_metadata_revision + 1,
+                                )
+                            }),
+                        ),
+                    ),
+                    page_create: None,
+                    page_copy: None,
+                    canvas_mutation: None,
+                    block_transfer: None,
+                    page_lifecycle: None,
+                    block_property_mutation: None,
+                    agent_page_copy: None,
+                    agent_create_pages: None,
+                    agent_move_pages: None,
+                    change_payload: None,
+                    committed_at: now.clone(),
+                },
+            )
         },
-    )
+    )?;
+    library_commit_result(connection, result)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1235,74 +1204,71 @@ fn grant_project_access(
         ));
     }
     let now = sqlite_now(connection)?;
-    let prepared = prepare_mutation(
+    let result = durable_mutation::run(
         connection,
-        context,
-        store_epoch,
-        operation_id,
-        request_hash,
-        &now,
-    )?;
-    prepared.observe_authorization_before(super::authorization_loss::capture(
-        connection,
-        library_id,
-        super::authorization_loss::AuthorizationRoots::typed(
-            authority.resource_kind,
-            authority.id.clone(),
-        )?,
-        Some(&[project_id.to_owned()]),
-    )?);
-    let mutation = mutate_direct_project_access(
-        connection,
-        library_id,
-        &authority,
-        project_id,
-        Some(access),
-        DirectGrantRevisionFence::Unchecked,
-        PrimaryDatabaseAccessUpdate::Noop,
-        &now,
-    )?;
-    finish_prepared_mutation(
-        connection,
-        prepared,
-        context,
-        operation_id,
-        MutationEffects {
-            project_id: project_id.to_owned(),
-            operation_kind: "grant_project_access",
-            change_kind: "library.changed",
-            did_mutate: mutation.did_mutate,
-            created_target: None,
-            affected_parent_keys: Vec::new(),
-            affected_block_ids: Vec::new(),
-            affected_page_ids: (authority.resource_kind == "page")
-                .then(|| authority.id.clone())
-                .into_iter()
-                .collect(),
-            affected_database_ids: (authority.resource_kind == "database")
-                .then(|| authority.id.clone())
-                .into_iter()
-                .collect(),
-            affected_view_ids: Vec::new(),
-            affected_document_ids: Vec::new(),
-            committed_revisions: mutation
-                .revision
-                .map(|revision| (format!("projectGrant:{project_id}"), revision))
-                .into_iter()
-                .collect(),
-            page_create: None,
-            page_copy: None,
-            canvas_mutation: None,
-            block_transfer: None,
-            page_lifecycle: None,
-            block_property_mutation: None,
-            agent_page_copy: None,
-            agent_create_pages: None,
-            agent_move_pages: None,
-            change_payload: None,
-            committed_at: now,
+        OperationIdentity {
+            module: ModuleName::Library,
+            module_name: MODULE_NAME,
+            operation_id,
+            intent_hash: request_hash,
+            store_epoch,
+            committed_at: &now,
+            context,
         },
-    )
+        |scope| {
+            let mutation = mutate_direct_project_access(
+                connection,
+                library_id,
+                &authority,
+                project_id,
+                Some(access),
+                DirectGrantRevisionFence::Unchecked,
+                PrimaryDatabaseAccessUpdate::Noop,
+                &now,
+            )?;
+            seal_mutation(
+                scope,
+                context,
+                operation_id,
+                MutationEffects {
+                    project_id: project_id.to_owned(),
+                    operation_kind: "grant_project_access",
+                    change_kind: "library.changed",
+                    did_mutate: mutation.did_mutate,
+                    created_target: None,
+                    affected_parent_keys: Vec::new(),
+                    affected_block_ids: Vec::new(),
+                    affected_page_ids: (authority.resource_kind == "page")
+                        .then(|| authority.id.clone())
+                        .into_iter()
+                        .collect(),
+                    affected_database_ids: (authority.resource_kind == "database")
+                        .then(|| authority.id.clone())
+                        .into_iter()
+                        .collect(),
+                    affected_view_ids: Vec::new(),
+                    affected_document_ids: Vec::new(),
+                    committed_revisions: mutation
+                        .revision
+                        .map(|revision| (format!("projectGrant:{project_id}"), revision))
+                        .into_iter()
+                        .collect(),
+                    page_create: None,
+                    page_copy: None,
+                    canvas_mutation: None,
+                    block_transfer: None,
+                    page_lifecycle: None,
+                    block_property_mutation: None,
+                    agent_page_copy: None,
+                    agent_create_pages: None,
+                    agent_move_pages: None,
+                    change_payload: None,
+                    committed_at: now.clone(),
+                },
+            )
+        },
+    )?;
+    library_commit_result(connection, result)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1340,83 +1306,77 @@ fn set_project_access(
     }
 
     let now = sqlite_now(connection)?;
-    let prepared = prepare_mutation(
+    let result = durable_mutation::run(
         connection,
-        context,
-        store_epoch,
-        operation_id,
-        request_hash,
-        &now,
-    )?;
-    let restricted_project_ids = changes
-        .iter()
-        .map(|change| change.project_id.clone())
-        .collect::<Vec<_>>();
-    prepared.observe_authorization_before(super::authorization_loss::capture(
-        connection,
-        library_id,
-        super::authorization_loss::AuthorizationRoots::typed(
-            authority.resource_kind,
-            authority.id.clone(),
-        )?,
-        Some(&restricted_project_ids),
-    )?);
-    let mut did_mutate = false;
-    let mut committed_revisions = BTreeMap::new();
-    for change in changes {
-        let mutation = mutate_direct_project_access(
-            connection,
-            library_id,
-            &authority,
-            &change.project_id,
-            change.access,
-            DirectGrantRevisionFence::Exact(change.expected_revision),
-            PrimaryDatabaseAccessUpdate::Reject,
-            &now,
-        )?;
-        did_mutate |= mutation.did_mutate;
-        if let Some(revision) = mutation.revision {
-            committed_revisions.insert(format!("projectGrant:{}", change.project_id), revision);
-        }
-    }
-
-    finish_prepared_mutation(
-        connection,
-        prepared,
-        context,
-        operation_id,
-        MutationEffects {
-            project_id: authority.project_id,
-            operation_kind: "set_project_access",
-            change_kind: "library.changed",
-            did_mutate,
-            created_target: None,
-            affected_parent_keys: Vec::new(),
-            affected_block_ids: Vec::new(),
-            affected_page_ids: (authority.resource_kind == "page")
-                .then(|| authority.id.clone())
-                .into_iter()
-                .collect(),
-            affected_database_ids: (authority.resource_kind == "database")
-                .then(|| authority.id.clone())
-                .into_iter()
-                .collect(),
-            affected_view_ids: Vec::new(),
-            affected_document_ids: Vec::new(),
-            committed_revisions,
-            page_create: None,
-            page_copy: None,
-            canvas_mutation: None,
-            block_transfer: None,
-            page_lifecycle: None,
-            block_property_mutation: None,
-            agent_page_copy: None,
-            agent_create_pages: None,
-            agent_move_pages: None,
-            change_payload: None,
-            committed_at: now,
+        OperationIdentity {
+            module: ModuleName::Library,
+            module_name: MODULE_NAME,
+            operation_id,
+            intent_hash: request_hash,
+            store_epoch,
+            committed_at: &now,
+            context,
         },
-    )
+        |scope| {
+            let mut did_mutate = false;
+            let mut committed_revisions = BTreeMap::new();
+            for change in changes {
+                let mutation = mutate_direct_project_access(
+                    connection,
+                    library_id,
+                    &authority,
+                    &change.project_id,
+                    change.access,
+                    DirectGrantRevisionFence::Exact(change.expected_revision),
+                    PrimaryDatabaseAccessUpdate::Reject,
+                    &now,
+                )?;
+                did_mutate |= mutation.did_mutate;
+                if let Some(revision) = mutation.revision {
+                    committed_revisions
+                        .insert(format!("projectGrant:{}", change.project_id), revision);
+                }
+            }
+
+            seal_mutation(
+                scope,
+                context,
+                operation_id,
+                MutationEffects {
+                    project_id: authority.project_id,
+                    operation_kind: "set_project_access",
+                    change_kind: "library.changed",
+                    did_mutate,
+                    created_target: None,
+                    affected_parent_keys: Vec::new(),
+                    affected_block_ids: Vec::new(),
+                    affected_page_ids: (authority.resource_kind == "page")
+                        .then(|| authority.id.clone())
+                        .into_iter()
+                        .collect(),
+                    affected_database_ids: (authority.resource_kind == "database")
+                        .then(|| authority.id.clone())
+                        .into_iter()
+                        .collect(),
+                    affected_view_ids: Vec::new(),
+                    affected_document_ids: Vec::new(),
+                    committed_revisions,
+                    page_create: None,
+                    page_copy: None,
+                    canvas_mutation: None,
+                    block_transfer: None,
+                    page_lifecycle: None,
+                    block_property_mutation: None,
+                    agent_page_copy: None,
+                    agent_create_pages: None,
+                    agent_move_pages: None,
+                    change_payload: None,
+                    committed_at: now.clone(),
+                },
+            )
+        },
+    )?;
+    library_commit_result(connection, result)
 }
 
 #[derive(Clone, Copy)]
@@ -2556,41 +2516,6 @@ impl PageGenesisInput<'_> {
     }
 }
 
-pub(super) fn prepare_mutation<'connection>(
-    connection: &'connection Connection,
-    context: &BoundModuleContext,
-    store_epoch: &str,
-    operation_id: &str,
-    request_hash: &str,
-    committed_at: &str,
-) -> Result<PreparedDurableMutation<'connection>, StoreError> {
-    durable_mutation::prepare(
-        connection,
-        OperationIdentity {
-            module: ModuleName::Library,
-            module_name: MODULE_NAME,
-            operation_id,
-            intent_hash: request_hash,
-            store_epoch,
-            committed_at,
-            context,
-        },
-    )
-}
-
-pub(super) fn finish_prepared_mutation(
-    connection: &Connection,
-    prepared: PreparedDurableMutation<'_>,
-    context: &BoundModuleContext,
-    operation_id: &str,
-    effects: MutationEffects,
-) -> Result<LibraryApplyOutcome, StoreError> {
-    let result = durable_mutation::run_prepared(prepared, |scope| {
-        seal_mutation(scope, context, operation_id, effects)
-    })?;
-    library_commit_result(connection, result)
-}
-
 pub(super) fn library_commit_result(
     connection: &Connection,
     result: CommitResult<crate::ModuleWriterResult<LibraryCommitValue, LibraryReceipt>>,
@@ -2672,14 +2597,7 @@ pub(super) fn seal_mutation_with(
             },
         ));
     }
-    if let Some(reason) = revocation_reason(effects.operation_kind) {
-        super::authorization_loss::record_losses(
-            scope.connection(),
-            scope.evidence(),
-            &scope.authorization_before(),
-            reason,
-        )?;
-    }
+    let authorization_before = scope.authorization_before()?;
     let (committed, event_sequence) = build_mutation_result(
         scope.connection(),
         context,
@@ -2687,6 +2605,7 @@ pub(super) fn seal_mutation_with(
         operation_id,
         effects,
         scope.evidence(),
+        &authorization_before,
     )?;
     before_seal(&committed, event_sequence)?;
     Ok(scope.seal(
@@ -2699,26 +2618,6 @@ pub(super) fn seal_mutation_with(
     ))
 }
 
-fn revocation_reason(
-    operation_kind: &str,
-) -> Option<nodex_core_contracts::ResourceRevocationReason> {
-    use nodex_core_contracts::ResourceRevocationReason;
-
-    match operation_kind {
-        "set_project_access" | "grant_project_access" | "persist_agent_project_resource_grants" => {
-            Some(ResourceRevocationReason::AccessRevoked)
-        }
-        "move_block"
-        | "move_canvas"
-        | "move_page_in_library"
-        | "transfer_blocks"
-        | "agent_move_pages" => Some(ResourceRevocationReason::OwnershipMoved),
-        "archive_page" | "archive_resource" => Some(ResourceRevocationReason::Archived),
-        "delete_canvas" | "delete_page" => Some(ResourceRevocationReason::Deleted),
-        _ => None,
-    }
-}
-
 #[allow(clippy::too_many_arguments)]
 fn build_mutation_result(
     connection: &Connection,
@@ -2727,6 +2626,7 @@ fn build_mutation_result(
     operation_id: &str,
     effects: MutationEffects,
     commit: &CommitContext,
+    authorization_before: &[crate::infrastructure::durable_mutation::AuthorizedResourceObservation],
 ) -> Result<
     (
         crate::ModuleWriterResult<LibraryCommitValue, LibraryReceipt>,
@@ -2821,8 +2721,8 @@ fn build_mutation_result(
         connection,
         commit,
         &context.library_id.0,
-        Some(&effects.project_id),
         &database_projection_impact,
+        authorization_before,
     )?;
     if matches!(projection_impact, ProjectionImpact::All) {
         local_commit::require_projection_read(
@@ -3852,10 +3752,7 @@ mod tests {
 
         assert!(first.event.is_some());
         assert!(!first.committed.receipt.mutation.duplicate);
-        assert_eq!(
-            replay.event.as_ref().map(|event| event.sequence),
-            Some(first.committed.event_sequence)
-        );
+        assert!(replay.event.is_none());
         assert!(replay.committed.receipt.mutation.duplicate);
         assert_eq!(
             first.committed.event_sequence,
@@ -3983,10 +3880,7 @@ mod tests {
             )
             .expect("retry Database");
         assert!(database.event.is_some());
-        assert_eq!(
-            database_replay.event.as_ref().map(|event| event.sequence),
-            Some(database_replay.committed.event_sequence),
-        );
+        assert!(database_replay.event.is_none());
         assert!(database_replay.committed.receipt.mutation.duplicate);
 
         let views = module
@@ -4997,7 +4891,7 @@ mod tests {
                 })
             })
             .expect("seed reader Project");
-        module
+        let granted = module
             .apply(
                 &library_context(),
                 ModuleApplyRequest {
@@ -5043,6 +4937,43 @@ mod tests {
                 local_commit::read_manifest(connection, revoked.committed.receipt.commit_seq)
             })
             .expect("read revocation Manifest");
+        kernel
+            .readers()
+            .read_default(|connection| {
+                let grant_delta_count: i64 = connection.query_row(
+                    "SELECT count(*) FROM local_commit_visibility_deltas
+                     WHERE commit_seq = ?1 AND delta_kind = 'grant'
+                       AND authorization_scope_json LIKE '%project-2%'
+                       AND roots_json LIKE '%page:created%'",
+                    [granted.committed.receipt.commit_seq],
+                    |row| row.get(0),
+                )?;
+                let revoke_delta_count: i64 = connection.query_row(
+                    "SELECT count(*) FROM local_commit_visibility_deltas
+                     WHERE commit_seq = ?1 AND delta_kind = 'revoke'
+                       AND authorization_scope_json LIKE '%project-2%'
+                       AND roots_json LIKE '%page:created%'",
+                    [revoked.committed.receipt.commit_seq],
+                    |row| row.get(0),
+                )?;
+                let dirty_fact_counts: (i64, i64) = connection.query_row(
+                    "SELECT
+                       (SELECT count(*) FROM local_commit_visibility_dirty_facts
+                        WHERE commit_seq = ?1 AND consumed = 1),
+                       (SELECT count(*) FROM local_commit_visibility_dirty_facts
+                        WHERE commit_seq = ?2 AND consumed = 1)",
+                    params![
+                        granted.committed.receipt.commit_seq,
+                        revoked.committed.receipt.commit_seq,
+                    ],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )?;
+                assert!(grant_delta_count >= 1);
+                assert!(revoke_delta_count >= 1);
+                assert_eq!(dirty_fact_counts, (1, 1));
+                Ok(())
+            })
+            .expect("read exact grant/revoke visibility deltas");
 
         assert!(manifest.revocations.iter().any(|revocation| {
             revocation.resource_kind == RevokedResourceKind::Page
@@ -5851,10 +5782,7 @@ mod tests {
             .apply(&retry_context, request("## Work\n\nNative placement."))
             .expect("exact Data Source Page replay");
         assert!(replay.committed.receipt.mutation.duplicate);
-        assert_eq!(
-            replay.event.as_ref().map(|event| event.sequence),
-            Some(replay.committed.event_sequence)
-        );
+        assert!(replay.event.is_none());
         assert_eq!(replay.committed.value.page_create, Some(created));
         let collision = module
             .apply(&context(), request("Changed body"))

@@ -8,12 +8,14 @@ import type {
   CoreEventReplayRequired,
   CoreEventSubscription,
   CoreDocumentEventSubscription,
+  CoreProjectionEventSubscription,
   CoreStreamCheckpoint,
   DatabaseApplyInput,
   DatabaseApplyResult,
   DatabaseRead,
   DatabaseReadSnapshot,
   DocumentLiveRepair,
+  ProjectionLiveRepair,
   LibraryApplyInput,
   LibraryApplyResult,
   LibraryRead,
@@ -48,7 +50,7 @@ import type {
   CanvasSceneSyncRequest,
   CanvasSceneSyncResponse,
 } from "../../../shared/block-documents/canvas-scene-sync";
-import type { ProjectionImpact } from "../../../shared/projection-stream";
+import type { ProjectionImpact, ProjectionScope } from "../../../shared/projection-stream";
 
 type ApplyOutcome<Result> = Result extends { readonly outcome: infer Outcome }
   ? Outcome
@@ -502,6 +504,44 @@ export class FakeCoreClient implements CoreClientPort {
         this.#eventConsumers.delete(onEvent);
         finish?.();
       },
+    };
+  }
+
+  async openProjectionEventStream(
+    scopes: readonly ProjectionScope[],
+    _onEvent: (event: CoreEventEnvelope) => void,
+    _onRepair: (repair: ProjectionLiveRepair) => void,
+    _signal?: AbortSignal,
+  ): Promise<CoreProjectionEventSubscription> {
+    void _onEvent;
+    void _onRepair;
+    void _signal;
+    let finish: (() => void) | undefined;
+    const done = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    return {
+      barrier: {
+        store_epoch: "epoch:test",
+        core_generation: "fake-core-start",
+        commit_head: 0,
+        recipient_leases: scopes.map((scope, index) => {
+          const address = scope.kind === "library"
+            ? { kind: "library" as const, library_id: scope.libraryId }
+            : {
+                kind: "project" as const,
+                library_id: scope.libraryId,
+                project_id: scope.projectId,
+              };
+          return {
+            lease_id: String(index + 1).padStart(64, "a").slice(-64),
+            delivery_address: address,
+            authorization_scope: address,
+          };
+        }),
+      },
+      done,
+      close: () => finish?.(),
     };
   }
 

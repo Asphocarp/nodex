@@ -26,7 +26,6 @@ export type DatabasePropertyValueType =
   | "multi_select"
   | "date"
   | "datetime"
-  | "person"
   | "relation";
 export type DatabaseViewKind = "kanban" | "list" | "calendar";
 
@@ -655,7 +654,6 @@ export const normalizeDatabasePropertyValue = (
   if (value === null) return null;
   switch (definition.valueType) {
     case "text":
-    case "person":
       if (typeof value === "string") return value;
       return invalid(`${definition.valueType} requires a string or null value`);
     case "relation":
@@ -1084,8 +1082,7 @@ const parseOperation = (value: unknown): DatabaseMutationOperation => {
       operation.valueType !== "select" &&
       operation.valueType !== "multi_select" &&
       operation.valueType !== "date" &&
-      operation.valueType !== "datetime" &&
-      operation.valueType !== "person"
+      operation.valueType !== "datetime"
     ) {
       throw new DatabaseMutationContractError(
         `${label}.valueType is unsupported`,

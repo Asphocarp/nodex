@@ -31,6 +31,10 @@ const committed = (
   bound: PublicAdditionalDocumentCommandRequest,
 ): AdditionalDocumentCommandResult => ({
   ok: true,
+  localCommit: {
+    status: "no_op",
+    observed: { store_epoch: bound.storeEpoch, commit_head: 7 },
+  },
   value: {
     version: 1,
     operationId: bound.operationId,

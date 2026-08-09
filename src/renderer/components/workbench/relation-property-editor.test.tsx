@@ -18,6 +18,7 @@ const relationValue = {
     targets: [
       {
         kind: "visible",
+        edge_id: "a".repeat(64),
         page_id: "page-visible",
         title: "Visible task",
         lifecycle: "active",
@@ -37,6 +38,7 @@ describe("RelationPropertyEditor", () => {
       targets: [
         {
           kind: "visible",
+          edgeId: "a".repeat(64),
           pageId: "page-visible",
           title: "Visible task",
           lifecycle: "active",
@@ -81,13 +83,61 @@ describe("RelationPropertyEditor", () => {
 
     expect(onPatch).toHaveBeenNthCalledWith(1, {
       addPageIds: [],
-      removePageIds: ["page-visible"],
+      removeEdgeIds: ["a".repeat(64)],
     });
     expect(onPatch).toHaveBeenNthCalledWith(2, {
       addPageIds: ["page-candidate"],
-      removePageIds: [],
+      removeEdgeIds: [],
     });
     expect(view.getByText("1 restricted")).toBeTruthy();
+  });
+
+  test("removes a restricted target by its source-owned edge handle", async () => {
+    const onPatch = vi.fn();
+    const hiddenEdgeId = "b".repeat(64);
+    const onLoadMore = vi.fn(async () => ({
+      valueRevision: 4,
+      totalCount: 2,
+      targets: [{
+        kind: "restricted" as const,
+        edgeId: hiddenEdgeId,
+      }],
+      nextCursor: null,
+      projectionRevision: 8,
+    }));
+    const view = render(
+      <RelationPropertyEditor
+        label="Blocked by"
+        value={relationValue}
+        candidates={[]}
+        disabled={false}
+        targetMatchesCurrentSource
+        onPatch={onPatch}
+        onClear={vi.fn()}
+        onLoadMore={onLoadMore}
+      />,
+    );
+
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Edit Blocked by relation" }));
+      await Promise.resolve();
+    });
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Load more selected" }));
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(view.getByText("Restricted page")).toBeTruthy());
+    expect(view.queryByText("page-hidden")).toBeNull();
+
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Remove restricted page 1" }));
+      await Promise.resolve();
+    });
+
+    expect(onPatch).toHaveBeenCalledWith({
+      addPageIds: [],
+      removeEdgeIds: [hiddenEdgeId],
+    });
   });
 
   test("requires explicit confirmation before clearing restricted targets", async () => {
@@ -131,6 +181,7 @@ describe("RelationPropertyEditor", () => {
     let resolveLoad: ((value: {
       readonly targets: readonly [{
         readonly kind: "visible";
+        readonly edgeId: string;
         readonly pageId: string;
         readonly title: string;
         readonly lifecycle: string;
@@ -144,6 +195,7 @@ describe("RelationPropertyEditor", () => {
     const onLoadMore = vi.fn(() => new Promise<{
       readonly targets: readonly [{
         readonly kind: "visible";
+        readonly edgeId: string;
         readonly pageId: string;
         readonly title: string;
         readonly lifecycle: string;
@@ -195,6 +247,7 @@ describe("RelationPropertyEditor", () => {
         totalCount: 2,
         targets: [{
           kind: "visible",
+          edgeId: "b".repeat(64),
           pageId: "page-stale",
           title: "Stale target",
           lifecycle: "active",
@@ -412,6 +465,7 @@ describe("RelationPropertyEditor", () => {
           totalCount: 1,
           targets: [{
             kind: "visible",
+            edgeId: "b".repeat(64),
             pageId: "page-newer",
             title: "Newer target",
             lifecycle: "active",
@@ -444,6 +498,7 @@ describe("RelationPropertyEditor", () => {
         totalCount: 2,
         targets: [{
           kind: "visible" as const,
+          edgeId: `${request}`.padStart(64, "0"),
           pageId: request === 1 ? "page-first" : "page-refreshed",
           title: request === 1 ? "First page" : "Refreshed page",
           lifecycle: "active",
@@ -538,6 +593,7 @@ describe("RelationPropertyEditor", () => {
         totalCount: 1,
         targets: [{
           kind: "visible" as const,
+          edgeId: `${request}`.padStart(64, "0"),
           pageId: `page-${request}`,
           title,
           lifecycle: "active",
@@ -635,7 +691,7 @@ describe("RelationPropertyEditor", () => {
     });
     expect(onPatch).toHaveBeenCalledWith({
       addPageIds: ["second"],
-      removePageIds: [],
+      removeEdgeIds: [],
     });
   });
 });

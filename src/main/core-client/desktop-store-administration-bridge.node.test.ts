@@ -141,6 +141,7 @@ describe("Desktop Store Administration bridge", () => {
       committedAt: "2026-07-19T20:00:00.000Z",
       payload: {
         module: "store_administration",
+        library_id: "library-1",
         event: {
           kind: "store_administration_changed",
           operation: "create_backup",
@@ -150,7 +151,7 @@ describe("Desktop Store Administration bridge", () => {
       },
       canonicalHash: "0".repeat(64),
     });
-    expect(mapCoreStoreAdministrationEvent(packet.effects[0]!)).toEqual({
+    expect(mapCoreStoreAdministrationEvent(packet.atoms[0]!)).toEqual({
       backupIds: ["core-backup"],
       readinessChanged: false,
     });

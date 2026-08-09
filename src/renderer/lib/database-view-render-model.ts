@@ -12,6 +12,7 @@ import type {
 } from "../../shared/database-module-v2";
 import { DATABASE_MODULE_V2_CONTRACT_VERSION } from "../../shared/database-module-v2";
 import type { DatabaseViewWindowSnapshot } from "../../shared/database-views";
+import type { AuthorizedReadStamp } from "../../shared/authorized-read-stamp";
 import type {
   DatabaseJsonValue,
   DatabasePropertyValueType,
@@ -44,6 +45,7 @@ export interface DatabaseViewRenderModel {
   readonly viewName: string;
   readonly storeEpoch: string;
   readonly commitSeq: number;
+  readonly authorization: AuthorizedReadStamp | null;
   readonly columns: readonly DatabaseViewRenderColumn[];
   readonly query: DatabaseViewQueryResultV2;
   /** Whether the compatibility Board presentation can faithfully render it. */
@@ -344,6 +346,7 @@ export const buildDatabaseViewRenderModel = (
     viewName: query.view.name,
     storeEpoch: snapshot.storeEpoch,
     commitSeq: snapshot.commitSeq,
+    authorization: snapshot.authorization,
     columns: buildColumns(query, statusGrouped),
     query,
     primaryWriteCompatible,
@@ -362,5 +365,6 @@ export const buildDatabaseViewWindowRenderModel = (
     libraryId: window.libraryId,
     storeEpoch: window.storeEpoch,
     commitSeq: window.commitSeq,
+    authorization: window.authorization,
     value: { kind: "query", value: window.query },
   });

@@ -1,12 +1,15 @@
-export type RelationTargetPreview =
-  | {
-      readonly kind: "visible";
-      readonly pageId: string;
-      readonly title: string;
-      readonly lifecycle: string;
-      readonly membershipState: string;
-    }
-  | { readonly kind: "restricted" };
+export interface RelationTargetPreview {
+  readonly kind: "visible";
+  readonly edgeId: string;
+  readonly pageId: string;
+  readonly title: string;
+  readonly lifecycle: string;
+  readonly membershipState: string;
+}
+
+export type RelationTargetWindowItem =
+  | RelationTargetPreview
+  | { readonly kind: "restricted"; readonly edgeId: string };
 
 export interface RelationValuePreview {
   readonly valueRevision: number;
@@ -19,7 +22,7 @@ export interface RelationValuePreview {
 export interface RelationTargetWindow {
   readonly valueRevision: number;
   readonly totalCount: number;
-  readonly targets: readonly RelationTargetPreview[];
+  readonly targets: readonly RelationTargetWindowItem[];
   readonly nextCursor: string | null;
   readonly projectionRevision: number;
 }
@@ -38,11 +41,15 @@ const record = (value: unknown): Readonly<Record<string, unknown>> | null =>
 const nonnegativeSafeInteger = (value: unknown): value is number =>
   typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 
+const opaqueEdgeId = (value: unknown): value is string =>
+  typeof value === "string" && /^[0-9a-f]{64}$/.test(value);
+
 const readTarget = (input: unknown): RelationTargetPreview | null => {
   const target = record(input);
   if (!target) return null;
   if (
     target.kind !== "visible"
+    || !opaqueEdgeId(target.edge_id)
     || typeof target.page_id !== "string"
     || target.page_id.length === 0
     || typeof target.title !== "string"
@@ -51,6 +58,7 @@ const readTarget = (input: unknown): RelationTargetPreview | null => {
   ) return null;
   return {
     kind: "visible",
+    edgeId: target.edge_id,
     pageId: target.page_id,
     title: target.title,
     lifecycle: target.lifecycle,

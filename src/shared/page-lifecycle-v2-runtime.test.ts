@@ -330,7 +330,14 @@ describe("Page lifecycle v2 runtime", () => {
         mutate: async (_projectId, request) => {
           requests.push(request);
           if (requests.length === 1) throw new Error("response lost");
-          return { ok: true, value: receipt() };
+          return {
+            ok: true,
+            value: receipt(),
+            localCommit: {
+              status: "no_op",
+              observed: { store_epoch: request.storeEpoch, commit_head: 3 },
+            },
+          };
         },
         readBoardProjection: async () => canonicalPage(),
       },

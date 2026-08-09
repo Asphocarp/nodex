@@ -8,9 +8,8 @@ const visibleAndRestrictedValue = {
     value_revision: 4,
     total_count: 5,
     targets: [
-      { kind: "visible", page_id: "page:a", title: "Define migration", lifecycle: "active", membership_state: "active_in_target_source" },
-      { kind: "visible", page_id: "page:b", title: "Verify retention", lifecycle: "archived", membership_state: "archived" },
-      { kind: "restricted" },
+      { kind: "visible", edge_id: "a".repeat(64), page_id: "page:a", title: "Define migration", lifecycle: "active", membership_state: "active_in_target_source" },
+      { kind: "visible", edge_id: "b".repeat(64), page_id: "page:b", title: "Verify retention", lifecycle: "archived", membership_state: "archived" },
     ],
     restricted_count: 1,
     has_more: true,
@@ -53,6 +52,7 @@ export const OutOfSource: Story = {
         total_count: 1,
         targets: [{
           kind: "visible",
+          edge_id: "c".repeat(64),
           page_id: "page:moved",
           title: "Moved dependency",
           lifecycle: "active",

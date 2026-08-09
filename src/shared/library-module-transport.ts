@@ -10,6 +10,7 @@ import {
 } from "./block-property-mutations-v2";
 import { DATABASE_MODULE_V2_CONTRACT_VERSION } from "./database-module-v2";
 import { bindDatabaseApplyV2 } from "./database-module-v2-transport";
+import { parseLocalCommitApply } from "./local-commit-delivery";
 import {
   assertExistingCanvasBlockId,
   assertExistingCanvasDocumentId,
@@ -38,6 +39,7 @@ import {
   type LibraryRouteTarget,
   type LibraryWriteParent,
 } from "./library-module";
+import { parseAuthorizedReadStamp } from "./authorized-read-stamp";
 import {
   PROJECT_MARKER_COLORS,
   PROJECT_MARKER_ICONS,
@@ -1658,6 +1660,7 @@ export const parseLibraryModuleReadResult = (
     "libraryId",
     "storeEpoch",
     "commitSeq",
+    "authorization",
     "value",
   ]);
   if (snapshot.version !== LIBRARY_MODULE_CONTRACT_VERSION) {
@@ -1674,6 +1677,9 @@ export const parseLibraryModuleReadResult = (
         snapshot.commitSeq,
         "libraryModuleReadResult.value.commitSeq",
       ),
+      authorization: snapshot.authorization === null
+        ? null
+        : parseAuthorizedReadStamp(snapshot.authorization),
       value: parseReadValue(snapshot.value),
     },
   };
@@ -1886,8 +1892,12 @@ export const parseLibraryModuleApplyResult = (
   if (result.ok !== true) {
     throw new TypeError("libraryModuleApplyResult.ok must be a boolean");
   }
-  exactKeys(result, "libraryModuleApplyResult", ["ok", "value"]);
-  return { ok: true, value: parseApplyReceipt(result.value) };
+  exactKeys(result, "libraryModuleApplyResult", ["ok", "value", "localCommit"]);
+  return {
+    ok: true,
+    value: parseApplyReceipt(result.value),
+    localCommit: parseLocalCommitApply(result.localCommit),
+  };
 };
 
 export const libraryModuleFailure = (

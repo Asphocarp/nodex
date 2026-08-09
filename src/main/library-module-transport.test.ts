@@ -23,6 +23,7 @@ const result = (): LibraryModuleReadResult => ({
     libraryId: "library-1",
     storeEpoch: "epoch-1",
     commitSeq: 0,
+    authorization: null,
     value: { kind: "metadata" },
   },
 });
@@ -46,6 +47,10 @@ const applyRequest = {
 } as const;
 const applyResult = (): LibraryModuleApplyResult => ({
   ok: true,
+  localCommit: {
+    status: "no_op",
+    observed: { store_epoch: "epoch-1", commit_head: 1 },
+  },
   value: {
     version: LIBRARY_MODULE_CONTRACT_VERSION,
     operationId,

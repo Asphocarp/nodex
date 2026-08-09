@@ -1,5 +1,10 @@
 import { createHash } from "node:crypto";
 
+import {
+  revocationsFromVisibilityDelta,
+} from "../../shared/local-commit-delivery";
+import type { ResourceRevocation } from "../../shared/resource-revocation-stream";
+
 import type {
   AdditionalDocumentCommandRequest,
   AdditionalDocumentCommandResult,
@@ -139,7 +144,7 @@ export interface DesktopDocumentSyncPort {
   /** Closes only sessions addressed by one Core-authored revocation. */
   publishResourceRevocation(
     packet: CoreAuthorizedDeliveryPacket,
-    revocation: CoreAuthorizedDeliveryPacket["revocations"][number],
+    revocation: ResourceRevocation,
   ): void;
   getOwnedDocumentDescriptor(
     projectId: string,
@@ -302,7 +307,9 @@ const packetRevokesDocumentScope = (
   packet: CoreAuthorizedDeliveryPacket,
   documentId: string,
   scope: DesktopDocumentSyncScope,
-): boolean => packet.revocations.some((revocation) =>
+): boolean => packet.visibility_deltas
+  .flatMap(revocationsFromVisibilityDelta)
+  .some((revocation) =>
   revocation.resource_kind === "document"
   && revocation.resource_id === documentId
   && authorizationScopeMatchesDocumentScope(
@@ -374,14 +381,16 @@ type CanvasCommandResult<Value> =
   | { readonly ok: true; readonly value: Value }
   | { readonly ok: false; readonly error: CanvasSceneMutationError };
 
-const canvasSceneFailure = <Value>(
+type CanvasCommandFailure = Extract<CanvasCommandResult<never>, { readonly ok: false }>;
+
+const canvasSceneFailure = (
   code: CanvasSceneMutationError["code"],
   message: string,
   options: {
     readonly retryable?: boolean;
     readonly mutationId?: string;
   } = {},
-): CanvasCommandResult<Value> => ({
+): CanvasCommandFailure => ({
   ok: false,
   error: {
     code,
@@ -392,18 +401,18 @@ const canvasSceneFailure = <Value>(
   },
 });
 
-const canvasSceneUnauthorized = <Value>(
+const canvasSceneUnauthorized = (
   mutationId?: string,
-): CanvasCommandResult<Value> => canvasSceneFailure(
+): CanvasCommandFailure => canvasSceneFailure(
   "project_scope_mismatch",
   "An exact Canvas scene subscription is required",
   { mutationId },
 );
 
-const canvasSceneTransportUnavailable = <Value>(
+const canvasSceneTransportUnavailable = (
   error: unknown,
   mutationId?: string,
-): CanvasCommandResult<Value> => canvasSceneFailure(
+): CanvasCommandFailure => canvasSceneFailure(
   "unknown",
   error instanceof Error ? error.message : String(error),
   { retryable: true, mutationId },
@@ -1012,12 +1021,12 @@ export function createDesktopDocumentSyncBridge(
     }
   };
 
-  const withCanvasSceneRuntime = async <Value>(
+  const withCanvasSceneRuntime = async <Success extends { readonly ok: true }>(
     run: (
       runtime: DesktopDataAuthorityRuntime,
-    ) => Promise<CanvasCommandResult<Value>> | CanvasCommandResult<Value>,
+    ) => Promise<Success | CanvasCommandFailure> | Success | CanvasCommandFailure,
     mutationId?: string,
-  ): Promise<CanvasCommandResult<Value>> => {
+  ): Promise<Success | CanvasCommandFailure> => {
     try {
       return await run(await input.authority);
     } catch (error) {
@@ -1086,7 +1095,7 @@ export function createDesktopDocumentSyncBridge(
     onlyDocumentId?: string,
   ): void => {
     const identity = packet.manifest.identity;
-    const effects = packet.effects;
+    const effects = packet.atoms;
     const invalidatedDocuments = new Set(
       effects
         .filter((effect) =>
@@ -1218,7 +1227,7 @@ export function createDesktopDocumentSyncBridge(
               generation: compacted ? event.generation : subscription.generation ?? 1,
               headSeq: compacted ? event.head_seq : subscription.headSeq ?? 0,
               commitSeq: identity.commit_seq,
-              effectSequence: effect.semantic.effect_order,
+              effectSequence: effect.descriptor.atom_order,
               reason: compacted
                 ? "history-compacted"
                 : event.reason === "access_changed"
@@ -1283,12 +1292,11 @@ export function createDesktopDocumentSyncBridge(
 
   const publishResourceRevocation = (
     packet: CoreAuthorizedDeliveryPacket,
-    revocation: CoreAuthorizedDeliveryPacket["revocations"][number],
+  revocation: ResourceRevocation,
   ): void => {
     if (revocation.resource_kind !== "document") return;
     if (revocation.authorization_scope.kind !== "document") return;
     const identity = packet.manifest.identity;
-    const revocationIndex = packet.revocations.indexOf(revocation);
     for (const [key, subscription] of [...subscriptions]) {
       if (subscription.documentId !== revocation.resource_id) continue;
       if (!authorizationScopeMatchesDocumentScope(
@@ -1306,7 +1314,7 @@ export function createDesktopDocumentSyncBridge(
         generation: subscription.generation ?? 1,
         headSeq: subscription.headSeq ?? 0,
         commitSeq: identity.commit_seq,
-        effectSequence: packet.effects.length + Math.max(0, revocationIndex),
+        effectSequence: packet.atoms.length,
         reason: "access-revoked",
       }, { revokeAfter: true });
       void delivered;

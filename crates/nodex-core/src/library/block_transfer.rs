@@ -823,18 +823,6 @@ fn apply_with_authority(
             context,
         },
         |scope| {
-            if intent.mode == LibraryBlockTransferMode::Move {
-                scope.observe_authorization_before(super::authorization_loss::capture(
-                    connection,
-                    library_id,
-                    super::authorization_loss::existing_typed_roots(
-                        connection,
-                        library_id,
-                        &intent.root_block_ids,
-                    )?,
-                    None,
-                )?);
-            }
             let moves_between_documents = intent.mode == LibraryBlockTransferMode::Move
                 && prepared.source_authority.head.id != prepared.target_authority.head.id;
             if moves_between_documents {
@@ -1930,18 +1918,6 @@ fn apply_page_ownership_transfer(
 ) -> Result<LibraryApplyOutcome, StoreError> {
     let now = sqlite_now(connection)?;
     let apply = |scope: &DurableMutationScope<'_>| {
-        if intent.mode == LibraryBlockTransferMode::Move {
-            scope.observe_authorization_before(super::authorization_loss::capture(
-                connection,
-                library_id,
-                super::authorization_loss::existing_typed_roots(
-                    connection,
-                    library_id,
-                    &intent.root_block_ids,
-                )?,
-                None,
-            )?);
-        }
         if intent.mode == LibraryBlockTransferMode::Copy {
             return apply_page_ownership_copy(
                 scope,
@@ -2884,18 +2860,6 @@ fn apply_page_parent_transfer(
             context,
         },
         |scope| {
-            if intent.mode == LibraryBlockTransferMode::Move {
-                scope.observe_authorization_before(super::authorization_loss::capture(
-                    connection,
-                    library_id,
-                    super::authorization_loss::existing_typed_roots(
-                        connection,
-                        library_id,
-                        &intent.root_block_ids,
-                    )?,
-                    None,
-                )?);
-            }
             let persistence_started_at = Instant::now();
             if intent.mode == LibraryBlockTransferMode::Move
                 && prepared.source_authority.head.project_id != prepared.target_project_id

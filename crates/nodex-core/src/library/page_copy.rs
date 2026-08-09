@@ -10,7 +10,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::database::{
     PageCopyDataSourceDestination, PageCopyPositionAnchor, PageCopyValueDraft,
-    PageCopyViewPlacement, place_copied_page_in_data_source,
+    PageCopyViewPlacement, copy_relation_edges, place_copied_page_in_data_source,
     place_copied_page_in_data_source_prevalidated, resolve_page_copy_data_source_project,
     resolve_page_copy_data_source_project_prevalidated,
 };
@@ -795,17 +795,7 @@ pub(crate) fn clone_page_for_occurrence(
             ],
         )?;
     }
-    connection.execute(
-        "INSERT INTO data_source_relation_edges(\
-           source_data_source_id, source_membership_id, property_id, \
-           target_page_block_id, created_at\
-         ) \
-         SELECT edge.source_data_source_id, ?1, edge.property_id, \
-           edge.target_page_block_id, ?2 \
-         FROM data_source_relation_edges edge \
-         WHERE edge.source_data_source_id = ?3 AND edge.source_membership_id = ?4",
-        params![membership_id, input.now, source.8, source.7],
-    )?;
+    copy_relation_edges(connection, &source.8, &source.7, &membership_id, input.now)?;
     if required_schedule.len() != 2 {
         return Err(corrupt(
             "Occurrence source Page is missing required schedule properties",
@@ -3559,10 +3549,7 @@ mod tests {
         let copied_root_document_id = result.document_id.clone();
         let copied_child_document_id = result.document_ids["document:child"].clone();
         assert!(library_copy.event.is_some());
-        assert_eq!(
-            library_replay.event.as_ref().map(|event| event.sequence),
-            Some(library_copy.committed.event_sequence)
-        );
+        assert!(library_replay.event.is_none());
         assert!(library_replay.committed.receipt.mutation.duplicate);
         assert_eq!(result.block_ids.len(), 4);
         assert_eq!(result.document_ids.len(), 2);
@@ -3594,10 +3581,7 @@ mod tests {
             2
         );
         assert!(page_copy.event.is_some());
-        assert_eq!(
-            page_replay.event.as_ref().map(|event| event.sequence),
-            Some(page_copy.committed.event_sequence)
-        );
+        assert!(page_replay.event.is_none());
         assert!(page_replay.committed.receipt.mutation.duplicate);
 
         let stale = module
@@ -3778,10 +3762,7 @@ mod tests {
             .as_ref()
             .expect("copy result");
         assert!(copied.event.is_some());
-        assert_eq!(
-            replay.event.as_ref().map(|event| event.sequence),
-            Some(copied.committed.event_sequence)
-        );
+        assert!(replay.event.is_none());
         assert!(replay.committed.receipt.mutation.duplicate);
         assert_eq!(
             copied.committed.receipt.affected_database_ids,
@@ -3852,10 +3833,11 @@ mod tests {
                 )?;
                 connection.execute(
                     "INSERT INTO data_source_relation_edges(\
-                       source_data_source_id, source_membership_id, property_id, \
+                       edge_id, source_data_source_id, source_membership_id, property_id, \
                        target_page_block_id, created_at\
-                     ) VALUES (?1, ?2, ?3, ?4, ?5)",
+                     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
                     params![
+                        "a".repeat(64),
                         data_source_id,
                         membership_id,
                         property_id,

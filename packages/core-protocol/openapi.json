@@ -515,6 +515,53 @@
   },
   "components": {
     "schemas": {
+      "AddressReset": {
+        "type": "object",
+        "required": [
+          "reset_id",
+          "store_epoch",
+          "recipient_lease_id",
+          "delivery_address",
+          "authorization_scope",
+          "required_commit_seq",
+          "reason"
+        ],
+        "properties": {
+          "authorization_scope": {
+            "$ref": "#/components/schemas/DeliveryAuthorizationScope"
+          },
+          "delivery_address": {
+            "$ref": "#/components/schemas/DeliveryAddress"
+          },
+          "reason": {
+            "$ref": "#/components/schemas/AddressResetReason"
+          },
+          "recipient_lease_id": {
+            "type": "string"
+          },
+          "required_commit_seq": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "reset_id": {
+            "type": "string"
+          },
+          "store_epoch": {
+            "$ref": "#/components/schemas/StoreEpoch"
+          }
+        }
+      },
+      "AddressResetReason": {
+        "type": "string",
+        "enum": [
+          "stream_gap",
+          "recipient_nack",
+          "ack_timeout",
+          "queue_overflow",
+          "integrity_failure",
+          "store_epoch_replacement"
+        ]
+      },
       "AgentAuthorizationTarget": {
         "oneOf": [
           {
@@ -2069,38 +2116,56 @@
         ],
         "description": "Closed result of an authorized command. A semantic mutation returns its\nimmutable commit identity; a validated no-op returns only the observed\nstore cursor and therefore cannot masquerade as a new commit."
       },
+      "AuthorizedDeliveryAtom": {
+        "type": "object",
+        "required": [
+          "descriptor",
+          "payload"
+        ],
+        "properties": {
+          "descriptor": {
+            "$ref": "#/components/schemas/DeliveryAtomDescriptor"
+          },
+          "payload": {
+            "$ref": "#/components/schemas/DeliveryAtomPayload"
+          }
+        }
+      },
       "AuthorizedDeliveryPacket": {
         "type": "object",
         "description": "Post-state-authorized transport artifact. Packets for the apply response\nand durable stream may have different coverage but always reference the\nsame immutable manifest identity.",
         "required": [
           "packet_version",
+          "delivery_address",
           "authorization_scope",
           "manifest",
-          "effects",
+          "atoms",
           "document_effects",
           "projection_effects",
-          "revocations",
-          "projection_impact",
+          "visibility_deltas",
           "coverage",
           "packet_hash"
         ],
         "properties": {
+          "atoms": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AuthorizedDeliveryAtom"
+            }
+          },
           "authorization_scope": {
             "$ref": "#/components/schemas/DeliveryAuthorizationScope"
           },
           "coverage": {
             "$ref": "#/components/schemas/DeliveryCoverage"
           },
+          "delivery_address": {
+            "$ref": "#/components/schemas/DeliveryAddress"
+          },
           "document_effects": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/AuthorizedDocumentEffect"
-            }
-          },
-          "effects": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/AuthorizedModuleEffect"
             }
           },
           "manifest": {
@@ -2120,13 +2185,10 @@
               "$ref": "#/components/schemas/ProjectionEffect"
             }
           },
-          "projection_impact": {
-            "$ref": "#/components/schemas/ProjectionImpact"
-          },
-          "revocations": {
+          "visibility_deltas": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/ResourceRevocation"
+              "$ref": "#/components/schemas/VisibilityDelta"
             }
           }
         }
@@ -2152,134 +2214,6 @@
             "$ref": "#/components/schemas/DocumentEffectRef"
           }
         }
-      },
-      "AuthorizedModuleEffect": {
-        "type": "object",
-        "required": [
-          "semantic",
-          "payload"
-        ],
-        "properties": {
-          "payload": {
-            "$ref": "#/components/schemas/AuthorizedModulePayload"
-          },
-          "semantic": {
-            "$ref": "#/components/schemas/SemanticEffect"
-          }
-        }
-      },
-      "AuthorizedModulePayload": {
-        "oneOf": [
-          {
-            "type": "object",
-            "required": [
-              "event",
-              "module"
-            ],
-            "properties": {
-              "event": {
-                "$ref": "#/components/schemas/LibraryEvent"
-              },
-              "module": {
-                "type": "string",
-                "enum": [
-                  "library"
-                ]
-              }
-            }
-          },
-          {
-            "type": "object",
-            "required": [
-              "event",
-              "module"
-            ],
-            "properties": {
-              "event": {
-                "$ref": "#/components/schemas/DatabaseEvent"
-              },
-              "module": {
-                "type": "string",
-                "enum": [
-                  "database"
-                ]
-              }
-            }
-          },
-          {
-            "type": "object",
-            "required": [
-              "event",
-              "module"
-            ],
-            "properties": {
-              "event": {
-                "$ref": "#/components/schemas/AuthorizedOwnedDocumentEvent"
-              },
-              "module": {
-                "type": "string",
-                "enum": [
-                  "owned_document"
-                ]
-              }
-            }
-          },
-          {
-            "type": "object",
-            "required": [
-              "event",
-              "module"
-            ],
-            "properties": {
-              "event": {
-                "$ref": "#/components/schemas/ProjectWorkspaceEvent"
-              },
-              "module": {
-                "type": "string",
-                "enum": [
-                  "project_workspace"
-                ]
-              }
-            }
-          },
-          {
-            "type": "object",
-            "required": [
-              "event",
-              "module"
-            ],
-            "properties": {
-              "event": {
-                "$ref": "#/components/schemas/AutomationEvent"
-              },
-              "module": {
-                "type": "string",
-                "enum": [
-                  "automation"
-                ]
-              }
-            }
-          },
-          {
-            "type": "object",
-            "required": [
-              "event",
-              "module"
-            ],
-            "properties": {
-              "event": {
-                "$ref": "#/components/schemas/StoreAdministrationEvent"
-              },
-              "module": {
-                "type": "string",
-                "enum": [
-                  "store_administration"
-                ]
-              }
-            }
-          }
-        ],
-        "description": "Module notification payloads that may cross the authorized delivery\nboundary. Document updates are intentionally absent: their bytes are\navailable only through `DocumentEffectRef` and its optional inline body."
       },
       "AuthorizedOwnedDocumentEvent": {
         "oneOf": [
@@ -2423,6 +2357,72 @@
             }
           }
         ]
+      },
+      "AuthorizedReadStamp": {
+        "type": "object",
+        "required": [
+          "store_epoch",
+          "delivery_address",
+          "authorization_scope",
+          "subject",
+          "request_dependencies",
+          "authorization_dependencies",
+          "covered_commit_seq",
+          "stamp_hash"
+        ],
+        "properties": {
+          "authorization_dependencies": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ResourceKey"
+            }
+          },
+          "authorization_scope": {
+            "$ref": "#/components/schemas/DeliveryAuthorizationScope"
+          },
+          "covered_commit_seq": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "delivery_address": {
+            "$ref": "#/components/schemas/DeliveryAddress"
+          },
+          "request_dependencies": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ResourceKey"
+            }
+          },
+          "stamp_hash": {
+            "type": "string"
+          },
+          "store_epoch": {
+            "$ref": "#/components/schemas/StoreEpoch"
+          },
+          "subject": {
+            "$ref": "#/components/schemas/ResourceKey"
+          }
+        }
+      },
+      "AuthorizedRecipientLease": {
+        "type": "object",
+        "description": "Core-issued identity for one active broker recipient. Main may route with\nthis lease but cannot construct or broaden its authorization scope.",
+        "required": [
+          "lease_id",
+          "delivery_address",
+          "authorization_scope"
+        ],
+        "properties": {
+          "authorization_scope": {
+            "$ref": "#/components/schemas/DeliveryAuthorizationScope"
+          },
+          "delivery_address": {
+            "$ref": "#/components/schemas/DeliveryAddress"
+          },
+          "lease_id": {
+            "type": "string"
+          }
+        }
       },
       "AutomationApplyRequest": {
         "$ref": "#/components/schemas/ModuleApplyRequest_AutomationIntent"
@@ -3685,6 +3685,7 @@
                 {
                   "type": "object",
                   "required": [
+                    "edge_id",
                     "page_id",
                     "title",
                     "lifecycle",
@@ -3692,6 +3693,9 @@
                     "kind"
                   ],
                   "properties": {
+                    "edge_id": {
+                      "type": "string"
+                    },
                     "kind": {
                       "type": "string",
                       "enum": [
@@ -3715,9 +3719,13 @@
                 {
                   "type": "object",
                   "required": [
+                    "edge_id",
                     "kind"
                   ],
                   "properties": {
+                    "edge_id": {
+                      "type": "string"
+                    },
                     "kind": {
                       "type": "string",
                       "enum": [
@@ -4848,6 +4856,12 @@
           }
         },
         "additionalProperties": false
+      },
+      "ConservativeResetReason": {
+        "type": "string",
+        "enum": [
+          "authorization_closure_exceeded"
+        ]
       },
       "CoreArtifactIdentity": {
         "type": "object",
@@ -6275,20 +6289,6 @@
           {
             "type": "object",
             "required": [
-              "kind"
-            ],
-            "properties": {
-              "kind": {
-                "type": "string",
-                "enum": [
-                  "person"
-                ]
-              }
-            }
-          },
-          {
-            "type": "object",
-            "required": [
               "target_data_source_id",
               "kind"
             ],
@@ -6340,7 +6340,7 @@
             "type": "object",
             "required": [
               "add_page_ids",
-              "remove_page_ids",
+              "remove_edge_ids",
               "kind"
             ],
             "properties": {
@@ -6356,7 +6356,7 @@
                   "relation"
                 ]
               },
-              "remove_page_ids": {
+              "remove_edge_ids": {
                 "type": "array",
                 "items": {
                   "type": "string"
@@ -6412,6 +6412,25 @@
                 "type": "string",
                 "enum": [
                   "patch_set"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "expected_value_revision",
+              "kind"
+            ],
+            "properties": {
+              "expected_value_revision": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "clear_relation"
                 ]
               }
             }
@@ -6561,45 +6580,6 @@
               },
               "value": {
                 "type": "string"
-              }
-            }
-          },
-          {
-            "type": "object",
-            "required": [
-              "person_id",
-              "kind"
-            ],
-            "properties": {
-              "kind": {
-                "type": "string",
-                "enum": [
-                  "person"
-                ]
-              },
-              "person_id": {
-                "type": "string"
-              }
-            }
-          },
-          {
-            "type": "object",
-            "required": [
-              "page_ids",
-              "kind"
-            ],
-            "properties": {
-              "kind": {
-                "type": "string",
-                "enum": [
-                  "relation"
-                ]
-              },
-              "page_ids": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                }
               }
             }
           }
@@ -7198,6 +7178,269 @@
           "reusable_template"
         ]
       },
+      "DeliveryAddress": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "library_id",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "library"
+                ]
+              },
+              "library_id": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "library_id",
+              "project_id",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "project"
+                ]
+              },
+              "library_id": {
+                "type": "string"
+              },
+              "project_id": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "library_id",
+              "document_id",
+              "kind"
+            ],
+            "properties": {
+              "document_id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "document"
+                ]
+              },
+              "library_id": {
+                "type": "string"
+              },
+              "project_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "Logical destination selected by the authenticated Host broker. Routing is\ndistinct from authorization even when both identities are equal today."
+      },
+      "DeliveryAtomDescriptor": {
+        "type": "object",
+        "description": "Immutable resource-atomic semantic index entry. `atom_order` is unique\nwithin one commit; `atom_id` authenticates its kind, exact requirements,\npayload digest, and commit coordinate.",
+        "required": [
+          "atom_id",
+          "atom_order",
+          "kind",
+          "required_resources",
+          "payload_hash"
+        ],
+        "properties": {
+          "atom_id": {
+            "type": "string"
+          },
+          "atom_order": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/DeliveryAtomKind"
+          },
+          "payload_hash": {
+            "type": "string"
+          },
+          "required_resources": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ResourceKey"
+            }
+          }
+        }
+      },
+      "DeliveryAtomKind": {
+        "type": "string",
+        "enum": [
+          "library_navigation_changed",
+          "database_changed",
+          "owned_document_changed",
+          "project_workspace_changed",
+          "automation_changed",
+          "store_administration_changed"
+        ]
+      },
+      "DeliveryAtomPayload": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "library_id",
+              "event",
+              "module"
+            ],
+            "properties": {
+              "event": {
+                "$ref": "#/components/schemas/LibraryEvent"
+              },
+              "library_id": {
+                "type": "string"
+              },
+              "module": {
+                "type": "string",
+                "enum": [
+                  "library"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "library_id",
+              "event",
+              "module"
+            ],
+            "properties": {
+              "event": {
+                "$ref": "#/components/schemas/DatabaseEvent"
+              },
+              "library_id": {
+                "type": "string"
+              },
+              "module": {
+                "type": "string",
+                "enum": [
+                  "database"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "library_id",
+              "event",
+              "module"
+            ],
+            "properties": {
+              "canvas_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "event": {
+                "$ref": "#/components/schemas/AuthorizedOwnedDocumentEvent"
+              },
+              "library_id": {
+                "type": "string"
+              },
+              "module": {
+                "type": "string",
+                "enum": [
+                  "owned_document"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "library_id",
+              "event",
+              "module"
+            ],
+            "properties": {
+              "event": {
+                "$ref": "#/components/schemas/ProjectWorkspaceEvent"
+              },
+              "library_id": {
+                "type": "string"
+              },
+              "module": {
+                "type": "string",
+                "enum": [
+                  "project_workspace"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "library_id",
+              "project_id",
+              "event",
+              "module"
+            ],
+            "properties": {
+              "event": {
+                "$ref": "#/components/schemas/AutomationEvent"
+              },
+              "library_id": {
+                "type": "string"
+              },
+              "module": {
+                "type": "string",
+                "enum": [
+                  "automation"
+                ]
+              },
+              "project_id": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "library_id",
+              "event",
+              "module"
+            ],
+            "properties": {
+              "event": {
+                "$ref": "#/components/schemas/StoreAdministrationEvent"
+              },
+              "library_id": {
+                "type": "string"
+              },
+              "module": {
+                "type": "string",
+                "enum": [
+                  "store_administration"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "Closed notification payloads that may cross the authorized delivery\nboundary. Every value is the payload of one resource-atomic DeliveryAtom;\naggregate physical events are split before the manifest is sealed.\nDocument updates are intentionally absent: their bytes are available only\nthrough `DocumentEffectRef` and its optional inline body."
+      },
       "DeliveryAuthorizationScope": {
         "oneOf": [
           {
@@ -7274,12 +7517,18 @@
       "DeliveryCoverage": {
         "type": "object",
         "required": [
-          "semantic_effect_orders",
+          "atom_ids",
           "document_effect_orders",
           "inline_document_effect_orders",
           "projection_scope_keys"
         ],
         "properties": {
+          "atom_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
           "document_effect_orders": {
             "type": "array",
             "items": {
@@ -7298,13 +7547,6 @@
             "type": "array",
             "items": {
               "type": "string"
-            }
-          },
-          "semantic_effect_orders": {
-            "type": "array",
-            "items": {
-              "type": "integer",
-              "format": "int64"
             }
           }
         }
@@ -14646,34 +14888,6 @@
             }
           }
         ]
-      },
-      "LocalCommitResources": {
-        "type": "object",
-        "required": [
-          "block_ids",
-          "document_ids",
-          "database_ids"
-        ],
-        "properties": {
-          "block_ids": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "database_ids": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "document_ids": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          }
-        }
       },
       "LocalMutationResolveRequest": {
         "type": "object",
@@ -22058,7 +22272,6 @@
           "multi_select",
           "date",
           "datetime",
-          "person",
           "relation"
         ]
       },
@@ -22619,28 +22832,154 @@
           }
         }
       },
-      "ResourceRevocation": {
-        "type": "object",
-        "required": [
-          "authorization_scope",
-          "resource_kind",
-          "resource_id",
-          "reason"
-        ],
-        "properties": {
-          "authorization_scope": {
-            "$ref": "#/components/schemas/DeliveryAuthorizationScope"
+      "ResourceKey": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "library_id",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "library"
+                ]
+              },
+              "library_id": {
+                "type": "string"
+              }
+            }
           },
-          "reason": {
-            "$ref": "#/components/schemas/ResourceRevocationReason"
+          {
+            "type": "object",
+            "required": [
+              "project_id",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "project"
+                ]
+              },
+              "project_id": {
+                "type": "string"
+              }
+            }
           },
-          "resource_id": {
-            "type": "string"
+          {
+            "type": "object",
+            "required": [
+              "page_id",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "page"
+                ]
+              },
+              "page_id": {
+                "type": "string"
+              }
+            }
           },
-          "resource_kind": {
-            "$ref": "#/components/schemas/RevokedResourceKind"
+          {
+            "type": "object",
+            "required": [
+              "document_id",
+              "kind"
+            ],
+            "properties": {
+              "document_id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "document"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "database_id",
+              "kind"
+            ],
+            "properties": {
+              "database_id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "database"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data_source_id",
+              "kind"
+            ],
+            "properties": {
+              "data_source_id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "data_source"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "view_id",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "view"
+                ]
+              },
+              "view_id": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "canvas_id",
+              "kind"
+            ],
+            "properties": {
+              "canvas_id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "canvas"
+                ]
+              }
+            }
           }
-        }
+        ],
+        "description": "Exact authorization vocabulary used by semantic delivery. Scope resources\nare explicit requirements rather than ambient packet metadata."
       },
       "ResourceRevocationReason": {
         "type": "string",
@@ -24525,6 +24864,16 @@
                   "value"
                 ],
                 "properties": {
+                  "authorization": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/AuthorizedReadStamp"
+                      }
+                    ]
+                  },
                   "commit_head": {
                     "type": "integer",
                     "format": "int64"
@@ -24767,6 +25116,16 @@
                   "value"
                 ],
                 "properties": {
+                  "authorization": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/AuthorizedReadStamp"
+                      }
+                    ]
+                  },
                   "commit_head": {
                     "type": "integer",
                     "format": "int64"
@@ -25113,6 +25472,16 @@
                   "value"
                 ],
                 "properties": {
+                  "authorization": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/AuthorizedReadStamp"
+                      }
+                    ]
+                  },
                   "commit_head": {
                     "type": "integer",
                     "format": "int64"
@@ -25817,6 +26186,16 @@
                   "value"
                 ],
                 "properties": {
+                  "authorization": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/AuthorizedReadStamp"
+                      }
+                    ]
+                  },
                   "commit_head": {
                     "type": "integer",
                     "format": "int64"
@@ -26067,6 +26446,16 @@
                   "value"
                 ],
                 "properties": {
+                  "authorization": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/AuthorizedReadStamp"
+                      }
+                    ]
+                  },
                   "commit_head": {
                     "type": "integer",
                     "format": "int64"
@@ -26421,6 +26810,16 @@
                   "value"
                 ],
                 "properties": {
+                  "authorization": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/AuthorizedReadStamp"
+                      }
+                    ]
+                  },
                   "commit_head": {
                     "type": "integer",
                     "format": "int64"
@@ -26547,17 +26946,6 @@
           }
         ]
       },
-      "RevokedResourceKind": {
-        "type": "string",
-        "enum": [
-          "page",
-          "document",
-          "database",
-          "data_source",
-          "view",
-          "canvas"
-        ]
-      },
       "RuntimeDescriptor": {
         "type": "object",
         "required": [
@@ -26656,50 +27044,6 @@
           "type_script",
           "rust"
         ]
-      },
-      "SemanticEffect": {
-        "oneOf": [
-          {
-            "type": "object",
-            "required": [
-              "effect_order",
-              "module",
-              "effect_kind",
-              "resources",
-              "payload_hash",
-              "projection_impact",
-              "kind"
-            ],
-            "properties": {
-              "effect_kind": {
-                "type": "string"
-              },
-              "effect_order": {
-                "type": "integer",
-                "format": "int64"
-              },
-              "kind": {
-                "type": "string",
-                "enum": [
-                  "module_changed"
-                ]
-              },
-              "module": {
-                "$ref": "#/components/schemas/ModuleName"
-              },
-              "payload_hash": {
-                "type": "string"
-              },
-              "projection_impact": {
-                "$ref": "#/components/schemas/ProjectionImpact"
-              },
-              "resources": {
-                "$ref": "#/components/schemas/LocalCommitResources"
-              }
-            }
-          }
-        ],
-        "description": "A closed semantic index entry. The payload itself belongs to an authorized\ndelivery packet; the manifest records only the owning Module, effect kind,\nresource index, and payload digest."
       },
       "ShutdownRequest": {
         "oneOf": [
@@ -26953,6 +27297,87 @@
           }
         },
         "additionalProperties": false
+      },
+      "VisibilityDelta": {
+        "type": "object",
+        "description": "Manifest-bound authorization change. Exact deltas carry one or more roots;\nconservative resets intentionally carry none and fence the whole address.",
+        "required": [
+          "authorization_scope",
+          "change",
+          "roots",
+          "delta_hash"
+        ],
+        "properties": {
+          "authorization_scope": {
+            "$ref": "#/components/schemas/DeliveryAuthorizationScope"
+          },
+          "change": {
+            "$ref": "#/components/schemas/VisibilityDeltaKind"
+          },
+          "delta_hash": {
+            "type": "string"
+          },
+          "roots": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ResourceKey"
+            }
+          }
+        }
+      },
+      "VisibilityDeltaKind": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "grant"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "reason",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "revoke"
+                ]
+              },
+              "reason": {
+                "$ref": "#/components/schemas/ResourceRevocationReason"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "reason",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "conservative_reset"
+                ]
+              },
+              "reason": {
+                "$ref": "#/components/schemas/ConservativeResetReason"
+              }
+            }
+          }
+        ]
       }
     }
   }

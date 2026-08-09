@@ -7,6 +7,7 @@ import {
   type CanvasSceneRealtimeEvent,
 } from "../../shared/block-documents";
 import { DocumentHttpWireError } from "../../shared/block-documents/http-wire";
+import { committedLocalCommit } from "../../shared/testing/local-commit";
 import { createCoreCanvasSceneAdapter } from "./core-canvas-scene-adapter";
 import { CoreModuleResponseError } from "./core-client";
 import { FakeCoreClient } from "./testing/fake-core-client";
@@ -129,6 +130,8 @@ const committedEvent = (): CoreEventEnvelope => ({
     committedAt: COMMITTED_AT,
     payload: {
       module: "owned_document",
+      library_id: "library-1",
+      canvas_id: "canvas:test",
       event: {
         kind: "canvas_updated",
         document_id: DOCUMENT_ID,
@@ -238,7 +241,11 @@ describe("Core Canvas scene adapter", () => {
         },
       },
       fileAdditions: {},
-    })).resolves.toEqual({ ok: true, value: mutationResult });
+    })).resolves.toEqual({
+      ok: true,
+      value: mutationResult,
+      localCommit: committedLocalCommit(STORE_EPOCH, 1),
+    });
 
     client.emitDocument(DOCUMENT_ID, committedEvent());
     await expect.poll(() => events).toEqual([{
@@ -407,7 +414,11 @@ describe("Core Canvas scene adapter", () => {
     });
     await expect(
       adapter.compact(request, eligibility.value),
-    ).resolves.toEqual({ ok: true, value: compactionResult });
+    ).resolves.toEqual({
+      ok: true,
+      value: compactionResult,
+      localCommit: committedLocalCommit(STORE_EPOCH, 4),
+    });
     expect(client.documentApplies[0]?.intent).toMatchObject({
       kind: "compact_canvas_tombstones",
       generation: 1,
@@ -423,6 +434,8 @@ describe("Core Canvas scene adapter", () => {
         committedAt: COMMITTED_AT,
         payload: {
           module: "owned_document",
+          library_id: "library-1",
+          canvas_id: "canvas:test",
           event: {
             kind: "canvas_generation_changed",
             document_id: DOCUMENT_ID,

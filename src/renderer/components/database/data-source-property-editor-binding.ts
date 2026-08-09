@@ -40,7 +40,7 @@ export interface DataSourcePropertyEditorBinding {
   }[];
   readonly onPatchRelation?: (delta: {
     readonly addPageIds: readonly string[];
-    readonly removePageIds: readonly string[];
+    readonly removeEdgeIds: readonly string[];
   }) => void;
   readonly onLoadRelationTargets?: (after: string | null) => Promise<RelationTargetWindow>;
   readonly onSearchRelationCandidates?: (

@@ -6,8 +6,6 @@
 //! abandonment. Callers cannot successfully return a partially finalized
 //! semantic commit.
 
-use std::cell::RefCell;
-use std::collections::BTreeSet;
 use std::marker::PhantomData;
 
 use nodex_core_contracts::events::{
@@ -23,6 +21,7 @@ use super::module_receipts::{
     NewModuleReceipt, StoredModuleReceipt, insert_module_receipt, read_module_receipt,
 };
 use super::sqlite::{StoreError, StoreErrorCode};
+use super::visibility_delta_journal::VisibilityDeltaJournal;
 
 #[derive(Clone, Copy)]
 pub(crate) struct OperationIdentity<'a> {
@@ -33,6 +32,27 @@ pub(crate) struct OperationIdentity<'a> {
     pub store_epoch: &'a str,
     pub committed_at: &'a str,
     pub context: &'a BoundModuleContext,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct ReplayIdentity<'a> {
+    pub module: ModuleName,
+    pub module_name: &'a str,
+    pub operation_id: &'a str,
+    pub intent_hash: &'a str,
+    pub store_epoch: &'a str,
+}
+
+impl OperationIdentity<'_> {
+    fn replay_identity(&self) -> ReplayIdentity<'_> {
+        ReplayIdentity {
+            module: self.module,
+            module_name: self.module_name,
+            operation_id: self.operation_id,
+            intent_hash: self.intent_hash,
+            store_epoch: self.store_epoch,
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -49,52 +69,18 @@ pub(crate) struct DurableMutationScope<'connection> {
     connection: &'connection Connection,
     context: CommitContext,
     module: ModuleName,
-    authorization_before: RefCell<BTreeSet<AuthorizedResourceObservation>>,
+    visibility_journal: VisibilityDeltaJournal,
 }
 
 /// A resource that was visible through one exact authorization scope before a
-/// mutation began. Domain writers record these observations before changing
-/// ownership or grants; their sealer compares them with canonical post-state
-/// authorization and persists only real losses into the LocalCommit.
+/// mutation began. The transaction-owned visibility journal derives these
+/// observations mechanically from raw authority-table facts; domain writers
+/// consume them only when compiling projection audience evidence.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(crate) struct AuthorizedResourceObservation {
     pub authorization_scope: DeliveryAuthorizationScope,
     pub resource_kind: RevokedResourceKind,
     pub resource_id: String,
-}
-
-/// Type-state token for complex/prepared writers whose control flow cannot be
-/// expressed as one small closure. It is still allocated and consumed only by
-/// this module; dropping it without returning an error leaves an open ledger
-/// parent that makes the enclosing transaction fail its domain checks/tests.
-pub(crate) struct PreparedDurableMutation<'connection> {
-    scope: DurableMutationScope<'connection>,
-    module_name: String,
-    operation_id: String,
-    intent_hash: String,
-    store_epoch: String,
-    context: BoundModuleContext,
-}
-
-impl PreparedDurableMutation<'_> {
-    pub(crate) fn evidence(&self) -> &CommitContext {
-        self.scope.evidence()
-    }
-
-    pub(crate) fn commit_seq(&self) -> i64 {
-        self.scope.commit_seq()
-    }
-
-    pub(crate) fn committed_at(&self) -> &str {
-        self.scope.context.committed_at()
-    }
-
-    pub(crate) fn observe_authorization_before(
-        &self,
-        observations: impl IntoIterator<Item = AuthorizedResourceObservation>,
-    ) {
-        self.scope.observe_authorization_before(observations);
-    }
 }
 
 impl<'connection> DurableMutationScope<'connection> {
@@ -114,15 +100,15 @@ impl<'connection> DurableMutationScope<'connection> {
         self.context.store_epoch()
     }
 
-    pub(crate) fn observe_authorization_before(
-        &self,
-        observations: impl IntoIterator<Item = AuthorizedResourceObservation>,
-    ) {
-        self.authorization_before.borrow_mut().extend(observations);
+    pub(crate) fn committed_at(&self) -> &str {
+        self.context.committed_at()
     }
 
-    pub(crate) fn authorization_before(&self) -> Vec<AuthorizedResourceObservation> {
-        self.authorization_before.borrow().iter().cloned().collect()
+    pub(crate) fn authorization_before(
+        &self,
+    ) -> Result<Vec<AuthorizedResourceObservation>, StoreError> {
+        self.visibility_journal
+            .authorization_before(self.connection, &self.context)
     }
 
     pub(crate) fn seal<T>(&self, outcome: T, receipt: ReceiptMetadata<'_>) -> SealedOutcome<T> {
@@ -168,6 +154,7 @@ struct OwnedReceiptMetadata {
 
 /// Only `DurableMutationScope` can construct this value. Returning ordinary
 /// `T` from a mutation closure is therefore insufficient to commit.
+#[must_use = "a durable mutation must return its sealed outcome"]
 pub(crate) struct SealedOutcome<T> {
     outcome: T,
     receipt: OwnedReceiptMetadata,
@@ -183,6 +170,7 @@ impl<T> SealedOutcome<T> {
 }
 
 #[derive(Debug)]
+#[must_use = "a durable mutation result must be admitted or returned"]
 pub(crate) enum CommitResult<T> {
     Committed {
         outcome: T,
@@ -208,9 +196,7 @@ impl<T> CommitResult<T> {
             Self::NoOp { .. } => return Ok(()),
         };
         let Some(manifest) = manifest else {
-            return Err(corrupt(
-                "Committed durable mutation receipt has no manifest",
-            ));
+            return Ok(());
         };
         let (commit_seq, store_epoch) = identity(outcome);
         if manifest.identity.commit_seq == commit_seq
@@ -232,25 +218,29 @@ pub(crate) fn run<T>(
 where
     T: DeserializeOwned + Serialize,
 {
-    validate_module_identity(identity)?;
-    if let Some(stored) =
-        read_module_receipt(connection, identity.module_name, identity.operation_id)?
-    {
-        return replay(connection, identity, stored);
+    if connection.is_autocommit() {
+        return Err(internal(
+            "Durable mutation requires an active SQLite write transaction",
+        ));
+    }
+    validate_module_identity(identity.module, identity.module_name)?;
+    if let Some(replayed) = replay_existing(connection, identity.replay_identity())? {
+        return Ok(replayed);
     }
 
-    let context = local_commit::begin(
+    let context = local_commit::allocate(
         connection,
         identity.store_epoch,
         identity.operation_id,
         identity.intent_hash,
         identity.committed_at,
     )?;
+    let visibility_journal = VisibilityDeltaJournal::begin(connection, &context)?;
     let scope = DurableMutationScope {
         connection,
         context,
         module: identity.module,
-        authorization_before: RefCell::new(BTreeSet::new()),
+        visibility_journal,
     };
     let sealed = apply(&scope)?;
     if sealed.module != identity.module {
@@ -288,7 +278,10 @@ where
                     committed_at: &sealed.receipt.committed_at,
                 },
             )?;
-            let commit_seq = local_commit::finalize(connection, &scope.context)?;
+            scope
+                .visibility_journal
+                .finalize(connection, &scope.context)?;
+            let commit_seq = local_commit::seal(connection, &scope.context)?;
             let manifest = local_commit::read_manifest(connection, commit_seq)?;
             Ok(CommitResult::Committed {
                 outcome: sealed.outcome,
@@ -296,6 +289,9 @@ where
             })
         }
         Disposition::NoOp => {
+            scope
+                .visibility_journal
+                .finish_no_op(connection, &scope.context)?;
             local_commit::abandon(connection, &scope.context)?;
             insert_module_receipt(
                 connection,
@@ -319,145 +315,6 @@ where
     }
 }
 
-pub(crate) fn prepare<'connection>(
-    connection: &'connection Connection,
-    identity: OperationIdentity<'_>,
-) -> Result<PreparedDurableMutation<'connection>, StoreError> {
-    validate_module_identity(identity)?;
-    if read_module_receipt(connection, identity.module_name, identity.operation_id)?.is_some() {
-        return Err(StoreError::new(
-            StoreErrorCode::IdempotencyKeyReused,
-            "operation_id already has a durable mutation receipt",
-            false,
-        ));
-    }
-    let context = local_commit::begin(
-        connection,
-        identity.store_epoch,
-        identity.operation_id,
-        identity.intent_hash,
-        identity.committed_at,
-    )?;
-    Ok(PreparedDurableMutation {
-        scope: DurableMutationScope {
-            connection,
-            context,
-            module: identity.module,
-            authorization_before: RefCell::new(BTreeSet::new()),
-        },
-        module_name: identity.module_name.to_owned(),
-        operation_id: identity.operation_id.to_owned(),
-        intent_hash: identity.intent_hash.to_owned(),
-        store_epoch: identity.store_epoch.to_owned(),
-        context: identity.context.clone(),
-    })
-}
-
-pub(crate) fn finish_prepared<T: Serialize>(
-    prepared: PreparedDurableMutation<'_>,
-    outcome: &T,
-    receipt: ReceiptMetadata<'_>,
-) -> Result<CommitManifest, StoreError> {
-    if receipt.committed_at != prepared.committed_at() {
-        return Err(corrupt(
-            "Prepared durable mutation receipt timestamp diverges from its identity",
-        ));
-    }
-    let encoded = serde_json::to_value(outcome)
-        .map_err(|_| internal("Prepared durable mutation outcome could not be encoded"))?;
-    insert_module_receipt(
-        prepared.scope.connection,
-        NewModuleReceipt {
-            module_name: &prepared.module_name,
-            operation_id: &prepared.operation_id,
-            context: &prepared.context,
-            operation_kind: receipt.operation_kind,
-            store_epoch: &prepared.store_epoch,
-            request_hash: &prepared.intent_hash,
-            result: &encoded,
-            event_sequence: receipt.event_sequence,
-            local_commit: Some(&prepared.scope.context),
-            committed_at: receipt.committed_at,
-        },
-    )?;
-    let commit_seq = local_commit::finalize(prepared.scope.connection, &prepared.scope.context)?;
-    local_commit::read_manifest(prepared.scope.connection, commit_seq)
-}
-
-pub(crate) fn run_prepared<T>(
-    prepared: PreparedDurableMutation<'_>,
-    apply: impl FnOnce(&DurableMutationScope<'_>) -> Result<SealedOutcome<T>, StoreError>,
-) -> Result<CommitResult<T>, StoreError>
-where
-    T: Serialize,
-{
-    let sealed = apply(&prepared.scope)?;
-    if sealed.module != prepared.scope.module {
-        return Err(corrupt(
-            "Durable mutation outcome changed its owning Module",
-        ));
-    }
-    if sealed.receipt.committed_at != prepared.committed_at() {
-        return Err(corrupt(
-            "Prepared durable mutation receipt timestamp diverges from its identity",
-        ));
-    }
-    if sealed.disposition == Disposition::NoOp && sealed.receipt.event_sequence.is_some() {
-        return Err(corrupt(
-            "Durable mutation no-op references a physical event",
-        ));
-    }
-    let encoded = serde_json::to_value(&sealed.outcome)
-        .map_err(|_| internal("Prepared durable mutation outcome could not be encoded"))?;
-    match sealed.disposition {
-        Disposition::Commit => {
-            insert_module_receipt(
-                prepared.scope.connection,
-                NewModuleReceipt {
-                    module_name: &prepared.module_name,
-                    operation_id: &prepared.operation_id,
-                    context: &prepared.context,
-                    operation_kind: &sealed.receipt.operation_kind,
-                    store_epoch: &prepared.store_epoch,
-                    request_hash: &prepared.intent_hash,
-                    result: &encoded,
-                    event_sequence: sealed.receipt.event_sequence,
-                    local_commit: Some(&prepared.scope.context),
-                    committed_at: &sealed.receipt.committed_at,
-                },
-            )?;
-            let commit_seq =
-                local_commit::finalize(prepared.scope.connection, &prepared.scope.context)?;
-            let manifest = local_commit::read_manifest(prepared.scope.connection, commit_seq)?;
-            Ok(CommitResult::Committed {
-                outcome: sealed.outcome,
-                manifest,
-            })
-        }
-        Disposition::NoOp => {
-            local_commit::abandon(prepared.scope.connection, &prepared.scope.context)?;
-            insert_module_receipt(
-                prepared.scope.connection,
-                NewModuleReceipt {
-                    module_name: &prepared.module_name,
-                    operation_id: &prepared.operation_id,
-                    context: &prepared.context,
-                    operation_kind: &sealed.receipt.operation_kind,
-                    store_epoch: &prepared.store_epoch,
-                    request_hash: &prepared.intent_hash,
-                    result: &encoded,
-                    event_sequence: None,
-                    local_commit: None,
-                    committed_at: &sealed.receipt.committed_at,
-                },
-            )?;
-            Ok(CommitResult::NoOp {
-                outcome: sealed.outcome,
-            })
-        }
-    }
-}
-
 pub(crate) fn record_no_op<T: Serialize>(
     connection: &Connection,
     identity: OperationIdentity<'_>,
@@ -467,14 +324,16 @@ pub(crate) fn record_no_op<T: Serialize>(
     if receipt.event_sequence.is_some() || receipt.committed_at != identity.committed_at {
         return Err(corrupt("Durable mutation no-op receipt is inconsistent"));
     }
-    validate_module_identity(identity)?;
-    let context = local_commit::begin(
+    validate_module_identity(identity.module, identity.module_name)?;
+    let context = local_commit::allocate(
         connection,
         identity.store_epoch,
         identity.operation_id,
         identity.intent_hash,
         identity.committed_at,
     )?;
+    let visibility_journal = VisibilityDeltaJournal::begin(connection, &context)?;
+    visibility_journal.finish_no_op(connection, &context)?;
     local_commit::abandon(connection, &context)?;
     let encoded = serde_json::to_value(outcome)
         .map_err(|_| internal("Durable mutation no-op outcome could not be encoded"))?;
@@ -495,9 +354,25 @@ pub(crate) fn record_no_op<T: Serialize>(
     )
 }
 
-fn replay<T>(
+pub(crate) fn replay_existing<T>(
     connection: &Connection,
-    identity: OperationIdentity<'_>,
+    identity: ReplayIdentity<'_>,
+) -> Result<Option<CommitResult<T>>, StoreError>
+where
+    T: DeserializeOwned,
+{
+    validate_module_identity(identity.module, identity.module_name)?;
+    let Some(stored) =
+        read_module_receipt(connection, identity.module_name, identity.operation_id)?
+    else {
+        return Ok(None);
+    };
+    replay_stored(connection, identity, stored).map(Some)
+}
+
+fn replay_stored<T>(
+    connection: &Connection,
+    identity: ReplayIdentity<'_>,
     stored: StoredModuleReceipt,
 ) -> Result<CommitResult<T>, StoreError>
 where
@@ -559,8 +434,8 @@ pub(crate) fn replay_apply_response<T, R>(
     })
 }
 
-fn validate_module_identity(identity: OperationIdentity<'_>) -> Result<(), StoreError> {
-    if module_name(identity.module) != identity.module_name {
+fn validate_module_identity(module: ModuleName, stored_name: &str) -> Result<(), StoreError> {
+    if module_name(module) != stored_name {
         return Err(corrupt(
             "Durable mutation Module enum and storage identity diverge",
         ));
@@ -673,7 +548,12 @@ mod tests {
                 executions.fetch_add(1, Ordering::SeqCst);
                 let payload = json!({
                     "module": "database",
-                    "operationId": operation_id,
+                    "kind": "database_changed",
+                    "projectId": "project:durable-mutation",
+                    "databaseIds": [],
+                    "dataSourceIds": [],
+                    "pageIds": [],
+                    "viewIds": [],
                 });
                 let payload_json = serde_json::to_string(&payload)
                     .map_err(|_| internal("test payload encoding"))?;
@@ -701,6 +581,42 @@ mod tests {
                     ReceiptMetadata {
                         operation_kind: "test",
                         event_sequence: Some(event_sequence),
+                        committed_at: "2026-08-07T00:00:00Z",
+                    },
+                ))
+            },
+        )
+    }
+
+    fn apply_test_no_op(
+        connection: &Connection,
+        context: &BoundModuleContext,
+        store_epoch: &str,
+        operation_id: &str,
+        intent_hash: &str,
+        executions: &AtomicUsize,
+    ) -> Result<CommitResult<TestOutcome>, StoreError> {
+        run(
+            connection,
+            OperationIdentity {
+                module: ModuleName::Database,
+                module_name: "database",
+                operation_id,
+                intent_hash,
+                store_epoch,
+                committed_at: "2026-08-07T00:00:00Z",
+                context,
+            },
+            |scope| {
+                executions.fetch_add(1, Ordering::SeqCst);
+                Ok(scope.no_op(
+                    TestOutcome {
+                        operation_id: operation_id.to_owned(),
+                        commit_seq: local_commit::head(connection)?,
+                    },
+                    ReceiptMetadata {
+                        operation_kind: "test_no_op",
+                        event_sequence: None,
                         committed_at: "2026-08-07T00:00:00Z",
                     },
                 ))
@@ -759,6 +675,75 @@ mod tests {
                 Ok(())
             })
             .expect("durable replay");
+    }
+
+    #[test]
+    fn exact_no_op_replay_keeps_its_original_observation_after_a_later_commit() {
+        let directory = tempdir().expect("temporary Profile");
+        let kernel = SqliteStoreKernel::open_test(directory.path()).expect("Core store");
+        kernel
+            .writer()
+            .call(|connection| {
+                let store_epoch = seed(connection)?;
+                let context = context();
+                let no_op_hash = crate::document::sha256(b"no-op intent");
+                let no_op_executions = AtomicUsize::new(0);
+                let first = with_immediate_transaction(connection, |transaction| {
+                    apply_test_no_op(
+                        transaction,
+                        &context,
+                        &store_epoch,
+                        "operation:durable-no-op",
+                        &no_op_hash,
+                        &no_op_executions,
+                    )
+                })?;
+                let CommitResult::NoOp {
+                    outcome: first_outcome,
+                } = first
+                else {
+                    panic!("first mutation must be a no-op");
+                };
+
+                let committed_executions = AtomicUsize::new(0);
+                with_immediate_transaction(connection, |transaction| {
+                    apply_test_mutation(
+                        transaction,
+                        &context,
+                        &store_epoch,
+                        "operation:durable-after-no-op",
+                        &crate::document::sha256(b"later intent"),
+                        &committed_executions,
+                    )
+                    .map(|_| ())
+                })?;
+
+                let replay = with_immediate_transaction(connection, |transaction| {
+                    apply_test_no_op(
+                        transaction,
+                        &context,
+                        &store_epoch,
+                        "operation:durable-no-op",
+                        &no_op_hash,
+                        &no_op_executions,
+                    )
+                })?;
+                replay.verify_manifest_identity(|outcome| {
+                    (outcome.commit_seq, store_epoch.clone())
+                })?;
+                let CommitResult::IdempotentReplay {
+                    outcome: replay_outcome,
+                    manifest: None,
+                } = replay
+                else {
+                    panic!("no-op retry must replay without a Manifest");
+                };
+                assert_eq!(replay_outcome, first_outcome);
+                assert_eq!(no_op_executions.load(Ordering::SeqCst), 1);
+                assert_eq!(committed_executions.load(Ordering::SeqCst), 1);
+                Ok(())
+            })
+            .expect("durable no-op replay");
     }
 
     #[test]
@@ -844,5 +829,40 @@ mod tests {
                 Ok(())
             })
             .expect("durable fault closure");
+    }
+
+    #[test]
+    fn durable_mutation_rejects_autocommit_before_allocating_evidence() {
+        let directory = tempdir().expect("temporary Profile");
+        let kernel = SqliteStoreKernel::open_test(directory.path()).expect("Core store");
+        kernel
+            .writer()
+            .call(|connection| {
+                let store_epoch = seed(connection)?;
+                let error = run::<TestOutcome>(
+                    connection,
+                    OperationIdentity {
+                        module: ModuleName::Database,
+                        module_name: "database",
+                        operation_id: "operation:autocommit",
+                        intent_hash: &crate::document::sha256(b"autocommit"),
+                        store_epoch: &store_epoch,
+                        committed_at: "2026-08-07T00:00:00Z",
+                        context: &context(),
+                    },
+                    |_| unreachable!("autocommit must be rejected before apply"),
+                )
+                .expect_err("semantic mutation requires an owned write transaction");
+                assert_eq!(error.code, StoreErrorCode::Internal);
+                let parent_count: i64 = connection.query_row(
+                    "SELECT count(*) FROM local_commits
+                     WHERE operation_id = 'operation:autocommit'",
+                    [],
+                    |row| row.get(0),
+                )?;
+                assert_eq!(parent_count, 0);
+                Ok(())
+            })
+            .expect("autocommit boundary proof");
     }
 }

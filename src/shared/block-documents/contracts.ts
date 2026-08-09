@@ -1,3 +1,5 @@
+import type { AuthorizedReadStamp } from "../authorized-read-stamp";
+
 export type BlockId = string;
 export type DocumentId = string;
 export type DocumentReadiness = "pending_genesis" | "ready" | "failed";
@@ -44,6 +46,7 @@ export type OwnedDocumentSyncEngine =
  */
 export interface OwnedDocumentDescriptor
   extends OwnedDocumentIdentity, OwnedDocumentHead {
+  readonly authorization: AuthorizedReadStamp | null;
   readonly readiness: DocumentReadiness;
   readonly sync: OwnedDocumentSyncEngine;
 }

@@ -21,10 +21,18 @@ export interface ProjectionDependencies {
   readonly aggregate?: boolean;
 }
 
-export type ProjectionRevocationMessage = ResourceRevocationMessage;
+export type ProjectionRevocationMessage = Extract<
+  ResourceRevocationMessage,
+  { readonly kind: "revocation" }
+>;
 export type ProjectionInvalidationCause =
   | ProjectionStreamMessage
   | ResourceRevocationMessage;
+export type ProjectionFenceCause =
+  | Extract<ProjectionStreamMessage, {
+      readonly kind: "checkpoint" | "reset";
+    }>
+  | Extract<ResourceRevocationMessage, { readonly kind: "reset" }>;
 
 export interface ProjectionRegistration {
   readonly scope: ProjectionScope;
@@ -37,9 +45,7 @@ export interface ProjectionRegistration {
   /** Applies cache removal synchronously, before any queued repair I/O. */
   revoke?(cause: ProjectionRevocationMessage): void;
   /** Clears authority synchronously when a checkpoint/reset exposes a gap. */
-  fence?(cause: Extract<ProjectionStreamMessage, {
-    readonly kind: "checkpoint" | "reset";
-  }>): void;
+  fence?(cause: ProjectionFenceCause): void;
   invalidate(cause: ProjectionInvalidationCause): void | Promise<void>;
 }
 
@@ -58,8 +64,6 @@ interface ConsumerState {
   running: boolean;
   pending: ProjectionInvalidationCause | null;
   required: ProjectionInvalidationCause | null;
-  retryTimer: ReturnType<typeof setTimeout> | null;
-  retryAttempt: number;
   initialCheckpointObserved: boolean;
 }
 
@@ -100,8 +104,6 @@ export class ProjectionInvalidationRegistry {
       running: false,
       pending: null,
       required: null,
-      retryTimer: null,
-      retryAttempt: 0,
       initialCheckpointObserved: false,
     };
     scope.consumers.set(registration.consumerKey, consumer);
@@ -131,7 +133,6 @@ export class ProjectionInvalidationRegistry {
       active = false;
       consumer.registrations.delete(token);
       if (consumer.registrations.size === 0) {
-        this.#cancelRetry(consumer);
         scope.consumers.delete(registration.consumerKey);
       }
       if (scope.consumers.size > 0) return;
@@ -145,9 +146,6 @@ export class ProjectionInvalidationRegistry {
 
   dispose(): void {
     for (const scope of this.#scopes.values()) {
-      for (const consumer of scope.consumers.values()) {
-        this.#cancelRetry(consumer);
-      }
       scope.unsubscribeProjection?.();
       scope.unsubscribeRevocations?.();
     }
@@ -217,7 +215,6 @@ export class ProjectionInvalidationRegistry {
       registration.projectionEffects === "ignore"
       && message.kind === "effect"
     ) return false;
-    if (registration.causalRuntime) return false;
     if (message.kind === "reset") return true;
     const cursor = registration.getCursor();
     if (cursor && cursor.storeEpoch !== message.stream.storeEpoch) return true;
@@ -230,7 +227,6 @@ export class ProjectionInvalidationRegistry {
   }
 
   #schedule(consumer: ConsumerState, message: ProjectionInvalidationCause): void {
-    this.#cancelRetry(consumer);
     if (consumer.required) {
       consumer.pending = laterCause(consumer.pending, consumer.required);
       consumer.required = null;
@@ -262,7 +258,6 @@ export class ProjectionInvalidationRegistry {
       }
       try {
         await registration.invalidate(cause);
-        consumer.retryAttempt = 0;
       } catch {
         if (failureRetryBudget > 0) {
           failureRetryBudget -= 1;
@@ -270,32 +265,9 @@ export class ProjectionInvalidationRegistry {
           continue;
         }
         consumer.required = laterCause(consumer.required, cause);
-        this.#scheduleRetry(consumer);
         return;
       }
     }
-  }
-
-  #scheduleRetry(consumer: ConsumerState): void {
-    if (consumer.retryTimer !== null || consumer.required === null) return;
-    const delayMs = Math.min(
-      5_000,
-      100 * (2 ** Math.min(consumer.retryAttempt, 5)),
-    );
-    consumer.retryAttempt += 1;
-    consumer.retryTimer = setTimeout(() => {
-      consumer.retryTimer = null;
-      const required = consumer.required;
-      if (required === null || consumer.registrations.size === 0) return;
-      consumer.required = null;
-      this.#schedule(consumer, required);
-    }, delayMs);
-  }
-
-  #cancelRetry(consumer: ConsumerState): void {
-    if (consumer.retryTimer === null) return;
-    clearTimeout(consumer.retryTimer);
-    consumer.retryTimer = null;
   }
 }
 
@@ -326,7 +298,7 @@ export const impactMatches = (
 
 export const revocationMatches = (
   dependencies: ProjectionDependencies,
-  revocation: ResourceRevocationMessage["delivery"]["revocation"],
+  revocation: ProjectionRevocationMessage["delivery"]["revocation"],
 ): boolean => {
   if (dependencies.aggregate === true) return true;
   const ids = [revocation.resource_id];

@@ -12,6 +12,22 @@ import {
   type RegisteredOwnedBlockDocumentModel,
 } from "./owned-block-document";
 import { queryKeys } from "./query-keys";
+import type { AuthorizedReadStamp } from "../../shared/authorized-read-stamp";
+import {
+  admitResourceAuthorityQuery,
+  resourceAuthorityQueryMeta,
+} from "./resource-authority-query-cache";
+
+const resolveOwnedDocumentAuthority = (_queryKey: readonly unknown[], data: unknown) => {
+  const authorization = (data as {
+    readonly authorization?: AuthorizedReadStamp | null;
+  } | null)?.authorization;
+  return authorization ? { authorizations: [authorization] } : null;
+};
+
+const ownedDocumentAuthorityMeta = resourceAuthorityQueryMeta(
+  resolveOwnedDocumentAuthority,
+);
 
 export interface OwnedBlockDocumentQueryDependencies {
   readonly fetchDescriptor?: OwnedDocumentDescriptorFetcher;
@@ -30,16 +46,20 @@ const makeOwnedBlockDocumentQueryFn =
     request: OwnedBlockDocumentRequest,
     fetcher: OwnedDocumentDescriptorFetcher,
   ) =>
-  () =>
-    fetchOwnedBlockDocumentDescriptor(request, fetcher);
+  async () => admitResourceAuthorityQuery(
+    await fetchOwnedBlockDocumentDescriptor(request, fetcher),
+    resolveOwnedDocumentAuthority,
+  );
 
 const makeRegisteredOwnedBlockDocumentQueryFn =
   (
     request: OwnedBlockDocumentRequest,
     fetcher: OwnedDocumentDescriptorFetcher,
   ) =>
-  () =>
-    fetchRegisteredOwnedBlockDocumentDescriptor(request, fetcher);
+  async () => admitResourceAuthorityQuery(
+    await fetchRegisteredOwnedBlockDocumentDescriptor(request, fetcher),
+    resolveOwnedDocumentAuthority,
+  );
 
 export const ownedBlockDocumentQueryOptions = (
   request: OwnedBlockDocumentRequest,
@@ -52,6 +72,7 @@ export const ownedBlockDocumentQueryOptions = (
       request.ownerBlockId,
     ),
     queryFn: makeOwnedBlockDocumentQueryFn(request, fetcher),
+    meta: ownedDocumentAuthorityMeta,
   });
 };
 
@@ -66,6 +87,7 @@ export const registeredOwnedBlockDocumentQueryOptions = (
       request.ownerBlockId,
     ),
     queryFn: makeRegisteredOwnedBlockDocumentQueryFn(request, fetcher),
+    meta: ownedDocumentAuthorityMeta,
   });
 };
 

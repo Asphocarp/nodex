@@ -20,6 +20,7 @@ const descriptor = (
   ownerType: "page",
   ownerLifecycle: "active",
   documentId: "document-1",
+  authorization: null,
   storeEpoch: "epoch-1",
   generation,
   headSeq,

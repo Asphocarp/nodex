@@ -14,6 +14,7 @@ import {
   compilePageLifecycleCreateRequestV2,
   type PageLifecycleCreateDisplayIntent,
 } from "./page-lifecycle-v2-runtime";
+import { committedLocalCommit } from "./testing/local-commit";
 
 const optionId = (value: string): DataSourceOptionId =>
   parseDataSourceOptionId({ propertyId: "tags", value });
@@ -236,8 +237,16 @@ describe("Page Lifecycle v2 contract", () => {
       createdTagOptionIds: ["o_AAAAAAAA"],
     });
     expect(
-      parsePageLifecycleMutationCommandResultV2({ ok: true, value: receipt }),
-    ).toMatchObject({ ok: true, value: { version: 2 } });
+      parsePageLifecycleMutationCommandResultV2({
+        ok: true,
+        value: receipt,
+        localCommit: committedLocalCommit("epoch-1", 1),
+      }),
+    ).toMatchObject({
+      ok: true,
+      value: { version: 2 },
+      localCommit: { status: "committed", commit: { commit_seq: 1 } },
+    });
   });
 
   test("strictly distinguishes v2 Source and tag conflicts", () => {

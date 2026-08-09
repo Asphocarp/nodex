@@ -3,6 +3,7 @@ import type {
   DocumentMutationRequest,
   DocumentOperationCommandResult,
 } from "../../shared/block-documents/document-operations";
+import { noOpLocalCommit } from "../../shared/testing/local-commit";
 import {
   createElectronRendererTransport,
   type ElectronRendererBridge,
@@ -23,6 +24,7 @@ const request: DocumentMutationRequest = {
 
 const result: DocumentOperationCommandResult = {
   ok: true,
+  localCommit: noOpLocalCommit(request.storeEpoch),
   value: {
     version: 1,
     mutationKind: "document_operation_batch",

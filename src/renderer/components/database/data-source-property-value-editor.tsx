@@ -37,7 +37,7 @@ interface ScalarPropertyEditorProps {
   readonly revision: number;
   readonly disabled: boolean;
   readonly presentation: "compact" | "page";
-  readonly kind: "text" | "number" | "person";
+  readonly kind: "text" | "number";
   readonly onChange: (value: DatabaseJsonValue) => void;
 }
 
@@ -68,7 +68,7 @@ function ScalarPropertyEditor({
     }
     if (draft === value) return;
     if (kind !== "number") {
-      onChange(kind === "person" ? draft.trim() || null : draft || null);
+      onChange(draft || null);
       return;
     }
     if (!draft.trim()) {
@@ -336,7 +336,6 @@ export function DataSourcePropertyValueEditor({
   if (
     property.valueType === "text"
     || property.valueType === "number"
-    || property.valueType === "person"
   ) {
     return (
       <span className="inline-flex min-w-0 items-center gap-1">

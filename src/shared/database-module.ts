@@ -6,6 +6,7 @@ import type {
   DatabaseViewKind,
   DatabaseViewSort,
 } from "./database-kernel";
+import type { AuthorizedReadStamp } from "./authorized-read-stamp";
 import type { Page } from "./page";
 
 export const DATABASE_MODULE_CONTRACT_VERSION = 1 as const;
@@ -171,6 +172,7 @@ export interface DatabaseModuleReadSnapshot {
   readonly libraryId: string;
   readonly storeEpoch: string;
   readonly commitSeq: number;
+  readonly authorization: AuthorizedReadStamp | null;
   readonly value: DatabaseReadValue;
 }
 

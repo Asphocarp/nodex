@@ -19,7 +19,7 @@ const SEED_BINARY = path.resolve(
 );
 const PROJECT_ID = "project:core-renderer-test";
 const PAGE_ID = "019bf52d-6870-7000-8000-000000000101";
-const DOCUMENT_ID = "019bf52d-6870-7000-8000-000000000102";
+const DOCUMENT_ID = `document:${PAGE_ID}`;
 
 const children = new Set<ChildProcessWithoutNullStreams>();
 const homes = new Set<string>();

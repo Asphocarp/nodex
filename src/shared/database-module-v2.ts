@@ -16,6 +16,7 @@ import type {
   DataSourceOptionId,
   DataSourcePropertyId,
 } from "./database-identities";
+import type { LocalCommitCommandSuccess } from "./local-commit-delivery";
 import type {
   DatabaseJsonValue,
   DatabasePropertyOption,
@@ -48,7 +49,6 @@ export type DatabasePropertySchemaV2 =
   | { readonly kind: "multi_select" }
   | { readonly kind: "date" }
   | { readonly kind: "datetime" }
-  | { readonly kind: "person" }
   | {
       readonly kind: "relation";
       readonly targetDataSourceId: DataSourceId;
@@ -158,12 +158,13 @@ export interface DataSourceQueryResultV2 {
 export type DatabaseRelationTargetV2 =
   | {
       readonly kind: "visible";
+      readonly edgeId: string;
       readonly pageId: string;
       readonly title: string;
       readonly lifecycle: string;
       readonly membershipState: string;
     }
-  | { readonly kind: "restricted" };
+  | { readonly kind: "restricted"; readonly edgeId: string };
 
 export interface DatabaseRelationTargetWindowV2 {
   readonly valueRevision: number;
@@ -392,9 +393,7 @@ export type DatabasePropertyValueInputV2 =
       readonly optionIds: readonly DataSourceOptionId[];
     }
   | { readonly kind: "date"; readonly value: string }
-  | { readonly kind: "datetime"; readonly value: string }
-  | { readonly kind: "person"; readonly personId: string }
-  | { readonly kind: "relation"; readonly pageIds: readonly string[] };
+  | { readonly kind: "datetime"; readonly value: string };
 
 export type DatabasePropertySetDeltaV2 =
   | {
@@ -405,7 +404,7 @@ export type DatabasePropertySetDeltaV2 =
   | {
       readonly kind: "relation";
       readonly addPageIds: readonly string[];
-      readonly removePageIds: readonly string[];
+      readonly removeEdgeIds: readonly string[];
     };
 
 export interface DatabasePropertyValueMutationV2 {
@@ -418,7 +417,8 @@ export interface DatabasePropertyValueMutationV2 {
         readonly expectedValueRevision: number;
         readonly value: DatabasePropertyValueInputV2;
       }
-    | { readonly kind: "patch_set"; readonly delta: DatabasePropertySetDeltaV2 };
+    | { readonly kind: "patch_set"; readonly delta: DatabasePropertySetDeltaV2 }
+    | { readonly kind: "clear_relation"; readonly expectedValueRevision: number };
 }
 
 export interface EditDataSourcePageValuesOperationV2 {
@@ -523,11 +523,11 @@ export interface LibraryDatabaseApplyReceiptV2
 }
 
 export type LibraryDatabaseApplyResultV2 =
-  | { readonly ok: true; readonly value: LibraryDatabaseApplyReceiptV2 }
+  | LocalCommitCommandSuccess<LibraryDatabaseApplyReceiptV2>
   | { readonly ok: false; readonly error: DatabaseModuleErrorV2 };
 
 export type DatabaseApplyResultV2 =
-  | { readonly ok: true; readonly value: DatabaseApplyReceiptV2 }
+  | LocalCommitCommandSuccess<DatabaseApplyReceiptV2>
   | { readonly ok: false; readonly error: DatabaseModuleErrorV2 };
 
 export interface DatabaseModuleV2 {

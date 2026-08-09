@@ -29,12 +29,20 @@ export interface ConnectOrStartCoreInput extends ResolveCoreExecutableInput {
   readonly connectionId?: string;
   readonly maximumJsonResponseBytes?: number;
   readonly nodexHome: string;
+  readonly onAuthorityProcessExit?: (event: CoreAuthorityProcessExit) => void;
   readonly onStartupEvent?: (event: CoreStartupEvent) => void;
   readonly pollIntervalMs?: number;
   readonly requestTimeoutMs?: number;
   readonly signal?: AbortSignal;
   readonly startupHardTimeoutMs?: number;
   readonly startupTimeoutMs?: number;
+}
+
+export interface CoreAuthorityProcessExit {
+  readonly code: number | null;
+  readonly processId: number;
+  readonly signal: NodeJS.Signals | null;
+  readonly stderr: string;
 }
 
 export interface CoreLaunchResult {
@@ -77,6 +85,7 @@ interface ChildExitState {
   code: number | null;
   error: Error | null;
   exited: boolean;
+  signal: NodeJS.Signals | null;
   stderr: string;
 }
 
@@ -500,8 +509,10 @@ export async function connectOrStartCore(
     code: null,
     error: null,
     exited: false,
+    signal: null,
     stderr: "",
   };
+  let selectedAsAuthority = false;
   const stderr = child.stderr as (NonNullable<typeof child.stderr> & {
     unref?: () => void;
   }) | null;
@@ -513,9 +524,22 @@ export async function connectOrStartCore(
   child.once("error", (error) => {
     exit.error = error;
   });
-  child.once("close", (code) => {
+  child.once("close", (code, signal) => {
     exit.code = code;
     exit.exited = true;
+    exit.signal = signal;
+    const processId = child.pid;
+    if (!selectedAsAuthority || processId === undefined) return;
+    try {
+      input.onAuthorityProcessExit?.({
+        code,
+        processId,
+        signal,
+        stderr: exit.stderr.trim(),
+      });
+    } catch {
+      // Process-exit observation must not affect authority recovery.
+    }
   });
   const startupTimeoutMs = input.startupTimeoutMs ?? DEFAULT_STARTUP_TIMEOUT_MS;
   const startupHardTimeoutMs = input.startupHardTimeoutMs
@@ -533,6 +557,7 @@ export async function connectOrStartCore(
       input.signal,
     );
     const selectionMs = performance.now() - selectionStartedAt;
+    selectedAsAuthority = selection.disposition === "started";
     if (selection.descriptor.artifact.sha256 !== expectedArtifactDigest) {
       throw new Error("Selected Core artifact does not match the launched candidate");
     }

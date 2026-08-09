@@ -140,7 +140,7 @@ fn initial_property_definitions() -> Vec<(&'static str, &'static str, &'static s
         ("due_date", "Due date", "date", json!({})),
         ("scheduled_start", "Scheduled start", "datetime", json!({})),
         ("scheduled_end", "Scheduled end", "datetime", json!({})),
-        ("assignee", "Assignee", "person", json!({})),
+        ("assignee", "Assignee", "text", json!({})),
     ]
 }
 

@@ -2,22 +2,17 @@ import {
   createContext,
   useContext,
   useEffect,
-  useState,
   type ReactNode,
 } from "react";
-import { resolveRendererTransport } from "./renderer-transport";
 import {
   ProjectionInvalidationRegistry,
   type ProjectionRegistration,
 } from "./projection-invalidation-registry";
+import { getRendererProjectionInvalidationRegistry } from "./projection-invalidation-service";
 
 const ProjectionInvalidationContext = createContext<
   ProjectionInvalidationRegistry | null
 >(null);
-let activeProjectionInvalidationRegistry: ProjectionInvalidationRegistry | null = null;
-
-export const getActiveProjectionInvalidationRegistry = () =>
-  activeProjectionInvalidationRegistry;
 
 export function ProjectionInvalidationProvider({
   children,
@@ -26,22 +21,7 @@ export function ProjectionInvalidationProvider({
   readonly children: ReactNode;
   readonly registry?: ProjectionInvalidationRegistry;
 }) {
-  const [ownedRegistry] = useState(() => new ProjectionInvalidationRegistry(
-    {
-      subscribeProjection: (scope, listener) =>
-        resolveRendererTransport().subscribeProjectionStream(scope, listener),
-      subscribeRevocations: (scope, listener) =>
-        resolveRendererTransport().subscribeResourceRevocations(scope, listener),
-    },
-  ));
-  const registry = providedRegistry ?? ownedRegistry;
-  activeProjectionInvalidationRegistry = registry;
-  useEffect(() => () => {
-    if (activeProjectionInvalidationRegistry === registry) {
-      activeProjectionInvalidationRegistry = null;
-    }
-    if (!providedRegistry) registry.dispose();
-  }, [providedRegistry, registry]);
+  const registry = providedRegistry ?? getRendererProjectionInvalidationRegistry();
   return (
     <ProjectionInvalidationContext.Provider value={registry}>
       {children}

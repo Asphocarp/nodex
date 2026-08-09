@@ -15,6 +15,7 @@ import {
   type RelationCandidateWindow,
   type RelationTargetPreview,
   type RelationTargetWindow,
+  type RelationTargetWindowItem,
 } from "@/lib/data-source-relation-value";
 import { foldDataSourceRelationSearchText } from "@/lib/data-source-relation-runtime";
 import { cn } from "@/lib/utils";
@@ -30,17 +31,13 @@ const mergeCandidates = (
 };
 
 const mergeTargets = (
-  left: readonly RelationTargetPreview[],
-  right: readonly RelationTargetPreview[],
+  left: readonly RelationTargetWindowItem[],
+  right: readonly RelationTargetWindowItem[],
 ) => {
-  const visibleIds = new Set(
-    left.flatMap((target) => target.kind === "visible" ? [target.pageId] : []),
-  );
+  const edgeIds = new Set(left.map((target) => target.edgeId));
   return [
     ...left,
-    ...right.filter((target) =>
-      target.kind === "restricted" || !visibleIds.has(target.pageId)
-    ),
+    ...right.filter((target) => !edgeIds.has(target.edgeId)),
   ];
 };
 
@@ -69,7 +66,7 @@ export function RelationPropertyEditor({
   readonly targetMatchesCurrentSource: boolean;
   readonly onPatch: (delta: {
     readonly addPageIds: readonly string[];
-    readonly removePageIds: readonly string[];
+    readonly removeEdgeIds: readonly string[];
   }) => void;
   readonly onClear: () => void;
   readonly onLoadMore?: (after: string | null) => Promise<RelationTargetWindow>;
@@ -97,7 +94,7 @@ export function RelationPropertyEditor({
   const deferredQuery = useDeferredValue(query);
   const [targetName, setTargetName] = useState<string | null>(null);
   const [targetDescriptorLoaded, setTargetDescriptorLoaded] = useState(false);
-  const [expandedTargets, setExpandedTargets] = useState<readonly RelationTargetPreview[] | null>(null);
+  const [expandedTargets, setExpandedTargets] = useState<readonly RelationTargetWindowItem[] | null>(null);
   const [targetCursor, setTargetCursor] = useState<string | null>(null);
   const [targetProjectionRevision, setTargetProjectionRevision] = useState<number | null>(null);
   const [candidateResults, setCandidateResults] = useState<readonly {
@@ -128,8 +125,16 @@ export function RelationPropertyEditor({
   const candidateHeadingId = useId();
   const candidateListboxId = useId();
   const visibleTargets = (expandedTargets ?? preview.targets).filter(
-    (target): target is Extract<RelationTargetPreview, { readonly kind: "visible" }> =>
+    (target): target is RelationTargetPreview =>
       target.kind === "visible",
+  );
+  const restrictedTargets = expandedTargets?.filter(
+    (target): target is Extract<RelationTargetWindowItem, { readonly kind: "restricted" }> =>
+      target.kind === "restricted",
+  ) ?? [];
+  const unloadedRestrictedCount = Math.max(
+    0,
+    preview.restrictedCount - restrictedTargets.length,
   );
   const selectedIds = new Set(visibleTargets.map((target) => target.pageId));
   const normalizedQuery = foldDataSourceRelationSearchText(query.trim());
@@ -444,7 +449,7 @@ export function RelationPropertyEditor({
                   event.preventDefault();
                   const candidate = available[activeCandidateIndex];
                   if (!candidate || actionDisabled) return;
-                  onPatch({ addPageIds: [candidate.pageId], removePageIds: [] });
+                  onPatch({ addPageIds: [candidate.pageId], removeEdgeIds: [] });
                 }}
                 placeholder="Search pages…"
                 className="h-full min-w-0 flex-1 bg-transparent text-sm text-token-foreground outline-hidden placeholder:text-token-description-foreground"
@@ -489,7 +494,7 @@ export function RelationPropertyEditor({
                       disabled={actionDisabled}
                       onClick={() => {
                         if (actionDisabled) return;
-                        onPatch({ addPageIds: [], removePageIds: [target.pageId] });
+                        onPatch({ addPageIds: [], removeEdgeIds: [target.edgeId] });
                       }}
                       className="grid size-6 shrink-0 place-items-center rounded-md text-token-description-foreground opacity-70 hover:bg-token-foreground/10 hover:text-token-foreground group-hover:opacity-100 focus-visible:opacity-100"
                     >
@@ -497,9 +502,29 @@ export function RelationPropertyEditor({
                     </button>
                   </div>
                 ))}
-                {preview.restrictedCount > 0 ? (
+                {restrictedTargets.map((target, index) => (
+                  <div key={target.edgeId} className="group flex min-h-8 items-center gap-2 rounded-lg px-2 hover:bg-token-list-hover-background">
+                    <PageIcon className="icon-xs shrink-0 text-token-description-foreground" />
+                    <span className="min-w-0 flex-1 truncate text-sm text-token-description-foreground">
+                      Restricted page
+                    </span>
+                    <button
+                      type="button"
+                      aria-label={`Remove restricted page ${index + 1}`}
+                      disabled={actionDisabled}
+                      onClick={() => {
+                        if (actionDisabled) return;
+                        onPatch({ addPageIds: [], removeEdgeIds: [target.edgeId] });
+                      }}
+                      className="grid size-6 shrink-0 place-items-center rounded-md text-token-description-foreground opacity-70 hover:bg-token-foreground/10 hover:text-token-foreground group-hover:opacity-100 focus-visible:opacity-100"
+                    >
+                      <CloseIcon className="icon-xxs" />
+                    </button>
+                  </div>
+                ))}
+                {unloadedRestrictedCount > 0 ? (
                   <p className="px-2 py-1 text-xs text-token-description-foreground">
-                    {preview.restrictedCount} restricted {preview.restrictedCount === 1 ? "page" : "pages"}
+                    {unloadedRestrictedCount} more restricted {unloadedRestrictedCount === 1 ? "page" : "pages"}
                   </p>
                 ) : null}
                 {(expandedTargets === null ? preview.hasMore : targetCursor !== null)
@@ -546,7 +571,7 @@ export function RelationPropertyEditor({
                     onPointerDown={(event) => event.preventDefault()}
                     onClick={() => {
                       if (actionDisabled) return;
-                      onPatch({ addPageIds: [candidate.pageId], removePageIds: [] });
+                      onPatch({ addPageIds: [candidate.pageId], removeEdgeIds: [] });
                       requestAnimationFrame(() => searchInputRef.current?.focus());
                     }}
                     className="flex min-h-8 w-full items-center gap-2 rounded-lg px-2 text-left hover:bg-token-list-hover-background disabled:opacity-50"

@@ -21,7 +21,6 @@ pub enum DatabasePropertySchema {
     MultiSelect,
     Date,
     Datetime,
-    Person,
     Relation { target_data_source_id: String },
 }
 
@@ -214,12 +213,15 @@ pub struct DatabaseRelationCandidate {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum DatabaseRelationTargetItem {
     Visible {
+        edge_id: String,
         page_id: String,
         title: String,
         lifecycle: String,
         membership_state: String,
     },
-    Restricted,
+    Restricted {
+        edge_id: String,
+    },
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -418,8 +420,6 @@ pub enum DatabasePropertyValueInput {
     MultiSelect { option_ids: Vec<String> },
     Date { value: String },
     Datetime { value: String },
-    Person { person_id: String },
-    Relation { page_ids: Vec<String> },
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -431,7 +431,7 @@ pub enum DatabasePropertySetDelta {
     },
     Relation {
         add_page_ids: Vec<String>,
-        remove_page_ids: Vec<String>,
+        remove_edge_ids: Vec<String>,
     },
 }
 
@@ -444,6 +444,9 @@ pub enum DatabasePropertyValueEdit {
     },
     PatchSet {
         delta: DatabasePropertySetDelta,
+    },
+    ClearRelation {
+        expected_value_revision: i64,
     },
 }
 

@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
 import type { DatabaseViewReadModel } from "../../../../shared/database-views";
 import { plainTextToPortableRichText } from "../../../../shared/block-documents";
+import { AUTHORIZED_READ_STAMP_EXAMPLE } from "../../../../shared/testing/authorized-read-stamp-example";
 import type { DatabasePageSummary } from "@/lib/types";
 import { DatabaseViewReferenceSurface } from "@/components/block-documents/reference-block-surfaces";
 import {
@@ -35,6 +36,7 @@ const VIEW: DatabaseViewReadModel = {
   libraryId: "library:test",
   storeEpoch: "epoch:test",
   commitSeq: 1,
+  authorization: AUTHORIZED_READ_STAMP_EXAMPLE,
   dataSourceId: "data-source:test",
   view: {
     id: "database-view:inline:story",

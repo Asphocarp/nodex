@@ -180,7 +180,7 @@ describe("DatabaseManagementSurface", () => {
       target: { value: "Owner" },
     });
     fireEvent.change(screen.getByLabelText("New property type"), {
-      target: { value: "person" },
+      target: { value: "text" },
     });
     await act(async () => {
       fireEvent.submit(screen.getByLabelText("New property name").closest("form")!);
@@ -191,7 +191,7 @@ describe("DatabaseManagementSurface", () => {
     expect(created[0]).toEqual({
       dataSourceId,
       name: "Owner",
-      valueType: "person",
+      valueType: "text",
     });
     expect(deletedOptions[0]).toEqual([
       dataSourceId,
