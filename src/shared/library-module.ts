@@ -9,6 +9,7 @@ import type { ProjectAppearance } from "./project-appearance";
 import type { BlockPropertyFieldMutationV2 } from "./block-property-mutations-v2";
 import type { DatabaseApplyOperationV2 } from "./database-module-v2";
 import type { LocalCommitCommandSuccess } from "./local-commit-delivery";
+import type { AuthorizedReadStamp } from "./authorized-read-stamp";
 
 export const LIBRARY_MODULE_CONTRACT_VERSION = 7 as const;
 export const DEFAULT_LIBRARY_READ_LIMIT = 20 as const;
@@ -212,6 +213,7 @@ export interface LibraryModuleReadSnapshot {
   readonly libraryId: string;
   readonly storeEpoch: string;
   readonly commitSeq: number;
+  readonly authorization: AuthorizedReadStamp | null;
   readonly value: LibraryReadValue;
 }
 

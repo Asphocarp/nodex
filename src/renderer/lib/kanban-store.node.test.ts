@@ -27,6 +27,7 @@ import { toDatabasePageSummary } from "../../shared/page-summary";
 import type { BoardChangeEvent } from "../../shared/ipc-api";
 import type { ProjectionStreamMessage } from "../../shared/projection-stream";
 import type { ResourceRevocationMessage } from "../../shared/resource-revocation-stream";
+import { authorizedReadStampFixture } from "../../shared/testing/authorized-read-stamp-fixture";
 import type { DatabaseViewWindowSnapshot } from "../../shared/database-views";
 import {
   DATABASE_MODULE_V2_CONTRACT_VERSION,
@@ -163,6 +164,7 @@ function createDatabaseViewSnapshot(
       libraryId,
       storeEpoch: "epoch-1",
       commitSeq,
+      authorization: null,
       value: { kind: "query", value: query },
     },
   };
@@ -244,6 +246,20 @@ function createBoardSnapshot(
     viewId,
     storeEpoch: "epoch-1",
     commitSeq,
+    authorization: authorizedReadStampFixture({
+      deliveryAddress: {
+        kind: "project",
+        library_id: "library-1",
+        project_id: "project-1",
+      },
+      subject: { kind: "view", view_id: viewId },
+      storeEpoch: "epoch-1",
+      commitSeq,
+      authorizationDependencies: [
+        { kind: "page", page_id: card.id },
+        { kind: "view", view_id: viewId },
+      ],
+    }),
     projection: {
       scopeKey: `scope:${viewId}`,
       schemaVersion: 1,
@@ -278,7 +294,7 @@ function createBoardSnapshot(
 function createGroupsSnapshot(
   overrides: Partial<DatabaseViewGroupsSnapshot> = {},
 ): DatabaseViewGroupsSnapshot {
-  return {
+  const snapshot = {
     projectId: "project-1",
     libraryId: "library-1",
     databaseId: "database-1",
@@ -298,6 +314,19 @@ function createGroupsSnapshot(
     truncated: false,
     groups: [],
     ...overrides,
+  };
+  return {
+    ...snapshot,
+    authorization: overrides.authorization ?? authorizedReadStampFixture({
+      deliveryAddress: {
+        kind: "project",
+        library_id: snapshot.libraryId,
+        project_id: snapshot.projectId,
+      },
+      subject: { kind: "view", view_id: snapshot.viewId },
+      storeEpoch: snapshot.storeEpoch,
+      commitSeq: snapshot.commitSeq,
+    }),
   };
 }
 

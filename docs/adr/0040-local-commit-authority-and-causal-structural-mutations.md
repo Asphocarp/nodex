@@ -205,12 +205,15 @@ while renderer stores own Core-derived snapshots, exact scope coordinates, and
 deterministic reducers—not speculative ownership state.
 When access is lost, Page Detail, Board, and query stores synchronously remove
 the matching cached authority for every revocation before any canonical repair.
-Authorization-bearing inactive query entries retain a scope subscription. If a
-revocation occurs between canonical read and subscription installation, the
-projection stream's initial checkpoint synchronously fences any older cache
-before repair. Only the later repair may coalesce. Per-resource/store
-generations fence reads that started before the revocation, preventing them
-from repopulating stale content. This is a client consistency guarantee, not a
+Authority-bearing reads return a hash-bound `AuthorizedReadStamp` from the same
+SQLite snapshot as their data. A renderer records only the request identity
+before I/O; it learns direct, ancestor, membership, and overlapping-grant roots
+from the stamp, verifies its address/scope/epoch/covered floor, and registers
+those roots before adopting the response. Exact visibility changes fence only
+matching registrations. Address or conservative reset fences the complete
+address. Root floors survive older in-flight reads and active registrations;
+capacity overflow clears the address authority and fails closed rather than
+dropping an old floor. This is a client consistency guarantee, not a
 replacement for Core's read authorization.
 
 Structural commands can still return a retryable revision conflict when a

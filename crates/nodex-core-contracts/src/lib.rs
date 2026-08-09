@@ -119,6 +119,7 @@ pub struct ModuleReadSnapshot<T> {
     pub contract_version: u32,
     pub store_epoch: StoreEpoch,
     pub commit_head: i64,
+    pub authorization: Option<events::AuthorizedReadStamp>,
     pub value: T,
 }
 

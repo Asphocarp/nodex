@@ -24,6 +24,7 @@ import {
   type DatabaseViewReadModel,
   type ReadDatabaseViewReferenceInput,
 } from "./database-views";
+import type { AuthorizedReadStamp } from "./authorized-read-stamp";
 import { stableStringifyDatabaseJson } from "./database-kernel";
 import { toDatabasePageSummary } from "./page-summary";
 import {
@@ -748,6 +749,7 @@ export const projectDatabaseViewReference = (
     readonly libraryId: string;
     readonly storeEpoch: string;
     readonly commitSeq: number;
+    readonly authorization: AuthorizedReadStamp;
   },
 ): DatabaseViewReadModel => {
   const summaries = projectDatabasePageSummaries(query);

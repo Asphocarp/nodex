@@ -5989,6 +5989,7 @@ export interface components {
         };
         readonly ResponseEnvelope_ModuleReadSnapshot_AutomationReadValue: {
             readonly payload: {
+                readonly authorization?: null | components["schemas"]["AuthorizedReadStamp"];
                 /** Format: int64 */
                 readonly commit_head: number;
                 /** Format: int32 */
@@ -6042,6 +6043,7 @@ export interface components {
         };
         readonly ResponseEnvelope_ModuleReadSnapshot_DatabaseReadValue: {
             readonly payload: {
+                readonly authorization?: null | components["schemas"]["AuthorizedReadStamp"];
                 /** Format: int64 */
                 readonly commit_head: number;
                 /** Format: int32 */
@@ -6122,6 +6124,7 @@ export interface components {
         };
         readonly ResponseEnvelope_ModuleReadSnapshot_LibraryReadValue: {
             readonly payload: {
+                readonly authorization?: null | components["schemas"]["AuthorizedReadStamp"];
                 /** Format: int64 */
                 readonly commit_head: number;
                 /** Format: int32 */
@@ -6271,6 +6274,7 @@ export interface components {
         };
         readonly ResponseEnvelope_ModuleReadSnapshot_OwnedDocumentReadValue: {
             readonly payload: {
+                readonly authorization?: null | components["schemas"]["AuthorizedReadStamp"];
                 /** Format: int64 */
                 readonly commit_head: number;
                 /** Format: int32 */
@@ -6326,6 +6330,7 @@ export interface components {
         };
         readonly ResponseEnvelope_ModuleReadSnapshot_ProjectWorkspaceReadValue: {
             readonly payload: {
+                readonly authorization?: null | components["schemas"]["AuthorizedReadStamp"];
                 /** Format: int64 */
                 readonly commit_head: number;
                 /** Format: int32 */
@@ -6404,6 +6409,7 @@ export interface components {
         };
         readonly ResponseEnvelope_ModuleReadSnapshot_StoreAdministrationReadValue: {
             readonly payload: {
+                readonly authorization?: null | components["schemas"]["AuthorizedReadStamp"];
                 /** Format: int64 */
                 readonly commit_head: number;
                 /** Format: int32 */

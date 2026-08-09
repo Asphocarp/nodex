@@ -107,7 +107,10 @@ const decodeCoreOwnedDocumentDescriptor = (
     throw new Error("Core Owned Document descriptor is invalid");
   }
   if (value.sync.kind !== "yjs") {
-    return decodeOwnedDocumentDescriptorHttp(JSON.stringify(value));
+    return decodeOwnedDocumentDescriptorHttp(JSON.stringify({
+      ...value,
+      authorization: null,
+    }));
   }
   const stateVector = value.sync.stateVector;
   if (
@@ -119,6 +122,7 @@ const decodeCoreOwnedDocumentDescriptor = (
   }
   return decodeOwnedDocumentDescriptorHttp(JSON.stringify({
     ...value,
+    authorization: null,
     sync: {
       kind: "yjs",
       stateVector: documentBytesToBase64(Uint8Array.from(stateVector)),
@@ -725,10 +729,13 @@ export const createCoreDocumentSyncAdapter = (
     const descriptor = decodeCoreOwnedDocumentDescriptor(
       snapshot.value.descriptor,
     );
+    if (!snapshot.authorization) {
+      throw new Error("Core Owned Document descriptor omitted canonical authorization");
+    }
     if (descriptor.ownerBlockId !== input.ownerBlockId) {
       throw new Error("Core Owned Document descriptor escaped its owner boundary");
     }
-    return descriptor;
+    return { ...descriptor, authorization: snapshot.authorization };
   };
 
   const readUpdateResource = async (

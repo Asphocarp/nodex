@@ -166,6 +166,7 @@
     "@electron/osx-sign": "1.3.3",
     "@excalidraw/excalidraw": "0.18.1",
     "@floating-ui/react": "^0.27.19",
+    "@noble/hashes": "2.2.0",
     "@nodex/codex-app-server-protocol": "workspace:*",
     "@nodex/core-protocol": "workspace:*",
     "@pierre/diffs": "1.3.0-rc.1",

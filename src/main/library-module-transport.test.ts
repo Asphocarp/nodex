@@ -23,6 +23,7 @@ const result = (): LibraryModuleReadResult => ({
     libraryId: "library-1",
     storeEpoch: "epoch-1",
     commitSeq: 0,
+    authorization: null,
     value: { kind: "metadata" },
   },
 });

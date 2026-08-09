@@ -107,6 +107,7 @@ const snapshot = (
   libraryId,
   storeEpoch: "epoch-1",
   commitSeq,
+  authorization: null,
   value,
 });
 

@@ -156,6 +156,7 @@ const model = (): DatabaseViewRenderModel => {
     viewName: view.name,
     storeEpoch: "epoch-1",
     commitSeq: 4,
+    authorization: null,
     query: { database, dataSource, view, properties, rows },
     columns: [{
       id: "all",

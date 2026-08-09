@@ -106,6 +106,7 @@ describe("Document HTTP contract", () => {
         schemaKey: "nodex.page",
         schemaVersion: PAGE_DOCUMENT_SCHEMA_VERSION,
         readiness: "ready",
+        authorization: null,
         sync: { kind: "yjs", stateVector: bytes(1, 2, 3) },
       }),
     );
@@ -126,6 +127,7 @@ describe("Document HTTP contract", () => {
       headSeq: 7,
       schemaVersion: 1,
       readiness: "ready",
+      authorization: null,
     } as const;
     const yjs = decodeOwnedDocumentDescriptorHttp(
       encodeOwnedDocumentDescriptorHttp({
@@ -170,6 +172,7 @@ describe("Document HTTP contract", () => {
       schemaKey: "nodex.canvas",
       schemaVersion: 1,
       readiness: "ready",
+      authorization: null,
       sync: { kind: "canvas_scene", stateVector: "AA==" },
     });
     expect(() => decodeOwnedDocumentDescriptorHttp(serialized)).toThrow(

@@ -26,6 +26,7 @@ import {
   type LibraryModuleApplyResult,
 } from "../../shared/library-module";
 import type { LibraryPageDetail, PageDetail } from "../../shared/page-detail";
+import { authorizedReadStampFixture } from "../../shared/testing/authorized-read-stamp-fixture";
 import { testPropertySemantics } from "../../shared/testing/database-property-record";
 import { noOpLocalCommit } from "../../shared/testing/local-commit";
 import {
@@ -89,6 +90,15 @@ const detail = (member = true): PageDetail => {
     libraryId: "library-1",
     storeEpoch: "epoch-1",
     commitSeq: 4,
+    authorization: authorizedReadStampFixture({
+      deliveryAddress: {
+        kind: "project",
+        library_id: "library-1",
+        project_id: "project-1",
+      },
+      subject: { kind: "page", page_id: "page-1" },
+      commitSeq: 4,
+    }),
     page: {
       pageId: "page-1",
       libraryId: "library-1",

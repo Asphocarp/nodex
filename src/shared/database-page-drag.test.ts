@@ -185,6 +185,7 @@ const querySnapshot = (input: {
     libraryId: "library-1",
     storeEpoch: "epoch-1",
     commitSeq: 8,
+    authorization: null,
     value: { kind: "query", value: query },
   };
 };

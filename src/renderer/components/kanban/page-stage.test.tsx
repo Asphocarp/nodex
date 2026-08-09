@@ -134,6 +134,7 @@ function documentAuthority() {
       ownerType: "page" as const,
       ownerLifecycle: "active" as const,
       documentId: "document:page-1",
+      authorization: null,
       storeEpoch: "store-1",
       generation: 1,
       headSeq: 1,

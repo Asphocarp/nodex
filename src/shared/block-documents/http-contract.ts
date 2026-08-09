@@ -38,6 +38,7 @@ import {
   parseAuthorizedDeliveryPacket as parseAuthorizedDeliveryPacketValue,
 } from "../authorized-delivery-packet";
 import type { components } from "@nodex/core-protocol";
+import { parseAuthorizedReadStamp } from "../authorized-read-stamp";
 
 export const DOCUMENT_HTTP_CONTENT_TYPE =
   "application/vnd.nodex.document-sync.v3+octet-stream";
@@ -182,6 +183,7 @@ interface EncodedOwnedDocumentDescriptor {
   readonly schemaKey: string;
   readonly schemaVersion: number;
   readonly readiness: DocumentReadiness;
+  readonly authorization: OwnedDocumentDescriptor["authorization"];
   readonly sync: EncodedOwnedDocumentSyncEngine;
 }
 
@@ -606,6 +608,7 @@ const parseOwnedDocumentDescriptor = (
       "schemaKey",
       "schemaVersion",
       "readiness",
+      "authorization",
       "sync",
     ],
     "Owned Document descriptor",
@@ -636,6 +639,9 @@ const parseOwnedDocumentDescriptor = (
       "ready",
       "failed",
     ] as const),
+    authorization: record.authorization === null
+      ? null
+      : parseAuthorizedReadStamp(record.authorization),
     sync: parseOwnedDocumentSyncEngine(record.sync),
   };
 };
@@ -663,6 +669,7 @@ export const encodeOwnedDocumentDescriptorHttp = (
     schemaKey: descriptor.schemaKey,
     schemaVersion: descriptor.schemaVersion,
     readiness: descriptor.readiness,
+    authorization: descriptor.authorization ?? null,
     sync,
   } satisfies EncodedOwnedDocumentDescriptor);
 };
@@ -701,6 +708,7 @@ export const decodeOwnedDocumentDescriptorHttp = (
     schemaKey: descriptor.schemaKey,
     schemaVersion: descriptor.schemaVersion,
     readiness: descriptor.readiness,
+    authorization: descriptor.authorization ?? null,
     sync,
   };
 };
@@ -727,6 +735,7 @@ export const encodeLibraryOwnedDocumentDescriptorHttp = (
     schemaKey: descriptor.schemaKey,
     schemaVersion: descriptor.schemaVersion,
     readiness: descriptor.readiness,
+    authorization: descriptor.authorization ?? null,
     sync,
   } satisfies EncodedLibraryOwnedDocumentDescriptor);
 };
@@ -759,6 +768,7 @@ export const decodeLibraryOwnedDocumentDescriptorHttp = (
       "schemaKey",
       "schemaVersion",
       "readiness",
+      "authorization",
       "sync",
     ],
     "Library Owned Document descriptor",

@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 
 import { DATABASE_MODULE_V2_CONTRACT_VERSION } from "../../shared/database-module-v2";
 import { committedLocalCommit } from "../../shared/testing/local-commit";
+import { authorizedReadStampFixture } from "../../shared/testing/authorized-read-stamp-fixture";
 import {
   parseDatabaseId,
   parseDatabaseViewId,
@@ -44,10 +45,22 @@ const databaseRecord = () => ({
   updatedAt: "2026-07-25T00:00:00.000Z",
 });
 
+const viewAuthorization = (commitSeq: number) => authorizedReadStampFixture({
+  deliveryAddress: {
+    kind: "project",
+    library_id: identity.libraryId,
+    project_id: identity.projectId,
+  },
+  subject: { kind: "view", view_id: "view:test" },
+  commitSeq,
+  storeEpoch: identity.storeEpoch,
+});
+
 const databaseSnapshot = () => ({
   contract_version: 4 as const,
   store_epoch: identity.storeEpoch,
   commit_head: 17,
+  authorization: null,
   value: {
     kind: "database" as const,
     value: { database: databaseRecord() },
@@ -58,6 +71,7 @@ const emptyDataSourceWindowSnapshot = () => ({
   contract_version: 4 as const,
   store_epoch: identity.storeEpoch,
   commit_head: 17,
+  authorization: null,
   value: {
     kind: "data_source_window" as const,
     data_sources: {
@@ -72,6 +86,7 @@ const emptyViewDescriptorWindowSnapshot = () => ({
   contract_version: 4 as const,
   store_epoch: identity.storeEpoch,
   commit_head: 17,
+  authorization: null,
   value: {
     kind: "view_descriptor_window" as const,
     views: {
@@ -102,6 +117,7 @@ describe("Core Database Module Adapter", () => {
         libraryId: identity.libraryId,
         storeEpoch: identity.storeEpoch,
         commitSeq: 17,
+        authorization: null,
         value: {
           kind: "database",
           value: {
@@ -140,6 +156,7 @@ describe("Core Database Module Adapter", () => {
       contract_version: 6,
       store_epoch: identity.storeEpoch,
       commit_head: 21,
+      authorization: viewAuthorization(21),
       value: {
         kind: "catalog_window",
         databases: {
@@ -152,6 +169,7 @@ describe("Core Database Module Adapter", () => {
     catalogClient.enqueueDatabaseRead({
       ...emptyDataSourceWindowSnapshot(),
       commit_head: 21,
+      authorization: null,
       value: {
         ...emptyDataSourceWindowSnapshot().value,
         data_sources: {
@@ -163,6 +181,7 @@ describe("Core Database Module Adapter", () => {
     catalogClient.enqueueDatabaseRead({
       ...emptyViewDescriptorWindowSnapshot(),
       commit_head: 21,
+      authorization: null,
       value: {
         ...emptyViewDescriptorWindowSnapshot().value,
         views: {
@@ -202,6 +221,7 @@ describe("Core Database Module Adapter", () => {
       contract_version: 6,
       store_epoch: identity.storeEpoch,
       commit_head: 22,
+      authorization: null,
       value: {
         kind: "relation_candidate_window",
         candidates: {
@@ -251,6 +271,7 @@ describe("Core Database Module Adapter", () => {
       contract_version: 6,
       store_epoch: identity.storeEpoch,
       commit_head: 22,
+      authorization: null,
       value: {
         kind: "relation_candidate_window",
         candidates: {
@@ -286,6 +307,7 @@ describe("Core Database Module Adapter", () => {
       contract_version: 4 as const,
       store_epoch: identity.storeEpoch,
       commit_head: 19,
+      authorization: null,
     };
     client.enqueueDatabaseRead({
       ...base,
@@ -782,6 +804,7 @@ describe("Core Database Module Adapter", () => {
       contract_version: 4 as const,
       store_epoch: identity.storeEpoch,
       commit_head: 21,
+      authorization: viewAuthorization(21),
       value: {
         kind: "view_groups" as const,
         value: {

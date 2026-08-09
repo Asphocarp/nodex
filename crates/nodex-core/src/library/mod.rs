@@ -23,6 +23,7 @@ use crate::infrastructure::writer::{StoreReaders, StoreWriter};
 
 mod page_projection;
 mod projection_authorization;
+mod read_authorization;
 mod resource_access;
 mod search_snapshot;
 
@@ -214,6 +215,7 @@ impl LibraryModule {
                     contract_version: LIBRARY_CONTRACT_VERSION,
                     store_epoch: StoreEpoch(current_store_epoch),
                     commit_head: current_commit_seq,
+                    authorization: None,
                     value: LibraryReadValue::SearchSnapshotLease {
                         value: Box::new(value),
                     },
@@ -260,6 +262,7 @@ impl LibraryModule {
                 contract_version: LIBRARY_CONTRACT_VERSION,
                 store_epoch: StoreEpoch(store_epoch),
                 commit_head: commit_seq,
+                authorization: None,
                 value: LibraryReadValue::SearchSnapshotLease {
                     value: Box::new(value),
                 },
@@ -292,6 +295,7 @@ impl LibraryModule {
                 contract_version: LIBRARY_CONTRACT_VERSION,
                 store_epoch: StoreEpoch(store_epoch),
                 commit_head: commit_seq,
+                authorization: None,
                 value: LibraryReadValue::SearchSnapshotRelease { value },
             });
         }
@@ -406,7 +410,9 @@ impl LibraryModule {
                             )
                         })?;
                     let commit_seq = navigation::commit_head(&transaction)?;
-                    let value = match request.read {
+                    let read = request.read;
+                    let stamp_read = read.clone();
+                    let value = match read {
                         LibraryRead::Metadata => LibraryReadValue::Metadata {
                             profile_id,
                             library_id,
@@ -468,11 +474,20 @@ impl LibraryModule {
                             read,
                         )?,
                     };
+                    let authorization = read_authorization::issue(
+                        &transaction,
+                        &context,
+                        &store_epoch,
+                        commit_seq,
+                        &stamp_read,
+                        &value,
+                    )?;
                     transaction.commit()?;
                     Ok(ModuleReadSnapshot {
                         contract_version: LIBRARY_CONTRACT_VERSION,
                         store_epoch: StoreEpoch(store_epoch),
                         commit_head: commit_seq,
+                        authorization,
                         value,
                     })
                 })
@@ -497,6 +512,7 @@ impl LibraryModule {
             contract_version: LIBRARY_CONTRACT_VERSION,
             store_epoch: self.store_epoch.clone(),
             commit_head: state.commit_head,
+            authorization: None,
             value,
         })
     }
@@ -2853,7 +2869,7 @@ mod tests {
                 },
             )
             .expect("grant nested Page");
-        let LibraryReadValue::PageTarget { value } = module
+        let authorized_target = module
             .read(
                 &project_two_context,
                 ModuleReadRequest {
@@ -2863,9 +2879,28 @@ mod tests {
                     },
                 },
             )
-            .expect("authorized Page target")
-            .value
-        else {
+            .expect("authorized Page target");
+        let stamp = authorized_target
+            .authorization
+            .as_ref()
+            .expect("Core-issued Page target authorization stamp");
+        assert_eq!(stamp.covered_commit_seq, authorized_target.commit_head);
+        assert_eq!(stamp.store_epoch, authorized_target.store_epoch);
+        assert_eq!(
+            stamp.delivery_address,
+            nodex_core_contracts::events::DeliveryAddress::Project {
+                library_id: "library-1".to_owned(),
+                project_id: "project-2".to_owned(),
+            }
+        );
+        assert_eq!(
+            stamp.authorization_dependencies,
+            vec![nodex_core_contracts::events::ResourceKey::Page {
+                page_id: NESTED_PAGE.to_owned(),
+            }]
+        );
+        assert_eq!(stamp.stamp_hash.len(), 64);
+        let LibraryReadValue::PageTarget { value } = authorized_target.value else {
             panic!("Page target");
         };
         assert!(matches!(

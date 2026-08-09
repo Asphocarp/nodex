@@ -20,6 +20,7 @@ use nodex_core_contracts::document::{
     DocumentUpdateResourceUnavailableReason, OwnedDocumentCommitValue, OwnedDocumentIntent,
     OwnedDocumentRead, OwnedDocumentReadValue, OwnedDocumentReceipt,
 };
+use nodex_core_contracts::events::ResourceKey;
 use nodex_core_contracts::{
     AdapterKind, ApplyResponse, BoundModuleContext, CommittedCoreModuleEvent, CoreError,
     CoreErrorCode, CoreErrorRecovery, ModuleApplyRequest, ModuleMutationReceipt, ModuleName,
@@ -51,6 +52,7 @@ use crate::infrastructure::event_log::{
 };
 use crate::infrastructure::metrics::DurationMetricSnapshot;
 use crate::infrastructure::module_receipts::{DurableModuleContext, read_module_receipt};
+use crate::infrastructure::resource_authorization;
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 use crate::infrastructure::store::SqliteStoreKernel;
 use crate::infrastructure::writer::{StoreReaders, StoreWriter};
@@ -321,10 +323,19 @@ impl OwnedDocumentModule {
                         DocumentAccessKind::Read,
                     )?;
                     let store_epoch = read_store_epoch(connection)?;
+                    let commit_head = read_local_commit_head(connection)?;
+                    let authorization = issue_descriptor_read_stamp(
+                        connection,
+                        context,
+                        &authority,
+                        &store_epoch,
+                        commit_head,
+                    )?;
                     Ok(ModuleReadSnapshot {
                         contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                         store_epoch: StoreEpoch(store_epoch.clone()),
-                        commit_head: read_local_commit_head(connection)?,
+                        commit_head,
+                        authorization: Some(authorization),
                         value: OwnedDocumentReadValue::Descriptor {
                             descriptor: authority_descriptor(&authority, &store_epoch),
                         },
@@ -351,6 +362,7 @@ impl OwnedDocumentModule {
                             contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                             store_epoch: StoreEpoch(store_epoch.clone()),
                             commit_head: read_local_commit_head(connection)?,
+                            authorization: None,
                             value: OwnedDocumentReadValue::YjsSync {
                                 descriptor: authority_descriptor(&authority, &store_epoch),
                                 update,
@@ -459,6 +471,7 @@ impl OwnedDocumentModule {
                             contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                             store_epoch: StoreEpoch(store_epoch),
                             commit_head: read_local_commit_head(connection)?,
+                            authorization: None,
                             value,
                         })
                     })
@@ -485,6 +498,7 @@ impl OwnedDocumentModule {
                         contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                         store_epoch: StoreEpoch(read_store_epoch(connection)?),
                         commit_head: read_local_commit_head(connection)?,
+                        authorization: None,
                         value: OwnedDocumentReadValue::Versions { items, next },
                     })
                 })
@@ -509,6 +523,7 @@ impl OwnedDocumentModule {
                         contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                         store_epoch: StoreEpoch(read_store_epoch(connection)?),
                         commit_head: read_local_commit_head(connection)?,
+                        authorization: None,
                         value: OwnedDocumentReadValue::Version {
                             value: json!({
                                 "summary": version.summary,
@@ -529,6 +544,7 @@ impl OwnedDocumentModule {
                         contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                         store_epoch: StoreEpoch(read_store_epoch(connection)?),
                         commit_head: read_local_commit_head(connection)?,
+                        authorization: None,
                         value: OwnedDocumentReadValue::CanvasCompactionEligibility { stats },
                     })
                 })
@@ -1034,6 +1050,7 @@ impl OwnedDocumentModule {
                     contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                     store_epoch: StoreEpoch(store_epoch),
                     commit_head,
+                    authorization: None,
                     value: OwnedDocumentReadValue::AgentSemanticSnapshot {
                         snapshot: Box::new(snapshot),
                     },
@@ -1202,6 +1219,7 @@ impl OwnedDocumentModule {
                 contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                 store_epoch: StoreEpoch(store_epoch),
                 commit_head,
+                authorization: None,
                 value: OwnedDocumentReadValue::AgentSemanticMutationPreparation {
                     preparation: AgentOperationPreparation {
                         state: AgentOperationPreparationState::CommittedReplay,
@@ -1227,6 +1245,7 @@ impl OwnedDocumentModule {
                     contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                     store_epoch: StoreEpoch(store_epoch),
                     commit_head,
+                    authorization: None,
                     value: OwnedDocumentReadValue::AgentSemanticMutationPreparation {
                         preparation: AgentOperationPreparation {
                             state: AgentOperationPreparationState::Prepared,
@@ -4329,6 +4348,39 @@ fn authority_descriptor(authority: &DocumentAuthorityRow, store_epoch: &str) -> 
         "readiness": readiness,
         "sync": sync,
     })
+}
+
+fn issue_descriptor_read_stamp(
+    connection: &Connection,
+    context: &BoundModuleContext,
+    authority: &DocumentAuthorityRow,
+    store_epoch: &str,
+    commit_head: i64,
+) -> Result<nodex_core_contracts::events::AuthorizedReadStamp, StoreError> {
+    let document = ResourceKey::Document {
+        document_id: authority.head.id.clone(),
+    };
+    let subject = match authority.owner_type.as_str() {
+        "page" => ResourceKey::Page {
+            page_id: authority.owner_block_id.clone(),
+        },
+        "database" => ResourceKey::Database {
+            database_id: authority.owner_block_id.clone(),
+        },
+        "canvas" => ResourceKey::Canvas {
+            canvas_id: authority.owner_block_id.clone(),
+        },
+        _ => document.clone(),
+    };
+    resource_authorization::issue_read_stamp(
+        connection,
+        context,
+        StoreEpoch(store_epoch.to_owned()),
+        commit_head,
+        subject.clone(),
+        vec![subject.clone()],
+        vec![subject, document],
+    )
 }
 
 #[allow(clippy::too_many_arguments)]

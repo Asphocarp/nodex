@@ -317,10 +317,13 @@ Store v109 and later retain Relation targets only in normalized edge authority a
   path. Renderer ingress runs every matching revoke reducer synchronously
   before post-state content or repair I/O. A transport `AddressReset` has a
   separate lease/floor identity and cannot masquerade as semantic visibility.
-  Authorization-bearing inactive
-  query entries keep their scope subscription, and an initial projection
-  checkpoint fences an older cache if a revocation raced subscription setup;
-  only canonical repair may coalesce.
+  Authorization-bearing reads carry a same-snapshot Core stamp. Renderer
+  freshness leases separate request-known identities from response-known
+  authorization roots, then verify epoch, address, scope, hash, covered commit,
+  address floor, and every exact root floor before adoption. Older in-flight
+  reads retain relevant floors until completion or timeout. Active cache
+  registrations retain their roots, and overflow fails closed at the address
+  boundary instead of evicting the oldest floor.
   This prevents stale display or cache retention; it does not replace Core's
   authorization check on every subsequent read.
 - Each renderer window has one renderer-lifetime LocalCommit ingress, while Main holds one multiplexed audience broker for its active Library/Project address set. Neither owner is tied to React Provider cleanup. Broker scope changes are make-before-break: the replacement barrier and Core recipient leases are accepted before the predecessor closes, and overlapping complete packets deduplicate by scoped resource identity. Exact consumers order by `(store_epoch, scope_key, schema_version, revision, effect_hash)`, never by the global stream cursor. Integrity claims intentionally omit recipient scope so audience divergence fails closed; delivery claims include the concrete Library/Project address so a Library packet cannot suppress a Project packet for the same effect. A contiguous complete effect is reduced synchronously. Gaps, patchless effects, explicit `requires_read_at_least`, conservative visibility, address reset, or hash divergence coalesce into a canonical floor read; retry remains local to that exact address. Canonical snapshots cannot overwrite a newer coordinate. Database View groups and all group windows expose the same projection authority; mixed revisions are retried, and a continuation crossing a revision is discarded. Projection audiences use the pre/post authorization closure, so retained and newly authorized third-party Projects receive their own transition instead of waiting for a later canonical read. `board-changed` remains optional compatibility fanout and is never required for convergence.

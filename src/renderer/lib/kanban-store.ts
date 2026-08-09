@@ -1621,6 +1621,7 @@ class KanbanProjectStore {
       },
       consumerKey: `kanban:${this.projectId}:${this.databaseViewId ?? "primary"}`,
       causalRuntime,
+      projectionEffects: "ignore",
       getDependencies: () => {
         const current = this.baseBoardAuthority;
         return {

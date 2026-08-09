@@ -39,6 +39,7 @@ import {
   type LibraryRouteTarget,
   type LibraryWriteParent,
 } from "./library-module";
+import { parseAuthorizedReadStamp } from "./authorized-read-stamp";
 import {
   PROJECT_MARKER_COLORS,
   PROJECT_MARKER_ICONS,
@@ -1659,6 +1660,7 @@ export const parseLibraryModuleReadResult = (
     "libraryId",
     "storeEpoch",
     "commitSeq",
+    "authorization",
     "value",
   ]);
   if (snapshot.version !== LIBRARY_MODULE_CONTRACT_VERSION) {
@@ -1675,6 +1677,9 @@ export const parseLibraryModuleReadResult = (
         snapshot.commitSeq,
         "libraryModuleReadResult.value.commitSeq",
       ),
+      authorization: snapshot.authorization === null
+        ? null
+        : parseAuthorizedReadStamp(snapshot.authorization),
       value: parseReadValue(snapshot.value),
     },
   };

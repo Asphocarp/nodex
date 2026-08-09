@@ -146,6 +146,7 @@ export async function readNativeDatabaseQuery(
         libraryId: authority.libraryId,
         storeEpoch: snapshot.store_epoch,
         commitSeq: snapshot.commit_head,
+        authorization: snapshot.authorization,
         value: {
           kind: request.tool === "query_database_view"
             ? "query"

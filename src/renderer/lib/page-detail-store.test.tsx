@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 
 import { plainTextToPortableRichText } from "../../shared/block-documents";
 import type { PageDetail } from "../../shared/page-detail";
+import { authorizedReadStampFixture } from "../../shared/testing/authorized-read-stamp-fixture";
 import type { ProjectionStreamMessage } from "../../shared/projection-stream";
 import type {
   ResourceRevocationDeliveryMessage,
@@ -23,7 +24,9 @@ vi.mock("./api", () => ({
 import {
   getPageDetail,
   invalidatePageDetail,
+  pageDetailStoreDiagnostics,
   resetPageDetailStoreForTests,
+  setPageDetail,
   usePageDetail,
 } from "./page-detail-store";
 
@@ -39,6 +42,16 @@ const detail = (
   libraryId: "library-1",
   storeEpoch,
   commitSeq: headSeq,
+  authorization: authorizedReadStampFixture({
+    deliveryAddress: {
+      kind: "project",
+      library_id: "library-1",
+      project_id: "project-1",
+    },
+    subject: { kind: "page", page_id: "page-1" },
+    storeEpoch,
+    commitSeq: headSeq,
+  }),
   page: {
     pageId: "page-1",
     libraryId: "library-1",
@@ -201,6 +214,27 @@ describe("Page Detail store realtime convergence", () => {
           if (revocationListener === listener) revocationListener = null;
         };
       },
+    });
+  });
+
+  test("bounds inactive Page Detail entries across 10k-key churn", () => {
+    const template = detail("Bounded", 1);
+    for (let index = 0; index < 10_000; index += 1) {
+      setPageDetail({
+        ...template,
+        page: {
+          ...template.page,
+          pageId: `page-${index}`,
+          documentId: `document-${index}`,
+        },
+      });
+    }
+
+    expect(pageDetailStoreDiagnostics()).toMatchObject({
+      entries: 128,
+      inFlight: 0,
+      projectionRegistrations: 0,
+      freshnessRegistrations: 0,
     });
   });
 
@@ -434,6 +468,43 @@ describe("Page Detail store realtime convergence", () => {
       expect(result.current.detail?.page.title).toBe("Still readable");
     });
     expect(result.current.error).toBe(null);
+  });
+
+  test("keeps revoked dependency data empty after the trailing read fails", async () => {
+    mocks.readPageDetail
+      .mockResolvedValueOnce({ ok: true, value: detail("Before", 1) })
+      .mockRejectedValueOnce(new Error("canonical read unavailable"))
+      .mockRejectedValueOnce(new Error("canonical read unavailable"));
+    const { result } = renderHook(
+      () => usePageDetail("library-1", "project-1", "page-1"),
+      { wrapper },
+    );
+    await waitFor(() => expect(result.current.detail?.page.title).toBe("Before"));
+    const revocation = pageRevocation(2);
+
+    await act(async () => {
+      publish({
+        ...revocation,
+        delivery: {
+          ...revocation.delivery,
+          revocation: {
+            ...revocation.delivery.revocation,
+            resource_kind: "document",
+            resource_id: "document-1",
+          },
+        },
+      });
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(result.current).toMatchObject({
+        detail: null,
+        loading: false,
+        error: "canonical read unavailable",
+      });
+    });
+    expect(mocks.readPageDetail).toHaveBeenCalledTimes(3);
   });
 
   test("retains an authorized Page across surface remounts without serving it past an effect", async () => {

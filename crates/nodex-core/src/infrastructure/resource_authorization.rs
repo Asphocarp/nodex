@@ -1,8 +1,13 @@
 //! Canonical read authorization and transaction-scoped visibility capture.
 
 use nodex_core_contracts::BoundModuleContext;
-use nodex_core_contracts::events::{DeliveryAuthorizationScope, ResourceKey};
+use nodex_core_contracts::StoreEpoch;
+use nodex_core_contracts::events::{
+    AuthorizedReadStamp, DeliveryAddress, DeliveryAuthorizationScope, ResourceKey,
+};
 use rusqlite::{Connection, OptionalExtension, params};
+use serde::Serialize;
+use sha2::{Digest, Sha256};
 
 use super::sqlite::{StoreError, StoreErrorCode};
 
@@ -12,6 +17,18 @@ pub(crate) trait AuthorizationGraphView {
 
 pub(crate) struct CurrentGraphView<'connection> {
     connection: &'connection Connection,
+}
+
+#[derive(Serialize)]
+struct CanonicalAuthorizedReadStamp<'a> {
+    hash_version: u32,
+    store_epoch: &'a StoreEpoch,
+    delivery_address: &'a DeliveryAddress,
+    authorization_scope: &'a DeliveryAuthorizationScope,
+    subject: &'a ResourceKey,
+    request_dependencies: &'a [ResourceKey],
+    authorization_dependencies: &'a [ResourceKey],
+    covered_commit_seq: i64,
 }
 
 impl<'connection> CurrentGraphView<'connection> {
@@ -33,6 +50,83 @@ pub(crate) fn can_read(
     resource: &ResourceKey,
 ) -> Result<bool, StoreError> {
     can_read_in_view(&CurrentGraphView::new(connection), context, scope, resource)
+}
+
+pub(crate) fn issue_read_stamp(
+    connection: &Connection,
+    context: &BoundModuleContext,
+    store_epoch: StoreEpoch,
+    covered_commit_seq: i64,
+    subject: ResourceKey,
+    mut request_dependencies: Vec<ResourceKey>,
+    mut authorization_dependencies: Vec<ResourceKey>,
+) -> Result<AuthorizedReadStamp, StoreError> {
+    if covered_commit_seq < 0 {
+        return Err(corrupt("Authorized read commit floor is invalid"));
+    }
+    request_dependencies.sort();
+    request_dependencies.dedup();
+    authorization_dependencies.sort();
+    authorization_dependencies.dedup();
+    if request_dependencies.is_empty() || authorization_dependencies.is_empty() {
+        return Err(corrupt("Authorized read dependencies are empty"));
+    }
+    let authorization_scope = match &context.project_id {
+        Some(project_id) => DeliveryAuthorizationScope::Project {
+            library_id: context.library_id.0.clone(),
+            project_id: project_id.0.clone(),
+        },
+        None => DeliveryAuthorizationScope::Library {
+            library_id: context.library_id.0.clone(),
+        },
+    };
+    let delivery_address = match &authorization_scope {
+        DeliveryAuthorizationScope::Library { library_id } => DeliveryAddress::Library {
+            library_id: library_id.clone(),
+        },
+        DeliveryAuthorizationScope::Project {
+            library_id,
+            project_id,
+        } => DeliveryAddress::Project {
+            library_id: library_id.clone(),
+            project_id: project_id.clone(),
+        },
+        DeliveryAuthorizationScope::Document { .. } => {
+            return Err(corrupt("Library read used a Document authorization scope"));
+        }
+    };
+    for resource in &authorization_dependencies {
+        if !can_read(connection, context, &authorization_scope, resource)? {
+            return Err(StoreError::new(
+                StoreErrorCode::Unauthorized,
+                format!(
+                    "Canonical read authorization changed before stamp issuance for {resource:?}"
+                ),
+                false,
+            ));
+        }
+    }
+    let encoded = serde_json::to_vec(&CanonicalAuthorizedReadStamp {
+        hash_version: 1,
+        store_epoch: &store_epoch,
+        delivery_address: &delivery_address,
+        authorization_scope: &authorization_scope,
+        subject: &subject,
+        request_dependencies: &request_dependencies,
+        authorization_dependencies: &authorization_dependencies,
+        covered_commit_seq,
+    })
+    .map_err(|_| corrupt("Authorized read stamp input is invalid"))?;
+    Ok(AuthorizedReadStamp {
+        store_epoch,
+        delivery_address,
+        authorization_scope,
+        subject,
+        request_dependencies,
+        authorization_dependencies,
+        covered_commit_seq,
+        stamp_hash: format!("{:x}", Sha256::digest(encoded)),
+    })
 }
 
 pub(crate) fn can_read_in_view(
@@ -221,26 +315,29 @@ fn database_is_authorized(
     context: &BoundModuleContext,
     database_id: &str,
 ) -> Result<bool, StoreError> {
-    let belongs = connection.query_row(
-        "SELECT EXISTS(
-           SELECT 1 FROM blocks block
+    let owner_project_id = connection
+        .query_row(
+            "SELECT block.project_id FROM blocks block
            JOIN projects project ON project.id = block.project_id
            JOIN database_containers container ON container.block_id = block.id
            WHERE block.id = ?1 AND project.library_id = ?2
-             AND block.lifecycle = 'active'
-         )",
-        params![database_id, context.library_id.0],
-        |row| row.get::<_, i64>(0),
-    )? == 1;
-    if !belongs {
+             AND block.lifecycle = 'active'",
+            params![database_id, context.library_id.0],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+    let Some(owner_project_id) = owner_project_id else {
         return Ok(false);
-    }
+    };
     if matches!(scope, DeliveryAuthorizationScope::Library { .. }) {
         return Ok(true);
     }
     let Some(project_id) = scope_project_id(scope) else {
         return Ok(false);
     };
+    if project_id == owner_project_id {
+        return Ok(true);
+    }
     let primary = match crate::database::authorization::project_primary_database(
         connection,
         &context.library_id.0,
@@ -352,4 +449,8 @@ fn authorization_miss(error: &StoreError) -> bool {
         error.code,
         StoreErrorCode::NotFound | StoreErrorCode::Unauthorized
     )
+}
+
+fn corrupt(message: &str) -> StoreError {
+    StoreError::new(StoreErrorCode::StoreCorrupt, message, false)
 }

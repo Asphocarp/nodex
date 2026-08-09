@@ -1069,6 +1069,7 @@ describe("native desktop Nodex Agent dynamic service", () => {
       return {
         store_epoch: "store-native-agent",
         commit_head: 13,
+        authorization: null,
         value,
       };
     });

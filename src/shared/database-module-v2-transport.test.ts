@@ -462,6 +462,7 @@ describe("Database Module v2 transport boundary", () => {
         libraryId: "library-1",
         storeEpoch: "epoch-1",
         commitSeq: 4,
+        authorization: null,
         value: {
           kind: "data_source",
           value: {
@@ -510,6 +511,7 @@ describe("Database Module v2 transport boundary", () => {
         libraryId: "library-1",
         storeEpoch: "epoch-1",
         commitSeq: 4,
+        authorization: null,
         value: {
           kind: "relation_target_window",
           value: {
@@ -616,6 +618,7 @@ describe("Database Module v2 transport boundary", () => {
         libraryId: "library-1",
         storeEpoch: "epoch-1",
         commitSeq: 4,
+        authorization: null,
         value: {
           kind: "data_source",
           value: {

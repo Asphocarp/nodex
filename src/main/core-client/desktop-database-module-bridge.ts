@@ -152,6 +152,9 @@ const readBoundedDatabaseViewWindow = async <
     throw new Error("Database Core returned a non-window View snapshot");
   }
   const value = snapshot.value.value;
+  if (!snapshot.authorization) {
+    throw new Error("Database View read omitted canonical authorization");
+  }
   const [viewResult, databaseResult, sourceResult] = await Promise.all([
     input.readDescriptor({
       target: {
@@ -226,6 +229,7 @@ const readBoundedDatabaseViewWindow = async <
     viewId: value.view_id,
     storeEpoch: snapshot.store_epoch,
     commitSeq: snapshot.commit_head,
+    authorization: snapshot.authorization,
     projection: {
       scopeKey: value.projection.scope.canonical_key,
       schemaVersion: value.projection.scope.schema_version,
@@ -277,6 +281,9 @@ const readBoundedDatabaseViewGroups = async <
   if (snapshot.value.kind !== "view_groups") {
     throw new Error("Database Core returned a non-groups View snapshot");
   }
+  if (!snapshot.authorization) {
+    throw new Error("Database View groups read omitted canonical authorization");
+  }
   const value = snapshot.value.value;
   return {
     projectId: input.projectId,
@@ -286,6 +293,7 @@ const readBoundedDatabaseViewGroups = async <
     viewId: value.view_id,
     storeEpoch: snapshot.store_epoch,
     commitSeq: snapshot.commit_head,
+    authorization: snapshot.authorization,
     projection: {
       scopeKey: value.projection.scope.canonical_key,
       schemaVersion: value.projection.scope.schema_version,
@@ -453,6 +461,7 @@ export const createDesktopDatabaseModuleBridge = (
           libraryId: window.libraryId,
           storeEpoch: window.storeEpoch,
           commitSeq: window.commitSeq,
+          authorization: window.authorization,
           dataSourceId: window.dataSourceId,
           view: window.view,
           rows: window.rows,

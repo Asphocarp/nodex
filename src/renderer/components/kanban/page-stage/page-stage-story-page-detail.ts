@@ -20,11 +20,17 @@ import type {
 } from "../../../../shared/page-detail";
 import type { DatabasePage } from "@/lib/types";
 import { testPropertySemantics } from "../../../../shared/testing/database-property-record";
+import { authorizedReadStampFixture } from "../../../../shared/testing/authorized-read-stamp-fixture";
 
 /** Storybook-only bridge from visual Kanban fixtures to canonical Page Detail. */
 export const buildPageDetailStoryResult = (
   projectId: string,
   page: DatabasePage | null,
+  authority: {
+    readonly libraryId?: string;
+    readonly storeEpoch?: string;
+    readonly commitSeq?: number;
+  } = {},
 ): PageDetailResult => {
   if (!page) {
     return {
@@ -36,7 +42,9 @@ export const buildPageDetailStoryResult = (
       },
     };
   }
-  const libraryId = "library:storybook";
+  const libraryId = authority.libraryId ?? "library:storybook";
+  const storeEpoch = authority.storeEpoch ?? "store-epoch:storybook";
+  const commitSeq = authority.commitSeq ?? 1;
   const databaseId = parseDatabaseId("019f714b-0000-7000-8000-000000000011");
   const dataSourceId = parseDataSourceId("019f714b-0000-7000-8000-000000000012");
   const viewId = parseDatabaseViewId("019f714b-0000-7000-8000-000000000013");
@@ -136,8 +144,18 @@ export const buildPageDetailStoryResult = (
       version: 3,
       projectId,
       libraryId,
-      storeEpoch: "store-epoch:storybook",
-      commitSeq: 1,
+      storeEpoch,
+      commitSeq,
+      authorization: authorizedReadStampFixture({
+        deliveryAddress: {
+          kind: "project",
+          library_id: libraryId,
+          project_id: projectId,
+        },
+        subject: { kind: "page", page_id: page.id },
+        storeEpoch,
+        commitSeq,
+      }),
       page: {
         pageId: page.id,
         libraryId,

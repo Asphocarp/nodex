@@ -63,6 +63,7 @@ const readResult = (): DatabaseModuleReadResultV2 => ({
     libraryId: "library-1",
     storeEpoch: "epoch-1",
     commitSeq: 8,
+    authorization: null,
     value: {
       kind: "database",
       value: {

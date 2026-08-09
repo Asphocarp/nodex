@@ -749,6 +749,7 @@ export const createCoreDatabaseModuleAdapter = (
           libraryId: input.libraryId,
           storeEpoch: snapshot.store_epoch,
           commitSeq: snapshot.commit_head,
+          authorization: snapshot.authorization ?? null,
           value,
         },
       });
@@ -844,6 +845,7 @@ export const createCoreLibraryDatabaseModuleAdapter = (
           libraryId: input.libraryId,
           storeEpoch: snapshot.store_epoch,
           commitSeq: snapshot.commit_head,
+          authorization: snapshot.authorization ?? null,
           value: await hydrateCoreReadValue(input.client, snapshot.value),
         },
       });

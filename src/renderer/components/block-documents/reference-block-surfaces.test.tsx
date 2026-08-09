@@ -2,6 +2,7 @@ import { act, fireEvent, waitFor } from "@testing-library/react";
 import { describe, expect, test } from "vitest";
 import { plainTextToPortableRichText } from "../../../shared/block-documents";
 import type { DatabaseViewReadModel } from "../../../shared/database-views";
+import { AUTHORIZED_READ_STAMP_EXAMPLE } from "../../../shared/testing/authorized-read-stamp-example";
 import type { DatabasePageSummary } from "@/lib/types";
 import {
   BlockDisclosureStateStore,
@@ -35,6 +36,7 @@ describe("DatabaseViewReferenceSurface", () => {
       libraryId: "library:test",
       storeEpoch: "epoch:test",
       commitSeq: 1,
+      authorization: AUTHORIZED_READ_STAMP_EXAMPLE,
       dataSourceId: "data-source:test",
       view: {
         id: "cycle-view",
@@ -79,6 +81,7 @@ describe("DatabaseViewReferenceSurface", () => {
       libraryId: "library:test",
       storeEpoch: "epoch:test",
       commitSeq: 1,
+      authorization: AUTHORIZED_READ_STAMP_EXAMPLE,
       dataSourceId: "data-source:test",
       view: {
         id: "view-1",
@@ -158,6 +161,7 @@ describe("DatabaseViewReferenceSurface", () => {
       libraryId: "library:test",
       storeEpoch: "epoch:test",
       commitSeq: 1,
+      authorization: AUTHORIZED_READ_STAMP_EXAMPLE,
       dataSourceId: "data-source:test",
       view: {
         id: "focus-view",

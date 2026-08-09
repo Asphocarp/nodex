@@ -19,6 +19,10 @@ import {
   type AddressReset,
   type DeliveryAddress,
 } from "../../shared/recipient-delivery";
+import {
+  AuthorityFreshnessIndex,
+  rendererAuthorityFreshnessIndex,
+} from "./authority-freshness-index";
 
 type ProjectionListener = (message: ProjectionStreamMessage) => void;
 type RevocationListener = (message: ResourceRevocationMessage) => void;
@@ -268,6 +272,7 @@ export class RendererLocalCommitIngress {
   readonly #revocationListeners = new Map<string, Set<RevocationListener>>();
   readonly #documentListeners = new Map<string, Set<DocumentListener>>();
   readonly #atomListeners = new Set<AtomListener>();
+  readonly #authorityFreshnessIndex: AuthorityFreshnessIndex | undefined;
   readonly #onListenerError: ((error: unknown) => void) | undefined;
   #inFlightAdmissions = 0;
 
@@ -275,6 +280,7 @@ export class RendererLocalCommitIngress {
     readonly maxRememberedCommits?: number;
     readonly maxInFlightAdmissions?: number;
     readonly onListenerError?: (error: unknown) => void;
+    readonly authorityFreshnessIndex?: AuthorityFreshnessIndex;
   } = {}) {
     this.#maxRememberedCommits = Math.max(
       1,
@@ -287,6 +293,7 @@ export class RendererLocalCommitIngress {
       ),
     );
     this.#onListenerError = input.onListenerError;
+    this.#authorityFreshnessIndex = input.authorityFreshnessIndex;
   }
 
   async admitApply(apply: LocalCommitApply): Promise<RendererLocalCommitAdmission> {
@@ -328,6 +335,11 @@ export class RendererLocalCommitIngress {
     ) {
       throw new TypeError("Recipient address reset is invalid");
     }
+    this.#authorityFreshnessIndex?.admitAddressReset({
+      deliveryAddress: reset.delivery_address,
+      storeEpoch: reset.store_epoch,
+      requiredCommitSeq: reset.required_commit_seq,
+    });
     this.#resetAddress(
       reset.delivery_address,
       {
@@ -428,6 +440,16 @@ export class RendererLocalCommitIngress {
 
     this.#remembered.set(commitKey, state);
     this.#touch(commitKey, state);
+
+    for (const delta of novelVisibilityDeltas) {
+      this.#authorityFreshnessIndex?.admitVisibility({
+        deliveryAddress: packet.delivery_address,
+        storeEpoch: identity.store_epoch,
+        commitSeq: identity.commit_seq,
+        change: delta.change.kind,
+        roots: delta.roots,
+      });
+    }
 
     const conservativeReset = novelVisibilityDeltas.find(
       (delta) => delta.change.kind === "conservative_reset",
@@ -582,7 +604,9 @@ export class RendererLocalCommitIngress {
   }
 }
 
-export const rendererLocalCommitIngress = new RendererLocalCommitIngress();
+export const rendererLocalCommitIngress = new RendererLocalCommitIngress({
+  authorityFreshnessIndex: rendererAuthorityFreshnessIndex,
+});
 
 export const admitLocalCommitApply = async (
   apply: LocalCommitApply,

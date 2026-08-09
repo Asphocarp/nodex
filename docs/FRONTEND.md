@@ -187,6 +187,14 @@ React Provider-owned state. Projection revision/hash integrity is shared across
 audiences, but delivery dedupe includes the concrete Library/Project address;
 receiving a Library copy must never suppress the same effect for a mounted
 Project consumer.
+Authority-bearing canonical reads pass through the renderer-lifetime
+`AuthorityFreshnessIndex`. Before I/O, a read lease names only its delivery
+address, subject, and request dependencies. Core's same-snapshot
+`AuthorizedReadStamp` supplies direct, ancestor, membership, and grant roots;
+renderer DTO fields never infer them. Exact visibility changes fence only
+matching registrations, while conservative or address resets fence the whole
+address. Address, root-floor, in-flight, and registration bounds fail closed
+without drop-oldest eviction.
 Contiguous complete projection effects reduce synchronously, while canonical
 stores reread only for a gap, reset, incomplete patch, or integrity conflict.
 Renderer code therefore needs neither a structural pending projection nor a

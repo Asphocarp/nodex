@@ -38,6 +38,7 @@ const makeDescriptor = (
   ownerType: "page",
   ownerLifecycle: "active",
   documentId: "opaque-owned-document-id",
+  authorization: null,
   storeEpoch: "store-epoch-a",
   generation: 3,
   headSeq: 11,

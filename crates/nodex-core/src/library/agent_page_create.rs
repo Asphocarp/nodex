@@ -192,6 +192,7 @@ pub(super) fn prepare_create_pages(
                 contract_version: LIBRARY_CONTRACT_VERSION,
                 store_epoch: StoreEpoch(store_epoch),
                 commit_head,
+                authorization: None,
                 value: LibraryReadValue::AgentCreatePagesPreparation {
                     value: Box::new(LibraryAgentCreatePagesPreparation {
                         preparation: AgentOperationPreparation {
@@ -230,6 +231,7 @@ pub(super) fn prepare_create_pages(
                 contract_version: LIBRARY_CONTRACT_VERSION,
                 store_epoch: StoreEpoch(store_epoch),
                 commit_head,
+                authorization: None,
                 value: LibraryReadValue::AgentCreatePagesPreparation {
                     value: Box::new(LibraryAgentCreatePagesPreparation {
                         preparation: AgentOperationPreparation {

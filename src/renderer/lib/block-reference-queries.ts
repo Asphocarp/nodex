@@ -20,7 +20,11 @@ import {
   projectIdFromContentAccessContext,
   type ContentAccessContext,
 } from "../../shared/content-access-context";
-import { resourceAuthorityQueryMeta } from "./resource-authority-query-cache";
+import type { AuthorizedReadStamp } from "../../shared/authorized-read-stamp";
+import {
+  admitResourceAuthorityQuery,
+  resourceAuthorityQueryMeta,
+} from "./resource-authority-query-cache";
 
 export interface ReferenceQueryResult<T> {
   readonly data: T | null;
@@ -31,6 +35,13 @@ export interface ReferenceQueryResult<T> {
 const toError = (error: unknown): Error | null => {
   if (error === null || error === undefined) return null;
   return error instanceof Error ? error : new Error(String(error));
+};
+
+const resolveReferenceAuthority = (_queryKey: readonly unknown[], data: unknown) => {
+  const authorization = (data as {
+    readonly authorization?: AuthorizedReadStamp | null;
+  } | null)?.authorization;
+  return authorization ? { authorizations: [authorization] } : null;
 };
 
 const pageOwnershipPathChangeSubscriptions =
@@ -48,31 +59,17 @@ const pageTargetQueryOptions = (
 ) => {
   return {
     queryKey: queryKeys.pageTargets.byId(accessContext, targetBlockId),
-    queryFn: () => resolvePageTarget({
-      accessContext,
-      targetPageId: targetBlockId,
-    }),
+    queryFn: async () => admitResourceAuthorityQuery(
+      await resolvePageTarget({
+        accessContext,
+        targetPageId: targetBlockId,
+      }),
+      resolveReferenceAuthority,
+    ),
     enabled: targetBlockId.length > 0,
     staleTime: 5_000,
     refetchOnWindowFocus: true,
-    meta: resourceAuthorityQueryMeta((_queryKey, data) => {
-      const snapshot = data as PageTargetReadModel | undefined;
-      if (!snapshot) return null;
-      return {
-        scope: accessContext.kind === "library"
-          ? { kind: "library", libraryId: snapshot.libraryId }
-          : {
-              kind: "project",
-              libraryId: snapshot.libraryId,
-              projectId: accessContext.projectId,
-            },
-        cursor: {
-          storeEpoch: snapshot.storeEpoch,
-          commitSeq: snapshot.commitSeq,
-        },
-        dependencies: { pageIds: [targetBlockId] },
-      };
-    }),
+    meta: resourceAuthorityQueryMeta(resolveReferenceAuthority),
   };
 };
 
@@ -164,35 +161,14 @@ export const usePageOwnershipPathReadModel = (
   );
   const query = useQuery({
     queryKey,
-    queryFn: () => resolvePageOwnershipPath({
-      accessContext,
-      targetPageId,
-    }),
+    queryFn: async () => admitResourceAuthorityQuery(
+      await resolvePageOwnershipPath({ accessContext, targetPageId }),
+      resolveReferenceAuthority,
+    ),
     enabled,
     staleTime: 5_000,
     refetchOnWindowFocus: true,
-    meta: resourceAuthorityQueryMeta((_queryKey, data) => {
-      const snapshot = data as PageOwnershipPathReadModel | undefined;
-      if (!snapshot) return null;
-      return {
-        scope: accessContext.kind === "library"
-          ? { kind: "library", libraryId: snapshot.libraryId }
-          : {
-              kind: "project",
-              libraryId: snapshot.libraryId,
-              projectId: accessContext.projectId,
-            },
-        cursor: {
-          storeEpoch: snapshot.storeEpoch,
-          commitSeq: snapshot.commitSeq,
-        },
-        dependencies: {
-          pageIds: snapshot.status === "available"
-            ? [targetPageId, ...snapshot.ancestors.map((ancestor) => ancestor.pageId)]
-            : [targetPageId],
-        },
-      };
-    }),
+    meta: resourceAuthorityQueryMeta(resolveReferenceAuthority),
   });
   const libraryId = library.data?.libraryId ?? query.data?.libraryId ?? null;
   const observedPageIds = query.data?.status === "available"
@@ -252,37 +228,18 @@ export const useDatabaseViewReadModel = (
   );
   const { data, error, status } = useQuery({
     queryKey,
-    queryFn: () => readDatabaseViewReference({
-      accessContext,
-      databaseViewId,
-      ...(hostBlockId ? { hostBlockId } : {}),
-    }),
+    queryFn: async () => admitResourceAuthorityQuery(
+      await readDatabaseViewReference({
+        accessContext,
+        databaseViewId,
+        ...(hostBlockId ? { hostBlockId } : {}),
+      }),
+      resolveReferenceAuthority,
+    ),
     enabled,
     staleTime: 5_000,
     refetchOnWindowFocus: true,
-    meta: resourceAuthorityQueryMeta((_queryKey, value) => {
-      const snapshot = value as DatabaseViewReadModel | undefined;
-      if (!snapshot) return null;
-      return {
-        scope: accessContext.kind === "library"
-          ? { kind: "library", libraryId: snapshot.libraryId }
-          : {
-              kind: "project",
-              libraryId: snapshot.libraryId,
-              projectId: accessContext.projectId,
-            },
-        cursor: {
-          storeEpoch: snapshot.storeEpoch,
-          commitSeq: snapshot.commitSeq,
-        },
-        dependencies: {
-          databaseIds: [snapshot.view.databaseBlockId],
-          dataSourceIds: [snapshot.dataSourceId],
-          viewIds: [databaseViewId],
-          pageIds: snapshot.rows.map((row) => row.page.id),
-        },
-      };
-    }),
+    meta: resourceAuthorityQueryMeta(resolveReferenceAuthority),
   });
   const libraryId = library.data?.libraryId ?? data?.libraryId ?? null;
   useProjectionQueryRefresh({

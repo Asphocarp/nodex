@@ -24864,6 +24864,16 @@
                   "value"
                 ],
                 "properties": {
+                  "authorization": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/AuthorizedReadStamp"
+                      }
+                    ]
+                  },
                   "commit_head": {
                     "type": "integer",
                     "format": "int64"
@@ -25106,6 +25116,16 @@
                   "value"
                 ],
                 "properties": {
+                  "authorization": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/AuthorizedReadStamp"
+                      }
+                    ]
+                  },
                   "commit_head": {
                     "type": "integer",
                     "format": "int64"
@@ -25452,6 +25472,16 @@
                   "value"
                 ],
                 "properties": {
+                  "authorization": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/AuthorizedReadStamp"
+                      }
+                    ]
+                  },
                   "commit_head": {
                     "type": "integer",
                     "format": "int64"
@@ -26156,6 +26186,16 @@
                   "value"
                 ],
                 "properties": {
+                  "authorization": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/AuthorizedReadStamp"
+                      }
+                    ]
+                  },
                   "commit_head": {
                     "type": "integer",
                     "format": "int64"
@@ -26406,6 +26446,16 @@
                   "value"
                 ],
                 "properties": {
+                  "authorization": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/AuthorizedReadStamp"
+                      }
+                    ]
+                  },
                   "commit_head": {
                     "type": "integer",
                     "format": "int64"
@@ -26760,6 +26810,16 @@
                   "value"
                 ],
                 "properties": {
+                  "authorization": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/AuthorizedReadStamp"
+                      }
+                    ]
+                  },
                   "commit_head": {
                     "type": "integer",
                     "format": "int64"

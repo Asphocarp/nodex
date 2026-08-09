@@ -61,6 +61,7 @@ import type {
   PageOwnershipPathReadModel,
   ResolvePageOwnershipPathInput,
 } from "../../shared/page-ownership-paths";
+import type { AuthorizedReadStamp } from "../../shared/authorized-read-stamp";
 import { isWorkflowStatus } from "../../shared/workflow-status";
 import { CoreModuleResponseError } from "./core-client";
 import {
@@ -768,11 +769,15 @@ const mapPageDataSourceContext = (
   };
 };
 
-const mapPageDetail = (detail: CorePageDetail): Readonly<Record<string, unknown>> => ({
+const mapPageDetail = (
+  detail: CorePageDetail,
+  authorization: NonNullable<LibraryReadSnapshot["authorization"]>,
+): Readonly<Record<string, unknown>> => ({
   version: detail.version,
   libraryId: detail.library_id,
   storeEpoch: detail.store_epoch,
   commitSeq: detail.commit_seq,
+  authorization,
   page: detail.page,
   document: {
     readiness: detail.document.readiness,
@@ -892,6 +897,7 @@ const mapPageTarget = (
     readonly libraryId: string;
     readonly storeEpoch: string;
     readonly commitSeq: number;
+    readonly authorization: AuthorizedReadStamp | null;
   },
 ): PageTargetReadModel => {
   const base = authority;
@@ -945,6 +951,7 @@ const mapPageOwnershipPath = (
     readonly libraryId: string;
     readonly storeEpoch: string;
     readonly commitSeq: number;
+    readonly authorization: AuthorizedReadStamp | null;
   },
 ): PageOwnershipPathReadModel => {
   if (value.status === "missing") {
@@ -1426,7 +1433,10 @@ export const createCoreLibraryModuleAdapter = (
   const readPageDetail = async (
     pageId: string,
     minimumCommitSeq = 0,
-  ): Promise<CorePageDetail> => {
+  ): Promise<{
+    readonly detail: CorePageDetail;
+    readonly authorization: NonNullable<LibraryReadSnapshot["authorization"]>;
+  }> => {
     for (let attempt = 0; attempt < 40; attempt += 1) {
       const snapshot = await input.client.libraryRead({
         kind: "page_detail",
@@ -1445,7 +1455,12 @@ export const createCoreLibraryModuleAdapter = (
       if (detail.commit_seq !== snapshot.commit_head) {
         throw new Error("Core Page Detail crossed its LocalCommit snapshot boundary");
       }
-      if (snapshot.commit_head >= minimumCommitSeq) return detail;
+      if (!snapshot.authorization) {
+        throw new Error("Core Page Detail omitted its authorization stamp");
+      }
+      if (snapshot.commit_head >= minimumCommitSeq) {
+        return { detail, authorization: snapshot.authorization };
+      }
       await new Promise<void>((resolve) => setTimeout(resolve, 5));
     }
     throw new Error(
@@ -1537,6 +1552,7 @@ export const createCoreLibraryModuleAdapter = (
             libraryId: input.libraryId,
             storeEpoch: snapshot.store_epoch,
             commitSeq: snapshot.commit_head,
+            authorization: snapshot.authorization ?? null,
             value: mapReadValue(snapshot),
           },
         };
@@ -1619,10 +1635,11 @@ export const createCoreLibraryModuleAdapter = (
     },
     readProjectPageDetail: async (projectId, pageId, minimumCommitSeq) => {
       try {
+        const snapshot = await readPageDetail(pageId, minimumCommitSeq);
         return parsePageDetailResult({
           ok: true,
           value: {
-            ...mapPageDetail(await readPageDetail(pageId, minimumCommitSeq)),
+            ...mapPageDetail(snapshot.detail, snapshot.authorization),
             projectId,
           },
         });
@@ -1632,10 +1649,11 @@ export const createCoreLibraryModuleAdapter = (
     },
     readLibraryPageDetail: async (pageId, minimumCommitSeq) => {
       try {
+        const snapshot = await readPageDetail(pageId, minimumCommitSeq);
         return parseLibraryPageDetailResult({
           ok: true,
           value: {
-            ...mapPageDetail(await readPageDetail(pageId, minimumCommitSeq)),
+            ...mapPageDetail(snapshot.detail, snapshot.authorization),
             accessContext: { kind: "library" },
           },
         });
@@ -1732,6 +1750,7 @@ export const createCoreLibraryModuleAdapter = (
         libraryId: input.libraryId,
         storeEpoch: snapshot.store_epoch,
         commitSeq: snapshot.commit_head,
+        authorization: snapshot.authorization ?? null,
       });
     },
     resolvePageOwnershipPath: async (request) => {
@@ -1751,6 +1770,7 @@ export const createCoreLibraryModuleAdapter = (
         libraryId: input.libraryId,
         storeEpoch: snapshot.store_epoch,
         commitSeq: snapshot.commit_head,
+        authorization: snapshot.authorization ?? null,
       });
     },
     findPageLocation: async (pageId) => {

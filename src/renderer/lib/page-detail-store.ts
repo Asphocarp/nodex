@@ -1,18 +1,22 @@
 import { useEffect, useMemo, useSyncExternalStore } from "react";
 
+import type { AuthorityResource } from "../../shared/authorized-read-stamp";
 import type { PageDetail } from "../../shared/page-detail";
+import { readPageDetail } from "./api";
 import {
-  readPageDetail,
-} from "./api";
+  rendererAuthorityFreshnessIndex,
+  StaleAuthorizedReadError,
+  type AuthorityRegistration,
+} from "./authority-freshness-index";
+import {
+  pageDetailDataDependencies,
+  pageDetailDocumentDependencies,
+} from "./page-detail-projection-dependencies";
 import { useProjectionInvalidationRegistry } from "./projection-invalidation-context";
 import type {
   ProjectionInvalidationCause,
   ProjectionInvalidationRegistry,
 } from "./projection-invalidation-registry";
-import {
-  pageDetailDataDependencies,
-  pageDetailDocumentDependencies,
-} from "./page-detail-projection-dependencies";
 
 export interface PageDetailSnapshot {
   readonly detail: PageDetail | null;
@@ -22,87 +26,103 @@ export interface PageDetailSnapshot {
 
 type Listener = () => void;
 
+interface InFlightPageDetail {
+  readonly generation: number;
+  readonly promise: Promise<PageDetail | null>;
+  readonly token: object;
+}
+
+interface PageDetailEntry {
+  snapshot: PageDetailSnapshot;
+  readonly listeners: Set<Listener>;
+  version: number;
+  generation: number;
+  inFlight: InFlightPageDetail | null;
+  projectionAuthority: {
+    readonly registry: ProjectionInvalidationRegistry;
+    readonly release: () => void;
+  } | null;
+  freshnessAuthority: AuthorityRegistration | null;
+  lastAccess: number;
+}
+
 const EMPTY_DETAIL: PageDetailSnapshot = {
   detail: null,
   loading: false,
   error: null,
 };
 
-const entries = new Map<string, PageDetailSnapshot>();
-const listeners = new Map<string, Set<Listener>>();
-const versions = new Map<string, number>();
-interface InFlightPageDetail {
-  readonly generation: number;
-  readonly promise: Promise<PageDetail | null>;
-  readonly token: object;
-}
-const inFlight = new Map<string, InFlightPageDetail>();
-const entryGenerations = new Map<string, number>();
-const authorityRegistrations = new Map<string, {
-  readonly registry: ProjectionInvalidationRegistry;
-  readonly release: () => void;
-}>();
-const lastAccess = new Map<string, number>();
+const MAX_RETAINED_PAGE_DETAILS = 128;
+const entries = new Map<string, PageDetailEntry>();
 let storeGeneration = 0;
 let accessSequence = 0;
-const MAX_RETAINED_PAGE_DETAILS = 128;
 
 const detailKey = (projectId: string, pageId: string): string =>
   `${projectId}:${pageId}`;
 
-const emit = (key: string): void => {
-  versions.set(key, (versions.get(key) ?? 0) + 1);
-  for (const listener of listeners.get(key) ?? []) listener();
+const createEntry = (): PageDetailEntry => ({
+  snapshot: EMPTY_DETAIL,
+  listeners: new Set(),
+  version: 0,
+  generation: 0,
+  inFlight: null,
+  projectionAuthority: null,
+  freshnessAuthority: null,
+  lastAccess: 0,
+});
+
+const entryFor = (key: string): PageDetailEntry => {
+  const existing = entries.get(key);
+  if (existing) return existing;
+  const entry = createEntry();
+  entries.set(key, entry);
+  return entry;
 };
 
-const touch = (key: string): void => {
+const touch = (entry: PageDetailEntry): void => {
   accessSequence += 1;
-  lastAccess.set(key, accessSequence);
+  entry.lastAccess = accessSequence;
 };
 
-const releaseAuthority = (key: string): void => {
-  authorityRegistrations.get(key)?.release();
-  authorityRegistrations.delete(key);
+const emit = (entry: PageDetailEntry): void => {
+  entry.version += 1;
+  for (const listener of entry.listeners) listener();
 };
 
-const evictInactiveEntry = (key: string): void => {
-  if (listeners.has(key) || inFlight.has(key)) return;
-  advanceEntryGeneration(key);
+const releaseAuthority = (entry: PageDetailEntry): void => {
+  entry.projectionAuthority?.release();
+  entry.projectionAuthority = null;
+  entry.freshnessAuthority?.release();
+  entry.freshnessAuthority = null;
+};
+
+const deleteInactiveEntry = (key: string, entry: PageDetailEntry): void => {
+  if (entry.listeners.size > 0 || entry.inFlight) return;
+  entry.generation += 1;
+  releaseAuthority(entry);
   entries.delete(key);
-  versions.delete(key);
-  lastAccess.delete(key);
-  releaseAuthority(key);
 };
 
 const pruneInactiveEntries = (): void => {
   if (entries.size <= MAX_RETAINED_PAGE_DETAILS) return;
-  const candidates = [...entries.keys()]
-    .filter((key) => !listeners.has(key) && !inFlight.has(key))
-    .sort((left, right) => (lastAccess.get(left) ?? 0) - (lastAccess.get(right) ?? 0));
-  for (const key of candidates) {
+  const candidates = [...entries.entries()]
+    .filter(([, entry]) => entry.listeners.size === 0 && !entry.inFlight)
+    .sort(([, left], [, right]) => left.lastAccess - right.lastAccess);
+  for (const [key, entry] of candidates) {
     if (entries.size <= MAX_RETAINED_PAGE_DETAILS) return;
-    evictInactiveEntry(key);
+    deleteInactiveEntry(key, entry);
   }
-};
-
-const advanceEntryGeneration = (key: string): number => {
-  const generation = (entryGenerations.get(key) ?? 0) + 1;
-  entryGenerations.set(key, generation);
-  return generation;
 };
 
 const subscribe = (key: string | null, listener: Listener): (() => void) => {
   if (!key) return () => undefined;
-  const keyListeners = listeners.get(key) ?? new Set<Listener>();
-  keyListeners.add(listener);
-  listeners.set(key, keyListeners);
+  const entry = entryFor(key);
+  entry.listeners.add(listener);
   return () => {
-    keyListeners.delete(listener);
-    if (keyListeners.size > 0) return;
-    listeners.delete(key);
-    if (!entries.has(key) && !inFlight.has(key)) {
-      lastAccess.delete(key);
-      releaseAuthority(key);
+    entry.listeners.delete(listener);
+    if (entry.listeners.size > 0) return;
+    if (entry.snapshot === EMPTY_DETAIL && !entry.inFlight) {
+      deleteInactiveEntry(key, entry);
       return;
     }
     pruneInactiveEntries();
@@ -137,106 +157,133 @@ export const setPageDetail = (
   options: { readonly acceptEqualFreshness?: boolean } = {},
 ): void => {
   const key = detailKey(detail.projectId, detail.page.pageId);
-  const previous = entries.get(key) ?? EMPTY_DETAIL;
-  if (previous.detail && compareDetailFreshness(detail, previous.detail) < 0) {
-    return;
-  }
+  const entry = entryFor(key);
+  const previous = entry.snapshot.detail;
+  if (previous && compareDetailFreshness(detail, previous) < 0) return;
   if (
-    previous.detail &&
-    compareDetailFreshness(detail, previous.detail) === 0 &&
-    !options.acceptEqualFreshness
-  ) {
-    return;
-  }
-  entries.set(key, { detail, loading: false, error: null });
-  touch(key);
+    previous
+    && compareDetailFreshness(detail, previous) === 0
+    && !options.acceptEqualFreshness
+  ) return;
+  entry.snapshot = { detail, loading: false, error: null };
+  touch(entry);
   pruneInactiveEntries();
-  emit(key);
+  emit(entry);
 };
 
 export const getPageDetail = (
   projectId: string,
   pageId: string,
 ): PageDetail | null => {
-  const key = detailKey(projectId, pageId);
-  const detail = entries.get(key)?.detail ?? null;
-  if (detail) touch(key);
+  const entry = entries.get(detailKey(projectId, pageId));
+  const detail = entry?.snapshot.detail ?? null;
+  if (detail && entry) touch(entry);
   return detail;
 };
 
-export const invalidatePageDetail = (
-  projectId: string,
-  pageId: string,
-): void => {
+export const invalidatePageDetail = (projectId: string, pageId: string): void => {
   const key = detailKey(projectId, pageId);
-  advanceEntryGeneration(key);
-  const removed = entries.delete(key);
-  lastAccess.delete(key);
-  if (removed) emit(key);
-  if (!listeners.has(key)) releaseAuthority(key);
+  const entry = entries.get(key);
+  if (!entry) return;
+  entry.generation += 1;
+  const changed = entry.snapshot !== EMPTY_DETAIL;
+  entry.snapshot = EMPTY_DETAIL;
+  if (changed) emit(entry);
+  if (entry.listeners.size === 0 && !entry.inFlight) deleteInactiveEntry(key, entry);
 };
 
-export const revokePageDetail = (
-  projectId: string,
-  pageId: string,
-): void => {
+export const revokePageDetail = (projectId: string, pageId: string): void => {
   const key = detailKey(projectId, pageId);
-  advanceEntryGeneration(key);
-  entries.set(key, {
-    detail: null,
-    loading: false,
-    error: "Page not found",
-  });
-  touch(key);
-  emit(key);
-  if (!listeners.has(key)) releaseAuthority(key);
+  const entry = entryFor(key);
+  entry.generation += 1;
+  entry.snapshot = { detail: null, loading: false, error: "Page not found" };
+  touch(entry);
+  emit(entry);
+  if (entry.listeners.size === 0 && !entry.inFlight) deleteInactiveEntry(key, entry);
 };
+
+export const pageDetailStoreDiagnostics = () => ({
+  entries: entries.size,
+  listeners: [...entries.values()].reduce(
+    (total, entry) => total + entry.listeners.size,
+    0,
+  ),
+  inFlight: [...entries.values()].filter((entry) => entry.inFlight).length,
+  projectionRegistrations: [...entries.values()]
+    .filter((entry) => entry.projectionAuthority).length,
+  freshnessRegistrations: [...entries.values()]
+    .filter((entry) => entry.freshnessAuthority).length,
+});
 
 export const resetPageDetailStoreForTests = (): void => {
+  rendererAuthorityFreshnessIndex.reset();
   storeGeneration += 1;
-  const subscribedKeys = [...listeners.keys()];
-  entries.clear();
-  inFlight.clear();
-  entryGenerations.clear();
-  versions.clear();
-  lastAccess.clear();
   accessSequence = 0;
-  for (const registration of authorityRegistrations.values()) {
-    registration.release();
+  for (const [key, entry] of entries) {
+    releaseAuthority(entry);
+    entry.generation += 1;
+    entry.inFlight = null;
+    entry.snapshot = EMPTY_DETAIL;
+    if (entry.listeners.size === 0) {
+      entries.delete(key);
+      continue;
+    }
+    emit(entry);
   }
-  authorityRegistrations.clear();
-  for (const key of subscribedKeys) emit(key);
+  rendererAuthorityFreshnessIndex.dispose();
 };
 
 export const fetchPageDetail = async (
   projectId: string,
   pageId: string,
-  options: { readonly minimumCommitSeq?: number } = {},
+  options: {
+    readonly minimumCommitSeq?: number;
+    readonly libraryId?: string;
+  } = {},
 ): Promise<PageDetail | null> => {
   const key = detailKey(projectId, pageId);
+  const entry = entryFor(key);
   const minimumCommitSeq = options.minimumCommitSeq ?? 0;
-  const generation = entryGenerations.get(key) ?? 0;
-  const existingRequest = inFlight.get(key);
-  if (existingRequest?.generation === generation) {
-    const detail = await existingRequest.promise;
+  const generation = entry.generation;
+  if (entry.inFlight?.generation === generation) {
+    const detail = await entry.inFlight.promise;
     if (!detail) return null;
-    if (
-      minimumCommitSeq <= 0
-      || detail.commitSeq >= minimumCommitSeq
-    ) {
-      return detail;
-    }
-    return await fetchPageDetail(projectId, pageId, { minimumCommitSeq });
+    if (minimumCommitSeq <= 0 || detail.commitSeq >= minimumCommitSeq) return detail;
+    return await fetchPageDetail(projectId, pageId, {
+      minimumCommitSeq,
+      libraryId: options.libraryId,
+    });
   }
 
-  const current = entries.get(key) ?? EMPTY_DETAIL;
-  entries.set(key, {
-    detail: current.detail,
-    loading: current.detail === null,
-    error: null,
+  const startingSnapshot = entry.snapshot;
+  const libraryId = options.libraryId ?? startingSnapshot.detail?.libraryId;
+  if (!libraryId) {
+    deleteInactiveEntry(key, entry);
+    throw new Error("Page Detail read requires its Library delivery address");
+  }
+  const authorityLease = rendererAuthorityFreshnessIndex.beginRead({
+    deliveryAddress: {
+      kind: "project",
+      library_id: libraryId,
+      project_id: projectId,
+    },
+    ...(startingSnapshot.detail
+      ? { storeEpoch: startingSnapshot.detail.storeEpoch }
+      : {}),
+    observedCommitSeq: Math.max(
+      minimumCommitSeq,
+      startingSnapshot.detail?.commitSeq ?? 0,
+    ),
+    subject: { kind: "page", page_id: pageId },
+    requestDependencies: [{ kind: "page", page_id: pageId }],
   });
-  touch(key);
-  emit(key);
+  entry.snapshot = {
+    detail: startingSnapshot.detail,
+    loading: startingSnapshot.detail === null,
+    error: null,
+  };
+  touch(entry);
+  emit(entry);
 
   const requestStoreGeneration = storeGeneration;
   const requestEntryGeneration = generation;
@@ -244,58 +291,58 @@ export const fetchPageDetail = async (
   const request = (async (): Promise<PageDetail | null> => {
     try {
       const result = await readPageDetail(projectId, pageId, minimumCommitSeq);
-      if (
-        requestStoreGeneration !== storeGeneration
-        || requestEntryGeneration !== (entryGenerations.get(key) ?? 0)
-      ) return null;
+      if (requestStoreGeneration !== storeGeneration) return null;
       if (!result.ok) {
+        if (requestEntryGeneration !== entry.generation) return null;
         if (result.error.code !== "page_not_found") {
           throw new Error(result.error.message);
         }
-        entries.set(key, {
-          detail: null,
-          loading: false,
-          error:
-            result.error.code === "page_not_found"
-              ? "Page not found"
-              : result.error.message,
-        });
-        emit(key);
+        entry.snapshot = { detail: null, loading: false, error: "Page not found" };
+        emit(entry);
         return null;
       }
-      if (
-        result.value.projectId !== projectId ||
-        result.value.page.pageId !== pageId
-      ) {
+      if (result.value.projectId !== projectId || result.value.page.pageId !== pageId) {
         throw new Error(
           "Page Detail response does not match the requested Project and Page",
         );
       }
+      const freshness = await rendererAuthorityFreshnessIndex.admitRead(
+        authorityLease,
+        result.value.authorization,
+        (fence) => {
+          if (fence.kind === "grant") {
+            invalidatePageDetail(projectId, pageId);
+            return;
+          }
+          revokePageDetail(projectId, pageId);
+        },
+      );
+      entry.freshnessAuthority?.release();
+      entry.freshnessAuthority = freshness;
       setPageDetail(result.value, { acceptEqualFreshness: true });
       return result.value;
     } catch (error) {
+      rendererAuthorityFreshnessIndex.releaseRead(authorityLease);
       if (
         requestStoreGeneration !== storeGeneration
-        || requestEntryGeneration !== (entryGenerations.get(key) ?? 0)
+        || requestEntryGeneration !== entry.generation
       ) return null;
-      entries.set(key, {
-        detail: current.detail,
+      if (error instanceof StaleAuthorizedReadError) return null;
+      entry.snapshot = {
+        detail: startingSnapshot.detail,
         loading: false,
         error: error instanceof Error ? error.message : "Page Detail is unavailable",
-      });
-      emit(key);
+      };
+      emit(entry);
       throw error;
     } finally {
-      if (inFlight.get(key)?.token === requestToken) {
-        inFlight.delete(key);
+      if (entry.inFlight?.token === requestToken) entry.inFlight = null;
+      if (entry.listeners.size === 0 && entry.snapshot === EMPTY_DETAIL) {
+        deleteInactiveEntry(key, entry);
       }
     }
   })();
-  inFlight.set(key, {
-    generation,
-    promise: request,
-    token: requestToken,
-  });
+  entry.inFlight = { generation, promise: request, token: requestToken };
   return request;
 };
 
@@ -303,31 +350,47 @@ const requestPageDetailRefresh = (
   projectId: string,
   pageId: string,
   cause: ProjectionInvalidationCause,
-): Promise<void> => {
+): Promise<void> => (async () => {
   const key = detailKey(projectId, pageId);
-  return (async () => {
-    if (
-      cause.kind === "revocation"
-      && cause.delivery.revocation.resource_kind === "page"
-    ) return;
-    const current = inFlight.get(key);
-    if (current) await current.promise;
-    if (!listeners.has(key)) {
-      invalidatePageDetail(projectId, pageId);
-      return;
-    }
-    const detail = getPageDetail(projectId, pageId);
-    if (
-      cause.kind !== "reset" &&
-      detail?.storeEpoch === cause.stream.storeEpoch &&
-      detail.commitSeq >= cause.stream.commitSeq
-    ) {
-      return;
-    }
-    await fetchPageDetail(projectId, pageId, {
-      minimumCommitSeq: cause.kind === "reset" ? 0 : cause.stream.commitSeq,
-    });
-  })();
+  const entry = entries.get(key);
+  if (
+    cause.kind === "revocation"
+    && cause.delivery.revocation.resource_kind === "page"
+  ) return;
+  if (entry?.inFlight) await entry.inFlight.promise;
+  if (!entry || entry.listeners.size === 0) {
+    invalidatePageDetail(projectId, pageId);
+    return;
+  }
+  const detail = entry.snapshot.detail;
+  if (
+    cause.kind !== "reset"
+    && detail?.storeEpoch === cause.stream.storeEpoch
+    && detail.commitSeq >= cause.stream.commitSeq
+  ) return;
+  await fetchPageDetail(projectId, pageId, {
+    minimumCommitSeq: cause.kind === "reset" ? 0 : cause.stream.commitSeq,
+    libraryId: cause.scope.libraryId,
+  });
+})();
+
+const revokedResource = (
+  revocation: Extract<
+    ProjectionInvalidationCause,
+    { readonly kind: "revocation" }
+  >["delivery"]["revocation"],
+): AuthorityResource => {
+  switch (revocation.resource_kind) {
+    case "page": return { kind: "page", page_id: revocation.resource_id };
+    case "document": return { kind: "document", document_id: revocation.resource_id };
+    case "database": return { kind: "database", database_id: revocation.resource_id };
+    case "data_source": return {
+      kind: "data_source",
+      data_source_id: revocation.resource_id,
+    };
+    case "view": return { kind: "view", view_id: revocation.resource_id };
+    case "canvas": return { kind: "canvas", canvas_id: revocation.resource_id };
+  }
 };
 
 const retainPageDetailAuthority = (
@@ -337,29 +400,37 @@ const retainPageDetailAuthority = (
   registry: ProjectionInvalidationRegistry,
 ): void => {
   const key = detailKey(projectId, pageId);
-  const existing = authorityRegistrations.get(key);
-  if (existing?.registry === registry) return;
-  existing?.release();
+  const entry = entryFor(key);
+  if (entry.projectionAuthority?.registry === registry) return;
+  entry.projectionAuthority?.release();
   const release = registry.register({
     scope: { kind: "project", libraryId, projectId },
     consumerKey: `page-detail:${projectId}:${pageId}`,
     getDependencies: () => {
-      const detail = getPageDetail(projectId, pageId);
+      const detail = entry.snapshot.detail;
       return {
         ...pageDetailDataDependencies(detail, pageId),
         ...pageDetailDocumentDependencies(detail, pageId),
       };
     },
     getCursor: () => {
-      const detail = getPageDetail(projectId, pageId);
+      const detail = entry.snapshot.detail;
       return detail
-        ? {
-            storeEpoch: detail.storeEpoch,
-            commitSeq: detail.commitSeq,
-          }
+        ? { storeEpoch: detail.storeEpoch, commitSeq: detail.commitSeq }
         : null;
     },
     revoke: (cause) => {
+      rendererAuthorityFreshnessIndex.admitVisibility({
+        deliveryAddress: {
+          kind: "project",
+          library_id: libraryId,
+          project_id: projectId,
+        },
+        storeEpoch: cause.stream.storeEpoch,
+        commitSeq: cause.stream.commitSeq,
+        change: "revoke",
+        roots: [revokedResource(cause.delivery.revocation)],
+      });
       if (cause.delivery.revocation.resource_kind === "page") {
         revokePageDetail(projectId, pageId);
         return;
@@ -367,19 +438,20 @@ const retainPageDetailAuthority = (
       invalidatePageDetail(projectId, pageId);
     },
     fence: (cause) => {
-      // A projection checkpoint can be delivered synchronously while the
-      // canonical Page Detail read is still in flight. Do not fence that
-      // read: requestPageDetailRefresh awaits it and performs a trailing
-      // minimum-commit read only when the result is actually old.
-      if (
-        cause.kind === "checkpoint"
-        && inFlight.has(detailKey(projectId, pageId))
-      ) return;
+      rendererAuthorityFreshnessIndex.observeAddress({
+        deliveryAddress: {
+          kind: "project",
+          library_id: libraryId,
+          project_id: projectId,
+        },
+        storeEpoch: cause.stream.storeEpoch,
+        commitSeq: cause.stream.commitSeq,
+      });
       invalidatePageDetail(projectId, pageId);
     },
     invalidate: (cause) => requestPageDetailRefresh(projectId, pageId, cause),
   });
-  authorityRegistrations.set(key, { registry, release });
+  entry.projectionAuthority = { registry, release };
 };
 
 export const usePageDetail = (
@@ -395,16 +467,16 @@ export const usePageDetail = (
   );
   useSyncExternalStore(
     subscribeToDetail,
-    () => key ? (versions.get(key) ?? 0) : 0,
+    () => key ? (entries.get(key)?.version ?? 0) : 0,
     () => 0,
   );
 
   useEffect(() => {
-    if (!projectId || !pageId || getPageDetail(projectId, pageId)) return;
-    void fetchPageDetail(projectId, pageId).catch(() => undefined);
-  }, [pageId, projectId]);
+    if (!libraryId || !projectId || !pageId || getPageDetail(projectId, pageId)) return;
+    void fetchPageDetail(projectId, pageId, { libraryId }).catch(() => undefined);
+  }, [libraryId, pageId, projectId]);
 
-  const snapshot = key ? (entries.get(key) ?? EMPTY_DETAIL) : EMPTY_DETAIL;
+  const snapshot = key ? (entries.get(key)?.snapshot ?? EMPTY_DETAIL) : EMPTY_DETAIL;
   useEffect(() => {
     if (!projectId || !pageId || !libraryId) return;
     retainPageDetailAuthority(libraryId, projectId, pageId, registry);

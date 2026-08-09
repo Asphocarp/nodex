@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { authorizedReadStampFixture } from "../../shared/testing/authorized-read-stamp-fixture";
 
 import { plainTextToPortableRichText } from "../../shared/block-documents/portable-rich-text";
 import {
@@ -338,6 +339,15 @@ describe("native Database Page projections", () => {
         libraryId: "library:test",
         storeEpoch: "epoch:test",
         commitSeq: 1,
+        authorization: authorizedReadStampFixture({
+          deliveryAddress: {
+            kind: "project",
+            library_id: "library:test",
+            project_id: "project:reader",
+          },
+          subject: { kind: "view", view_id: viewId },
+          storeEpoch: "epoch:test",
+        }),
       },
     );
 

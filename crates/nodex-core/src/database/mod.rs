@@ -4,6 +4,7 @@ mod mutation;
 mod projection_delta;
 pub(crate) mod property_semantics;
 pub(crate) mod read;
+mod read_authorization;
 mod relation;
 mod relation_projection;
 mod window;
@@ -121,18 +122,28 @@ impl DatabaseModule {
                     .optional()?
                     .ok_or_else(|| corrupt("Profile store epoch is unavailable"))?;
                 let commit_seq = crate::infrastructure::local_commit::head(&transaction)?;
+                let read = request.read;
                 let value = read::read_at_commit_head(
                     &transaction,
                     &library_id,
                     commit_seq,
                     &context,
-                    request.read,
+                    read.clone(),
+                )?;
+                let authorization = read_authorization::issue(
+                    &transaction,
+                    &context,
+                    &store_epoch,
+                    commit_seq,
+                    &read,
+                    &value,
                 )?;
                 transaction.commit()?;
                 Ok(ModuleReadSnapshot {
                     contract_version: DATABASE_CONTRACT_VERSION,
                     store_epoch: nodex_core_contracts::StoreEpoch(store_epoch),
                     commit_head: commit_seq,
+                    authorization,
                     value,
                 })
             })
@@ -824,6 +835,29 @@ mod tests {
                 },
             )
             .expect("read the first bounded Database View window");
+        let authorization = first_window
+            .authorization
+            .as_ref()
+            .expect("Database View window has canonical read authorization");
+        assert_eq!(authorization.covered_commit_seq, first_window.commit_head);
+        assert!(matches!(
+            &authorization.subject,
+            nodex_core_contracts::events::ResourceKey::Project { project_id }
+                if project_id == "project-1"
+        ));
+        assert!(
+            authorization
+                .authorization_dependencies
+                .iter()
+                .any(|resource| {
+                    matches!(
+                        resource,
+                        nodex_core_contracts::events::ResourceKey::Page { page_id }
+                            if page_id == "page:database-row"
+                    )
+                })
+        );
+        assert_eq!(authorization.stamp_hash.len(), 64);
         let DatabaseReadValue::ViewWindow {
             value: first_window,
         } = first_window.value

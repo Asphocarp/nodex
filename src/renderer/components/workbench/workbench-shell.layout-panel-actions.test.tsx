@@ -2095,9 +2095,9 @@ describe("workbench session shell / layout-panel-actions", () => {
     await pointerActivate(within(actionGrid).getByRole("button", { name: "Page" }));
     await waitFor(() => {
       expect(screen.getByRole("dialog", { name: "Open Page" }) !== null).toBe(true);
+      expect(screen.getByText("Current project") !== null).toBe(true);
     });
     expect(screen.getByRole("combobox", { name: "Open Page" }) !== null).toBe(true);
-    expect(screen.getByText("Current project") !== null).toBe(true);
     expect(screen.queryByText("Other projects")).toBe(null);
     expect(screen.queryByRole("option", { name: /Beta Card/ })).toBe(null);
 

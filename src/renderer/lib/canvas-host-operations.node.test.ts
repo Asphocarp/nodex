@@ -59,6 +59,7 @@ function makeRuntime(input: {
       descriptor: {
         projectId: "project-1",
         documentId,
+        authorization: null,
         ownerBlockId,
         ownerType: "page",
         ownerLifecycle: "active",
@@ -151,6 +152,7 @@ describe("Canvas host operations", () => {
           libraryId: "library-1",
           storeEpoch: "epoch-1",
           commitSeq: 9,
+          authorization: null,
           value: {
             kind: "canvas_target",
             value: {
@@ -325,6 +327,7 @@ describe("Canvas host operations", () => {
         libraryId: "library-1",
         storeEpoch: "epoch-2",
         commitSeq: 9,
+        authorization: null,
         value: {
           kind: "canvas_target",
           value: {

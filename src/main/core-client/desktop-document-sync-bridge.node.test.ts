@@ -20,6 +20,7 @@ import type {
 import type { ExecuteNodexAgentDuplicatePageResult } from "../../shared/nodex-agent-tools";
 import { DuplicatePageV3OutputSchema } from "../../shared/nodex-agent-tools/v3-write-schemas";
 import { committedLocalCommit } from "../../shared/testing/local-commit";
+import { authorizedReadStampFixture } from "../../shared/testing/authorized-read-stamp-fixture";
 import {
   createDesktopDocumentSyncBridge,
   type DesktopDocumentSyncPort,
@@ -334,6 +335,16 @@ const ownedDocumentDescriptorSnapshot = (projectId = "project:one") => ({
   contract_version: 1 as const,
   store_epoch: "epoch:test",
   commit_head: 2,
+  authorization: authorizedReadStampFixture({
+    deliveryAddress: {
+      kind: "project",
+      library_id: "library:test",
+      project_id: projectId,
+    },
+    subject: { kind: "page", page_id: "page:one" },
+    commitSeq: 2,
+    storeEpoch: "epoch:test",
+  }),
   value: {
     kind: "descriptor" as const,
     descriptor: {

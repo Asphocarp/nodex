@@ -197,6 +197,7 @@ pub(super) fn prepare_move_pages(
             contract_version: LIBRARY_CONTRACT_VERSION,
             store_epoch: StoreEpoch(store_epoch),
             commit_head,
+            authorization: None,
             value: LibraryReadValue::AgentMovePagesPreparation {
                 value: Box::new(LibraryAgentMovePagesPreparation {
                     preparation: AgentOperationPreparation {
@@ -227,6 +228,7 @@ pub(super) fn prepare_move_pages(
                 contract_version: LIBRARY_CONTRACT_VERSION,
                 store_epoch: StoreEpoch(store_epoch),
                 commit_head,
+                authorization: None,
                 value: LibraryReadValue::AgentMovePagesPreparation {
                     value: Box::new(LibraryAgentMovePagesPreparation {
                         preparation: AgentOperationPreparation {

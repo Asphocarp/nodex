@@ -1,4 +1,5 @@
 import { stableStringifyBlockPropertyJson } from "./block-property-mutations";
+import { parseAuthorizedReadStamp } from "./authorized-read-stamp";
 import {
   parseDatabaseId,
   parseDatabaseViewId,
@@ -1813,6 +1814,7 @@ export const parseDatabaseModuleReadResultV2 = (
     "libraryId",
     "storeEpoch",
     "commitSeq",
+    "authorization",
     "value",
   ]);
   if (snapshot.version !== DATABASE_MODULE_V2_CONTRACT_VERSION) {
@@ -1826,6 +1828,9 @@ export const parseDatabaseModuleReadResultV2 = (
       libraryId: readString(snapshot.libraryId, "databaseModuleReadV2.snapshot.libraryId"),
       storeEpoch: readString(snapshot.storeEpoch, "databaseModuleReadV2.snapshot.storeEpoch"),
       commitSeq: readRevision(snapshot.commitSeq, "databaseModuleReadV2.snapshot.commitSeq"),
+      authorization: snapshot.authorization === null
+        ? null
+        : parseAuthorizedReadStamp(snapshot.authorization),
       value: parseReadValue(snapshot.value),
     },
   };
@@ -1969,6 +1974,7 @@ export const parseLibraryDatabaseModuleReadResultV2 = (
     "libraryId",
     "storeEpoch",
     "commitSeq",
+    "authorization",
     "value",
   ]);
   assertLibraryAccessContext(
