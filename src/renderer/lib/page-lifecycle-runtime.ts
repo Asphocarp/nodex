@@ -14,8 +14,14 @@ import type { DatabasePage } from "./types";
 const defaultDependencies: PageLifecycleRuntimeDependenciesV2 = {
   readPreflight: readPageLifecyclePreflight,
   mutate: mutatePageLifecycle,
-  readBoardProjection: async (projectId, pageId) =>
-    (await invoke("database-row:get", projectId, pageId)) as DatabasePage | null,
+  readBoardProjection: async (projectId, pageId, minimumCommitCursor) =>
+    (await invoke(
+      "database-row:get",
+      projectId,
+      pageId,
+      undefined,
+      minimumCommitCursor,
+    )) as DatabasePage | null,
   waitBeforeCanonicalReadRetry: async () => {
     await new Promise<void>((resolve) => globalThis.setTimeout(resolve, 0));
   },

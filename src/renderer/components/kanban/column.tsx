@@ -138,8 +138,14 @@ export const Column = memo(function Column({
     ? `Show ${Math.min(remainingRows, 50)} more`
     : "Show more";
   const isAutoCollapsed = column.cards.length === 0;
+  const previousAutoCollapsedRef = useRef(isAutoCollapsed);
+  const autoCollapseChanged = previousAutoCollapsedRef.current !== isAutoCollapsed;
   const isUserCollapsed = layout.collapsed;
   const isCollapsed = isAutoCollapsed || isUserCollapsed;
+
+  useEffect(() => {
+    previousAutoCollapsedRef.current = isAutoCollapsed;
+  }, [isAutoCollapsed]);
 
   useEffect(() => {
     return bindKanbanColumnDropSurface({
@@ -201,7 +207,9 @@ export const Column = memo(function Column({
       className="flex shrink-0 flex-col overflow-clip pr-3"
       style={{
         width: isCollapsed ? COLLAPSED_KANBAN_COLUMN_WIDTH : layout.width,
-        transition: 'width 200ms cubic-bezier(0.32, 0.72, 0, 1)',
+        transition: autoCollapseChanged
+          ? "none"
+          : "width 200ms cubic-bezier(0.32, 0.72, 0, 1)",
         '--column-accent': styles.accentColor,
       } as React.CSSProperties}
     >

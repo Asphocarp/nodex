@@ -1312,7 +1312,8 @@ export function WorkbenchRuntime({
   const codexAppServerRegistry = useCodexAppServerRegistry();
   const activeProjectKanban = useKanban({
     projectId: activeProject?.id ?? activeProjectId ?? "",
-    enabled: Boolean(activeProject?.id ?? activeProjectId),
+    databaseViewId: activeProject?.defaultDatabaseViewId ?? undefined,
+    enabled: Boolean(activeProject?.id && activeProject.defaultDatabaseViewId),
     sessionId: activeSession ? `${activeSession.id}:right-panel-actions` : "right-panel-actions",
   });
   const [pageStageHistoryModal, setPageStageHistoryModal] = useState<PageStageHistoryModalContext | null>(null);

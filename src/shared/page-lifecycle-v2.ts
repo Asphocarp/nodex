@@ -69,6 +69,7 @@ const CREATE_PAGE_V2_REQUIRED_KEYS = [
   "title",
   "nfm",
   "status",
+  "viewPlacement",
   "dataSourceId",
   "tagOptionIds",
   "newTagOptions",
@@ -93,7 +94,6 @@ const CREATE_PAGE_V2_OPTIONAL_KEYS = [
   "runInWorktreePath",
   "runInEnvironmentPath",
   "beforeBlockId",
-  "beforeViewPageId",
   "richTitle",
 ] as const;
 
@@ -111,6 +111,11 @@ export interface CreatePageTagOptionV2 {
   readonly optionId: DataSourceOptionId;
   readonly name: string;
 }
+
+export type CreatePageViewPlacementV2 =
+  | { readonly kind: "start" }
+  | { readonly kind: "end" }
+  | { readonly kind: "before"; readonly pageId: string };
 
 /**
  * Authority-ready Page creation. Names exist only for options created by this
@@ -139,7 +144,7 @@ export interface CreatePageOperationV2 {
   readonly runInWorktreePath: string | null;
   readonly runInEnvironmentPath: string | null;
   readonly beforeBlockId?: string;
-  readonly beforeViewPageId?: string;
+  readonly viewPlacement: CreatePageViewPlacementV2;
   readonly dataSourceId: DataSourceId;
   readonly tagOptionIds: readonly DataSourceOptionId[];
   readonly newTagOptions: readonly CreatePageTagOptionV2[];
@@ -799,11 +804,33 @@ const parseCreateOperationV2 = (
     new Set(tagOptionIds),
   );
   const beforeBlockId = readOptionalId(operation, "beforeBlockId", label);
-  const beforeViewPageId = readOptionalId(
-    operation,
-    "beforeViewPageId",
-    label,
-  );
+  const placement = readRecord(operation.viewPlacement, `${label}.viewPlacement`);
+  const viewPlacement = (() => {
+    if (placement.kind === "start" || placement.kind === "end") {
+      assertExactKeys(
+        placement,
+        `${label}.viewPlacement`,
+        ["kind"],
+        [],
+      );
+      return { kind: placement.kind } as const;
+    }
+    if (placement.kind === "before") {
+      assertExactKeys(
+        placement,
+        `${label}.viewPlacement`,
+        ["kind", "pageId"],
+        [],
+      );
+      return {
+        kind: "before" as const,
+        pageId: readId(placement, "pageId", `${label}.viewPlacement`),
+      };
+    }
+    throw new PageLifecycleV2ContractError(
+      `${label}.viewPlacement.kind is invalid`,
+    );
+  })();
   return {
     kind: "create_page",
     pageId: readId(operation, "pageId", label),
@@ -852,7 +879,7 @@ const parseCreateOperationV2 = (
       MAX_PATH_LENGTH,
     ),
     ...(beforeBlockId === undefined ? {} : { beforeBlockId }),
-    ...(beforeViewPageId === undefined ? {} : { beforeViewPageId }),
+    viewPlacement,
     dataSourceId,
     tagOptionIds,
     newTagOptions,

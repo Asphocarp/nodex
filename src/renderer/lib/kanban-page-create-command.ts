@@ -1,9 +1,12 @@
 import { createUuidV7 } from "../../shared/uuid-v7";
 import { isWorkflowStatus } from "../../shared/workflow-status";
+import type { PageLifecycleExecutionResultV2 } from "../../shared/page-lifecycle-v2-runtime";
 import {
+  boardContainsPageIds,
   buildCreateCardTransform,
   conflictKeysForCreate,
   createOptimisticCard,
+  KANBAN_PLACEMENT_REMOTE_LANE,
 } from "./kanban-optimistic-ops";
 import { getKanbanProjectStore } from "./kanban-store";
 import { setDatabaseRowDetail } from "./database-row-detail-store";
@@ -34,6 +37,28 @@ function ensureCreateInputId(input: PageCreateInput): PageCreateInput {
   return {
     ...input,
     id: createUuidV7(),
+  };
+}
+
+function materializeCommittedCreateFallback(
+  optimisticPage: ReturnType<typeof createOptimisticCard>,
+  input: PageCreateInput,
+  committed: PageLifecycleExecutionResultV2,
+): DatabasePage {
+  const {
+    descriptionPreview,
+    descriptionLength,
+    hasDescription,
+    ...page
+  } = optimisticPage;
+  void descriptionPreview;
+  void descriptionLength;
+  void hasDescription;
+  return {
+    ...page,
+    description: input.description ?? "",
+    revision: committed.receipt.metadataRevision,
+    created: new Date(committed.receipt.committedAt),
   };
 }
 
@@ -94,10 +119,11 @@ export async function createKanbanPage({
     status,
   });
   const operationId = crypto.randomUUID();
-  const outcome = await store.runOptimisticMutation<DatabasePage>({
+  const outcome = await store.runOptimisticMutation<PageLifecycleExecutionResultV2>({
     kind: "page:create",
     conflictKeys: conflictKeysForCreate(status, optimisticPage.id),
     apply: buildCreateCardTransform(status, optimisticPage, placement),
+    remoteLane: KANBAN_PLACEMENT_REMOTE_LANE,
     runRemote: async () => {
       const committed = await commitPageLifecycleIntent({
         kind: "create",
@@ -109,11 +135,14 @@ export async function createKanbanPage({
         input: createInput,
         placement,
       });
-      if (!committed.boardProjection) {
-        throw new Error("Created Page is missing from canonical authority");
-      }
-      return committed.boardProjection;
+      return committed;
     },
+    getCommitCursor: (committed) => ({
+      storeEpoch: committed.receipt.storeEpoch,
+      commitSeq: committed.receipt.commitSeq,
+    }),
+    isCommitMaterialized: (canonicalBoard) =>
+      boardContainsPageIds(canonicalBoard, [optimisticPage.id]),
   });
 
   if (!outcome.ok) {
@@ -126,7 +155,14 @@ export async function createKanbanPage({
     return { status: "error", error: "Missing Page create result" };
   }
 
-  setDatabaseRowDetail(projectId, outcome.result);
-  store.applyRemoteCard(outcome.result);
-  return { status: "created", page: outcome.result };
+  const page = outcome.result.boardProjection
+    ?? materializeCommittedCreateFallback(
+      optimisticPage,
+      createInput,
+      outcome.result,
+    );
+  if (outcome.result.boardProjection && !outcome.superseded) {
+    setDatabaseRowDetail(projectId, outcome.result.boardProjection);
+  }
+  return { status: "created", page };
 }

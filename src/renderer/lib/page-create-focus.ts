@@ -40,7 +40,7 @@ export const restorePageCreateFocus = (
         .find((element) => element.dataset.kanbanUuidV7 === createdPageId) ?? null
       : null;
     if (createdCard) {
-      createdCard.focus();
+      createdCard.focus({ preventScroll: true });
       return;
     }
 

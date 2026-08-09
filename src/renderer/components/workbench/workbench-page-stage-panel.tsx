@@ -90,21 +90,24 @@ interface PageStageDatabaseCapability {
 
 function PageStageDatabaseCapabilityBoundary({
   projectId,
+  databaseViewId,
   sessionId,
   properties,
   children,
 }: {
   projectId: string;
+  databaseViewId: string | null;
   sessionId: string;
   properties: PageStageSemanticValues | null;
   children: (capability: PageStageDatabaseCapability | null) => ReactNode;
 }) {
   const kanban = useKanban({
     projectId,
+    databaseViewId: databaseViewId ?? undefined,
     sessionId,
-    enabled: properties !== null,
+    enabled: properties !== null && databaseViewId !== null,
   });
-  if (!properties) return children(null);
+  if (!properties || !databaseViewId) return children(null);
   const status = properties.status;
   return children({
     onDelete: async (pageId: string) => {
@@ -514,6 +517,7 @@ export function PageStageSessionTab({
   return (
     <PageStageDatabaseCapabilityBoundary
       projectId={tab.config.projectId}
+      databaseViewId={project.defaultDatabaseViewId}
       sessionId={tab.id}
       properties={semanticValues}
     >

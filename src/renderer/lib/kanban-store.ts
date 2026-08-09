@@ -26,6 +26,8 @@ import {
 import { toDatabasePageSummary } from "../../shared/page-summary";
 import {
   applyBoardChangeEventToBoard,
+  boardSummariesEqual,
+  rebuildBoardFromRankedRows,
   removePageSummaryFromBoard,
   upsertCardSummaryInBoard,
 } from "./board-summary-events";
@@ -154,6 +156,15 @@ export interface RunOptimisticMutationOptions<T> {
   conflictKeys: string[];
   apply: BoardTransform;
   runRemote: () => Promise<T>;
+  /** Serializes commands whose Core intent is compiled from shared authority. */
+  remoteLane?: string;
+  getCommitCursor?: (result: T) => LocalProjectionCursor | null | undefined;
+  /**
+   * Proves that a cursor-covered bounded View has materialized the resource
+   * needed to hand rendering back to canonical authority. A commit floor alone
+   * is insufficient because the affected row can sit outside the loaded span.
+   */
+  isCommitMaterialized?: (canonicalBoard: BoardSummary) => boolean;
   refreshOnSuccess?: boolean;
   refreshOnFailure?: boolean;
   suppressErrorWhenSuperseded?: boolean;
@@ -172,6 +183,9 @@ interface OptimisticEntry {
   conflictKeys: string[];
   apply: BoardTransform;
   phase: "pending" | "acknowledged" | "local";
+  commitCursor: LocalProjectionCursor | null;
+  isCommitMaterialized: ((canonicalBoard: BoardSummary) => boolean) | null;
+  minimumMaterializationGeneration: number | null;
   superseded: boolean;
 }
 
@@ -411,6 +425,8 @@ class KanbanProjectStore {
 
   private optimisticEntries: OptimisticEntry[] = [];
 
+  private readonly remoteLanes = new Map<string, Promise<boolean>>();
+
   private nextOpId = 1;
 
   private inFlightFetch: Promise<boolean> | null = null;
@@ -423,6 +439,10 @@ class KanbanProjectStore {
 
   private requiredMinimumCommitSeq = 0;
 
+  private requiredMinimumStoreEpoch: string | null = null;
+
+  private canonicalReadGeneration = 0;
+
   private requiredRefreshGeneration = 0;
 
   private completedRefreshGeneration = 0;
@@ -432,6 +452,9 @@ class KanbanProjectStore {
   private stale = true;
 
   private revocationGeneration = 0;
+
+  /** Invalidates commands queued against authority from a replaced Store. */
+  private authorityGeneration = 0;
 
   constructor(
     private readonly projectId: string,
@@ -458,6 +481,7 @@ class KanbanProjectStore {
   };
 
   private clearInactiveAuthority(): void {
+    this.authorityGeneration += 1;
     this.revocationGeneration += 1;
     this.baseBoard = null;
     this.baseBoardAuthority = null;
@@ -465,9 +489,12 @@ class KanbanProjectStore {
     this.groupWindows.clear();
     this.groupsSnapshot = null;
     this.inFlightFetch = null;
+    for (const entry of this.optimisticEntries) entry.superseded = true;
     this.optimisticEntries = [];
     this.causalProjectionRuntime = null;
     this.requiredMinimumCommitSeq = 0;
+    this.requiredMinimumStoreEpoch = null;
+    this.canonicalReadGeneration = 0;
     this.requiredRefreshGeneration = 0;
     this.completedRefreshGeneration = 0;
     this.lastFetchedAt = 0;
@@ -487,22 +514,89 @@ class KanbanProjectStore {
     });
   }
 
-  private windowInputBase(minimumCommitSeq = 0): DatabaseViewWindowInput {
-    return this.databaseViewId
-      ? {
-          databaseViewId: this.databaseViewId,
-          ...(minimumCommitSeq > 0 ? { minimumCommitSeq } : {}),
-        }
-      : minimumCommitSeq > 0 ? { minimumCommitSeq } : {};
+  private fenceStoreEpochReplacement(): void {
+    this.authorityGeneration += 1;
+    this.remoteLanes.clear();
+    for (const entry of this.optimisticEntries) entry.superseded = true;
+    this.optimisticEntries = [];
+    this.causalProjectionRuntime = null;
+    this.requiredMinimumCommitSeq = 0;
+    this.requiredMinimumStoreEpoch = null;
+    this.unsubscribeProjectionInvalidation?.();
+    this.unsubscribeProjectionInvalidation = null;
+    fenceDatabaseRowDetailsForProject(this.projectId);
   }
 
-  private groupsInput(minimumCommitSeq = 0): DatabaseViewGroupsInput {
+  private requireMinimumCursor(
+    minimum: number | LocalProjectionCursor,
+  ): void {
+    const cursor = typeof minimum === "number"
+      ? minimum > 0
+        ? {
+            storeEpoch: this.requiredMinimumStoreEpoch
+              ?? this.baseBoardAuthority?.storeEpoch
+              ?? null,
+            commitSeq: minimum,
+          }
+        : null
+      : minimum;
+    if (!cursor) return;
+    if (cursor.storeEpoch === null) {
+      this.requiredMinimumCommitSeq = Math.max(
+        this.requiredMinimumCommitSeq,
+        cursor.commitSeq,
+      );
+      return;
+    }
+    if (this.requiredMinimumStoreEpoch !== cursor.storeEpoch) {
+      this.requiredMinimumStoreEpoch = cursor.storeEpoch;
+      this.requiredMinimumCommitSeq = cursor.commitSeq;
+      return;
+    }
+    this.requiredMinimumCommitSeq = Math.max(
+      this.requiredMinimumCommitSeq,
+      cursor.commitSeq,
+    );
+  }
+
+  private windowInputBase(
+    minimumCommitSeq = 0,
+    minimumStoreEpoch: string | null = null,
+  ): DatabaseViewWindowInput {
+    const minimum = minimumStoreEpoch && minimumCommitSeq > 0
+      ? {
+          minimumCommitCursor: {
+            storeEpoch: minimumStoreEpoch,
+            commitSeq: minimumCommitSeq,
+          },
+        }
+      : minimumCommitSeq > 0 ? { minimumCommitSeq } : {};
     return this.databaseViewId
       ? {
           databaseViewId: this.databaseViewId,
-          ...(minimumCommitSeq > 0 ? { minimumCommitSeq } : {}),
+          ...minimum,
+        }
+      : minimum;
+  }
+
+  private groupsInput(
+    minimumCommitSeq = 0,
+    minimumStoreEpoch: string | null = null,
+  ): DatabaseViewGroupsInput {
+    const minimum = minimumStoreEpoch && minimumCommitSeq > 0
+      ? {
+          minimumCommitCursor: {
+            storeEpoch: minimumStoreEpoch,
+            commitSeq: minimumCommitSeq,
+          },
         }
       : minimumCommitSeq > 0 ? { minimumCommitSeq } : {};
+    return this.databaseViewId
+      ? {
+          databaseViewId: this.databaseViewId,
+          ...minimum,
+        }
+      : minimum;
   }
 
   /** Span-preserving first-window size: a refresh re-reads what was loaded. */
@@ -519,9 +613,10 @@ class KanbanProjectStore {
     first: number,
     after?: string,
     minimumCommitSeq = 0,
+    minimumStoreEpoch: string | null = null,
   ): Promise<DatabaseViewWindowSnapshot> {
     return await this.dependencies.readViewWindow(this.projectId, {
-      ...this.windowInputBase(minimumCommitSeq),
+      ...this.windowInputBase(minimumCommitSeq, minimumStoreEpoch),
       ...(scope.scope ? { groupScope: scope.scope } : {}),
       ...(after ? { after } : {}),
       first,
@@ -530,6 +625,7 @@ class KanbanProjectStore {
 
   private async readConsistentFirstWindows(
     minimumCommitSeq: number,
+    minimumStoreEpoch: string | null,
   ): Promise<{
     readonly groups: DatabaseViewGroupsSnapshot;
     readonly windows: readonly {
@@ -541,7 +637,7 @@ class KanbanProjectStore {
     for (let attempt = 0; attempt < CONSISTENT_WINDOW_READ_ATTEMPTS; attempt += 1) {
       const groups = await this.dependencies.readViewGroups(
         this.projectId,
-        this.groupsInput(floor),
+        this.groupsInput(floor, minimumStoreEpoch),
       );
       const scopes = scopesFromGroups(groups);
       // An empty grouped View still needs one window for its descriptor.
@@ -555,6 +651,7 @@ class KanbanProjectStore {
           this.firstForScope(scope.scopeKey),
           undefined,
           floor,
+          minimumStoreEpoch,
         ),
       })));
       if (windows.every(({ snapshot }) =>
@@ -590,6 +687,7 @@ class KanbanProjectStore {
 
   private fetchBoardOnce = async (
     minimumCommitSeq: number,
+    minimumStoreEpoch: string | null,
     refreshGeneration: number,
   ): Promise<boolean> => {
     const revocationGeneration = this.revocationGeneration;
@@ -608,21 +706,38 @@ class KanbanProjectStore {
     try {
       const { groups, windows } = await this.readConsistentFirstWindows(
         minimumCommitSeq,
+        minimumStoreEpoch,
       );
       if (revocationGeneration !== this.revocationGeneration) {
         succeeded = true;
         return true;
       }
       const currentAuthority = this.baseBoardAuthority;
+      const incomingAuthority = windows[0]?.snapshot;
+      const storeEpochChanged = Boolean(
+        currentAuthority
+        && incomingAuthority
+        && incomingAuthority.storeEpoch !== currentAuthority.storeEpoch,
+      );
+      const crossedRequestedEpoch = Boolean(
+        minimumStoreEpoch
+        && incomingAuthority
+        && incomingAuthority.storeEpoch !== minimumStoreEpoch,
+      );
+      if (storeEpochChanged || crossedRequestedEpoch) {
+        // Epochs have independent commit coordinates. Replace every derived
+        // authority seam atomically so old receipts can never replay over the
+        // freshly opened Store.
+        this.fenceStoreEpochReplacement();
+      }
       const incomingSeq = Math.min(
         ...windows.map((window) => window.snapshot.commitSeq),
       );
-      if (incomingSeq < minimumCommitSeq) {
+      if (!storeEpochChanged && !crossedRequestedEpoch && incomingSeq < minimumCommitSeq) {
         throw new Error(
           `Database View read did not reach local commit ${minimumCommitSeq}`,
         );
       }
-      const incomingAuthority = windows[0]?.snapshot;
       if (
         currentAuthority
         && incomingAuthority
@@ -675,6 +790,7 @@ class KanbanProjectStore {
         },
       ]));
       this.rebuildFromGroups();
+      this.canonicalReadGeneration += 1;
       this.lastFetchedAt = this.dependencies.now();
       this.stale = false;
       this.ensureProjectionSubscription();
@@ -701,13 +817,13 @@ class KanbanProjectStore {
     }
   };
 
-  fetchBoard = async (minimumCommitSeq = 0): Promise<boolean> => {
-    this.requiredMinimumCommitSeq = Math.max(
-      this.requiredMinimumCommitSeq,
-      minimumCommitSeq,
-    );
+  fetchBoard = async (
+    minimum: number | LocalProjectionCursor = 0,
+  ): Promise<boolean> => {
+    this.requireMinimumCursor(minimum);
     while (true) {
       const requestedMinimumCommitSeq = this.requiredMinimumCommitSeq;
+      const requestedMinimumStoreEpoch = this.requiredMinimumStoreEpoch;
       const requestedRefreshGeneration = this.requiredRefreshGeneration;
       let succeeded: boolean;
       if (this.inFlightFetch) {
@@ -715,6 +831,7 @@ class KanbanProjectStore {
       } else {
         const inFlight = this.fetchBoardOnce(
           requestedMinimumCommitSeq,
+          requestedMinimumStoreEpoch,
           requestedRefreshGeneration,
         );
         this.inFlightFetch = inFlight;
@@ -726,7 +843,8 @@ class KanbanProjectStore {
       }
       if (!succeeded) return false;
       if (
-        this.requiredMinimumCommitSeq <= requestedMinimumCommitSeq
+        this.requiredMinimumStoreEpoch === requestedMinimumStoreEpoch
+        && this.requiredMinimumCommitSeq <= requestedMinimumCommitSeq
         && this.completedRefreshGeneration >= requestedRefreshGeneration
       ) return true;
     }
@@ -748,6 +866,7 @@ class KanbanProjectStore {
         this.firstForScope(scopeKey),
         undefined,
         group.snapshot.commitSeq,
+        group.snapshot.storeEpoch,
       );
       const current = this.groupWindows.get(scopeKey);
       if (!current) return;
@@ -755,7 +874,10 @@ class KanbanProjectStore {
         !hasSameProjectionAuthority(snapshot, current.snapshot)
       ) {
         this.stale = true;
-        await this.fetchBoard(snapshot.projection.coveredCommitSeq).catch(() => {});
+        await this.fetchBoard({
+          storeEpoch: snapshot.storeEpoch,
+          commitSeq: snapshot.projection.coveredCommitSeq,
+        }).catch(() => {});
         return;
       }
       if (snapshot.commitSeq < current.snapshot.commitSeq) {
@@ -797,6 +919,7 @@ class KanbanProjectStore {
         GROUP_WINDOW_FIRST,
         after,
         group.snapshot.commitSeq,
+        group.snapshot.storeEpoch,
       );
       const current = this.groupWindows.get(scopeKey);
       if (!current || current.snapshot.nextCursor !== after) return;
@@ -807,7 +930,10 @@ class KanbanProjectStore {
         // Continuations are valid only inside one exact projection revision.
         // Dispose the cursor and converge the whole Board from first windows.
         this.stale = true;
-        await this.fetchBoard(next.projection.coveredCommitSeq).catch(() => {});
+        await this.fetchBoard({
+          storeEpoch: next.storeEpoch,
+          commitSeq: next.projection.coveredCommitSeq,
+        }).catch(() => {});
         return;
       }
       this.groupWindows = new Map(this.groupWindows).set(scopeKey, {
@@ -861,10 +987,12 @@ class KanbanProjectStore {
     await this.fetchBoard();
   };
 
-  refreshBoardAtLeast = async (minimumCommitSeq = 0): Promise<void> => {
+  refreshBoardAtLeast = async (
+    minimum: number | LocalProjectionCursor = 0,
+  ): Promise<boolean> => {
     this.stale = true;
     this.requiredRefreshGeneration += 1;
-    await this.fetchBoard(minimumCommitSeq);
+    return await this.fetchBoard(minimum);
   };
 
   refreshBoard = async (): Promise<void> => {
@@ -955,10 +1083,7 @@ class KanbanProjectStore {
       if (hasQueryRow) {
         this.baseDatabaseView = buildDatabaseViewWindowRenderModel(nextAuthority);
       }
-      this.requiredMinimumCommitSeq = Math.max(
-        this.requiredMinimumCommitSeq,
-        cursor.commitSeq,
-      );
+      this.requireMinimumCursor(cursor);
     }
     this.recomputeSnapshot();
   };
@@ -1021,9 +1146,15 @@ class KanbanProjectStore {
     ): DatabaseViewWindowSnapshot => {
       const includesUpsert = patch.kind === "database_row_upsert"
         && scopeContainsGroup(groupScope, patch.effectiveGroupKey);
-      const nextRows = [
+      const alreadyLoaded = snapshot.rows.some((row) => row.page.id === pageId);
+      const admitsUpsert = includesUpsert && (
+        alreadyLoaded
+        || snapshot.nextCursor === null
+        || patch.row.order < snapshot.rows.length
+      );
+      const sortedRows = [
         ...snapshot.rows.filter((row) => row.page.id !== pageId),
-        ...(includesUpsert
+        ...(admitsUpsert
           ? [{
               page: patch.row,
               groupKey: patch.effectiveGroupKey,
@@ -1035,12 +1166,15 @@ class KanbanProjectStore {
         left.rankKey.localeCompare(right.rankKey)
         || left.page.id.localeCompare(right.page.id)
       );
+      const nextRows = snapshot.nextCursor !== null && !alreadyLoaded
+        ? sortedRows.slice(0, snapshot.rows.length)
+        : sortedRows;
       const queryRowsByPageId = new Map(
         snapshot.query.rows
           .filter((row) => row.page.pageId !== pageId)
           .map((row) => [row.page.pageId, row] as const),
       );
-      if (includesUpsert) {
+      if (admitsUpsert) {
         queryRowsByPageId.set(pageId, projectCoreDatabaseQueryRow(
           patch.sourceRow,
           {
@@ -1050,9 +1184,7 @@ class KanbanProjectStore {
           },
         ));
       }
-      const nextBoard = patch.kind === "database_row_upsert" && includesUpsert
-        ? upsertCardSummaryInBoard(snapshot.board, patch.row)
-        : removePageSummaryFromBoard(snapshot.board, pageId);
+      const nextBoard = rebuildBoardFromRankedRows(snapshot.board, nextRows);
       return {
         ...snapshot,
         commitSeq: Math.max(snapshot.commitSeq, effect.coveredCommitSeq),
@@ -1076,18 +1208,24 @@ class KanbanProjectStore {
       };
     };
 
-    const nextAuthority = advanceWindow(authority, null);
-    this.baseBoard = nextAuthority.board;
-    this.baseBoardAuthority = nextAuthority;
-    this.baseDatabaseView = buildDatabaseViewWindowRenderModel(
-      nextAuthority,
-    );
     this.groupWindows = new Map(
       [...this.groupWindows].map(([scopeKey, state]) => [scopeKey, {
         ...state,
         snapshot: advanceWindow(state.snapshot, state.scope),
       }]),
     );
+    if (this.groupWindows.size > 0) {
+      this.rebuildFromGroups();
+    } else {
+      const nextAuthority = advanceWindow(authority, null);
+      this.baseBoard = nextAuthority.board;
+      this.baseBoardAuthority = nextAuthority;
+      this.baseDatabaseView = buildDatabaseViewWindowRenderModel(nextAuthority);
+    }
+    const nextAuthority = this.baseBoardAuthority;
+    if (!nextAuthority) {
+      throw new Error("Database View projection lost its canonical window");
+    }
     if (this.groupsSnapshot) {
       const nextGroups = this.groupsSnapshot.groups
         .map((group) => group.groupKey === groupKey && patch.groupTotal !== null
@@ -1113,10 +1251,10 @@ class KanbanProjectStore {
         groups: nextGroups,
       };
     }
-    this.requiredMinimumCommitSeq = Math.max(
-      this.requiredMinimumCommitSeq,
-      effect.coveredCommitSeq,
-    );
+    this.requireMinimumCursor({
+      storeEpoch: authority.storeEpoch,
+      commitSeq: effect.coveredCommitSeq,
+    });
     this.lastFetchedAt = this.dependencies.now();
     this.stale = effect.requiresReadAtLeast;
     this.recomputeSnapshot({ error: null });
@@ -1129,7 +1267,15 @@ class KanbanProjectStore {
     if (current && current.scopeKey !== request.scopeKey) {
       throw new Error("Projection repair targets another Database View scope");
     }
-    await this.refreshBoardAtLeast(request.minimumCommitSeq);
+    const repaired = await this.refreshBoardAtLeast({
+      storeEpoch: request.storeEpoch,
+      commitSeq: request.minimumCommitSeq,
+    });
+    if (!repaired) {
+      throw new Error(
+        this.snapshot.error ?? "Database View projection repair failed",
+      );
+    }
   };
 
   enqueueLocalOverlay = (options: LocalOverlayOptions): boolean => {
@@ -1182,6 +1328,7 @@ class KanbanProjectStore {
   };
 
   runOptimisticMutation = async <T,>(options: RunOptimisticMutationOptions<T>): Promise<OptimisticMutationResult<T>> => {
+    const authorityGeneration = this.authorityGeneration;
     this.supersedeConflicts(options.conflictKeys);
     const entry = this.createEntry({
       ...options,
@@ -1191,20 +1338,38 @@ class KanbanProjectStore {
     this.recomputeSnapshot();
 
     try {
-      const result = await options.runRemote();
-      entry.phase = "acknowledged";
-      // A successful command is authoritative, but its exact projection can
-      // reach this store before or after the response. Keep the acknowledged
-      // overlay until applying it to canonical base becomes a semantic no-op;
-      // otherwise an unrelated recompute can expose stale base state.
-      this.recomputeSnapshot();
-      if (options.refreshOnSuccess !== false) {
-        await this.refreshBoard();
-      }
-      this.recomputeSnapshot();
+      const execute = async (): Promise<{
+        readonly result: T;
+        readonly readyForNextPlacement: boolean;
+      }> => {
+        const result = await options.runRemote();
+        entry.phase = "acknowledged";
+        entry.commitCursor = options.getCommitCursor?.(result) ?? null;
+        entry.minimumMaterializationGeneration = entry.commitCursor
+          ? this.canonicalReadGeneration + 1
+          : null;
+        // A successful command is durable, but its exact View projection can
+        // reach this store before or after the response. A receipt-backed entry
+        // stays projected until authority covers that commit floor.
+        this.recomputeSnapshot();
+        let readyForNextPlacement = true;
+        if (options.refreshOnSuccess !== false) {
+          readyForNextPlacement = await this.refreshBoardAtLeast(
+            entry.commitCursor ?? 0,
+          );
+        }
+        return { result, readyForNextPlacement };
+      };
+      const execution = options.remoteLane
+        ? await this.runRemoteInLane(
+            options.remoteLane,
+            authorityGeneration,
+            execute,
+          )
+        : await execute();
       return {
         ok: true,
-        result,
+        result: execution.result,
         superseded: entry.superseded,
         opId: entry.opId,
       };
@@ -1223,7 +1388,6 @@ class KanbanProjectStore {
       if (options.refreshOnFailure !== false) {
         await this.refreshBoard();
       }
-      this.recomputeSnapshot();
       return {
         ok: false,
         error: normalized,
@@ -1232,6 +1396,49 @@ class KanbanProjectStore {
       };
     }
   };
+
+  private async runRemoteInLane<T>(
+    lane: string,
+    authorityGeneration: number,
+    task: () => Promise<{
+      readonly result: T;
+      readonly readyForNextPlacement: boolean;
+    }>,
+  ): Promise<{
+    readonly result: T;
+    readonly readyForNextPlacement: boolean;
+  }> {
+    const previous = this.remoteLanes.get(lane) ?? Promise.resolve(true);
+    let settle: (succeeded: boolean) => void = () => {};
+    const completion = new Promise<boolean>((resolve) => {
+      settle = resolve;
+    });
+    this.remoteLanes.set(lane, completion);
+    let succeeded = false;
+    try {
+      const previousSucceeded = await previous;
+      if (!previousSucceeded) {
+        throw new Error(
+          "A preceding Board placement did not reach canonical authority",
+        );
+      }
+      if (authorityGeneration !== this.authorityGeneration) {
+        throw new Error(
+          "Board authority changed before the queued mutation could execute",
+        );
+      }
+      const result = await task();
+      succeeded = result.readyForNextPlacement;
+      return result;
+    } finally {
+      settle(succeeded);
+      void completion.then(() => {
+        if (this.remoteLanes.get(lane) === completion) {
+          this.remoteLanes.delete(lane);
+        }
+      });
+    }
+  }
 
   private composeBoard(baseBoard: BoardSummary): BoardSummary {
     let next = baseBoard;
@@ -1282,7 +1489,10 @@ class KanbanProjectStore {
     > = {},
   ): void {
     this.pruneConvergedEntries();
-    const board = this.baseBoard ? this.composeBoard(this.baseBoard) : null;
+    const composedBoard = this.baseBoard ? this.composeBoard(this.baseBoard) : null;
+    const board = boardSummariesEqual(this.snapshot.board, composedBoard)
+      ? this.snapshot.board
+      : composedBoard;
     const hasLoading = Object.prototype.hasOwnProperty.call(overrides, "loading");
     const hasError = Object.prototype.hasOwnProperty.call(overrides, "error");
     const hasLoadingMore = Object.prototype.hasOwnProperty.call(
@@ -1299,7 +1509,9 @@ class KanbanProjectStore {
       ...this.snapshot,
       board,
       databaseView: this.baseDatabaseView,
-      pageIndex: buildPageIndex(board),
+      pageIndex: board === this.snapshot.board
+        ? this.snapshot.pageIndex
+        : buildPageIndex(board),
       pendingMutationCount: this.activePendingCount(),
       hasMore: anyHasMore,
       groupPagination,
@@ -1349,6 +1561,42 @@ class KanbanProjectStore {
         continue;
       }
 
+      if (
+        entry.commitCursor !== null
+        && (
+          !this.baseBoardAuthority
+          || this.baseBoardAuthority.storeEpoch !== entry.commitCursor.storeEpoch
+          || this.baseBoardAuthority.projection.coveredCommitSeq
+            < entry.commitCursor.commitSeq
+        )
+      ) {
+        nextEntries.push(entry);
+        working = after;
+        continue;
+      }
+
+      if (entry.commitCursor !== null) {
+        if (
+          entry.minimumMaterializationGeneration !== null
+          && this.canonicalReadGeneration
+            < entry.minimumMaterializationGeneration
+        ) {
+          nextEntries.push(entry);
+          working = after;
+          continue;
+        }
+        const materialized = entry.isCommitMaterialized
+          ? entry.isCommitMaterialized(this.baseBoard)
+          : after === working;
+        if (materialized) {
+          changed = true;
+          continue;
+        }
+        nextEntries.push(entry);
+        working = after;
+        continue;
+      }
+
       // Acknowledged entries remain visible until canonical state satisfies
       // the same semantic intent, at which point the transform is a no-op.
       if (after !== working) {
@@ -1369,11 +1617,13 @@ class KanbanProjectStore {
     conflictKeys,
     apply,
     phase,
+    isCommitMaterialized,
   }: {
     kind: string;
     conflictKeys: string[];
     apply: BoardTransform;
     phase: OptimisticEntry["phase"];
+    isCommitMaterialized?: (canonicalBoard: BoardSummary) => boolean;
   }): OptimisticEntry {
     return {
       opId: this.nextOpId++,
@@ -1381,6 +1631,9 @@ class KanbanProjectStore {
       conflictKeys,
       apply,
       phase,
+      commitCursor: null,
+      isCommitMaterialized: isCommitMaterialized ?? null,
+      minimumMaterializationGeneration: null,
       superseded: false,
     };
   }
@@ -1410,6 +1663,20 @@ class KanbanProjectStore {
     );
   }
 
+  private removeEntriesForPage(pageId: string): boolean {
+    const conflictPrefix = `card:${pageId}:`;
+    const nextEntries = this.optimisticEntries.filter((entry) => {
+      const removesEntry = entry.conflictKeys.some(
+        (key) => key.startsWith(conflictPrefix),
+      );
+      if (removesEntry) entry.superseded = true;
+      return !removesEntry;
+    });
+    if (nextEntries.length === this.optimisticEntries.length) return false;
+    this.optimisticEntries = nextEntries;
+    return true;
+  }
+
   private setSnapshot(next: KanbanStoreSnapshot): void {
     const previous = this.snapshot;
     if (
@@ -1434,18 +1701,28 @@ class KanbanProjectStore {
     }
   }
 
-  private requestRealtimeRefresh(minimumCommitSeq = 0): void {
+  private requestRealtimeRefresh(
+    minimum: number | LocalProjectionCursor = 0,
+  ): void {
     this.stale = true;
-    void this.fetchBoard(minimumCommitSeq);
+    void this.fetchBoard(minimum);
   }
 
   private evictRevokedPage(pageId: string, commitSeq: number): void {
     revokeDatabaseRowDetail(this.projectId, pageId);
+    const removedOptimisticEntry = this.removeEntriesForPage(pageId);
     const currentAuthority = this.baseBoardAuthority;
-    if (!currentAuthority || !this.snapshot.pageIndex.has(pageId)) return;
-    const groupKey = currentAuthority.rows.find(
+    const authorityRow = currentAuthority?.rows.find(
       (row) => row.page.id === pageId,
-    )?.groupKey ?? null;
+    );
+    const baseContainsPage = this.baseBoard?.columns.some((column) =>
+      column.cards.some((card) => card.id === pageId)
+    ) ?? false;
+    if (!currentAuthority || (!authorityRow && !baseContainsPage)) {
+      if (removedOptimisticEntry) this.recomputeSnapshot({ error: null });
+      return;
+    }
+    const groupKey = authorityRow?.groupKey ?? null;
     const evictFromWindow = (
       snapshot: DatabaseViewWindowSnapshot,
     ): DatabaseViewWindowSnapshot => ({
@@ -1468,7 +1745,7 @@ class KanbanProjectStore {
         snapshot: evictFromWindow(state.snapshot),
       }]),
     );
-    if (this.groupsSnapshot) {
+    if (this.groupsSnapshot && authorityRow) {
       this.groupsSnapshot = {
         ...this.groupsSnapshot,
         commitSeq: Math.max(this.groupsSnapshot.commitSeq, commitSeq),
@@ -1489,6 +1766,7 @@ class KanbanProjectStore {
     this.baseDatabaseView = null;
     this.groupWindows.clear();
     this.groupsSnapshot = null;
+    for (const entry of this.optimisticEntries) entry.superseded = true;
     this.optimisticEntries = [];
     this.causalProjectionRuntime = null;
     this.recomputeSnapshot({
@@ -1503,10 +1781,7 @@ class KanbanProjectStore {
     this.stale = true;
     this.revocationGeneration += 1;
     this.requiredRefreshGeneration += 1;
-    this.requiredMinimumCommitSeq = Math.max(
-      this.requiredMinimumCommitSeq,
-      cause.stream.commitSeq,
-    );
+    this.requireMinimumCursor(cause.stream);
     if (cause.delivery.revocation.resource_kind === "page") {
       this.evictRevokedPage(
         cause.delivery.revocation.resource_id,
@@ -1525,14 +1800,18 @@ class KanbanProjectStore {
     this.stale = true;
     this.revocationGeneration += 1;
     this.requiredRefreshGeneration += 1;
-    this.requiredMinimumCommitSeq = cause.kind === "reset"
-      ? 0
-      : Math.max(this.requiredMinimumCommitSeq, cause.stream.commitSeq);
+    if (cause.kind === "reset") {
+      this.requiredMinimumStoreEpoch = cause.stream.storeEpoch;
+      this.requiredMinimumCommitSeq = cause.stream.commitSeq;
+    } else {
+      this.requireMinimumCursor(cause.stream);
+    }
     this.baseBoard = null;
     this.baseBoardAuthority = null;
     this.baseDatabaseView = null;
     this.groupWindows.clear();
     this.groupsSnapshot = null;
+    for (const entry of this.optimisticEntries) entry.superseded = true;
     this.optimisticEntries = [];
     this.causalProjectionRuntime = null;
     fenceDatabaseRowDetailsForProject(this.projectId);
@@ -1543,15 +1822,8 @@ class KanbanProjectStore {
     cause: ProjectionInvalidationCause,
   ): Promise<void> => {
     this.stale = true;
-    if (cause.kind === "reset") {
-      // A new Store epoch has a new cursor origin; never carry an old
-      // minimumCommitSeq into that coordinate space.
-      this.requiredMinimumCommitSeq = 0;
-    }
     if (this.listeners.size === 0) return;
-    const refreshed = await this.fetchBoard(
-      cause.kind === "reset" ? 0 : cause.stream.commitSeq,
-    );
+    const refreshed = await this.fetchBoard(cause.stream);
     if (!refreshed) {
       throw new Error(this.snapshot.error ?? "Board projection refresh failed");
     }
@@ -1563,15 +1835,12 @@ class KanbanProjectStore {
         this.projectId,
         (event) => {
           if (this.databaseViewId) {
-            if (
-              this.baseBoardAuthority
-              && event.storeEpoch
-              && event.storeEpoch !== this.baseBoardAuthority.storeEpoch
-            ) {
-              this.requiredMinimumCommitSeq = 0;
-            }
             this.stale = true;
-            this.requestRealtimeRefresh(event.commitSeq ?? 0);
+            this.requestRealtimeRefresh(
+              event.storeEpoch && event.commitSeq !== undefined
+                ? { storeEpoch: event.storeEpoch, commitSeq: event.commitSeq }
+                : event.commitSeq ?? 0,
+            );
             return;
           }
           const authority = this.baseBoardAuthority;
@@ -1582,7 +1851,11 @@ class KanbanProjectStore {
             || event.storeEpoch !== authority.storeEpoch
             || event.commitSeq < authority.commitSeq
           ) {
-            this.requestRealtimeRefresh(event.commitSeq ?? 0);
+            this.requestRealtimeRefresh(
+              event.storeEpoch && event.commitSeq !== undefined
+                ? { storeEpoch: event.storeEpoch, commitSeq: event.commitSeq }
+                : event.commitSeq ?? 0,
+            );
             return;
           }
           const nextBoard = applyBoardChangeEventToBoard(
@@ -1603,7 +1876,10 @@ class KanbanProjectStore {
             }
             return;
           }
-          this.requestRealtimeRefresh(event.commitSeq ?? 0);
+          this.requestRealtimeRefresh({
+            storeEpoch: event.storeEpoch,
+            commitSeq: event.commitSeq,
+          });
         },
       );
     }
@@ -1696,13 +1972,6 @@ export function getKanbanProjectStore(
   databaseViewId: string | null = null,
 ): KanbanProjectStore {
   return sharedKanbanStoreRegistry.getStore(projectId, databaseViewId);
-}
-
-export function ensureFreshKanbanProjectBoard(
-  projectId: string,
-  options?: EnsureFreshBoardOptions,
-): Promise<void> {
-  return getKanbanProjectStore(projectId).ensureFreshBoard(options);
 }
 
 export function ensureFreshDatabaseViewBoard(

@@ -12,7 +12,6 @@ const state = vi.hoisted(() => ({
   setError: vi.fn(),
   fetchBoard: vi.fn(),
   runOptimisticMutation: vi.fn(),
-  applyRemoteCard: vi.fn(),
   setDatabaseRowDetail: vi.fn(),
   commitPageLifecycleIntent: vi.fn(),
 }));
@@ -23,7 +22,6 @@ vi.mock("./kanban-store", () => ({
     setError: state.setError,
     fetchBoard: state.fetchBoard,
     runOptimisticMutation: state.runOptimisticMutation,
-    applyRemoteCard: state.applyRemoteCard,
   }),
 }));
 
@@ -61,14 +59,19 @@ describe("createKanbanPage", () => {
     state.setError.mockReset();
     state.fetchBoard.mockReset();
     state.runOptimisticMutation.mockReset().mockImplementation(
-      async (options: { runRemote: () => Promise<DatabasePage> }) => ({
+      async (options: { runRemote: () => Promise<unknown> }) => ({
         ok: true,
         result: await options.runRemote(),
       }),
     );
-    state.applyRemoteCard.mockReset();
     state.setDatabaseRowDetail.mockReset();
     state.commitPageLifecycleIntent.mockReset().mockResolvedValue({
+      receipt: {
+        storeEpoch: "epoch-test",
+        commitSeq: 42,
+        metadataRevision: 1,
+        committedAt: "2026-08-08T00:00:00.000Z",
+      },
       boardProjection: page,
     });
   });
@@ -104,13 +107,69 @@ describe("createKanbanPage", () => {
     }));
     const optimisticMutation = state.runOptimisticMutation.mock.calls[0]?.[0] as {
       apply: (board: BoardSummary) => BoardSummary;
+      getCommitCursor: (result: {
+        receipt: { storeEpoch: string; commitSeq: number };
+      }) => { storeEpoch: string; commitSeq: number };
     };
     const optimisticBoard = optimisticMutation.apply({
       columns: [{ id: "plan", name: "Plan", cards: [] }],
     });
     expect(optimisticBoard.columns[0]?.cards[0]?.status).toBe("plan");
+    expect(optimisticMutation.getCommitCursor({
+      receipt: { storeEpoch: "epoch-test", commitSeq: 42 },
+    })).toEqual({ storeEpoch: "epoch-test", commitSeq: 42 });
     expect(state.setDatabaseRowDetail).toHaveBeenCalledWith("project-test", page);
-    expect(state.applyRemoteCard).toHaveBeenCalledWith(page);
+  });
+
+  test("reports durable create success when the best-effort row read is delayed", async () => {
+    state.commitPageLifecycleIntent.mockResolvedValue({
+      receipt: {
+        storeEpoch: "epoch-test",
+        commitSeq: 43,
+        metadataRevision: 7,
+        committedAt: "2026-08-08T01:00:00.000Z",
+      },
+      boardProjection: null,
+    });
+
+    const result = await createKanbanPage({
+      projectId: "project-test",
+      databaseViewId: "view-test",
+      status: "plan",
+      input: { title: "Durably created", description: "Body" },
+      placement: "top",
+    });
+
+    expect(result).toMatchObject({
+      status: "created",
+      page: {
+        title: "Durably created",
+        description: "Body",
+        revision: 7,
+        created: new Date("2026-08-08T01:00:00.000Z"),
+      },
+    });
+    expect(state.setDatabaseRowDetail).not.toHaveBeenCalled();
+  });
+
+  test("does not repopulate detail authority after its Store epoch was fenced", async () => {
+    state.runOptimisticMutation.mockImplementationOnce(
+      async (options: { runRemote: () => Promise<unknown> }) => ({
+        ok: true,
+        result: await options.runRemote(),
+        superseded: true,
+      }),
+    );
+
+    const result = await createKanbanPage({
+      projectId: "project-test",
+      databaseViewId: "view-test",
+      status: "plan",
+      input: { title: "Created before reset" },
+    });
+
+    expect(result).toEqual({ status: "created", page });
+    expect(state.setDatabaseRowDetail).not.toHaveBeenCalled();
   });
 
   test("loads and rechecks the exact View before rejecting a stale target", async () => {

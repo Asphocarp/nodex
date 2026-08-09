@@ -13055,6 +13055,7 @@
               "is_all_day",
               "reminders",
               "run_in_target",
+              "view_placement",
               "data_source_id",
               "tag_option_ids",
               "new_tag_options",
@@ -13069,12 +13070,6 @@
                 ]
               },
               "before_block_id": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "before_view_page_id": {
                 "type": [
                   "string",
                   "null"
@@ -13188,6 +13183,9 @@
               },
               "title": {
                 "type": "string"
+              },
+              "view_placement": {
+                "$ref": "#/components/schemas/LibraryPageLifecycleViewPlacement"
               }
             }
           },
@@ -13739,6 +13737,56 @@
             "type": "string"
           }
         }
+      },
+      "LibraryPageLifecycleViewPlacement": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "start"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "end"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "page_id",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "before"
+                ]
+              },
+              "page_id": {
+                "type": "string"
+              }
+            }
+          }
+        ]
       },
       "LibraryPageLocation": {
         "type": "object",

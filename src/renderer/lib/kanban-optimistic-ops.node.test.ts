@@ -5,7 +5,9 @@ import {
   buildMovePageTransform,
   buildMovePagesTransform,
   buildPatchPageTransform,
+  conflictKeysForMove,
   createOptimisticCard,
+  overlap,
 } from "./kanban-optimistic-ops";
 import type { BoardSummary, DatabasePageSummary } from "./types";
 import { plainTextToPortableRichText } from "../../shared/block-documents";
@@ -109,11 +111,10 @@ describe("kanban optimistic ops", () => {
     ).toHaveLength(1);
   });
 
-  test("preserves canonical placement and fields when create authority arrives", () => {
+  test("preserves requested placement and canonical fields while create authority converges", () => {
     const baseBoard = createBoard();
     const canonicalCard = {
-      ...createPageSummary("canonical", 0),
-      status: "ship" as const,
+      ...createPageSummary("canonical", 4),
       title: "Canonical title",
       richTitle: plainTextToPortableRichText("Canonical title"),
       revision: 1,
@@ -121,14 +122,13 @@ describe("kanban optimistic ops", () => {
     const board: BoardSummary = {
       ...baseBoard,
       columns: baseBoard.columns.map((column) =>
-        column.id === "ship"
-          ? { ...column, cards: [canonicalCard] }
+        column.id === "build"
+          ? { ...column, cards: [...column.cards, canonicalCard] }
           : column
       ),
     };
     const optimisticCard = {
       ...canonicalCard,
-      status: "build" as const,
       title: "Optimistic title",
       richTitle: plainTextToPortableRichText("Optimistic title"),
       revision: undefined,
@@ -140,11 +140,19 @@ describe("kanban optimistic ops", () => {
       "top",
     )(board);
 
-    expect(projected).toBe(board);
-    expect(projected.columns[4]?.cards).toEqual([canonicalCard]);
-    expect(
-      projected.columns[2]?.cards.some((card) => card.id === canonicalCard.id),
-    ).toBe(false);
+    expect(projected.columns[2]?.cards[0]).toMatchObject({
+      id: canonicalCard.id,
+      title: "Canonical title",
+      revision: 1,
+      order: 0,
+    });
+    expect(projected.columns[2]?.cards.map((card) => card.id)).toEqual([
+      "canonical",
+      "a",
+      "b",
+      "c",
+      "d",
+    ]);
   });
 
   test("treats equivalent projected title and structured values as a no-op", () => {
@@ -270,5 +278,25 @@ describe("kanban optimistic ops", () => {
     const board = createBoard();
 
     expect(buildCompleteOrSkipOccurrenceTransform("a")(board)).toBe(board);
+  });
+
+  test("different Page moves coexist while the placement lane serializes authority", () => {
+    const first = conflictKeysForMove({
+      pageId: "a",
+      fromStatus: "build",
+      toStatus: "ship",
+    });
+    const second = conflictKeysForMove({
+      pageId: "b",
+      fromStatus: "build",
+      toStatus: "ship",
+    });
+
+    expect(overlap(first, second)).toBe(false);
+    expect(overlap(first, conflictKeysForMove({
+      pageId: "a",
+      fromStatus: "build",
+      toStatus: "plan",
+    }))).toBe(true);
   });
 });

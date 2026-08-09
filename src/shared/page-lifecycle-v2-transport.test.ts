@@ -19,6 +19,7 @@ const request = {
     nfm: "Body",
     status: "triage",
     dataSourceId: "source-1",
+    viewPlacement: { kind: "end" },
     tagOptionIds: ["o_AAAAAAAA"],
     newTagOptions: [{ optionId: "o_AAAAAAAA", name: "Release" }],
     expectedTagsPropertyRevision: 7,

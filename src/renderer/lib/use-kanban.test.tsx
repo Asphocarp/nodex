@@ -13,10 +13,14 @@ const testState = vi.hoisted(() => ({
   } as unknown,
   setError: vi.fn(),
   applyRemoteCard: vi.fn(),
+  applyRemoteCardSummary: vi.fn(),
+  resolveConflict: vi.fn(),
+  refreshBoard: vi.fn(),
   invoke: vi.fn(),
   runOptimisticMutation: vi.fn(),
   commitPageLifecycleIntent: vi.fn(),
   commitDatabasePageDrag: vi.fn(),
+  commitPageMetadataPatchForBoardWithReceipt: vi.fn(),
 }));
 
 vi.mock("./kanban-store", () => ({
@@ -29,9 +33,9 @@ vi.mock("./kanban-store", () => ({
     setError: testState.setError,
     runOptimisticMutation: testState.runOptimisticMutation,
     applyRemoteCard: testState.applyRemoteCard,
-    applyRemoteCardSummary: vi.fn(),
-    resolveConflict: vi.fn(),
-    refreshBoard: vi.fn(),
+    applyRemoteCardSummary: testState.applyRemoteCardSummary,
+    resolveConflict: testState.resolveConflict,
+    refreshBoard: testState.refreshBoard,
   }),
 }));
 
@@ -47,6 +51,11 @@ vi.mock("./page-lifecycle-runtime", () => ({
 vi.mock("./database-page-drag-runtime", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./database-page-drag-runtime")>()),
   commitDatabasePageDrag: testState.commitDatabasePageDrag,
+}));
+
+vi.mock("./page-metadata-board-runtime", () => ({
+  commitPageMetadataPatchForBoardWithReceipt:
+    testState.commitPageMetadataPatchForBoardWithReceipt,
 }));
 
 import { useKanban } from "./use-kanban";
@@ -72,9 +81,13 @@ describe("useKanban createPage result", () => {
     };
     testState.setError.mockClear();
     testState.applyRemoteCard.mockClear();
+    testState.applyRemoteCardSummary.mockClear();
+    testState.resolveConflict.mockClear();
+    testState.refreshBoard.mockReset().mockResolvedValue(undefined);
     testState.invoke.mockReset();
     testState.commitPageLifecycleIntent.mockReset();
     testState.commitDatabasePageDrag.mockReset();
+    testState.commitPageMetadataPatchForBoardWithReceipt.mockReset();
     testState.runOptimisticMutation.mockReset().mockImplementation(
       async () => testState.mutationOutcome,
     );
@@ -115,6 +128,19 @@ describe("useKanban createPage result", () => {
       status: "error",
       error: "Core is unavailable",
     });
+  });
+
+  test("keeps a plain Page detail read out of View-scoped Board authority", async () => {
+    testState.invoke.mockResolvedValue(page);
+    const { result } = renderHook(() => useKanban({ projectId: "project-test" }));
+
+    let loaded: DatabasePage | null | undefined;
+    await act(async () => {
+      loaded = await result.current.getPage(page.id);
+    });
+
+    expect(loaded).toEqual(page);
+    expect(testState.applyRemoteCard).not.toHaveBeenCalled();
   });
 
   test("returns the selected View read-only reason before mutation", async () => {
@@ -178,6 +204,57 @@ describe("useKanban createPage result", () => {
       expect.objectContaining({ pageId: "page-1" }),
       undefined,
     );
+  });
+
+  test("threads the occurrence commit cursor through every optimistic action", async () => {
+    const committed = {
+      success: true,
+      commitCursor: { storeEpoch: "epoch-occurrence", commitSeq: 19 },
+    };
+    testState.invoke.mockResolvedValue(committed);
+    const cursors: unknown[] = [];
+    testState.runOptimisticMutation.mockImplementation(async (options) => {
+      const acknowledged = await options.runRemote();
+      cursors.push(options.getCommitCursor?.(acknowledged));
+      return { ok: true, result: acknowledged };
+    });
+    const { result } = renderHook(() => useKanban({ projectId: "project-test" }));
+    const occurrenceStart = new Date("2026-08-09T00:00:00.000Z");
+    let outcomes: boolean[] = [];
+
+    await act(async () => {
+      outcomes = [
+        await result.current.completeOccurrence({
+          pageId: "page-1",
+          occurrenceStart,
+          source: "calendar",
+        }),
+        await result.current.skipOccurrence({
+          pageId: "page-1",
+          occurrenceStart,
+          source: "calendar",
+        }),
+        await result.current.updateOccurrence({
+          pageId: "page-1",
+          occurrenceStart,
+          source: "calendar",
+          scope: "all",
+          updates: { scheduledStart: new Date("2026-08-09T01:00:00.000Z") },
+        }),
+      ];
+    });
+
+    expect(outcomes).toEqual([true, true, true]);
+    expect(cursors).toEqual([
+      committed.commitCursor,
+      committed.commitCursor,
+      committed.commitCursor,
+    ]);
+    expect(testState.invoke.mock.calls.map(([method]) => method)).toEqual([
+      "page:occurrence:complete",
+      "page:occurrence:skip",
+      "page:occurrence:update",
+    ]);
   });
 
   test("keeps the Page lifecycle receipt as the delete acknowledgement", async () => {
@@ -254,5 +331,86 @@ describe("useKanban createPage result", () => {
         move: expect.objectContaining({ pageId: "page-1", toStatus: "ship" }),
       }),
     );
+  });
+
+  test("keeps a metadata overlay until its durable commit cursor is covered", async () => {
+    const committed = {
+      result: {
+        status: "updated",
+        projectId: "project-test",
+        pageId: "page-1",
+        changedFields: ["priority"],
+        didMutate: true,
+      },
+      commitCursor: { storeEpoch: "epoch-test", commitSeq: 29 },
+    };
+    testState.commitPageMetadataPatchForBoardWithReceipt.mockResolvedValue(committed);
+    let commitCursor: { storeEpoch: string; commitSeq: number } | null | undefined;
+    testState.runOptimisticMutation.mockImplementationOnce(async (options) => {
+      const acknowledged = await options.runRemote();
+      commitCursor = options.getCommitCursor?.(acknowledged);
+      return { ok: true, result: acknowledged };
+    });
+    const { result } = renderHook(() => useKanban({ projectId: "project-test" }));
+
+    let updated: Awaited<ReturnType<typeof result.current.updatePage>> | undefined;
+    await act(async () => {
+      updated = await result.current.updatePage("plan", "page-1", {
+        priority: "p1-high",
+      });
+    });
+
+    expect(updated).toEqual(committed.result);
+    expect(commitCursor).toEqual({ storeEpoch: "epoch-test", commitSeq: 29 });
+    expect(testState.applyRemoteCardSummary).not.toHaveBeenCalled();
+  });
+
+  test("refreshes metadata conflicts without injecting an unscoped Board card", async () => {
+    const committed = {
+      result: { status: "conflict", page },
+      commitCursor: null,
+    };
+    testState.commitPageMetadataPatchForBoardWithReceipt.mockResolvedValue(committed);
+    testState.runOptimisticMutation.mockImplementationOnce(async (options) => ({
+      ok: true,
+      result: await options.runRemote(),
+    }));
+    const { result } = renderHook(() => useKanban({ projectId: "project-test" }));
+
+    let updated: Awaited<ReturnType<typeof result.current.updatePage>> | undefined;
+    await act(async () => {
+      updated = await result.current.updatePage("plan", page.id, {
+        priority: "p1-high",
+      });
+    });
+
+    expect(updated).toEqual(committed.result);
+    expect(testState.applyRemoteCard).not.toHaveBeenCalled();
+    expect(testState.resolveConflict).toHaveBeenCalled();
+    expect(testState.refreshBoard).toHaveBeenCalledOnce();
+  });
+
+  test("retires a metadata overlay when canonical authority reports not found", async () => {
+    const committed = {
+      result: { status: "not_found" },
+      commitCursor: null,
+    } as const;
+    testState.commitPageMetadataPatchForBoardWithReceipt.mockResolvedValue(committed);
+    testState.runOptimisticMutation.mockImplementationOnce(async (options) => ({
+      ok: true,
+      result: await options.runRemote(),
+    }));
+    const { result } = renderHook(() => useKanban({ projectId: "project-test" }));
+
+    let updated: Awaited<ReturnType<typeof result.current.updatePage>> | undefined;
+    await act(async () => {
+      updated = await result.current.updatePage("plan", page.id, {
+        priority: "p1-high",
+      });
+    });
+
+    expect(updated).toEqual({ status: "not_found" });
+    expect(testState.resolveConflict).toHaveBeenCalled();
+    expect(testState.refreshBoard).toHaveBeenCalledOnce();
   });
 });

@@ -23,6 +23,7 @@ export type {
   PageOccurrence,
   PageOccurrenceActionInput,
   PageOccurrenceCompleteInput,
+  PageOccurrenceMutationResult,
   PageOccurrenceUpdateInput,
   OccurrenceActionSource,
   OccurrenceEditScope,
