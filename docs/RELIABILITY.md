@@ -107,7 +107,7 @@ independently. Apply and tailer packet coverage use separate Document-control
 and notification claims, so a failed Document delivery can be replayed without
 depending on notification delivery state.
 
-The v102-v109 cutover is durable, not a renderer-only cache change. v102 adds
+The v102-v110 cutover is durable, not a renderer-only cache change. v102 adds
 the LocalCommit ledger, effect/document impact rows, and receipt linkage; v103
 rebuilds those tables with composite `(store_epoch, commit_seq)` foreign-key
 boundaries; v104 adds canonical evidence hashing; v105 records the complete
@@ -119,6 +119,12 @@ evidence and covers each delivery authorization scope in the packet hash. v109
 adds resource-atomic DeliveryAtoms, authorization-complete Projection
 audiences, opaque Relation edge identity, and a sealed transaction-owned
 DurableMutation finalization boundary.
+v110 installs authority-table dirty-fact triggers and a transaction-owned
+visibility journal. The journal reconstructs the pre-mutation graph by reverse
+fact replay, compares it with current authorization, and seals exact gain/loss
+evidence plus explicit private Projection requirements. Authority DML without
+an active mutation or explicit maintenance context fails closed; LocalCommit
+seal rejects unconsumed or noncanonical visibility evidence.
 Receipts persist a compact command result and commit identity rather
 than duplicating large Yjs updates; Core resolves authorized delivery from the
 ledger after commit. Projection gaps and unavailable patches remain visible to

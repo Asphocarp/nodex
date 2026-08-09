@@ -1919,6 +1919,7 @@ fn upgrade_owned_store(
         106 => validate_exact_v106_schema(connection)?,
         107 => validate_exact_v107_schema(connection)?,
         108 => validate_exact_v108_schema(connection)?,
+        109 => validate_exact_v109_schema(connection)?,
         _ => return Err(corrupt("Rust Core forward-migration source is unsupported")),
     }
 
@@ -1994,6 +1995,9 @@ fn upgrade_owned_store(
         if source_version < 109 {
             ensure_v109_local_commit_delivery_atoms_schema(transaction)?;
         }
+        if source_version < 110 {
+            ensure_v110_visibility_delta_journal_schema(transaction)?;
+        }
         if source_version < 106 {
             upgrade_local_commit_artifacts(
                 transaction,
@@ -2016,6 +2020,14 @@ fn upgrade_owned_store(
         }
         if source_version < 109 {
             crate::infrastructure::local_commit::upgrade_v109_manifest(
+                transaction,
+                &mut |completed, total| {
+                    observer(StorePreparationEvent::MigrationProgress { completed, total });
+                },
+            )?;
+        }
+        if source_version < 110 {
+            crate::infrastructure::local_commit::upgrade_v110_manifest(
                 transaction,
                 &mut |completed, total| {
                     observer(StorePreparationEvent::MigrationProgress { completed, total });
@@ -2462,6 +2474,7 @@ fn publish_current_store(
         ensure_v103_local_commit_composite_identity(transaction)?;
         ensure_v108_local_commit_revocations_schema(transaction)?;
         ensure_v109_local_commit_delivery_atoms_schema(transaction)?;
+        ensure_v110_visibility_delta_journal_schema(transaction)?;
         upgrade_local_commit_artifacts(
             transaction,
             TYPESCRIPT_SCHEMA_VERSION,
@@ -2469,6 +2482,8 @@ fn publish_current_store(
                 observer(StorePreparationEvent::MigrationProgress { completed, total });
             },
         )?;
+        crate::infrastructure::local_commit::upgrade_v109_manifest(transaction, &mut |_, _| {})?;
+        crate::infrastructure::local_commit::upgrade_v110_manifest(transaction, &mut |_, _| {})?;
         ensure_v107_block_project_cascade_indexes(transaction)?;
         import_legacy_writable_roots(transaction, profile_home, now)?;
         import_automation_jitter_salt(transaction, profile_home, now)
@@ -2507,7 +2522,10 @@ fn create_fresh_store(
         ensure_v103_local_commit_composite_identity(transaction)?;
         ensure_v108_local_commit_revocations_schema(transaction)?;
         ensure_v109_local_commit_delivery_atoms_schema(transaction)?;
+        ensure_v110_visibility_delta_journal_schema(transaction)?;
         upgrade_local_commit_artifacts(transaction, TYPESCRIPT_SCHEMA_VERSION, &mut |_, _| {})?;
+        crate::infrastructure::local_commit::upgrade_v109_manifest(transaction, &mut |_, _| {})?;
+        crate::infrastructure::local_commit::upgrade_v110_manifest(transaction, &mut |_, _| {})?;
         ensure_v107_block_project_cascade_indexes(transaction)?;
         import_legacy_writable_roots(transaction, profile_home, now)?;
         import_automation_jitter_salt(transaction, profile_home, now)
@@ -2553,7 +2571,8 @@ pub(crate) fn prepare_test_current_store(
         )?;
         import_legacy_writable_roots(transaction, profile_home, now)?;
         import_automation_jitter_salt(transaction, profile_home, now)
-    })
+    })?;
+    crate::infrastructure::visibility_delta_journal::install_test_maintenance_context(connection)
 }
 
 #[cfg(test)]
@@ -2993,6 +3012,13 @@ fn ensure_v109_local_commit_delivery_atoms_schema(
     }
     ensure_v109_property_semantics_schema(connection)?;
     Ok(())
+}
+
+fn ensure_v110_visibility_delta_journal_schema(connection: &Connection) -> Result<(), StoreError> {
+    if crate::infrastructure::visibility_delta_journal::is_installed(connection)? {
+        return Ok(());
+    }
+    crate::infrastructure::visibility_delta_journal::install_schema(connection)
 }
 
 fn ensure_v109_property_semantics_schema(connection: &Connection) -> Result<(), StoreError> {
@@ -4439,6 +4465,10 @@ fn validate_exact_v108_schema(connection: &Connection) -> Result<(), StoreError>
     validate_exact_core_schema(connection, true, true, true, true, true, true, true, 108)
 }
 
+fn validate_exact_v109_schema(connection: &Connection) -> Result<(), StoreError> {
+    validate_exact_core_schema(connection, true, true, true, true, true, true, true, 109)
+}
+
 fn validate_exact_current_schema(connection: &Connection) -> Result<(), StoreError> {
     validate_exact_core_schema(
         connection,
@@ -4588,6 +4618,9 @@ fn build_expected_core_schema_inventory(
     if schema_version >= 109 {
         ensure_v109_local_commit_delivery_atoms_schema(&expected)?;
     }
+    if schema_version >= 110 {
+        ensure_v110_visibility_delta_journal_schema(&expected)?;
+    }
 
     read_schema_inventory(&expected)
 }
@@ -4703,6 +4736,9 @@ pub fn expected_store_schema_fingerprint(version: i64) -> Result<String, StoreEr
     }
     if version >= 109 {
         ensure_v109_local_commit_delivery_atoms_schema(&expected)?;
+    }
+    if version >= 110 {
+        ensure_v110_visibility_delta_journal_schema(&expected)?;
     }
     read_schema_inventory(&expected).map(|inventory| schema_inventory_fingerprint(&inventory))
 }
@@ -6743,7 +6779,7 @@ mod tests {
                 assert_eq!(
                     connection
                         .query_row("PRAGMA user_version", [], |row| { row.get::<_, i64>(0) })?,
-                    109
+                    CORE_SCHEMA_VERSION
                 );
                 assert_eq!(
                     connection.query_row(
@@ -6941,6 +6977,10 @@ mod tests {
         assert_eq!(reused, existing);
         assert!(pending.is_dir(), "exact reuse copied the source again");
 
+        crate::infrastructure::visibility_delta_journal::install_test_maintenance_context(
+            &connection,
+        )
+        .expect("migration fixture maintenance context");
         connection
             .execute_batch(
                 "INSERT INTO projects(id, name, created, updated)

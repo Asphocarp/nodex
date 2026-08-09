@@ -7,7 +7,6 @@ use nodex_core_contracts::database::{
     DatabasePropertyValueInput, DatabasePropertyValueMutation, DatabaseReceipt,
     DatabaseTransferTarget,
 };
-use nodex_core_contracts::events::ResourceKey;
 use nodex_core_contracts::{
     BoundModuleContext, CoreModuleEventPayload, ModuleApplyRequest, ModuleMutationReceipt,
     ModuleName, StoreEpoch,
@@ -180,19 +179,6 @@ pub(crate) fn apply_in_transaction(
             context,
         },
         |scope| {
-            let transfer_pages = request.intent.iter().filter_map(|intent| match intent {
-                DatabaseIntent::TransferPage { page_id, .. } => Some(ResourceKey::Page {
-                    page_id: page_id.clone(),
-                }),
-                _ => None,
-            });
-            scope.observe_authorization_before(
-                crate::infrastructure::resource_authorization::capture_project_visibility(
-                    scope.connection(),
-                    library_id,
-                    transfer_pages,
-                )?,
-            );
             let mut effects = MutationEffects::default();
             for intent in &request.intent {
                 apply_intent(
@@ -4990,25 +4976,14 @@ fn seal_commit(
         expand_database_coordinates(connection, impact_for_payload(&event_payload)?)?;
     let payload_json =
         serde_json::to_string(&payload).map_err(|_| internal("Database event payload"))?;
+    let authorization_before = scope.authorization_before()?;
     super::record_local_projection_delta(
         connection,
         scope.evidence(),
         &context.library_id.0,
         &projection_impact,
-        &scope.authorization_before(),
+        &authorization_before,
     )?;
-    if request
-        .intent
-        .iter()
-        .any(|intent| matches!(intent, DatabaseIntent::TransferPage { .. }))
-    {
-        crate::infrastructure::resource_authorization::record_losses(
-            connection,
-            scope.evidence(),
-            &scope.authorization_before(),
-            nodex_core_contracts::ResourceRevocationReason::OwnershipMoved,
-        )?;
-    }
     let event_sequence = append_change_log(
         connection,
         NewChangeLogEntry {

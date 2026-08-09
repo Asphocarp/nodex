@@ -22,4 +22,5 @@ pub mod sqlite;
 pub mod store;
 pub mod store_lock;
 pub mod store_replacement;
+pub(crate) mod visibility_delta_journal;
 pub mod writer;

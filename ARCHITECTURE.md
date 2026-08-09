@@ -1,8 +1,8 @@
 # Architecture
 
-Current Rust Store authority is v109. Database contract v6 centralizes typed Property schema, capabilities, and edits. Relation definitions and Page-reference edges are normalized in `data_source_relation_properties` and `data_source_relation_edges`; each edge has a Core-authored opaque identity used as the source-owned removal capability, while JSON `null` headers retain revision/CAS leverage and reverse indexes support projection invalidation and retention. One SQL-bounded Relation projection kernel computes exact total/restricted counts and at most three visible previews without materializing the complete edge set in Rust. Main and renderer adapters map this contract mechanically: authorized Database catalogs, target-Source candidate windows, relation-value windows, and bounded summaries replace View-cache inference and per-Page hydration. Library contract v10 provides the upper transaction for Page Detail actions that combine Database-owned Source Properties with Library-owned intrinsic Properties, while preserving the lower ownership boundaries and restricting the composition to value edits over one identical Page set.
+Current Rust Store authority is v110. Database contract v6 centralizes typed Property schema, capabilities, and edits. Relation definitions and Page-reference edges are normalized in `data_source_relation_properties` and `data_source_relation_edges`; each edge has a Core-authored opaque identity used as the source-owned removal capability, while JSON `null` headers retain revision/CAS leverage and reverse indexes support projection invalidation and retention. One SQL-bounded Relation projection kernel computes exact total/restricted counts and at most three visible previews without materializing the complete edge set in Rust. Main and renderer adapters map this contract mechanically: authorized Database catalogs, target-Source candidate windows, relation-value windows, and bounded summaries replace View-cache inference and per-Page hydration. Library contract v10 provides the upper transaction for Page Detail actions that combine Database-owned Source Properties with Library-owned intrinsic Properties, while preserving the lower ownership boundaries and restricting the composition to value edits over one identical Page set.
 
-Store v109 completes the semantic mutation model introduced by v105/v106. The existing
+Store v110 completes the semantic mutation model introduced by v105/v106. The existing
 `change_log`, Document update rows, and Module history form a private physical
 journal. An immutable `CommitManifest` records semantic identity, ordered
 physical evidence digest, resource-atomic `DeliveryAtom` descriptors, Document
@@ -18,7 +18,12 @@ v106 added the persisted manifest and transactionally advanced
 Project-key cascades; v108 adds immutable Core-authored authorization-loss
 facts keyed by exact Library/Project/Document scope; v109 adds resource-atomic
 delivery, authorization-complete Projection audiences, opaque Relation edge
-identity, and the sealed `DurableMutation` transaction boundary. Physical
+identity, and the sealed `DurableMutation` transaction boundary.
+v110 adds transaction-owned authority dirty facts, canonical pre/post
+visibility deltas, and explicit private sealed Projection descriptors. SQLite
+triggers make authority capture mechanical while domain Modules retain their
+canonical writes; `DurableMutation` alone opens and finalizes the journal, and
+LocalCommit sealing rejects active or unconsumed evidence. Physical
 `change_log_seq` remains an internal
 history coordinate rather than a public cursor.
 

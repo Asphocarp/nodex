@@ -17,7 +17,7 @@ use super::projection_impact::{canonicalize, decode, encode};
 use super::projection_scope_head;
 use super::sqlite::{StoreError, StoreErrorCode};
 
-const CANONICAL_HASH_VERSION: u32 = 6;
+const CANONICAL_HASH_VERSION: u32 = 7;
 const PROJECTION_SCHEMA_VERSION: u32 = 1;
 const MIGRATION_PROGRESS_STEPS: u64 = 20;
 const MIGRATION_BATCH_SIZE: i64 = 512;
@@ -208,7 +208,7 @@ pub(crate) struct StoredDeliveryAtom {
     pub payload: DeliveryAtomPayload,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub(crate) struct SealedProjectionEffect {
     pub transition: ProjectionEffect,
     pub subject: ResourceKey,
@@ -228,10 +228,21 @@ struct CanonicalManifest<'a> {
     delivery_atoms: &'a [DeliveryAtomDescriptor],
     document_effects: &'a [DocumentEffectRef],
     projection_effects: &'a [ProjectionEffect],
+    sealed_projection_effects: &'a [SealedProjectionEffect],
+    visibility_deltas: &'a [CanonicalVisibilityDeltaEvidence],
     revocations: &'a [ResourceRevocation],
     receipt: &'a LocalCommitReceiptRef,
     routing_claims: &'a [RoutingClaim],
     physical_evidence: &'a PhysicalEvidenceDigest,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+struct CanonicalVisibilityDeltaEvidence {
+    scope_key: String,
+    authorization_scope_json: String,
+    delta_kind: String,
+    roots_json: String,
+    delta_hash: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -717,6 +728,7 @@ pub(crate) fn record_revocation(
 
 pub(super) fn seal(connection: &Connection, context: &CommitContext) -> Result<i64, StoreError> {
     assert_open(connection, context)?;
+    super::visibility_delta_journal::validate_seal(connection, context)?;
     let effect_count: i64 = connection.query_row(
         "SELECT count(*) FROM local_commit_effects
          WHERE store_epoch = ?1 AND commit_seq = ?2",
@@ -751,9 +763,11 @@ pub(super) fn seal(connection: &Connection, context: &CommitContext) -> Result<i
     }
     canonicalize_projection(&mut projection);
     projection.effects = seal_projection_effects(connection, context, &projection)?;
-    sealed_projection_effects(&projection.effects)?;
+    let sealed_projection_effects = sealed_projection_effects(&projection.effects)?;
+    persist_sealed_projection_effects(connection, context, &sealed_projection_effects)?;
 
     let receipt = read_required_receipt(connection, context.commit_seq)?;
+    let visibility_deltas = canonical_visibility_deltas(connection, context.coordinate())?;
     let manifest = compile_manifest(
         context,
         ManifestEvidence {
@@ -761,6 +775,7 @@ pub(super) fn seal(connection: &Connection, context: &CommitContext) -> Result<i
             atoms: &delivery_atoms,
             documents: &document_effects,
             projection: &projection,
+            visibility_deltas: &visibility_deltas,
             revocations: &revocations,
             receipt: &receipt,
             audience: &audience,
@@ -1173,6 +1188,13 @@ pub(crate) fn load_verified_commit(
     let delivery_atoms = canonical_delivery_atoms(connection, &context)?;
     let documents = canonical_document_effects(connection, coordinate)?;
     let revocations = canonical_revocations(connection, coordinate)?;
+    let visibility_deltas = canonical_visibility_deltas(connection, coordinate)?;
+    let sealed_projection_effects = sealed_projection_effects(&row.projection.effects)?;
+    if stored_sealed_projection_effects(connection, coordinate)? != sealed_projection_effects {
+        return Err(corrupt(
+            "Stored projection descriptors diverge from immutable projection evidence",
+        ));
+    }
     let compiled = compile_manifest(
         &context,
         ManifestEvidence {
@@ -1180,6 +1202,7 @@ pub(crate) fn load_verified_commit(
             atoms: &delivery_atoms,
             documents: &documents,
             projection: &row.projection,
+            visibility_deltas: &visibility_deltas,
             revocations: &revocations,
             receipt: &row.receipt,
             audience: &row.audience,
@@ -1197,7 +1220,7 @@ pub(crate) fn load_verified_commit(
         ));
     }
     Ok(VerifiedCommit {
-        sealed_projection_effects: sealed_projection_effects(&compiled.projection_effects)?,
+        sealed_projection_effects,
         manifest: row.manifest.unwrap_or(compiled),
         #[cfg(test)]
         physical_effects,
@@ -1560,6 +1583,7 @@ pub(crate) fn upgrade_v108_manifest(
             let atoms = canonical_delivery_atoms(connection, &context)?;
             let documents = canonical_document_effects(connection, coordinate)?;
             let revocations = canonical_revocations(connection, coordinate)?;
+            let visibility_deltas = canonical_visibility_deltas(connection, coordinate)?;
             let manifest = compile_manifest(
                 &context,
                 ManifestEvidence {
@@ -1567,6 +1591,7 @@ pub(crate) fn upgrade_v108_manifest(
                     atoms: &atoms,
                     documents: &documents,
                     projection: &row.projection,
+                    visibility_deltas: &visibility_deltas,
                     revocations: &revocations,
                     receipt: &row.receipt,
                     audience: &row.audience,
@@ -1663,6 +1688,7 @@ pub(crate) fn upgrade_v109_manifest(
             let atoms = canonical_delivery_atoms(connection, &context)?;
             let documents = canonical_document_effects(connection, context.coordinate())?;
             let revocations = canonical_revocations(connection, context.coordinate())?;
+            let visibility_deltas = canonical_visibility_deltas(connection, context.coordinate())?;
             let manifest = compile_manifest(
                 &context,
                 ManifestEvidence {
@@ -1670,6 +1696,7 @@ pub(crate) fn upgrade_v109_manifest(
                     atoms: &atoms,
                     documents: &documents,
                     projection: &row.projection,
+                    visibility_deltas: &visibility_deltas,
                     revocations: &revocations,
                     receipt: &row.receipt,
                     audience: &row.audience,
@@ -1690,6 +1717,88 @@ pub(crate) fn upgrade_v109_manifest(
             if changed != 1 {
                 return Err(corrupt(
                     "DeliveryAtom migration lost its LocalCommit parent",
+                ));
+            }
+            report_migration_progress(progress, completed, total, &mut progress_step);
+            completed = completed.saturating_add(1);
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn upgrade_v110_manifest(
+    connection: &Connection,
+    progress: &mut dyn FnMut(u64, u64),
+) -> Result<(), StoreError> {
+    let total = u64::try_from(connection.query_row(
+        "SELECT count(*) FROM local_commits WHERE finalized = 1",
+        [],
+        |row| row.get::<_, i64>(0),
+    )?)
+    .map_err(|_| corrupt("Visibility evidence migration count is invalid"))?;
+    let mut progress_step = 0;
+    let mut completed = 0_usize;
+    let mut after_commit_seq = 0;
+    loop {
+        let sequences = connection
+            .prepare_cached(
+                "SELECT commit_seq FROM local_commits
+                 WHERE finalized = 1 AND commit_seq > ?1
+                 ORDER BY commit_seq ASC LIMIT ?2",
+            )?
+            .query_map(params![after_commit_seq, MIGRATION_BATCH_SIZE], |row| {
+                row.get::<_, i64>(0)
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        if sequences.is_empty() {
+            break;
+        }
+        for commit_seq in sequences {
+            after_commit_seq = commit_seq;
+            let row = read_commit(connection, commit_seq)?
+                .ok_or_else(|| corrupt("Migrated LocalCommit is missing"))?;
+            let context = CommitContext {
+                commit_seq: row.commit_seq,
+                store_epoch: row.store_epoch.clone(),
+                operation_id: row.operation_id.clone(),
+                intent_hash: row.intent_hash.clone(),
+                committed_at: row.committed_at.clone(),
+            };
+            let descriptors = sealed_projection_effects(&row.projection.effects)?;
+            persist_sealed_projection_effects(connection, &context, &descriptors)?;
+            let coordinate = context.coordinate();
+            let effects = canonical_effects(connection, coordinate)?;
+            let atoms = canonical_delivery_atoms(connection, &context)?;
+            let documents = canonical_document_effects(connection, coordinate)?;
+            let revocations = canonical_revocations(connection, coordinate)?;
+            let visibility_deltas = canonical_visibility_deltas(connection, coordinate)?;
+            let manifest = compile_manifest(
+                &context,
+                ManifestEvidence {
+                    effects: &effects,
+                    atoms: &atoms,
+                    documents: &documents,
+                    projection: &row.projection,
+                    visibility_deltas: &visibility_deltas,
+                    revocations: &revocations,
+                    receipt: &row.receipt,
+                    audience: &row.audience,
+                },
+            )?;
+            let changed = connection.execute(
+                "UPDATE local_commits SET canonical_hash = ?1, manifest_json = ?2
+                 WHERE store_epoch = ?3 AND commit_seq = ?4 AND finalized = 1",
+                params![
+                    manifest.identity.manifest_hash,
+                    serde_json::to_string(&manifest)
+                        .map_err(|_| corrupt("Migrated CommitManifest is invalid"))?,
+                    context.store_epoch,
+                    context.commit_seq,
+                ],
+            )?;
+            if changed != 1 {
+                return Err(corrupt(
+                    "Visibility evidence migration lost its LocalCommit parent",
                 ));
             }
             report_migration_progress(progress, completed, total, &mut progress_step);
@@ -2063,6 +2172,109 @@ fn canonical_revocations(
         .collect()
 }
 
+fn canonical_visibility_deltas(
+    connection: &Connection,
+    coordinate: CommitCoordinate<'_>,
+) -> Result<Vec<CanonicalVisibilityDeltaEvidence>, StoreError> {
+    connection
+        .prepare_cached(
+            "SELECT scope_key, authorization_scope_json, delta_kind, roots_json, delta_hash
+             FROM local_commit_visibility_deltas
+             WHERE store_epoch = ?1 AND commit_seq = ?2
+             ORDER BY scope_key, delta_hash",
+        )?
+        .query_map(
+            params![coordinate.store_epoch, coordinate.commit_seq],
+            |row| {
+                Ok(CanonicalVisibilityDeltaEvidence {
+                    scope_key: row.get(0)?,
+                    authorization_scope_json: row.get(1)?,
+                    delta_kind: row.get(2)?,
+                    roots_json: row.get(3)?,
+                    delta_hash: row.get(4)?,
+                })
+            },
+        )?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(StoreError::from)
+}
+
+fn persist_sealed_projection_effects(
+    connection: &Connection,
+    context: &CommitContext,
+    effects: &[SealedProjectionEffect],
+) -> Result<(), StoreError> {
+    let existing: i64 = connection.query_row(
+        "SELECT count(*) FROM local_commit_sealed_projection_effects
+         WHERE store_epoch = ?1 AND commit_seq = ?2",
+        params![context.store_epoch, context.commit_seq],
+        |row| row.get(0),
+    )?;
+    if existing != 0 {
+        return Err(corrupt(
+            "LocalCommit sealed projection descriptors already exist",
+        ));
+    }
+    for (effect_order, effect) in effects.iter().enumerate() {
+        let descriptor_json = serde_json::to_string(effect)
+            .map_err(|_| corrupt("Sealed projection descriptor is invalid"))?;
+        let descriptor_hash = sha256(descriptor_json.as_bytes());
+        connection.execute(
+            "INSERT INTO local_commit_sealed_projection_effects(
+               store_epoch, commit_seq, effect_order, descriptor_json, descriptor_hash
+             ) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![
+                context.store_epoch,
+                context.commit_seq,
+                i64::try_from(effect_order)
+                    .map_err(|_| corrupt("Sealed projection descriptor order overflowed"))?,
+                descriptor_json,
+                descriptor_hash,
+            ],
+        )?;
+    }
+    Ok(())
+}
+
+fn stored_sealed_projection_effects(
+    connection: &Connection,
+    coordinate: CommitCoordinate<'_>,
+) -> Result<Vec<SealedProjectionEffect>, StoreError> {
+    let rows = connection
+        .prepare_cached(
+            "SELECT effect_order, descriptor_json, descriptor_hash
+             FROM local_commit_sealed_projection_effects
+             WHERE store_epoch = ?1 AND commit_seq = ?2
+             ORDER BY effect_order",
+        )?
+        .query_map(
+            params![coordinate.store_epoch, coordinate.commit_seq],
+            |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            },
+        )?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    rows.into_iter()
+        .enumerate()
+        .map(
+            |(expected_order, (effect_order, descriptor_json, descriptor_hash))| {
+                if i64::try_from(expected_order).ok() != Some(effect_order)
+                    || sha256(descriptor_json.as_bytes()) != descriptor_hash
+                {
+                    return Err(corrupt(
+                        "Sealed projection descriptor evidence is noncanonical",
+                    ));
+                }
+                decode_json(&descriptor_json, "Sealed projection descriptor")
+            },
+        )
+        .collect()
+}
+
 fn valid_document_transition(
     generation: i64,
     base_head_seq: i64,
@@ -2143,6 +2355,7 @@ struct ManifestEvidence<'a> {
     atoms: &'a [StoredDeliveryAtom],
     documents: &'a [CanonicalDocumentEffect],
     projection: &'a CommitProjectionDraft,
+    visibility_deltas: &'a [CanonicalVisibilityDeltaEvidence],
     revocations: &'a [ResourceRevocation],
     receipt: &'a LocalCommitReceiptRef,
     audience: &'a RoutingEvidence,
@@ -2152,6 +2365,7 @@ fn compile_manifest(
     context: &CommitContext,
     evidence: ManifestEvidence<'_>,
 ) -> Result<CommitManifest, StoreError> {
+    let sealed_projection_effects = sealed_projection_effects(&evidence.projection.effects)?;
     let delivery_atoms = evidence
         .atoms
         .iter()
@@ -2200,6 +2414,8 @@ fn compile_manifest(
         delivery_atoms: &delivery_atoms,
         document_effects: &document_effects,
         projection_effects: &evidence.projection.effects,
+        sealed_projection_effects: &sealed_projection_effects,
+        visibility_deltas: evidence.visibility_deltas,
         revocations: evidence.revocations,
         receipt: evidence.receipt,
         routing_claims: &routing_claims,

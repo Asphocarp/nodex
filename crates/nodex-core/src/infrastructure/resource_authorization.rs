@@ -1,91 +1,29 @@
 //! Canonical read authorization and transaction-scoped visibility capture.
 
-use std::collections::BTreeSet;
-
+use nodex_core_contracts::BoundModuleContext;
 use nodex_core_contracts::events::{DeliveryAuthorizationScope, ResourceKey};
-use nodex_core_contracts::{
-    AdapterKind, BoundModuleContext, LibraryId, ProfileId, ProjectId, ResourceRevocation,
-    ResourceRevocationReason, RevokedResourceKind,
-};
 use rusqlite::{Connection, OptionalExtension, params};
 
-use super::durable_mutation::AuthorizedResourceObservation;
-use super::local_commit::{self, CommitContext};
 use super::sqlite::{StoreError, StoreErrorCode};
 
-/// Captures the exact active Project scopes which can currently read the
-/// supplied resources. Callers invoke this before canonical writes, then use
-/// the same observations for projection audience closure and revocations.
-pub(crate) fn capture_project_visibility(
-    connection: &Connection,
-    library_id: &str,
-    resources: impl IntoIterator<Item = ResourceKey>,
-) -> Result<Vec<AuthorizedResourceObservation>, StoreError> {
-    let resources = resources.into_iter().collect::<BTreeSet<_>>();
-    if resources.is_empty() {
-        return Ok(Vec::new());
-    }
-    let project_ids = connection
-        .prepare_cached(
-            "SELECT id FROM projects
-             WHERE library_id = ?1 AND lifecycle = 'active' ORDER BY id",
-        )?
-        .query_map([library_id], |row| row.get::<_, String>(0))?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    let mut observations = BTreeSet::new();
-    for project_id in project_ids {
-        let scope = DeliveryAuthorizationScope::Project {
-            library_id: library_id.to_owned(),
-            project_id: project_id.clone(),
-        };
-        let context = project_context(library_id, &project_id);
-        for resource in &resources {
-            let Some((resource_kind, resource_id)) = revocable_identity(resource) else {
-                continue;
-            };
-            if can_read(connection, &context, &scope, resource)? {
-                observations.insert(AuthorizedResourceObservation {
-                    authorization_scope: scope.clone(),
-                    resource_kind,
-                    resource_id: resource_id.to_owned(),
-                });
-            }
-        }
-    }
-    Ok(observations.into_iter().collect())
+pub(crate) trait AuthorizationGraphView {
+    fn connection(&self) -> &Connection;
 }
 
-/// Persists losses from an exact pre-state visibility capture. Authorization
-/// is re-evaluated against canonical post-state in the same SQLite transaction.
-pub(crate) fn record_losses(
-    connection: &Connection,
-    commit: &CommitContext,
-    observations: &[AuthorizedResourceObservation],
-    reason: ResourceRevocationReason,
-) -> Result<(), StoreError> {
-    for observation in observations {
-        let resource = resource_from_observation(observation)?;
-        let context = context_for_scope(&observation.authorization_scope);
-        if can_read(
-            connection,
-            &context,
-            &observation.authorization_scope,
-            &resource,
-        )? {
-            continue;
-        }
-        local_commit::record_revocation(
-            connection,
-            commit,
-            &ResourceRevocation {
-                authorization_scope: observation.authorization_scope.clone(),
-                resource_kind: observation.resource_kind,
-                resource_id: observation.resource_id.clone(),
-                reason,
-            },
-        )?;
+pub(crate) struct CurrentGraphView<'connection> {
+    connection: &'connection Connection,
+}
+
+impl<'connection> CurrentGraphView<'connection> {
+    pub(crate) fn new(connection: &'connection Connection) -> Self {
+        Self { connection }
     }
-    Ok(())
+}
+
+impl AuthorizationGraphView for CurrentGraphView<'_> {
+    fn connection(&self) -> &Connection {
+        self.connection
+    }
 }
 
 pub(crate) fn can_read(
@@ -94,6 +32,16 @@ pub(crate) fn can_read(
     scope: &DeliveryAuthorizationScope,
     resource: &ResourceKey,
 ) -> Result<bool, StoreError> {
+    can_read_in_view(&CurrentGraphView::new(connection), context, scope, resource)
+}
+
+pub(crate) fn can_read_in_view(
+    view: &impl AuthorizationGraphView,
+    context: &BoundModuleContext,
+    scope: &DeliveryAuthorizationScope,
+    resource: &ResourceKey,
+) -> Result<bool, StoreError> {
+    let connection = view.connection();
     if scope_library_id(scope) != context.library_id.0 {
         return Ok(false);
     }
@@ -397,69 +345,6 @@ fn scope_project_id(scope: &DeliveryAuthorizationScope) -> Option<&str> {
             project_id: None, ..
         } => None,
     }
-}
-
-fn project_context(library_id: &str, project_id: &str) -> BoundModuleContext {
-    BoundModuleContext {
-        profile_id: ProfileId("profile:resource-authorization".to_owned()),
-        library_id: LibraryId(library_id.to_owned()),
-        project_id: Some(ProjectId(project_id.to_owned())),
-        connection_id: "connection:resource-authorization".to_owned(),
-        adapter: AdapterKind::Test,
-    }
-}
-
-fn context_for_scope(scope: &DeliveryAuthorizationScope) -> BoundModuleContext {
-    let library_id = scope_library_id(scope);
-    let project_id = scope_project_id(scope);
-    BoundModuleContext {
-        profile_id: ProfileId("profile:resource-authorization".to_owned()),
-        library_id: LibraryId(library_id.to_owned()),
-        project_id: project_id.map(|id| ProjectId(id.to_owned())),
-        connection_id: "connection:resource-authorization".to_owned(),
-        adapter: AdapterKind::Test,
-    }
-}
-
-fn revocable_identity(resource: &ResourceKey) -> Option<(RevokedResourceKind, &str)> {
-    match resource {
-        ResourceKey::Page { page_id } => Some((RevokedResourceKind::Page, page_id)),
-        ResourceKey::Document { document_id } => Some((RevokedResourceKind::Document, document_id)),
-        ResourceKey::Database { database_id } => Some((RevokedResourceKind::Database, database_id)),
-        ResourceKey::DataSource { data_source_id } => {
-            Some((RevokedResourceKind::DataSource, data_source_id))
-        }
-        ResourceKey::View { view_id } => Some((RevokedResourceKind::View, view_id)),
-        ResourceKey::Canvas { canvas_id } => Some((RevokedResourceKind::Canvas, canvas_id)),
-        ResourceKey::Library { .. } | ResourceKey::Project { .. } => None,
-    }
-}
-
-fn resource_from_observation(
-    observation: &AuthorizedResourceObservation,
-) -> Result<ResourceKey, StoreError> {
-    let resource_id = observation.resource_id.clone();
-    let resource = match observation.resource_kind {
-        RevokedResourceKind::Page => ResourceKey::Page {
-            page_id: resource_id,
-        },
-        RevokedResourceKind::Document => ResourceKey::Document {
-            document_id: resource_id,
-        },
-        RevokedResourceKind::Database => ResourceKey::Database {
-            database_id: resource_id,
-        },
-        RevokedResourceKind::DataSource => ResourceKey::DataSource {
-            data_source_id: resource_id,
-        },
-        RevokedResourceKind::View => ResourceKey::View {
-            view_id: resource_id,
-        },
-        RevokedResourceKind::Canvas => ResourceKey::Canvas {
-            canvas_id: resource_id,
-        },
-    };
-    Ok(resource)
 }
 
 fn authorization_miss(error: &StoreError) -> bool {

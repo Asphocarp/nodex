@@ -743,15 +743,6 @@ fn move_block(
             context,
         },
         |scope| {
-            scope.observe_authorization_before(super::authorization_loss::capture(
-                connection,
-                library_id,
-                super::authorization_loss::AuthorizationRoots::typed(
-                    authority.resource_kind,
-                    authority.id.clone(),
-                )?,
-                None,
-            )?);
             if authority.location_kind == "space" && target_document_id.is_some() {
                 connection.execute(
                     "DELETE FROM top_level_block_placements WHERE block_id = ?1",
@@ -1082,15 +1073,6 @@ fn change_resource_lifecycle(
             context,
         },
         |scope| {
-            scope.observe_authorization_before(super::authorization_loss::capture(
-                connection,
-                library_id,
-                super::authorization_loss::AuthorizationRoots::typed(
-                    authority.resource_kind,
-                    authority.id.clone(),
-                )?,
-                None,
-            )?);
             let changed = connection.execute(
                 "UPDATE blocks SET lifecycle = ?1, metadata_revision = metadata_revision + 1, \
            updated_at = ?2 WHERE id = ?3 AND lifecycle = ?4 AND metadata_revision = ?5",
@@ -1246,15 +1228,6 @@ fn grant_project_access(
             context,
         },
         |scope| {
-            scope.observe_authorization_before(super::authorization_loss::capture(
-                connection,
-                library_id,
-                super::authorization_loss::AuthorizationRoots::typed(
-                    authority.resource_kind,
-                    authority.id.clone(),
-                )?,
-                Some(&[project_id.to_owned()]),
-            )?);
             let mutation = mutate_direct_project_access(
                 connection,
                 library_id,
@@ -1357,19 +1330,6 @@ fn set_project_access(
             context,
         },
         |scope| {
-            let restricted_project_ids = changes
-                .iter()
-                .map(|change| change.project_id.clone())
-                .collect::<Vec<_>>();
-            scope.observe_authorization_before(super::authorization_loss::capture(
-                connection,
-                library_id,
-                super::authorization_loss::AuthorizationRoots::typed(
-                    authority.resource_kind,
-                    authority.id.clone(),
-                )?,
-                Some(&restricted_project_ids),
-            )?);
             let mut did_mutate = false;
             let mut committed_revisions = BTreeMap::new();
             for change in changes {
@@ -2649,14 +2609,7 @@ pub(super) fn seal_mutation_with(
             },
         ));
     }
-    if let Some(reason) = revocation_reason(effects.operation_kind) {
-        super::authorization_loss::record_losses(
-            scope.connection(),
-            scope.evidence(),
-            &scope.authorization_before(),
-            reason,
-        )?;
-    }
+    let authorization_before = scope.authorization_before()?;
     let (committed, event_sequence) = build_mutation_result(
         scope.connection(),
         context,
@@ -2664,7 +2617,7 @@ pub(super) fn seal_mutation_with(
         operation_id,
         effects,
         scope.evidence(),
-        &scope.authorization_before(),
+        &authorization_before,
     )?;
     before_seal(&committed, event_sequence)?;
     Ok(scope.seal(
@@ -2675,26 +2628,6 @@ pub(super) fn seal_mutation_with(
             committed_at: &committed_at,
         },
     ))
-}
-
-fn revocation_reason(
-    operation_kind: &str,
-) -> Option<nodex_core_contracts::ResourceRevocationReason> {
-    use nodex_core_contracts::ResourceRevocationReason;
-
-    match operation_kind {
-        "set_project_access" | "grant_project_access" | "persist_agent_project_resource_grants" => {
-            Some(ResourceRevocationReason::AccessRevoked)
-        }
-        "move_block"
-        | "move_canvas"
-        | "move_page_in_library"
-        | "transfer_blocks"
-        | "agent_move_pages" => Some(ResourceRevocationReason::OwnershipMoved),
-        "archive_page" | "archive_resource" => Some(ResourceRevocationReason::Archived),
-        "delete_canvas" | "delete_page" => Some(ResourceRevocationReason::Deleted),
-        _ => None,
-    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -4976,7 +4909,7 @@ mod tests {
                 })
             })
             .expect("seed reader Project");
-        module
+        let granted = module
             .apply(
                 &library_context(),
                 ModuleApplyRequest {
@@ -5022,6 +4955,43 @@ mod tests {
                 local_commit::read_manifest(connection, revoked.committed.receipt.commit_seq)
             })
             .expect("read revocation Manifest");
+        kernel
+            .readers()
+            .read_default(|connection| {
+                let grant_delta_count: i64 = connection.query_row(
+                    "SELECT count(*) FROM local_commit_visibility_deltas
+                     WHERE commit_seq = ?1 AND delta_kind = 'grant'
+                       AND authorization_scope_json LIKE '%project-2%'
+                       AND roots_json LIKE '%page:created%'",
+                    [granted.committed.receipt.commit_seq],
+                    |row| row.get(0),
+                )?;
+                let revoke_delta_count: i64 = connection.query_row(
+                    "SELECT count(*) FROM local_commit_visibility_deltas
+                     WHERE commit_seq = ?1 AND delta_kind = 'revoke'
+                       AND authorization_scope_json LIKE '%project-2%'
+                       AND roots_json LIKE '%page:created%'",
+                    [revoked.committed.receipt.commit_seq],
+                    |row| row.get(0),
+                )?;
+                let dirty_fact_counts: (i64, i64) = connection.query_row(
+                    "SELECT
+                       (SELECT count(*) FROM local_commit_visibility_dirty_facts
+                        WHERE commit_seq = ?1 AND consumed = 1),
+                       (SELECT count(*) FROM local_commit_visibility_dirty_facts
+                        WHERE commit_seq = ?2 AND consumed = 1)",
+                    params![
+                        granted.committed.receipt.commit_seq,
+                        revoked.committed.receipt.commit_seq,
+                    ],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )?;
+                assert!(grant_delta_count >= 1);
+                assert!(revoke_delta_count >= 1);
+                assert_eq!(dirty_fact_counts, (1, 1));
+                Ok(())
+            })
+            .expect("read exact grant/revoke visibility deltas");
 
         assert!(manifest.revocations.iter().any(|revocation| {
             revocation.resource_kind == RevokedResourceKind::Page
