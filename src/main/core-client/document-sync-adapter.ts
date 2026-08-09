@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
 
+import { revocationsFromVisibilityDelta } from "../../shared/local-commit-delivery";
+
 import {
   encodeAdditionalDocumentCommandSemanticHashInput,
   parseAdditionalDocumentCommandRequest,
@@ -1324,7 +1326,9 @@ const documentEvents = async (
       });
     }
   });
-  if (envelope.packet.revocations.some((revocation) =>
+  if (envelope.packet.visibility_deltas
+    .flatMap(revocationsFromVisibilityDelta)
+    .some((revocation) =>
     revocation.resource_kind === "document"
     && revocation.resource_id === request.documentId
   )) {

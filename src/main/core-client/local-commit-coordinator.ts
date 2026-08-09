@@ -14,7 +14,7 @@ export type LocalCommitIngress =
 export type LocalCommitLaneKind =
   | "document"
   | "projection"
-  | "revocation"
+  | "visibility"
   | "notification";
 export type LocalCommitStreamResetReason =
   | "event_gap"
@@ -49,9 +49,9 @@ export interface LocalCommitCoordinatorInput {
     atom: CoreAuthorizedDeliveryAtom,
     ingress: LocalCommitIngress,
   ) => void | Promise<void>;
-  readonly onRevocation: (
+  readonly onVisibility: (
     packet: CoreAuthorizedDeliveryPacket,
-    revocation: CoreAuthorizedDeliveryPacket["revocations"][number],
+    delta: CoreAuthorizedDeliveryPacket["visibility_deltas"][number],
     ingress: LocalCommitIngress,
   ) => void | Promise<void>;
   readonly onError?: (failure: LocalCommitDeliveryError) => void;
@@ -172,8 +172,13 @@ const identityOf = (packet: CoreAuthorizedDeliveryPacket) => {
     throw new Error("Authorized delivery packet manifest header is invalid");
   }
   validateAuthorizationScope(packet.authorization_scope);
-  for (const revocation of packet.revocations) {
-    validateAuthorizationScope(revocation.authorization_scope);
+  validateAuthorizationScope(packet.delivery_address);
+  if (authorizationScopeKey(packet.authorization_scope)
+    !== authorizationScopeKey(packet.delivery_address)) {
+    throw new Error("Delivery address and authorization scope diverge");
+  }
+  for (const delta of packet.visibility_deltas) {
+    validateAuthorizationScope(delta.authorization_scope);
   }
   validateCoverage(packet);
   return {
@@ -271,13 +276,13 @@ const resourceClaims = (
       fingerprint: effect.effect_hash,
     });
   }
-  for (const revocation of packet.revocations) {
+  for (const delta of packet.visibility_deltas) {
     claims.push({
       key: scopedClaimKey(
-        revocation.authorization_scope,
-        `revocation:${revocation.resource_kind}:${revocation.resource_id}`,
+        delta.authorization_scope,
+        `visibility:${delta.delta_hash}`,
       ),
-      fingerprint: revocation.reason,
+      fingerprint: JSON.stringify([delta.change, delta.roots]),
     });
   }
   return claims;
@@ -353,7 +358,7 @@ export class LocalCommitCoordinator {
   readonly #lanes: Record<LocalCommitLaneKind, Map<string, DeliveryLane>> = {
     document: new Map(),
     projection: new Map(),
-    revocation: new Map(),
+    visibility: new Map(),
     notification: new Map(),
   };
   #pendingDeliveries = 0;
@@ -406,11 +411,11 @@ export class LocalCommitCoordinator {
     if (packet.authorization_scope.library_id !== this.#input.expectedLibraryId) {
       throw new Error("Commit delivery belongs to another Library");
     }
-    if (packet.revocations.some(
-      (revocation) =>
-        revocation.authorization_scope.library_id !== this.#input.expectedLibraryId,
+    if (packet.visibility_deltas.some(
+      (delta) =>
+        delta.authorization_scope.library_id !== this.#input.expectedLibraryId,
     )) {
-      throw new Error("Commit revocation belongs to another Library");
+      throw new Error("Commit visibility delta belongs to another Library");
     }
     const claims = resourceClaims(packet);
     const remembered = this.#remembered.get(identity.key);
@@ -447,20 +452,20 @@ export class LocalCommitCoordinator {
       };
     }
 
-    for (const revocation of packet.revocations) {
-      const scopeKey = authorizationScopeKey(revocation.authorization_scope);
+    for (const delta of packet.visibility_deltas) {
+      const scopeKey = authorizationScopeKey(delta.authorization_scope);
       const key = scopedClaimKey(
-        revocation.authorization_scope,
-        `revocation:${revocation.resource_kind}:${revocation.resource_id}`,
+        delta.authorization_scope,
+        `visibility:${delta.delta_hash}`,
       );
       const claim = admittedByKey.get(key);
       if (!claim) continue;
       this.#schedule(
-        "revocation",
-        `${scopeKey}:${revocation.resource_kind}:${revocation.resource_id}`,
+        "visibility",
+        `${scopeKey}:${delta.delta_hash}`,
         packet,
         [claim],
-        () => this.#input.onRevocation(packet, revocation, ingress),
+        () => this.#input.onVisibility(packet, delta, ingress),
       );
     }
     for (const delivery of documentDeliveries(packet, admittedByKey)) {
@@ -534,7 +539,7 @@ export class LocalCommitCoordinator {
       activeLanes: {
         document: this.#lanes.document.size,
         projection: this.#lanes.projection.size,
-        revocation: this.#lanes.revocation.size,
+        visibility: this.#lanes.visibility.size,
         notification: this.#lanes.notification.size,
       },
       pendingDeliveries: this.#pendingDeliveries,

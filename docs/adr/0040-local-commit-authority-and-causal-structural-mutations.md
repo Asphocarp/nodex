@@ -1,6 +1,6 @@
 # ADR 0040: LocalCommit is the local mutation authority and structural commands use causal Document heads
 
-- Status: Accepted
+- Status: Accepted (amended 2026-08-10)
 - Date: 2026-08-06
 - Owners: Nodex maintainers
 - Extends: ADR 0004, ADR 0005, ADR 0024
@@ -22,6 +22,32 @@ surface and is a causal precondition for a structural mutation, not a public
 projection cursor.
 
 ## Decision
+
+### Complete packet and recipient authorization amendment
+
+LocalCommit delivery uses event/transport version 8 and one packet-v4 shape.
+Each packet binds a logical `DeliveryAddress`, an equal Core-authored
+authorization scope, Manifest coverage, projection and Document effects, and
+Manifest-bound `VisibilityDelta` values. A delta is an exact Grant, an exact
+Revoke, or a bounded `ConservativeReset`; visibility is admitted before any
+post-state content. A packet containing only visibility evidence is valid.
+
+Non-origin renderers subscribe only to logical Library/Project addresses. The
+Core scoped-live barrier signs an `AuthorizedRecipientLease` for every active
+address. Main may route with that lease but cannot construct, replace, or
+broaden its authorization scope. The renderer IPC carries exactly one complete
+packet or one lease-bound `AddressReset`; effect-only projection and revocation
+channels do not exist. Send failure, NACK, ACK timeout, queue overflow,
+integrity failure, reload, and epoch replacement fence the address and actively
+retry reset delivery with one bounded jittered timer. A reset ACK clears only
+the required floor it covers.
+
+Apply responses, including Document apply ACKs, enter the same renderer
+`LocalCommitIngress` before their feature Promise resolves. Audience packets
+and later durable copies use the same packet validation and resource claims,
+so complementary audiences enrich and exact repeats deduplicate. Transport
+`AddressReset` and semantic `ConservativeReset` retain separate identities and
+cannot be substituted for one another.
 
 Core separates one semantic mutation into private evidence, one immutable
 semantic Manifest, and dynamically authorized delivery. Physical journal rows

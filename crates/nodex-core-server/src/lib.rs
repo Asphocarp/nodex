@@ -58,9 +58,9 @@ use nodex_core_contracts::document::{
 };
 use nodex_core_contracts::events::DeliveryAuthorizationScope;
 use nodex_core_contracts::{
-    AdapterKind, ApplyResponse, AuthorizedDeliveryPacket, BoundModuleContext, CoreError,
-    CoreErrorCode, CoreErrorRecovery, LibraryId, ModuleName, ProfileId, ProjectId, StoreEpoch,
-    StoreObservation, StreamCheckpoint,
+    AdapterKind, ApplyResponse, AuthorizedDeliveryPacket, AuthorizedRecipientLease,
+    BoundModuleContext, CoreError, CoreErrorCode, CoreErrorRecovery, DeliveryAddress, LibraryId,
+    ModuleName, ProfileId, ProjectId, StoreEpoch, StoreObservation, StreamCheckpoint,
 };
 use nodex_core_protocol::{
     AutomationApplyRequest, AutomationApplyResponse, AutomationReadRequest, AutomationReadResponse,
@@ -365,7 +365,7 @@ struct ProjectionLiveBarrier {
     store_epoch: StoreEpoch,
     core_generation: String,
     commit_head: i64,
-    authorization_scopes: Vec<DeliveryAuthorizationScope>,
+    recipient_leases: Vec<AuthorizedRecipientLease>,
 }
 
 #[derive(Serialize)]
@@ -1786,6 +1786,48 @@ fn projection_live_subscription_key(
     Ok(hex::encode(Sha256::digest(canonical)))
 }
 
+fn projection_live_recipient_leases(
+    generation: &str,
+    scopes: &[DeliveryAuthorizationScope],
+) -> Result<Vec<AuthorizedRecipientLease>, ApiError> {
+    scopes
+        .iter()
+        .map(|scope| {
+            let delivery_address = match scope {
+                DeliveryAuthorizationScope::Library { library_id } => DeliveryAddress::Library {
+                    library_id: library_id.clone(),
+                },
+                DeliveryAuthorizationScope::Project {
+                    library_id,
+                    project_id,
+                } => DeliveryAddress::Project {
+                    library_id: library_id.clone(),
+                    project_id: project_id.clone(),
+                },
+                DeliveryAuthorizationScope::Document { .. } => {
+                    return Err(ApiError::new(
+                        StatusCode::BAD_REQUEST,
+                        "Projection live broker does not accept Document addresses",
+                    ));
+                }
+            };
+            let encoded =
+                serde_json::to_vec(&("recipient-lease-v1", generation, &delivery_address, scope))
+                    .map_err(|_| {
+                    ApiError::new(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "Projection live recipient lease could not be encoded",
+                    )
+                })?;
+            Ok(AuthorizedRecipientLease {
+                lease_id: hex::encode(Sha256::digest(encoded)),
+                delivery_address,
+                authorization_scope: scope.clone(),
+            })
+        })
+        .collect()
+}
+
 async fn projection_live_events(
     State(state): State<Arc<ServerState>>,
     Extension(bound): Extension<BoundConnection>,
@@ -1837,11 +1879,12 @@ async fn projection_live_events(
         context,
         scopes.clone(),
     );
+    let recipient_leases = projection_live_recipient_leases(&descriptor.start_nonce, &scopes)?;
     let barrier = ProjectionLiveBarrier {
         store_epoch: barrier_epoch,
         core_generation: descriptor.start_nonce,
         commit_head: barrier_head,
-        authorization_scopes: scopes.clone(),
+        recipient_leases,
     };
     let mut stream_shutdown = state.lifecycle.subscribe_stream_shutdown();
     let stream_state = Arc::clone(&state);

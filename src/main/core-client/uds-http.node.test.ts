@@ -29,8 +29,8 @@ const replayBoundary: CoreEventReplayRequired = {
 
 const configureEventContract = (transport: UdsHttpTransport): UdsHttpTransport => {
   transport.configureEventContract({
-    transportVersion: 7,
-    eventVersion: 7,
+    transportVersion: 8,
+    eventVersion: 8,
     libraryId: "library-1",
     storeEpoch: "epoch-1",
     coreGeneration: "generation-1",
@@ -148,7 +148,7 @@ const serveJsonResponse = async (
 };
 
 const committedEvent = (): CoreEventEnvelope => ({
-  transport_version: 7,
+  transport_version: 8,
   packet: createCoreLocalCommitFixture({
     commitSeq: 1,
     operationId: "operation-1",
@@ -172,7 +172,7 @@ const committedEvent = (): CoreEventEnvelope => ({
 
 const serveLargeCommittedEvent = async (): Promise<string> =>
   await serveCommittedEvent({
-    transport_version: 7,
+    transport_version: 8,
     packet: createCoreLocalCommitFixture({
       commitSeq: 1,
       committedAt: "2026-07-22T00:00:00.000Z",
@@ -406,7 +406,7 @@ describe("UDS Core event replay boundaries", () => {
 
   test("accepts canonical compound DeliveryAtom requirements", async () => {
     const event: CoreEventEnvelope = {
-      transport_version: 7,
+      transport_version: 8,
       packet: createCoreLocalCommitFixture({
         commitSeq: 2,
         requiredResources: [
@@ -445,8 +445,13 @@ describe("UDS Core event replay boundaries", () => {
 
   test("accepts a Canvas revocation through the generated transport boundary", async () => {
     const event: CoreEventEnvelope = {
-      transport_version: 7,
+      transport_version: 8,
       packet: createCoreLocalCommitFixture({
+        authorizationScope: {
+          kind: "project",
+          library_id: "library-1",
+          project_id: "project-1",
+        },
         commitSeq: 3,
         revocations: [{
           authorization_scope: {
@@ -469,7 +474,7 @@ describe("UDS Core event replay boundaries", () => {
     });
 
     await expect(subscription.done).resolves.toBeUndefined();
-    expect(delivered[0]?.packet.revocations).toEqual(event.packet.revocations);
+    expect(delivered[0]?.packet.visibility_deltas).toEqual(event.packet.visibility_deltas);
   });
 
   test("opens the scoped Projection broker only after its exact barrier", async () => {
@@ -477,10 +482,18 @@ describe("UDS Core event replay boundaries", () => {
       store_epoch: "epoch-1",
       core_generation: "generation-1",
       commit_head: 4,
-      authorization_scopes: [{
-        kind: "project",
-        library_id: "library-1",
-        project_id: "project-1",
+      recipient_leases: [{
+        lease_id: "a".repeat(64),
+        delivery_address: {
+          kind: "project",
+          library_id: "library-1",
+          project_id: "project-1",
+        },
+        authorization_scope: {
+          kind: "project",
+          library_id: "library-1",
+          project_id: "project-1",
+        },
       }],
     };
     const frames = `event: projection-live-opened\ndata: ${JSON.stringify(barrier)}\n\n`
@@ -507,10 +520,18 @@ describe("UDS Core event replay boundaries", () => {
       store_epoch: "epoch-1",
       core_generation: "generation-1",
       commit_head: 4,
-      authorization_scopes: [{
-        kind: "project",
-        library_id: "library-1",
-        project_id: "project-other",
+      recipient_leases: [{
+        lease_id: "a".repeat(64),
+        delivery_address: {
+          kind: "project",
+          library_id: "library-1",
+          project_id: "project-other",
+        },
+        authorization_scope: {
+          kind: "project",
+          library_id: "library-1",
+          project_id: "project-other",
+        },
       }],
     };
     const transport = configureEventContract(new UdsHttpTransport(
@@ -532,7 +553,7 @@ describe("UDS Core event replay boundaries", () => {
 
   test("rejects noncanonical DeliveryAtom requirements", async () => {
     const event: CoreEventEnvelope = {
-      transport_version: 7,
+      transport_version: 8,
       packet: createCoreLocalCommitFixture({
         commitSeq: 2,
         requiredResources: [

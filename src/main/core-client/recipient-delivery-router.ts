@@ -1,22 +1,16 @@
 import { createHash } from "node:crypto";
 
+import type { AuthorizedDeliveryPacket } from "../../shared/authorized-delivery-packet";
 import {
   RECIPIENT_DELIVERY_VERSION,
+  type AddressReset,
+  type AddressResetReason,
+  type AuthorizedRecipientLease,
+  type DeliveryAddress,
+  type DeliveryAuthorizationScope,
   type RecipientAdmissionResult,
   type RecipientDeliveryEnvelope,
-  type RecipientDeliveryLane,
 } from "../../shared/recipient-delivery";
-import {
-  projectionScopeKey,
-  type ProjectionCursor,
-  type ProjectionScope,
-  type ProjectionStreamMessage,
-} from "../../shared/projection-stream";
-import type {
-  ResourceRevocationDeliveryMessage,
-  ResourceRevocationMessage,
-  ResourceRevocationResetMessage,
-} from "../../shared/resource-revocation-stream";
 
 interface RecipientSender {
   readonly id: number;
@@ -25,19 +19,26 @@ interface RecipientSender {
   send(channel: string, ...args: unknown[]): void;
 }
 
+interface DeliveryFloor {
+  readonly storeEpoch: string;
+  readonly commitSeq: number;
+}
+
 interface PendingAdmission {
   readonly deliveryId: string;
-  readonly floor: ProjectionCursor;
+  readonly floor: DeliveryFloor;
   readonly reset: boolean;
   readonly timeout: ReturnType<typeof setTimeout>;
 }
 
 interface RecipientState {
   readonly sender: RecipientSender;
-  readonly scope: ProjectionScope;
-  readonly lane: RecipientDeliveryLane;
+  readonly lease: AuthorizedRecipientLease;
   readonly pending: Map<string, PendingAdmission>;
-  requiredFloor: ProjectionCursor | null;
+  requiredFloor: DeliveryFloor | null;
+  resetReason: AddressResetReason;
+  retryTimer: ReturnType<typeof setTimeout> | null;
+  retryAttempt: number;
   released: boolean;
 }
 
@@ -56,62 +57,77 @@ export interface RecipientDeliveryRouterInput {
   ) => boolean;
   readonly ackTimeoutMs?: number;
   readonly maxPendingPerRecipient?: number;
+  readonly retryBaseMs?: number;
+  readonly retryMaxMs?: number;
+  readonly random?: () => number;
 }
 
-const cursorMax = (left: ProjectionCursor | null, right: ProjectionCursor): ProjectionCursor => {
+const HASH_PATTERN = /^[a-f0-9]{64}$/u;
+
+const digest = (value: unknown): string => createHash("sha256")
+  .update(JSON.stringify(value))
+  .digest("hex");
+
+const identityKey = (
+  value: DeliveryAddress | DeliveryAuthorizationScope,
+): string => JSON.stringify(value);
+
+const stateKey = (senderId: number, address: DeliveryAddress): string =>
+  `${senderId}:${identityKey(address)}`;
+
+const floorMax = (
+  left: DeliveryFloor | null,
+  right: DeliveryFloor,
+): DeliveryFloor => {
   if (!left || left.storeEpoch !== right.storeEpoch) return right;
   return left.commitSeq >= right.commitSeq ? left : right;
 };
 
-const digest = (parts: readonly string[]): string => createHash("sha256")
-  .update(JSON.stringify(parts))
-  .digest("hex");
+const packetFloor = (packet: AuthorizedDeliveryPacket): DeliveryFloor => ({
+  storeEpoch: packet.manifest.identity.store_epoch,
+  commitSeq: packet.manifest.identity.commit_seq,
+});
 
-const projectionDeliveryId = (message: ProjectionStreamMessage): string => {
-  if (message.kind === "effect") {
-    return digest([
-      message.delivery.storeEpoch,
-      message.delivery.manifestHash,
-      "projection",
-      projectionScopeKey(message.scope),
-      message.delivery.effect.scope.canonical_key,
-      String(message.delivery.effect.resultRevision),
-    ]);
-  }
-  return digest([
-    message.stream.storeEpoch,
-    message.kind,
-    projectionScopeKey(message.scope),
-    String(message.stream.commitSeq),
-    message.kind === "reset" ? message.reason : "checkpoint",
-  ]);
-};
+const packetDeliveryId = (
+  lease: AuthorizedRecipientLease,
+  packet: AuthorizedDeliveryPacket,
+): string => digest([
+  "recipient-packet-v2",
+  lease.lease_id,
+  lease.delivery_address,
+  lease.authorization_scope,
+  packet.manifest.identity.store_epoch,
+  packet.manifest.identity.manifest_hash,
+  packet.packet_hash,
+]);
 
-const revocationDeliveryId = (message: ResourceRevocationDeliveryMessage): string => {
-  const revocation = message.delivery.revocation;
-  return digest([
-    message.delivery.storeEpoch,
-    message.delivery.manifestHash,
-    "revocation",
-    projectionScopeKey(message.scope),
-    revocation.resource_kind,
-    revocation.resource_id,
-  ]);
-};
+const validLease = (lease: AuthorizedRecipientLease): boolean =>
+  HASH_PATTERN.test(lease.lease_id)
+  && identityKey(lease.delivery_address)
+    === identityKey(lease.authorization_scope);
 
-const stateKey = (
-  senderId: number,
-  scope: ProjectionScope,
-  lane: RecipientDeliveryLane,
-): string => `${senderId}:${lane}:${projectionScopeKey(scope)}`;
+const validPacketForLease = (
+  lease: AuthorizedRecipientLease,
+  packet: AuthorizedDeliveryPacket,
+): boolean => packet.packet_version === 4
+  && identityKey(packet.delivery_address) === identityKey(lease.delivery_address)
+  && identityKey(packet.authorization_scope)
+    === identityKey(lease.authorization_scope);
 
-/** Volatile recipient admission proof; business recovery remains snapshot/reset based. */
+/**
+ * Owns volatile renderer admission for one sender/address pair. Every failure
+ * actively retries a Core-lease-bound AddressReset; no renderer is allowed to
+ * infer continuity from a missing message or a best-effort reset.
+ */
 export class RecipientDeliveryRouter {
   readonly #send: RecipientDeliveryRouterInput["send"];
   readonly #ackTimeoutMs: number;
   readonly #maxPendingPerRecipient: number;
+  readonly #retryBaseMs: number;
+  readonly #retryMaxMs: number;
+  readonly #random: () => number;
   readonly #states = new Map<string, RecipientState>();
-  readonly #requiredFloors = new Map<string, ProjectionCursor>();
+  readonly #requiredFloors = new Map<string, DeliveryFloor>();
   readonly #deliveryOwners = new Map<string, RecipientState>();
 
   constructor(input: RecipientDeliveryRouterInput) {
@@ -121,32 +137,45 @@ export class RecipientDeliveryRouter {
       1,
       Math.floor(input.maxPendingPerRecipient ?? 128),
     );
+    this.#retryBaseMs = Math.max(1, Math.floor(input.retryBaseMs ?? 100));
+    this.#retryMaxMs = Math.max(
+      this.#retryBaseMs,
+      Math.floor(input.retryMaxMs ?? 30_000),
+    );
+    this.#random = input.random ?? Math.random;
   }
 
   register(
     sender: RecipientSender,
-    scope: ProjectionScope,
-    lane: RecipientDeliveryLane,
+    lease: AuthorizedRecipientLease,
   ): {
-    readonly publishProjection: (message: ProjectionStreamMessage) => FanoutReport;
-    readonly publishRevocation: (message: ResourceRevocationMessage) => FanoutReport;
+    readonly publish: (packet: AuthorizedDeliveryPacket) => FanoutReport;
+    readonly reset: (
+      floor: DeliveryFloor,
+      reason: AddressResetReason,
+    ) => FanoutReport;
     readonly release: () => void;
   } {
-    const key = stateKey(sender.id, scope, lane);
+    if (!validLease(lease)) {
+      throw new TypeError("Core recipient lease is invalid");
+    }
+    const key = stateKey(sender.id, lease.delivery_address);
     this.#release(this.#states.get(key), true);
     const state: RecipientState = {
       sender,
-      scope,
-      lane,
+      lease,
       pending: new Map(),
       requiredFloor: this.#requiredFloors.get(key) ?? null,
+      resetReason: "stream_gap",
+      retryTimer: null,
+      retryAttempt: 0,
       released: false,
     };
     this.#states.set(key, state);
     if (state.requiredFloor) this.#sendReset(state);
     return {
-      publishProjection: (message) => this.#publishProjection(state, message),
-      publishRevocation: (message) => this.#publishRevocation(state, message),
+      publish: (packet) => this.#publish(state, packet),
+      reset: (floor, reason) => this.#reset(state, floor, reason),
       release: () => {
         if (this.#states.get(key) === state) this.#states.delete(key);
         this.#release(state, true);
@@ -155,55 +184,34 @@ export class RecipientDeliveryRouter {
   }
 
   admit(senderId: number, value: unknown): boolean {
-    if (
-      typeof value !== "object"
-      || value === null
-      || !("version" in value)
-      || value.version !== RECIPIENT_DELIVERY_VERSION
-      || !("deliveryId" in value)
-      || typeof value.deliveryId !== "string"
-      || !/^[a-f0-9]{64}$/u.test(value.deliveryId)
-      || !("outcome" in value)
-      || (value.outcome !== "ack" && value.outcome !== "nack")
-      || (
-        value.outcome === "nack"
-        && (
-          !("reason" in value)
-          || (
-            value.reason !== "capacity"
-            && value.reason !== "causal_divergence"
-            && value.reason !== "invalid_message"
-          )
-        )
-      )
-    ) return false;
-    const result = value as RecipientAdmissionResult;
-    const ownerKey = `${senderId}:${result.deliveryId}`;
-    const state = this.#deliveryOwners.get(ownerKey);
-    if (!state || state.sender.id !== senderId || state.released) return false;
+    if (!this.#isAdmission(value)) return false;
+    const result = value;
+    const state = this.#deliveryOwners.get(`${senderId}:${result.deliveryId}`);
+    if (!state || state.released || state.sender.id !== senderId) return false;
     const pending = state.pending.get(result.deliveryId);
     if (!pending) return false;
     this.#forgetPending(state, pending);
     if (result.outcome === "nack") {
-      this.#fence(state, pending.floor);
+      this.#fence(state, pending.floor, "recipient_nack");
+      this.#sendReset(state);
       return true;
     }
-    if (pending.reset) {
-      const required = state.requiredFloor;
-      if (
-        required
-        && required.storeEpoch === pending.floor.storeEpoch
-        && required.commitSeq <= pending.floor.commitSeq
-      ) {
-        state.requiredFloor = null;
-        this.#requiredFloors.delete(stateKey(
-          state.sender.id,
-          state.scope,
-          state.lane,
-        ));
-      }
-      if (state.requiredFloor) this.#sendReset(state);
+    if (!pending.reset) return true;
+    const required = state.requiredFloor;
+    if (
+      required
+      && required.storeEpoch === pending.floor.storeEpoch
+      && required.commitSeq <= pending.floor.commitSeq
+    ) {
+      state.requiredFloor = null;
+      state.retryAttempt = 0;
+      this.#requiredFloors.delete(stateKey(
+        state.sender.id,
+        state.lease.delivery_address,
+      ));
+      this.#clearRetry(state);
     }
+    if (state.requiredFloor) this.#sendReset(state);
     return true;
   }
 
@@ -229,117 +237,113 @@ export class RecipientDeliveryRouter {
     readonly recipients: number;
     readonly pendingAdmissions: number;
     readonly fencedRecipients: number;
+    readonly scheduledResetRetries: number;
   } {
     let pendingAdmissions = 0;
     let fencedRecipients = 0;
+    let scheduledResetRetries = 0;
     for (const state of this.#states.values()) {
       pendingAdmissions += state.pending.size;
       if (state.requiredFloor) fencedRecipients += 1;
+      if (state.retryTimer) scheduledResetRetries += 1;
     }
-    return { recipients: this.#states.size, pendingAdmissions, fencedRecipients };
-  }
-
-  #publishProjection(
-    state: RecipientState,
-    message: ProjectionStreamMessage,
-  ): FanoutReport {
-    if (state.lane !== "projection" || state.released) return this.#releasedReport();
-    if (message.kind === "reset") {
-      this.#fence(state, message.stream);
-      const sent = this.#sendReset(state, message);
-      return { recipients: 1, sent: sent ? 1 : 0, fenced: 1, released: 0 };
-    }
-    if (state.requiredFloor) {
-      this.#fence(state, message.stream);
-      this.#sendReset(state);
-      return { recipients: 1, sent: 0, fenced: 1, released: 0 };
-    }
-    const sent = this.#sendEnvelope(state, {
-      version: RECIPIENT_DELIVERY_VERSION,
-      deliveryId: projectionDeliveryId(message),
-      scope: state.scope,
-      payload: { lane: "projection", message },
-    }, message.stream, false);
-    return { recipients: 1, sent: sent ? 1 : 0, fenced: sent ? 0 : 1, released: 0 };
-  }
-
-  #publishRevocation(
-    state: RecipientState,
-    message: ResourceRevocationMessage,
-  ): FanoutReport {
-    if (state.lane !== "revocation" || state.released) return this.#releasedReport();
-    if (message.kind === "reset") {
-      this.#fence(state, message.stream);
-      const sent = this.#sendReset(state, undefined, message);
-      return { recipients: 1, sent: sent ? 1 : 0, fenced: 1, released: 0 };
-    }
-    const floor = {
-      storeEpoch: message.delivery.storeEpoch,
-      commitSeq: message.delivery.commitSeq,
+    return {
+      recipients: this.#states.size,
+      pendingAdmissions,
+      fencedRecipients,
+      scheduledResetRetries,
     };
-    if (state.requiredFloor) {
-      this.#fence(state, floor);
+  }
+
+  #publish(
+    state: RecipientState,
+    packet: AuthorizedDeliveryPacket,
+  ): FanoutReport {
+    if (state.released) return this.#releasedReport();
+    if (!validPacketForLease(state.lease, packet)) {
+      this.#fence(state, packetFloor(packet), "integrity_failure");
       this.#sendReset(state);
       return { recipients: 1, sent: 0, fenced: 1, released: 0 };
     }
-    const sent = this.#sendEnvelope(state, {
+    const floor = packetFloor(packet);
+    if (state.requiredFloor) {
+      this.#fence(state, floor, state.resetReason);
+      this.#sendReset(state);
+      return { recipients: 1, sent: 0, fenced: 1, released: 0 };
+    }
+    const envelope: RecipientDeliveryEnvelope = {
       version: RECIPIENT_DELIVERY_VERSION,
-      deliveryId: revocationDeliveryId(message),
-      scope: state.scope,
-      payload: { lane: "revocation", message },
-    }, floor, false);
-    return { recipients: 1, sent: sent ? 1 : 0, fenced: sent ? 0 : 1, released: 0 };
+      deliveryId: packetDeliveryId(state.lease, packet),
+      recipientLeaseId: state.lease.lease_id,
+      deliveryAddress: state.lease.delivery_address,
+      authorizationScope: state.lease.authorization_scope,
+      payload: { kind: "packet", packet },
+    };
+    const sent = this.#sendEnvelope(state, envelope, floor, false);
+    if (!sent) this.#sendReset(state);
+    return {
+      recipients: 1,
+      sent: sent ? 1 : 0,
+      fenced: sent ? 0 : 1,
+      released: 0,
+    };
   }
 
-  #sendReset(
+  #reset(
     state: RecipientState,
-    suppliedProjection?: ProjectionStreamMessage,
-    suppliedRevocation?: ResourceRevocationResetMessage,
-  ): boolean {
-    const floor = state.requiredFloor;
-    if (!floor || state.released) return false;
+    floor: DeliveryFloor,
+    reason: AddressResetReason,
+  ): FanoutReport {
+    if (state.released) return this.#releasedReport();
+    this.#fence(state, floor, reason);
+    const sent = this.#sendReset(state);
+    return { recipients: 1, sent: sent ? 1 : 0, fenced: 1, released: 0 };
+  }
+
+  #sendReset(state: RecipientState): boolean {
+    if (!state.requiredFloor || state.released) return false;
     if ([...state.pending.values()].some((pending) => pending.reset)) return true;
-    const projectionReset: ProjectionStreamMessage = suppliedProjection?.kind === "reset"
-      ? { ...suppliedProjection, stream: floor }
-      : {
-          version: 2,
-          kind: "reset",
-          scope: state.scope,
-          stream: floor,
-          reason: "event_gap",
-        };
-    const revocationReset: ResourceRevocationResetMessage = suppliedRevocation
-      ? { ...suppliedRevocation, stream: floor }
-      : {
-          version: 1,
-          kind: "reset",
-          scope: state.scope,
-          stream: floor,
-          reason: "recipient_delivery_failed",
-        };
-    const payload = state.lane === "projection"
-      ? { lane: "projection" as const, message: projectionReset }
-      : { lane: "revocation" as const, message: revocationReset };
-    return this.#sendEnvelope(state, {
+    for (const pending of [...state.pending.values()]) {
+      this.#fence(state, pending.floor, state.resetReason);
+      this.#forgetPending(state, pending);
+    }
+    const floor = state.requiredFloor;
+    if (!floor) return false;
+    this.#clearRetry(state);
+    const reset: AddressReset = {
+      reset_id: digest([
+        "address-reset-v1",
+        state.lease.lease_id,
+        state.lease.delivery_address,
+        state.lease.authorization_scope,
+        floor.storeEpoch,
+        floor.commitSeq,
+        state.resetReason,
+      ]),
+      store_epoch: floor.storeEpoch,
+      recipient_lease_id: state.lease.lease_id,
+      delivery_address: state.lease.delivery_address,
+      authorization_scope: state.lease.authorization_scope,
+      required_commit_seq: floor.commitSeq,
+      reason: state.resetReason,
+    };
+    const envelope: RecipientDeliveryEnvelope = {
       version: RECIPIENT_DELIVERY_VERSION,
-      deliveryId: state.lane === "projection"
-        ? projectionDeliveryId(projectionReset)
-        : digest([
-            floor.storeEpoch,
-            "revocation_reset",
-            projectionScopeKey(state.scope),
-            String(floor.commitSeq),
-            revocationReset.reason,
-          ]),
-      scope: state.scope,
-      payload,
-    }, floor, true);
+      deliveryId: reset.reset_id,
+      recipientLeaseId: state.lease.lease_id,
+      deliveryAddress: state.lease.delivery_address,
+      authorizationScope: state.lease.authorization_scope,
+      payload: { kind: "reset", reset },
+    };
+    const sent = this.#sendEnvelope(state, envelope, floor, true);
+    if (!sent) this.#scheduleReset(state);
+    return sent;
   }
 
   #sendEnvelope(
     state: RecipientState,
     envelope: RecipientDeliveryEnvelope,
-    floor: ProjectionCursor,
+    floor: DeliveryFloor,
     reset: boolean,
   ): boolean {
     if (state.pending.has(envelope.deliveryId)) return true;
@@ -348,15 +352,16 @@ export class RecipientDeliveryRouter {
       || state.sender.isDestroyed()
       || state.sender.isLoadingMainFrame?.()
     ) {
-      this.#fence(state, floor);
+      this.#fence(state, floor, reset ? state.resetReason : "stream_gap");
       return false;
     }
     if (state.pending.size >= this.#maxPendingPerRecipient) {
       for (const pending of state.pending.values()) {
-        this.#fence(state, pending.floor);
+        this.#fence(state, pending.floor, "queue_overflow");
       }
       this.#clearPending(state);
-      this.#fence(state, floor);
+      this.#fence(state, floor, "queue_overflow");
+      if (!reset) this.#sendReset(state);
       return false;
     }
     let sent = false;
@@ -366,14 +371,15 @@ export class RecipientDeliveryRouter {
       sent = false;
     }
     if (!sent) {
-      this.#fence(state, floor);
+      this.#fence(state, floor, reset ? state.resetReason : "stream_gap");
       return false;
     }
     const timeout = setTimeout(() => {
       const pending = state.pending.get(envelope.deliveryId);
       if (!pending) return;
       this.#forgetPending(state, pending);
-      this.#fence(state, pending.floor);
+      this.#fence(state, pending.floor, "ack_timeout");
+      this.#sendReset(state);
     }, this.#ackTimeoutMs);
     timeout.unref?.();
     const pending = { deliveryId: envelope.deliveryId, floor, reset, timeout };
@@ -382,12 +388,39 @@ export class RecipientDeliveryRouter {
     return true;
   }
 
-  #fence(state: RecipientState, floor: ProjectionCursor): void {
-    state.requiredFloor = cursorMax(state.requiredFloor, floor);
+  #fence(
+    state: RecipientState,
+    floor: DeliveryFloor,
+    reason: AddressResetReason,
+  ): void {
+    state.requiredFloor = floorMax(state.requiredFloor, floor);
+    state.resetReason = reason;
     this.#requiredFloors.set(
-      stateKey(state.sender.id, state.scope, state.lane),
+      stateKey(state.sender.id, state.lease.delivery_address),
       state.requiredFloor,
     );
+  }
+
+  #scheduleReset(state: RecipientState): void {
+    if (state.released || state.retryTimer || !state.requiredFloor) return;
+    const cap = Math.min(
+      this.#retryMaxMs,
+      this.#retryBaseMs * (2 ** Math.min(state.retryAttempt, 16)),
+    );
+    const delay = Math.max(1, Math.floor(cap * this.#random()));
+    state.retryAttempt += 1;
+    state.retryTimer = setTimeout(() => {
+      state.retryTimer = null;
+      if (state.released || !state.requiredFloor) return;
+      this.#sendReset(state);
+    }, delay);
+    state.retryTimer.unref?.();
+  }
+
+  #clearRetry(state: RecipientState): void {
+    if (!state.retryTimer) return;
+    clearTimeout(state.retryTimer);
+    state.retryTimer = null;
   }
 
   #forgetPending(state: RecipientState, pending: PendingAdmission): void {
@@ -400,21 +433,37 @@ export class RecipientDeliveryRouter {
   }
 
   #clearPending(state: RecipientState): void {
-    for (const pending of state.pending.values()) this.#forgetPending(state, pending);
+    for (const pending of [...state.pending.values()]) {
+      this.#forgetPending(state, pending);
+    }
   }
 
-  #release(
-    state: RecipientState | undefined,
-    preserveRecovery: boolean,
-  ): void {
+  #release(state: RecipientState | undefined, preserveRecovery: boolean): void {
     if (!state || state.released) return;
     state.released = true;
+    this.#clearRetry(state);
     if (preserveRecovery) {
       for (const pending of state.pending.values()) {
-        this.#fence(state, pending.floor);
+        this.#fence(state, pending.floor, "stream_gap");
       }
     }
     this.#clearPending(state);
+  }
+
+  #isAdmission(value: unknown): value is RecipientAdmissionResult {
+    if (typeof value !== "object" || value === null) return false;
+    const candidate = value as Partial<RecipientAdmissionResult>;
+    if (
+      candidate.version !== RECIPIENT_DELIVERY_VERSION
+      || typeof candidate.deliveryId !== "string"
+      || !HASH_PATTERN.test(candidate.deliveryId)
+      || (candidate.outcome !== "ack" && candidate.outcome !== "nack")
+    ) return false;
+    if (candidate.outcome === "ack") return true;
+    const reason = "reason" in candidate ? candidate.reason : undefined;
+    return reason === "capacity"
+      || reason === "causal_divergence"
+      || reason === "invalid_message";
   }
 
   #releasedReport(): FanoutReport {

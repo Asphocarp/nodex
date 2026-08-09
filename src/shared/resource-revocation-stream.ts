@@ -2,13 +2,20 @@ import type { components } from "@nodex/core-protocol";
 
 import type { ProjectionCursor, ProjectionScope } from "./projection-stream";
 
+export interface ResourceRevocation {
+  readonly authorization_scope: components["schemas"]["DeliveryAuthorizationScope"];
+  readonly resource_kind: "page" | "document" | "database" | "data_source" | "view" | "canvas";
+  readonly resource_id: string;
+  readonly reason: "ownership_moved" | "access_revoked" | "archived" | "deleted";
+}
+
 export interface ResourceRevocationDelivery {
   readonly storeEpoch: string;
   readonly commitSeq: number;
   readonly manifestHash: string;
   readonly operationId: string;
   readonly committedAt: string;
-  readonly revocation: components["schemas"]["ResourceRevocation"];
+  readonly revocation: ResourceRevocation;
 }
 
 /** Immediate authorization-loss delivery. Durable progress remains on the projection stream. */

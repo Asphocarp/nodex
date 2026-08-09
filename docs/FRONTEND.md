@@ -177,12 +177,14 @@ Every modal opened from an interactive row needs a behavioral regression test:
 - Cross-surface Page/Block DnD: carry only Project/store/source parent, stable root IDs, and disposable labels. Use `copyMove`; resolve default Move versus Option/Alt Copy from the current dragover/drop event, and drive drop effect, BlockNote-aligned indicator, label, and submitted `BlockTransfer.mode` from that one helper. Do not serialize NFM/Page bodies, insert `pageRef` as a hidden substitute for Move, show a second native caret, or remove the source optimistically. The Core receipt is the first structural authority; its Document commit refs are replayed to open providers and its `commitSeq` fences Board/Page reads. Same-Database Kanban reorder remains a View-position operation.
 
 Every semantic mutation wrapper admits `ApplyResponse.delivery` through the
-renderer singleton `LocalCommitIngress` before resolving to feature code. Main
-routes only non-origin scoped-live/durable copies and requires a causal-ingress
-ACK; a missed recipient receives an exact-scope reset and canonical repair.
+renderer singleton `LocalCommitIngress` before resolving to feature code;
+Document apply ACK follows the same rule. Main routes only complete non-origin
+packets through a Core-issued address lease and requires a causal-ingress ACK.
+A missed recipient receives an actively retried `AddressReset` and canonical
+repair; projection and revocation effects are never separate IPC protocols.
 The ingress and projection registry are renderer-lifetime services rather than
 React Provider-owned state. Projection revision/hash integrity is shared across
-audiences, but delivery dedupe includes the concrete Library/Project recipient;
+audiences, but delivery dedupe includes the concrete Library/Project address;
 receiving a Library copy must never suppress the same effect for a mounted
 Project consumer.
 Contiguous complete projection effects reduce synchronously, while canonical

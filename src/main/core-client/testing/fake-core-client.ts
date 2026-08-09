@@ -525,13 +525,20 @@ export class FakeCoreClient implements CoreClientPort {
         store_epoch: "epoch:test",
         core_generation: "fake-core-start",
         commit_head: 0,
-        authorization_scopes: scopes.map((scope) => scope.kind === "library"
-          ? { kind: "library" as const, library_id: scope.libraryId }
-          : {
-              kind: "project" as const,
-              library_id: scope.libraryId,
-              project_id: scope.projectId,
-            }),
+        recipient_leases: scopes.map((scope, index) => {
+          const address = scope.kind === "library"
+            ? { kind: "library" as const, library_id: scope.libraryId }
+            : {
+                kind: "project" as const,
+                library_id: scope.libraryId,
+                project_id: scope.projectId,
+              };
+          return {
+            lease_id: String(index + 1).padStart(64, "a").slice(-64),
+            delivery_address: address,
+            authorization_scope: address,
+          };
+        }),
       },
       done,
       close: () => finish?.(),

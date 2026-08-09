@@ -309,6 +309,7 @@ function createTestRegistry(
   dependencies: Partial<KanbanStoreDependencies> = {},
 ) {
   return createKanbanStoreRegistry({
+    getProjectionInvalidationRegistry: () => null,
     readViewGroups: async (_projectId, input) => {
       const viewId = input.databaseViewId ?? "view-primary";
       const revision = input.minimumCommitSeq ?? 1;

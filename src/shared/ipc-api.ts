@@ -587,20 +587,12 @@ export interface RendererDiagnosticsLogInput {
 }
 
 export interface IpcApi {
-  "projection-stream:subscribe": {
-    args: [scope: import("./projection-stream").ProjectionScope];
+  "local-commit-audience:subscribe": {
+    args: [address: import("./recipient-delivery").DeliveryAddress];
     result: void;
   };
-  "projection-stream:unsubscribe": {
-    args: [scope: import("./projection-stream").ProjectionScope];
-    result: void;
-  };
-  "resource-revocation:subscribe": {
-    args: [scope: import("./projection-stream").ProjectionScope];
-    result: void;
-  };
-  "resource-revocation:unsubscribe": {
-    args: [scope: import("./projection-stream").ProjectionScope];
+  "local-commit-audience:unsubscribe": {
+    args: [address: import("./recipient-delivery").DeliveryAddress];
     result: void;
   };
   "recipient-delivery:admit": {

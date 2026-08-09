@@ -2,6 +2,7 @@ import type { DocumentSyncRealtimeEvent } from "../../shared/block-documents/doc
 import {
   projectionMessageFromDelivery,
   projectionScopeCanReceive,
+  revocationsFromVisibilityDelta,
   revocationMessageFromDelivery,
   revocationScopeCanReceive,
   type AuthorizedDeliveryPacket,
@@ -13,6 +14,11 @@ import {
   type ProjectionStreamMessage,
 } from "../../shared/projection-stream";
 import type { ResourceRevocationMessage } from "../../shared/resource-revocation-stream";
+import {
+  deliveryAddressProjectionScope,
+  type AddressReset,
+  type DeliveryAddress,
+} from "../../shared/recipient-delivery";
 
 type ProjectionListener = (message: ProjectionStreamMessage) => void;
 type RevocationListener = (message: ResourceRevocationMessage) => void;
@@ -55,73 +61,6 @@ const HASH_PATTERN = /^[a-f0-9]{64}$/u;
 const DEFAULT_MAX_REMEMBERED_COMMITS = 100_000;
 const DEFAULT_MAX_IN_FLIGHT_ADMISSIONS = 256;
 
-const validateProjectionMessage = (message: ProjectionStreamMessage): void => {
-  if (
-    message.version !== 2
-    || !message.scope.libraryId
-    || message.scope.libraryId !== message.scope.libraryId.trim()
-    || (
-      message.scope.kind === "project"
-      && (
-        !message.scope.projectId
-        || message.scope.projectId !== message.scope.projectId.trim()
-      )
-    )
-    || !message.stream.storeEpoch
-    || !Number.isSafeInteger(message.stream.commitSeq)
-    || message.stream.commitSeq < 0
-  ) throw new TypeError("Projection delivery coordinate is invalid");
-  if (message.kind !== "effect") return;
-  const effectScope = message.delivery.effect.scope.scope;
-  if (
-    message.delivery.storeEpoch !== message.stream.storeEpoch
-    || message.delivery.commitSeq !== message.stream.commitSeq
-    || !HASH_PATTERN.test(message.delivery.manifestHash)
-    || message.delivery.effect.resultRevision
-      !== message.delivery.effect.baseRevision + 1
-    || message.delivery.effect.coveredCommitSeq !== message.delivery.commitSeq
-    || !HASH_PATTERN.test(message.delivery.effect.effectHash)
-    || (
-      message.scope.kind === "project"
-      && (
-        effectScope.kind === "library"
-        || effectScope.project_id !== message.scope.projectId
-      )
-    )
-  ) throw new TypeError("Projection delivery effect is invalid");
-};
-
-const validateRevocationMessage = (message: ResourceRevocationMessage): void => {
-  if (message.kind === "reset") {
-    if (
-      message.version !== 1
-      || !message.stream.storeEpoch
-      || !Number.isSafeInteger(message.stream.commitSeq)
-      || message.stream.commitSeq < 0
-      || (
-        message.reason !== "event_gap"
-        && message.reason !== "reconnect"
-        && message.reason !== "store_epoch_changed"
-        && message.reason !== "recipient_delivery_failed"
-      )
-    ) throw new TypeError("Resource revocation reset is invalid");
-    return;
-  }
-  const revocation = message.delivery.revocation;
-  if (
-    message.version !== 1
-    || message.stream.storeEpoch !== message.delivery.storeEpoch
-    || message.stream.commitSeq !== message.delivery.commitSeq
-    || !message.delivery.storeEpoch
-    || !Number.isSafeInteger(message.delivery.commitSeq)
-    || message.delivery.commitSeq < 1
-    || !HASH_PATTERN.test(message.delivery.manifestHash)
-    || !revocation.resource_id
-    || !revocation.reason
-    || !revocationScopeCanReceive(message.scope, revocation)
-  ) throw new TypeError("Resource revocation delivery is invalid");
-};
-
 const sameValues = <Value>(
   actual: readonly Value[],
   expected: readonly Value[],
@@ -142,7 +81,7 @@ const sha256Hex = async (bytes: Uint8Array): Promise<string> => {
 const validatePacket = (packet: AuthorizedDeliveryPacket): void => {
   const identity = packet.manifest.identity;
   if (
-    packet.packet_version !== 3
+    packet.packet_version !== 4
     || !identity.store_epoch
     || identity.store_epoch !== identity.store_epoch.trim()
     || !Number.isSafeInteger(identity.commit_seq)
@@ -158,6 +97,12 @@ const validatePacket = (packet: AuthorizedDeliveryPacket): void => {
       !== packet.authorization_scope.library_id.trim()
   ) {
     throw new TypeError("Authorized local commit packet scope is invalid");
+  }
+  if (
+    authorizationScopeKey(packet.delivery_address)
+      !== authorizationScopeKey(packet.authorization_scope)
+  ) {
+    throw new TypeError("Authorized local commit packet address is invalid");
   }
   const atomIds = packet.atoms.map((atom) => atom.descriptor.atom_id);
   const documentOrders = packet.document_effects.map(
@@ -182,19 +127,9 @@ const validatePacket = (packet: AuthorizedDeliveryPacket): void => {
   }
 };
 
-const projectionScopeFromEffect = (
+const projectionScopeFromPacket = (
   packet: AuthorizedDeliveryPacket,
-  effect: AuthorizedDeliveryPacket["projection_effects"][number],
-): ProjectionScope => effect.scope.scope.kind === "library"
-  ? {
-      kind: "library",
-      libraryId: effect.scope.scope.library_id,
-    }
-  : {
-      kind: "project",
-      libraryId: packet.authorization_scope.library_id,
-      projectId: effect.scope.scope.project_id,
-    };
+): ProjectionScope | null => deliveryAddressProjectionScope(packet.delivery_address);
 
 const authorizationScopeKey = (
   scope: AuthorizedDeliveryPacket["authorization_scope"],
@@ -245,11 +180,11 @@ const projectionDeliveryClaim = (
   fingerprint: effectHash,
 });
 
-const revocationClaim = (
-  revocation: AuthorizedDeliveryPacket["revocations"][number],
+const visibilityClaim = (
+  delta: AuthorizedDeliveryPacket["visibility_deltas"][number],
 ): { readonly key: string; readonly fingerprint: string } => ({
-  key: `${authorizationScopeKey(revocation.authorization_scope)}:revocation:${revocation.resource_kind}:${revocation.resource_id}`,
-  fingerprint: revocation.reason,
+  key: `${authorizationScopeKey(delta.authorization_scope)}:visibility:${delta.delta_hash}`,
+  fingerprint: JSON.stringify([delta.change, delta.roots]),
 });
 
 const atomClaim = (
@@ -381,26 +316,28 @@ export class RendererLocalCommitIngress {
     }
   }
 
-  admitProjectionMessage(message: ProjectionStreamMessage): void {
-    validateProjectionMessage(message);
-    if (message.kind !== "effect") {
-      this.#publishProjection(message.scope, message);
-      return;
+  admitAddressReset(reset: AddressReset): void {
+    if (
+      !HASH_PATTERN.test(reset.reset_id)
+      || !HASH_PATTERN.test(reset.recipient_lease_id)
+      || !reset.store_epoch
+      || !Number.isSafeInteger(reset.required_commit_seq)
+      || reset.required_commit_seq < 0
+      || authorizationScopeKey(reset.delivery_address)
+        !== authorizationScopeKey(reset.authorization_scope)
+    ) {
+      throw new TypeError("Recipient address reset is invalid");
     }
-    if (!this.#rememberExternalProjection(message)) return;
-    this.#publishProjection(message.scope, message);
-  }
-
-  admitRevocationMessage(message: ResourceRevocationMessage): void {
-    validateRevocationMessage(message);
-    if (message.kind === "reset") {
-      this.#publishRevocation(message.scope, message);
-      return;
-    }
-    const revocation = message.delivery.revocation;
-    const claim = revocationClaim(revocation);
-    if (!this.#rememberExternalClaim(message.delivery, claim)) return;
-    this.#publishRevocation(message.scope, message);
+    this.#resetAddress(
+      reset.delivery_address,
+      {
+        storeEpoch: reset.store_epoch,
+        commitSeq: reset.required_commit_seq,
+      },
+      reset.reason === "store_epoch_replacement"
+        ? "store_epoch_changed"
+        : "recipient_delivery_failed",
+    );
   }
 
   subscribeProjection(
@@ -459,8 +396,8 @@ export class RendererLocalCommitIngress {
     // Validate every claim against an isolated draft before publishing any
     // callback. A divergent claim must reject the packet atomically instead
     // of exposing a valid prefix and poisoning later replay.
-    const novelRevocations = packet.revocations.filter((revocation) =>
-      this.#rememberClaim(state, revocationClaim(revocation))
+    const novelVisibilityDeltas = packet.visibility_deltas.filter((delta) =>
+      this.#rememberClaim(state, visibilityClaim(delta))
     );
     const novelDocuments = preparedDocuments.filter((prepared) =>
       this.#rememberClaim(state, prepared)
@@ -474,7 +411,7 @@ export class RendererLocalCommitIngress {
       return this.#rememberClaim(
         state,
         projectionDeliveryClaim(
-          projectionScopeFromEffect(packet, effect),
+          projectionScopeFromPacket(packet)!,
           effect.scope.canonical_key,
           effect.result_revision,
           effect.effect_hash,
@@ -484,7 +421,7 @@ export class RendererLocalCommitIngress {
     const novelAtoms = packet.atoms.filter((atom) =>
       this.#rememberClaim(state, atomClaim(packet, atom))
     );
-    const admitted = novelRevocations.length
+    const admitted = novelVisibilityDeltas.length
       + novelDocuments.length
       + novelProjections.length
       + novelAtoms.length;
@@ -492,32 +429,51 @@ export class RendererLocalCommitIngress {
     this.#remembered.set(commitKey, state);
     this.#touch(commitKey, state);
 
+    const conservativeReset = novelVisibilityDeltas.find(
+      (delta) => delta.change.kind === "conservative_reset",
+    );
+    if (conservativeReset) {
+      this.#resetAddress(
+        packet.delivery_address,
+        {
+          storeEpoch: identity.store_epoch,
+          commitSeq: identity.commit_seq,
+        },
+        "recipient_delivery_failed",
+      );
+      return { kind: remembered ? "enriched" : "accepted", commitKey };
+    }
+
     // Authorization loss is admitted before any post-state content in the
     // same packet, so stale surfaces cannot observe a later content callback.
-    for (const revocation of novelRevocations) {
-      const scope = revocation.authorization_scope.kind === "library"
+    for (const delta of novelVisibilityDeltas) {
+      const scope = delta.authorization_scope.kind === "library"
         ? {
             kind: "library" as const,
-            libraryId: revocation.authorization_scope.library_id,
+            libraryId: delta.authorization_scope.library_id,
           }
-        : revocation.authorization_scope.kind === "project"
+        : delta.authorization_scope.kind === "project"
           ? {
               kind: "project" as const,
-              libraryId: revocation.authorization_scope.library_id,
-              projectId: revocation.authorization_scope.project_id,
+              libraryId: delta.authorization_scope.library_id,
+              projectId: delta.authorization_scope.project_id,
             }
           : null;
-      if (!scope || !revocationScopeCanReceive(scope, revocation)) continue;
-      this.#publishRevocation(
-        scope,
-        revocationMessageFromDelivery(packet, revocation, scope),
-      );
+      if (!scope) continue;
+      for (const revocation of revocationsFromVisibilityDelta(delta)) {
+        if (!revocationScopeCanReceive(scope, revocation)) continue;
+        this.#publishRevocation(
+          scope,
+          revocationMessageFromDelivery(packet, revocation, scope),
+        );
+      }
     }
     for (const prepared of novelDocuments) {
       this.#publishDocument(prepared.event.documentId, prepared.event);
     }
     for (const effect of novelProjections) {
-      const scope = projectionScopeFromEffect(packet, effect);
+      const scope = projectionScopeFromPacket(packet);
+      if (!scope) continue;
       if (!projectionScopeCanReceive(scope, effect)) continue;
       this.#publishProjection(
         scope,
@@ -549,60 +505,6 @@ export class RendererLocalCommitIngress {
     throw new Error(`Local commit resource identity collision for ${claim.key}`);
   }
 
-  #rememberExternalClaim(
-    delivery: {
-      readonly storeEpoch: string;
-      readonly commitSeq: number;
-      readonly manifestHash: string;
-    },
-    claim: { readonly key: string; readonly fingerprint: string },
-  ): boolean {
-    const commitKey = `${delivery.storeEpoch}:${delivery.commitSeq}`;
-    const state = this.#remembered.get(commitKey) ?? {
-      manifestHash: delivery.manifestHash,
-      claims: new Map<string, RememberedClaim>(),
-    };
-    if (state.manifestHash !== delivery.manifestHash) {
-      throw new Error(`Local commit identity collision for ${commitKey}`);
-    }
-    const admitted = this.#rememberClaim(state, claim);
-    this.#remembered.set(commitKey, state);
-    this.#touch(commitKey, state);
-    return admitted;
-  }
-
-  #rememberExternalProjection(
-    message: Extract<ProjectionStreamMessage, { readonly kind: "effect" }>,
-  ): boolean {
-    const delivery = message.delivery;
-    const commitKey = `${delivery.storeEpoch}:${delivery.commitSeq}`;
-    const state = this.#remembered.get(commitKey) ?? {
-      manifestHash: delivery.manifestHash,
-      claims: new Map<string, RememberedClaim>(),
-    };
-    if (state.manifestHash !== delivery.manifestHash) {
-      throw new Error(`Local commit identity collision for ${commitKey}`);
-    }
-    const effect = message.delivery.effect;
-    this.#rememberClaim(state, projectionIntegrityClaim(
-      effect.scope.canonical_key,
-      effect.resultRevision,
-      effect.effectHash,
-    ));
-    const admitted = this.#rememberClaim(
-      state,
-      projectionDeliveryClaim(
-        message.scope,
-        effect.scope.canonical_key,
-        effect.resultRevision,
-        effect.effectHash,
-      ),
-    );
-    this.#remembered.set(commitKey, state);
-    this.#touch(commitKey, state);
-    return admitted;
-  }
-
   #touch(key: string, state: RememberedCommit): void {
     this.#remembered.delete(key);
     this.#remembered.set(key, state);
@@ -629,6 +531,32 @@ export class RendererLocalCommitIngress {
     for (const listener of this.#documentListeners.get(documentId) ?? []) {
       this.#deliver(() => listener(event));
     }
+  }
+
+  #resetAddress(
+    address: DeliveryAddress,
+    floor: { readonly storeEpoch: string; readonly commitSeq: number },
+    reason: "store_epoch_changed" | "recipient_delivery_failed",
+  ): void {
+    const scope = deliveryAddressProjectionScope(address);
+    if (!scope) return;
+    this.#remembered.clear();
+    this.#publishProjection(scope, {
+      version: 2,
+      kind: "reset",
+      scope,
+      stream: floor,
+      reason: reason === "store_epoch_changed"
+        ? "store_epoch_changed"
+        : "event_gap",
+    });
+    this.#publishRevocation(scope, {
+      version: 1,
+      kind: "reset",
+      scope,
+      stream: floor,
+      reason,
+    });
   }
 
   #deliver(delivery: () => void): void {

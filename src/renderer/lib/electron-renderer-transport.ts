@@ -23,6 +23,8 @@ import type {
 import type { ResourceRevocationMessage } from "../../shared/resource-revocation-stream";
 import {
   RECIPIENT_DELIVERY_VERSION,
+  deliveryAddressKey,
+  projectionScopeDeliveryAddress,
   type RecipientAdmissionResult,
   type RecipientDeliveryEnvelope,
 } from "../../shared/recipient-delivery";
@@ -66,14 +68,41 @@ import { rendererLocalCommitIngress } from "./local-commit-ingress";
 export type ElectronRendererBridge = NonNullable<Window["api"]>;
 
 const recipientIngressBridges = new WeakSet<object>();
+const audienceSubscriptions = new WeakMap<
+  object,
+  Map<string, { count: number; readonly address: ReturnType<typeof projectionScopeDeliveryAddress> }>
+>();
 
-const sameProjectionScope = (
-  left: ProjectionScope,
-  right: ProjectionScope,
-): boolean => left.kind === right.kind
-  && left.libraryId === right.libraryId
-  && (left.kind === "library"
-    || (right.kind === "project" && left.projectId === right.projectId));
+const sameRecipientIdentity = (left: unknown, right: unknown): boolean =>
+  JSON.stringify(left) === JSON.stringify(right);
+
+const acquireAudience = (
+  bridge: ElectronRendererBridge,
+  scope: ProjectionScope,
+): (() => void) => {
+  const address = projectionScopeDeliveryAddress(scope);
+  const key = deliveryAddressKey(address);
+  const subscriptions = audienceSubscriptions.get(bridge) ?? new Map();
+  audienceSubscriptions.set(bridge, subscriptions);
+  const existing = subscriptions.get(key);
+  if (existing) {
+    existing.count += 1;
+  } else {
+    subscriptions.set(key, { count: 1, address });
+    void bridge.invoke("local-commit-audience:subscribe", address);
+  }
+  let active = true;
+  return () => {
+    if (!active) return;
+    active = false;
+    const current = subscriptions.get(key);
+    if (!current) return;
+    current.count -= 1;
+    if (current.count > 0) return;
+    subscriptions.delete(key);
+    void bridge.invoke("local-commit-audience:unsubscribe", current.address);
+  };
+};
 
 export const initializeElectronRendererLocalCommitIngress = (
   bridge: ElectronRendererBridge,
@@ -89,18 +118,36 @@ export const initializeElectronRendererLocalCommitIngress = (
           !envelope
           || envelope.version !== RECIPIENT_DELIVERY_VERSION
           || !/^[a-f0-9]{64}$/u.test(envelope.deliveryId)
-          || !sameProjectionScope(envelope.scope, envelope.payload.message.scope)
+          || !/^[a-f0-9]{64}$/u.test(envelope.recipientLeaseId)
+          || !sameRecipientIdentity(
+            envelope.deliveryAddress,
+            envelope.authorizationScope,
+          )
         ) {
           throw new TypeError("Recipient delivery envelope is invalid");
         }
-        if (envelope.payload.lane === "projection") {
-          rendererLocalCommitIngress.admitProjectionMessage(
-            envelope.payload.message,
-          );
+        if (envelope.payload.kind === "packet") {
+          const packet = envelope.payload.packet;
+          if (
+            !sameRecipientIdentity(packet.delivery_address, envelope.deliveryAddress)
+            || !sameRecipientIdentity(
+              packet.authorization_scope,
+              envelope.authorizationScope,
+            )
+          ) throw new TypeError("Recipient packet identity is invalid");
+          await rendererLocalCommitIngress.admitPacket(packet);
         } else {
-          rendererLocalCommitIngress.admitRevocationMessage(
-            envelope.payload.message,
-          );
+          const reset = envelope.payload.reset;
+          if (
+            reset.reset_id !== envelope.deliveryId
+            || reset.recipient_lease_id !== envelope.recipientLeaseId
+            || !sameRecipientIdentity(reset.delivery_address, envelope.deliveryAddress)
+            || !sameRecipientIdentity(
+              reset.authorization_scope,
+              envelope.authorizationScope,
+            )
+          ) throw new TypeError("Recipient reset identity is invalid");
+          rendererLocalCommitIngress.admitAddressReset(reset);
         }
         result = {
           version: RECIPIENT_DELIVERY_VERSION,
@@ -285,12 +332,12 @@ export function createElectronRendererTransport(
         scope,
         callback,
       );
-      void bridge.invoke("projection-stream:subscribe", scope);
+      const releaseAudience = acquireAudience(bridge, scope);
       return () => {
         if (!active) return;
         active = false;
         removeLocalListener();
-        void bridge.invoke("projection-stream:unsubscribe", scope);
+        releaseAudience();
       };
     },
     subscribeResourceRevocations(
@@ -302,12 +349,12 @@ export function createElectronRendererTransport(
         scope,
         callback,
       );
-      void bridge.invoke("resource-revocation:subscribe", scope);
+      const releaseAudience = acquireAudience(bridge, scope);
       return () => {
         if (!active) return;
         active = false;
         removeLocalListener();
-        void bridge.invoke("resource-revocation:unsubscribe", scope);
+        releaseAudience();
       };
     },
     subscribePageOwnershipPathChanges(

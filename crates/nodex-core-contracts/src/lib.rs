@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-pub const CORE_EVENT_VERSION: u32 = 7;
+pub const CORE_EVENT_VERSION: u32 = 8;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(transparent)]
@@ -174,14 +174,17 @@ pub use automation::AUTOMATION_CONTRACT_VERSION;
 pub use database::DATABASE_CONTRACT_VERSION;
 pub use document::OWNED_DOCUMENT_CONTRACT_VERSION;
 pub use events::{
-    ApplyResponse, AuthorizedDeliveryAtom, AuthorizedDeliveryPacket, AuthorizedDocumentEffect,
-    AuthorizedOwnedDocumentEvent, CommitIdentity, CommitManifest, CommitManifestHeader,
-    CommittedCoreModuleEvent, CoreModuleEventPayload, DeliveryAtomDescriptor, DeliveryAtomKind,
-    DeliveryAtomPayload, DeliveryCoverage, DocumentEffectRef, DocumentEffectResourceKind,
-    LocalCommitReceiptRef, LocalProjectionPatch, LocalProjectionScope, PageDocumentHeadImpact,
-    PhysicalEvidenceDigest, ProjectionEffect, ProjectionImpact, ProjectionScopeKey,
-    ProjectionSnapshotAuthority, ResourceKey, ResourceRevocation, ResourceRevocationReason,
-    RevokedResourceKind, RoutingClaim, StoreObservation, StreamCheckpoint,
+    AddressReset, AddressResetReason, ApplyResponse, AuthorizedDeliveryAtom,
+    AuthorizedDeliveryPacket, AuthorizedDocumentEffect, AuthorizedOwnedDocumentEvent,
+    AuthorizedReadStamp, AuthorizedRecipientLease, CommitIdentity, CommitManifest,
+    CommitManifestHeader, CommittedCoreModuleEvent, ConservativeResetReason,
+    CoreModuleEventPayload, DeliveryAddress, DeliveryAtomDescriptor, DeliveryAtomKind,
+    DeliveryAtomPayload, DeliveryAuthorizationScope, DeliveryCoverage, DocumentEffectRef,
+    DocumentEffectResourceKind, LocalCommitReceiptRef, LocalProjectionPatch, LocalProjectionScope,
+    PageDocumentHeadImpact, PhysicalEvidenceDigest, ProjectionEffect, ProjectionImpact,
+    ProjectionScopeKey, ProjectionSnapshotAuthority, ResourceKey, ResourceRevocation,
+    ResourceRevocationReason, RevokedResourceKind, RoutingClaim, StoreObservation,
+    StreamCheckpoint, VisibilityDelta, VisibilityDeltaKind,
 };
 pub use library::LIBRARY_CONTRACT_VERSION;
 pub use workspace::PROJECT_WORKSPACE_CONTRACT_VERSION;

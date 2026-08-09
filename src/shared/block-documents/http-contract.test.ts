@@ -41,7 +41,13 @@ import type { AuthorizedDeliveryPacket } from "../authorized-delivery-packet";
 const bytes = (...values: number[]): Uint8Array => Uint8Array.from(values);
 
 const documentDelivery = (): AuthorizedDeliveryPacket => ({
-  packet_version: 3,
+  packet_version: 4,
+  delivery_address: {
+    kind: "document",
+    library_id: "library-1",
+    project_id: "project-1",
+    document_id: "document-1",
+  },
   authorization_scope: {
     kind: "document",
     library_id: "library-1",
@@ -49,7 +55,7 @@ const documentDelivery = (): AuthorizedDeliveryPacket => ({
     document_id: "document-1",
   },
   manifest: {
-    event_version: 7,
+    event_version: 8,
     identity: {
       store_epoch: "store-1",
       commit_seq: 5,
@@ -75,7 +81,7 @@ const documentDelivery = (): AuthorizedDeliveryPacket => ({
     inline_update: [8, 9],
   }],
   projection_effects: [],
-  revocations: [],
+  visibility_deltas: [],
   coverage: {
     atom_ids: [],
     document_effect_orders: [0],
@@ -244,7 +250,7 @@ describe("Document HTTP contract", () => {
     }
     expect(decodedAck.committedSeq).toBe(5);
     expect(decodedAck.commit.commit_seq).toBe(5);
-    expect(decodedAck.delivery?.packet_version).toBe(3);
+    expect(decodedAck.delivery?.packet_version).toBe(4);
     expect(decodedAck.delivery?.document_effects).toHaveLength(1);
     expect(Array.from(decodedAck.stateVector).join(",")).toBe("8,9");
 

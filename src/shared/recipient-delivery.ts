@@ -1,24 +1,59 @@
-import type { ProjectionScope, ProjectionStreamMessage } from "./projection-stream";
-import type { ResourceRevocationMessage } from "./resource-revocation-stream";
+import type { components } from "@nodex/core-protocol";
 
-export const RECIPIENT_DELIVERY_VERSION = 1 as const;
+import type { AuthorizedDeliveryPacket } from "./authorized-delivery-packet";
+import type { ProjectionScope } from "./projection-stream";
 
-export type RecipientDeliveryLane = "projection" | "revocation";
+export const RECIPIENT_DELIVERY_VERSION = 2 as const;
+
+export type DeliveryAddress = components["schemas"]["DeliveryAddress"];
+export type DeliveryAuthorizationScope =
+  components["schemas"]["DeliveryAuthorizationScope"];
+export type AuthorizedRecipientLease =
+  components["schemas"]["AuthorizedRecipientLease"];
+export type AddressReset = components["schemas"]["AddressReset"];
+export type AddressResetReason = components["schemas"]["AddressResetReason"];
+
+export const deliveryAddressKey = (address: DeliveryAddress): string =>
+  JSON.stringify(address);
+
+export const projectionScopeDeliveryAddress = (
+  scope: ProjectionScope,
+): DeliveryAddress => scope.kind === "library"
+  ? { kind: "library", library_id: scope.libraryId }
+  : {
+      kind: "project",
+      library_id: scope.libraryId,
+      project_id: scope.projectId,
+    };
+
+export const deliveryAddressProjectionScope = (
+  address: DeliveryAddress,
+): ProjectionScope | null => address.kind === "library"
+  ? { kind: "library", libraryId: address.library_id }
+  : address.kind === "project"
+    ? {
+        kind: "project",
+        libraryId: address.library_id,
+        projectId: address.project_id,
+      }
+    : null;
 
 export type RecipientDeliveryPayload =
   | {
-      readonly lane: "projection";
-      readonly message: ProjectionStreamMessage;
+      readonly kind: "packet";
+      readonly packet: AuthorizedDeliveryPacket;
     }
   | {
-      readonly lane: "revocation";
-      readonly message: ResourceRevocationMessage;
+      readonly kind: "reset";
+      readonly reset: AddressReset;
     };
 
 export interface RecipientDeliveryEnvelope {
   readonly version: typeof RECIPIENT_DELIVERY_VERSION;
   readonly deliveryId: string;
-  readonly scope: ProjectionScope;
+  readonly recipientLeaseId: string;
+  readonly deliveryAddress: DeliveryAddress;
+  readonly authorizationScope: DeliveryAuthorizationScope;
   readonly payload: RecipientDeliveryPayload;
 }
 

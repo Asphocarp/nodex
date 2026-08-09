@@ -6,14 +6,19 @@ import {
 } from "./authorized-delivery-packet";
 
 const packet = (): AuthorizedDeliveryPacket => ({
-  packet_version: 3,
+  packet_version: 4,
+  delivery_address: {
+    kind: "project",
+    library_id: "library-1",
+    project_id: "project-1",
+  },
   authorization_scope: {
     kind: "project",
     library_id: "library-1",
     project_id: "project-1",
   },
   manifest: {
-    event_version: 7,
+    event_version: 8,
     identity: {
       store_epoch: "epoch-1",
       commit_seq: 9,
@@ -39,7 +44,7 @@ const packet = (): AuthorizedDeliveryPacket => ({
     inline_update: [4, 5],
   }],
   projection_effects: [],
-  revocations: [],
+  visibility_deltas: [],
   coverage: {
     atom_ids: [],
     document_effect_orders: [2],
@@ -50,10 +55,10 @@ const packet = (): AuthorizedDeliveryPacket => ({
 });
 
 describe("authorized delivery packet boundary", () => {
-  test("accepts packet v3 with a complete Document effect", () => {
+  test("accepts packet v4 with a complete Document effect", () => {
     const value = packet();
     expect(parseAuthorizedDeliveryPacket(value, {
-      eventVersion: 7,
+      eventVersion: 8,
       libraryId: "library-1",
       storeEpoch: "epoch-1",
     })).toBe(value);
@@ -75,19 +80,50 @@ describe("authorized delivery packet boundary", () => {
 
   test("pins Store, event, and Library authority when the caller supplies them", () => {
     expect(() => parseAuthorizedDeliveryPacket(packet(), {
-      eventVersion: 7,
+      eventVersion: 8,
       libraryId: "library-2",
       storeEpoch: "epoch-1",
     })).toThrow("Authorized delivery packet is invalid");
     expect(() => parseAuthorizedDeliveryPacket(packet(), {
-      eventVersion: 6,
+      eventVersion: 7,
       libraryId: "library-1",
       storeEpoch: "epoch-1",
     })).toThrow("Authorized delivery packet is invalid");
     expect(() => parseAuthorizedDeliveryPacket(packet(), {
-      eventVersion: 7,
+      eventVersion: 8,
       libraryId: "library-1",
       storeEpoch: "epoch-2",
+    })).toThrow("Authorized delivery packet is invalid");
+  });
+
+  test("accepts a pure exact revoke and rejects a divergent delta scope", () => {
+    const value: AuthorizedDeliveryPacket = {
+      ...packet(),
+      document_effects: [],
+      coverage: {
+        atom_ids: [],
+        document_effect_orders: [],
+        inline_document_effect_orders: [],
+        projection_scope_keys: [],
+      },
+      visibility_deltas: [{
+        authorization_scope: packet().authorization_scope,
+        change: { kind: "revoke", reason: "access_revoked" },
+        roots: [{ kind: "page", page_id: "page-1" }],
+        delta_hash: "4".repeat(64),
+      }],
+    };
+    expect(parseAuthorizedDeliveryPacket(value)).toBe(value);
+    expect(() => parseAuthorizedDeliveryPacket({
+      ...value,
+      visibility_deltas: [{
+        ...value.visibility_deltas[0]!,
+        authorization_scope: {
+          kind: "project",
+          library_id: "library-1",
+          project_id: "project-other",
+        },
+      }],
     })).toThrow("Authorized delivery packet is invalid");
   });
 });

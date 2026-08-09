@@ -493,12 +493,20 @@ const createScopedElectronDocumentSyncAdapter = (
       if (blocked) {
         return blocked;
       }
-      return normalizeApplyResult(
+      const result = normalizeApplyResult(
         await invokeCommand<DocumentSyncApplyAck>(
           channel("apply"),
           scope(request),
         ),
       );
+      if (
+        result.ok
+        && result.value.status === "committed"
+        && result.value.delivery
+      ) {
+        await rendererLocalCommitIngress.admitPacket(result.value.delivery);
+      }
+      return result;
     },
     publishAwareness: async (request: DocumentAwarenessPublishRequest) => {
       const blocked =

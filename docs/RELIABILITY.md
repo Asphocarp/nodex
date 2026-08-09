@@ -286,7 +286,7 @@ Store v109 and later retain Relation targets only in normalized edge authority a
 - Ready Block Documents use binary Yjs updates in SQLite. The DocumentStore rejects stale store epochs and generations, deduplicates update IDs through immutable receipts, reconstructs from the latest snapshot plus tail, validates the Page roots/XML tree/global Block registry before commit, and acknowledges only after the immediate SQLite transaction advances the durable head and Block index together. A causally redundant Yjs replay is a successful duplicate ACK at the unchanged head and produces neither an update row nor fanout; monotonic CRDT state makes that no-op result stable without inventing a sequence receipt. Client-declared touched IDs are bounded diagnostics; the writer derives the authoritative title/Block change set from validated before/after content. An update with unresolved Yjs dependencies returns a typed retry error and is never appended as a poison tail.
 - Electron IPC adapts Core's engine-specific Document contracts. A client subscribes before synchronization, and success means the first authenticated exact live barrier is open rather than merely scheduled. The Host keeps one logical subscription across retryable physical UDS interruptions, opens a fresh barrier instead of replaying an exact cursor, and holds dependent commands behind the current connection boundary. The bridge does not expose post-barrier bytes as current authority until canonical sync adopts the matching Store/generation/head; covered events are discarded and later contiguous heads drain in order. A terminal stream failure releases the exact renderer binding; replacement sessions wait for predecessor teardown. Renderer sessions are multiplexed by subscriber identity and serialize subscribe/unsubscribe, so an old disposer cannot close a revived provider. Yjs repairs with state vectors, while Canvas repairs a missing/out-of-order head with one bounded full canonical scene. Only durable effective changes fan out, and exact retries return their original receipt.
 - Every new `change_log` row requires a normalized `ProjectionImpact` committed with its semantic mutation. Page Document commits include Page, Database, Data Source, every affected View, and the exact final Document head. Ordinary lifecycle, property, Database, Automation, and Project-creation mutations include their complete resource closure; modules with no canonical projection effect explicitly record `none`. Empty resources become `none`, and a legitimate effect beyond the fixed identity bound becomes `all` rather than being truncated. Visibility-changing moves, grants, and transfers also use identity-free `all`: Project filtering reads post-commit authorization and cannot safely reveal or name a resource the Project just lost. Event payloads contain no title, summary, property values, or Page DTO. Live publication and replay call the same row decoder, so commit-time coordinates survive later moves.
-- Committed Core event version 7 is distinct from transport version 7 and from
+- Committed Core event version 8 is distinct from transport version 8 and from
   every semantic Module contract version. Apply responses and durable replay
   reference the same immutable Manifest but may carry different authorized
   packet coverage. Command authorization remains bound to the exact Project or
@@ -295,32 +295,35 @@ Store v109 and later retain Relation targets only in normalized edge authority a
   audience, matching the durable root stream without a second HTTP round trip
   and without erasing the command's Project context. Native CLI, test, Agent,
   and loopback adapters retain their exact bound delivery scope. The initiating
-  renderer validates and admits its response packet before the feature Promise
-  resolves. Main admits scoped-live and durable copies through
+  renderer validates and admits its packet-v4 response before the feature
+  Promise resolves. Main admits scoped-live and durable copies through
   `LocalCommitCoordinator`, validates identity and coverage, and deduplicates
   the later copy by authorization-scoped resource identity. Each Document,
-  exact Projection scope, revocation, and notification lane orders
-  independently. Main's non-origin recipient router requires a causal-ingress
-  ACK and converts send/NACK/timeout/queue/reload failure into a bounded
-  exact-scope reset rather than silent loss or synchronous retry. A
+  exact Projection scope, visibility delta, and notification lane orders
+  independently. Main's audience broker accepts only logical addresses and
+  installs Core-issued recipient leases from the live barrier; it cannot
+  author an authorization scope. The recipient router requires a
+  causal-ingress ACK and converts send/NACK/timeout/queue/reload failure into an
+  actively retried lease-bound address reset rather than silent loss. A
   checkpoint records durable scan progress only; it is not awaited by the
   initiating renderer and cannot serialize unrelated resources. Retention gaps
   publish `event_gap` reset. An unexpected Core stream end reopens from the last
   accepted checkpoint. A transport/event/Store-epoch mismatch requires a fresh
   authenticated runtime binding.
-- Core seals authorization loss in the same LocalCommit as the ownership,
-  lifecycle, or grant change. The trusted Library stream carries those exact
-  scoped revocations durably; apply, replay, and tailer packets enter the same
-  admission path. Main routes revocations independently of semantic effects,
-  with dedupe identity derived from canonical structured scope serialization
-  rather than concatenated IDs. Renderer caches run every matching revocation
-  reducer synchronously before repair I/O. Authorization-bearing inactive
+- Core seals authorization change in the same LocalCommit as the ownership,
+  lifecycle, or grant change. The trusted stream carries exact Grant/Revoke
+  roots or a bounded `ConservativeReset` as Manifest-bound visibility evidence;
+  apply, replay, and audience packets enter the same complete-packet admission
+  path. Renderer ingress runs every matching revoke reducer synchronously
+  before post-state content or repair I/O. A transport `AddressReset` has a
+  separate lease/floor identity and cannot masquerade as semantic visibility.
+  Authorization-bearing inactive
   query entries keep their scope subscription, and an initial projection
   checkpoint fences an older cache if a revocation raced subscription setup;
   only canonical repair may coalesce.
   This prevents stale display or cache retention; it does not replace Core's
   authorization check on every subsequent read.
-- Each renderer window has one renderer-lifetime projection delivery registry, while Main holds one multiplexed scoped-live broker for its active Library/Project scope set. The registry is not owned by React Provider cleanup. Broker scope changes are make-before-break: the replacement barrier is accepted before the predecessor closes, and overlapping packets deduplicate by scoped resource identity. Exact consumers order by `(store_epoch, scope_key, schema_version, revision, effect_hash)`, never by the global stream cursor. Integrity claims intentionally omit recipient scope so audience divergence fails closed; delivery claims include the concrete Library/Project recipient so a Library packet cannot suppress a Project packet for the same effect. A contiguous complete effect is reduced synchronously. Gaps, patchless effects, explicit `requires_read_at_least`, reset, or hash divergence coalesce into a canonical floor read; retry remains local to that exact scope. The first barrier closes the initial read/subscription race and later checkpoints do not create refresh storms. Canonical snapshots cannot overwrite a newer coordinate. Database View groups and all group windows expose the same projection authority; mixed revisions are retried, and a continuation crossing a revision is discarded. Projection audiences use the pre/post authorization closure, so retained and newly authorized third-party Projects receive their own transition instead of waiting for a later canonical read. `board-changed` remains optional compatibility fanout and is never required for convergence.
+- Each renderer window has one renderer-lifetime LocalCommit ingress, while Main holds one multiplexed audience broker for its active Library/Project address set. Neither owner is tied to React Provider cleanup. Broker scope changes are make-before-break: the replacement barrier and Core recipient leases are accepted before the predecessor closes, and overlapping complete packets deduplicate by scoped resource identity. Exact consumers order by `(store_epoch, scope_key, schema_version, revision, effect_hash)`, never by the global stream cursor. Integrity claims intentionally omit recipient scope so audience divergence fails closed; delivery claims include the concrete Library/Project address so a Library packet cannot suppress a Project packet for the same effect. A contiguous complete effect is reduced synchronously. Gaps, patchless effects, explicit `requires_read_at_least`, conservative visibility, address reset, or hash divergence coalesce into a canonical floor read; retry remains local to that exact address. Canonical snapshots cannot overwrite a newer coordinate. Database View groups and all group windows expose the same projection authority; mixed revisions are retried, and a continuation crossing a revision is discarded. Projection audiences use the pre/post authorization closure, so retained and newly authorized third-party Projects receive their own transition instead of waiting for a later canonical read. `board-changed` remains optional compatibility fanout and is never required for convergence.
 - `BlockTransfer` is the single public stable-ID Move/Copy command for
   cross-surface Block ownership. Its intent uses logical
   `library | page | data_source` parents; `document` is permitted only for a
@@ -476,7 +479,7 @@ Store v109 and later retain Relation targets only in normalized edge authority a
   thirty-second idle period only as crash recovery when no caller value exists;
   the production fifteen-minute contract and `--global-nodex` remain unchanged.
 - Core compatibility is an explicit offer/require comparison, not transport
-  overlap or a build string. Transport 7 carries committed-event version 7,
+  overlap or a build string. Transport 8 carries committed-event version 8,
   canonical per-Module ranges, exact normalized-schema Store fingerprints, and
   executable SHA-256 separately. Electron's `prefer_current_artifact` policy
   replaces a different compatible artifact; native CLI's `compatible` policy

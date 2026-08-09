@@ -2,6 +2,7 @@ import type {
   CoreAuthorizedDeliveryPacket,
   CoreModuleEventPayload,
 } from "../types";
+import type { ResourceRevocation } from "../../../shared/resource-revocation-stream";
 
 interface CoreLocalCommitFixtureInput {
   readonly commitSeq: number;
@@ -9,7 +10,8 @@ interface CoreLocalCommitFixtureInput {
   readonly additionalPayloads?: readonly CoreModuleEventPayload[];
   readonly documentEffects?: CoreAuthorizedDeliveryPacket["document_effects"];
   readonly projectionEffects?: CoreAuthorizedDeliveryPacket["projection_effects"];
-  readonly revocations?: CoreAuthorizedDeliveryPacket["revocations"];
+  readonly revocations?: readonly ResourceRevocation[];
+  readonly visibilityDeltas?: CoreAuthorizedDeliveryPacket["visibility_deltas"];
   readonly authorizationScope?: CoreAuthorizedDeliveryPacket["authorization_scope"];
   readonly canonicalHash?: string;
   readonly storeEpoch?: string;
@@ -45,6 +47,26 @@ export const createCoreLocalCommitFixture = (
     ?? String(input.commitSeq).padStart(64, "0").slice(-64);
   const documentEffects = input.documentEffects ?? [];
   const projectionEffects = input.projectionEffects ?? [];
+  const authorizationScope = input.authorizationScope ?? {
+    kind: "library" as const,
+    library_id: "library-1",
+  };
+  const visibilityDeltas = input.visibilityDeltas ?? (input.revocations ?? []).map(
+    (revocation, index): CoreAuthorizedDeliveryPacket["visibility_deltas"][number] => ({
+      authorization_scope: revocation.authorization_scope,
+      change: {
+        kind: "revoke",
+        reason: revocation.reason,
+      },
+      roots: [{
+        kind: revocation.resource_kind,
+        [`${revocation.resource_kind}_id`]: revocation.resource_id,
+      } as CoreAuthorizedDeliveryPacket["visibility_deltas"][number]["roots"][number]],
+      delta_hash: String(input.commitSeq * 100 + index)
+        .padStart(64, "5")
+        .slice(-64),
+    }),
+  );
   const atoms = payloads.map((payload, atomOrder) => ({
     descriptor: {
       atom_id: String(input.commitSeq * 100 + atomOrder)
@@ -63,13 +85,11 @@ export const createCoreLocalCommitFixture = (
     payload,
   }));
   return {
-    packet_version: 3,
-    authorization_scope: input.authorizationScope ?? {
-      kind: "library",
-      library_id: "library-1",
-    },
+    packet_version: 4,
+    delivery_address: authorizationScope,
+    authorization_scope: authorizationScope,
     manifest: {
-      event_version: 7,
+      event_version: 8,
       identity: {
         commit_seq: input.commitSeq,
         manifest_hash: manifestHash,
@@ -81,7 +101,7 @@ export const createCoreLocalCommitFixture = (
     atoms,
     document_effects: documentEffects,
     projection_effects: projectionEffects,
-    revocations: input.revocations ?? [],
+    visibility_deltas: visibilityDeltas,
     coverage: {
       atom_ids: atoms.map((atom) => atom.descriptor.atom_id),
       document_effect_orders: documentEffects.map((effect) => effect.reference.effect_order),

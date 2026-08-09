@@ -220,7 +220,7 @@ export interface ProjectionLiveBarrier {
   readonly store_epoch: string;
   readonly core_generation: string;
   readonly commit_head: number;
-  readonly authorization_scopes: readonly CoreAuthorizedDeliveryPacket["authorization_scope"][];
+  readonly recipient_leases: readonly components["schemas"]["AuthorizedRecipientLease"][];
 }
 
 export interface ProjectionLiveRepair {

@@ -1,7 +1,8 @@
 use nodex_core_contracts::events::{
     AuthorizedDeliveryAtom, AuthorizedDeliveryPacket, AuthorizedDocumentEffect,
-    CommitManifestHeader, DeliveryAuthorizationScope, DeliveryCoverage, DocumentEffectRef,
-    LocalProjectionScope, ResourceKey, ResourceRevocation,
+    CommitManifestHeader, ConservativeResetReason, DeliveryAddress, DeliveryAuthorizationScope,
+    DeliveryCoverage, DocumentEffectRef, LocalProjectionScope, ResourceKey, ResourceRevocation,
+    VisibilityDelta, VisibilityDeltaKind,
 };
 use nodex_core_contracts::{AdapterKind, BoundModuleContext};
 use rusqlite::Connection;
@@ -11,7 +12,7 @@ use sha2::{Digest, Sha256};
 use super::local_commit::{self, LocalCommitResourceMode};
 use super::sqlite::{StoreError, StoreErrorCode};
 
-const DELIVERY_PACKET_VERSION: u32 = 3;
+const DELIVERY_PACKET_VERSION: u32 = 4;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum DeliveryResourceMode {
@@ -38,12 +39,13 @@ pub(crate) struct DeliveryRequest<'a> {
 struct CanonicalPacket<'a> {
     hash_version: u32,
     packet_version: u32,
+    delivery_address: &'a DeliveryAddress,
     authorization_scope: &'a DeliveryAuthorizationScope,
     manifest: &'a CommitManifestHeader,
     atoms: &'a [AuthorizedDeliveryAtom],
     document_effects: &'a [AuthorizedDocumentEffect],
     projection_effects: &'a [nodex_core_contracts::ProjectionEffect],
-    revocations: &'a [ResourceRevocation],
+    visibility_deltas: &'a [VisibilityDelta],
     coverage: &'a DeliveryCoverage,
 }
 
@@ -98,6 +100,8 @@ pub(crate) fn resolve_verified(
         return Ok(None);
     }
     let authorization_scope = delivery_authorization_scope(request);
+    let delivery_address = delivery_address(request);
+    validate_address_scope_compatibility(&delivery_address, &authorization_scope)?;
 
     let mut atoms = Vec::new();
     if request.resource_mode != DeliveryResourceMode::ProjectionOnly {
@@ -195,11 +199,12 @@ pub(crate) fn resolve_verified(
             )
         },
     )?;
-    let revocations = authorized_revocations(manifest, request);
+    let visibility_deltas =
+        authorized_visibility_deltas(connection, manifest, request, &authorization_scope)?;
     if atoms.is_empty()
         && document_effects.is_empty()
         && projection_effects.is_empty()
-        && revocations.is_empty()
+        && visibility_deltas.is_empty()
     {
         return Ok(None);
     }
@@ -230,24 +235,26 @@ pub(crate) fn resolve_verified(
         committed_at: manifest.committed_at.clone(),
     };
     let packet_hash = packet_hash(CanonicalPacket {
-        hash_version: 3,
+        hash_version: 4,
         packet_version: DELIVERY_PACKET_VERSION,
+        delivery_address: &delivery_address,
         authorization_scope: &authorization_scope,
         manifest: &header,
         atoms: &atoms,
         document_effects: &document_effects,
         projection_effects: &projection_effects,
-        revocations: &revocations,
+        visibility_deltas: &visibility_deltas,
         coverage: &coverage,
     })?;
     Ok(Some(AuthorizedDeliveryPacket {
         packet_version: DELIVERY_PACKET_VERSION,
+        delivery_address,
         authorization_scope,
         manifest: header,
         atoms,
         document_effects,
         projection_effects,
-        revocations,
+        visibility_deltas,
         coverage,
         packet_hash,
     }))
@@ -287,6 +294,189 @@ fn delivery_authorization_scope(request: DeliveryRequest<'_>) -> DeliveryAuthori
             project_id: project_id.0.clone(),
         },
         None => DeliveryAuthorizationScope::Library { library_id },
+    }
+}
+
+fn delivery_address(request: DeliveryRequest<'_>) -> DeliveryAddress {
+    let library_id = request.context.library_id.0.clone();
+    if let Some(document_id) = request.document_id {
+        return DeliveryAddress::Document {
+            library_id,
+            project_id: request
+                .context
+                .project_id
+                .as_ref()
+                .map(|project_id| project_id.0.clone()),
+            document_id: document_id.to_owned(),
+        };
+    }
+    if request.audience == DeliveryAudience::HostLibraryBroker {
+        return DeliveryAddress::Library { library_id };
+    }
+    match &request.context.project_id {
+        Some(project_id) => DeliveryAddress::Project {
+            library_id,
+            project_id: project_id.0.clone(),
+        },
+        None => DeliveryAddress::Library { library_id },
+    }
+}
+
+fn validate_address_scope_compatibility(
+    address: &DeliveryAddress,
+    scope: &DeliveryAuthorizationScope,
+) -> Result<(), StoreError> {
+    let compatible = match (address, scope) {
+        (
+            DeliveryAddress::Library {
+                library_id: address_library,
+            },
+            DeliveryAuthorizationScope::Library {
+                library_id: scope_library,
+            },
+        ) => address_library == scope_library,
+        (
+            DeliveryAddress::Project {
+                library_id: address_library,
+                project_id: address_project,
+            },
+            DeliveryAuthorizationScope::Project {
+                library_id: scope_library,
+                project_id: scope_project,
+            },
+        ) => address_library == scope_library && address_project == scope_project,
+        (
+            DeliveryAddress::Document {
+                library_id: address_library,
+                project_id: address_project,
+                document_id: address_document,
+            },
+            DeliveryAuthorizationScope::Document {
+                library_id: scope_library,
+                project_id: scope_project,
+                document_id: scope_document,
+            },
+        ) => {
+            address_library == scope_library
+                && address_project == scope_project
+                && address_document == scope_document
+        }
+        _ => false,
+    };
+    if compatible {
+        return Ok(());
+    }
+    Err(corrupt(
+        "Authorized delivery address and authorization scope diverge",
+    ))
+}
+
+fn authorized_visibility_deltas(
+    connection: &Connection,
+    manifest: &nodex_core_contracts::CommitManifest,
+    request: DeliveryRequest<'_>,
+    authorization_scope: &DeliveryAuthorizationScope,
+) -> Result<Vec<VisibilityDelta>, StoreError> {
+    let rows = connection
+        .prepare_cached(
+            "SELECT authorization_scope_json, delta_kind, roots_json, delta_hash
+             FROM local_commit_visibility_deltas
+             WHERE store_epoch = ?1 AND commit_seq = ?2
+             ORDER BY scope_key, delta_hash",
+        )?
+        .query_map(
+            rusqlite::params![
+                manifest.identity.store_epoch.0,
+                manifest.identity.commit_seq
+            ],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                ))
+            },
+        )?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let mut deltas = Vec::new();
+    for (scope_json, kind, roots_json, delta_hash) in rows {
+        let scope = serde_json::from_str::<DeliveryAuthorizationScope>(&scope_json)
+            .map_err(|_| corrupt("Visibility delta scope is invalid"))?;
+        if &scope != authorization_scope {
+            continue;
+        }
+        let roots = serde_json::from_str::<Vec<ResourceKey>>(&roots_json)
+            .map_err(|_| corrupt("Visibility delta roots are invalid"))?;
+        let change = match kind.as_str() {
+            "grant" => VisibilityDeltaKind::Grant,
+            "revoke" => VisibilityDeltaKind::Revoke {
+                reason: nodex_core_contracts::ResourceRevocationReason::AccessRevoked,
+            },
+            "conservative_reset" => VisibilityDeltaKind::ConservativeReset {
+                reason: ConservativeResetReason::AuthorizationClosureExceeded,
+            },
+            _ => return Err(corrupt("Visibility delta kind is invalid")),
+        };
+        deltas.push(VisibilityDelta {
+            authorization_scope: scope,
+            change,
+            roots,
+            delta_hash,
+        });
+    }
+
+    for revocation in authorized_revocations(manifest, request) {
+        if revocation.authorization_scope != *authorization_scope {
+            continue;
+        }
+        let root = revocation_root(&revocation);
+        if deltas.iter().any(|delta| {
+            matches!(delta.change, VisibilityDeltaKind::Revoke { .. })
+                && delta.roots.iter().any(|candidate| candidate == &root)
+        }) {
+            continue;
+        }
+        let encoded = serde_json::to_vec(&(
+            "legacy-revocation-v1",
+            &manifest.identity,
+            &revocation,
+            &root,
+        ))
+        .map_err(|_| corrupt("Legacy visibility delta hash input is invalid"))?;
+        deltas.push(VisibilityDelta {
+            authorization_scope: revocation.authorization_scope,
+            change: VisibilityDeltaKind::Revoke {
+                reason: revocation.reason,
+            },
+            roots: vec![root],
+            delta_hash: format!("{:x}", Sha256::digest(encoded)),
+        });
+    }
+    deltas.sort_by(|left, right| left.delta_hash.cmp(&right.delta_hash));
+    Ok(deltas)
+}
+
+fn revocation_root(revocation: &ResourceRevocation) -> ResourceKey {
+    match revocation.resource_kind {
+        nodex_core_contracts::RevokedResourceKind::Page => ResourceKey::Page {
+            page_id: revocation.resource_id.clone(),
+        },
+        nodex_core_contracts::RevokedResourceKind::Document => ResourceKey::Document {
+            document_id: revocation.resource_id.clone(),
+        },
+        nodex_core_contracts::RevokedResourceKind::Database => ResourceKey::Database {
+            database_id: revocation.resource_id.clone(),
+        },
+        nodex_core_contracts::RevokedResourceKind::DataSource => ResourceKey::DataSource {
+            data_source_id: revocation.resource_id.clone(),
+        },
+        nodex_core_contracts::RevokedResourceKind::View => ResourceKey::View {
+            view_id: revocation.resource_id.clone(),
+        },
+        nodex_core_contracts::RevokedResourceKind::Canvas => ResourceKey::Canvas {
+            canvas_id: revocation.resource_id.clone(),
+        },
     }
 }
 
@@ -472,6 +662,41 @@ mod tests {
     }
 
     #[test]
+    fn delivery_address_scope_matrix_is_exact_and_closed() {
+        let library_address = DeliveryAddress::Library {
+            library_id: "library:test".to_owned(),
+        };
+        let library_scope = DeliveryAuthorizationScope::Library {
+            library_id: "library:test".to_owned(),
+        };
+        let project_address = DeliveryAddress::Project {
+            library_id: "library:test".to_owned(),
+            project_id: "project:test".to_owned(),
+        };
+        let project_scope = DeliveryAuthorizationScope::Project {
+            library_id: "library:test".to_owned(),
+            project_id: "project:test".to_owned(),
+        };
+        let document_address = DeliveryAddress::Document {
+            library_id: "library:test".to_owned(),
+            project_id: Some("project:test".to_owned()),
+            document_id: "document:test".to_owned(),
+        };
+        let document_scope = DeliveryAuthorizationScope::Document {
+            library_id: "library:test".to_owned(),
+            project_id: Some("project:test".to_owned()),
+            document_id: "document:test".to_owned(),
+        };
+
+        assert!(validate_address_scope_compatibility(&library_address, &library_scope).is_ok());
+        assert!(validate_address_scope_compatibility(&project_address, &project_scope).is_ok());
+        assert!(validate_address_scope_compatibility(&document_address, &document_scope).is_ok());
+        assert!(validate_address_scope_compatibility(&library_address, &project_scope).is_err());
+        assert!(validate_address_scope_compatibility(&project_address, &library_scope).is_err());
+        assert!(validate_address_scope_compatibility(&project_address, &document_scope).is_err());
+    }
+
+    #[test]
     fn inline_coverage_changes_only_the_packet_hash_not_manifest_identity() {
         let manifest = header();
         let reference = vec![document_effect(None)];
@@ -490,28 +715,34 @@ mod tests {
             library_id: "library:test".to_owned(),
             project_id: "project:test".to_owned(),
         };
+        let address = DeliveryAddress::Project {
+            library_id: "library:test".to_owned(),
+            project_id: "project:test".to_owned(),
+        };
 
         let reference_hash = packet_hash(CanonicalPacket {
-            hash_version: 3,
+            hash_version: 4,
             packet_version: DELIVERY_PACKET_VERSION,
+            delivery_address: &address,
             authorization_scope: &scope,
             manifest: &manifest,
             atoms: &[],
             document_effects: &reference,
             projection_effects: &[],
-            revocations: &[],
+            visibility_deltas: &[],
             coverage: &reference_coverage,
         })
         .expect("reference packet hash");
         let inline_hash = packet_hash(CanonicalPacket {
-            hash_version: 3,
+            hash_version: 4,
             packet_version: DELIVERY_PACKET_VERSION,
+            delivery_address: &address,
             authorization_scope: &scope,
             manifest: &manifest,
             atoms: &[],
             document_effects: &inline,
             projection_effects: &[],
-            revocations: &[],
+            visibility_deltas: &[],
             coverage: &inline_coverage,
         })
         .expect("inline packet hash");
@@ -519,15 +750,20 @@ mod tests {
             library_id: "library:test".to_owned(),
             project_id: "project:other".to_owned(),
         };
+        let other_address = DeliveryAddress::Project {
+            library_id: "library:test".to_owned(),
+            project_id: "project:other".to_owned(),
+        };
         let other_scope_hash = packet_hash(CanonicalPacket {
-            hash_version: 3,
+            hash_version: 4,
             packet_version: DELIVERY_PACKET_VERSION,
+            delivery_address: &other_address,
             authorization_scope: &other_scope,
             manifest: &manifest,
             atoms: &[],
             document_effects: &reference,
             projection_effects: &[],
-            revocations: &[],
+            visibility_deltas: &[],
             coverage: &reference_coverage,
         })
         .expect("other-scope packet hash");

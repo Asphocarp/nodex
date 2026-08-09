@@ -7,10 +7,11 @@ export interface AuthorizedDeliveryPacketConstraints {
   readonly eventVersion?: number;
   readonly libraryId?: string;
   readonly storeEpoch?: string;
+  readonly deliveryAddress?: AuthorizedDeliveryPacket["delivery_address"];
 }
 
 const MAX_PACKET_ITEMS = 10_000;
-const PACKET_VERSION = 3;
+const PACKET_VERSION = 4;
 const HASH_PATTERN = /^[0-9a-f]{64}$/u;
 const PROJECTION_SCOPE_KEY_PATTERN = /^v1:[0-9a-f]{64}$/u;
 
@@ -278,14 +279,16 @@ const isAuthorizationScope = (
     && (value.project_id === null || isIdentity(value.project_id));
 };
 
-const revocationKinds = new Set([
-  "page",
-  "document",
-  "database",
-  "data_source",
-  "view",
-  "canvas",
-]);
+const isDeliveryAddress = (
+  value: unknown,
+  expectedLibraryId?: string,
+): boolean => isAuthorizationScope(value, expectedLibraryId);
+
+const sameAddressAndScope = (address: unknown, scope: unknown): boolean =>
+  isRecord(address)
+  && isRecord(scope)
+  && JSON.stringify(address) === JSON.stringify(scope);
+
 const revocationReasons = new Set([
   "ownership_moved",
   "access_revoked",
@@ -293,20 +296,40 @@ const revocationReasons = new Set([
   "deleted",
 ]);
 
-const isRevocation = (value: unknown, expectedLibraryId?: string): boolean =>
-  isRecord(value)
-  && hasExactKeys(value, [
-    "authorization_scope",
-    "reason",
-    "resource_id",
-    "resource_kind",
-  ])
-  && isAuthorizationScope(value.authorization_scope, expectedLibraryId)
-  && isIdentity(value.resource_id)
-  && typeof value.resource_kind === "string"
-  && revocationKinds.has(value.resource_kind)
-  && typeof value.reason === "string"
-  && revocationReasons.has(value.reason);
+const isVisibilityDelta = (
+  value: unknown,
+  expectedScope: unknown,
+  expectedLibraryId?: string,
+): boolean => {
+  if (
+    !isRecord(value)
+    || !hasExactKeys(value, [
+      "authorization_scope",
+      "change",
+      "delta_hash",
+      "roots",
+    ])
+    || !isAuthorizationScope(value.authorization_scope, expectedLibraryId)
+    || !sameAddressAndScope(value.authorization_scope, expectedScope)
+    || !isHash(value.delta_hash)
+    || !isRecord(value.change)
+    || !Array.isArray(value.roots)
+  ) return false;
+  if (value.change.kind === "grant") {
+    return hasExactKeys(value.change, ["kind"])
+      && isCanonicalResourceKeys(value.roots);
+  }
+  if (value.change.kind === "revoke") {
+    return hasExactKeys(value.change, ["kind", "reason"])
+      && typeof value.change.reason === "string"
+      && revocationReasons.has(value.change.reason)
+      && isCanonicalResourceKeys(value.roots);
+  }
+  return value.change.kind === "conservative_reset"
+    && hasExactKeys(value.change, ["kind", "reason"])
+    && value.change.reason === "authorization_closure_exceeded"
+    && value.roots.length === 0;
+};
 
 interface ParsedCoverage {
   readonly atom_ids: readonly string[];
@@ -357,16 +380,22 @@ export const parseAuthorizedDeliveryPacket = (
       "atoms",
       "authorization_scope",
       "coverage",
+      "delivery_address",
       "document_effects",
       "manifest",
       "packet_hash",
       "packet_version",
       "projection_effects",
-      "revocations",
+      "visibility_deltas",
     ])
     || value.packet_version !== PACKET_VERSION
     || !isHash(value.packet_hash)
+    || !isDeliveryAddress(value.delivery_address, constraints.libraryId)
     || !isAuthorizationScope(value.authorization_scope, constraints.libraryId)
+    || !sameAddressAndScope(value.delivery_address, value.authorization_scope)
+    || (constraints.deliveryAddress !== undefined
+      && JSON.stringify(value.delivery_address)
+        !== JSON.stringify(constraints.deliveryAddress))
     || !isRecord(value.manifest)
   ) {
     return invalidPacket();
@@ -422,10 +451,14 @@ export const parseAuthorizedDeliveryPacket = (
     || !Array.isArray(value.projection_effects)
     || value.projection_effects.length > MAX_PACKET_ITEMS
     || value.projection_effects.some((effect) => !isProjectionEffect(effect))
-    || !Array.isArray(value.revocations)
-    || value.revocations.length > MAX_PACKET_ITEMS
-    || value.revocations.some((revocation) =>
-      !isRevocation(revocation, constraints.libraryId)
+    || !Array.isArray(value.visibility_deltas)
+    || value.visibility_deltas.length > MAX_PACKET_ITEMS
+    || value.visibility_deltas.some((delta) =>
+      !isVisibilityDelta(
+        delta,
+        value.authorization_scope,
+        constraints.libraryId,
+      )
     )
   ) {
     return invalidPacket();

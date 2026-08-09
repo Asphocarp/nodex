@@ -828,9 +828,6 @@ fn resolve_projection_live_packets(
     scopes: &[DeliveryAuthorizationScope],
 ) -> Result<Vec<AuthorizedDeliveryPacket>, StoreError> {
     let verified = local_commit::load_verified_commit(connection, commit_seq)?;
-    if verified.manifest.projection_effects.is_empty() && verified.manifest.revocations.is_empty() {
-        return Ok(Vec::new());
-    }
     let mut packets = Vec::with_capacity(scopes.len());
     for scope in scopes {
         let context = match scope {
@@ -2411,14 +2408,22 @@ mod tests {
                 && event.parent_keys == ["library:events"]
         }));
         assert!(source.document_effects.is_empty());
-        assert!(source.revocations.iter().any(|revocation| {
-            revocation.resource_kind == RevokedResourceKind::Page
-                && revocation.resource_id == "page:moved"
+        assert!(source.visibility_deltas.iter().any(|delta| {
+            matches!(
+                delta.change,
+                nodex_core_contracts::VisibilityDeltaKind::Revoke { .. }
+            ) && delta.roots.iter().any(|root| {
+                matches!(
+                    root,
+                    nodex_core_contracts::ResourceKey::Page { page_id }
+                        if page_id == "page:moved"
+                )
+            })
         }));
         assert_eq!(target.atoms.len(), 2);
-        assert!(target.revocations.is_empty());
+        assert!(target.visibility_deltas.is_empty());
         assert_eq!(root.atoms.len(), 2);
-        assert_eq!(root.revocations, source.revocations);
+        assert!(root.visibility_deltas.is_empty());
         assert!(matches!(
             source.authorization_scope,
             DeliveryAuthorizationScope::Project { ref project_id, .. }

@@ -1858,6 +1858,7 @@ pub(crate) fn rebase_store_epoch(
         "UPDATE local_commit_revocations SET store_epoch = ?1 WHERE store_epoch <> ?1",
         [store_epoch],
     )?;
+    super::visibility_delta_journal::rebase_store_epoch(connection, store_epoch)?;
     // Atom identities bind the Store epoch. Recompile them from immutable
     // physical evidence after rebasing instead of carrying stale identities
     // across the replacement boundary.

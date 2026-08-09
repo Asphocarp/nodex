@@ -572,7 +572,7 @@ describe("Desktop Document sync bridge", () => {
     target.sent.splice(0);
 
     client.emitDocument(subscribeRequest.documentId, {
-      transport_version: 7,
+      transport_version: 8,
       packet: documentCommitEnvelope(1, [subscribeRequest.documentId]),
     });
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -587,7 +587,7 @@ describe("Desktop Document sync bridge", () => {
       1,
     );
     client.emitDocument(subscribeRequest.documentId, {
-      transport_version: 7,
+      transport_version: 8,
       packet: documentCommitEnvelope(2, [subscribeRequest.documentId]),
     });
     await vi.waitFor(() => {
@@ -912,7 +912,18 @@ describe("Desktop Document sync bridge", () => {
     };
     const packet = {
       ...documentCommitEnvelope(4, [subscribeRequest.documentId]),
-      revocations: [revocation],
+      visibility_deltas: [{
+        authorization_scope: revocation.authorization_scope,
+        change: {
+          kind: "revoke" as const,
+          reason: revocation.reason,
+        },
+        roots: [{
+          kind: "document" as const,
+          document_id: revocation.resource_id,
+        }],
+        delta_hash: "e".repeat(64),
+      }],
     };
 
     bridge.publishDocumentEffects(packet);
@@ -952,7 +963,7 @@ describe("Desktop Document sync bridge", () => {
       reason: "access_revoked" as const,
     };
     client.emitDocument(subscribeRequest.documentId, {
-      transport_version: 7,
+      transport_version: 8,
       packet: createCoreLocalCommitFixture({
         authorizationScope: revocation.authorization_scope,
         commitSeq: 5,
@@ -1234,7 +1245,7 @@ describe("Desktop Document sync bridge", () => {
       onDocument: (packet) => bridge.publishDocumentEffects(packet),
       onProjection: () => undefined,
       onNotification: () => undefined,
-      onRevocation: () => undefined,
+      onVisibility: () => undefined,
     });
     const envelope = documentCommitEnvelope(6, [subscribeRequest.documentId]);
 

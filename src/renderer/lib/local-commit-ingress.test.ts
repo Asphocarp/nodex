@@ -1,9 +1,8 @@
 import { describe, expect, test, vi } from "vitest";
 
-import {
-  projectionMessageFromDelivery,
-  type AuthorizedDeliveryPacket,
-} from "../../shared/local-commit-delivery";
+import type { AuthorizedDeliveryPacket } from "../../shared/local-commit-delivery";
+import type { ProjectionStreamMessage } from "../../shared/projection-stream";
+import type { ResourceRevocationMessage } from "../../shared/resource-revocation-stream";
 import {
   LocalCommitIngressCapacityError,
   RendererLocalCommitIngress,
@@ -50,20 +49,23 @@ const packet = (input: {
   readonly projections?: AuthorizedDeliveryPacket["projection_effects"];
   readonly documents?: AuthorizedDeliveryPacket["document_effects"];
   readonly atoms?: AuthorizedDeliveryPacket["atoms"];
+  readonly visibility?: AuthorizedDeliveryPacket["visibility_deltas"];
   readonly packetHash?: string;
 } = {}): AuthorizedDeliveryPacket => {
   const projections = input.projections ?? [effect(1)];
   const documents = input.documents ?? [];
   const atoms = input.atoms ?? [];
+  const authorization = input.authorization ?? {
+    kind: "project" as const,
+    library_id: "library-1",
+    project_id: "project-1",
+  };
   return {
-    packet_version: 3,
-    authorization_scope: input.authorization ?? {
-      kind: "project",
-      library_id: "library-1",
-      project_id: "project-1",
-    },
+    packet_version: 4,
+    delivery_address: authorization,
+    authorization_scope: authorization,
     manifest: {
-      event_version: 7,
+      event_version: 8,
       identity: {
         store_epoch: "epoch-1",
         commit_seq: 1,
@@ -75,7 +77,7 @@ const packet = (input: {
     atoms,
     document_effects: documents,
     projection_effects: projections,
-    revocations: [],
+    visibility_deltas: input.visibility ?? [],
     coverage: {
       atom_ids: atoms.map((atom) => atom.descriptor.atom_id),
       document_effect_orders: documents.map((item) => item.reference.effect_order),
@@ -95,6 +97,56 @@ const apply = (delivery: AuthorizedDeliveryPacket) => ({
 });
 
 describe("RendererLocalCommitIngress", () => {
+  test("admits exact revocation before post-state projection callbacks", async () => {
+    const ingress = new RendererLocalCommitIngress();
+    const order: string[] = [];
+    ingress.subscribeRevocation(scope, () => order.push("revoke"));
+    ingress.subscribeProjection(scope, () => order.push("projection"));
+    const delivery = packet({
+      visibility: [{
+        authorization_scope: {
+          kind: "project",
+          library_id: "library-1",
+          project_id: "project-1",
+        },
+        change: { kind: "revoke", reason: "access_revoked" },
+        roots: [{ kind: "page", page_id: "page-1" }],
+        delta_hash: "9".repeat(64),
+      }],
+    });
+
+    await ingress.admitPacket(delivery);
+
+    expect(order).toEqual(["revoke", "projection"]);
+  });
+
+  test("turns a conservative visibility delta into an address reset", async () => {
+    const ingress = new RendererLocalCommitIngress();
+    const projections: ProjectionStreamMessage[] = [];
+    const revocations: ResourceRevocationMessage[] = [];
+    ingress.subscribeProjection(scope, (message) => projections.push(message));
+    ingress.subscribeRevocation(scope, (message) => revocations.push(message));
+
+    await ingress.admitPacket(packet({
+      visibility: [{
+        authorization_scope: {
+          kind: "project",
+          library_id: "library-1",
+          project_id: "project-1",
+        },
+        change: {
+          kind: "conservative_reset",
+          reason: "authorization_closure_exceeded",
+        },
+        roots: [],
+        delta_hash: "8".repeat(64),
+      }],
+    }));
+
+    expect(projections).toEqual([expect.objectContaining({ kind: "reset" })]);
+    expect(revocations).toEqual([expect.objectContaining({ kind: "reset" })]);
+  });
+
   test("publishes the origin projection before apply admission resolves", async () => {
     const ingress = new RendererLocalCommitIngress();
     const order: string[] = [];
@@ -111,9 +163,7 @@ describe("RendererLocalCommitIngress", () => {
     applyFirst.subscribeProjection(scope, applyFirstListener);
     const boundPacket = packet();
     await applyFirst.admitApply(apply(boundPacket));
-    applyFirst.admitProjectionMessage(
-      projectionMessageFromDelivery(boundPacket, boundPacket.projection_effects[0]!, scope),
-    );
+    await applyFirst.admitPacket(boundPacket);
     expect(applyFirstListener).toHaveBeenCalledTimes(1);
 
     const brokerFirst = new RendererLocalCommitIngress();
@@ -123,16 +173,14 @@ describe("RendererLocalCommitIngress", () => {
       authorization: { kind: "library", library_id: "library-1" },
       packetHash: "3".repeat(64),
     });
-    brokerFirst.admitProjectionMessage(
-      projectionMessageFromDelivery(brokerPacket, brokerPacket.projection_effects[0]!, scope),
-    );
+    await brokerFirst.admitPacket(brokerPacket);
     expect(await brokerFirst.admitApply(apply(boundPacket))).toMatchObject({
-      kind: "duplicate",
+      kind: "enriched",
     });
     expect(brokerFirstListener).toHaveBeenCalledTimes(1);
   });
 
-  test("delivers one projection effect independently to Library and Project audiences", () => {
+  test("delivers one projection effect independently to Library and Project audiences", async () => {
     const ingress = new RendererLocalCommitIngress();
     const libraryListener = vi.fn();
     const projectListener = vi.fn();
@@ -142,17 +190,11 @@ describe("RendererLocalCommitIngress", () => {
       authorization: { kind: "library", library_id: "library-1" },
       packetHash: "3".repeat(64),
     });
-    const projection = brokerPacket.projection_effects[0]!;
+    const projectPacket = packet({ packetHash: "4".repeat(64) });
 
-    ingress.admitProjectionMessage(
-      projectionMessageFromDelivery(brokerPacket, projection, libraryScope),
-    );
-    ingress.admitProjectionMessage(
-      projectionMessageFromDelivery(brokerPacket, projection, scope),
-    );
-    ingress.admitProjectionMessage(
-      projectionMessageFromDelivery(brokerPacket, projection, scope),
-    );
+    await ingress.admitPacket(brokerPacket);
+    await ingress.admitPacket(projectPacket);
+    await ingress.admitPacket(projectPacket);
 
     expect(libraryListener).toHaveBeenCalledOnce();
     expect(projectListener).toHaveBeenCalledOnce();

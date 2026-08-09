@@ -14,6 +14,7 @@ import type {
   ProjectionStreamMessage,
 } from "./projection-stream";
 import type {
+  ResourceRevocation,
   ResourceRevocationDelivery,
   ResourceRevocationDeliveryMessage,
 } from "./resource-revocation-stream";
@@ -38,6 +39,37 @@ export interface LocalCommitCommandSuccess<Value> {
 }
 
 const HASH_PATTERN = /^[a-f0-9]{64}$/u;
+
+export const revocationsFromVisibilityDelta = (
+  delta: AuthorizedDeliveryPacket["visibility_deltas"][number],
+): readonly ResourceRevocation[] => {
+  if (delta.change.kind !== "revoke") return [];
+  const reason = delta.change.reason;
+  return delta.roots.flatMap((root): readonly ResourceRevocation[] => {
+    const identity = root.kind === "page"
+      ? root.page_id
+      : root.kind === "document"
+        ? root.document_id
+        : root.kind === "database"
+          ? root.database_id
+          : root.kind === "data_source"
+            ? root.data_source_id
+            : root.kind === "view"
+              ? root.view_id
+              : root.kind === "canvas"
+                ? root.canvas_id
+                : null;
+    if (identity === null || root.kind === "library" || root.kind === "project") {
+      return [];
+    }
+    return [{
+      authorization_scope: delta.authorization_scope,
+      resource_kind: root.kind,
+      resource_id: identity,
+      reason,
+    }];
+  });
+};
 
 const isRecord = (
   value: unknown,
@@ -209,7 +241,7 @@ export const projectionMessageFromDelivery = (
 
 export const revocationScopeCanReceive = (
   subscription: ProjectionScope,
-  revocation: AuthorizedDeliveryPacket["revocations"][number],
+  revocation: ResourceRevocation,
 ): boolean => {
   const authorization = revocation.authorization_scope;
   if (authorization.library_id !== subscription.libraryId) return false;
@@ -221,7 +253,7 @@ export const revocationScopeCanReceive = (
 
 export const revocationMessageFromDelivery = (
   packet: AuthorizedDeliveryPacket,
-  revocation: AuthorizedDeliveryPacket["revocations"][number],
+  revocation: ResourceRevocation,
   scope: ProjectionScope,
 ): ResourceRevocationDeliveryMessage => {
   const delivery: ResourceRevocationDelivery = {

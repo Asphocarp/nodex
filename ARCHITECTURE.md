@@ -143,9 +143,12 @@ React Provider mount, so StrictMode probes or route remounts cannot tear down
 external-store authority. It does not wait for Main fanout, a durable scan, a
 canonical projection read, or
 another renderer's acknowledgement. Other renderers receive the same committed
-fact through Main's scoped live broker and result-bearing recipient router. A
-scope that lost access receives only its typed revoke, and canonical reads
-remain independently authorized by Core.
+fact through Main's `LocalCommitAudienceBroker`. A renderer requests only a
+logical `DeliveryAddress`; the Core live barrier returns an
+`AuthorizedRecipientLease` that binds that address to its immutable
+authorization scope. Main cannot construct or broaden the scope. The recipient
+router carries either one intact packet-v4 value or one lease-bound
+`AddressReset`. Canonical reads remain independently authorized by Core.
 
 Core's durable streams are log-driven. Global subscribers and the scoped
 Electron Host broker share the private `CommitWakeScanner`: each first installs
@@ -164,19 +167,22 @@ reject a hash collision. Projection integrity is checked without recipient
 scope so two audiences cannot disagree about one scope revision; delivery
 dedupe additionally includes the Library/Project recipient scope so one
 audience cannot consume another audience's copy. Main sends non-origin delivery
-with a bounded recipient sequence; renderer ACK means causal-ingress admission rather than
-React paint. Send failure, missing ACK, queue overflow, reload, or broker reset
-establishes an exact-scope repair floor instead of silently dropping the packet
-or delaying Core apply. Core—not Main—filters all packet content against current
-post-state authority.
+with a bounded pending-admission set; renderer ACK means causal-ingress
+admission rather than React paint. Send failure, NACK, missing ACK, queue
+overflow, reload, or broker interruption immediately fences the address and
+actively retries a lease-bound `AddressReset` with one capped full-jitter
+timer. Reset ACK clears only the covered floor. Core—not Main—filters all packet
+content against current post-state authority.
 
-Every delivery packet carries a Core-authored authorization scope covered by
-its packet hash. A trusted Library stream may carry scoped revocations for
-Project consumers, but Main never reconstructs those scopes from current
-ownership. Revocation identity includes commit, authorization scope, resource
-kind, and resource ID. Scope identity is derived from canonical structured
-serialization rather than delimiter-concatenated IDs. Pure revocation packets
-are valid even when they contain no semantic, Document, or Projection effect.
+Every delivery packet carries a separate Core-authored address and
+authorization scope covered by its packet hash. Manifest-bound
+`VisibilityDelta` values express exact grants, exact revokes, or a conservative
+address reset; exact roots and delta hashes are admitted before post-state
+content. Transport `AddressReset` values have a different identity and are
+valid only when copied from the active Core recipient lease. Scope identity is
+derived from canonical structured serialization rather than
+delimiter-concatenated IDs. Pure visibility packets are valid even when they
+contain no semantic, Document, or Projection effect.
 Semantic notification atoms include the authorization scope in their admission
 identity, so two authorized Projects cannot suppress one another merely because
 an atom ID is shared.
@@ -661,7 +667,7 @@ events never expose or imply that compatibility owner. Electron consequently
 publishes Library catalog/resource invalidations without inventing a Project.
 `nodex-core-contracts` owns six
 transport-neutral semantic Module contracts and their independent versions;
-`nodex-core-protocol` owns transport 4, committed-event version selection,
+`nodex-core-protocol` owns transport 8, committed-event version selection,
 artifact/Store compatibility, and generates the fixed private OpenAPI 3.1
 surface plus `@nodex/core-protocol` TypeScript requirements;
 `nodex-core` contains vertical Module implementations; and `nodex-core-server`
@@ -1449,9 +1455,9 @@ or the Electron client from reaching the local store.
 2. The Electron transport sends the typed request through the context-isolated preload bridge and IPC.
    Focused-window UI commands do not enter this mutation transport: application-menu accelerators send a typed command request through preload, `useWorkbenchCommandIngress` translates the event directly to the registered runtime command port, and toolbar/command-palette entry points execute the same command owner.
 3. Main starts or reuses Core before opening the Profile. Every production capability enters its owning native deep Module; Electron never opens SQLite or reconstructs the transaction. Migration conformance uses exact frozen legacy inventories, the frozen final TypeScript v84 schema artifact, and disposable copies. A Page editor sends binary Yjs updates; there is no Page title/body snapshot command or main-process SQLite fallback. Agent reads publish no mutation events.
-4. Core captures resource-atomic `DeliveryAtom`s, authorization-complete per-scope `ProjectionEffect`s, exact Document refs, and revocations in the same LocalCommit transaction as the semantic mutation. Each projection effect names one canonical scope and carries `base_revision`, `result_revision`, `covered_commit_seq`, `effect_hash`, an optional complete patch, and an explicit `requires_read_at_least` bit. The initiating renderer validates and admits its apply-response delivery before the API Promise resolves. Main's `LocalCommitCoordinator` admits scoped-live and durable-stream copies, while `RecipientDeliveryRouter` converts non-origin send/ACK failure into bounded scope reset. All ingress validates Manifest/coverage identity and deduplicates by authorization-scoped resource identity. Document heads, exact projection scopes, revocations, and domain notifications run in independent ordered lanes; failure or slowness in one lane cannot delay another or the mutation response. `ProjectionDeliveryRouter` only maps already-authorized effects to Library/Project renderer scopes and performs no projection read. The durable stream checkpoint advances replay bookkeeping but is never a local visibility prerequisite. Database, Library, Workspace, Automation, and compatibility `board-changed` notifications are projections of DeliveryAtoms and do not own projection correctness.
-5. Electron Main sends LocalCommit delivery only to registered recipient scopes through the result-bearing router. Direct `webContents.send` fanout is not allowed because renderer reload/close can dispose frames between lookup and send. Each delivery is acknowledged only after the renderer's causal ingress accepts it; send failure, NACK, missing ACK, queue pressure, or reload causes the next message/subscription to carry a projection or revocation reset. Codex host-message/event fanout remains a separate renderer-client route.
-6. Each renderer window owns one projection delivery registry before Query consumers render. Exact-scope consumers attach a `CausalProjectionRuntime`; it accepts only a contiguous `base_revision → result_revision`, applies a complete patch synchronously, buffers bounded future effects, detects duplicate-hash divergence, and coalesces canonical repairs for gaps, patchless effects, resets, or incomplete windows. The initial stream checkpoint closes only the read-before-subscribe race and never causes repeated global refreshes. Consumers without a direct reducer may still register bounded dependency rereads, but global impact cannot overwrite exact scope ordering. Canonical snapshots are admitted only when they do not move the current scope revision/floor backward and do not conflict on the same revision hash. Kanban's direct Database-row effect updates cards, query rows, per-group windows, totals, and the exact projection coordinate before any repair I/O. Ownership-path and navigation events remain for topology or permission side effects rather than freshness.
+4. Core captures resource-atomic `DeliveryAtom`s, authorization-complete per-scope `ProjectionEffect`s, exact Document refs, and `VisibilityDelta`s in the same LocalCommit transaction as the semantic mutation. Each projection effect names one canonical scope and carries `base_revision`, `result_revision`, `covered_commit_seq`, `effect_hash`, an optional complete patch, and an explicit `requires_read_at_least` bit. The initiating renderer validates and admits its apply-response delivery before the API Promise resolves; Document apply follows the same boundary. Main's `LocalCommitCoordinator` admits scoped-live and durable-stream copies for Host-side effects. Renderer ingress validates the complete packet and admits visibility before Document, Projection, and atom callbacks. The durable stream checkpoint advances replay bookkeeping but is never a local visibility prerequisite. Database, Library, Workspace, Automation, and compatibility `board-changed` notifications are projections of DeliveryAtoms and do not own projection correctness.
+5. Electron Main accepts only owned-main-frame `DeliveryAddress` subscriptions. `LocalCommitAudienceBroker` multiplexes them into one scoped Core live stream, installs the exact Core-issued recipient leases at the barrier, and routes intact packets only to the matching address. Direct effect-only projection/revocation IPC no longer exists. Each packet or address reset is acknowledged only after renderer ingress accepts it; send failure, NACK, missing ACK, queue pressure, reload, or interruption actively retries a lease-bound reset without waiting for later traffic. Codex host-message/event fanout remains a separate renderer-client route.
+6. Each renderer window owns one LocalCommit delivery registry before Query consumers render. Exact-scope projection consumers attach a `CausalProjectionRuntime`; it accepts only a contiguous `base_revision → result_revision`, applies a complete patch synchronously, buffers bounded future effects, detects duplicate-hash divergence, and coalesces canonical repairs for gaps, patchless effects, address resets, or incomplete windows. Exact revokes evict matching feature state before any post-state callback, while conservative visibility and transport resets fence the whole address. Canonical snapshots are admitted only when they do not move the current scope revision/floor backward and do not conflict on the same revision hash. Kanban's direct Database-row effect updates cards, query rows, per-group windows, totals, and the exact projection coordinate before any repair I/O. Ownership-path and navigation events remain for topology or permission side effects rather than freshness.
 7. Reminder scheduler polls occurrences, dedupes delivery via receipts, and emits `reminder:open` to renderer on notification click.
 
 Block-first migration foundation:

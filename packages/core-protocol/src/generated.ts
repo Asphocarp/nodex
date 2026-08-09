@@ -280,6 +280,18 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        readonly AddressReset: {
+            readonly authorization_scope: components["schemas"]["DeliveryAuthorizationScope"];
+            readonly delivery_address: components["schemas"]["DeliveryAddress"];
+            readonly reason: components["schemas"]["AddressResetReason"];
+            readonly recipient_lease_id: string;
+            /** Format: int64 */
+            readonly required_commit_seq: number;
+            readonly reset_id: string;
+            readonly store_epoch: components["schemas"]["StoreEpoch"];
+        };
+        /** @enum {string} */
+        readonly AddressResetReason: "stream_gap" | "recipient_nack" | "ack_timeout" | "queue_overflow" | "integrity_failure" | "store_epoch_replacement";
         readonly AgentAuthorizationTarget: {
             /** @enum {string} */
             readonly kind: "page";
@@ -626,13 +638,14 @@ export interface components {
             readonly atoms: readonly components["schemas"]["AuthorizedDeliveryAtom"][];
             readonly authorization_scope: components["schemas"]["DeliveryAuthorizationScope"];
             readonly coverage: components["schemas"]["DeliveryCoverage"];
+            readonly delivery_address: components["schemas"]["DeliveryAddress"];
             readonly document_effects: readonly components["schemas"]["AuthorizedDocumentEffect"][];
             readonly manifest: components["schemas"]["CommitManifestHeader"];
             readonly packet_hash: string;
             /** Format: int32 */
             readonly packet_version: number;
             readonly projection_effects: readonly components["schemas"]["ProjectionEffect"][];
-            readonly revocations: readonly components["schemas"]["ResourceRevocation"][];
+            readonly visibility_deltas: readonly components["schemas"]["VisibilityDelta"][];
         };
         readonly AuthorizedDocumentEffect: {
             readonly inline_update?: readonly number[] | null;
@@ -678,6 +691,26 @@ export interface components {
             /** @enum {string} */
             readonly kind: "document_invalidated";
             readonly reason: components["schemas"]["DocumentInvalidationReason"];
+        };
+        readonly AuthorizedReadStamp: {
+            readonly authorization_dependencies: readonly components["schemas"]["ResourceKey"][];
+            readonly authorization_scope: components["schemas"]["DeliveryAuthorizationScope"];
+            /** Format: int64 */
+            readonly covered_commit_seq: number;
+            readonly delivery_address: components["schemas"]["DeliveryAddress"];
+            readonly request_dependencies: readonly components["schemas"]["ResourceKey"][];
+            readonly stamp_hash: string;
+            readonly store_epoch: components["schemas"]["StoreEpoch"];
+            readonly subject: components["schemas"]["ResourceKey"];
+        };
+        /**
+         * @description Core-issued identity for one active broker recipient. Main may route with
+         *     this lease but cannot construct or broaden its authorization scope.
+         */
+        readonly AuthorizedRecipientLease: {
+            readonly authorization_scope: components["schemas"]["DeliveryAuthorizationScope"];
+            readonly delivery_address: components["schemas"]["DeliveryAddress"];
+            readonly lease_id: string;
         };
         readonly AutomationApplyRequest: components["schemas"]["ModuleApplyRequest_AutomationIntent"];
         readonly AutomationApplyResponse: components["schemas"]["ResponseEnvelope_ApplyResponse_AutomationCommitValue_AutomationReceipt"];
@@ -1278,6 +1311,8 @@ export interface components {
             readonly offered: string;
             readonly required: string;
         };
+        /** @enum {string} */
+        readonly ConservativeResetReason: "authorization_closure_exceeded";
         readonly CoreArtifactIdentity: {
             readonly build_id: string;
             readonly sha256: string;
@@ -1866,6 +1901,26 @@ export interface components {
         };
         /** @enum {string} */
         readonly DeletableOwnedSourceKind: "synced_block" | "reusable_template";
+        /**
+         * @description Logical destination selected by the authenticated Host broker. Routing is
+         *     distinct from authorization even when both identities are equal today.
+         */
+        readonly DeliveryAddress: {
+            /** @enum {string} */
+            readonly kind: "library";
+            readonly library_id: string;
+        } | {
+            /** @enum {string} */
+            readonly kind: "project";
+            readonly library_id: string;
+            readonly project_id: string;
+        } | {
+            readonly document_id: string;
+            /** @enum {string} */
+            readonly kind: "document";
+            readonly library_id: string;
+            readonly project_id?: string | null;
+        };
         /**
          * @description Immutable resource-atomic semantic index entry. `atom_order` is unique
          *     within one commit; `atom_id` authenticates its kind, exact requirements,
@@ -5570,12 +5625,6 @@ export interface components {
             /** @enum {string} */
             readonly kind: "canvas";
         };
-        readonly ResourceRevocation: {
-            readonly authorization_scope: components["schemas"]["DeliveryAuthorizationScope"];
-            readonly reason: components["schemas"]["ResourceRevocationReason"];
-            readonly resource_id: string;
-            readonly resource_kind: components["schemas"]["RevokedResourceKind"];
-        };
         /** @enum {string} */
         readonly ResourceRevocationReason: "ownership_moved" | "access_revoked" | "archived" | "deleted";
         readonly ResponseEnvelope_ApplyResponse_AutomationCommitValue_AutomationReceipt: {
@@ -6387,8 +6436,6 @@ export interface components {
             /** @enum {string} */
             readonly status: "error";
         };
-        /** @enum {string} */
-        readonly RevokedResourceKind: "page" | "document" | "database" | "data_source" | "view" | "canvas";
         readonly RuntimeDescriptor: {
             readonly actual_store_format: components["schemas"]["StoreFormatIdentity"];
             readonly artifact: components["schemas"]["CoreArtifactIdentity"];
@@ -6483,6 +6530,28 @@ export interface components {
             readonly max: number;
             /** Format: int32 */
             readonly min: number;
+        };
+        /**
+         * @description Manifest-bound authorization change. Exact deltas carry one or more roots;
+         *     conservative resets intentionally carry none and fence the whole address.
+         */
+        readonly VisibilityDelta: {
+            readonly authorization_scope: components["schemas"]["DeliveryAuthorizationScope"];
+            readonly change: components["schemas"]["VisibilityDeltaKind"];
+            readonly delta_hash: string;
+            readonly roots: readonly components["schemas"]["ResourceKey"][];
+        };
+        readonly VisibilityDeltaKind: {
+            /** @enum {string} */
+            readonly kind: "grant";
+        } | {
+            /** @enum {string} */
+            readonly kind: "revoke";
+            readonly reason: components["schemas"]["ResourceRevocationReason"];
+        } | {
+            /** @enum {string} */
+            readonly kind: "conservative_reset";
+            readonly reason: components["schemas"]["ConservativeResetReason"];
         };
     };
     responses: never;

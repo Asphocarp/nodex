@@ -1,5 +1,10 @@
 import { createHash } from "node:crypto";
 
+import {
+  revocationsFromVisibilityDelta,
+} from "../../shared/local-commit-delivery";
+import type { ResourceRevocation } from "../../shared/resource-revocation-stream";
+
 import type {
   AdditionalDocumentCommandRequest,
   AdditionalDocumentCommandResult,
@@ -139,7 +144,7 @@ export interface DesktopDocumentSyncPort {
   /** Closes only sessions addressed by one Core-authored revocation. */
   publishResourceRevocation(
     packet: CoreAuthorizedDeliveryPacket,
-    revocation: CoreAuthorizedDeliveryPacket["revocations"][number],
+    revocation: ResourceRevocation,
   ): void;
   getOwnedDocumentDescriptor(
     projectId: string,
@@ -302,7 +307,9 @@ const packetRevokesDocumentScope = (
   packet: CoreAuthorizedDeliveryPacket,
   documentId: string,
   scope: DesktopDocumentSyncScope,
-): boolean => packet.revocations.some((revocation) =>
+): boolean => packet.visibility_deltas
+  .flatMap(revocationsFromVisibilityDelta)
+  .some((revocation) =>
   revocation.resource_kind === "document"
   && revocation.resource_id === documentId
   && authorizationScopeMatchesDocumentScope(
@@ -1285,12 +1292,11 @@ export function createDesktopDocumentSyncBridge(
 
   const publishResourceRevocation = (
     packet: CoreAuthorizedDeliveryPacket,
-    revocation: CoreAuthorizedDeliveryPacket["revocations"][number],
+  revocation: ResourceRevocation,
   ): void => {
     if (revocation.resource_kind !== "document") return;
     if (revocation.authorization_scope.kind !== "document") return;
     const identity = packet.manifest.identity;
-    const revocationIndex = packet.revocations.indexOf(revocation);
     for (const [key, subscription] of [...subscriptions]) {
       if (subscription.documentId !== revocation.resource_id) continue;
       if (!authorizationScopeMatchesDocumentScope(
@@ -1308,7 +1314,7 @@ export function createDesktopDocumentSyncBridge(
         generation: subscription.generation ?? 1,
         headSeq: subscription.headSeq ?? 0,
         commitSeq: identity.commit_seq,
-        effectSequence: packet.atoms.length + Math.max(0, revocationIndex),
+        effectSequence: packet.atoms.length,
         reason: "access-revoked",
       }, { revokeAfter: true });
       void delivered;

@@ -838,9 +838,9 @@ const parseProjectionLiveBarrier = (
     typeof value !== "object"
     || value === null
     || !hasExactKeys(value, [
-      "authorization_scopes",
       "commit_head",
       "core_generation",
+      "recipient_leases",
       "store_epoch",
     ])
     || !("store_epoch" in value)
@@ -849,23 +849,42 @@ const parseProjectionLiveBarrier = (
     || value.core_generation !== contract.coreGeneration
     || !("commit_head" in value)
     || !isNonNegativeSafeInteger(value.commit_head)
-    || !("authorization_scopes" in value)
-    || !Array.isArray(value.authorization_scopes)
-    || value.authorization_scopes.length < 1
-    || value.authorization_scopes.length > 200
-    || !value.authorization_scopes.every((scope) =>
-      isDeliveryAuthorizationScope(scope, contract.libraryId)
-      && scope.kind !== "document"
+    || !("recipient_leases" in value)
+    || !Array.isArray(value.recipient_leases)
+    || value.recipient_leases.length < 1
+    || value.recipient_leases.length > 200
+    || !value.recipient_leases.every((lease) =>
+      typeof lease === "object"
+      && lease !== null
+      && hasExactKeys(lease, [
+        "authorization_scope",
+        "delivery_address",
+        "lease_id",
+      ])
+      && "lease_id" in lease
+      && typeof lease.lease_id === "string"
+      && /^[a-f0-9]{64}$/u.test(lease.lease_id)
+      && "authorization_scope" in lease
+      && isDeliveryAuthorizationScope(
+        lease.authorization_scope,
+        contract.libraryId,
+      )
+      && lease.authorization_scope.kind !== "document"
+      && "delivery_address" in lease
+      && isDeliveryAuthorizationScope(lease.delivery_address, contract.libraryId)
+      && JSON.stringify(lease.delivery_address)
+        === JSON.stringify(lease.authorization_scope)
     )
-    || new Set(value.authorization_scopes.map((scope) => JSON.stringify(scope))).size
-      !== value.authorization_scopes.length
+    || new Set(value.recipient_leases.map((lease) =>
+      JSON.stringify(lease.delivery_address)
+    )).size !== value.recipient_leases.length
   ) {
     throw new CoreEventCompatibilityError("Core Projection live barrier is invalid");
   }
-  const deliveredScopeKeys = value.authorization_scopes
-    .map((scope) => scope.kind === "library"
+  const deliveredScopeKeys = value.recipient_leases
+    .map((lease) => lease.delivery_address.kind === "library"
       ? "library"
-      : `project:${scope.project_id}`)
+      : `project:${lease.delivery_address.project_id}`)
     .sort();
   const requestedScopeKeys = requestedScopes
     .map((scope) => scope.kind === "library"

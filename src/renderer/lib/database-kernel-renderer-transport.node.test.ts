@@ -1,4 +1,5 @@
 import { describe, expect, test, vi } from "vitest";
+import { createCoreLocalCommitFixture } from "../../main/core-client/testing/local-commit-fixture";
 import {
   createElectronRendererTransport,
   initializeElectronRendererLocalCommitIngress,
@@ -34,33 +35,64 @@ describe("Database event renderer IPC", () => {
       (message) => messages.push(message),
     );
     await Promise.resolve();
-    const message = {
-      version: 2 as const,
-      kind: "checkpoint" as const,
-      scope,
-      stream: { storeEpoch: "epoch-1", commitSeq: 7 },
+    const address = {
+      kind: "project" as const,
+      library_id: "library-1",
+      project_id: "project-1",
     };
-    recipient.listener?.({
-      version: 1,
-      deliveryId: "a".repeat(64),
-      scope,
-      payload: { lane: "projection", message },
+    const packet = createCoreLocalCommitFixture({
+      authorizationScope: address,
+      commitSeq: 73,
+      projectionEffects: [{
+        scope: {
+          schema_version: 1,
+          canonical_key: "page:project-1:page-1",
+          scope: {
+            kind: "page",
+            project_id: "project-1",
+            page_id: "page-1",
+          },
+        },
+        base_revision: 0,
+        result_revision: 1,
+        covered_commit_seq: 73,
+        patch: {
+          kind: "page_changed",
+          project_id: "project-1",
+          page_id: "page-1",
+        },
+        requires_read_at_least: false,
+        effect_hash: "b".repeat(64),
+      }],
     });
-    await vi.waitFor(() => expect(messages).toEqual([message]));
+    recipient.listener?.({
+      version: 2,
+      deliveryId: "a".repeat(64),
+      recipientLeaseId: "c".repeat(64),
+      deliveryAddress: address,
+      authorizationScope: address,
+      payload: { kind: "packet", packet },
+    });
+    await vi.waitFor(() => expect(messages).toEqual([
+      expect.objectContaining({
+        kind: "effect",
+        stream: expect.objectContaining({ commitSeq: 73 }),
+      }),
+    ]));
 
     release();
     await Promise.resolve();
     expect(invocations).toEqual([
-      { channel: "projection-stream:subscribe", args: [scope] },
+      { channel: "local-commit-audience:subscribe", args: [address] },
       {
         channel: "recipient-delivery:admit",
         args: [{
-          version: 1,
+          version: 2,
           deliveryId: "a".repeat(64),
           outcome: "ack",
         }],
       },
-      { channel: "projection-stream:unsubscribe", args: [scope] },
+      { channel: "local-commit-audience:unsubscribe", args: [address] },
     ]);
   });
 });

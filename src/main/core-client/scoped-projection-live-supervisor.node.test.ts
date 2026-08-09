@@ -37,16 +37,20 @@ const barrierFor = (
   store_epoch: "epoch-1",
   core_generation: "generation-1",
   commit_head: commitHead,
-  authorization_scopes: scopes.map((candidate) => candidate.kind === "library"
-    ? {
-        kind: "library" as const,
-        library_id: candidate.libraryId,
-      }
-    : {
-        kind: "project" as const,
-        library_id: candidate.libraryId,
-        project_id: candidate.projectId,
-      }),
+  recipient_leases: scopes.map((candidate, index) => {
+    const address = candidate.kind === "library"
+      ? { kind: "library" as const, library_id: candidate.libraryId }
+      : {
+          kind: "project" as const,
+          library_id: candidate.libraryId,
+          project_id: candidate.projectId,
+        };
+    return {
+      lease_id: String(index + 1).padStart(64, "a").slice(-64),
+      delivery_address: address,
+      authorization_scope: address,
+    };
+  }),
 });
 
 interface PendingLease {

@@ -225,6 +225,99 @@ pub(crate) fn is_installed(connection: &Connection) -> Result<bool, StoreError> 
     )? == 1)
 }
 
+pub(crate) fn rebase_store_epoch(
+    connection: &Connection,
+    store_epoch: &str,
+) -> Result<(), StoreError> {
+    if store_epoch.is_empty() {
+        return Err(corrupt("Visibility journal Store epoch is empty"));
+    }
+    let active_context: i64 = connection.query_row(
+        "SELECT count(*) FROM local_commit_visibility_context
+         WHERE store_epoch IS NOT NULL OR commit_seq IS NOT NULL",
+        [],
+        |row| row.get(0),
+    )?;
+    if active_context != 0 {
+        return Err(corrupt(
+            "Visibility journal has an active context during Store epoch rotation",
+        ));
+    }
+
+    let rows = connection
+        .prepare(
+            "SELECT store_epoch, commit_seq, scope_key, authorization_scope_json,
+                    delta_kind, roots_json, delta_hash
+             FROM local_commit_visibility_deltas
+             WHERE store_epoch <> ?1
+             ORDER BY store_epoch, commit_seq, scope_key, delta_hash",
+        )?
+        .query_map([store_epoch], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, String>(5)?,
+                row.get::<_, String>(6)?,
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    for (
+        previous_epoch,
+        commit_seq,
+        scope_key,
+        scope_json,
+        delta_kind,
+        roots_json,
+        previous_hash,
+    ) in rows
+    {
+        let scope: DeliveryAuthorizationScope = serde_json::from_str(&scope_json)
+            .map_err(|_| corrupt("Visibility delta scope is invalid"))?;
+        let roots: Vec<ResourceKey> = serde_json::from_str(&roots_json)
+            .map_err(|_| corrupt("Visibility delta roots are invalid"))?;
+        let canonical_scope_key = format!("v1:{:x}", Sha256::digest(scope_json.as_bytes()));
+        if scope_key != canonical_scope_key
+            || previous_hash
+                != visibility_delta_hash(&previous_epoch, commit_seq, &scope, &delta_kind, &roots)?
+        {
+            return Err(corrupt("Visibility delta evidence is noncanonical"));
+        }
+        let rebased_hash =
+            visibility_delta_hash(store_epoch, commit_seq, &scope, &delta_kind, &roots)?;
+        let changed = connection.execute(
+            "UPDATE local_commit_visibility_deltas
+             SET store_epoch = ?1, delta_hash = ?2
+             WHERE store_epoch = ?3 AND commit_seq = ?4
+               AND scope_key = ?5 AND delta_hash = ?6",
+            params![
+                store_epoch,
+                rebased_hash,
+                previous_epoch,
+                commit_seq,
+                scope_key,
+                previous_hash,
+            ],
+        )?;
+        if changed != 1 {
+            return Err(corrupt(
+                "Visibility delta changed during Store epoch rotation",
+            ));
+        }
+    }
+    connection.execute(
+        "UPDATE local_commit_visibility_dirty_facts
+         SET store_epoch = ?1 WHERE store_epoch <> ?1",
+        [store_epoch],
+    )?;
+    // Projection descriptors are derived from projection_json and are rebuilt
+    // while LocalCommits are resealed under the installed epoch.
+    connection.execute("DELETE FROM local_commit_sealed_projection_effects", [])?;
+    Ok(())
+}
+
 pub(crate) fn validate_seal(
     connection: &Connection,
     context: &CommitContext,
@@ -1294,16 +1387,13 @@ fn record_delta(
     let scope_json =
         serde_json::to_string(scope).map_err(|_| corrupt("Visibility delta scope is invalid"))?;
     let scope_key = format!("v1:{:x}", Sha256::digest(scope_json.as_bytes()));
-    let encoded = serde_json::to_vec(&CanonicalVisibilityDelta {
-        hash_version: 1,
-        store_epoch: context.store_epoch(),
-        commit_seq: context.commit_seq(),
-        authorization_scope: scope,
+    let delta_hash = visibility_delta_hash(
+        context.store_epoch(),
+        context.commit_seq(),
+        scope,
         delta_kind,
         roots,
-    })
-    .map_err(|_| corrupt("Visibility delta hash input is invalid"))?;
-    let delta_hash = format!("{:x}", Sha256::digest(encoded));
+    )?;
     connection.execute(
         "INSERT INTO local_commit_visibility_deltas(
            store_epoch, commit_seq, scope_key, authorization_scope_json,
@@ -1321,6 +1411,25 @@ fn record_delta(
         ],
     )?;
     Ok(())
+}
+
+fn visibility_delta_hash(
+    store_epoch: &str,
+    commit_seq: i64,
+    scope: &DeliveryAuthorizationScope,
+    delta_kind: &str,
+    roots: &[ResourceKey],
+) -> Result<String, StoreError> {
+    let encoded = serde_json::to_vec(&CanonicalVisibilityDelta {
+        hash_version: 1,
+        store_epoch,
+        commit_seq,
+        authorization_scope: scope,
+        delta_kind,
+        roots,
+    })
+    .map_err(|_| corrupt("Visibility delta hash input is invalid"))?;
+    Ok(format!("{:x}", Sha256::digest(encoded)))
 }
 
 fn revocation_reason(facts: &[DirtyFact]) -> ResourceRevocationReason {

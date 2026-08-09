@@ -1,9 +1,10 @@
 #![forbid(unsafe_code)]
 
 use nodex_core_contracts::{
-    ApplyResponse, AuthorizedDeliveryPacket, CORE_EVENT_VERSION, CoreError, ModuleApplyRequest,
-    ModuleContractVersion, ModuleName, ModuleReadRequest, ModuleReadSnapshot, StoreEpoch,
-    StreamCheckpoint,
+    AddressReset, AddressResetReason, ApplyResponse, AuthorizedDeliveryPacket, AuthorizedReadStamp,
+    AuthorizedRecipientLease, CORE_EVENT_VERSION, CoreError, DeliveryAddress,
+    DeliveryAuthorizationScope, ModuleApplyRequest, ModuleContractVersion, ModuleName,
+    ModuleReadRequest, ModuleReadSnapshot, StoreEpoch, StreamCheckpoint,
     administration::{
         StoreAdministrationCommitValue, StoreAdministrationIntent, StoreAdministrationRead,
         StoreAdministrationReadValue, StoreAdministrationReceipt,
@@ -30,8 +31,8 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use utoipa::{OpenApi, ToSchema};
 
-pub const TRANSPORT_PROTOCOL_MIN: u32 = 7;
-pub const TRANSPORT_PROTOCOL_MAX: u32 = 7;
+pub const TRANSPORT_PROTOCOL_MIN: u32 = 8;
+pub const TRANSPORT_PROTOCOL_MAX: u32 = 8;
 pub const COMPATIBILITY_MANIFEST_VERSION: u32 = 1;
 pub const STORE_LINEAGE: &str = "nodex-rust-core";
 pub const CURRENT_STORE_VERSION: u32 = 110;
@@ -1091,6 +1092,12 @@ mod api {
         StoreAdministrationReadResponse,
         StoreAdministrationApplyRequest,
         StoreAdministrationApplyResponse,
+        DeliveryAddress,
+        DeliveryAuthorizationScope,
+        AuthorizedRecipientLease,
+        AddressResetReason,
+        AddressReset,
+        AuthorizedReadStamp,
     ))
 )]
 pub struct CoreProtocolApi;
