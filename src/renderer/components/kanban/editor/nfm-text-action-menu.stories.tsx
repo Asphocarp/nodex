@@ -430,7 +430,7 @@ const meta = {
     layout: "fullscreen",
     docs: {
       description: {
-        component: "Notion-parity floating text action menu for expanded NFM rich-text selections.",
+        component: "Floating text action menu for expanded NFM rich-text selections. Its exit transition preserves the final open geometry even when the selected content is deleted.",
       },
     },
   },
