@@ -132,7 +132,9 @@ const snapshot = (): DatabaseModuleReadSnapshotV2 => ({
   },
 });
 
-const committed = (request: DatabaseApplyV2): DatabaseApplyResultV2 => ({
+const committed = (
+  request: DatabaseApplyV2,
+): Extract<DatabaseApplyResultV2, { readonly ok: true }> => ({
   ok: true,
   localCommit: noOpLocalCommit(request.storeEpoch),
   value: {
@@ -164,7 +166,7 @@ describe("Database Page drag runtime", () => {
       },
     };
 
-    await expect(commitDatabasePageDrag({
+    const receipt = await commitDatabasePageDrag({
       projectId: "project-1",
       operationId: "drag-1",
       snapshot: snapshot(),
@@ -174,7 +176,9 @@ describe("Database Page drag runtime", () => {
         toStatus: "ship",
       },
       dependencies,
-    })).resolves.toBe(true);
+    });
+    expect(receipt).toEqual(committed(requests[1] as DatabaseApplyV2).value);
+    expect(receipt.commitSeq).toBe(2);
     expect(requests).toHaveLength(2);
     expect(requests[0]).toBe(requests[1]);
     expect(requests[0]?.actor).toEqual({ kind: "renderer_page_drag" });

@@ -13,6 +13,10 @@ const testState = vi.hoisted(() => ({
   } as unknown,
   setError: vi.fn(),
   applyRemoteCard: vi.fn(),
+  invoke: vi.fn(),
+  runOptimisticMutation: vi.fn(),
+  commitPageLifecycleIntent: vi.fn(),
+  commitDatabasePageDrag: vi.fn(),
 }));
 
 vi.mock("./kanban-store", () => ({
@@ -23,12 +27,26 @@ vi.mock("./kanban-store", () => ({
     loadMore: vi.fn(),
     loadMoreGroup: vi.fn(),
     setError: testState.setError,
-    runOptimisticMutation: vi.fn(async () => testState.mutationOutcome),
+    runOptimisticMutation: testState.runOptimisticMutation,
     applyRemoteCard: testState.applyRemoteCard,
     applyRemoteCardSummary: vi.fn(),
     resolveConflict: vi.fn(),
     refreshBoard: vi.fn(),
   }),
+}));
+
+vi.mock("./api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./api")>()),
+  invoke: testState.invoke,
+}));
+
+vi.mock("./page-lifecycle-runtime", () => ({
+  commitPageLifecycleIntent: testState.commitPageLifecycleIntent,
+}));
+
+vi.mock("./database-page-drag-runtime", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./database-page-drag-runtime")>()),
+  commitDatabasePageDrag: testState.commitDatabasePageDrag,
 }));
 
 import { useKanban } from "./use-kanban";
@@ -54,10 +72,22 @@ describe("useKanban createPage result", () => {
     };
     testState.setError.mockClear();
     testState.applyRemoteCard.mockClear();
+    testState.invoke.mockReset();
+    testState.commitPageLifecycleIntent.mockReset();
+    testState.commitDatabasePageDrag.mockReset();
+    testState.runOptimisticMutation.mockReset().mockImplementation(
+      async () => testState.mutationOutcome,
+    );
   });
 
   test("returns the committed Page on success", async () => {
-    testState.mutationOutcome = { ok: true, result: page };
+    testState.mutationOutcome = {
+      ok: true,
+      result: {
+        receipt: { storeEpoch: "epoch-test", commitSeq: 2 },
+        boardProjection: page,
+      },
+    };
     const { result } = renderHook(() => useKanban({ projectId: "project-test" }));
 
     let createResult: Awaited<ReturnType<typeof result.current.createPage>> | undefined;
@@ -68,7 +98,7 @@ describe("useKanban createPage result", () => {
     });
 
     expect(createResult).toEqual({ status: "created", page });
-    expect(testState.applyRemoteCard).toHaveBeenCalledWith(page);
+    expect(testState.applyRemoteCard).not.toHaveBeenCalled();
   });
 
   test("preserves the optimistic mutation error for the modal", async () => {
@@ -111,5 +141,118 @@ describe("useKanban createPage result", () => {
       error: "Grouping is not writable",
     });
     expect(testState.setError).toHaveBeenCalledWith("Grouping is not writable");
+  });
+
+  test("routes a resolved occurrence rejection through optimistic rollback", async () => {
+    testState.invoke.mockResolvedValue({
+      success: false,
+      error: "Page is not scheduled",
+    });
+    let remoteDisposition: "unobserved" | "acknowledged" | "rejected" = "unobserved";
+    testState.runOptimisticMutation.mockImplementationOnce(async (options) => {
+      try {
+        const result = await options.runRemote();
+        remoteDisposition = "acknowledged";
+        return { ok: true, result };
+      } catch (error) {
+        remoteDisposition = "rejected";
+        return { ok: false, error };
+      }
+    });
+    const { result } = renderHook(() => useKanban({ projectId: "project-test" }));
+
+    let completed: boolean | undefined;
+    await act(async () => {
+      completed = await result.current.completeOccurrence({
+        pageId: "page-1",
+        occurrenceStart: new Date("2026-08-09T00:00:00.000Z"),
+        source: "calendar",
+      });
+    });
+
+    expect(completed).toBe(false);
+    expect(remoteDisposition).toBe("rejected");
+    expect(testState.invoke).toHaveBeenCalledWith(
+      "page:occurrence:complete",
+      "project-test",
+      expect.objectContaining({ pageId: "page-1" }),
+      undefined,
+    );
+  });
+
+  test("keeps the Page lifecycle receipt as the delete acknowledgement", async () => {
+    const committed = {
+      receipt: {
+        lifecycle: "deleted",
+        storeEpoch: "epoch-test",
+        commitSeq: 17,
+      },
+      boardProjection: null,
+    };
+    testState.commitPageLifecycleIntent.mockResolvedValue(committed);
+    let acknowledged: unknown;
+    let commitCursor: { storeEpoch: string; commitSeq: number } | null | undefined;
+    testState.runOptimisticMutation.mockImplementationOnce(async (options) => {
+      acknowledged = await options.runRemote();
+      commitCursor = options.getCommitCursor?.(acknowledged);
+      return { ok: true, result: acknowledged };
+    });
+    const { result } = renderHook(() => useKanban({ projectId: "project-test" }));
+
+    let deleted: boolean | undefined;
+    await act(async () => {
+      deleted = await result.current.deletePage("plan", "page-1");
+    });
+
+    expect(deleted).toBe(true);
+    expect(acknowledged).toBe(committed);
+    expect(commitCursor).toEqual({ storeEpoch: "epoch-test", commitSeq: 17 });
+    expect(testState.commitPageLifecycleIntent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "delete",
+        projectId: "project-test",
+        pageId: "page-1",
+      }),
+    );
+  });
+
+  test("threads the Database receipt commit floor through a Page drag", async () => {
+    testState.snapshot = {
+      databaseView: {
+        primaryWriteCompatible: true,
+        accessContext: { kind: "project", projectId: "project-test" },
+        libraryId: "library-test",
+        storeEpoch: "epoch-test",
+        commitSeq: 3,
+        query: {},
+      },
+    };
+    const receipt = { storeEpoch: "epoch-test", commitSeq: 23 };
+    testState.commitDatabasePageDrag.mockResolvedValue(receipt);
+    let commitCursor: { storeEpoch: string; commitSeq: number } | null | undefined;
+    testState.runOptimisticMutation.mockImplementationOnce(async (options) => {
+      const acknowledged = await options.runRemote();
+      commitCursor = options.getCommitCursor?.(acknowledged);
+      return { ok: true, result: acknowledged };
+    });
+    const { result } = renderHook(() => useKanban({ projectId: "project-test" }));
+
+    let moved: boolean | undefined;
+    await act(async () => {
+      moved = await result.current.movePage({
+        pageId: "page-1",
+        fromStatus: "plan",
+        toStatus: "ship",
+      });
+    });
+
+    expect(moved).toBe(true);
+    expect(commitCursor).toEqual({ storeEpoch: "epoch-test", commitSeq: 23 });
+    expect(testState.commitDatabasePageDrag).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectId: "project-test",
+        move: expect.objectContaining({ pageId: "page-1", toStatus: "ship" }),
+      }),
+    );
   });
 });
