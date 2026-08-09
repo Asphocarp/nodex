@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
   buildCreateCardTransform,
+  buildCompleteOrSkipOccurrenceTransform,
   buildMovePageTransform,
   buildMovePagesTransform,
   buildPatchPageTransform,
@@ -177,6 +178,26 @@ describe("kanban optimistic ops", () => {
     expect(nextBoard.columns[2]?.cards.map((card) => card.id).join(",")).toBe("b,a,c,d");
   });
 
+  test("move-card converges by target column, slot, and projected fields", () => {
+    const transform = buildMovePageTransform({
+      pageId: "a",
+      fromStatus: "build",
+      toStatus: "ship",
+      newOrder: 0,
+      fieldPatch: { priority: "p1-high" },
+    });
+
+    const moved = transform(createBoard());
+    const movedCard = moved.columns[4]?.cards[0];
+
+    expect(movedCard).toMatchObject({
+      id: "a",
+      status: "ship",
+      priority: "p1-high",
+    });
+    expect(transform(moved)).toBe(moved);
+  });
+
   test("move-many uses post-removal insertion indices for same-column reorders", () => {
     const board = createBoard();
 
@@ -188,6 +209,32 @@ describe("kanban optimistic ops", () => {
     })(board);
 
     expect(nextBoard.columns[2]?.cards.map((card) => card.id).join(",")).toBe("b,a,c,d");
+  });
+
+  test("move-many preserves the visual input order and converges atomically", () => {
+    const transform = buildMovePagesTransform({
+      pageIds: ["c", "a"],
+      fromStatus: "build",
+      toStatus: "ship",
+      newOrder: 0,
+    });
+
+    const moved = transform(createBoard());
+
+    expect(moved.columns[4]?.cards.map((card) => card.id)).toEqual(["c", "a"]);
+    expect(moved.columns[4]?.cards.every((card) => card.status === "ship")).toBe(true);
+    expect(transform(moved)).toBe(moved);
+  });
+
+  test("move-many does not project a partial run", () => {
+    const board = createBoard();
+
+    expect(buildMovePagesTransform({
+      pageIds: ["a", "missing"],
+      fromStatus: "build",
+      toStatus: "ship",
+      newOrder: 0,
+    })(board)).toBe(board);
   });
 
   test("move-card applies the drag field patch before reinserting", () => {
@@ -217,5 +264,11 @@ describe("kanban optimistic ops", () => {
 
     expect(nextBoard.columns[2]?.cards[1]?.estimate).toBe("m");
     expect(nextBoard.columns[2]?.cards[2]?.estimate).toBe("m");
+  });
+
+  test("complete-or-skip converges once canonical scheduling is already clear", () => {
+    const board = createBoard();
+
+    expect(buildCompleteOrSkipOccurrenceTransform("a")(board)).toBe(board);
   });
 });

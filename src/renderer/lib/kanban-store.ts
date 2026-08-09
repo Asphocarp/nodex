@@ -171,9 +171,8 @@ interface OptimisticEntry {
   kind: string;
   conflictKeys: string[];
   apply: BoardTransform;
-  pending: boolean;
+  phase: "pending" | "acknowledged" | "local";
   superseded: boolean;
-  retainUntilSuperseded: boolean;
 }
 
 const defaultDependencies: KanbanStoreDependencies = {
@@ -1051,9 +1050,9 @@ class KanbanProjectStore {
           },
         ));
       }
-      const nextBoard = patch.kind === "database_row_upsert"
+      const nextBoard = patch.kind === "database_row_upsert" && includesUpsert
         ? upsertCardSummaryInBoard(snapshot.board, patch.row)
-        : removePageSummaryFromBoard(snapshot.board, patch.pageId);
+        : removePageSummaryFromBoard(snapshot.board, pageId);
       return {
         ...snapshot,
         commitSeq: Math.max(snapshot.commitSeq, effect.coveredCommitSeq),
@@ -1138,8 +1137,7 @@ class KanbanProjectStore {
     const before = this.baseBoard ? this.composeBoard(this.baseBoard) : null;
     const entry = this.createEntry({
       ...options,
-      pending: false,
-      retainUntilSuperseded: true,
+      phase: "local",
     });
     this.optimisticEntries.push(entry);
     const after = this.baseBoard ? this.composeBoard(this.baseBoard) : null;
@@ -1187,16 +1185,19 @@ class KanbanProjectStore {
     this.supersedeConflicts(options.conflictKeys);
     const entry = this.createEntry({
       ...options,
-      pending: true,
-      retainUntilSuperseded: false,
+      phase: "pending",
     });
     this.optimisticEntries.push(entry);
     this.recomputeSnapshot();
 
     try {
       const result = await options.runRemote();
-      entry.pending = false;
-      this.pruneEntries();
+      entry.phase = "acknowledged";
+      // A successful command is authoritative, but its exact projection can
+      // reach this store before or after the response. Keep the acknowledged
+      // overlay until applying it to canonical base becomes a semantic no-op;
+      // otherwise an unrelated recompute can expose stale base state.
+      this.recomputeSnapshot();
       if (options.refreshOnSuccess !== false) {
         await this.refreshBoard();
       }
@@ -1209,8 +1210,7 @@ class KanbanProjectStore {
       };
     } catch (error) {
       const normalized = toError(error);
-      entry.pending = false;
-      this.pruneEntries();
+      this.removeEntry(entry.opId);
 
       const shouldSurfaceError = !entry.superseded || options.suppressErrorWhenSuperseded === false;
       if (shouldSurfaceError) {
@@ -1243,7 +1243,9 @@ class KanbanProjectStore {
   }
 
   private activePendingCount(): number {
-    return this.optimisticEntries.filter((entry) => entry.pending && !entry.superseded).length;
+    return this.optimisticEntries.filter(
+      (entry) => entry.phase === "pending" && !entry.superseded,
+    ).length;
   }
 
   private buildGroupPagination(): ReadonlyMap<
@@ -1330,14 +1332,14 @@ class KanbanProjectStore {
 
       const after = entry.apply(working);
 
-      if (entry.pending) {
+      if (entry.phase === "pending") {
         nextEntries.push(entry);
         working = after;
         continue;
       }
 
       // Retained local overlays are now auto-collected when base state catches up.
-      if (entry.retainUntilSuperseded) {
+      if (entry.phase === "local") {
         if (after === working) {
           changed = true;
           continue;
@@ -1347,8 +1349,8 @@ class KanbanProjectStore {
         continue;
       }
 
-      // Completed non-retained entries should generally be gone already,
-      // but keep them if they still affect derived state.
+      // Acknowledged entries remain visible until canonical state satisfies
+      // the same semantic intent, at which point the transform is a no-op.
       if (after !== working) {
         nextEntries.push(entry);
         working = after;
@@ -1366,23 +1368,20 @@ class KanbanProjectStore {
     kind,
     conflictKeys,
     apply,
-    pending,
-    retainUntilSuperseded,
+    phase,
   }: {
     kind: string;
     conflictKeys: string[];
     apply: BoardTransform;
-    pending: boolean;
-    retainUntilSuperseded: boolean;
+    phase: OptimisticEntry["phase"];
   }): OptimisticEntry {
     return {
       opId: this.nextOpId++,
       kind,
       conflictKeys,
       apply,
-      pending,
+      phase,
       superseded: false,
-      retainUntilSuperseded,
     };
   }
 
@@ -1396,15 +1395,19 @@ class KanbanProjectStore {
       changed = true;
     }
     if (!changed) return;
-    this.pruneEntries();
+    this.pruneSupersededEntries();
   }
 
-  private pruneEntries(): void {
-    this.optimisticEntries = this.optimisticEntries.filter((entry) => {
-      if (entry.pending) return true;
-      if (entry.retainUntilSuperseded && !entry.superseded) return true;
-      return false;
-    });
+  private pruneSupersededEntries(): void {
+    this.optimisticEntries = this.optimisticEntries.filter(
+      (entry) => !entry.superseded,
+    );
+  }
+
+  private removeEntry(opId: number): void {
+    this.optimisticEntries = this.optimisticEntries.filter(
+      (entry) => entry.opId !== opId,
+    );
   }
 
   private setSnapshot(next: KanbanStoreSnapshot): void {

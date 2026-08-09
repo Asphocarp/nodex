@@ -32,7 +32,7 @@ export function computeNativeDropIndexFromSurface(
       return true;
     }
 
-    const pageId = element.dataset.kanbanPageId;
+    const pageId = element.dataset.kanbanUuidV7;
     return !pageId || !ignoredPageIds.has(pageId);
   });
   const rects = cardElements.map((element) => {

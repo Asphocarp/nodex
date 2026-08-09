@@ -663,17 +663,16 @@ export function KanbanBoard({
           x: location.current.input.clientX,
           y: location.current.input.clientY,
         };
-        setDropIndicator(null);
-
-        try {
-          await performCardDrop(
-            source.data,
-            location.current.dropTargets as Array<{ data: Record<string | symbol, unknown> }>,
-            pointer,
-          );
-        } finally {
-          clearBoardCardDragState();
-        }
+        const drop = performCardDrop(
+          source.data,
+          location.current.dropTargets as Array<{ data: Record<string | symbol, unknown> }>,
+          pointer,
+        );
+        // performCardDrop publishes the optimistic Board synchronously before
+        // its first await. Gesture-only feedback can end at that handoff; it
+        // must not linger for the network acknowledgement.
+        clearBoardCardDragState();
+        await drop;
     },
   });
 

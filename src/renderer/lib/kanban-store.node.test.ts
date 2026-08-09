@@ -1750,6 +1750,129 @@ describe("kanban store", () => {
     unsubscribe();
   });
 
+  test("keeps an acknowledged move visible until canonical base converges", async () => {
+    const initialBoard = createBoard();
+    const moveInput = {
+      pageId: "card-1",
+      fromStatus: "triage" as const,
+      toStatus: "ship" as const,
+      newOrder: 0,
+    };
+    const canonicalBoard = buildMovePageTransform(moveInput)(
+      cloneBoard(initialBoard),
+    );
+    const remote = createDeferred<{ ok: true }>();
+    const canonicalRefresh = createDeferred<DatabaseViewWindowSnapshot>();
+    let readCount = 0;
+    const registry = createTestRegistry({
+      readViewWindow: async () => {
+        readCount += 1;
+        if (readCount === 1) {
+          return createBoardSnapshot(cloneBoard(initialBoard));
+        }
+        return canonicalRefresh.promise;
+      },
+      subscribeBoardChanges: () => () => {},
+    });
+    const store = registry.getStore("default");
+    await store.fetchBoard();
+
+    const observedColumns: string[] = [];
+    const recordColumn = () => {
+      const columnId = store.getSnapshot().pageIndex.get("card-1")?.columnId;
+      if (columnId) observedColumns.push(columnId);
+    };
+    const unsubscribe = store.subscribe(recordColumn);
+    const mutation = store.runOptimisticMutation({
+      kind: "database:position",
+      conflictKeys: conflictKeysForMove(moveInput),
+      apply: buildMovePageTransform(moveInput),
+      runRemote: async () => remote.promise,
+    });
+    recordColumn();
+
+    expect(store.getSnapshot().pageIndex.get("card-1")?.columnId).toBe("ship");
+    remote.resolve({ ok: true });
+    await waitForMicrotasks();
+
+    expect(readCount).toBe(2);
+    expect(store.getSnapshot().pendingMutationCount).toBe(0);
+    expect(store.getSnapshot().pageIndex.get("card-1")?.columnId).toBe("ship");
+
+    store.applyRemoteCardSummary({
+      ...createPageSummary("Unrelated canonical update"),
+      id: "card-2",
+      order: 1,
+    });
+    expect(store.getSnapshot().pageIndex.get("card-1")?.columnId).toBe("ship");
+
+    canonicalRefresh.resolve(createBoardSnapshot(canonicalBoard));
+    await mutation;
+
+    expect(store.getSnapshot().pageIndex.get("card-1")?.columnId).toBe("ship");
+    expect(new Set(observedColumns)).toEqual(new Set(["ship"]));
+
+    const movedCard = canonicalBoard.columns[1]?.cards[0];
+    if (!movedCard) throw new Error("Canonical moved Page fixture is missing");
+    store.applyRemoteCardSummary({
+      ...movedCard,
+      status: "triage",
+      order: 0,
+    });
+    expect(store.getSnapshot().pageIndex.get("card-1")?.columnId).toBe(
+      "triage",
+    );
+    unsubscribe();
+  });
+
+  test("collects a pending move after its canonical projection arrives first", async () => {
+    const initialBoard = createBoard();
+    const moveInput = {
+      pageId: "card-1",
+      fromStatus: "triage" as const,
+      toStatus: "ship" as const,
+      newOrder: 0,
+    };
+    const canonicalBoard = buildMovePageTransform(moveInput)(
+      cloneBoard(initialBoard),
+    );
+    const canonicalCard = canonicalBoard.columns[1]?.cards[0];
+    if (!canonicalCard) throw new Error("Canonical moved Page fixture is missing");
+    const remote = createDeferred<{ ok: true }>();
+    const registry = createTestRegistry({
+      readViewWindow: async () => createBoardSnapshot(cloneBoard(initialBoard)),
+      subscribeBoardChanges: () => () => {},
+    });
+    const store = registry.getStore("default");
+    await store.fetchBoard();
+
+    const mutation = store.runOptimisticMutation({
+      kind: "database:position",
+      conflictKeys: conflictKeysForMove(moveInput),
+      apply: buildMovePageTransform(moveInput),
+      runRemote: async () => remote.promise,
+      refreshOnSuccess: false,
+    });
+    store.applyRemoteCardSummary(canonicalCard);
+
+    expect(store.getSnapshot().pageIndex.get("card-1")?.columnId).toBe("ship");
+    expect(store.getSnapshot().pendingMutationCount).toBe(1);
+
+    remote.resolve({ ok: true });
+    await mutation;
+
+    expect(store.getSnapshot().pageIndex.get("card-1")?.columnId).toBe("ship");
+    expect(store.getSnapshot().pendingMutationCount).toBe(0);
+    store.applyRemoteCardSummary({
+      ...canonicalCard,
+      status: "triage",
+      order: 0,
+    });
+    expect(store.getSnapshot().pageIndex.get("card-1")?.columnId).toBe(
+      "triage",
+    );
+  });
+
   test("failed delete rolls back automatically", async () => {
     const board = createBoard();
     const registry = createTestRegistry({

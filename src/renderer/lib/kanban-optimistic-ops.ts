@@ -157,13 +157,109 @@ function insertNewCardIntoColumn(
 
 function applyCardPatch(card: DatabasePageSummary, updates: Partial<PageInput>): DatabasePageSummary {
   const patch = normalizePatch(updates);
-  if (Object.keys(patch).length === 0) {
-    return card;
-  }
+  const patchEntries = Object.entries(patch);
+  if (patchEntries.length === 0) return card;
+  if (patchEntries.every(([key, value]) =>
+    patchValuesEqual(card[key as keyof DatabasePageSummary], value)
+  )) return card;
 
   return {
     ...card,
     ...patch,
+  };
+}
+
+function projectMovedCard(
+  card: DatabasePageSummary,
+  toStatus: MovePagesInput["toStatus"],
+  fieldPatch: MovePagesInput["fieldPatch"],
+): DatabasePageSummary {
+  const patchedCard = fieldPatch ? applyCardPatch(card, fieldPatch) : card;
+  if (patchedCard.status === toStatus) return patchedCard;
+  return {
+    ...patchedCard,
+    status: toStatus,
+  };
+}
+
+const cardRunsMatch = (
+  left: readonly DatabasePageSummary[],
+  right: readonly DatabasePageSummary[],
+): boolean =>
+  left.length === right.length
+  && left.every((card, index) => card === right[index]);
+
+function buildMovePageRunTransform(input: MovePagesInput): BoardTransform {
+  const targetPageIds = new Set(input.pageIds);
+  return (board) => {
+    if (
+      input.pageIds.length === 0
+      || targetPageIds.size !== input.pageIds.length
+    ) return board;
+
+    const targetColumnIndex = board.columns.findIndex(
+      (column) => column.id === input.toStatus,
+    );
+    if (targetColumnIndex < 0) return board;
+
+    const movingCardsById = new Map<string, DatabasePageSummary>();
+    const remainingCardsByColumn = board.columns.map((column) => {
+      const remainingCards: DatabasePageSummary[] = [];
+      for (const card of column.cards) {
+        if (!targetPageIds.has(card.id)) {
+          remainingCards.push(card);
+          continue;
+        }
+        if (movingCardsById.has(card.id)) return null;
+        movingCardsById.set(card.id, card);
+      }
+      return remainingCards;
+    });
+    if (
+      remainingCardsByColumn.some((cards) => cards === null)
+      || movingCardsById.size !== targetPageIds.size
+    ) return board;
+
+    const movingCards = input.pageIds.flatMap((pageId) => {
+      const card = movingCardsById.get(pageId);
+      return card
+        ? [projectMovedCard(card, input.toStatus, input.fieldPatch)]
+        : [];
+    });
+    if (movingCards.length !== input.pageIds.length) return board;
+
+    const targetCards = remainingCardsByColumn[targetColumnIndex];
+    if (!targetCards) return board;
+    const nextTargetCards = [...targetCards];
+    const insertIndex = clamp(
+      input.newOrder ?? nextTargetCards.length,
+      0,
+      nextTargetCards.length,
+    );
+    nextTargetCards.splice(insertIndex, 0, ...movingCards);
+
+    const desiredCardsByColumn = remainingCardsByColumn.map(
+      (cards, columnIndex) =>
+        columnIndex === targetColumnIndex ? nextTargetCards : cards,
+    );
+    if (board.columns.every((column, columnIndex) => {
+      const desiredCards = desiredCardsByColumn[columnIndex];
+      return desiredCards !== null
+        && cardRunsMatch(column.cards, desiredCards);
+    })) return board;
+
+    let nextBoard = board;
+    for (let columnIndex = 0; columnIndex < board.columns.length; columnIndex += 1) {
+      const desiredCards = desiredCardsByColumn[columnIndex];
+      const currentCards = board.columns[columnIndex]?.cards;
+      if (
+        !desiredCards
+        || !currentCards
+        || cardRunsMatch(currentCards, desiredCards)
+      ) continue;
+      nextBoard = replaceColumnCards(nextBoard, columnIndex, desiredCards);
+    }
+    return nextBoard;
   };
 }
 
@@ -264,75 +360,18 @@ export function buildDeletePageTransform(
 }
 
 export function buildMovePageTransform(input: MovePageInput): BoardTransform {
-  return (board) => {
-    const location = findCardLocation(board, input.pageId, input.fromStatus);
-    if (!location) return board;
-
-    const sourceColumn = board.columns[location.columnIndex];
-    if (!sourceColumn) return board;
-    const movingCard = sourceColumn.cards[location.pageIndex];
-    if (!movingCard) return board;
-    const patchedCard = input.fieldPatch
-      ? applyCardPatch(movingCard, input.fieldPatch)
-      : movingCard;
-
-    const withoutSourceCards = [...sourceColumn.cards];
-    withoutSourceCards.splice(location.pageIndex, 1);
-    let nextBoard = replaceColumnCards(board, location.columnIndex, withoutSourceCards);
-
-    const targetColumnIndex = nextBoard.columns.findIndex((column) => column.id === input.toStatus);
-    if (targetColumnIndex < 0) return board;
-    const targetColumn = nextBoard.columns[targetColumnIndex];
-    if (!targetColumn) return board;
-
-    const targetPages = [...targetColumn.cards];
-    const insertIndex = clamp(input.newOrder ?? targetPages.length, 0, targetPages.length);
-    targetPages.splice(insertIndex, 0, patchedCard);
-    nextBoard = replaceColumnCards(nextBoard, targetColumnIndex, targetPages);
-    return nextBoard;
-  };
+  return buildMovePageRunTransform({
+    pageIds: [input.pageId],
+    ...(input.fromStatus ? { fromStatus: input.fromStatus } : {}),
+    toStatus: input.toStatus,
+    ...(input.newOrder === undefined ? {} : { newOrder: input.newOrder }),
+    ...(input.fieldPatch ? { fieldPatch: input.fieldPatch } : {}),
+    ...(input.groupId ? { groupId: input.groupId } : {}),
+  });
 }
 
 export function buildMovePagesTransform(input: MovePagesInput): BoardTransform {
-  const targetPageIds = new Set(input.pageIds);
-  return (board) => {
-    if (targetPageIds.size === 0) return board;
-
-    const movingCards: DatabasePageSummary[] = [];
-    let nextBoard = board;
-
-    for (let columnIndex = 0; columnIndex < nextBoard.columns.length; columnIndex += 1) {
-      const column = nextBoard.columns[columnIndex];
-      if (!column) continue;
-
-      const retainedCards: DatabasePageSummary[] = [];
-      let changed = false;
-      for (const card of column.cards) {
-        if (!targetPageIds.has(card.id)) {
-          retainedCards.push(card);
-          continue;
-        }
-        changed = true;
-        movingCards.push(input.fieldPatch ? applyCardPatch(card, input.fieldPatch) : card);
-      }
-
-      if (!changed) continue;
-      nextBoard = replaceColumnCards(nextBoard, columnIndex, retainedCards);
-    }
-
-    if (movingCards.length === 0) return board;
-
-    const targetColumnIndex = nextBoard.columns.findIndex((column) => column.id === input.toStatus);
-    if (targetColumnIndex < 0) return board;
-    const targetColumn = nextBoard.columns[targetColumnIndex];
-    if (!targetColumn) return board;
-
-    const targetPages = [...targetColumn.cards];
-    const insertIndex = clamp(input.newOrder ?? targetPages.length, 0, targetPages.length);
-    targetPages.splice(insertIndex, 0, ...movingCards);
-    nextBoard = replaceColumnCards(nextBoard, targetColumnIndex, targetPages);
-    return nextBoard;
-  };
+  return buildMovePageRunTransform(input);
 }
 
 export function buildCompleteOrSkipOccurrenceTransform(pageId: string): BoardTransform {
@@ -342,7 +381,12 @@ export function buildCompleteOrSkipOccurrenceTransform(pageId: string): BoardTra
 
     const column = board.columns[location.columnIndex];
     const card = column?.cards[location.pageIndex];
-    if (!column || !card || card.recurrence) return board;
+    if (
+      !column
+      || !card
+      || card.recurrence
+      || (card.scheduledStart === undefined && card.scheduledEnd === undefined)
+    ) return board;
 
     const nextCards = [...column.cards];
     nextCards[location.pageIndex] = {

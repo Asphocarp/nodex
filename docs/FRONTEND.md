@@ -16,6 +16,14 @@ discarded. Components should subscribe to the projection registry and remove
 manual “refresh until commit sequence” orchestration; Board membership,
 navigation, Page detail, and search converge through the same invalidation path.
 
+An optimistic journal distinguishes remote-pending entries from acknowledged
+entries whose canonical projection has not yet converged. A successful response
+ends pending UI, but the acknowledged transform remains composed over canonical
+base until it becomes a semantic reference no-op. Projection reducers must
+preserve exact single-row ordering evidence and keep grouped windows scoped, so
+neither an unrelated recompute nor background repair can expose an older or
+provisionally renumbered Board.
+
 Mounted collaborative Document surfaces expose a typed mutation barrier. The
 barrier flushes local Yjs updates and returns a `DocumentHeadToken`; structural
 Move-to and cross-surface DnD pass the token as a causal dependency. A target
