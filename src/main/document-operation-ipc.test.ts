@@ -33,6 +33,10 @@ const committed = (
   bound: DocumentMutationRequest,
 ): DocumentOperationCommandResult => ({
   ok: true,
+  localCommit: {
+    status: "no_op",
+    observed: { store_epoch: bound.storeEpoch, commit_head: 7 },
+  },
   value: {
     version: 1,
     mutationKind:

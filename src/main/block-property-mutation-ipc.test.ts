@@ -32,6 +32,10 @@ const committed = (
   bound: BlockPropertyMutationRequestV2,
 ): BlockPropertyMutationCommandResultV2 => ({
   ok: true,
+  localCommit: {
+    status: "no_op",
+    observed: { store_epoch: bound.storeEpoch, commit_head: 1 },
+  },
   value: {
     version: 2,
     mutationId: bound.mutationId,

@@ -15,6 +15,10 @@ import {
   portableRichTextSemanticSource,
   type PortableRichText,
 } from "./portable-rich-text";
+import {
+  parseLocalCommitApply,
+  type LocalCommitCommandSuccess,
+} from "../local-commit-delivery";
 
 export const DOCUMENT_OPERATION_CONTRACT_VERSION = 1;
 export const MAX_DOCUMENT_OPERATION_BATCH_SIZE = 512;
@@ -174,7 +178,7 @@ export interface DocumentOperationCommandError {
 }
 
 export type DocumentOperationCommandResult =
-  | { readonly ok: true; readonly value: DocumentOperationResult }
+  | LocalCommitCommandSuccess<DocumentOperationResult>
   | { readonly ok: false; readonly error: DocumentOperationCommandError };
 
 export class DocumentOperationContractError extends Error {
@@ -1029,8 +1033,12 @@ export const parseDocumentOperationCommandResult = (
   const label = "documentOperationCommandResult";
   const result = readRecord(value, label);
   if (result.ok === true) {
-    assertExactKeys(result, label, ["ok", "value"]);
-    return { ok: true, value: parseDocumentOperationResult(result.value) };
+    assertExactKeys(result, label, ["ok", "value", "localCommit"]);
+    return {
+      ok: true,
+      value: parseDocumentOperationResult(result.value),
+      localCommit: parseLocalCommitApply(result.localCommit),
+    };
   }
   if (result.ok === false) {
     assertExactKeys(result, label, ["ok", "error"]);

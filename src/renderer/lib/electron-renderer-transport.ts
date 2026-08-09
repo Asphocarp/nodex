@@ -22,6 +22,13 @@ import type {
 } from "../../shared/projection-stream";
 import type { ResourceRevocationMessage } from "../../shared/resource-revocation-stream";
 import {
+  RECIPIENT_DELIVERY_VERSION,
+  deliveryAddressKey,
+  projectionScopeDeliveryAddress,
+  type RecipientAdmissionResult,
+  type RecipientDeliveryEnvelope,
+} from "../../shared/recipient-delivery";
+import {
   createElectronDocumentSyncAdapter,
   createElectronLibraryDocumentSyncAdapter,
 } from "./electron-document-sync-adapter";
@@ -56,8 +63,112 @@ import type {
 import type { PageLifecyclePreflightResultV2 } from "../../shared/page-lifecycle-v2-runtime";
 import type { ListPageHistoryRequest } from "../../shared/page-history";
 import type { PageHistoryCommandResult } from "../../shared/page-history-transport";
+import { rendererLocalCommitIngress } from "./local-commit-ingress";
 
 export type ElectronRendererBridge = NonNullable<Window["api"]>;
+
+const recipientIngressBridges = new WeakSet<object>();
+const audienceSubscriptions = new WeakMap<
+  object,
+  Map<string, { count: number; readonly address: ReturnType<typeof projectionScopeDeliveryAddress> }>
+>();
+
+const sameRecipientIdentity = (left: unknown, right: unknown): boolean =>
+  JSON.stringify(left) === JSON.stringify(right);
+
+const acquireAudience = (
+  bridge: ElectronRendererBridge,
+  scope: ProjectionScope,
+): (() => void) => {
+  const address = projectionScopeDeliveryAddress(scope);
+  const key = deliveryAddressKey(address);
+  const subscriptions = audienceSubscriptions.get(bridge) ?? new Map();
+  audienceSubscriptions.set(bridge, subscriptions);
+  const existing = subscriptions.get(key);
+  if (existing) {
+    existing.count += 1;
+  } else {
+    subscriptions.set(key, { count: 1, address });
+    void bridge.invoke("local-commit-audience:subscribe", address);
+  }
+  let active = true;
+  return () => {
+    if (!active) return;
+    active = false;
+    const current = subscriptions.get(key);
+    if (!current) return;
+    current.count -= 1;
+    if (current.count > 0) return;
+    subscriptions.delete(key);
+    void bridge.invoke("local-commit-audience:unsubscribe", current.address);
+  };
+};
+
+export const initializeElectronRendererLocalCommitIngress = (
+  bridge: ElectronRendererBridge,
+): void => {
+  if (recipientIngressBridges.has(bridge)) return;
+  recipientIngressBridges.add(bridge);
+  bridge.on("recipient-delivery:message", (...args: unknown[]) => {
+    const envelope = args[0] as RecipientDeliveryEnvelope | undefined;
+    void (async () => {
+      let result: RecipientAdmissionResult | null = null;
+      try {
+        if (
+          !envelope
+          || envelope.version !== RECIPIENT_DELIVERY_VERSION
+          || !/^[a-f0-9]{64}$/u.test(envelope.deliveryId)
+          || !/^[a-f0-9]{64}$/u.test(envelope.recipientLeaseId)
+          || !sameRecipientIdentity(
+            envelope.deliveryAddress,
+            envelope.authorizationScope,
+          )
+        ) {
+          throw new TypeError("Recipient delivery envelope is invalid");
+        }
+        if (envelope.payload.kind === "packet") {
+          const packet = envelope.payload.packet;
+          if (
+            !sameRecipientIdentity(packet.delivery_address, envelope.deliveryAddress)
+            || !sameRecipientIdentity(
+              packet.authorization_scope,
+              envelope.authorizationScope,
+            )
+          ) throw new TypeError("Recipient packet identity is invalid");
+          await rendererLocalCommitIngress.admitPacket(packet);
+        } else {
+          const reset = envelope.payload.reset;
+          if (
+            reset.reset_id !== envelope.deliveryId
+            || reset.recipient_lease_id !== envelope.recipientLeaseId
+            || !sameRecipientIdentity(reset.delivery_address, envelope.deliveryAddress)
+            || !sameRecipientIdentity(
+              reset.authorization_scope,
+              envelope.authorizationScope,
+            )
+          ) throw new TypeError("Recipient reset identity is invalid");
+          rendererLocalCommitIngress.admitAddressReset(reset);
+        }
+        result = {
+          version: RECIPIENT_DELIVERY_VERSION,
+          deliveryId: envelope.deliveryId,
+          outcome: "ack",
+        };
+      } catch {
+        if (envelope && /^[a-f0-9]{64}$/u.test(envelope.deliveryId)) {
+          result = {
+            version: RECIPIENT_DELIVERY_VERSION,
+            deliveryId: envelope.deliveryId,
+            outcome: "nack",
+            reason: "invalid_message",
+          };
+        }
+      }
+      if (!result) return;
+      await bridge.invoke("recipient-delivery:admit", result);
+    })().catch(() => undefined);
+  });
+};
 
 export function createElectronRendererTransport(
   bridge: ElectronRendererBridge,
@@ -217,27 +328,16 @@ export function createElectronRendererTransport(
       callback: (message: ProjectionStreamMessage) => void,
     ) {
       let active = true;
-      const removeListener = bridge.on(
-        "projection-stream:message",
-        (...args: unknown[]) => {
-          const message = args[0] as ProjectionStreamMessage | undefined;
-          if (!active || !message) return;
-          if (message.scope.kind !== scope.kind) return;
-          if (message.scope.libraryId !== scope.libraryId) return;
-          if (
-            scope.kind === "project"
-            && message.scope.kind === "project"
-            && message.scope.projectId !== scope.projectId
-          ) return;
-          callback(message);
-        },
+      const removeLocalListener = rendererLocalCommitIngress.subscribeProjection(
+        scope,
+        callback,
       );
-      void bridge.invoke("projection-stream:subscribe", scope);
+      const releaseAudience = acquireAudience(bridge, scope);
       return () => {
         if (!active) return;
         active = false;
-        removeListener();
-        void bridge.invoke("projection-stream:unsubscribe", scope);
+        removeLocalListener();
+        releaseAudience();
       };
     },
     subscribeResourceRevocations(
@@ -245,27 +345,16 @@ export function createElectronRendererTransport(
       callback: (message: ResourceRevocationMessage) => void,
     ) {
       let active = true;
-      const removeListener = bridge.on(
-        "resource-revocation:message",
-        (...args: unknown[]) => {
-          const message = args[0] as ResourceRevocationMessage | undefined;
-          if (!active || !message) return;
-          if (message.scope.kind !== scope.kind) return;
-          if (message.scope.libraryId !== scope.libraryId) return;
-          if (
-            scope.kind === "project"
-            && message.scope.kind === "project"
-            && message.scope.projectId !== scope.projectId
-          ) return;
-          callback(message);
-        },
+      const removeLocalListener = rendererLocalCommitIngress.subscribeRevocation(
+        scope,
+        callback,
       );
-      void bridge.invoke("resource-revocation:subscribe", scope);
+      const releaseAudience = acquireAudience(bridge, scope);
       return () => {
         if (!active) return;
         active = false;
-        removeListener();
-        void bridge.invoke("resource-revocation:unsubscribe", scope);
+        removeLocalListener();
+        releaseAudience();
       };
     },
     subscribePageOwnershipPathChanges(

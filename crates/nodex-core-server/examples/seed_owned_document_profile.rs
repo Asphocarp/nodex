@@ -6,15 +6,19 @@ use nodex_core::document::{
 };
 use nodex_core::infrastructure::sqlite::with_immediate_transaction;
 use nodex_core::infrastructure::store::SqliteStoreKernel;
+use nodex_core::library::LibraryModule;
 use nodex_core::workspace::ProjectWorkspaceModule;
 use nodex_core_contracts::document::{
     OwnedDocumentIntent, OwnedDocumentRead, OwnedDocumentReadValue,
 };
+use nodex_core_contracts::library::{
+    LibraryIntent, LibraryPageLifecycleMutation, LibraryPageWorkflowStatus,
+};
 use nodex_core_contracts::workspace::{ProjectWorkspaceIntent, ProjectWorkspaceStarterPage};
 use nodex_core_contracts::{
-    AdapterKind, BoundModuleContext, LibraryId, ModuleApplyRequest, ModuleReadRequest,
-    OWNED_DOCUMENT_CONTRACT_VERSION, PROJECT_WORKSPACE_CONTRACT_VERSION, ProfileId, ProjectId,
-    StoreEpoch,
+    AdapterKind, BoundModuleContext, LIBRARY_CONTRACT_VERSION, LibraryId, ModuleApplyRequest,
+    ModuleReadRequest, OWNED_DOCUMENT_CONTRACT_VERSION, PROJECT_WORKSPACE_CONTRACT_VERSION,
+    ProfileId, ProjectId, StoreEpoch,
 };
 use serde_json::json;
 
@@ -22,7 +26,7 @@ const PROFILE_ID: &str = "profile:core-renderer-test";
 const LIBRARY_ID: &str = "probe-library";
 const PROJECT_ID: &str = "project:core-renderer-test";
 const OWNER_BLOCK_ID: &str = "019bf52d-6870-7000-8000-000000000101";
-const DOCUMENT_ID: &str = "019bf52d-6870-7000-8000-000000000102";
+const DOCUMENT_ID: &str = "document:019bf52d-6870-7000-8000-000000000101";
 const STORE_EPOCH: &str = "epoch:core-renderer-test";
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -89,90 +93,59 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .map_err(|error| std::io::Error::other(error.message))?;
 
-    kernel.writer().call(|connection| {
-        with_immediate_transaction(connection, |transaction| {
-            transaction.execute(
-                "INSERT INTO blocks(\
-                   id, project_id, type, lifecycle, location_kind, containing_document_id, \
-                   containing_database_id, location_revision, metadata_revision, created_at, updated_at\
-                 ) VALUES (?1, ?2, 'page', 'active', 'space', NULL, NULL, 1, 1, \
-                   strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), \
-                   strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
-                [OWNER_BLOCK_ID, PROJECT_ID],
-            )?;
-            transaction.execute(
-                "INSERT INTO documents(\
-                   id, project_id, generation, head_seq, schema_key, schema_version, \
-                   state_vector, state_hash, readiness, authority, created_at, updated_at, sync_engine\
-                 ) VALUES (?1, ?2, 1, 0, 'nodex.page', 2, X'', '', \
-                   'pending_genesis', 'legacy_shadow', \
-                   strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), \
-                   strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), 'yjs')",
-                [DOCUMENT_ID, PROJECT_ID],
-            )?;
-            transaction.execute(
-                "INSERT INTO block_documents(block_id, document_id, project_id, created_at) \
-                 VALUES (?1, ?2, ?3, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
-                [OWNER_BLOCK_ID, DOCUMENT_ID, PROJECT_ID],
-            )?;
-            transaction.execute(
-                "INSERT INTO pages(\
-                   block_id, library_id, document_id, parent_kind, parent_id, lifecycle, \
-                   parent_revision, metadata_revision, created_at, updated_at\
-                 ) VALUES (?1, ?2, ?3, 'library', ?2, 'active', 1, 1, \
-                   strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), \
-                   strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
-                [OWNER_BLOCK_ID, LIBRARY_ID, DOCUMENT_ID],
-            )?;
-            transaction.execute(
-                "INSERT INTO page_read_model(\
-                   page_block_id, project_id, lifecycle, location_kind, \
-                   containing_document_id, containing_database_id, top_level_rank_key, \
-                   location_revision, metadata_revision, document_id, document_generation, \
-                   document_projected_seq, document_schema_version, document_authority, \
-                   membership_id, database_block_id, view_id, view_group_key, view_rank_key, \
-                   title, description_preview, description_length, has_description, \
-                   database_values_json, intrinsic_properties_json, property_revisions_json, \
-                   projection_version, created_at, updated_at\
-                 ) VALUES (?1, ?2, 'active', 'space', NULL, NULL, NULL, 1, 1, ?3, 1, 0, 2, \
-                   'legacy_shadow', NULL, NULL, NULL, NULL, NULL, '', '', 0, 0, '{}', '{}', \
-                   '{}', 1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), \
-                   strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
-                [OWNER_BLOCK_ID, PROJECT_ID, DOCUMENT_ID],
-            )?;
-            Ok(())
-        })
+    let data_source_id = kernel.readers().read_default(|connection| {
+        connection
+            .query_row(
+                "SELECT data_sources.id
+             FROM projects
+             JOIN data_sources
+               ON data_sources.home_database_block_id = projects.database_block_id
+             WHERE projects.id = ?1",
+                [PROJECT_ID],
+                |row| row.get::<_, String>(0),
+            )
+            .map_err(Into::into)
     })?;
-    let module = OwnedDocumentModule::new(PROFILE_ID, LIBRARY_ID, &kernel);
-    module
+    LibraryModule::new(PROFILE_ID, LIBRARY_ID, &kernel)
         .apply(
             &context,
             ModuleApplyRequest {
-                contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
-                operation_id: "seed:prepare-page".to_owned(),
+                contract_version: LIBRARY_CONTRACT_VERSION,
+                operation_id: "seed:page".to_owned(),
                 store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
-                intent: OwnedDocumentIntent::PrepareOwner {
-                    owner_block_id: OWNER_BLOCK_ID.to_owned(),
+                intent: LibraryIntent::ApplyPageLifecycle {
+                    mutation: Box::new(LibraryPageLifecycleMutation::CreatePage {
+                        page_id: OWNER_BLOCK_ID.to_owned(),
+                        title: String::new(),
+                        rich_title: None,
+                        nfm: "Seed body".to_owned(),
+                        status: LibraryPageWorkflowStatus::Triage,
+                        priority: None,
+                        estimate: None,
+                        due_date: None,
+                        scheduled_start: None,
+                        scheduled_end: None,
+                        is_all_day: false,
+                        recurrence: None,
+                        reminders: Vec::new(),
+                        schedule_timezone: None,
+                        assignee: None,
+                        run_in_target: "localProject".to_owned(),
+                        run_in_local_path: None,
+                        run_in_base_branch: None,
+                        run_in_worktree_path: None,
+                        run_in_environment_path: None,
+                        before_block_id: None,
+                        before_view_page_id: None,
+                        data_source_id,
+                        tag_option_ids: Vec::new(),
+                        new_tag_options: Vec::new(),
+                        expected_tags_property_revision: 1,
+                    }),
                 },
             },
         )
         .map_err(|error| std::io::Error::other(error.message))?;
-    let sync = module
-        .read(
-            &context,
-            ModuleReadRequest {
-                contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
-                read: OwnedDocumentRead::SyncYjs {
-                    document_id: DOCUMENT_ID.to_owned(),
-                    state_vector: Vec::new(),
-                },
-            },
-        )
-        .map_err(|error| std::io::Error::other(error.message))?;
-    let OwnedDocumentReadValue::YjsSync { update, .. } = sync.value else {
-        return Err("seed Page did not return Yjs state".into());
-    };
-    let engine = YrsDocumentEngine::from_full_state_v1(DOCUMENT_ID, &update)?;
     let root_block_id = kernel.readers().read_default(|connection| {
         let block_tree = connection.query_row(
             "SELECT block_tree_json FROM document_materializations WHERE document_id = ?1",
@@ -200,6 +173,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 )
             })
     })?;
+    let document_module = OwnedDocumentModule::new(PROFILE_ID, LIBRARY_ID, &kernel);
+    let sync = document_module
+        .read(
+            &context,
+            ModuleReadRequest {
+                contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
+                read: OwnedDocumentRead::SyncYjs {
+                    document_id: DOCUMENT_ID.to_owned(),
+                    state_vector: Vec::new(),
+                },
+            },
+        )
+        .map_err(|error| std::io::Error::other(error.message))?;
+    let OwnedDocumentReadValue::YjsSync { update, .. } = sync.value else {
+        return Err("seed Page did not return Yjs state".into());
+    };
+    let engine = YrsDocumentEngine::from_full_state_v1(DOCUMENT_ID, &update)?;
     let prepared = prepare_document_operation_update(
         DOCUMENT_ID,
         BlockDocumentSchema::PageV2,
@@ -221,7 +211,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         false,
     )
     .map_err(|error| std::io::Error::other(error.to_string()))?;
-    module
+    document_module
         .apply(
             &context,
             ModuleApplyRequest {

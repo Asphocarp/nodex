@@ -16,6 +16,7 @@ import {
   createExactRemoteSubscriptionLifecycle,
   type ExactRemoteSubscriptionLifecycle,
 } from "./exact-remote-subscription-lifecycle";
+import { admitLocalCommitApply } from "./local-commit-ingress";
 
 const transportFailure = (error: unknown): CanvasSceneMutationError => ({
   code: "unknown",
@@ -198,7 +199,12 @@ export const createElectronCanvasSceneSyncAdapter = (
             mutationId: request.mutationId,
           } };
         }
-        return await invoke("canvas-scene:apply", request);
+        const result = await invoke<CanvasSceneMutationCommandResult>(
+          "canvas-scene:apply",
+          request,
+        );
+        if (result.ok) await admitLocalCommitApply(result.localCommit);
+        return result;
       } catch (error) {
         return { ok: false, error: { ...transportFailure(error), mutationId: request.mutationId } };
       }

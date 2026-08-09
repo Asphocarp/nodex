@@ -15,6 +15,7 @@ const descriptor = (): OwnedDocumentDescriptor => ({
   ownerType: "page",
   ownerLifecycle: "active",
   documentId: "document:card-1",
+  authorization: null,
   storeEpoch: "store-7",
   generation: 3,
   headSeq: 12,

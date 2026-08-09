@@ -5,7 +5,10 @@ import type {
   ProjectionScope,
   ProjectionStreamMessage,
 } from "../../shared/projection-stream";
-import type { ResourceRevocationMessage } from "../../shared/resource-revocation-stream";
+import type {
+  ResourceRevocationDeliveryMessage,
+  ResourceRevocationMessage,
+} from "../../shared/resource-revocation-stream";
 import {
   impactMatches,
   type ProjectionInvalidationCause,
@@ -72,7 +75,7 @@ const effectMessage = (commitSeq: number): ProjectionStreamMessage => ({
 const revocationMessage = (
   commitSeq: number,
   resourceId = "page-1",
-): ResourceRevocationMessage => ({
+): ResourceRevocationDeliveryMessage => ({
   version: 1,
   kind: "revocation",
   scope,
@@ -123,7 +126,7 @@ const harness = () => {
     subscribeProjection,
     subscribeRevocations,
     publish(message: ProjectionStreamMessage | ResourceRevocationMessage) {
-      if (message.kind === "revocation") {
+      if (message.version === 1) {
         for (const listener of revocationListeners) listener(message);
         return;
       }
@@ -268,6 +271,33 @@ describe("ProjectionInvalidationRegistry", () => {
 
     expect(invalidate).toHaveBeenCalledOnce();
     expect(invalidate).toHaveBeenCalledWith(revocationMessage(2));
+  });
+
+  test("fences and repairs a revocation-lane reset independently", async () => {
+    const stream = harness();
+    const fence = vi.fn();
+    const invalidate = vi.fn();
+    const reset: ResourceRevocationMessage = {
+      version: 1,
+      kind: "reset",
+      scope,
+      stream: { storeEpoch: "epoch-1", commitSeq: 6 },
+      reason: "recipient_delivery_failed",
+    };
+    stream.registry.register({
+      scope,
+      consumerKey: "page",
+      getDependencies: () => ({ pageIds: ["page-1"] }),
+      getCursor: () => ({ storeEpoch: "epoch-1", commitSeq: 5 }),
+      fence,
+      invalidate,
+    });
+
+    stream.publish(reset);
+    await flush();
+
+    expect(fence).toHaveBeenCalledWith(reset);
+    expect(invalidate).toHaveBeenCalledWith(reset);
   });
 
   test("applies every revocation synchronously while canonical repair is queued", async () => {

@@ -41,6 +41,7 @@ const model: DatabaseViewRenderModel = {
   viewName: "Focused",
   storeEpoch: "epoch-1",
   commitSeq: 2,
+  authorization: null,
   primaryWriteCompatible: false,
   readOnlyReason: null,
   query: {

@@ -276,7 +276,7 @@ describe("CoreClient over a Unix socket", () => {
 
       const event = await withTimeout(observedEvent, "Core Module event was not observed");
       expect(event.packet.manifest.identity.commit_seq).toBe(applyResultCursor(committed));
-      expect(event.packet.effects.map((effect) => effect.payload)).toContainEqual(
+      expect(event.packet.atoms.map((atom) => atom.payload)).toContainEqual(
         expect.objectContaining({
           module: "library",
           event: expect.objectContaining({
@@ -920,16 +920,16 @@ describe("CoreClient over a Unix socket", () => {
           },
         },
       });
-      expect(replayed.packet.effects.map((effect) => effect.payload)).toContainEqual(
+      expect(replayed.packet.atoms.map((atom) => atom.payload)).toContainEqual(
         expect.objectContaining({
           module: "library",
           event: expect.objectContaining({ kind: "library_changed" }),
         }),
       );
-      expect(event.packet.manifest.event_version).toBe(6);
-      expect(replayed.packet.manifest.event_version).toBe(6);
-      expect(replayed.packet.projection_impact).toEqual(
-        event.packet.projection_impact,
+      expect(event.packet.manifest.event_version).toBe(8);
+      expect(replayed.packet.manifest.event_version).toBe(8);
+      expect(replayed.packet.projection_effects).toEqual(
+        event.packet.projection_effects,
       );
       restartedSubscription.close();
       await restartedSubscription.done;

@@ -20,6 +20,7 @@ import {
   type CanvasSceneProviderScheduler,
   type CanvasSceneSyncAdapter,
 } from "./canvas-scene-provider";
+import { noOpLocalCommit } from "../../shared/testing/local-commit";
 
 const element = (version: number, text = `v${version}`) => ({
   id: "element-1",
@@ -97,7 +98,13 @@ class MemoryAdapter implements CanvasSceneSyncAdapter {
       return { ok: false, error: this.applyCommandError };
     }
     const committed = this.committed.get(request.mutationId);
-    if (committed) return { ok: true, value: { ...committed, duplicate: true } };
+    if (committed) {
+      return {
+        ok: true,
+        localCommit: noOpLocalCommit(request.storeEpoch, committed.headSeq),
+        value: { ...committed, duplicate: true },
+      };
+    }
     const elements = new Map(
       this.currentScene.elements.map((candidate) => [
         candidate.id as string,
@@ -116,6 +123,7 @@ class MemoryAdapter implements CanvasSceneSyncAdapter {
     this.headSeq += 1;
     const result = {
       ok: true,
+      localCommit: noOpLocalCommit(request.storeEpoch, this.headSeq),
       value: {
         version: CANVAS_SCENE_SYNC_VERSION,
         mutationId: request.mutationId,
@@ -700,6 +708,7 @@ describe("CanvasSceneProvider", () => {
     const outbox = new MemoryCanvasSceneOutbox();
     adapter.applyMutation = async (request): Promise<CanvasSceneMutationCommandResult> => ({
       ok: true,
+      localCommit: noOpLocalCommit(request.storeEpoch, request.baseHeadSeq + 1),
       value: {
         version: 1,
         mutationId: request.mutationId,

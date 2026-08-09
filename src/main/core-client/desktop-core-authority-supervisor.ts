@@ -10,13 +10,13 @@ import type {
   AutomationApplyResult,
   AutomationRead,
   AutomationReadSnapshot,
-  CoreAuthorizedDeliveryPacket,
   CoreApplyCoordinate,
   CoreClientPort,
   CoreEventEnvelope,
   CoreEventReplayRequired,
   CoreEventSubscription,
   CoreDocumentEventSubscription,
+  CoreProjectionEventSubscription,
   CoreStreamCheckpoint,
   CoreHandshakeResponse,
   CoreLocalMutationResolveRequest,
@@ -26,6 +26,7 @@ import type {
   DatabaseRead,
   DatabaseReadSnapshot,
   DocumentLiveRepair,
+  ProjectionLiveRepair,
   LibraryApplyInput,
   LibraryApplyResult,
   LibraryRead,
@@ -43,12 +44,11 @@ import type {
   StoreAdministrationRead,
   StoreAdministrationReadSnapshot,
 } from "./types";
-import { applyResultDelivery } from "./types";
 import {
   CoreHttpError,
   isDefinitiveCoreGenerationLoss,
 } from "./uds-http";
-import type { ProjectionImpact } from "../../shared/projection-stream";
+import type { ProjectionImpact, ProjectionScope } from "../../shared/projection-stream";
 import type {
   DocumentAwarenessPublishAck,
   DocumentAwarenessPublishRequest,
@@ -131,7 +131,6 @@ export interface DesktopCoreAuthoritySupervisorDependencies {
     input: ConnectOrStartCoreInput,
   ) => Promise<CoreGenerationLaunch>;
   readonly now?: () => number;
-  readonly onLocalCommit?: (packet: CoreAuthorizedDeliveryPacket) => void;
 }
 
 export interface CreateDesktopCoreAuthoritySupervisorInput {
@@ -160,7 +159,6 @@ export class DesktopCoreAuthoritySupervisor {
   ) => Promise<CoreGenerationLaunch>;
   readonly #launchInput: ConnectOrStartCoreInput;
   readonly #now: () => number;
-  readonly #onLocalCommit: ((packet: CoreAuthorizedDeliveryPacket) => void) | undefined;
   readonly #projectClients = new Map<string, DesktopCoreClient>();
   readonly #listeners = new Set<(state: CoreAuthorityState) => void>();
   #lostSessions = new WeakSet<CoreGenerationSession>();
@@ -179,7 +177,6 @@ export class DesktopCoreAuthoritySupervisor {
     this.#launchInput = input.launchInput;
     this.#launch = input.dependencies?.launch ?? connectOrStartCore;
     this.#now = input.dependencies?.now ?? Date.now;
-    this.#onLocalCommit = input.dependencies?.onLocalCommit;
     this.identity = {
       libraryId: input.initialLaunch.client.handshake.library_id,
       profileId: input.initialLaunch.client.handshake.generation.profile_id,
@@ -194,10 +191,6 @@ export class DesktopCoreAuthoritySupervisor {
 
   get state(): CoreAuthorityState {
     return this.#state;
-  }
-
-  publishLocalCommit(packet: CoreAuthorizedDeliveryPacket): void {
-    this.#onLocalCommit?.(packet);
   }
 
   clientForProject(projectId: string): DesktopCoreClient {
@@ -453,13 +446,7 @@ class SupervisedCoreClient implements DesktopCoreClient {
   resolveLocalMutation(
     input: CoreLocalMutationResolveRequest,
   ): Promise<CoreLocalMutationResolveResponse> {
-    return this.#execute(async (client) => {
-      const result = await client.resolveLocalMutation(input);
-      if (result.status === "committed" && result.delivery) {
-        this.supervisor.publishLocalCommit(result.delivery);
-      }
-      return result;
-    });
+    return this.#execute((client) => client.resolveLocalMutation(input));
   }
 
   libraryRead(read: LibraryRead): Promise<LibraryReadSnapshot> {
@@ -537,14 +524,7 @@ class SupervisedCoreClient implements DesktopCoreClient {
   }
 
   documentApplyUpdate(input: DocumentSyncApplyRequest): Promise<DocumentSyncApplyAck> {
-    return this.#execute(async (client) => {
-      const result = await client.documentApplyUpdate(input);
-      const delivery = applyResultDelivery(result);
-      if (delivery) {
-        this.supervisor.publishLocalCommit(delivery);
-      }
-      return result;
-    });
+    return this.#execute((client) => client.documentApplyUpdate(input));
   }
 
   documentPublishAwareness(
@@ -591,6 +571,25 @@ class SupervisedCoreClient implements DesktopCoreClient {
     ));
   }
 
+  openProjectionEventStream(
+    scopes: readonly ProjectionScope[],
+    onEvent: (event: CoreEventEnvelope) => void,
+    onRepair: (repair: ProjectionLiveRepair) => void,
+    signal?: AbortSignal,
+  ): Promise<CoreProjectionEventSubscription> {
+    if (this.projectId !== null) {
+      return Promise.reject(new Error(
+        "Projection live broker must use the unscoped Host client",
+      ));
+    }
+    return this.#execute((client) => client.openProjectionEventStream(
+      scopes,
+      onEvent,
+      onRepair,
+      signal,
+    ));
+  }
+
   shutdown(): Promise<ShutdownResponse> {
     return this.supervisor.shutdownCurrentGeneration();
   }
@@ -604,13 +603,6 @@ class SupervisedCoreClient implements DesktopCoreClient {
   #executeApply<Result extends CoreApplyCoordinate>(
     operation: (client: CoreGenerationClient) => Promise<Result>,
   ): Promise<Result> {
-    return this.#execute(async (client) => {
-      const result = await operation(client);
-      const delivery = applyResultDelivery(result);
-      if (delivery) {
-        this.supervisor.publishLocalCommit(delivery);
-      }
-      return result;
-    });
+    return this.#execute(operation);
   }
 }

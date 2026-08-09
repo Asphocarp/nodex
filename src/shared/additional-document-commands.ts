@@ -250,7 +250,7 @@ export interface AdditionalDocumentCommandError {
 }
 
 export type AdditionalDocumentCommandResult =
-  | { readonly ok: true; readonly value: AdditionalDocumentCommandReceipt }
+  | LocalCommitCommandSuccess<AdditionalDocumentCommandReceipt>
   | { readonly ok: false; readonly error: AdditionalDocumentCommandError };
 
 export class AdditionalDocumentCommandContractError extends TypeError {
@@ -1314,10 +1314,11 @@ export const parseAdditionalDocumentCommandResult = (
   const label = "additionalDocumentResult";
   const result = readRecord(value, label);
   if (result.ok === true) {
-    assertExactKeys(result, label, ["ok", "value"]);
+    assertExactKeys(result, label, ["ok", "value", "localCommit"]);
     return {
       ok: true,
       value: parseAdditionalDocumentCommandReceipt(result.value),
+      localCommit: parseLocalCommitApply(result.localCommit),
     };
   }
   if (result.ok === false) {
@@ -1328,3 +1329,7 @@ export const parseAdditionalDocumentCommandResult = (
     `${label}.ok must be a boolean`,
   );
 };
+import {
+  parseLocalCommitApply,
+  type LocalCommitCommandSuccess,
+} from "./local-commit-delivery";

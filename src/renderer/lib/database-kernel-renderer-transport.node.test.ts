@@ -1,9 +1,13 @@
-import { describe, expect, test } from "vitest";
-import { createElectronRendererTransport } from "./electron-renderer-transport";
+import { describe, expect, test, vi } from "vitest";
+import { createCoreLocalCommitFixture } from "../../main/core-client/testing/local-commit-fixture";
+import {
+  createElectronRendererTransport,
+  initializeElectronRendererLocalCommitIngress,
+} from "./electron-renderer-transport";
 
 describe("Database event renderer IPC", () => {
   test("subscribes and filters the scoped projection contract", async () => {
-    const projection = {
+    const recipient = {
       listener: null as ((...args: unknown[]) => void) | null,
     };
     const invocations: Array<{ channel: string; args: unknown[] }> = [];
@@ -12,12 +16,13 @@ describe("Database event renderer IPC", () => {
         invocations.push({ channel, args });
       },
       on: (channel: string, listener: (...args: unknown[]) => void) => {
-        if (channel === "projection-stream:message") projection.listener = listener;
+        if (channel === "recipient-delivery:message") recipient.listener = listener;
         return () => {
-          projection.listener = null;
+          recipient.listener = null;
         };
       },
     };
+    initializeElectronRendererLocalCommitIngress(bridge as never);
     const transport = createElectronRendererTransport(bridge as never);
     const scope = {
       kind: "project" as const,
@@ -30,24 +35,64 @@ describe("Database event renderer IPC", () => {
       (message) => messages.push(message),
     );
     await Promise.resolve();
-    const message = {
-      version: 1 as const,
-      kind: "checkpoint" as const,
-      scope,
-      cursor: { storeEpoch: "epoch-1", commitSeq: 7 },
+    const address = {
+      kind: "project" as const,
+      library_id: "library-1",
+      project_id: "project-1",
     };
-    projection.listener?.(message);
-    projection.listener?.({
-      ...message,
-      scope: { ...scope, projectId: "project-2" },
+    const packet = createCoreLocalCommitFixture({
+      authorizationScope: address,
+      commitSeq: 73,
+      projectionEffects: [{
+        scope: {
+          schema_version: 1,
+          canonical_key: "page:project-1:page-1",
+          scope: {
+            kind: "page",
+            project_id: "project-1",
+            page_id: "page-1",
+          },
+        },
+        base_revision: 0,
+        result_revision: 1,
+        covered_commit_seq: 73,
+        patch: {
+          kind: "page_changed",
+          project_id: "project-1",
+          page_id: "page-1",
+        },
+        requires_read_at_least: false,
+        effect_hash: "b".repeat(64),
+      }],
     });
+    recipient.listener?.({
+      version: 2,
+      deliveryId: "a".repeat(64),
+      recipientLeaseId: "c".repeat(64),
+      deliveryAddress: address,
+      authorizationScope: address,
+      payload: { kind: "packet", packet },
+    });
+    await vi.waitFor(() => expect(messages).toEqual([
+      expect.objectContaining({
+        kind: "effect",
+        stream: expect.objectContaining({ commitSeq: 73 }),
+      }),
+    ]));
+
     release();
     await Promise.resolve();
-
-    expect(messages).toEqual([message]);
     expect(invocations).toEqual([
-      { channel: "projection-stream:subscribe", args: [scope] },
-      { channel: "projection-stream:unsubscribe", args: [scope] },
+      { channel: "local-commit-audience:subscribe", args: [address] },
+      {
+        channel: "recipient-delivery:admit",
+        args: [{
+          version: 2,
+          deliveryId: "a".repeat(64),
+          outcome: "ack",
+        }],
+      },
+      { channel: "local-commit-audience:unsubscribe", args: [address] },
     ]);
   });
 });

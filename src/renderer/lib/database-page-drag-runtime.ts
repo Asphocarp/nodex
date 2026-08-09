@@ -43,6 +43,7 @@ export const databaseViewRenderModelToDragSnapshot = (
     libraryId: view.libraryId,
     storeEpoch: view.storeEpoch,
     commitSeq: view.commitSeq,
+    authorization: view.authorization,
     value: { kind: "query", value: view.query },
   };
 };

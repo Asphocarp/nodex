@@ -1,4 +1,5 @@
 import type { CanvasSceneMutationError } from "./canvas-scene-sync";
+import type { LocalCommitCommandSuccess } from "../local-commit-delivery";
 
 export const CANVAS_SCENE_MAINTENANCE_VERSION = 1 as const;
 
@@ -46,7 +47,7 @@ export interface CanvasSceneCompactionResult {
 }
 
 export type CanvasSceneCompactionCommandResult =
-  | { readonly ok: true; readonly value: CanvasSceneCompactionResult }
+  | LocalCommitCommandSuccess<CanvasSceneCompactionResult>
   | { readonly ok: false; readonly error: CanvasSceneMutationError };
 
 export type CanvasSceneCompactionReadCommandResult =

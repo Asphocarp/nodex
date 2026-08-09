@@ -11,6 +11,7 @@ import {
   parseDatabaseViewConfig,
 } from "./database-kernel";
 import type { DatabasePageSummary } from "./types";
+import { authorizedReadStampFixture } from "./testing/authorized-read-stamp-fixture";
 
 const encodeBase64Url = (value: string): string =>
   btoa(value).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
@@ -54,6 +55,15 @@ const makeReadModel = (includeHostCard: boolean): DatabaseViewReadModel => {
     libraryId: "library:test",
     storeEpoch: "epoch:test",
     commitSeq: 1,
+    authorization: authorizedReadStampFixture({
+      deliveryAddress: {
+        kind: "project",
+        library_id: "library:test",
+        project_id: "source-project",
+      },
+      subject: { kind: "view", view_id: "view-query" },
+      storeEpoch: "epoch:test",
+    }),
     dataSourceId: "data-source-query",
     view: {
       id: "view-query",

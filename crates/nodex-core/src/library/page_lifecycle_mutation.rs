@@ -895,7 +895,7 @@ fn validate_create_values(
         (
             "assignee",
             (
-                "person",
+                "text",
                 assignee.map_or(Value::Null, |value| Value::String(value.to_owned())),
             ),
         ),
@@ -926,7 +926,7 @@ fn normalize_create_value(property: &CreateProperty, value: &Value) -> Result<Va
         return Ok(Value::Null);
     }
     match property.value_type.as_str() {
-        "person" | "text" => value
+        "text" => value
             .as_str()
             .map(|value| Value::String(value.to_owned()))
             .ok_or_else(|| invalid("Page Property requires a string or null")),
@@ -1372,12 +1372,6 @@ fn transition_lifecycle(
             context,
         },
         |scope| {
-            scope.observe_authorization_before(super::authorization_loss::capture(
-                connection,
-                library_id,
-                super::authorization_loss::AuthorizationRoots::page(page_id.to_owned()),
-                None,
-            )?);
             let metadata_revision = expected_metadata_revision + 1;
             let changed = connection.execute(
                 "UPDATE blocks SET lifecycle = ?1, metadata_revision = ?2, updated_at = ?3 \
@@ -1641,12 +1635,6 @@ fn delete_page(
             context,
         },
         |scope| {
-            scope.observe_authorization_before(super::authorization_loss::capture(
-                connection,
-                library_id,
-                super::authorization_loss::AuthorizationRoots::page(page_id.to_owned()),
-                None,
-            )?);
             connection.execute(
                 "DELETE FROM database_view_page_positions WHERE page_block_id = ?1",
                 [page_id],

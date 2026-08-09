@@ -587,21 +587,17 @@ export interface RendererDiagnosticsLogInput {
 }
 
 export interface IpcApi {
-  "projection-stream:subscribe": {
-    args: [scope: import("./projection-stream").ProjectionScope];
+  "local-commit-audience:subscribe": {
+    args: [address: import("./recipient-delivery").DeliveryAddress];
     result: void;
   };
-  "projection-stream:unsubscribe": {
-    args: [scope: import("./projection-stream").ProjectionScope];
+  "local-commit-audience:unsubscribe": {
+    args: [address: import("./recipient-delivery").DeliveryAddress];
     result: void;
   };
-  "resource-revocation:subscribe": {
-    args: [scope: import("./projection-stream").ProjectionScope];
-    result: void;
-  };
-  "resource-revocation:unsubscribe": {
-    args: [scope: import("./projection-stream").ProjectionScope];
-    result: void;
+  "recipient-delivery:admit": {
+    args: [result: import("./recipient-delivery").RecipientAdmissionResult];
+    result: boolean;
   };
   "pages:detail:get": {
     args: [projectId: string, pageId: string, minimumCommitSeq?: number];
@@ -2032,8 +2028,7 @@ export interface IpcEvents {
   "workspace-file:changed": import("./types").WorkspaceFileChangedEvent;
   "document-sync:event": DocumentSyncRealtimeEvent;
   "persisted-atom:updated": PersistedAtomEvent;
-  "projection-stream:message": import("./projection-stream").ProjectionStreamMessage;
-  "resource-revocation:message": import("./resource-revocation-stream").ResourceRevocationMessage;
+  "recipient-delivery:message": import("./recipient-delivery").RecipientDeliveryEnvelope;
   "board-changed": BoardChangeEvent;
   "page-ownership-paths-changed": import("./page-ownership-path-events").PageOwnershipPathsChangedEvent;
   "database-changed": DatabaseChangeEvent;

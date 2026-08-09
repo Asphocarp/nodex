@@ -280,6 +280,18 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        readonly AddressReset: {
+            readonly authorization_scope: components["schemas"]["DeliveryAuthorizationScope"];
+            readonly delivery_address: components["schemas"]["DeliveryAddress"];
+            readonly reason: components["schemas"]["AddressResetReason"];
+            readonly recipient_lease_id: string;
+            /** Format: int64 */
+            readonly required_commit_seq: number;
+            readonly reset_id: string;
+            readonly store_epoch: components["schemas"]["StoreEpoch"];
+        };
+        /** @enum {string} */
+        readonly AddressResetReason: "stream_gap" | "recipient_nack" | "ack_timeout" | "queue_overflow" | "integrity_failure" | "store_epoch_replacement";
         readonly AgentAuthorizationTarget: {
             /** @enum {string} */
             readonly kind: "page";
@@ -613,61 +625,31 @@ export interface components {
             /** @enum {string} */
             readonly status: "no_op";
         };
+        readonly AuthorizedDeliveryAtom: {
+            readonly descriptor: components["schemas"]["DeliveryAtomDescriptor"];
+            readonly payload: components["schemas"]["DeliveryAtomPayload"];
+        };
         /**
          * @description Post-state-authorized transport artifact. Packets for the apply response
          *     and durable stream may have different coverage but always reference the
          *     same immutable manifest identity.
          */
         readonly AuthorizedDeliveryPacket: {
+            readonly atoms: readonly components["schemas"]["AuthorizedDeliveryAtom"][];
             readonly authorization_scope: components["schemas"]["DeliveryAuthorizationScope"];
             readonly coverage: components["schemas"]["DeliveryCoverage"];
+            readonly delivery_address: components["schemas"]["DeliveryAddress"];
             readonly document_effects: readonly components["schemas"]["AuthorizedDocumentEffect"][];
-            readonly effects: readonly components["schemas"]["AuthorizedModuleEffect"][];
             readonly manifest: components["schemas"]["CommitManifestHeader"];
             readonly packet_hash: string;
             /** Format: int32 */
             readonly packet_version: number;
             readonly projection_effects: readonly components["schemas"]["ProjectionEffect"][];
-            readonly projection_impact: components["schemas"]["ProjectionImpact"];
-            readonly revocations: readonly components["schemas"]["ResourceRevocation"][];
+            readonly visibility_deltas: readonly components["schemas"]["VisibilityDelta"][];
         };
         readonly AuthorizedDocumentEffect: {
             readonly inline_update?: readonly number[] | null;
             readonly reference: components["schemas"]["DocumentEffectRef"];
-        };
-        readonly AuthorizedModuleEffect: {
-            readonly payload: components["schemas"]["AuthorizedModulePayload"];
-            readonly semantic: components["schemas"]["SemanticEffect"];
-        };
-        /**
-         * @description Module notification payloads that may cross the authorized delivery
-         *     boundary. Document updates are intentionally absent: their bytes are
-         *     available only through `DocumentEffectRef` and its optional inline body.
-         */
-        readonly AuthorizedModulePayload: {
-            readonly event: components["schemas"]["LibraryEvent"];
-            /** @enum {string} */
-            readonly module: "library";
-        } | {
-            readonly event: components["schemas"]["DatabaseEvent"];
-            /** @enum {string} */
-            readonly module: "database";
-        } | {
-            readonly event: components["schemas"]["AuthorizedOwnedDocumentEvent"];
-            /** @enum {string} */
-            readonly module: "owned_document";
-        } | {
-            readonly event: components["schemas"]["ProjectWorkspaceEvent"];
-            /** @enum {string} */
-            readonly module: "project_workspace";
-        } | {
-            readonly event: components["schemas"]["AutomationEvent"];
-            /** @enum {string} */
-            readonly module: "automation";
-        } | {
-            readonly event: components["schemas"]["StoreAdministrationEvent"];
-            /** @enum {string} */
-            readonly module: "store_administration";
         };
         readonly AuthorizedOwnedDocumentEvent: {
             readonly document_id: string;
@@ -709,6 +691,26 @@ export interface components {
             /** @enum {string} */
             readonly kind: "document_invalidated";
             readonly reason: components["schemas"]["DocumentInvalidationReason"];
+        };
+        readonly AuthorizedReadStamp: {
+            readonly authorization_dependencies: readonly components["schemas"]["ResourceKey"][];
+            readonly authorization_scope: components["schemas"]["DeliveryAuthorizationScope"];
+            /** Format: int64 */
+            readonly covered_commit_seq: number;
+            readonly delivery_address: components["schemas"]["DeliveryAddress"];
+            readonly request_dependencies: readonly components["schemas"]["ResourceKey"][];
+            readonly stamp_hash: string;
+            readonly store_epoch: components["schemas"]["StoreEpoch"];
+            readonly subject: components["schemas"]["ResourceKey"];
+        };
+        /**
+         * @description Core-issued identity for one active broker recipient. Main may route with
+         *     this lease but cannot construct or broaden its authorization scope.
+         */
+        readonly AuthorizedRecipientLease: {
+            readonly authorization_scope: components["schemas"]["DeliveryAuthorizationScope"];
+            readonly delivery_address: components["schemas"]["DeliveryAddress"];
+            readonly lease_id: string;
         };
         readonly AutomationApplyRequest: components["schemas"]["ModuleApplyRequest_AutomationIntent"];
         readonly AutomationApplyResponse: components["schemas"]["ResponseEnvelope_ApplyResponse_AutomationCommitValue_AutomationReceipt"];
@@ -1005,6 +1007,7 @@ export interface components {
         readonly CollectionWindow_DatabaseRelationTargetItem: {
             readonly authority: components["schemas"]["CollectionWindowAuthority"];
             readonly items: readonly ({
+                readonly edge_id: string;
                 /** @enum {string} */
                 readonly kind: "visible";
                 readonly lifecycle: string;
@@ -1012,6 +1015,7 @@ export interface components {
                 readonly page_id: string;
                 readonly title: string;
             } | {
+                readonly edge_id: string;
                 /** @enum {string} */
                 readonly kind: "restricted";
             })[];
@@ -1307,6 +1311,8 @@ export interface components {
             readonly offered: string;
             readonly required: string;
         };
+        /** @enum {string} */
+        readonly ConservativeResetReason: "authorization_closure_exceeded";
         readonly CoreArtifactIdentity: {
             readonly build_id: string;
             readonly sha256: string;
@@ -1673,9 +1679,6 @@ export interface components {
             readonly kind: "datetime";
         } | {
             /** @enum {string} */
-            readonly kind: "person";
-        } | {
-            /** @enum {string} */
             readonly kind: "relation";
             readonly target_data_source_id: string;
         };
@@ -1688,7 +1691,7 @@ export interface components {
             readonly add_page_ids: readonly string[];
             /** @enum {string} */
             readonly kind: "relation";
-            readonly remove_page_ids: readonly string[];
+            readonly remove_edge_ids: readonly string[];
         };
         /** @enum {string} */
         readonly DatabasePropertySetMemberKind: "option" | "page";
@@ -1702,6 +1705,11 @@ export interface components {
             readonly delta: components["schemas"]["DatabasePropertySetDelta"];
             /** @enum {string} */
             readonly kind: "patch_set";
+        } | {
+            /** Format: int64 */
+            readonly expected_value_revision: number;
+            /** @enum {string} */
+            readonly kind: "clear_relation";
         };
         readonly DatabasePropertyValueInput: {
             /** @enum {string} */
@@ -1735,14 +1743,6 @@ export interface components {
             /** @enum {string} */
             readonly kind: "datetime";
             readonly value: string;
-        } | {
-            /** @enum {string} */
-            readonly kind: "person";
-            readonly person_id: string;
-        } | {
-            /** @enum {string} */
-            readonly kind: "relation";
-            readonly page_ids: readonly string[];
         };
         readonly DatabasePropertyValueMutation: {
             readonly address: components["schemas"]["DatabasePagePropertyAddress"];
@@ -1902,6 +1902,81 @@ export interface components {
         /** @enum {string} */
         readonly DeletableOwnedSourceKind: "synced_block" | "reusable_template";
         /**
+         * @description Logical destination selected by the authenticated Host broker. Routing is
+         *     distinct from authorization even when both identities are equal today.
+         */
+        readonly DeliveryAddress: {
+            /** @enum {string} */
+            readonly kind: "library";
+            readonly library_id: string;
+        } | {
+            /** @enum {string} */
+            readonly kind: "project";
+            readonly library_id: string;
+            readonly project_id: string;
+        } | {
+            readonly document_id: string;
+            /** @enum {string} */
+            readonly kind: "document";
+            readonly library_id: string;
+            readonly project_id?: string | null;
+        };
+        /**
+         * @description Immutable resource-atomic semantic index entry. `atom_order` is unique
+         *     within one commit; `atom_id` authenticates its kind, exact requirements,
+         *     payload digest, and commit coordinate.
+         */
+        readonly DeliveryAtomDescriptor: {
+            readonly atom_id: string;
+            /** Format: int64 */
+            readonly atom_order: number;
+            readonly kind: components["schemas"]["DeliveryAtomKind"];
+            readonly payload_hash: string;
+            readonly required_resources: readonly components["schemas"]["ResourceKey"][];
+        };
+        /** @enum {string} */
+        readonly DeliveryAtomKind: "library_navigation_changed" | "database_changed" | "owned_document_changed" | "project_workspace_changed" | "automation_changed" | "store_administration_changed";
+        /**
+         * @description Closed notification payloads that may cross the authorized delivery
+         *     boundary. Every value is the payload of one resource-atomic DeliveryAtom;
+         *     aggregate physical events are split before the manifest is sealed.
+         *     Document updates are intentionally absent: their bytes are available only
+         *     through `DocumentEffectRef` and its optional inline body.
+         */
+        readonly DeliveryAtomPayload: {
+            readonly event: components["schemas"]["LibraryEvent"];
+            readonly library_id: string;
+            /** @enum {string} */
+            readonly module: "library";
+        } | {
+            readonly event: components["schemas"]["DatabaseEvent"];
+            readonly library_id: string;
+            /** @enum {string} */
+            readonly module: "database";
+        } | {
+            readonly canvas_id?: string | null;
+            readonly event: components["schemas"]["AuthorizedOwnedDocumentEvent"];
+            readonly library_id: string;
+            /** @enum {string} */
+            readonly module: "owned_document";
+        } | {
+            readonly event: components["schemas"]["ProjectWorkspaceEvent"];
+            readonly library_id: string;
+            /** @enum {string} */
+            readonly module: "project_workspace";
+        } | {
+            readonly event: components["schemas"]["AutomationEvent"];
+            readonly library_id: string;
+            /** @enum {string} */
+            readonly module: "automation";
+            readonly project_id: string;
+        } | {
+            readonly event: components["schemas"]["StoreAdministrationEvent"];
+            readonly library_id: string;
+            /** @enum {string} */
+            readonly module: "store_administration";
+        };
+        /**
          * @description Core-authored authorization boundary for one delivery artifact. This is
          *     part of packet integrity and must never be reconstructed by an Adapter.
          */
@@ -1922,10 +1997,10 @@ export interface components {
             readonly project_id?: string | null;
         };
         readonly DeliveryCoverage: {
+            readonly atom_ids: readonly string[];
             readonly document_effect_orders: readonly number[];
             readonly inline_document_effect_orders: readonly number[];
             readonly projection_scope_keys: readonly string[];
-            readonly semantic_effect_orders: readonly number[];
         };
         readonly DocumentBlockOperation: {
             /** @enum {string} */
@@ -3672,11 +3747,6 @@ export interface components {
             readonly kind: "page";
             readonly page_id: string;
         };
-        readonly LocalCommitResources: {
-            readonly block_ids: readonly string[];
-            readonly database_ids: readonly string[];
-            readonly document_ids: readonly string[];
-        };
         readonly LocalMutationResolveRequest: {
             readonly intent_hash: string;
             readonly module: components["schemas"]["ModuleName"];
@@ -5057,7 +5127,7 @@ export interface components {
             readonly name: string;
         };
         /** @enum {string} */
-        readonly ProjectedPropertyTypeV1: "text" | "number" | "checkbox" | "select" | "multi_select" | "date" | "datetime" | "person" | "relation";
+        readonly ProjectedPropertyTypeV1: "text" | "number" | "checkbox" | "select" | "multi_select" | "date" | "datetime" | "relation";
         readonly ProjectedPropertyV1: {
             readonly name: string;
             readonly property_id: string;
@@ -5518,11 +5588,42 @@ export interface components {
             /** Format: int64 */
             readonly snooze_id: number;
         };
-        readonly ResourceRevocation: {
-            readonly authorization_scope: components["schemas"]["DeliveryAuthorizationScope"];
-            readonly reason: components["schemas"]["ResourceRevocationReason"];
-            readonly resource_id: string;
-            readonly resource_kind: components["schemas"]["RevokedResourceKind"];
+        /**
+         * @description Exact authorization vocabulary used by semantic delivery. Scope resources
+         *     are explicit requirements rather than ambient packet metadata.
+         */
+        readonly ResourceKey: {
+            /** @enum {string} */
+            readonly kind: "library";
+            readonly library_id: string;
+        } | {
+            /** @enum {string} */
+            readonly kind: "project";
+            readonly project_id: string;
+        } | {
+            /** @enum {string} */
+            readonly kind: "page";
+            readonly page_id: string;
+        } | {
+            readonly document_id: string;
+            /** @enum {string} */
+            readonly kind: "document";
+        } | {
+            readonly database_id: string;
+            /** @enum {string} */
+            readonly kind: "database";
+        } | {
+            readonly data_source_id: string;
+            /** @enum {string} */
+            readonly kind: "data_source";
+        } | {
+            /** @enum {string} */
+            readonly kind: "view";
+            readonly view_id: string;
+        } | {
+            readonly canvas_id: string;
+            /** @enum {string} */
+            readonly kind: "canvas";
         };
         /** @enum {string} */
         readonly ResourceRevocationReason: "ownership_moved" | "access_revoked" | "archived" | "deleted";
@@ -5888,6 +5989,7 @@ export interface components {
         };
         readonly ResponseEnvelope_ModuleReadSnapshot_AutomationReadValue: {
             readonly payload: {
+                readonly authorization?: null | components["schemas"]["AuthorizedReadStamp"];
                 /** Format: int64 */
                 readonly commit_head: number;
                 /** Format: int32 */
@@ -5941,6 +6043,7 @@ export interface components {
         };
         readonly ResponseEnvelope_ModuleReadSnapshot_DatabaseReadValue: {
             readonly payload: {
+                readonly authorization?: null | components["schemas"]["AuthorizedReadStamp"];
                 /** Format: int64 */
                 readonly commit_head: number;
                 /** Format: int32 */
@@ -6021,6 +6124,7 @@ export interface components {
         };
         readonly ResponseEnvelope_ModuleReadSnapshot_LibraryReadValue: {
             readonly payload: {
+                readonly authorization?: null | components["schemas"]["AuthorizedReadStamp"];
                 /** Format: int64 */
                 readonly commit_head: number;
                 /** Format: int32 */
@@ -6170,6 +6274,7 @@ export interface components {
         };
         readonly ResponseEnvelope_ModuleReadSnapshot_OwnedDocumentReadValue: {
             readonly payload: {
+                readonly authorization?: null | components["schemas"]["AuthorizedReadStamp"];
                 /** Format: int64 */
                 readonly commit_head: number;
                 /** Format: int32 */
@@ -6225,6 +6330,7 @@ export interface components {
         };
         readonly ResponseEnvelope_ModuleReadSnapshot_ProjectWorkspaceReadValue: {
             readonly payload: {
+                readonly authorization?: null | components["schemas"]["AuthorizedReadStamp"];
                 /** Format: int64 */
                 readonly commit_head: number;
                 /** Format: int32 */
@@ -6303,6 +6409,7 @@ export interface components {
         };
         readonly ResponseEnvelope_ModuleReadSnapshot_StoreAdministrationReadValue: {
             readonly payload: {
+                readonly authorization?: null | components["schemas"]["AuthorizedReadStamp"];
                 /** Format: int64 */
                 readonly commit_head: number;
                 /** Format: int32 */
@@ -6335,8 +6442,6 @@ export interface components {
             /** @enum {string} */
             readonly status: "error";
         };
-        /** @enum {string} */
-        readonly RevokedResourceKind: "page" | "document" | "database" | "data_source" | "view" | "canvas";
         readonly RuntimeDescriptor: {
             readonly actual_store_format: components["schemas"]["StoreFormatIdentity"];
             readonly artifact: components["schemas"]["CoreArtifactIdentity"];
@@ -6364,22 +6469,6 @@ export interface components {
         };
         /** @enum {string} */
         readonly SchemaOwner: "type_script" | "rust";
-        /**
-         * @description A closed semantic index entry. The payload itself belongs to an authorized
-         *     delivery packet; the manifest records only the owning Module, effect kind,
-         *     resource index, and payload digest.
-         */
-        readonly SemanticEffect: {
-            readonly effect_kind: string;
-            /** Format: int64 */
-            readonly effect_order: number;
-            /** @enum {string} */
-            readonly kind: "module_changed";
-            readonly module: components["schemas"]["ModuleName"];
-            readonly payload_hash: string;
-            readonly projection_impact: components["schemas"]["ProjectionImpact"];
-            readonly resources: components["schemas"]["LocalCommitResources"];
-        };
         readonly ShutdownRequest: {
             /** @enum {string} */
             readonly kind: "shutdown";
@@ -6447,6 +6536,28 @@ export interface components {
             readonly max: number;
             /** Format: int32 */
             readonly min: number;
+        };
+        /**
+         * @description Manifest-bound authorization change. Exact deltas carry one or more roots;
+         *     conservative resets intentionally carry none and fence the whole address.
+         */
+        readonly VisibilityDelta: {
+            readonly authorization_scope: components["schemas"]["DeliveryAuthorizationScope"];
+            readonly change: components["schemas"]["VisibilityDeltaKind"];
+            readonly delta_hash: string;
+            readonly roots: readonly components["schemas"]["ResourceKey"][];
+        };
+        readonly VisibilityDeltaKind: {
+            /** @enum {string} */
+            readonly kind: "grant";
+        } | {
+            /** @enum {string} */
+            readonly kind: "revoke";
+            readonly reason: components["schemas"]["ResourceRevocationReason"];
+        } | {
+            /** @enum {string} */
+            readonly kind: "conservative_reset";
+            readonly reason: components["schemas"]["ConservativeResetReason"];
         };
     };
     responses: never;

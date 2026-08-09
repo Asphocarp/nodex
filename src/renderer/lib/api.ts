@@ -96,6 +96,7 @@ import type {
   RemovePastedTextAttachmentInput,
 } from "../../shared/pasted-text-attachments";
 import { GitWorkerClient } from "./git-worker-client";
+import { admitLocalCommitApply } from "./local-commit-ingress";
 
 let gitWorkerClient: GitWorkerClient | null = null;
 
@@ -160,7 +161,10 @@ export function readCanvasSceneCompaction(
 export function compactCanvasScene(
   request: CanvasSceneCompactionRequest,
 ): Promise<CanvasSceneCompactionCommandResult> {
-  return invoke("canvas-scene:compaction:apply", request);
+  return invoke("canvas-scene:compaction:apply", request).then(async (result) => {
+    if (result.ok) await admitLocalCommitApply(result.localCommit);
+    return result;
+  });
 }
 
 export function getOwnedDocumentDescriptor(
@@ -189,33 +193,39 @@ export function prepareLibraryOwnedBlockDocument(
   return resolveRendererTransport().prepareLibraryOwnedBlockDocument(ownerBlockId);
 }
 
-export function mutateDocument(
+export async function mutateDocument(
   projectId: string,
   documentId: string,
   request: DocumentMutationRequest,
 ): Promise<DocumentOperationCommandResult> {
-  return resolveRendererTransport().mutateDocument(
+  const result = await resolveRendererTransport().mutateDocument(
     projectId,
     documentId,
     request,
   );
+  if (result.ok) await admitLocalCommitApply(result.localCommit);
+  return result;
 }
 
-export function applyAdditionalDocumentCommand(
+export async function applyAdditionalDocumentCommand(
   projectId: string,
   request: PublicAdditionalDocumentCommandRequest,
 ): Promise<AdditionalDocumentCommandResult> {
-  return resolveRendererTransport().applyAdditionalDocumentCommand(
+  const result = await resolveRendererTransport().applyAdditionalDocumentCommand(
     projectId,
     request,
   );
+  if (result.ok) await admitLocalCommitApply(result.localCommit);
+  return result;
 }
 
-export function transferBlocks(
+export async function transferBlocks(
   projectId: string,
   intent: PublicBlockTransferIntent,
 ): Promise<BlockTransferCommandResult> {
-  return resolveRendererTransport().transferBlocks(projectId, intent);
+  const result = await resolveRendererTransport().transferBlocks(projectId, intent);
+  if (result.ok) await admitLocalCommitApply(result.localCommit);
+  return result;
 }
 
 export function createPastedTextAttachment(
@@ -260,16 +270,18 @@ export function getDocumentVersion(
   return resolveRendererTransport().getDocumentVersion(request);
 }
 
-export function restoreDocumentVersion(
+export async function restoreDocumentVersion(
   projectId: string,
   documentId: string,
   request: PrepareDocumentVersionRestore,
 ): Promise<DocumentOperationCommandResult> {
-  return resolveRendererTransport().restoreDocumentVersion(
+  const result = await resolveRendererTransport().restoreDocumentVersion(
     projectId,
     documentId,
     request,
   );
+  if (result.ok) await admitLocalCommitApply(result.localCommit);
+  return result;
 }
 
 export function resolvePageTarget(
@@ -290,17 +302,21 @@ export function readDatabaseViewReference(
   return invoke("database-view:reference:get", input);
 }
 
-export function mutateBlockProperties(
+export async function mutateBlockProperties(
   projectId: string,
   request: BlockPropertyMutationRequestV2,
 ): Promise<BlockPropertyMutationCommandResultV2> {
-  return invoke("block-properties:mutate", projectId, request);
+  const result = await invoke("block-properties:mutate", projectId, request);
+  if (result.ok) await admitLocalCommitApply(result.localCommit);
+  return result;
 }
 
-export function mutateLibraryBlockProperties(
+export async function mutateLibraryBlockProperties(
   request: LibraryBlockPropertyMutationRequestV2,
 ): Promise<LibraryBlockPropertyMutationCommandResultV2> {
-  return invoke("library-block-properties:mutate", request);
+  const result = await invoke("library-block-properties:mutate", request);
+  if (result.ok) await admitLocalCommitApply(result.localCommit);
+  return result;
 }
 
 export function readPageLifecyclePreflight(
@@ -313,11 +329,16 @@ export function readPageLifecyclePreflight(
   );
 }
 
-export function mutatePageLifecycle(
+export async function mutatePageLifecycle(
   projectId: string,
   request: PageLifecycleMutationRequestV2,
 ): Promise<PageLifecycleMutationCommandResultV2> {
-  return resolveRendererTransport().mutatePageLifecycle(projectId, request);
+  const result = await resolveRendererTransport().mutatePageLifecycle(
+    projectId,
+    request,
+  );
+  if (result.ok) await admitLocalCommitApply(result.localCommit);
+  return result;
 }
 
 export function listPageHistory(
@@ -411,11 +432,13 @@ export function readDatabaseModule(
   return invoke("database-module:read", projectId, request);
 }
 
-export function applyDatabaseModule(
+export async function applyDatabaseModule(
   projectId: string,
   request: DatabaseApplyV2,
 ): Promise<DatabaseApplyResultV2> {
-  return invoke("database-module:apply", projectId, request);
+  const result = await invoke("database-module:apply", projectId, request);
+  if (result.ok) await admitLocalCommitApply(result.localCommit);
+  return result;
 }
 
 export function readLibraryModule(
@@ -425,11 +448,13 @@ export function readLibraryModule(
   return invoke("library-module:read", accessContext, request);
 }
 
-export function applyLibraryModule(
+export async function applyLibraryModule(
   accessContext: ContentAccessContext,
   request: LibraryModuleApplyRequest,
 ): Promise<LibraryModuleApplyResult> {
-  return invoke("library-module:apply", accessContext, request);
+  const result = await invoke("library-module:apply", accessContext, request);
+  if (result.ok) await admitLocalCommitApply(result.localCommit);
+  return result;
 }
 
 export function readLibraryDatabaseModule(
@@ -441,13 +466,15 @@ export function readLibraryDatabaseModule(
   ) as Promise<import("../../shared/database-module-v2").LibraryDatabaseModuleReadResultV2>;
 }
 
-export function applyLibraryDatabaseModule(
+export async function applyLibraryDatabaseModule(
   request: import("../../shared/database-module-v2").LibraryDatabaseApplyV2,
 ): Promise<import("../../shared/database-module-v2").LibraryDatabaseApplyResultV2> {
-  return invoke(
+  const result = await invoke(
     "library-database-module:apply",
     request,
-  ) as Promise<import("../../shared/database-module-v2").LibraryDatabaseApplyResultV2>;
+  ) as import("../../shared/database-module-v2").LibraryDatabaseApplyResultV2;
+  if (result.ok) await admitLocalCommitApply(result.localCommit);
+  return result;
 }
 
 export function readPageDetail(

@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { AUTHORIZED_READ_STAMP_EXAMPLE } from "../../../shared/testing/authorized-read-stamp-example";
 import {
   EmptyPagesScene,
   type PagesTabPickerDataSource,
@@ -14,6 +15,7 @@ const emptyDataSource = {
         libraryId: "library:storybook",
         storeEpoch: "epoch:storybook",
         commitSeq: 1,
+        authorization: AUTHORIZED_READ_STAMP_EXAMPLE,
         items: [],
         nextCursor: null,
         hasMore: false,

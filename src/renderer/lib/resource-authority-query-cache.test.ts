@@ -1,47 +1,43 @@
-import { QueryClient, QueryObserver } from "@tanstack/react-query";
+import { QueryClient } from "@tanstack/react-query";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { ProjectionScope } from "../../shared/projection-stream";
-import { projectionScopeKey } from "../../shared/projection-stream";
-import type { ResourceRevocationMessage } from "../../shared/resource-revocation-stream";
-import { ProjectionInvalidationRegistry } from "./projection-invalidation-registry";
+import { authorizedReadStampFixture } from "../../shared/testing/authorized-read-stamp-fixture";
+import { AuthorityFreshnessIndex } from "./authority-freshness-index";
 import {
   ResourceAuthorityQueryCache,
+  admitResourceAuthorityQuery,
   resourceAuthorityQueryMeta,
 } from "./resource-authority-query-cache";
 
-const projectScope: ProjectionScope = {
+const address = {
   kind: "project",
-  libraryId: "library-1",
-  projectId: "project-1",
-};
+  library_id: "library-1",
+  project_id: "project-1",
+} as const;
 
-const revocationMessage = (
-  resourceId: string,
-  scope: ProjectionScope = projectScope,
-): ResourceRevocationMessage => ({
-  version: 1,
-  kind: "revocation",
-  scope,
-  stream: { storeEpoch: "epoch-1", commitSeq: 42 },
-  delivery: {
-    storeEpoch: "epoch-1",
-    commitSeq: 42,
-    manifestHash: "a".repeat(64),
-    operationId: "operation-1",
-    committedAt: "2026-08-08T00:00:00.000Z",
-    revocation: {
-      authorization_scope: {
-        kind: "project",
-        library_id: scope.libraryId,
-        project_id: scope.kind === "project" ? scope.projectId : "project-1",
-      },
-      resource_kind: "page",
-      resource_id: resourceId,
-      reason: "ownership_moved",
-    },
-  },
+const pageStamp = (
+  pageId: string,
+  commitSeq = 1,
+  dependencies = [pageId],
+) => authorizedReadStampFixture({
+  deliveryAddress: address,
+  subject: { kind: "page", page_id: pageId },
+  requestDependencies: [{ kind: "page", page_id: pageId }],
+  authorizationDependencies: dependencies.map((dependency) => ({
+    kind: "page" as const,
+    page_id: dependency,
+  })),
+  commitSeq,
 });
+
+const waitForRegistrations = async (
+  index: AuthorityFreshnessIndex,
+  registrations: number,
+) => {
+  await vi.waitFor(() => {
+    expect(index.diagnostics().registrations).toBe(registrations);
+  });
+};
 
 describe("ResourceAuthorityQueryCache", () => {
   const clients: QueryClient[] = [];
@@ -51,217 +47,150 @@ describe("ResourceAuthorityQueryCache", () => {
     clients.length = 0;
   });
 
-  it("evicts inactive scoped data and its related authority cache synchronously", async () => {
-    const revocationListeners = new Map<
-      string,
-      (message: ResourceRevocationMessage) => void
-    >();
-    const registry = new ProjectionInvalidationRegistry({
-      subscribeProjection: () => () => undefined,
-      subscribeRevocations: (scope, listener) => {
-        revocationListeners.set(projectionScopeKey(scope), listener);
-        return () => revocationListeners.delete(projectionScopeKey(scope));
-      },
-    });
+  const setup = () => {
     const client = new QueryClient({
       defaultOptions: { queries: { gcTime: Infinity, retry: false } },
     });
+    const freshnessIndex = new AuthorityFreshnessIndex();
+    const cache = new ResourceAuthorityQueryCache({ queryClient: client, freshnessIndex });
     clients.push(client);
+    return { cache, client, freshnessIndex };
+  };
+
+  it("evicts an exact dynamic root and its related cache synchronously", async () => {
+    const { cache, client, freshnessIndex } = setup();
     const detailKey = ["page", "page-a"] as const;
     const documentKey = ["document", "page-a"] as const;
     await client.fetchQuery({
       queryKey: detailKey,
       queryFn: async () => ({ pageId: "page-a" }),
       meta: resourceAuthorityQueryMeta(() => ({
-        scope: projectScope,
-        cursor: { storeEpoch: "epoch-1", commitSeq: 1 },
-        dependencies: { pageIds: ["page-a"] },
+        authorizations: [pageStamp("page-a")],
         relatedQueryKeys: [documentKey],
       })),
     });
     client.setQueryData(documentKey, { body: "cached old body" });
-
-    const cache = new ResourceAuthorityQueryCache({
-      queryClient: client,
-      registry,
-    });
     cache.start();
-    expect(client.getQueryData(detailKey)).toEqual({ pageId: "page-a" });
-    expect(client.getQueryData(documentKey)).toEqual({ body: "cached old body" });
+    await waitForRegistrations(freshnessIndex, 1);
 
-    revocationListeners.get(projectionScopeKey(projectScope))?.(
-      revocationMessage("page-a"),
-    );
+    freshnessIndex.admitVisibility({
+      deliveryAddress: address,
+      storeEpoch: "epoch-1",
+      commitSeq: 42,
+      change: "revoke",
+      roots: [{ kind: "page", page_id: "page-a" }],
+    });
 
     expect(client.getQueryData(detailKey)).toBeUndefined();
     expect(client.getQueryData(documentKey)).toBeUndefined();
     cache.dispose();
-    registry.dispose();
   });
 
-  it("retains unrelated resources in the same authorization scope", async () => {
-    const revocationListeners = new Map<
-      string,
-      (message: ResourceRevocationMessage) => void
-    >();
-    const registry = new ProjectionInvalidationRegistry({
-      subscribeProjection: () => () => undefined,
-      subscribeRevocations: (scope, listener) => {
-        revocationListeners.set(projectionScopeKey(scope), listener);
-        return () => revocationListeners.delete(projectionScopeKey(scope));
-      },
+  it("hands a verified registration to the cache before query publication", async () => {
+    const { cache, client, freshnessIndex } = setup();
+    const queryKey = ["page", "page-a"] as const;
+    const resolve = () => ({ authorizations: [pageStamp("page-a")] });
+    cache.start();
+
+    await client.fetchQuery({
+      queryKey,
+      queryFn: async () => admitResourceAuthorityQuery(
+        { pageId: "page-a" },
+        resolve,
+        freshnessIndex,
+      ),
+      meta: resourceAuthorityQueryMeta(resolve),
     });
-    const client = new QueryClient({
-      defaultOptions: { queries: { gcTime: Infinity, retry: false } },
+
+    expect(freshnessIndex.diagnostics().registrations).toBe(1);
+    freshnessIndex.admitVisibility({
+      deliveryAddress: address,
+      storeEpoch: "epoch-1",
+      commitSeq: 2,
+      change: "revoke",
+      roots: [{ kind: "page", page_id: "page-a" }],
     });
-    clients.push(client);
+    expect(client.getQueryData(queryKey)).toBeUndefined();
+    cache.dispose();
+  });
+
+  it("retains unrelated resources in the same delivery address", async () => {
+    const { cache, client, freshnessIndex } = setup();
     const queryKey = ["page", "page-b"] as const;
     await client.fetchQuery({
       queryKey,
       queryFn: async () => ({ pageId: "page-b" }),
       meta: resourceAuthorityQueryMeta(() => ({
-        scope: projectScope,
-        cursor: { storeEpoch: "epoch-1", commitSeq: 1 },
-        dependencies: { pageIds: ["page-b"] },
+        authorizations: [pageStamp("page-b")],
       })),
     });
-    const cache = new ResourceAuthorityQueryCache({
-      queryClient: client,
-      registry,
-    });
     cache.start();
+    await waitForRegistrations(freshnessIndex, 1);
 
-    revocationListeners.get(projectionScopeKey(projectScope))?.(
-      revocationMessage("page-a"),
-    );
+    freshnessIndex.admitVisibility({
+      deliveryAddress: address,
+      storeEpoch: "epoch-1",
+      commitSeq: 42,
+      change: "revoke",
+      roots: [{ kind: "page", page_id: "page-a" }],
+    });
 
     expect(client.getQueryData(queryKey)).toEqual({ pageId: "page-b" });
     cache.dispose();
-    registry.dispose();
   });
 
-  it("fences an inactive cache when the initial checkpoint exposes a subscribe race", async () => {
-    const registry = new ProjectionInvalidationRegistry({
-      subscribeProjection: (scope, listener) => {
-        listener({
-          version: 2,
-          kind: "checkpoint",
-          scope,
-          stream: { storeEpoch: "epoch-1", commitSeq: 2 },
-        });
-        return () => undefined;
-      },
-      subscribeRevocations: () => () => undefined,
-    });
-    const client = new QueryClient({
-      defaultOptions: { queries: { gcTime: Infinity, retry: false } },
-    });
-    clients.push(client);
+  it("rejects a cached stamp older than an observed address checkpoint", async () => {
+    const { cache, client, freshnessIndex } = setup();
     const queryKey = ["page", "page-a"] as const;
     await client.fetchQuery({
       queryKey,
       queryFn: async () => ({ pageId: "page-a" }),
       meta: resourceAuthorityQueryMeta(() => ({
-        scope: projectScope,
-        cursor: { storeEpoch: "epoch-1", commitSeq: 1 },
-        dependencies: { pageIds: ["page-a"] },
+        authorizations: [pageStamp("page-a", 1)],
       })),
     });
-
-    const cache = new ResourceAuthorityQueryCache({
-      queryClient: client,
-      registry,
+    freshnessIndex.observeAddress({
+      deliveryAddress: address,
+      storeEpoch: "epoch-1",
+      commitSeq: 2,
     });
-    cache.start();
 
-    expect(client.getQueryData(queryKey)).toBeUndefined();
+    cache.start();
+    await vi.waitFor(() => expect(client.getQueryData(queryKey)).toBeUndefined());
+    expect(freshnessIndex.diagnostics().registrations).toBe(0);
     cache.dispose();
-    registry.dispose();
   });
 
-  it("resets an active query and rejects a read started before revocation", async () => {
-    const revocationListeners = new Map<
-      string,
-      (message: ResourceRevocationMessage) => void
-    >();
-    const registry = new ProjectionInvalidationRegistry({
-      subscribeProjection: () => () => undefined,
-      subscribeRevocations: (scope, listener) => {
-        revocationListeners.set(projectionScopeKey(scope), listener);
-        return () => revocationListeners.delete(projectionScopeKey(scope));
-      },
-    });
-    const client = new QueryClient({
-      defaultOptions: { queries: { gcTime: Infinity, retry: false } },
-    });
-    clients.push(client);
-    const queryKey = ["page", "page-a"] as const;
-    const meta = resourceAuthorityQueryMeta(() => ({
-      scope: projectScope,
-      cursor: { storeEpoch: "epoch-1", commitSeq: 1 },
-      dependencies: { pageIds: ["page-a"] },
-    }));
+  it("registers every stamp in a multi-window query", async () => {
+    const { cache, client, freshnessIndex } = setup();
+    const queryKey = ["board", "project-1"] as const;
     await client.fetchQuery({
       queryKey,
-      queryFn: async () => ({ value: "initial" }),
-      meta,
-    });
-    let resolveOldRead!: (value: { value: string }) => void;
-    let reads = 0;
-    const oldRead = new Promise<{ value: string }>((resolve) => {
-      resolveOldRead = resolve;
-    });
-    const observer = new QueryObserver(client, {
-      queryKey,
-      queryFn: async () => {
-        reads += 1;
-        if (reads === 1) return oldRead;
-        return { value: "canonical-after-revocation" };
-      },
-      meta,
-      staleTime: Infinity,
-    });
-    const releaseObserver = observer.subscribe(() => undefined);
-    const cache = new ResourceAuthorityQueryCache({
-      queryClient: client,
-      registry,
+      queryFn: async () => ({ rows: ["page-a", "page-b"] }),
+      meta: resourceAuthorityQueryMeta(() => ({
+        authorizations: [pageStamp("page-a"), pageStamp("page-b")],
+      })),
     });
     cache.start();
-    const staleRead = observer.refetch();
+    await waitForRegistrations(freshnessIndex, 2);
 
-    revocationListeners.get(projectionScopeKey(projectScope))?.(
-      revocationMessage("page-a"),
-    );
-    expect(client.getQueryData(queryKey)).toBeUndefined();
-    resolveOldRead({ value: "late-stale-value" });
-    await staleRead;
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
-    expect(client.getQueryData(queryKey)).toEqual({
-      value: "canonical-after-revocation",
+    freshnessIndex.admitVisibility({
+      deliveryAddress: address,
+      storeEpoch: "epoch-1",
+      commitSeq: 9,
+      change: "revoke",
+      roots: [{ kind: "page", page_id: "page-b" }],
     });
+
+    expect(client.getQueryData(queryKey)).toBeUndefined();
+    expect(freshnessIndex.diagnostics().registrations).toBe(0);
     cache.dispose();
-    releaseObserver();
-    registry.dispose();
   });
 
   it("reindexes only the query named by a cache event", async () => {
-    const subscribeProjection = vi.fn(() => () => undefined);
-    const subscribeRevocations = vi.fn(() => () => undefined);
-    const registry = new ProjectionInvalidationRegistry({
-      subscribeProjection,
-      subscribeRevocations,
-    });
-    const client = new QueryClient({
-      defaultOptions: { queries: { gcTime: Infinity, retry: false } },
-    });
-    clients.push(client);
+    const { cache, client, freshnessIndex } = setup();
     const resolvers = Array.from({ length: 100 }, (_, index) =>
-      vi.fn(() => ({
-        scope: projectScope,
-        cursor: { storeEpoch: "epoch-1", commitSeq: 1 },
-        dependencies: { pageIds: [`page-${index}`] },
-      })),
+      vi.fn(() => ({ authorizations: [pageStamp(`page-${index}`)] })),
     );
     for (const [index, resolve] of resolvers.entries()) {
       await client.fetchQuery({
@@ -270,25 +199,16 @@ describe("ResourceAuthorityQueryCache", () => {
         meta: resourceAuthorityQueryMeta(resolve),
       });
     }
-    const cache = new ResourceAuthorityQueryCache({
-      queryClient: client,
-      registry,
-    });
     cache.start();
-    expect(resolvers.map((resolve) => resolve.mock.calls.length))
-      .toEqual(Array.from({ length: 100 }, () => 1));
+    await waitForRegistrations(freshnessIndex, 100);
 
     client.setQueryData(["page", 42], { index: 42, updated: true });
-
-    expect(resolvers[42]).toHaveBeenCalledTimes(2);
-    expect(subscribeProjection).toHaveBeenCalledTimes(1);
-    expect(subscribeRevocations).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(resolvers[42]).toHaveBeenCalledTimes(2));
     expect(
       resolvers
         .filter((_, index) => index !== 42)
         .every((resolve) => resolve.mock.calls.length === 1),
     ).toBe(true);
     cache.dispose();
-    registry.dispose();
   });
 });

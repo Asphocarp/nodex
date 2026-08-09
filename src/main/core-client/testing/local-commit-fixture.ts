@@ -2,26 +2,36 @@ import type {
   CoreAuthorizedDeliveryPacket,
   CoreModuleEventPayload,
 } from "../types";
+import type { ResourceRevocation } from "../../../shared/resource-revocation-stream";
 
 interface CoreLocalCommitFixtureInput {
   readonly commitSeq: number;
   readonly payload?: CoreModuleEventPayload;
   readonly additionalPayloads?: readonly CoreModuleEventPayload[];
-  readonly projectionImpact?: CoreAuthorizedDeliveryPacket["projection_impact"];
   readonly documentEffects?: CoreAuthorizedDeliveryPacket["document_effects"];
   readonly projectionEffects?: CoreAuthorizedDeliveryPacket["projection_effects"];
-  readonly revocations?: CoreAuthorizedDeliveryPacket["revocations"];
+  readonly revocations?: readonly ResourceRevocation[];
+  readonly visibilityDeltas?: CoreAuthorizedDeliveryPacket["visibility_deltas"];
   readonly authorizationScope?: CoreAuthorizedDeliveryPacket["authorization_scope"];
   readonly canonicalHash?: string;
   readonly storeEpoch?: string;
   readonly operationId?: string;
   readonly committedAt?: string;
-  readonly resources?: {
-    readonly block_ids: readonly string[];
-    readonly document_ids: readonly string[];
-    readonly database_ids: readonly string[];
-  };
+  readonly requiredResources?: CoreAuthorizedDeliveryPacket["atoms"][number]["descriptor"]["required_resources"];
 }
+
+const atomKind = (
+  payload: CoreModuleEventPayload,
+): CoreAuthorizedDeliveryPacket["atoms"][number]["descriptor"]["kind"] => {
+  switch (payload.module) {
+    case "library": return "library_navigation_changed";
+    case "database": return "database_changed";
+    case "owned_document": return "owned_document_changed";
+    case "project_workspace": return "project_workspace_changed";
+    case "automation": return "automation_changed";
+    case "store_administration": return "store_administration_changed";
+  }
+};
 
 export const createCoreLocalCommitFixture = (
   input: CoreLocalCommitFixtureInput,
@@ -29,7 +39,6 @@ export const createCoreLocalCommitFixture = (
   const storeEpoch = input.storeEpoch ?? "epoch-1";
   const operationId = input.operationId ?? `operation-${input.commitSeq}`;
   const committedAt = input.committedAt ?? "2026-08-06T00:00:00.000Z";
-  const projectionImpact = input.projectionImpact ?? { kind: "none" };
   const payloads = [
     ...(input.payload === undefined ? [] : [input.payload]),
     ...(input.additionalPayloads ?? []),
@@ -38,32 +47,49 @@ export const createCoreLocalCommitFixture = (
     ?? String(input.commitSeq).padStart(64, "0").slice(-64);
   const documentEffects = input.documentEffects ?? [];
   const projectionEffects = input.projectionEffects ?? [];
-  const effects = payloads.map((payload, effectOrder) => ({
-    semantic: {
-      kind: "module_changed" as const,
-      effect_kind: `${payload.module}.changed`,
-      effect_order: effectOrder,
-      module: payload.module,
-      payload_hash: String(input.commitSeq * 10 + effectOrder)
+  const authorizationScope = input.authorizationScope ?? {
+    kind: "library" as const,
+    library_id: "library-1",
+  };
+  const visibilityDeltas = input.visibilityDeltas ?? (input.revocations ?? []).map(
+    (revocation, index): CoreAuthorizedDeliveryPacket["visibility_deltas"][number] => ({
+      authorization_scope: revocation.authorization_scope,
+      change: {
+        kind: "revoke",
+        reason: revocation.reason,
+      },
+      roots: [{
+        kind: revocation.resource_kind,
+        [`${revocation.resource_kind}_id`]: revocation.resource_id,
+      } as CoreAuthorizedDeliveryPacket["visibility_deltas"][number]["roots"][number]],
+      delta_hash: String(input.commitSeq * 100 + index)
+        .padStart(64, "5")
+        .slice(-64),
+    }),
+  );
+  const atoms = payloads.map((payload, atomOrder) => ({
+    descriptor: {
+      atom_id: String(input.commitSeq * 100 + atomOrder)
+        .padStart(64, "3")
+        .slice(-64),
+      atom_order: atomOrder,
+      kind: atomKind(payload),
+      payload_hash: String(input.commitSeq * 10 + atomOrder)
         .padStart(64, "2")
         .slice(-64),
-      projection_impact: projectionImpact,
-      resources: input.resources ?? {
-        block_ids: [],
-        document_ids: [],
-        database_ids: [],
-      },
+      required_resources: input.requiredResources ?? [{
+        kind: "library" as const,
+        library_id: payload.library_id,
+      }],
     },
     payload,
   }));
   return {
-    packet_version: 2,
-    authorization_scope: input.authorizationScope ?? {
-      kind: "library",
-      library_id: "library-1",
-    },
+    packet_version: 4,
+    delivery_address: authorizationScope,
+    authorization_scope: authorizationScope,
     manifest: {
-      event_version: 6,
+      event_version: 8,
       identity: {
         commit_seq: input.commitSeq,
         manifest_hash: manifestHash,
@@ -72,13 +98,12 @@ export const createCoreLocalCommitFixture = (
       operation_id: operationId,
       committed_at: committedAt,
     },
-    effects,
+    atoms,
     document_effects: documentEffects,
     projection_effects: projectionEffects,
-    revocations: input.revocations ?? [],
-    projection_impact: projectionImpact,
+    visibility_deltas: visibilityDeltas,
     coverage: {
-      semantic_effect_orders: effects.map((effect) => effect.semantic.effect_order),
+      atom_ids: atoms.map((atom) => atom.descriptor.atom_id),
       document_effect_orders: documentEffects.map((effect) => effect.reference.effect_order),
       inline_document_effect_orders: documentEffects
         .filter((effect) => effect.inline_update !== null && effect.inline_update !== undefined)

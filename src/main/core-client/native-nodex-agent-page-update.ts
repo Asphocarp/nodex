@@ -26,6 +26,7 @@ import { toCoreAgentExecutionAuthorization } from "./desktop-nodex-agent-resourc
 import {
   applyResultCursor,
   applyResultStoreEpoch,
+  rendererLocalCommitApply,
   type OwnedDocumentApplyResult,
 } from "./types";
 
@@ -526,7 +527,11 @@ export class NativeNodexAgentPageUpdateRuntime {
           },
         });
       pending.committed = committed;
-      return { ok: true, value: toDocumentOperationResult(pending, committed) };
+      return {
+        ok: true,
+        value: toDocumentOperationResult(pending, committed),
+        localCommit: rendererLocalCommitApply(committed),
+      };
     } catch (error) {
       this.pending.delete(pending.operationId);
       const mapped = mapNativeNodexAgentCoreError(error);

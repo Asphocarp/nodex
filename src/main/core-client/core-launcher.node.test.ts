@@ -256,12 +256,18 @@ describe("native Core launcher", () => {
           isPackaged: false,
           nodexHome: directory,
           pollIntervalMs: 5,
-          startupHardTimeoutMs: 1_000,
-          startupTimeoutMs: 70,
+          startupHardTimeoutMs: 5_000,
+          startupTimeoutMs: 1_000,
         })).rejects.toThrow("did not become ready before the startup deadline");
-        expect(Date.now() - startedAt).toBeGreaterThanOrEqual(170);
+        expect(Date.now() - startedAt).toBeGreaterThanOrEqual(1_050);
       } finally {
-        await incumbent?.client.shutdown().catch(() => undefined);
+        if (incumbent) {
+          await incumbent.client.shutdown().catch(() => undefined);
+          await waitUntil(
+            () => !existsSync(path.join(directory, "run/core/core.sock")),
+            "incumbent Core remained active after deadline-test shutdown",
+          );
+        }
         rmSync(directory, { recursive: true, force: true });
       }
     },

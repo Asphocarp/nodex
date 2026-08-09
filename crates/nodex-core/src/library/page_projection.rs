@@ -455,7 +455,6 @@ fn property_type(value: &str) -> Result<ProjectedPropertyTypeV1, StoreError> {
         "multi_select" => Ok(ProjectedPropertyTypeV1::MultiSelect),
         "date" => Ok(ProjectedPropertyTypeV1::Date),
         "datetime" => Ok(ProjectedPropertyTypeV1::Datetime),
-        "person" => Ok(ProjectedPropertyTypeV1::Person),
         "relation" => Ok(ProjectedPropertyTypeV1::Relation),
         _ => Err(corrupt("Property projection has an unsupported type")),
     }
@@ -516,16 +515,6 @@ fn project_property_value(
                 .ok_or_else(|| corrupt("Datetime Property value is not a string"))?;
             validate_datetime(value, "Datetime Property")?;
             Ok(ProjectedPropertyValueV1::Datetime(value.to_owned()))
-        }
-        ProjectedPropertyTypeV1::Person => {
-            let id = value
-                .as_str()
-                .ok_or_else(|| corrupt("Person Property value is not an identity"))?;
-            bounded_identity(id, "Person identity")?;
-            Ok(ProjectedPropertyValueV1::Identity(ProjectedIdentityV1 {
-                id: id.to_owned(),
-                name: id.to_owned(),
-            }))
         }
         ProjectedPropertyTypeV1::Relation => {
             let preview = value
@@ -829,7 +818,7 @@ fn validate_projected_value(
                 ProjectedPropertyTypeV1::Checkbox,
                 ProjectedPropertyValueV1::Checkbox(_)
             ) | (
-                ProjectedPropertyTypeV1::Select | ProjectedPropertyTypeV1::Person,
+                ProjectedPropertyTypeV1::Select,
                 ProjectedPropertyValueV1::Identity(_)
             ) | (
                 ProjectedPropertyTypeV1::MultiSelect,
@@ -907,7 +896,6 @@ fn property_type_name(value: ProjectedPropertyTypeV1) -> &'static str {
         ProjectedPropertyTypeV1::MultiSelect => "multi_select",
         ProjectedPropertyTypeV1::Date => "date",
         ProjectedPropertyTypeV1::Datetime => "datetime",
-        ProjectedPropertyTypeV1::Person => "person",
         ProjectedPropertyTypeV1::Relation => "relation",
     }
 }

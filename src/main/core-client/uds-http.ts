@@ -11,15 +11,19 @@ import {
   decodeDocumentRealtimeSseEvent,
 } from "../../shared/block-documents/http-contract";
 import type { DocumentSyncRealtimeEvent } from "../../shared/block-documents/document-sync";
+import { parseAuthorizedDeliveryPacket } from "../../shared/authorized-delivery-packet";
+import type { ProjectionScope } from "../../shared/projection-stream";
 import type {
   CoreEventEnvelope,
   CoreEventReplayRequired,
   CoreEventSubscription,
   CoreDocumentEventSubscription,
-  CoreModuleEventPayload,
+  CoreProjectionEventSubscription,
   CoreStreamCheckpoint,
   DocumentLiveBarrier,
   DocumentLiveRepair,
+  ProjectionLiveBarrier,
+  ProjectionLiveRepair,
 } from "./types";
 
 const MAX_JSON_REQUEST_BYTES =
@@ -169,6 +173,12 @@ interface CoreEventContract {
 interface DocumentLiveStreamOptions {
   readonly path: string;
   readonly onRepair: (repair: DocumentLiveRepair) => void;
+}
+
+interface ProjectionLiveStreamOptions {
+  readonly path: string;
+  readonly scopes: readonly ProjectionScope[];
+  readonly onRepair: (repair: ProjectionLiveRepair) => void;
 }
 
 export class UdsHttpTransport {
@@ -365,6 +375,7 @@ export class UdsHttpTransport {
     onCheckpoint?: (checkpoint: CoreStreamCheckpoint) => void,
     signal?: AbortSignal,
     documentLive?: DocumentLiveStreamOptions,
+    projectionLive?: ProjectionLiveStreamOptions,
   ): Promise<CoreEventSubscription> {
     if (!Number.isSafeInteger(after) || after < 0) {
       return Promise.reject(new Error("Event sequence must be a non-negative integer"));
@@ -380,6 +391,7 @@ export class UdsHttpTransport {
       let opened = false;
       let closed = false;
       let documentBarrier: DocumentLiveBarrier | null = null;
+      let projectionBarrier: ProjectionLiveBarrier | null = null;
       let resolveDone: (() => void) | undefined;
       let rejectDone: ((error: unknown) => void) | undefined;
       const done = new Promise<void>((doneResolve, doneReject) => {
@@ -389,7 +401,9 @@ export class UdsHttpTransport {
       const request = httpRequest(
         {
           socketPath: this.socketPath,
-          path: documentLive?.path ?? `/core/v1/events?after=${after}`,
+          path: documentLive?.path
+            ?? projectionLive?.path
+            ?? `/core/v1/events?after=${after}`,
           method: "GET",
           agent: false,
           signal,
@@ -419,11 +433,16 @@ export class UdsHttpTransport {
           const openSubscription = (): void => {
             if (opened || closed) return;
             if (documentLive && !documentBarrier) return;
+            if (projectionLive && !projectionBarrier) return;
             opened = true;
             request.setTimeout(0);
             resolve({
               done,
-              ...(documentBarrier ? { barrier: documentBarrier } : {}),
+              ...(documentBarrier
+                ? { barrier: documentBarrier }
+                : projectionBarrier
+                  ? { barrier: projectionBarrier }
+                  : {}),
               close: () => {
                 if (closed) return;
                 closed = true;
@@ -455,9 +474,23 @@ export class UdsHttpTransport {
               openSubscription();
               return;
             }
-            if (documentLive && !documentBarrier) {
+            if (frame.event === "projection-live-opened") {
+              if (!projectionLive || projectionBarrier) {
+                throw new CoreEventCompatibilityError(
+                  "Core emitted an unexpected Projection live barrier",
+                );
+              }
+              projectionBarrier = parseProjectionLiveBarrier(
+                frame.data,
+                eventContract,
+                projectionLive.scopes,
+              );
+              openSubscription();
+              return;
+            }
+            if ((documentLive && !documentBarrier) || (projectionLive && !projectionBarrier)) {
               throw new CoreEventCompatibilityError(
-                "Core Document live stream emitted data before its barrier",
+                "Core live stream emitted data before its barrier",
               );
             }
             if (frame.event === "document-live-repair") {
@@ -467,6 +500,15 @@ export class UdsHttpTransport {
                 );
               }
               documentLive.onRepair(parseDocumentLiveRepair(frame.data, eventContract));
+              return;
+            }
+            if (frame.event === "projection-live-repair") {
+              if (!projectionLive) {
+                throw new CoreEventCompatibilityError(
+                  "Core emitted a Projection repair on another stream",
+                );
+              }
+              projectionLive.onRepair(parseProjectionLiveRepair(frame.data, eventContract));
               return;
             }
             if (frame.event === "module") {
@@ -503,6 +545,12 @@ export class UdsHttpTransport {
               if (documentLive && !documentBarrier) {
                 fail(new CoreEventCompatibilityError(
                   "Core Document live stream ended before its barrier",
+                ));
+                return;
+              }
+              if (projectionLive && !projectionBarrier) {
+                fail(new CoreEventCompatibilityError(
+                  "Core Projection live stream ended before its barrier",
                 ));
                 return;
               }
@@ -553,6 +601,30 @@ export class UdsHttpTransport {
         onRepair,
       },
     ) as Promise<CoreDocumentEventSubscription>;
+  }
+
+  openProjectionLiveStream(
+    scopes: readonly ProjectionScope[],
+    requestHeaders: Readonly<Record<string, string>>,
+    onEvent: (event: CoreEventEnvelope) => void,
+    onRepair: (repair: ProjectionLiveRepair) => void,
+    signal?: AbortSignal,
+  ): Promise<CoreProjectionEventSubscription> {
+    const requested = scopes.map((scope) => scope.kind === "library"
+      ? { kind: "library" as const }
+      : { kind: "project" as const, project_id: scope.projectId });
+    const path = `/core/v1/projections/live?scopes=${encodeURIComponent(JSON.stringify(requested))}`;
+    return this.openEventStream(
+      0,
+      onEvent,
+      requestHeaders,
+      undefined,
+      undefined,
+      undefined,
+      signal,
+      undefined,
+      { path, scopes, onRepair },
+    ) as Promise<CoreProjectionEventSubscription>;
   }
 }
 
@@ -650,150 +722,14 @@ const assertAuthorizedDeliveryPacket = (
   packet: unknown,
   contract: CoreEventContract,
 ): void => {
-  if (
-    typeof packet !== "object" ||
-    packet === null ||
-    !hasExactKeys(packet, [
-      "authorization_scope",
-      "coverage",
-      "document_effects",
-      "effects",
-      "manifest",
-      "packet_hash",
-      "packet_version",
-      "projection_effects",
-      "projection_impact",
-      "revocations",
-    ])
-  ) {
+  try {
+    parseAuthorizedDeliveryPacket(packet, {
+      eventVersion: contract.eventVersion,
+      libraryId: contract.libraryId,
+      storeEpoch: contract.storeEpoch,
+    });
+  } catch {
     throw new CoreEventCompatibilityError("Authorized delivery packet is invalid");
-  }
-  if (
-    !("packet_version" in packet)
-    || packet.packet_version !== 2
-    || !("packet_hash" in packet)
-    || !isSha256(packet.packet_hash)
-    || !("projection_impact" in packet)
-    || !isProjectionImpact(packet.projection_impact)
-  ) {
-    throw new CoreEventCompatibilityError("Authorized delivery integrity is invalid");
-  }
-  const authorizationScope = "authorization_scope" in packet
-    ? packet.authorization_scope
-    : null;
-  if (!isDeliveryAuthorizationScope(authorizationScope, contract.libraryId)) {
-    throw new CoreEventCompatibilityError("Delivery authorization scope is invalid");
-  }
-
-  const manifest = "manifest" in packet ? packet.manifest : null;
-  if (
-    typeof manifest !== "object"
-    || manifest === null
-    || !hasExactKeys(manifest, [
-      "committed_at",
-      "event_version",
-      "identity",
-      "operation_id",
-    ])
-    || !("event_version" in manifest)
-    || manifest.event_version !== contract.eventVersion
-    || !("operation_id" in manifest)
-    || !isIdentity(manifest.operation_id)
-    || !("committed_at" in manifest)
-    || typeof manifest.committed_at !== "string"
-    || manifest.committed_at.length === 0
-    || manifest.committed_at.length > 64
-  ) {
-    throw new CoreEventCompatibilityError("Commit manifest header is invalid");
-  }
-
-  const identity = "identity" in manifest ? manifest.identity : null;
-  if (
-    typeof identity !== "object"
-    || identity === null
-    || !hasExactKeys(identity, ["commit_seq", "manifest_hash", "store_epoch"])
-    || !("commit_seq" in identity)
-    || !isPositiveSafeInteger(identity.commit_seq)
-    || !("manifest_hash" in identity)
-    || !isSha256(identity.manifest_hash)
-    || !("store_epoch" in identity)
-    || identity.store_epoch !== contract.storeEpoch
-  ) {
-    throw new CoreEventCompatibilityError("Commit manifest identity is invalid");
-  }
-
-  const effects = "effects" in packet ? packet.effects : null;
-  if (
-    !Array.isArray(effects)
-    || effects.length > 10_000
-    || effects.some((effect) => !isAuthorizedModuleEffect(effect))
-  ) {
-    throw new CoreEventCompatibilityError("Authorized semantic effects are invalid");
-  }
-
-  const documentEffects = "document_effects" in packet
-    ? packet.document_effects
-    : null;
-  if (
-    !Array.isArray(documentEffects)
-    || documentEffects.length > 10_000
-    || documentEffects.some((effect) => !isAuthorizedDocumentEffect(effect))
-  ) {
-    throw new CoreEventCompatibilityError("Authorized Document effects are invalid");
-  }
-
-  const projectionEffects = "projection_effects" in packet
-    ? packet.projection_effects
-    : null;
-  if (
-    !Array.isArray(projectionEffects)
-    || projectionEffects.length > 10_000
-    || projectionEffects.some((effect) => !isProjectionEffect(effect))
-  ) {
-    throw new CoreEventCompatibilityError("Authorized Projection effects are invalid");
-  }
-
-  const revocations = "revocations" in packet ? packet.revocations : null;
-  if (
-    !Array.isArray(revocations)
-    || revocations.length > 10_000
-    || revocations.some((revocation) =>
-      !isResourceRevocation(revocation, contract.libraryId)
-    )
-  ) {
-    throw new CoreEventCompatibilityError("Authorized revocations are invalid");
-  }
-
-  const coverage = "coverage" in packet ? packet.coverage : null;
-  if (!isDeliveryCoverage(coverage)) {
-    throw new CoreEventCompatibilityError("Authorized delivery coverage is invalid");
-  }
-  const semanticOrders = effects.map((effect) =>
-    (effect as { readonly semantic: { readonly effect_order: number } }).semantic.effect_order
-  );
-  const documentOrders = documentEffects.map((effect) =>
-    (effect as { readonly reference: { readonly effect_order: number } }).reference.effect_order
-  );
-  const inlineOrders = documentEffects
-    .filter((effect) =>
-      (effect as { readonly inline_update?: unknown }).inline_update !== null
-      && (effect as { readonly inline_update?: unknown }).inline_update !== undefined
-    )
-    .map((effect) =>
-      (effect as { readonly reference: { readonly effect_order: number } }).reference.effect_order
-    );
-  const projectionScopes = projectionEffects.map((effect) =>
-    (effect as {
-      readonly scope: { readonly canonical_key: string };
-    }).scope.canonical_key
-  );
-  if (
-    !sameNumberArray(coverage.semantic_effect_orders, semanticOrders)
-    || !sameNumberArray(coverage.document_effect_orders, documentOrders)
-    || !sameNumberArray(coverage.inline_document_effect_orders, inlineOrders)
-    || !sameStringArray(coverage.projection_scope_keys, projectionScopes)
-  ) {
-    throw new CoreEventCompatibilityError("Authorized delivery coverage does not match packet resources");
   }
 };
 
@@ -838,8 +774,9 @@ const hasExactKeys = (
   expected: readonly string[],
 ): boolean => {
   const actual = Object.keys(value).sort();
-  return actual.length === expected.length &&
-    actual.every((key, index) => key === expected[index]);
+  if (actual.length !== expected.length) return false;
+  const canonicalExpected = [...expected].sort();
+  return actual.every((key, index) => key === canonicalExpected[index]);
 };
 
 const isIdentity = (value: unknown): value is string =>
@@ -848,192 +785,8 @@ const isIdentity = (value: unknown): value is string =>
   value.length <= 512 &&
   value === value.trim();
 
-const isCanonicalIdentityArray = (value: unknown): value is readonly string[] => {
-  if (!Array.isArray(value) || value.length > 10_000) return false;
-  let previous: string | undefined;
-  for (const entry of value) {
-    if (!isIdentity(entry) || (previous !== undefined && previous >= entry)) return false;
-    previous = entry;
-  }
-  return true;
-};
-
-const isSha256 = (value: unknown): value is string =>
-  typeof value === "string" && /^[0-9a-f]{64}$/u.test(value);
-
 const isNonNegativeSafeInteger = (value: unknown): value is number =>
   typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
-
-const isPositiveSafeInteger = (value: unknown): value is number =>
-  typeof value === "number" && Number.isSafeInteger(value) && value >= 1;
-
-const isCanonicalIntegerArray = (value: unknown): value is readonly number[] => {
-  if (!Array.isArray(value) || value.length > 10_000) return false;
-  let previous = -1;
-  for (const entry of value) {
-    if (!isNonNegativeSafeInteger(entry) || entry <= previous) return false;
-    previous = entry;
-  }
-  return true;
-};
-
-const isLocalCommitResources = (value: unknown): boolean => {
-  if (
-    typeof value !== "object"
-    || value === null
-    || !hasExactKeys(value, ["block_ids", "database_ids", "document_ids"])
-  ) return false;
-  return "block_ids" in value
-    && isCanonicalIdentityArray(value.block_ids)
-    && "database_ids" in value
-    && isCanonicalIdentityArray(value.database_ids)
-    && "document_ids" in value
-    && isCanonicalIdentityArray(value.document_ids);
-};
-
-const isAuthorizedModuleEffect = (value: unknown): boolean => {
-  if (
-    typeof value !== "object"
-    || value === null
-    || !hasExactKeys(value, ["payload", "semantic"])
-    || !("payload" in value)
-    || !isModuleEventPayload(value.payload)
-    || !("semantic" in value)
-  ) return false;
-  const semantic = value.semantic;
-  if (
-    typeof semantic !== "object"
-    || semantic === null
-    || !hasExactKeys(semantic, [
-      "effect_kind",
-      "effect_order",
-      "kind",
-      "module",
-      "payload_hash",
-      "projection_impact",
-      "resources",
-    ])
-    || !("kind" in semantic)
-    || semantic.kind !== "module_changed"
-    || !("effect_kind" in semantic)
-    || !isIdentity(semantic.effect_kind)
-    || !("effect_order" in semantic)
-    || !isNonNegativeSafeInteger(semantic.effect_order)
-    || !("payload_hash" in semantic)
-    || !isSha256(semantic.payload_hash)
-    || !("projection_impact" in semantic)
-    || !isProjectionImpact(semantic.projection_impact)
-    || !("resources" in semantic)
-    || !isLocalCommitResources(semantic.resources)
-    || !("module" in semantic)
-    || !("module" in value.payload)
-    || semantic.module !== value.payload.module
-  ) return false;
-  return true;
-};
-
-const isByteArray = (value: unknown): value is readonly number[] =>
-  Array.isArray(value)
-  && value.length <= MAX_EVENT_FRAME_BYTES
-  && value.every((byte) =>
-    typeof byte === "number"
-    && Number.isInteger(byte)
-    && byte >= 0
-    && byte <= 255
-  );
-
-const isAuthorizedDocumentEffect = (value: unknown): boolean => {
-  if (
-    typeof value !== "object"
-    || value === null
-    || !hasExactKeys(value, ["inline_update", "reference"])
-    || !("inline_update" in value)
-    || (value.inline_update !== null && !isByteArray(value.inline_update))
-    || !("reference" in value)
-  ) return false;
-  const reference = value.reference;
-  if (
-    typeof reference !== "object"
-    || reference === null
-    || !hasExactKeys(reference, [
-      "base_head_seq",
-      "document_id",
-      "effect_order",
-      "generation",
-      "page_id",
-      "resource_kind",
-      "result_head_seq",
-      "update_byte_length",
-      "update_hash",
-      "update_id",
-    ])
-    || !("base_head_seq" in reference)
-    || !isNonNegativeSafeInteger(reference.base_head_seq)
-    || !("result_head_seq" in reference)
-    || !isPositiveSafeInteger(reference.result_head_seq)
-    || reference.result_head_seq <= reference.base_head_seq
-    || !("generation" in reference)
-    || !isPositiveSafeInteger(reference.generation)
-    || !("effect_order" in reference)
-    || !isNonNegativeSafeInteger(reference.effect_order)
-    || !("document_id" in reference)
-    || !isIdentity(reference.document_id)
-    || !("page_id" in reference)
-    || (reference.page_id !== null && !isIdentity(reference.page_id))
-    || !("resource_kind" in reference)
-    || reference.resource_kind !== "document_update"
-    || !("update_id" in reference)
-    || !isIdentity(reference.update_id)
-    || !("update_hash" in reference)
-    || !isSha256(reference.update_hash)
-    || !("update_byte_length" in reference)
-    || !isNonNegativeSafeInteger(reference.update_byte_length)
-  ) return false;
-  return value.inline_update === null
-    || value.inline_update.length === reference.update_byte_length;
-};
-
-const isProjectionEffect = (value: unknown): boolean => {
-  if (
-    typeof value !== "object"
-    || value === null
-    || !hasExactKeys(value, [
-      "base_revision",
-      "covered_commit_seq",
-      "effect_hash",
-      "patch",
-      "requires_read_at_least",
-      "result_revision",
-      "scope",
-    ])
-    || !("base_revision" in value)
-    || !isNonNegativeSafeInteger(value.base_revision)
-    || !("result_revision" in value)
-    || !isPositiveSafeInteger(value.result_revision)
-    || value.result_revision !== value.base_revision + 1
-    || !("covered_commit_seq" in value)
-    || !isPositiveSafeInteger(value.covered_commit_seq)
-    || !("effect_hash" in value)
-    || !isSha256(value.effect_hash)
-    || !("requires_read_at_least" in value)
-    || typeof value.requires_read_at_least !== "boolean"
-    || !("patch" in value)
-    || (value.patch !== null && typeof value.patch !== "object")
-    || !("scope" in value)
-  ) return false;
-  const scope = value.scope;
-  return typeof scope === "object"
-    && scope !== null
-    && hasExactKeys(scope, ["canonical_key", "schema_version", "scope"])
-    && "canonical_key" in scope
-    && typeof scope.canonical_key === "string"
-    && /^v1:[0-9a-f]{64}$/u.test(scope.canonical_key)
-    && "schema_version" in scope
-    && scope.schema_version === 1
-    && "scope" in scope
-    && typeof scope.scope === "object"
-    && scope.scope !== null;
-};
 
 const isDeliveryAuthorizationScope = (
   value: unknown,
@@ -1071,142 +824,109 @@ const isDeliveryAuthorizationScope = (
   return false;
 };
 
-const isResourceRevocation = (
-  value: unknown,
-  expectedLibraryId: string,
-): boolean => {
+const parseProjectionLiveBarrier = (
+  json: string,
+  contract: CoreEventContract,
+  requestedScopes: readonly ProjectionScope[],
+): ProjectionLiveBarrier => {
+  const value = decodeBoundedJson<unknown>(
+    Buffer.from(json, "utf8"),
+    MAX_EVENT_FRAME_BYTES,
+    "Core Projection live barrier",
+  );
   if (
     typeof value !== "object"
     || value === null
     || !hasExactKeys(value, [
-      "authorization_scope",
-      "reason",
-      "resource_id",
-      "resource_kind",
+      "commit_head",
+      "core_generation",
+      "recipient_leases",
+      "store_epoch",
     ])
-  ) return false;
-  return "authorization_scope" in value
-    && isDeliveryAuthorizationScope(value.authorization_scope, expectedLibraryId)
-    && "resource_id" in value
-    && isIdentity(value.resource_id)
-    && "resource_kind" in value
-    && ["page", "document", "database", "data_source", "view", "canvas"]
-      .includes(String(value.resource_kind))
-    && "reason" in value
-    && ["ownership_moved", "access_revoked", "archived", "deleted"]
-      .includes(String(value.reason));
-};
-
-const isDeliveryCoverage = (value: unknown): value is {
-  readonly document_effect_orders: readonly number[];
-  readonly inline_document_effect_orders: readonly number[];
-  readonly projection_scope_keys: readonly string[];
-  readonly semantic_effect_orders: readonly number[];
-} => typeof value === "object"
-  && value !== null
-  && hasExactKeys(value, [
-    "document_effect_orders",
-    "inline_document_effect_orders",
-    "projection_scope_keys",
-    "semantic_effect_orders",
-  ])
-  && "document_effect_orders" in value
-  && isCanonicalIntegerArray(value.document_effect_orders)
-  && "inline_document_effect_orders" in value
-  && isCanonicalIntegerArray(value.inline_document_effect_orders)
-  && "projection_scope_keys" in value
-  && isCanonicalIdentityArray(value.projection_scope_keys)
-  && "semantic_effect_orders" in value
-  && isCanonicalIntegerArray(value.semantic_effect_orders);
-
-const sameNumberArray = (
-  left: readonly number[],
-  right: readonly number[],
-): boolean => left.length === right.length
-  && left.every((entry, index) => entry === right[index]);
-
-const sameStringArray = (
-  left: readonly string[],
-  right: readonly string[],
-): boolean => left.length === right.length
-  && left.every((entry, index) => entry === right[index]);
-
-const isModuleEventPayload = (value: unknown): value is CoreModuleEventPayload => {
-  if (
-    typeof value !== "object" ||
-    value === null ||
-    !hasExactKeys(value, ["event", "module"]) ||
-    !("module" in value) ||
-    ![
-      "automation",
-      "database",
-      "library",
-      "owned_document",
-      "project_workspace",
-      "store_administration",
-    ].includes(String(value.module)) ||
-    !("event" in value) ||
-    typeof value.event !== "object" ||
-    value.event === null ||
-    !("kind" in value.event) ||
-    typeof value.event.kind !== "string"
+    || !("store_epoch" in value)
+    || value.store_epoch !== contract.storeEpoch
+    || !("core_generation" in value)
+    || value.core_generation !== contract.coreGeneration
+    || !("commit_head" in value)
+    || !isNonNegativeSafeInteger(value.commit_head)
+    || !("recipient_leases" in value)
+    || !Array.isArray(value.recipient_leases)
+    || value.recipient_leases.length < 1
+    || value.recipient_leases.length > 200
+    || !value.recipient_leases.every((lease) =>
+      typeof lease === "object"
+      && lease !== null
+      && hasExactKeys(lease, [
+        "authorization_scope",
+        "delivery_address",
+        "lease_id",
+      ])
+      && "lease_id" in lease
+      && typeof lease.lease_id === "string"
+      && /^[a-f0-9]{64}$/u.test(lease.lease_id)
+      && "authorization_scope" in lease
+      && isDeliveryAuthorizationScope(
+        lease.authorization_scope,
+        contract.libraryId,
+      )
+      && lease.authorization_scope.kind !== "document"
+      && "delivery_address" in lease
+      && isDeliveryAuthorizationScope(lease.delivery_address, contract.libraryId)
+      && JSON.stringify(lease.delivery_address)
+        === JSON.stringify(lease.authorization_scope)
+    )
+    || new Set(value.recipient_leases.map((lease) =>
+      JSON.stringify(lease.delivery_address)
+    )).size !== value.recipient_leases.length
   ) {
-    return false;
+    throw new CoreEventCompatibilityError("Core Projection live barrier is invalid");
   }
-  return true;
+  const deliveredScopeKeys = value.recipient_leases
+    .map((lease) => lease.delivery_address.kind === "library"
+      ? "library"
+      : `project:${lease.delivery_address.project_id}`)
+    .sort();
+  const requestedScopeKeys = requestedScopes
+    .map((scope) => scope.kind === "library"
+      ? "library"
+      : `project:${scope.projectId}`)
+    .sort();
+  if (
+    deliveredScopeKeys.length !== requestedScopeKeys.length
+    || deliveredScopeKeys.some((key, index) => key !== requestedScopeKeys[index])
+  ) {
+    throw new CoreEventCompatibilityError(
+      "Core Projection live barrier diverges from its requested scopes",
+    );
+  }
+  return value as ProjectionLiveBarrier;
 };
 
-const isProjectionImpact = (value: unknown): boolean => {
-  if (typeof value !== "object" || value === null || !("kind" in value)) return false;
-  if (value.kind === "none" || value.kind === "all") {
-    return Object.keys(value).length === 1;
+const parseProjectionLiveRepair = (
+  json: string,
+  contract: CoreEventContract,
+): ProjectionLiveRepair => {
+  const value = decodeBoundedJson<unknown>(
+    Buffer.from(json, "utf8"),
+    MAX_EVENT_FRAME_BYTES,
+    "Core Projection live repair",
+  );
+  if (
+    typeof value !== "object"
+    || value === null
+    || !hasExactKeys(value, ["commit_head", "reason", "store_epoch"])
+    || !("store_epoch" in value)
+    || !isIdentity(value.store_epoch)
+    || !("commit_head" in value)
+    || !isNonNegativeSafeInteger(value.commit_head)
+    || !("reason" in value)
+    || !["receiver_lagged", "payload_unavailable", "identity_changed"]
+      .includes(String(value.reason))
+    || (value.reason !== "identity_changed" && value.store_epoch !== contract.storeEpoch)
+  ) {
+    throw new CoreEventCompatibilityError("Core Projection live repair is invalid");
   }
-  if (value.kind !== "resources") return false;
-  const record = value as Readonly<Record<string, unknown>>;
-  if (!hasExactKeys(record, [
-    "data_source_ids",
-    "database_ids",
-    "document_heads",
-    "kind",
-    "page_ids",
-    "view_ids",
-  ])) return false;
-  const heads = record.document_heads;
-  if (!isCanonicalIdentityArray(record.page_ids) ||
-    !isCanonicalIdentityArray(record.database_ids) ||
-    !isCanonicalIdentityArray(record.data_source_ids) ||
-    !isCanonicalIdentityArray(record.view_ids) ||
-    record.page_ids.length + record.database_ids.length +
-        record.data_source_ids.length + record.view_ids.length > 10_000 ||
-    (record.page_ids.length === 0 && record.database_ids.length === 0 &&
-      record.data_source_ids.length === 0 && record.view_ids.length === 0 &&
-      Array.isArray(heads) && heads.length === 0)) return false;
-  const pages = new Set(record.page_ids);
-  let previousHead: string | undefined;
-  return Array.isArray(heads) &&
-    heads.length <= 10_000 &&
-    heads.every((head) =>
-      typeof head === "object" &&
-      head !== null &&
-      hasExactKeys(head, ["document_id", "generation", "head_seq", "page_id"]) &&
-      "page_id" in head &&
-      isIdentity(head.page_id) &&
-      pages.has(head.page_id) &&
-      "document_id" in head &&
-      isIdentity(head.document_id) &&
-      "generation" in head &&
-      Number.isSafeInteger(head.generation) &&
-      Number(head.generation) >= 1 &&
-      "head_seq" in head &&
-      Number.isSafeInteger(head.head_seq) &&
-      Number(head.head_seq) >= 1 &&
-      (() => {
-        const key = `${head.page_id}\u0000${head.document_id}`;
-        if (previousHead !== undefined && previousHead >= key) return false;
-        previousHead = key;
-        return true;
-      })()
-    );
+  return value as ProjectionLiveRepair;
 };
 
 const parseDocumentLiveBarrier = (

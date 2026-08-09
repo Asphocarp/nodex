@@ -1432,11 +1432,11 @@ mod tests {
                 )?;
                 connection.execute(
                     "INSERT INTO data_source_relation_edges(\
-                       source_data_source_id, source_membership_id, property_id, \
+                       edge_id, source_data_source_id, source_membership_id, property_id, \
                        target_page_block_id, created_at\
-                     ) VALUES ('source:relation-retention', 'membership:relation-source', \
-                       'blocked_by', 'page:relation-target', ?1)",
-                    [old],
+                     ) VALUES (?1, 'source:relation-retention', 'membership:relation-source', \
+                       'blocked_by', 'page:relation-target', ?2)",
+                    params!["b".repeat(64), old],
                 )?;
                 connection.execute(
                     "UPDATE data_source_page_memberships SET removed_at = ?1 \

@@ -26,7 +26,9 @@ import {
   type LibraryModuleApplyResult,
 } from "../../shared/library-module";
 import type { LibraryPageDetail, PageDetail } from "../../shared/page-detail";
+import { authorizedReadStampFixture } from "../../shared/testing/authorized-read-stamp-fixture";
 import { testPropertySemantics } from "../../shared/testing/database-property-record";
+import { noOpLocalCommit } from "../../shared/testing/local-commit";
 import {
   commitLibraryPageDetailMetadataPatch,
   commitLibraryPageDetailPropertyEdit,
@@ -79,7 +81,7 @@ const detail = (member = true): PageDetail => {
     property("due_date", "date"),
     property("scheduled_start", "datetime"),
     property("scheduled_end", "datetime"),
-    property("assignee", "person"),
+    property("assignee", "text"),
     property("p_C0nf1d3n", "number"),
   ];
   return {
@@ -88,6 +90,15 @@ const detail = (member = true): PageDetail => {
     libraryId: "library-1",
     storeEpoch: "epoch-1",
     commitSeq: 4,
+    authorization: authorizedReadStampFixture({
+      deliveryAddress: {
+        kind: "project",
+        library_id: "library-1",
+        project_id: "project-1",
+      },
+      subject: { kind: "page", page_id: "page-1" },
+      commitSeq: 4,
+    }),
     page: {
       pageId: "page-1",
       libraryId: "library-1",
@@ -188,6 +199,7 @@ const mutationSuccess = (
   request: BlockPropertyMutationRequestV2,
 ): BlockPropertyMutationCommandResultV2 => ({
   ok: true,
+  localCommit: noOpLocalCommit(request.storeEpoch),
   value: {
     version: 2,
     mutationId: request.mutationId,
@@ -205,6 +217,7 @@ const metadataSuccess = (
   request: LibraryModuleApplyRequest,
 ): Extract<LibraryModuleApplyResult, { readonly ok: true }> => ({
   ok: true,
+  localCommit: noOpLocalCommit(request.storeEpoch),
   value: {
     version: LIBRARY_MODULE_CONTRACT_VERSION,
     operationId: request.operationId,
@@ -244,6 +257,7 @@ const dependencies = (input: {
     input.databaseRequests?.push(request);
     return input.databaseResults?.shift() ?? {
       ok: true,
+      localCommit: noOpLocalCommit(request.storeEpoch),
       value: {
         version: 4,
         operationId: request.operationId,
@@ -283,6 +297,7 @@ const libraryDependencies = (input: {
     input.requests.push(request);
     return {
       ok: true,
+      localCommit: noOpLocalCommit(request.storeEpoch),
       value: {
         version: 2,
         mutationId: request.mutationId,
@@ -300,6 +315,7 @@ const libraryDependencies = (input: {
     input.databaseRequests?.push(request);
     return {
       ok: true,
+      localCommit: noOpLocalCommit(request.storeEpoch),
       value: {
         version: 4,
         operationId: request.operationId,

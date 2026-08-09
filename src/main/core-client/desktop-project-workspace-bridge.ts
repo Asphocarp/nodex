@@ -1,6 +1,6 @@
 import type { DesktopDataAuthorityRuntime } from "./desktop-data-authority";
 import type {
-  CoreAuthorizedModuleEffect,
+  CoreAuthorizedDeliveryAtom,
 } from "./types";
 import {
   createCoreProjectWorkspaceAdapter,
@@ -152,7 +152,7 @@ export interface CoreProjectWorkspaceInvalidation {
 }
 
 export function mapCoreProjectWorkspaceEvent(
-  effect: CoreAuthorizedModuleEffect,
+  effect: CoreAuthorizedDeliveryAtom,
 ): CoreProjectWorkspaceInvalidation | null {
   const payload = effect.payload;
   if (payload.module !== "project_workspace") return null;

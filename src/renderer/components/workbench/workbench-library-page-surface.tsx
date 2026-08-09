@@ -27,8 +27,18 @@ import {
   pageDetailDataDependencies,
   pageDetailDocumentDependencies,
 } from "../../lib/page-detail-projection-dependencies";
-import type { PageDetail } from "../../../shared/page-detail";
-import { resourceAuthorityQueryMeta } from "../../lib/resource-authority-query-cache";
+import type { AuthorizedReadStamp } from "../../../shared/authorized-read-stamp";
+import {
+  admitResourceAuthorityQuery,
+  resourceAuthorityQueryMeta,
+} from "../../lib/resource-authority-query-cache";
+
+const resolveLibraryPageAuthority = (_queryKey: readonly unknown[], data: unknown) => {
+  const authorization = (data as {
+    readonly authorization?: AuthorizedReadStamp | null;
+  } | null)?.authorization;
+  return authorization ? { authorizations: [authorization] } : null;
+};
 
 export function WorkbenchLibraryPageSurface({
   pageId,
@@ -70,35 +80,31 @@ export function WorkbenchLibraryPageSurface({
     queryFn: async () => {
       const result = await readLibraryPageDetail(pageId);
       if (!result.ok) throw new Error(result.error.message);
-      return result.value;
+      return await admitResourceAuthorityQuery(
+        result.value,
+        resolveLibraryPageAuthority,
+      );
     },
     meta: resourceAuthorityQueryMeta((_queryKey, data) => {
-      const authority = data as PageDetail | undefined;
-      if (!authority) return null;
-      return {
-        scope: { kind: "library", libraryId: authority.libraryId },
-        cursor: {
-          storeEpoch: authority.storeEpoch,
-          commitSeq: authority.commitSeq,
-        },
-        dependencies: {
-          ...pageDetailDataDependencies(authority, pageId),
-          ...pageDetailDocumentDependencies(authority, pageId),
-        },
-        relatedQueryKeys: [documentQueryKey],
-      };
+      const resolved = resolveLibraryPageAuthority(_queryKey, data);
+      return resolved ? { ...resolved, relatedQueryKeys: [documentQueryKey] } : null;
     }),
   });
   const document = useQuery({
     queryKey: documentQueryKey,
     queryFn: async () => {
-      const descriptor = unwrapLibraryOwnedBlockDocumentPreparationResult(
+      const prepared = unwrapLibraryOwnedBlockDocumentPreparationResult(
         await prepareLibraryOwnedBlockDocument(pageId),
       );
-      return toLibraryDocumentSurfaceDescriptor(
-        validateLibraryOwnedBlockDocumentDescriptor(pageId, descriptor),
+      const descriptor = toLibraryDocumentSurfaceDescriptor(
+        validateLibraryOwnedBlockDocumentDescriptor(pageId, prepared),
+      );
+      return await admitResourceAuthorityQuery(
+        descriptor,
+        resolveLibraryPageAuthority,
       );
     },
+    meta: resourceAuthorityQueryMeta(resolveLibraryPageAuthority),
   });
   const stagePage = useMemo(() => {
     if (!detail.data) return null;

@@ -181,6 +181,8 @@ describe("Desktop Automation Module bridge", () => {
       committedAt: "2026-07-19T15:02:00.000Z",
       payload: {
         module: "automation",
+        library_id: "library-1",
+        project_id: "project-1",
         event: {
           kind: "automation_changed",
           automation_ids: ["daily-report"],
@@ -195,7 +197,7 @@ describe("Desktop Automation Module bridge", () => {
       },
       canonicalHash: "0".repeat(64),
     });
-    expect(mapCoreAutomationEvent(packet.effects[0]!)).toEqual({
+    expect(mapCoreAutomationEvent(packet.atoms[0]!)).toEqual({
       automationIds: ["daily-report"],
       runIds: ["thread:daily-report"],
     });

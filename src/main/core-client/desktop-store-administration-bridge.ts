@@ -8,7 +8,7 @@ import type {
 } from "../../shared/types";
 import type { DesktopDataAuthorityRuntime } from "./desktop-data-authority";
 import {
-  type CoreAuthorizedModuleEffect,
+  type CoreAuthorizedDeliveryAtom,
   type CoreClientPort,
   type StoreAdministrationApplyResult,
   type StoreAdministrationIntent,
@@ -190,7 +190,7 @@ export function createDesktopStoreAdministrationBridge(
 }
 
 export function mapCoreStoreAdministrationEvent(
-  effect: CoreAuthorizedModuleEffect,
+  effect: CoreAuthorizedDeliveryAtom,
 ): CoreStoreAdministrationInvalidation | null {
   const payload = effect.payload;
   if (payload.module !== "store_administration") return null;

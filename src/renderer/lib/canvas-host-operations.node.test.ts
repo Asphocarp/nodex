@@ -9,6 +9,7 @@ import {
 import { bindLibraryModuleApply } from "../../shared/library-module-transport";
 import { createUuidV7FromTimestamp } from "../../shared/uuid-v7";
 import { projectContentAccess } from "../../shared/content-access-context";
+import { noOpLocalCommit } from "../../shared/testing/local-commit";
 import {
   applyLibraryModule,
   readLibraryModule,
@@ -58,6 +59,7 @@ function makeRuntime(input: {
       descriptor: {
         projectId: "project-1",
         documentId,
+        authorization: null,
         ownerBlockId,
         ownerType: "page",
         ownerLifecycle: "active",
@@ -113,6 +115,7 @@ const receiptFor = (
   request: LibraryModuleApplyRequest,
 ): Extract<LibraryModuleApplyResult, { readonly ok: true }> => ({
   ok: true,
+  localCommit: noOpLocalCommit(request.storeEpoch),
   value: {
     version: LIBRARY_MODULE_CONTRACT_VERSION,
     operationId: request.operationId,
@@ -149,6 +152,7 @@ describe("Canvas host operations", () => {
           libraryId: "library-1",
           storeEpoch: "epoch-1",
           commitSeq: 9,
+          authorization: null,
           value: {
             kind: "canvas_target",
             value: {
@@ -323,6 +327,7 @@ describe("Canvas host operations", () => {
         libraryId: "library-1",
         storeEpoch: "epoch-2",
         commitSeq: 9,
+        authorization: null,
         value: {
           kind: "canvas_target",
           value: {
@@ -406,6 +411,7 @@ describe("Canvas host operations", () => {
       expect(receivedAccessContext).toEqual(accessContext);
       return {
         ok: true,
+        localCommit: noOpLocalCommit(request.storeEpoch),
         value: {
           version: LIBRARY_MODULE_CONTRACT_VERSION,
           operationId: request.operationId,

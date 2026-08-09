@@ -2,7 +2,22 @@
 
 ## Relation references
 
-Relation is non-authorizing. Creating a definition requires source schema authority and readable target Data Source; adding an edge requires source write plus independent target Page read. Incremental removal and non-empty replacement reauthorize every supplied Page ID so guessed IDs cannot probe relation membership; clearing restricted references uses an explicit revision-fenced empty replacement. Project reads authorize every projected target, and saved Relation filter operands are reauthorized on every View descriptor/window/context/group read after grants change. A restricted item contains neither Page ID, title, Document, parent, nor Data Source metadata. Relation target cursors contain only an ordinal plus a constant marker, and target-not-found/unauthorized failures share a non-oracular boundary. Library-trusted local reads do not materialize grants.
+Relation is non-authorizing. Creating a definition requires source schema authority and readable target Data Source; adding an edge requires source write plus independent target Page read. Core assigns each edge a random 256-bit opaque identity. Incremental removal accepts only that source-owned handle and verifies its source membership/Property scope, so losing target read does not make an owned relation undeletable and a guessed Page ID cannot probe membership. Clear-all uses an explicit value-revision fence. Stale, unknown, wrong-source, and unauthorized edge handles share a non-oracular failure boundary. Project reads authorize every projected target, and saved Relation filter operands are reauthorized on every View descriptor/window/context/group read after grants change. A compact preview exposes only visible targets plus the restricted count. The paged selected-target window may expose a generic `Restricted page` row and its source-owned removal handle, but never the target Page ID, title, Document, parent, Data Source, ownership path, or source metadata. Relation cursors contain only an ordinal plus a constant marker. Library-trusted local reads do not materialize grants.
+
+## LocalCommit delivery authorization
+
+Physical Module events are private reconstruction evidence, never an authorization unit. Store v110 seals closed typed DeliveryAtoms whose descriptors contain the exact canonical `ResourceKey` requirements extracted from their payload. Core sends an atom only when the packet's post-state authorization scope can read every requirement. A mixed business result that has independently visible portions is compiled into independently redacted atoms before Manifest sealing; Main and renderer never trim fields or infer claims. Authority-bearing tables record raw OLD/NEW facts only inside a transaction-owned visibility journal; seal compares reconstructed pre-state with current authorization, hashes the resulting visibility evidence, and rejects missing trigger context, unconsumed facts, or noncanonical deltas. Projection requirements are stored as private sealed descriptors, so historical payload authorization does not depend on a future extractor implementation.
+
+Packet v4 binds a separate `DeliveryAddress`, a Core-authored `AuthorizationScope`, complete Manifest coverage, Document and Projection effects, and Manifest-bound `VisibilityDelta` values into one integrity identity. Exact `Revoke` deltas evict matching authority before post-state content; `ConservativeReset` fences an entire address only when the journal cannot prove an exact bounded closure. Transport failures never invent either delta: the Core barrier signs an `AuthorizedRecipientLease`, and Main may use that immutable lease only to route the exact address or author a non-Manifest `AddressReset`. Audience IPC accepts owned top-level renderer frames, validates the requested Library/address and a 200-address bound, and cannot submit an authorization scope. Apply, audience-live, and durable ingress use the same packet-v4 structural validator and fail closed on legacy shape, malformed lease, coverage mismatch, or Store/Library/event mismatch. Visibility evidence evicts stale client authority but never replaces Core authorization on a later canonical read.
+
+Multiple owned WebContents may consume one logical address without sharing
+renderer state. Main retains only the current Core lease and barrier floor for
+that active address; each later recipient must accept a lease-bound floor reset
+before packet admission. Destroying the recipient removes its pending packet,
+ACK, reset, timer, and WebContents reference. Neither ref-counting nor retry can
+mint a new scope or keep a released lease alive.
+
+Canonical Library navigation/Page, Database View/row, Page Detail, and owned-Document descriptor reads carry a Core-authored `AuthorizedReadStamp`. Its subject, request dependencies, dynamic authorization dependencies, address/scope, Store epoch, covered commit, and canonical hash come from the same SQLite read snapshot. Inherited authorization stamps the complete grant-to-subject ownership path. A proof union beyond the contract bound is replaced by the scope's Library/Project aggregate root, which the visibility journal invalidates on every exact change for that scope; journal compilation overflow still uses `ConservativeReset`. Adapters may transport the stamp but cannot add roots or raise its floor. Renderer caches verify it and reject a response below any observed address or matching root floor. Exact revocation therefore cannot be defeated by a late response, an inferred ancestor path, or a cache entry created before its dynamic roots were known. Root, registration, address, and in-flight bounds fail closed; none use drop-oldest eviction.
 
 ## Threat Model
 Nodex is local-first. Main risks are malformed local inputs, accidental data loss, renderer capability abuse, and unsafe command/file-change approvals during Codex thread execution.
@@ -173,6 +188,14 @@ Nodex is local-first. Main risks are malformed local inputs, accidental data los
   validation must succeed before an
   fsynced journaled rename can replace live files; failure or interruption
   preserves or restores the original database, SQLite companions, and assets.
+- Store Administration accepts no filesystem path or Project identity from its
+  caller. Core derives bounded backup, staging, cleanup, and restore paths from
+  validated operation/Backup identities; every traversed entry must remain a
+  regular owned file or directory. A create receipt commits before publication,
+  delete/prune cleanup moves only validated Backup directories into an
+  operation-owned staging root, and restore retains the single fsynced Store
+  replacement journal. Exact retries verify the Core-authored intent hash and
+  original Manifest before completing any pending filesystem phase.
 - The native Core runtime validates the Profile, `run`, and `run/core`
   ancestry without following symlinks; requires current-user ownership; and
   requires 0700 for `run/core` plus 0600 and the expected file type for the

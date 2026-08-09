@@ -29,8 +29,8 @@ const replayBoundary: CoreEventReplayRequired = {
 
 const configureEventContract = (transport: UdsHttpTransport): UdsHttpTransport => {
   transport.configureEventContract({
-    transportVersion: 6,
-    eventVersion: 6,
+    transportVersion: 8,
+    eventVersion: 8,
     libraryId: "library-1",
     storeEpoch: "epoch-1",
     coreGeneration: "generation-1",
@@ -69,6 +69,25 @@ const serveCommittedEvent = async (event: unknown): Promise<string> => {
       connection: "close",
     });
     response.end(`event: module\ndata: ${JSON.stringify(event)}\n\n`);
+  });
+  servers.push(server);
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(socketPath, resolve);
+  });
+  return socketPath;
+};
+
+const serveSseFrames = async (frames: string): Promise<string> => {
+  const directory = mkdtempSync(path.join(tmpdir(), "nodex-core-uds-test-"));
+  directories.push(directory);
+  const socketPath = path.join(directory, "core.sock");
+  const server = createServer((_request, response) => {
+    response.writeHead(200, {
+      "content-type": "text/event-stream",
+      connection: "close",
+    });
+    response.end(frames);
   });
   servers.push(server);
   await new Promise<void>((resolve, reject) => {
@@ -129,13 +148,14 @@ const serveJsonResponse = async (
 };
 
 const committedEvent = (): CoreEventEnvelope => ({
-  transport_version: 6,
+  transport_version: 8,
   packet: createCoreLocalCommitFixture({
     commitSeq: 1,
     operationId: "operation-1",
     committedAt: "2026-07-22T00:00:00.000Z",
     payload: {
       module: "project_workspace",
+      library_id: "library-1",
       event: {
         kind: "workspace_changed",
         project_catalog_change: null,
@@ -152,27 +172,20 @@ const committedEvent = (): CoreEventEnvelope => ({
 
 const serveLargeCommittedEvent = async (): Promise<string> =>
   await serveCommittedEvent({
-    transport_version: 6,
+    transport_version: 8,
     packet: createCoreLocalCommitFixture({
       commitSeq: 1,
       committedAt: "2026-07-22T00:00:00.000Z",
-      projectionImpact: {
-        kind: "resources",
-        page_ids: Array.from(
-          { length: 1_400 },
-          (_, index) => `page-${index.toString().padStart(4, "0")}-${"p".repeat(480)}`,
-        ),
-        database_ids: [],
-        data_source_ids: [],
-        view_ids: [],
-        document_heads: [],
-      },
       payload: {
         module: "project_workspace",
+        library_id: "library-1",
         event: {
           kind: "workspace_changed",
           project_catalog_change: null,
-          project_ids: [],
+          project_ids: Array.from(
+            { length: 1_400 },
+            (_, index) => `project-${index.toString().padStart(4, "0")}-${"p".repeat(480)}`,
+          ),
           session_ids: [],
           thread_ids: [],
           session_summary_scopes: [],
@@ -351,12 +364,12 @@ describe("UDS Core event replay boundaries", () => {
     expect(deliveries).toBe(0);
   });
 
-  test("rejects a packet without Projection impact before delivery", async () => {
+  test("rejects a packet without DeliveryAtoms before delivery", async () => {
     const event = structuredClone(committedEvent()) as unknown as {
       transport_version: number;
       packet: Record<string, unknown>;
     };
-    delete event.packet.projection_impact;
+    delete event.packet.atoms;
     const transport = configureEventContract(
       new UdsHttpTransport(await serveCommittedEvent(event), "test-capability"),
     );
@@ -391,18 +404,23 @@ describe("UDS Core event replay boundaries", () => {
     expect(deliveries).toBe(0);
   });
 
-  test("accepts canonical compound semantic resources", async () => {
+  test("accepts canonical compound DeliveryAtom requirements", async () => {
     const event: CoreEventEnvelope = {
-      transport_version: 6,
+      transport_version: 8,
       packet: createCoreLocalCommitFixture({
         commitSeq: 2,
-        resources: {
-          block_ids: ["block-a", "block-b"],
-          document_ids: ["document-a", "document-b"],
-          database_ids: ["database-a", "database-b"],
-        },
+        requiredResources: [
+          { kind: "library", library_id: "library-1" },
+          { kind: "page", page_id: "block-a" },
+          { kind: "page", page_id: "block-b" },
+          { kind: "document", document_id: "document-a" },
+          { kind: "document", document_id: "document-b" },
+          { kind: "database", database_id: "database-a" },
+          { kind: "database", database_id: "database-b" },
+        ],
         payload: {
           module: "library",
+          library_id: "library-1",
           event: {
             kind: "library_changed",
             database_ids: [],
@@ -427,8 +445,13 @@ describe("UDS Core event replay boundaries", () => {
 
   test("accepts a Canvas revocation through the generated transport boundary", async () => {
     const event: CoreEventEnvelope = {
-      transport_version: 6,
+      transport_version: 8,
       packet: createCoreLocalCommitFixture({
+        authorizationScope: {
+          kind: "project",
+          library_id: "library-1",
+          project_id: "project-1",
+        },
         commitSeq: 3,
         revocations: [{
           authorization_scope: {
@@ -451,21 +474,96 @@ describe("UDS Core event replay boundaries", () => {
     });
 
     await expect(subscription.done).resolves.toBeUndefined();
-    expect(delivered[0]?.packet.revocations).toEqual(event.packet.revocations);
+    expect(delivered[0]?.packet.visibility_deltas).toEqual(event.packet.visibility_deltas);
   });
 
-  test("rejects noncanonical compound semantic resources", async () => {
+  test("opens the scoped Projection broker only after its exact barrier", async () => {
+    const barrier = {
+      store_epoch: "epoch-1",
+      core_generation: "generation-1",
+      commit_head: 4,
+      recipient_leases: [{
+        lease_id: "a".repeat(64),
+        delivery_address: {
+          kind: "project",
+          library_id: "library-1",
+          project_id: "project-1",
+        },
+        authorization_scope: {
+          kind: "project",
+          library_id: "library-1",
+          project_id: "project-1",
+        },
+      }],
+    };
+    const frames = `event: projection-live-opened\ndata: ${JSON.stringify(barrier)}\n\n`
+      + `event: module\ndata: ${JSON.stringify(committedEvent())}\n\n`;
+    const transport = configureEventContract(new UdsHttpTransport(
+      await serveSseFrames(frames),
+      "test-capability",
+    ));
+    const delivered: CoreEventEnvelope[] = [];
+    const subscription = await transport.openProjectionLiveStream(
+      [{ kind: "project", libraryId: "library-1", projectId: "project-1" }],
+      {},
+      (event) => delivered.push(event),
+      () => undefined,
+    );
+
+    expect(subscription.barrier).toEqual(barrier);
+    await expect(subscription.done).resolves.toBeUndefined();
+    expect(delivered).toHaveLength(1);
+  });
+
+  test("rejects a Projection barrier for a different authorization scope", async () => {
+    const barrier = {
+      store_epoch: "epoch-1",
+      core_generation: "generation-1",
+      commit_head: 4,
+      recipient_leases: [{
+        lease_id: "a".repeat(64),
+        delivery_address: {
+          kind: "project",
+          library_id: "library-1",
+          project_id: "project-other",
+        },
+        authorization_scope: {
+          kind: "project",
+          library_id: "library-1",
+          project_id: "project-other",
+        },
+      }],
+    };
+    const transport = configureEventContract(new UdsHttpTransport(
+      await serveSseFrames(
+        `event: projection-live-opened\ndata: ${JSON.stringify(barrier)}\n\n`,
+      ),
+      "test-capability",
+    ));
+
+    await expect(transport.openProjectionLiveStream(
+      [{ kind: "project", libraryId: "library-1", projectId: "project-1" }],
+      {},
+      () => undefined,
+      () => undefined,
+    )).rejects.toEqual(new CoreEventCompatibilityError(
+      "Core Projection live barrier diverges from its requested scopes",
+    ));
+  });
+
+  test("rejects noncanonical DeliveryAtom requirements", async () => {
     const event: CoreEventEnvelope = {
-      transport_version: 6,
+      transport_version: 8,
       packet: createCoreLocalCommitFixture({
         commitSeq: 2,
-        resources: {
-          block_ids: ["block-b", "block-a"],
-          document_ids: [],
-          database_ids: [],
-        },
+        requiredResources: [
+          { kind: "library", library_id: "library-1" },
+          { kind: "page", page_id: "block-b" },
+          { kind: "page", page_id: "block-a" },
+        ],
         payload: {
           module: "library",
+          library_id: "library-1",
           event: {
             kind: "library_changed",
             database_ids: [],
@@ -485,7 +583,7 @@ describe("UDS Core event replay boundaries", () => {
     });
 
     await expect(subscription.done).rejects.toEqual(
-      new CoreEventCompatibilityError("Authorized semantic effects are invalid"),
+      new CoreEventCompatibilityError("Authorized delivery packet is invalid"),
     );
     expect(deliveries).toBe(0);
   });

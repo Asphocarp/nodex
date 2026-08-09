@@ -21,9 +21,9 @@ use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 use crate::infrastructure::store::SqliteStoreKernel;
 use crate::infrastructure::writer::{StoreReaders, StoreWriter};
 
-mod authorization_loss;
 mod page_projection;
 mod projection_authorization;
+mod read_authorization;
 mod resource_access;
 mod search_snapshot;
 
@@ -215,6 +215,7 @@ impl LibraryModule {
                     contract_version: LIBRARY_CONTRACT_VERSION,
                     store_epoch: StoreEpoch(current_store_epoch),
                     commit_head: current_commit_seq,
+                    authorization: None,
                     value: LibraryReadValue::SearchSnapshotLease {
                         value: Box::new(value),
                     },
@@ -261,6 +262,7 @@ impl LibraryModule {
                 contract_version: LIBRARY_CONTRACT_VERSION,
                 store_epoch: StoreEpoch(store_epoch),
                 commit_head: commit_seq,
+                authorization: None,
                 value: LibraryReadValue::SearchSnapshotLease {
                     value: Box::new(value),
                 },
@@ -293,6 +295,7 @@ impl LibraryModule {
                 contract_version: LIBRARY_CONTRACT_VERSION,
                 store_epoch: StoreEpoch(store_epoch),
                 commit_head: commit_seq,
+                authorization: None,
                 value: LibraryReadValue::SearchSnapshotRelease { value },
             });
         }
@@ -407,7 +410,9 @@ impl LibraryModule {
                             )
                         })?;
                     let commit_seq = navigation::commit_head(&transaction)?;
-                    let value = match request.read {
+                    let read = request.read;
+                    let stamp_read = read.clone();
+                    let value = match read {
                         LibraryRead::Metadata => LibraryReadValue::Metadata {
                             profile_id,
                             library_id,
@@ -469,11 +474,20 @@ impl LibraryModule {
                             read,
                         )?,
                     };
+                    let authorization = read_authorization::issue(
+                        &transaction,
+                        &context,
+                        &store_epoch,
+                        commit_seq,
+                        &stamp_read,
+                        &value,
+                    )?;
                     transaction.commit()?;
                     Ok(ModuleReadSnapshot {
                         contract_version: LIBRARY_CONTRACT_VERSION,
                         store_epoch: StoreEpoch(store_epoch),
                         commit_head: commit_seq,
+                        authorization,
                         value,
                     })
                 })
@@ -498,6 +512,7 @@ impl LibraryModule {
             contract_version: LIBRARY_CONTRACT_VERSION,
             store_epoch: self.store_epoch.clone(),
             commit_head: state.commit_head,
+            authorization: None,
             value,
         })
     }
@@ -937,7 +952,7 @@ mod tests {
         LibraryBlockTransferTarget, LibraryDocumentHead, LibraryNavigationParent,
         LibraryPageFileKind, LibraryPageLifecycleMutation, LibraryPageLifecycleState,
         LibraryPageLifecycleTagOption, LibraryPagePrepareKind, LibraryPageWorkflowStatus,
-        LibraryWriteParent,
+        LibraryPageWriteDestination, LibraryProjectAccessChange, LibraryWriteParent,
     };
     use nodex_core_contracts::workspace::{
         PROJECT_WORKSPACE_CONTRACT_VERSION, ProjectWorkspaceIntent, ProjectWorkspaceThreadPatch,
@@ -945,9 +960,9 @@ mod tests {
         ProjectWorkspaceTurnAuthoritySource,
     };
     use nodex_core_contracts::{
-        AdapterKind, DATABASE_CONTRACT_VERSION, LibraryId, LocalProjectionPatch,
-        LocalProjectionScope, ModuleName, OWNED_DOCUMENT_CONTRACT_VERSION, ProfileId, ProjectId,
-        SemanticEffect,
+        AdapterKind, DATABASE_CONTRACT_VERSION, DeliveryAtomKind, LibraryId, LocalProjectionPatch,
+        LocalProjectionScope, OWNED_DOCUMENT_CONTRACT_VERSION, ProfileId, ProjectId,
+        RevokedResourceKind,
     };
     use rusqlite::params;
     use sha2::{Digest, Sha256};
@@ -970,6 +985,33 @@ mod tests {
             connection_id: "connection-1".to_owned(),
             adapter: AdapterKind::Test,
         }
+    }
+
+    fn prepare_page_move_etag(
+        module: &LibraryModule,
+        context: &BoundModuleContext,
+        page_id: &str,
+    ) -> String {
+        let prepared = module
+            .read(
+                context,
+                ModuleReadRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    read: LibraryRead::PageFile {
+                        page_id: page_id.to_owned(),
+                        file_kind: LibraryPageFileKind::MetaYaml,
+                        prepare: Some(LibraryPagePrepareKind::PageMove { view_id: None }),
+                    },
+                },
+            )
+            .expect("prepare Page move");
+        let LibraryReadValue::PageFile { value } = prepared.value else {
+            panic!("Page move preparation")
+        };
+        value
+            .validators
+            .move_etag
+            .expect("Page move preparation ETag")
     }
 
     fn request(operation_id: &str, page_id: &str) -> ModuleApplyRequest<LibraryIntent> {
@@ -1508,10 +1550,7 @@ mod tests {
             .apply(&persistent_context, archive_request)
             .expect("replay archive");
         assert!(replay.committed.receipt.mutation.duplicate);
-        assert_eq!(
-            replay.event.as_ref().map(|event| event.sequence),
-            Some(archived.committed.event_sequence)
-        );
+        assert!(replay.event.is_none());
 
         let unarchived = module
             .apply(
@@ -1838,10 +1877,7 @@ mod tests {
             .apply(&persistent_context, create_request)
             .expect("replay Page create");
         assert!(replay.committed.receipt.mutation.duplicate);
-        assert_eq!(
-            replay.event.as_ref().map(|event| event.sequence),
-            Some(created.committed.event_sequence)
-        );
+        assert!(replay.event.is_none());
         let LibraryReadValue::PageContent { value } = module
             .read(
                 &persistent_context,
@@ -2731,8 +2767,31 @@ mod tests {
             .expect_err("Project clients cannot perform global View lookup");
         assert_eq!(view_location_error.code, CoreErrorCode::Unauthorized);
 
+        const INTERMEDIATE_PAGE: &str = "page:intermediate";
+        const INTERMEDIATE_DOCUMENT: &str = "document:intermediate";
         const NESTED_PAGE: &str = "page:nested";
         const NESTED_DOCUMENT: &str = "document:nested";
+        module
+            .apply(
+                &persistent_context,
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "create:intermediate-reference-page".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::CreatePage {
+                        page_id: INTERMEDIATE_PAGE.to_owned(),
+                        document_id: INTERMEDIATE_DOCUMENT.to_owned(),
+                        title: "Intermediate reference".to_owned(),
+                        parent: LibraryWriteParent::Page {
+                            page_id: ROOT_PAGE.to_owned(),
+                            expected_document_generation: 1,
+                            expected_document_head_seq: 1,
+                            before: None,
+                        },
+                    },
+                },
+            )
+            .expect("create intermediate reference Page");
         module
             .apply(
                 &persistent_context,
@@ -2745,7 +2804,7 @@ mod tests {
                         document_id: NESTED_DOCUMENT.to_owned(),
                         title: "Nested reference".to_owned(),
                         parent: LibraryWriteParent::Page {
-                            page_id: ROOT_PAGE.to_owned(),
+                            page_id: INTERMEDIATE_PAGE.to_owned(),
                             expected_document_generation: 1,
                             expected_document_head_seq: 1,
                             before: None,
@@ -2799,8 +2858,9 @@ mod tests {
         else {
             panic!("available Page ownership path");
         };
-        assert_eq!(ancestors.len(), 1);
+        assert_eq!(ancestors.len(), 2);
         assert_eq!(ancestors[0].page_id, ROOT_PAGE);
+        assert_eq!(ancestors[1].page_id, INTERMEDIATE_PAGE);
         let project_two_context = BoundModuleContext {
             project_id: Some(ProjectId("project-2".to_owned())),
             connection_id: "connection:reference-project".to_owned(),
@@ -2855,7 +2915,7 @@ mod tests {
                 },
             )
             .expect("grant nested Page");
-        let LibraryReadValue::PageTarget { value } = module
+        let authorized_target = module
             .read(
                 &project_two_context,
                 ModuleReadRequest {
@@ -2865,9 +2925,28 @@ mod tests {
                     },
                 },
             )
-            .expect("authorized Page target")
-            .value
-        else {
+            .expect("authorized Page target");
+        let stamp = authorized_target
+            .authorization
+            .as_ref()
+            .expect("Core-issued Page target authorization stamp");
+        assert_eq!(stamp.covered_commit_seq, authorized_target.commit_head);
+        assert_eq!(stamp.store_epoch, authorized_target.store_epoch);
+        assert_eq!(
+            stamp.delivery_address,
+            nodex_core_contracts::events::DeliveryAddress::Project {
+                library_id: "library-1".to_owned(),
+                project_id: "project-2".to_owned(),
+            }
+        );
+        assert_eq!(
+            stamp.authorization_dependencies,
+            vec![nodex_core_contracts::events::ResourceKey::Page {
+                page_id: NESTED_PAGE.to_owned(),
+            }]
+        );
+        assert_eq!(stamp.stamp_hash.len(), 64);
+        let LibraryReadValue::PageTarget { value } = authorized_target.value else {
             panic!("Page target");
         };
         assert!(matches!(
@@ -2917,6 +2996,61 @@ mod tests {
                 },
             )
             .expect("grant root Page");
+        let overlapping_stamp = module
+            .read(
+                &project_two_context,
+                ModuleReadRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    read: LibraryRead::PageDetail {
+                        page_id: NESTED_PAGE.to_owned(),
+                    },
+                },
+            )
+            .expect("overlapping grants authorize nested Page detail")
+            .authorization
+            .expect("overlapping-grant Page detail stamp");
+        assert_eq!(overlapping_stamp.authorization_dependencies.len(), 3);
+        for page_id in [NESTED_PAGE, INTERMEDIATE_PAGE, ROOT_PAGE] {
+            assert!(overlapping_stamp.authorization_dependencies.contains(
+                &nodex_core_contracts::events::ResourceKey::Page {
+                    page_id: page_id.to_owned(),
+                },
+            ));
+        }
+        module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "revoke:nested-reference-page".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::SetProjectAccess {
+                        target: LibraryResourceTarget::Page {
+                            page_id: NESTED_PAGE.to_owned(),
+                        },
+                        changes: vec![LibraryProjectAccessChange {
+                            project_id: "project-2".to_owned(),
+                            access: None,
+                            expected_revision: Some(1),
+                        }],
+                    },
+                },
+            )
+            .expect("revoke nested direct grant");
+        let ancestor_authorized_detail = module
+            .read(
+                &project_two_context,
+                ModuleReadRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    read: LibraryRead::PageDetail {
+                        page_id: NESTED_PAGE.to_owned(),
+                    },
+                },
+            )
+            .expect("ancestor grant authorizes nested Page detail");
+        let ancestor_stamp = ancestor_authorized_detail
+            .authorization
+            .expect("ancestor-authorized Page detail stamp");
         let LibraryReadValue::PageOwnershipPath { value } = module
             .read(
                 &project_two_context,
@@ -2939,8 +3073,263 @@ mod tests {
         else {
             panic!("available Page ownership path");
         };
-        assert_eq!(ancestors.len(), 1);
+        assert_eq!(ancestors.len(), 2);
         assert_eq!(ancestors[0].page_id, ROOT_PAGE);
+        assert_eq!(ancestors[1].page_id, INTERMEDIATE_PAGE);
+        let granted_intermediate = module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "grant:intermediate-reference-page".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::GrantProjectAccess {
+                        project_id: "project-2".to_owned(),
+                        target: LibraryResourceTarget::Page {
+                            page_id: INTERMEDIATE_PAGE.to_owned(),
+                        },
+                        access: LibraryAccess::Read,
+                    },
+                },
+            )
+            .expect("grant overlapping intermediate Page access");
+        let overlapping_path_grant_roots = kernel
+            .readers()
+            .read_default(|connection| {
+                connection
+                    .prepare(
+                        "SELECT roots_json FROM local_commit_visibility_deltas \
+                         WHERE commit_seq = ?1 AND delta_kind = 'grant' \
+                         ORDER BY scope_key, delta_hash",
+                    )?
+                    .query_map([granted_intermediate.committed.receipt.commit_seq], |row| {
+                        row.get::<_, String>(0)
+                    })?
+                    .collect::<rusqlite::Result<Vec<_>>>()
+                    .map_err(StoreError::from)
+            })
+            .expect("read overlapping-path grant visibility roots");
+        assert!(overlapping_path_grant_roots.iter().any(|encoded| {
+            serde_json::from_str::<Vec<nodex_core_contracts::events::ResourceKey>>(encoded)
+                .expect("visibility roots")
+                .iter()
+                .any(|root| {
+                    root == &nodex_core_contracts::events::ResourceKey::Page {
+                        page_id: INTERMEDIATE_PAGE.to_owned(),
+                    } && ancestor_stamp.authorization_dependencies.contains(root)
+                })
+        }));
+        module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "revoke:intermediate-reference-page".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::SetProjectAccess {
+                        target: LibraryResourceTarget::Page {
+                            page_id: INTERMEDIATE_PAGE.to_owned(),
+                        },
+                        changes: vec![LibraryProjectAccessChange {
+                            project_id: "project-2".to_owned(),
+                            access: None,
+                            expected_revision: Some(1),
+                        }],
+                    },
+                },
+            )
+            .expect("remove overlapping intermediate Page access");
+        let moved_intermediate = module
+            .apply(
+                &persistent_context,
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "move:intermediate-reference-page".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::MovePage {
+                        page_id: INTERMEDIATE_PAGE.to_owned(),
+                        destination: LibraryPageWriteDestination::Library { at: None },
+                        expected_etag: prepare_page_move_etag(
+                            &module,
+                            &persistent_context,
+                            INTERMEDIATE_PAGE,
+                        ),
+                    },
+                },
+            )
+            .expect("move intermediate Page outside the granted ownership path");
+        let moved_intermediate_manifest = kernel
+            .readers()
+            .read_default(|connection| {
+                local_commit::read_manifest(
+                    connection,
+                    moved_intermediate.committed.receipt.commit_seq,
+                )
+            })
+            .expect("read intermediate-move Manifest");
+        assert!(
+            moved_intermediate_manifest
+                .revocations
+                .iter()
+                .any(|revocation| {
+                    revocation.resource_kind == RevokedResourceKind::Page
+                        && revocation.resource_id == INTERMEDIATE_PAGE
+                })
+        );
+        assert!(
+            moved_intermediate_manifest
+                .revocations
+                .iter()
+                .any(|revocation| {
+                    revocation.resource_kind == RevokedResourceKind::Page
+                        && ancestor_stamp.authorization_dependencies.contains(
+                            &nodex_core_contracts::events::ResourceKey::Page {
+                                page_id: revocation.resource_id.clone(),
+                            },
+                        )
+                })
+        );
+        let moved_intermediate_delta_roots = kernel
+            .readers()
+            .read_default(|connection| {
+                connection
+                    .prepare(
+                        "SELECT roots_json FROM local_commit_visibility_deltas \
+                         WHERE commit_seq = ?1 AND delta_kind = 'revoke' \
+                         ORDER BY scope_key, delta_hash",
+                    )?
+                    .query_map([moved_intermediate.committed.receipt.commit_seq], |row| {
+                        row.get::<_, String>(0)
+                    })?
+                    .collect::<rusqlite::Result<Vec<_>>>()
+                    .map_err(StoreError::from)
+            })
+            .expect("read intermediate-move visibility roots");
+        assert!(moved_intermediate_delta_roots.iter().any(|encoded| {
+            serde_json::from_str::<Vec<nodex_core_contracts::events::ResourceKey>>(encoded)
+                .expect("visibility roots")
+                .contains(&nodex_core_contracts::events::ResourceKey::Project {
+                    project_id: "project-2".to_owned(),
+                })
+        }));
+        let revoked_ancestor = module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "revoke:root-reference-page".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::SetProjectAccess {
+                        target: LibraryResourceTarget::Page {
+                            page_id: ROOT_PAGE.to_owned(),
+                        },
+                        changes: vec![LibraryProjectAccessChange {
+                            project_id: "project-2".to_owned(),
+                            access: None,
+                            expected_revision: Some(1),
+                        }],
+                    },
+                },
+            )
+            .expect("revoke ancestor grant");
+        let ancestor_manifest = kernel
+            .readers()
+            .read_default(|connection| {
+                local_commit::read_manifest(
+                    connection,
+                    revoked_ancestor.committed.receipt.commit_seq,
+                )
+            })
+            .expect("read ancestor-revoke Manifest");
+        assert!(ancestor_manifest.revocations.iter().any(|revocation| {
+            revocation.resource_kind == RevokedResourceKind::Page
+                && revocation.resource_id == ROOT_PAGE
+        }));
+        assert!(ancestor_manifest.revocations.iter().any(|revocation| {
+            revocation.resource_kind == RevokedResourceKind::Page
+                && ancestor_stamp.authorization_dependencies.contains(
+                    &nodex_core_contracts::events::ResourceKey::Page {
+                        page_id: revocation.resource_id.clone(),
+                    },
+                )
+        }));
+        module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "grant:reference-database".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::GrantProjectAccess {
+                        project_id: "project-2".to_owned(),
+                        target: LibraryResourceTarget::Database {
+                            database_id: DATABASE.to_owned(),
+                        },
+                        access: LibraryAccess::Read,
+                    },
+                },
+            )
+            .expect("grant reference Database");
+        let membership_stamp = module
+            .read(
+                &project_two_context,
+                ModuleReadRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    read: LibraryRead::PageDetail {
+                        page_id: ROW_PAGE.to_owned(),
+                    },
+                },
+            )
+            .expect("Database grant authorizes member Page detail")
+            .authorization
+            .expect("Database-authorized Page detail stamp");
+        assert!(membership_stamp.authorization_dependencies.contains(
+            &nodex_core_contracts::events::ResourceKey::Page {
+                page_id: ROW_PAGE.to_owned(),
+            },
+        ));
+        assert!(membership_stamp.authorization_dependencies.contains(
+            &nodex_core_contracts::events::ResourceKey::Database {
+                database_id: DATABASE.to_owned(),
+            },
+        ));
+        let revoked_database = module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "revoke:reference-database".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::SetProjectAccess {
+                        target: LibraryResourceTarget::Database {
+                            database_id: DATABASE.to_owned(),
+                        },
+                        changes: vec![LibraryProjectAccessChange {
+                            project_id: "project-2".to_owned(),
+                            access: None,
+                            expected_revision: Some(1),
+                        }],
+                    },
+                },
+            )
+            .expect("revoke reference Database");
+        let database_manifest = kernel
+            .readers()
+            .read_default(|connection| {
+                local_commit::read_manifest(
+                    connection,
+                    revoked_database.committed.receipt.commit_seq,
+                )
+            })
+            .expect("read Database-revoke Manifest");
+        assert!(database_manifest.revocations.iter().any(|revocation| {
+            revocation.resource_kind == RevokedResourceKind::Database
+                && membership_stamp.authorization_dependencies.contains(
+                    &nodex_core_contracts::events::ResourceKey::Database {
+                        database_id: revocation.resource_id.clone(),
+                    },
+                )
+        }));
         let missing_project_context = BoundModuleContext {
             project_id: Some(ProjectId("project:missing".to_owned())),
             connection_id: "connection:missing-project".to_owned(),
@@ -2999,7 +3388,7 @@ mod tests {
                     read: LibraryRead::Children {
                         parent: LibraryNavigationParent::Library,
                         cursor: Some(cursor),
-                        limit: Some(1),
+                        limit: Some(2),
                         force_include_target: None,
                     },
                 },
@@ -3009,7 +3398,7 @@ mod tests {
         else {
             panic!("paged roots continuation");
         };
-        assert_eq!(items.len(), 1);
+        assert_eq!(items.len(), 2);
         assert_eq!(next_cursor, None);
         assert!(!has_more);
     }
@@ -3696,9 +4085,24 @@ mod tests {
                     "UPDATE projects SET database_block_id = ?1 WHERE id = 'project-1'",
                     [DATABASE],
                 )?;
+                connection.execute(
+                    "INSERT INTO projects(id, library_id, name, created, updated)
+                     VALUES ('project-shared', 'library-1', 'Shared reader', ?1, ?1)",
+                    [NOW],
+                )?;
+                connection.execute(
+                    "INSERT INTO project_resource_grants(
+                       id, project_id, library_id, root_kind, root_id, access,
+                       recursive, revision, lifecycle, created_at, updated_at
+                     ) VALUES (
+                       'grant-shared-database', 'project-shared', 'library-1',
+                       'database', ?1, 'read', 1, 1, 'active', ?2, ?2
+                     )",
+                    params![DATABASE, NOW],
+                )?;
                 Ok(())
             })
-            .expect("bind primary Database");
+            .expect("bind primary Database and shared audience");
         let roots = kernel
             .readers()
             .read_default(|connection| {
@@ -3852,30 +4256,14 @@ mod tests {
                 local_commit::read_manifest(connection, promoted.committed.commit_seq)
             })
             .expect("promotion CommitManifest");
-        assert_eq!(promotion_commit.semantic_effects.len(), 3);
-        assert_eq!(
-            promotion_commit
-                .semantic_effects
-                .iter()
-                .filter(|effect| matches!(
-                    effect,
-                    SemanticEffect::ModuleChanged {
-                        module: ModuleName::OwnedDocument,
-                        ..
-                    }
-                ))
-                .count(),
-            2
+        assert_eq!(promotion_commit.physical_evidence.effect_count, 3);
+        assert!(
+            !promotion_commit.delivery_atoms.is_empty()
+                && promotion_commit
+                    .delivery_atoms
+                    .iter()
+                    .all(|atom| { atom.kind == DeliveryAtomKind::LibraryNavigationChanged })
         );
-        assert!(matches!(
-            promotion_commit
-                .semantic_effects
-                .last()
-                .map(|effect| match effect {
-                    SemanticEffect::ModuleChanged { module, .. } => module,
-                }),
-            Some(ModuleName::Library)
-        ));
         assert_eq!(
             promotion_commit.identity.commit_seq,
             promoted.committed.commit_seq,
@@ -4822,46 +5210,14 @@ mod tests {
             })
             .expect("moved Data Source CommitManifest");
         assert_eq!(moved_result.document_commits.len(), 2);
-        assert_eq!(moved_commit.semantic_effects.len(), 3);
-        assert_eq!(
-            moved_commit
-                .semantic_effects
-                .iter()
-                .filter(|effect| matches!(
-                    effect,
-                    SemanticEffect::ModuleChanged {
-                        module: ModuleName::OwnedDocument,
-                        ..
-                    }
-                ))
-                .count(),
-            2
+        assert_eq!(moved_commit.physical_evidence.effect_count, 3);
+        assert!(
+            !moved_commit.delivery_atoms.is_empty()
+                && moved_commit
+                    .delivery_atoms
+                    .iter()
+                    .all(|atom| { atom.kind == DeliveryAtomKind::LibraryNavigationChanged })
         );
-        assert!(matches!(
-            moved_commit
-                .semantic_effects
-                .last()
-                .map(|effect| match effect {
-                    SemanticEffect::ModuleChanged { module, .. } => module,
-                }),
-            Some(ModuleName::Library)
-        ));
-        let library_projection_impact = moved_commit
-            .semantic_effects
-            .iter()
-            .find_map(|effect| match effect {
-                SemanticEffect::ModuleChanged {
-                    module: ModuleName::Library,
-                    projection_impact,
-                    ..
-                } => Some(projection_impact),
-                SemanticEffect::ModuleChanged { .. } => None,
-            })
-            .expect("Library projection impact");
-        assert!(matches!(
-            library_projection_impact,
-            ProjectionImpact::Resources { view_ids, .. } if view_ids == &[VIEW.to_owned()]
-        ));
         let promoted_page_id = moved_result
             .result_root_block_ids
             .first()
@@ -4872,13 +5228,30 @@ mod tests {
             .find(|effect| {
                 matches!(
                     &effect.scope.scope,
-                    LocalProjectionScope::DatabaseView { view_id, .. } if view_id == VIEW
+                    LocalProjectionScope::DatabaseView { project_id, view_id, .. }
+                        if project_id == "project-1" && view_id == VIEW
                 )
             })
             .expect("exact Database View projection effect");
         assert!(view_effect.requires_read_at_least);
         assert!(matches!(
             &view_effect.patch,
+            Some(LocalProjectionPatch::DatabaseRowUpsert { row, .. })
+                if &row.page_id == promoted_page_id
+        ));
+        let shared_effect = moved_commit
+            .projection_effects
+            .iter()
+            .find(|effect| {
+                matches!(
+                    &effect.scope.scope,
+                    LocalProjectionScope::DatabaseView { project_id, view_id, .. }
+                        if project_id == "project-shared" && view_id == VIEW
+                )
+            })
+            .expect("shared Project projection gain effect");
+        assert!(matches!(
+            &shared_effect.patch,
             Some(LocalProjectionPatch::DatabaseRowUpsert { row, .. })
                 if &row.page_id == promoted_page_id
         ));
@@ -5048,32 +5421,27 @@ mod tests {
             .apply(&persistent_context, request)
             .expect("replay mixed Properties");
         assert!(replay.committed.receipt.mutation.duplicate);
-        assert_eq!(
-            replay.event.as_ref().map(|event| event.sequence),
-            Some(committed.committed.event_sequence)
-        );
+        assert!(replay.event.is_none());
 
+        let rejected_request = ModuleApplyRequest {
+            contract_version: LIBRARY_CONTRACT_VERSION,
+            operation_id: "property:conflict".to_owned(),
+            store_epoch: StoreEpoch("epoch-1".to_owned()),
+            intent: LibraryIntent::ApplyBlockPropertyMutation {
+                mutation: Box::new(LibraryBlockPropertyMutation {
+                    actor: serde_json::json!({ "kind": "test" }),
+                    client_session_id: None,
+                    fields: vec![LibraryBlockPropertyFieldMutation::IntrinsicSet {
+                        block_id: PAGE.to_owned(),
+                        property_key: "run.target".to_owned(),
+                        expected_revision: 1,
+                        value: serde_json::json!("newWorktree"),
+                    }],
+                }),
+            },
+        };
         let rejected = module
-            .apply(
-                &persistent_context,
-                ModuleApplyRequest {
-                    contract_version: LIBRARY_CONTRACT_VERSION,
-                    operation_id: "property:conflict".to_owned(),
-                    store_epoch: StoreEpoch("epoch-1".to_owned()),
-                    intent: LibraryIntent::ApplyBlockPropertyMutation {
-                        mutation: Box::new(LibraryBlockPropertyMutation {
-                            actor: serde_json::json!({ "kind": "test" }),
-                            client_session_id: None,
-                            fields: vec![LibraryBlockPropertyFieldMutation::IntrinsicSet {
-                                block_id: PAGE.to_owned(),
-                                property_key: "run.target".to_owned(),
-                                expected_revision: 1,
-                                value: serde_json::json!("newWorktree"),
-                            }],
-                        }),
-                    },
-                },
-            )
+            .apply(&persistent_context, rejected_request.clone())
             .expect("conflict has a durable rejected outcome");
         assert_eq!(
             rejected.committed.receipt.commit_seq,
@@ -5094,6 +5462,43 @@ mod tests {
         ));
         assert!(rejected.event.is_none());
 
+        let unrelated = module
+            .apply(
+                &persistent_context,
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "property:after-conflict".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::ApplyBlockPropertyMutation {
+                        mutation: Box::new(LibraryBlockPropertyMutation {
+                            actor: serde_json::json!({ "kind": "test" }),
+                            client_session_id: None,
+                            fields: vec![LibraryBlockPropertyFieldMutation::IntrinsicSet {
+                                block_id: PAGE.to_owned(),
+                                property_key: "run.target".to_owned(),
+                                expected_revision: 2,
+                                value: serde_json::json!("localProject"),
+                            }],
+                        }),
+                    },
+                },
+            )
+            .expect("commit unrelated Property after rejection");
+        assert!(unrelated.committed.commit_seq > rejected.committed.commit_seq);
+        let rejected_replay = module
+            .apply(&persistent_context, rejected_request)
+            .expect("replay conflict after unrelated commit");
+        assert_eq!(
+            rejected_replay.committed.commit_seq,
+            rejected.committed.commit_seq
+        );
+        assert_eq!(
+            rejected_replay.committed.store_epoch,
+            rejected.committed.store_epoch
+        );
+        assert!(rejected_replay.committed.receipt.mutation.duplicate);
+        assert!(rejected_replay.event.is_none());
+
         let invalid_actor_request = ModuleApplyRequest {
             contract_version: LIBRARY_CONTRACT_VERSION,
             operation_id: "property:invalid-actor".to_owned(),
@@ -5105,7 +5510,7 @@ mod tests {
                     fields: vec![LibraryBlockPropertyFieldMutation::IntrinsicSet {
                         block_id: PAGE.to_owned(),
                         property_key: "run.target".to_owned(),
-                        expected_revision: 2,
+                        expected_revision: 3,
                         value: serde_json::json!("localProject"),
                     }],
                 }),
@@ -5163,9 +5568,9 @@ mod tests {
                 assert_eq!(
                     evidence,
                     (
-                        2,
-                        "\"cloud\"".to_owned(),
-                        2,
+                        3,
+                        "\"localProject\"".to_owned(),
+                        3,
                         "\"/tmp/nodex\"".to_owned(),
                         2,
                         1,
@@ -5433,8 +5838,8 @@ mod tests {
                             fields: vec![LibraryBlockPropertyFieldMutation::IntrinsicSet {
                                 block_id: PAGE.to_owned(),
                                 property_key: "run.target".to_owned(),
-                                expected_revision: 2,
-                                value: serde_json::json!("localProject"),
+                                expected_revision: 3,
+                                value: serde_json::json!("cloud"),
                             }],
                         }),
                     },
@@ -5459,12 +5864,16 @@ mod agent_page_write;
 mod agent_search;
 mod block_transfer;
 pub use block_transfer::BlockTransferMetrics;
+mod authorization;
 mod canvas_mutation;
 mod content;
 mod content_rehome;
 pub(crate) mod cursor;
 mod history;
-pub(crate) use history::{require_page_read_access, require_page_write_access};
+pub(crate) use authorization::page_grant_ownership_proof;
+pub(crate) use history::{
+    page_read_authorization_roots, require_page_read_access, require_page_write_access,
+};
 pub(crate) use page_copy::{OccurrencePageCloneInput, clone_page_for_occurrence};
 mod mutation;
 mod navigation;

@@ -1,11 +1,12 @@
 use std::collections::{BTreeMap, BTreeSet};
 
+use nodex_core_contracts::administration::StoreAdministrationEvent;
 use nodex_core_contracts::events::{
-    CommitIdentity, CommitManifest, DeliveryAuthorizationScope, DocumentEffectRef,
-    DocumentEffectResourceKind, LocalCommitReceiptRef, LocalCommitResources, LocalProjectionPatch,
-    LocalProjectionScope, PageDocumentHeadImpact, PhysicalEvidenceDigest, ProjectionEffect,
-    ProjectionImpact, ResourceRevocation, ResourceRevocationReason, RevokedResourceKind,
-    RoutingClaim, SemanticEffect,
+    CommitIdentity, CommitManifest, DeliveryAtomDescriptor, DeliveryAtomKind, DeliveryAtomPayload,
+    DeliveryAuthorizationScope, DocumentEffectRef, DocumentEffectResourceKind,
+    LocalCommitReceiptRef, LocalProjectionPatch, LocalProjectionScope, PageDocumentHeadImpact,
+    PhysicalEvidenceDigest, ProjectionEffect, ProjectionImpact, ResourceKey, ResourceRevocation,
+    ResourceRevocationReason, RevokedResourceKind, RoutingClaim,
 };
 use nodex_core_contracts::{CORE_EVENT_VERSION, ModuleName, StoreEpoch};
 use rusqlite::{Connection, OptionalExtension, params};
@@ -17,7 +18,7 @@ use super::projection_impact::{canonicalize, decode, encode};
 use super::projection_scope_head;
 use super::sqlite::{StoreError, StoreErrorCode};
 
-const CANONICAL_HASH_VERSION: u32 = 5;
+const CANONICAL_HASH_VERSION: u32 = 7;
 const PROJECTION_SCHEMA_VERSION: u32 = 1;
 const MIGRATION_PROGRESS_STEPS: u64 = 20;
 const MIGRATION_BATCH_SIZE: i64 = 512;
@@ -28,6 +29,16 @@ const PHYSICAL_EFFECT_EVIDENCE_SQL: &str =
             change.payload_json, effect.projection_impact_json
      FROM local_commit_effects effect
      JOIN change_log change ON change.seq = effect.change_log_seq
+     WHERE effect.store_epoch = ?1 AND effect.commit_seq = ?2
+     ORDER BY effect.effect_order ASC";
+const LIBRARY_EFFECT_EVIDENCE_SQL: &str =
+    "SELECT effect.effect_order, effect.library_id, effect.module_name,
+            effect.effect_kind, effect.operation_id, effect.payload_json,
+            effect.payload_hash, parent.operation_id
+     FROM local_commit_library_effects effect
+     JOIN local_commits parent
+       ON parent.store_epoch = effect.store_epoch
+      AND parent.commit_seq = effect.commit_seq
      WHERE effect.store_epoch = ?1 AND effect.commit_seq = ?2
      ORDER BY effect.effect_order ASC";
 const CANONICAL_DOCUMENT_EFFECTS_SQL: &str =
@@ -41,6 +52,12 @@ const CANONICAL_REVOCATIONS_SQL: &str =
      FROM local_commit_revocations
      WHERE store_epoch = ?1 AND commit_seq = ?2
      ORDER BY scope_key ASC, resource_kind ASC, resource_id ASC";
+const CANONICAL_DELIVERY_ATOMS_SQL: &str =
+    "SELECT atom_order, atom_id, atom_kind, required_resources_json,
+            payload_json, payload_hash
+     FROM local_commit_delivery_atoms
+     WHERE store_epoch = ?1 AND commit_seq = ?2
+     ORDER BY atom_order ASC";
 const MIGRATED_RECEIPT_SQL: &str = "SELECT module_name, operation_id, result_json, request_hash
      FROM core_module_receipts
      WHERE store_epoch = ?1 AND local_commit_seq = ?2
@@ -146,9 +163,18 @@ pub(crate) struct RegisteredPhysicalEffect<'a> {
     pub module: ModuleName,
     pub kind: &'a str,
     pub operation_id: Option<&'a str>,
-    pub resources: &'a LocalCommitResources,
+    pub resources: &'a PhysicalEffectResources,
     pub payload_hash: &'a str,
     pub projection_impact: &'a ProjectionImpact,
+}
+
+/// Private PhysicalJournal routing evidence. This is deliberately not part of
+/// the Core contract: renderer delivery is described only by DeliveryAtoms.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub(crate) struct PhysicalEffectResources {
+    pub block_ids: Vec<String>,
+    pub document_ids: Vec<String>,
+    pub database_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -180,8 +206,25 @@ pub(crate) struct LocalCommitRow {
 
 pub(crate) struct VerifiedCommit {
     pub manifest: CommitManifest,
+    pub(crate) sealed_projection_effects: Vec<SealedProjectionEffect>,
+    #[cfg(test)]
     pub physical_effects: Vec<PhysicalEffectEvidence>,
+    pub delivery_atoms: Vec<StoredDeliveryAtom>,
     document_effects: Vec<CanonicalDocumentEffect>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct StoredDeliveryAtom {
+    pub descriptor: DeliveryAtomDescriptor,
+    pub payload: DeliveryAtomPayload,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub(crate) struct SealedProjectionEffect {
+    pub transition: ProjectionEffect,
+    pub subject: ResourceKey,
+    pub required_resources: Vec<ResourceKey>,
+    pub patch_hash: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -193,13 +236,24 @@ struct CanonicalManifest<'a> {
     operation_id: &'a str,
     intent_hash: &'a str,
     committed_at: &'a str,
-    semantic_effects: &'a [SemanticEffect],
+    delivery_atoms: &'a [DeliveryAtomDescriptor],
     document_effects: &'a [DocumentEffectRef],
     projection_effects: &'a [ProjectionEffect],
+    sealed_projection_effects: &'a [SealedProjectionEffect],
+    visibility_deltas: &'a [CanonicalVisibilityDeltaEvidence],
     revocations: &'a [ResourceRevocation],
     receipt: &'a LocalCommitReceiptRef,
     routing_claims: &'a [RoutingClaim],
     physical_evidence: &'a PhysicalEvidenceDigest,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+struct CanonicalVisibilityDeltaEvidence {
+    scope_key: String,
+    authorization_scope_json: String,
+    delta_kind: String,
+    roots_json: String,
+    delta_hash: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -210,9 +264,37 @@ struct CanonicalPhysicalEffect {
     module: ModuleName,
     kind: String,
     operation_id: Option<String>,
-    resources: LocalCommitResources,
+    resources: PhysicalEffectResources,
     payload_hash: String,
     projection_impact: ProjectionImpact,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+struct CanonicalLibraryEffect {
+    effect_order: i64,
+    library_id: String,
+    module: ModuleName,
+    kind: String,
+    operation_id: String,
+    payload: StoreAdministrationEvent,
+    payload_hash: String,
+}
+
+#[derive(Serialize)]
+struct CanonicalPhysicalEvidence<'a> {
+    physical_effects: &'a [CanonicalPhysicalEffect],
+    library_effects: &'a [CanonicalLibraryEffect],
+}
+
+#[derive(Serialize)]
+struct CanonicalAtomIdentity<'a> {
+    hash_version: u32,
+    store_epoch: &'a str,
+    commit_seq: i64,
+    atom_order: i64,
+    kind: DeliveryAtomKind,
+    required_resources: &'a [ResourceKey],
+    payload_hash: &'a str,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -237,7 +319,7 @@ pub(crate) type PhysicalEffectEvidence = (
     ModuleName,
     String,
     Option<String>,
-    LocalCommitResources,
+    PhysicalEffectResources,
     String,
     ProjectionImpact,
 );
@@ -260,7 +342,7 @@ struct MigratedReceiptEvidence {
     intent_hash: Option<String>,
 }
 
-pub(crate) fn begin(
+pub(super) fn allocate(
     connection: &Connection,
     store_epoch: &str,
     operation_id: &str,
@@ -325,6 +407,26 @@ pub(crate) fn begin(
     })
 }
 
+// Test fixtures outside `infrastructure` may construct historical/corruption
+// scenarios. Production domain modules cannot allocate LocalCommits directly;
+// their only lifecycle entry point is `durable_mutation::run`.
+#[cfg(test)]
+pub(crate) fn begin(
+    connection: &Connection,
+    store_epoch: &str,
+    operation_id: &str,
+    intent_hash: &str,
+    committed_at: &str,
+) -> Result<CommitContext, StoreError> {
+    allocate(
+        connection,
+        store_epoch,
+        operation_id,
+        intent_hash,
+        committed_at,
+    )
+}
+
 pub(crate) fn record_effect(
     connection: &Connection,
     context: &CommitContext,
@@ -384,12 +486,140 @@ pub(crate) fn record_effect(
     Ok(effect_order)
 }
 
+/// Records a semantic Store Administration change at Library scope without
+/// fabricating a Project-owned change-log row. The typed payload is retained
+/// as immutable private evidence and compiled into a Library-authorized atom
+/// only when the enclosing LocalCommit seals.
+pub(crate) fn record_administration_effect(
+    connection: &Connection,
+    context: &CommitContext,
+    library_id: &str,
+    event: &StoreAdministrationEvent,
+) -> Result<i64, StoreError> {
+    assert_open(connection, context)?;
+    validate_identity(library_id, "Store Administration effect Library")?;
+    let library_exists: bool = connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM libraries WHERE id = ?1)",
+        [library_id],
+        |row| row.get(0),
+    )?;
+    if !library_exists {
+        return Err(corrupt(
+            "Store Administration effect Library does not exist",
+        ));
+    }
+    let payload_json = serde_json::to_string(event)
+        .map_err(|_| corrupt("Store Administration effect payload is invalid"))?;
+    let payload_hash = sha256(payload_json.as_bytes());
+    let effect_order: i64 = connection.query_row(
+        "SELECT COALESCE(MAX(effect_order), -1) + 1
+         FROM local_commit_library_effects
+         WHERE store_epoch = ?1 AND commit_seq = ?2",
+        params![context.store_epoch, context.commit_seq],
+        |row| row.get(0),
+    )?;
+    connection.execute(
+        "INSERT INTO local_commit_library_effects(
+           store_epoch, commit_seq, effect_order, library_id, module_name,
+           effect_kind, operation_id, payload_json, payload_hash
+         ) VALUES (?1, ?2, ?3, ?4, 'store_administration',
+                   'store_administration.changed', ?5, ?6, ?7)",
+        params![
+            context.store_epoch,
+            context.commit_seq,
+            effect_order,
+            library_id,
+            context.operation_id,
+            payload_json,
+            payload_hash,
+        ],
+    )?;
+    Ok(effect_order)
+}
+
+pub(crate) fn record_delivery_atoms(
+    connection: &Connection,
+    context: &CommitContext,
+    drafts: impl IntoIterator<Item = super::delivery_atom::DeliveryAtomDraft>,
+) -> Result<(), StoreError> {
+    assert_open(connection, context)?;
+    let mut atom_order: i64 = connection.query_row(
+        "SELECT COALESCE(MAX(atom_order), -1) + 1
+         FROM local_commit_delivery_atoms WHERE store_epoch = ?1 AND commit_seq = ?2",
+        params![context.store_epoch, context.commit_seq],
+        |row| row.get(0),
+    )?;
+    for draft in drafts {
+        let mut required_resources = draft.required_resources;
+        required_resources.sort();
+        required_resources.dedup();
+        if required_resources.is_empty()
+            || super::delivery_atom::payload_claims(&draft.payload)? != required_resources
+        {
+            return Err(corrupt(
+                "DeliveryAtom payload claims and authorization requirements diverge",
+            ));
+        }
+        let payload_json = serde_json::to_string(&draft.payload)
+            .map_err(|_| corrupt("DeliveryAtom payload is invalid"))?;
+        let payload_hash = sha256(payload_json.as_bytes());
+        let atom_id = atom_identity(
+            context,
+            atom_order,
+            draft.kind,
+            &required_resources,
+            &payload_hash,
+        )?;
+        connection.execute(
+            "INSERT INTO local_commit_delivery_atoms(
+               store_epoch, commit_seq, atom_order, atom_id, atom_kind,
+               required_resources_json, payload_json, payload_hash
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![
+                context.store_epoch,
+                context.commit_seq,
+                atom_order,
+                atom_id,
+                delivery_atom_kind_name(draft.kind),
+                serde_json::to_string(&required_resources)
+                    .map_err(|_| corrupt("DeliveryAtom requirements are invalid"))?,
+                payload_json,
+                payload_hash,
+            ],
+        )?;
+        atom_order = atom_order
+            .checked_add(1)
+            .ok_or_else(|| corrupt("DeliveryAtom order overflowed"))?;
+    }
+    Ok(())
+}
+
+fn atom_identity(
+    context: &CommitContext,
+    atom_order: i64,
+    kind: DeliveryAtomKind,
+    required_resources: &[ResourceKey],
+    payload_hash: &str,
+) -> Result<String, StoreError> {
+    let encoded = serde_json::to_vec(&CanonicalAtomIdentity {
+        hash_version: 1,
+        store_epoch: &context.store_epoch,
+        commit_seq: context.commit_seq,
+        atom_order,
+        kind,
+        required_resources,
+        payload_hash,
+    })
+    .map_err(|_| corrupt("DeliveryAtom identity is invalid"))?;
+    Ok(sha256(&encoded))
+}
+
 fn canonicalize_identities(identities: &mut Vec<String>) {
     identities.sort();
     identities.dedup();
 }
 
-fn canonicalize_resources(mut resources: LocalCommitResources) -> LocalCommitResources {
+fn canonicalize_resources(mut resources: PhysicalEffectResources) -> PhysicalEffectResources {
     canonicalize_identities(&mut resources.block_ids);
     canonicalize_identities(&mut resources.document_ids);
     canonicalize_identities(&mut resources.database_ids);
@@ -575,11 +805,9 @@ pub(crate) fn record_revocation(
     Ok(())
 }
 
-pub(crate) fn finalize(
-    connection: &Connection,
-    context: &CommitContext,
-) -> Result<i64, StoreError> {
+pub(super) fn seal(connection: &Connection, context: &CommitContext) -> Result<i64, StoreError> {
     assert_open(connection, context)?;
+    super::visibility_delta_journal::validate_seal(connection, context)?;
     let effect_count: i64 = connection.query_row(
         "SELECT count(*) FROM local_commit_effects
          WHERE store_epoch = ?1 AND commit_seq = ?2",
@@ -592,13 +820,29 @@ pub(crate) fn finalize(
         params![context.store_epoch, context.commit_seq],
         |row| row.get(0),
     )?;
-    if effect_count == 0 && document_count == 0 {
+    let library_effect_count: i64 = connection.query_row(
+        "SELECT count(*) FROM local_commit_library_effects
+         WHERE store_epoch = ?1 AND commit_seq = ?2",
+        params![context.store_epoch, context.commit_seq],
+        |row| row.get(0),
+    )?;
+    if effect_count == 0 && document_count == 0 && library_effect_count == 0 {
         return Err(corrupt("LocalCommit has no semantic effects"));
     }
 
     let effects = canonical_effects(connection, context.coordinate())?;
+    let library_effects = canonical_library_effects(connection, context.coordinate())?;
     let document_effects = canonical_document_effects(connection, context.coordinate())?;
     let revocations = canonical_revocations(connection, context.coordinate())?;
+    let audience = derive_audience(
+        connection,
+        context.commit_seq,
+        &effects,
+        &library_effects,
+        &document_effects,
+    )?;
+    compile_delivery_atoms(connection, context, &audience, &effects, &library_effects)?;
+    let delivery_atoms = canonical_delivery_atoms(connection, context)?;
     let impact = merged_projection_impact(&effects)?;
     let mut projection = draft_projection(connection, context)?;
     projection.impact = impact.clone();
@@ -611,17 +855,24 @@ pub(crate) fn finalize(
     }
     canonicalize_projection(&mut projection);
     projection.effects = seal_projection_effects(connection, context, &projection)?;
+    let sealed_projection_effects = sealed_projection_effects(&projection.effects)?;
+    persist_sealed_projection_effects(connection, context, &sealed_projection_effects)?;
 
     let receipt = read_required_receipt(connection, context.commit_seq)?;
-    let audience = derive_audience(connection, context.commit_seq, &effects, &document_effects)?;
+    let visibility_deltas = canonical_visibility_deltas(connection, context.coordinate())?;
     let manifest = compile_manifest(
         context,
-        &effects,
-        &document_effects,
-        &projection,
-        &revocations,
-        &receipt,
-        &audience,
+        ManifestEvidence {
+            effects: &effects,
+            library_effects: &library_effects,
+            atoms: &delivery_atoms,
+            documents: &document_effects,
+            projection: &projection,
+            visibility_deltas: &visibility_deltas,
+            revocations: &revocations,
+            receipt: &receipt,
+            audience: &audience,
+        },
     )?;
     let projection_json = serde_json::to_string(&projection)
         .map_err(|_| corrupt("LocalCommit projection is invalid"))?;
@@ -667,6 +918,65 @@ pub(crate) fn finalize(
     Ok(context.commit_seq)
 }
 
+#[cfg(test)]
+pub(crate) fn finalize(
+    connection: &Connection,
+    context: &CommitContext,
+) -> Result<i64, StoreError> {
+    seal(connection, context)
+}
+
+/// Compiles delivery artifacts only after every domain write and supporting
+/// receipt is present. Some owning Modules (notably Canvas) deliberately write
+/// physical evidence before their supporting receipt; compiling at journal
+/// append time would observe a transient, internally inconsistent state.
+fn compile_delivery_atoms(
+    connection: &Connection,
+    context: &CommitContext,
+    audience: &RoutingEvidence,
+    effects: &[CanonicalPhysicalEffect],
+    library_effects: &[CanonicalLibraryEffect],
+) -> Result<(), StoreError> {
+    let existing_count: i64 = connection.query_row(
+        "SELECT count(*) FROM local_commit_delivery_atoms
+         WHERE store_epoch = ?1 AND commit_seq = ?2",
+        params![context.store_epoch, context.commit_seq],
+        |row| row.get(0),
+    )?;
+    if existing_count != 0 {
+        return Err(corrupt(
+            "LocalCommit delivery artifacts were compiled before sealing",
+        ));
+    }
+    for effect in effects {
+        let event =
+            super::event_log::load_committed_event_by_sequence(connection, effect.change_log_seq)?;
+        if event.payload.module_name() != effect.module {
+            return Err(corrupt(
+                "DeliveryAtom source Module diverges from physical evidence",
+            ));
+        }
+        let drafts = super::delivery_atom::compile(
+            connection,
+            &audience.library_id,
+            &effect.project_id,
+            event.payload,
+        )?;
+        record_delivery_atoms(connection, context, drafts)?;
+    }
+    for effect in library_effects {
+        if effect.module != ModuleName::StoreAdministration {
+            return Err(corrupt("Library-scoped effect Module is unsupported"));
+        }
+        let drafts = super::delivery_atom::compile_store_administration(
+            &effect.library_id,
+            effect.payload.clone(),
+        )?;
+        record_delivery_atoms(connection, context, drafts)?;
+    }
+    Ok(())
+}
+
 /// Discards a deliberately unused transaction context for a validated no-op
 /// or rejected mutation. Any registered evidence makes abandonment fail
 /// closed so callers cannot erase a partially built semantic commit.
@@ -679,6 +989,10 @@ pub(crate) fn abandon(connection: &Connection, context: &CommitContext) -> Resul
          + (SELECT count(*) FROM local_commit_documents
              WHERE store_epoch = ?1 AND commit_seq = ?2)
          + (SELECT count(*) FROM local_commit_revocations
+             WHERE store_epoch = ?1 AND commit_seq = ?2)
+         + (SELECT count(*) FROM local_commit_delivery_atoms
+             WHERE store_epoch = ?1 AND commit_seq = ?2)
+         + (SELECT count(*) FROM local_commit_library_effects
              WHERE store_epoch = ?1 AND commit_seq = ?2)
          + (SELECT count(*) FROM core_module_receipts
              WHERE store_epoch = ?1 AND local_commit_seq = ?2)",
@@ -838,6 +1152,124 @@ pub(crate) fn physical_effect_evidence(
         .map_err(|_| corrupt("LocalCommit physical effect evidence is invalid"))
 }
 
+fn canonical_library_effects(
+    connection: &Connection,
+    coordinate: CommitCoordinate<'_>,
+) -> Result<Vec<CanonicalLibraryEffect>, StoreError> {
+    let rows = connection
+        .prepare_cached(LIBRARY_EFFECT_EVIDENCE_SQL)?
+        .query_map(
+            params![coordinate.store_epoch, coordinate.commit_seq],
+            |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, String>(5)?,
+                    row.get::<_, String>(6)?,
+                    row.get::<_, String>(7)?,
+                ))
+            },
+        )?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let mut effects = Vec::with_capacity(rows.len());
+    for (expected_order, row) in rows.into_iter().enumerate() {
+        let (
+            effect_order,
+            library_id,
+            module_raw,
+            kind,
+            operation_id,
+            payload_json,
+            payload_hash,
+            parent_operation_id,
+        ) = row;
+        if effect_order != i64::try_from(expected_order).expect("effect order is bounded")
+            || module_raw != "store_administration"
+            || kind != "store_administration.changed"
+            || operation_id != parent_operation_id
+            || payload_hash != sha256(payload_json.as_bytes())
+        {
+            return Err(corrupt(
+                "Store Administration Library effect evidence is invalid",
+            ));
+        }
+        let payload: StoreAdministrationEvent =
+            decode_json(&payload_json, "Store Administration Library effect")?;
+        effects.push(CanonicalLibraryEffect {
+            effect_order,
+            library_id,
+            module: ModuleName::StoreAdministration,
+            kind,
+            operation_id,
+            payload,
+            payload_hash,
+        });
+    }
+    Ok(effects)
+}
+
+fn canonical_delivery_atoms(
+    connection: &Connection,
+    context: &CommitContext,
+) -> Result<Vec<StoredDeliveryAtom>, StoreError> {
+    let rows = connection
+        .prepare_cached(CANONICAL_DELIVERY_ATOMS_SQL)?
+        .query_map(params![context.store_epoch, context.commit_seq], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, String>(5)?,
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let mut atoms = Vec::with_capacity(rows.len());
+    for (expected_order, row) in rows.into_iter().enumerate() {
+        let (atom_order, atom_id, kind_raw, requirements_raw, payload_json, payload_hash) = row;
+        if atom_order != i64::try_from(expected_order).expect("atom order is bounded")
+            || payload_hash != sha256(payload_json.as_bytes())
+        {
+            return Err(corrupt("DeliveryAtom durable evidence is invalid"));
+        }
+        let kind = parse_delivery_atom_kind(&kind_raw)?;
+        let required_resources: Vec<ResourceKey> =
+            decode_json(&requirements_raw, "DeliveryAtom requirements")?;
+        let payload: DeliveryAtomPayload = decode_json(&payload_json, "DeliveryAtom payload")?;
+        if required_resources.is_empty()
+            || required_resources.windows(2).any(|pair| pair[0] >= pair[1])
+            || super::delivery_atom::payload_claims(&payload)? != required_resources
+            || atom_id
+                != atom_identity(
+                    context,
+                    atom_order,
+                    kind,
+                    &required_resources,
+                    &payload_hash,
+                )?
+        {
+            return Err(corrupt(
+                "DeliveryAtom claims or identity failed canonical verification",
+            ));
+        }
+        atoms.push(StoredDeliveryAtom {
+            descriptor: DeliveryAtomDescriptor {
+                atom_id,
+                atom_order,
+                kind,
+                required_resources,
+                payload_hash,
+            },
+            payload,
+        });
+    }
+    Ok(atoms)
+}
+
 impl VerifiedCommit {
     pub(crate) fn delivery_document_effects(
         &self,
@@ -918,16 +1350,30 @@ pub(crate) fn load_verified_commit(
     let coordinate = context.coordinate();
     let physical_effects = physical_effect_evidence(connection, coordinate)?;
     let effects = canonical_effects_from_evidence(&physical_effects)?;
+    let library_effects = canonical_library_effects(connection, coordinate)?;
+    let delivery_atoms = canonical_delivery_atoms(connection, &context)?;
     let documents = canonical_document_effects(connection, coordinate)?;
     let revocations = canonical_revocations(connection, coordinate)?;
+    let visibility_deltas = canonical_visibility_deltas(connection, coordinate)?;
+    let sealed_projection_effects = sealed_projection_effects(&row.projection.effects)?;
+    if stored_sealed_projection_effects(connection, coordinate)? != sealed_projection_effects {
+        return Err(corrupt(
+            "Stored projection descriptors diverge from immutable projection evidence",
+        ));
+    }
     let compiled = compile_manifest(
         &context,
-        &effects,
-        &documents,
-        &row.projection,
-        &revocations,
-        &row.receipt,
-        &row.audience,
+        ManifestEvidence {
+            effects: &effects,
+            library_effects: &library_effects,
+            atoms: &delivery_atoms,
+            documents: &documents,
+            projection: &row.projection,
+            visibility_deltas: &visibility_deltas,
+            revocations: &revocations,
+            receipt: &row.receipt,
+            audience: &row.audience,
+        },
     )?;
     if row.canonical_hash != compiled.identity.manifest_hash
         || row
@@ -941,8 +1387,11 @@ pub(crate) fn load_verified_commit(
         ));
     }
     Ok(VerifiedCommit {
+        sealed_projection_effects,
         manifest: row.manifest.unwrap_or(compiled),
+        #[cfg(test)]
         physical_effects,
+        delivery_atoms,
         document_effects: documents,
     })
 }
@@ -1006,7 +1455,7 @@ fn backfill_current_test_ledger(connection: &Connection) -> Result<(), StoreErro
             .map(|row| row.10.clone())
             .ok_or_else(|| corrupt("Historical LocalCommit group is empty"))?;
         let intent_hash = sha256(format!("historical\0{operation_id}").as_bytes());
-        let context = begin(
+        let context = allocate(
             connection,
             &store_epoch,
             &operation_id,
@@ -1014,7 +1463,7 @@ fn backfill_current_test_ledger(connection: &Connection) -> Result<(), StoreErro
             &committed_at,
         )?;
         for row in &rows {
-            let resources = LocalCommitResources {
+            let resources = PhysicalEffectResources {
                 block_ids: decode_json(&row.5, "Historical Block resources")?,
                 document_ids: decode_json(
                     row.6.as_deref().unwrap_or("[]"),
@@ -1058,7 +1507,7 @@ fn backfill_current_test_ledger(connection: &Connection) -> Result<(), StoreErro
                 result_hash: sha256(format!("historical-receipt\0{operation_id}").as_bytes()),
             },
         )?;
-        finalize(connection, &context)?;
+        seal(connection, &context)?;
     }
     Ok(())
 }
@@ -1129,7 +1578,7 @@ pub(crate) fn upgrade_v105_manifest(
                 })?
                 .collect::<rusqlite::Result<Vec<_>>>()?;
             for effect in &effects {
-                let resources = LocalCommitResources {
+                let resources = PhysicalEffectResources {
                     block_ids: decode_json(&effect.5, "Migrated Block resources")?,
                     document_ids: decode_json(
                         effect.6.as_deref().unwrap_or("[]"),
@@ -1191,7 +1640,7 @@ pub(crate) fn upgrade_v105_manifest(
                 intent_hash,
                 committed_at,
             };
-            finalize(connection, &context)?;
+            seal(connection, &context)?;
             report_migration_progress(progress, completed, total, &mut progress_step);
             completed = completed.saturating_add(1);
         }
@@ -1250,7 +1699,7 @@ pub(crate) fn upgrade_v106_manifest(
             let mut projection = draft_projection(connection, &context)?;
             projection.effects.clear();
             write_projection(connection, &context, &projection)?;
-            finalize(connection, &context)?;
+            seal(connection, &context)?;
             report_migration_progress(progress, completed, total, &mut progress_step);
             completed = completed.saturating_add(1);
         }
@@ -1298,16 +1747,24 @@ pub(crate) fn upgrade_v108_manifest(
             };
             let coordinate = context.coordinate();
             let effects = canonical_effects(connection, coordinate)?;
+            let library_effects = canonical_library_effects(connection, coordinate)?;
+            let atoms = canonical_delivery_atoms(connection, &context)?;
             let documents = canonical_document_effects(connection, coordinate)?;
             let revocations = canonical_revocations(connection, coordinate)?;
+            let visibility_deltas = canonical_visibility_deltas(connection, coordinate)?;
             let manifest = compile_manifest(
                 &context,
-                &effects,
-                &documents,
-                &row.projection,
-                &revocations,
-                &row.receipt,
-                &row.audience,
+                ManifestEvidence {
+                    effects: &effects,
+                    library_effects: &library_effects,
+                    atoms: &atoms,
+                    documents: &documents,
+                    projection: &row.projection,
+                    visibility_deltas: &visibility_deltas,
+                    revocations: &revocations,
+                    receipt: &row.receipt,
+                    audience: &row.audience,
+                },
             )?;
             connection.execute(
                 "UPDATE local_commits SET canonical_hash = ?1, manifest_json = ?2
@@ -1320,6 +1777,203 @@ pub(crate) fn upgrade_v108_manifest(
                     context.commit_seq,
                 ],
             )?;
+            report_migration_progress(progress, completed, total, &mut progress_step);
+            completed = completed.saturating_add(1);
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn upgrade_v109_manifest(
+    connection: &Connection,
+    progress: &mut dyn FnMut(u64, u64),
+) -> Result<(), StoreError> {
+    // v108 manifests use the superseded generic SemanticEffect shape and
+    // cannot be decoded as v109. Their canonical source rows remain intact;
+    // clear only the derived manifest cache before rebuilding it.
+    connection.execute(
+        "UPDATE local_commits SET manifest_json = '{}' WHERE finalized = 1",
+        [],
+    )?;
+    let total = u64::try_from(connection.query_row(
+        "SELECT count(*) FROM local_commits WHERE finalized = 1",
+        [],
+        |row| row.get::<_, i64>(0),
+    )?)
+    .map_err(|_| corrupt("DeliveryAtom migration count is invalid"))?;
+    let mut progress_step = 0;
+    let mut completed = 0_usize;
+    let mut after_commit_seq = 0;
+    loop {
+        let sequences = connection
+            .prepare_cached(
+                "SELECT commit_seq FROM local_commits
+                 WHERE finalized = 1 AND commit_seq > ?1
+                 ORDER BY commit_seq ASC LIMIT ?2",
+            )?
+            .query_map(params![after_commit_seq, MIGRATION_BATCH_SIZE], |row| {
+                row.get::<_, i64>(0)
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        if sequences.is_empty() {
+            break;
+        }
+        for commit_seq in sequences {
+            after_commit_seq = commit_seq;
+            let row = read_commit(connection, commit_seq)?
+                .ok_or_else(|| corrupt("Migrated LocalCommit is missing"))?;
+            let context = CommitContext {
+                commit_seq: row.commit_seq,
+                store_epoch: row.store_epoch.clone(),
+                operation_id: row.operation_id.clone(),
+                intent_hash: row.intent_hash.clone(),
+                committed_at: row.committed_at.clone(),
+            };
+            connection.execute(
+                "UPDATE local_commits SET finalized = 0, manifest_json = '{}'
+                 WHERE store_epoch = ?1 AND commit_seq = ?2 AND finalized = 1",
+                params![context.store_epoch, context.commit_seq],
+            )?;
+            connection.execute(
+                "DELETE FROM local_commit_delivery_atoms
+                 WHERE store_epoch = ?1 AND commit_seq = ?2",
+                params![context.store_epoch, context.commit_seq],
+            )?;
+            let physical = physical_effect_evidence(connection, context.coordinate())?;
+            for (_, change_log_seq, project_id, _, _, _, _, _, _) in &physical {
+                let event = super::event_log::load_committed_event_by_sequence(
+                    connection,
+                    *change_log_seq,
+                )?;
+                let drafts = super::delivery_atom::compile(
+                    connection,
+                    &row.audience.library_id,
+                    project_id,
+                    event.payload,
+                )?;
+                record_delivery_atoms(connection, &context, drafts)?;
+            }
+            let effects = canonical_effects_from_evidence(&physical)?;
+            let library_effects = canonical_library_effects(connection, context.coordinate())?;
+            let atoms = canonical_delivery_atoms(connection, &context)?;
+            let documents = canonical_document_effects(connection, context.coordinate())?;
+            let revocations = canonical_revocations(connection, context.coordinate())?;
+            let visibility_deltas = canonical_visibility_deltas(connection, context.coordinate())?;
+            let manifest = compile_manifest(
+                &context,
+                ManifestEvidence {
+                    effects: &effects,
+                    library_effects: &library_effects,
+                    atoms: &atoms,
+                    documents: &documents,
+                    projection: &row.projection,
+                    visibility_deltas: &visibility_deltas,
+                    revocations: &revocations,
+                    receipt: &row.receipt,
+                    audience: &row.audience,
+                },
+            )?;
+            let changed = connection.execute(
+                "UPDATE local_commits
+                 SET canonical_hash = ?1, manifest_json = ?2, finalized = 1
+                 WHERE store_epoch = ?3 AND commit_seq = ?4 AND finalized = 0",
+                params![
+                    manifest.identity.manifest_hash,
+                    serde_json::to_string(&manifest)
+                        .map_err(|_| corrupt("Migrated CommitManifest is invalid"))?,
+                    context.store_epoch,
+                    context.commit_seq,
+                ],
+            )?;
+            if changed != 1 {
+                return Err(corrupt(
+                    "DeliveryAtom migration lost its LocalCommit parent",
+                ));
+            }
+            report_migration_progress(progress, completed, total, &mut progress_step);
+            completed = completed.saturating_add(1);
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn upgrade_v110_manifest(
+    connection: &Connection,
+    progress: &mut dyn FnMut(u64, u64),
+) -> Result<(), StoreError> {
+    let total = u64::try_from(connection.query_row(
+        "SELECT count(*) FROM local_commits WHERE finalized = 1",
+        [],
+        |row| row.get::<_, i64>(0),
+    )?)
+    .map_err(|_| corrupt("Visibility evidence migration count is invalid"))?;
+    let mut progress_step = 0;
+    let mut completed = 0_usize;
+    let mut after_commit_seq = 0;
+    loop {
+        let sequences = connection
+            .prepare_cached(
+                "SELECT commit_seq FROM local_commits
+                 WHERE finalized = 1 AND commit_seq > ?1
+                 ORDER BY commit_seq ASC LIMIT ?2",
+            )?
+            .query_map(params![after_commit_seq, MIGRATION_BATCH_SIZE], |row| {
+                row.get::<_, i64>(0)
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        if sequences.is_empty() {
+            break;
+        }
+        for commit_seq in sequences {
+            after_commit_seq = commit_seq;
+            let row = read_commit(connection, commit_seq)?
+                .ok_or_else(|| corrupt("Migrated LocalCommit is missing"))?;
+            let context = CommitContext {
+                commit_seq: row.commit_seq,
+                store_epoch: row.store_epoch.clone(),
+                operation_id: row.operation_id.clone(),
+                intent_hash: row.intent_hash.clone(),
+                committed_at: row.committed_at.clone(),
+            };
+            let descriptors = sealed_projection_effects(&row.projection.effects)?;
+            persist_sealed_projection_effects(connection, &context, &descriptors)?;
+            let coordinate = context.coordinate();
+            let effects = canonical_effects(connection, coordinate)?;
+            let library_effects = canonical_library_effects(connection, coordinate)?;
+            let atoms = canonical_delivery_atoms(connection, &context)?;
+            let documents = canonical_document_effects(connection, coordinate)?;
+            let revocations = canonical_revocations(connection, coordinate)?;
+            let visibility_deltas = canonical_visibility_deltas(connection, coordinate)?;
+            let manifest = compile_manifest(
+                &context,
+                ManifestEvidence {
+                    effects: &effects,
+                    library_effects: &library_effects,
+                    atoms: &atoms,
+                    documents: &documents,
+                    projection: &row.projection,
+                    visibility_deltas: &visibility_deltas,
+                    revocations: &revocations,
+                    receipt: &row.receipt,
+                    audience: &row.audience,
+                },
+            )?;
+            let changed = connection.execute(
+                "UPDATE local_commits SET canonical_hash = ?1, manifest_json = ?2
+                 WHERE store_epoch = ?3 AND commit_seq = ?4 AND finalized = 1",
+                params![
+                    manifest.identity.manifest_hash,
+                    serde_json::to_string(&manifest)
+                        .map_err(|_| corrupt("Migrated CommitManifest is invalid"))?,
+                    context.store_epoch,
+                    context.commit_seq,
+                ],
+            )?;
+            if changed != 1 {
+                return Err(corrupt(
+                    "Visibility evidence migration lost its LocalCommit parent",
+                ));
+            }
             report_migration_progress(progress, completed, total, &mut progress_step);
             completed = completed.saturating_add(1);
         }
@@ -1374,9 +2028,18 @@ pub(crate) fn rebase_store_epoch(
         [store_epoch],
     )?;
     connection.execute(
+        "UPDATE local_commit_library_effects SET store_epoch = ?1 WHERE store_epoch <> ?1",
+        [store_epoch],
+    )?;
+    connection.execute(
         "UPDATE local_commit_revocations SET store_epoch = ?1 WHERE store_epoch <> ?1",
         [store_epoch],
     )?;
+    super::visibility_delta_journal::rebase_store_epoch(connection, store_epoch)?;
+    // Atom identities bind the Store epoch. Recompile them from immutable
+    // physical evidence after rebasing instead of carrying stale identities
+    // across the replacement boundary.
+    connection.execute("DELETE FROM local_commit_delivery_atoms", [])?;
     // Scope heads are derived chain tips. Replaying historical manifests against
     // their final pre-rotation tip would make every non-tip effect look corrupt.
     // Rebuild the chain in commit order under the installed epoch instead.
@@ -1419,7 +2082,7 @@ pub(crate) fn rebase_store_epoch(
             ..projection
         };
         write_projection(connection, &context, &projection)?;
-        finalize(connection, &context)?;
+        seal(connection, &context)?;
     }
     Ok(())
 }
@@ -1687,6 +2350,109 @@ fn canonical_revocations(
         .collect()
 }
 
+fn canonical_visibility_deltas(
+    connection: &Connection,
+    coordinate: CommitCoordinate<'_>,
+) -> Result<Vec<CanonicalVisibilityDeltaEvidence>, StoreError> {
+    connection
+        .prepare_cached(
+            "SELECT scope_key, authorization_scope_json, delta_kind, roots_json, delta_hash
+             FROM local_commit_visibility_deltas
+             WHERE store_epoch = ?1 AND commit_seq = ?2
+             ORDER BY scope_key, delta_hash",
+        )?
+        .query_map(
+            params![coordinate.store_epoch, coordinate.commit_seq],
+            |row| {
+                Ok(CanonicalVisibilityDeltaEvidence {
+                    scope_key: row.get(0)?,
+                    authorization_scope_json: row.get(1)?,
+                    delta_kind: row.get(2)?,
+                    roots_json: row.get(3)?,
+                    delta_hash: row.get(4)?,
+                })
+            },
+        )?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(StoreError::from)
+}
+
+fn persist_sealed_projection_effects(
+    connection: &Connection,
+    context: &CommitContext,
+    effects: &[SealedProjectionEffect],
+) -> Result<(), StoreError> {
+    let existing: i64 = connection.query_row(
+        "SELECT count(*) FROM local_commit_sealed_projection_effects
+         WHERE store_epoch = ?1 AND commit_seq = ?2",
+        params![context.store_epoch, context.commit_seq],
+        |row| row.get(0),
+    )?;
+    if existing != 0 {
+        return Err(corrupt(
+            "LocalCommit sealed projection descriptors already exist",
+        ));
+    }
+    for (effect_order, effect) in effects.iter().enumerate() {
+        let descriptor_json = serde_json::to_string(effect)
+            .map_err(|_| corrupt("Sealed projection descriptor is invalid"))?;
+        let descriptor_hash = sha256(descriptor_json.as_bytes());
+        connection.execute(
+            "INSERT INTO local_commit_sealed_projection_effects(
+               store_epoch, commit_seq, effect_order, descriptor_json, descriptor_hash
+             ) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![
+                context.store_epoch,
+                context.commit_seq,
+                i64::try_from(effect_order)
+                    .map_err(|_| corrupt("Sealed projection descriptor order overflowed"))?,
+                descriptor_json,
+                descriptor_hash,
+            ],
+        )?;
+    }
+    Ok(())
+}
+
+fn stored_sealed_projection_effects(
+    connection: &Connection,
+    coordinate: CommitCoordinate<'_>,
+) -> Result<Vec<SealedProjectionEffect>, StoreError> {
+    let rows = connection
+        .prepare_cached(
+            "SELECT effect_order, descriptor_json, descriptor_hash
+             FROM local_commit_sealed_projection_effects
+             WHERE store_epoch = ?1 AND commit_seq = ?2
+             ORDER BY effect_order",
+        )?
+        .query_map(
+            params![coordinate.store_epoch, coordinate.commit_seq],
+            |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            },
+        )?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    rows.into_iter()
+        .enumerate()
+        .map(
+            |(expected_order, (effect_order, descriptor_json, descriptor_hash))| {
+                if i64::try_from(expected_order).ok() != Some(effect_order)
+                    || sha256(descriptor_json.as_bytes()) != descriptor_hash
+                {
+                    return Err(corrupt(
+                        "Sealed projection descriptor evidence is noncanonical",
+                    ));
+                }
+                decode_json(&descriptor_json, "Sealed projection descriptor")
+            },
+        )
+        .collect()
+}
+
 fn valid_document_transition(
     generation: i64,
     base_head_seq: i64,
@@ -1713,6 +2479,7 @@ fn derive_audience(
     connection: &Connection,
     commit_seq: i64,
     effects: &[CanonicalPhysicalEffect],
+    library_effects: &[CanonicalLibraryEffect],
     documents: &[CanonicalDocumentEffect],
 ) -> Result<RoutingEvidence, StoreError> {
     let mut project_ids = effects
@@ -1723,7 +2490,10 @@ fn derive_audience(
         .collect::<Vec<_>>();
     project_ids.sort();
     project_ids.dedup();
-    let mut library_ids = Vec::new();
+    let mut library_ids = library_effects
+        .iter()
+        .map(|effect| effect.library_id.clone())
+        .collect::<Vec<_>>();
     for project_id in &project_ids {
         let library_id = connection
             .query_row(
@@ -1762,27 +2532,30 @@ fn derive_audience(
     })
 }
 
+struct ManifestEvidence<'a> {
+    effects: &'a [CanonicalPhysicalEffect],
+    library_effects: &'a [CanonicalLibraryEffect],
+    atoms: &'a [StoredDeliveryAtom],
+    documents: &'a [CanonicalDocumentEffect],
+    projection: &'a CommitProjectionDraft,
+    visibility_deltas: &'a [CanonicalVisibilityDeltaEvidence],
+    revocations: &'a [ResourceRevocation],
+    receipt: &'a LocalCommitReceiptRef,
+    audience: &'a RoutingEvidence,
+}
+
 fn compile_manifest(
     context: &CommitContext,
-    effects: &[CanonicalPhysicalEffect],
-    documents: &[CanonicalDocumentEffect],
-    projection: &CommitProjectionDraft,
-    revocations: &[ResourceRevocation],
-    receipt: &LocalCommitReceiptRef,
-    audience: &RoutingEvidence,
+    evidence: ManifestEvidence<'_>,
 ) -> Result<CommitManifest, StoreError> {
-    let semantic_effects = effects
+    let sealed_projection_effects = sealed_projection_effects(&evidence.projection.effects)?;
+    let delivery_atoms = evidence
+        .atoms
         .iter()
-        .map(|effect| SemanticEffect::ModuleChanged {
-            effect_order: effect.effect_order,
-            module: effect.module,
-            effect_kind: effect.kind.clone(),
-            resources: effect.resources.clone(),
-            payload_hash: effect.payload_hash.clone(),
-            projection_impact: effect.projection_impact.clone(),
-        })
+        .map(|atom| atom.descriptor.clone())
         .collect::<Vec<_>>();
-    let document_effects = documents
+    let document_effects = evidence
+        .documents
         .iter()
         .map(|effect| DocumentEffectRef {
             effect_order: effect.effect_order,
@@ -1797,17 +2570,34 @@ fn compile_manifest(
             resource_kind: effect.resource_kind,
         })
         .collect::<Vec<_>>();
-    let physical_encoded = serde_json::to_vec(effects)
-        .map_err(|_| corrupt("PhysicalJournal evidence cannot be encoded"))?;
+    let physical_encoded = if evidence.library_effects.is_empty() {
+        serde_json::to_vec(evidence.effects)
+    } else {
+        serde_json::to_vec(&CanonicalPhysicalEvidence {
+            physical_effects: evidence.effects,
+            library_effects: evidence.library_effects,
+        })
+    }
+    .map_err(|_| corrupt("PhysicalJournal evidence cannot be encoded"))?;
+    let effect_count = evidence
+        .effects
+        .len()
+        .checked_add(evidence.library_effects.len())
+        .ok_or_else(|| corrupt("PhysicalJournal effect count overflowed"))?;
     let physical_evidence = PhysicalEvidenceDigest {
-        effect_count: u32::try_from(effects.len())
+        effect_count: u32::try_from(effect_count)
             .map_err(|_| corrupt("PhysicalJournal effect count overflowed"))?,
-        first_change_log_seq: effects.first().map(|effect| effect.change_log_seq),
-        last_change_log_seq: effects.last().map(|effect| effect.change_log_seq),
+        first_change_log_seq: evidence.effects.first().map(|effect| effect.change_log_seq),
+        last_change_log_seq: evidence.effects.last().map(|effect| effect.change_log_seq),
         ordered_digest: sha256(&physical_encoded),
     };
-    let routing_claims =
-        routing_claims(audience, &document_effects, &projection.impact, revocations);
+    let routing_claims = routing_claims(
+        evidence.audience,
+        &delivery_atoms,
+        &document_effects,
+        &evidence.projection.impact,
+        evidence.revocations,
+    );
     let hash_input = CanonicalManifest {
         hash_version: CANONICAL_HASH_VERSION,
         event_version: CORE_EVENT_VERSION,
@@ -1816,11 +2606,13 @@ fn compile_manifest(
         operation_id: &context.operation_id,
         intent_hash: &context.intent_hash,
         committed_at: &context.committed_at,
-        semantic_effects: &semantic_effects,
+        delivery_atoms: &delivery_atoms,
         document_effects: &document_effects,
-        projection_effects: &projection.effects,
-        revocations,
-        receipt,
+        projection_effects: &evidence.projection.effects,
+        sealed_projection_effects: &sealed_projection_effects,
+        visibility_deltas: evidence.visibility_deltas,
+        revocations: evidence.revocations,
+        receipt: evidence.receipt,
         routing_claims: &routing_claims,
         physical_evidence: &physical_evidence,
     };
@@ -1836,11 +2628,11 @@ fn compile_manifest(
         operation_id: context.operation_id.clone(),
         intent_hash: context.intent_hash.clone(),
         committed_at: context.committed_at.clone(),
-        semantic_effects,
+        delivery_atoms,
         document_effects,
-        projection_effects: projection.effects.clone(),
-        revocations: revocations.to_vec(),
-        receipt: receipt.clone(),
+        projection_effects: evidence.projection.effects.clone(),
+        revocations: evidence.revocations.to_vec(),
+        receipt: evidence.receipt.clone(),
         routing_claims,
         physical_evidence,
     })
@@ -1848,6 +2640,7 @@ fn compile_manifest(
 
 fn routing_claims(
     audience: &RoutingEvidence,
+    atoms: &[DeliveryAtomDescriptor],
     documents: &[DocumentEffectRef],
     impact: &ProjectionImpact,
     revocations: &[ResourceRevocation],
@@ -1866,6 +2659,46 @@ fn routing_claims(
     claims.extend(documents.iter().map(|effect| RoutingClaim::Document {
         document_id: effect.document_id.clone(),
     }));
+    for resource in atoms.iter().flat_map(|atom| atom.required_resources.iter()) {
+        match resource {
+            ResourceKey::Library { library_id } => {
+                claims.insert(RoutingClaim::Library {
+                    library_id: library_id.clone(),
+                });
+            }
+            ResourceKey::Project { project_id } => {
+                claims.insert(RoutingClaim::Project {
+                    project_id: project_id.clone(),
+                });
+            }
+            ResourceKey::Page { page_id } => {
+                claims.insert(RoutingClaim::Page {
+                    page_id: page_id.clone(),
+                });
+            }
+            ResourceKey::Document { document_id } => {
+                claims.insert(RoutingClaim::Document {
+                    document_id: document_id.clone(),
+                });
+            }
+            ResourceKey::Database { database_id } => {
+                claims.insert(RoutingClaim::Database {
+                    database_id: database_id.clone(),
+                });
+            }
+            ResourceKey::DataSource { data_source_id } => {
+                claims.insert(RoutingClaim::DataSource {
+                    data_source_id: data_source_id.clone(),
+                });
+            }
+            ResourceKey::View { view_id } => {
+                claims.insert(RoutingClaim::View {
+                    view_id: view_id.clone(),
+                });
+            }
+            ResourceKey::Canvas { .. } => {}
+        }
+    }
     for revocation in revocations {
         match &revocation.authorization_scope {
             DeliveryAuthorizationScope::Library { .. } => {}
@@ -1995,6 +2828,29 @@ fn revoked_resource_kind_name(kind: RevokedResourceKind) -> &'static str {
         RevokedResourceKind::DataSource => "data_source",
         RevokedResourceKind::View => "view",
         RevokedResourceKind::Canvas => "canvas",
+    }
+}
+
+fn delivery_atom_kind_name(kind: DeliveryAtomKind) -> &'static str {
+    match kind {
+        DeliveryAtomKind::LibraryNavigationChanged => "library_navigation_changed",
+        DeliveryAtomKind::DatabaseChanged => "database_changed",
+        DeliveryAtomKind::OwnedDocumentChanged => "owned_document_changed",
+        DeliveryAtomKind::ProjectWorkspaceChanged => "project_workspace_changed",
+        DeliveryAtomKind::AutomationChanged => "automation_changed",
+        DeliveryAtomKind::StoreAdministrationChanged => "store_administration_changed",
+    }
+}
+
+fn parse_delivery_atom_kind(value: &str) -> Result<DeliveryAtomKind, StoreError> {
+    match value {
+        "library_navigation_changed" => Ok(DeliveryAtomKind::LibraryNavigationChanged),
+        "database_changed" => Ok(DeliveryAtomKind::DatabaseChanged),
+        "owned_document_changed" => Ok(DeliveryAtomKind::OwnedDocumentChanged),
+        "project_workspace_changed" => Ok(DeliveryAtomKind::ProjectWorkspaceChanged),
+        "automation_changed" => Ok(DeliveryAtomKind::AutomationChanged),
+        "store_administration_changed" => Ok(DeliveryAtomKind::StoreAdministrationChanged),
+        _ => Err(corrupt("DeliveryAtom kind is invalid")),
     }
 }
 
@@ -2229,6 +3085,101 @@ fn projection_scope_for_patch(patch: &LocalProjectionPatch) -> LocalProjectionSc
             page_id: page_id.clone(),
         },
     }
+}
+
+pub(crate) fn sealed_projection_effects(
+    effects: &[ProjectionEffect],
+) -> Result<Vec<SealedProjectionEffect>, StoreError> {
+    effects
+        .iter()
+        .map(|effect| {
+            if effect.patch.is_none() {
+                let (subject, required_resources) = requirements_for_scope(&effect.scope.scope);
+                return Ok(SealedProjectionEffect {
+                    transition: effect.clone(),
+                    subject,
+                    required_resources,
+                    patch_hash: None,
+                });
+            }
+            let patch = effect
+                .patch
+                .as_ref()
+                .ok_or_else(|| corrupt("Projection patch disappeared during sealing"))?;
+            if projection_scope_for_patch(patch) != effect.scope.scope {
+                return Err(corrupt(
+                    "Projection patch requirements belong to another scope",
+                ));
+            }
+            let extracted = super::projection_requirement_extractor::extract(patch)?;
+            Ok(SealedProjectionEffect {
+                transition: effect.clone(),
+                subject: extracted.subject,
+                required_resources: extracted.required_resources,
+                patch_hash: Some(extracted.patch_hash),
+            })
+        })
+        .collect()
+}
+
+fn requirements_for_scope(scope: &LocalProjectionScope) -> (ResourceKey, Vec<ResourceKey>) {
+    let (subject, required_resources) = match scope {
+        LocalProjectionScope::Library { library_id } => {
+            let subject = ResourceKey::Library {
+                library_id: library_id.clone(),
+            };
+            (subject.clone(), BTreeSet::from([subject]))
+        }
+        LocalProjectionScope::Project { project_id } => {
+            let subject = ResourceKey::Project {
+                project_id: project_id.clone(),
+            };
+            (subject.clone(), BTreeSet::from([subject]))
+        }
+        LocalProjectionScope::DatabaseView {
+            project_id,
+            database_id,
+            data_source_id,
+            view_id,
+        } => {
+            let subject = ResourceKey::View {
+                view_id: view_id.clone(),
+            };
+            (
+                subject.clone(),
+                BTreeSet::from([
+                    ResourceKey::Project {
+                        project_id: project_id.clone(),
+                    },
+                    ResourceKey::Database {
+                        database_id: database_id.clone(),
+                    },
+                    ResourceKey::DataSource {
+                        data_source_id: data_source_id.clone(),
+                    },
+                    subject,
+                ]),
+            )
+        }
+        LocalProjectionScope::Page {
+            project_id,
+            page_id,
+        } => {
+            let subject = ResourceKey::Page {
+                page_id: page_id.clone(),
+            };
+            (
+                subject.clone(),
+                BTreeSet::from([
+                    ResourceKey::Project {
+                        project_id: project_id.clone(),
+                    },
+                    subject,
+                ]),
+            )
+        }
+    };
+    (subject, required_resources.into_iter().collect())
 }
 
 fn canonicalize_projection_scopes(scopes: &mut Vec<LocalProjectionScope>) {
@@ -3029,7 +3980,7 @@ mod tests {
 
     #[test]
     fn local_commit_resources_are_canonical_before_they_enter_the_manifest() {
-        let resources = canonicalize_resources(LocalCommitResources {
+        let resources = canonicalize_resources(PhysicalEffectResources {
             block_ids: vec![
                 "block-b".to_owned(),
                 "block-a".to_owned(),
@@ -3049,7 +4000,7 @@ mod tests {
 
         assert_eq!(
             resources,
-            LocalCommitResources {
+            PhysicalEffectResources {
                 block_ids: vec!["block-a".to_owned(), "block-b".to_owned()],
                 document_ids: vec!["document-a".to_owned(), "document-b".to_owned()],
                 database_ids: vec!["database-a".to_owned(), "database-b".to_owned()],

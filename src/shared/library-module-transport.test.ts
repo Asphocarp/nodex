@@ -12,6 +12,7 @@ import {
   primaryCanvasDocumentId,
 } from "./block-documents/canvas-document-identity";
 import { createUuidV7FromTimestamp } from "./uuid-v7";
+import { committedLocalCommit } from "./testing/local-commit";
 
 const uuidV7 = (sequence: number): string =>
   createUuidV7FromTimestamp(1_785_491_085_000, sequence);
@@ -26,6 +27,7 @@ const readResult = (value: unknown) => ({
     libraryId: "library-1",
     storeEpoch: "epoch-1",
     commitSeq: 3,
+    authorization: null,
     value,
   },
 });
@@ -144,6 +146,7 @@ describe("Library Module transport", () => {
           libraryId: "library-1",
           storeEpoch: "epoch-1",
           commitSeq: 3,
+          authorization: null,
           value: {
             kind: "children",
             parent: { kind: "library" },
@@ -262,6 +265,7 @@ describe("Library Module transport", () => {
         libraryId: "library-1",
         storeEpoch: "epoch-1",
         commitSeq: 3,
+        authorization: null,
         value: {
           kind: "canvas_target",
           value: {
@@ -306,6 +310,7 @@ describe("Library Module transport", () => {
         libraryId: "library-1",
         storeEpoch: "epoch-1",
         commitSeq: 3,
+        authorization: null,
         value: {
           kind: "children",
           parent: { kind: "library" },
@@ -565,6 +570,7 @@ describe("Library Module transport", () => {
   test("parses primary Canvas mutation receipts without weakening new IDs", () => {
     expect(parseLibraryModuleApplyResult({
       ok: true,
+      localCommit: committedLocalCommit("epoch-1", 4),
       value: {
         version: LIBRARY_MODULE_CONTRACT_VERSION,
         operationId: uuidV7(1),

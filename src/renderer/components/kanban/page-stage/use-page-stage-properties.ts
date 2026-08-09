@@ -48,7 +48,7 @@ export interface PageStagePropertyControls {
     property: PageStageDataSourceProperty,
     delta: {
       readonly addPageIds: readonly string[];
-      readonly removePageIds: readonly string[];
+      readonly removeEdgeIds: readonly string[];
     },
   ) => Promise<PageStageMetadataMutationResult>;
   readonly patchMultiSelect: (
@@ -223,7 +223,7 @@ export function usePageStageProperties(input: {
     property: PageStageDataSourceProperty,
     delta: {
       readonly addPageIds: readonly string[];
-      readonly removePageIds: readonly string[];
+      readonly removeEdgeIds: readonly string[];
     },
   ) => edit(property, { kind: "patch_relation", ...delta }), [edit]);
 

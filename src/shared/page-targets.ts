@@ -1,5 +1,6 @@
 import type { Page } from "./page";
 import type { ContentAccessContext } from "./content-access-context";
+import type { AuthorizedReadStamp } from "./authorized-read-stamp";
 
 export interface ResolvePageTargetInput {
   /** Authority inherited from the content surface containing the reference. */
@@ -11,6 +12,7 @@ interface PageTargetAuthority {
   readonly libraryId: string;
   readonly storeEpoch: string;
   readonly commitSeq: number;
+  readonly authorization: AuthorizedReadStamp | null;
 }
 
 /**

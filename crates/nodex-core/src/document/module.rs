@@ -20,6 +20,7 @@ use nodex_core_contracts::document::{
     DocumentUpdateResourceUnavailableReason, OwnedDocumentCommitValue, OwnedDocumentIntent,
     OwnedDocumentRead, OwnedDocumentReadValue, OwnedDocumentReceipt,
 };
+use nodex_core_contracts::events::ResourceKey;
 use nodex_core_contracts::{
     AdapterKind, ApplyResponse, BoundModuleContext, CommittedCoreModuleEvent, CoreError,
     CoreErrorCode, CoreErrorRecovery, ModuleApplyRequest, ModuleMutationReceipt, ModuleName,
@@ -44,13 +45,14 @@ use crate::infrastructure::document_repository::{
     DocumentAuthority, DocumentReadRepository, DocumentReadiness, DocumentSyncEngine,
 };
 use crate::infrastructure::durable_mutation::{
-    self, OperationIdentity, PreparedDurableMutation, ReceiptMetadata,
+    self, CommitResult, DurableMutationScope, OperationIdentity, ReceiptMetadata, SealedOutcome,
 };
 use crate::infrastructure::event_log::{
     NewChangeLogEntry, append_change_log, load_committed_event_by_sequence,
 };
 use crate::infrastructure::metrics::DurationMetricSnapshot;
 use crate::infrastructure::module_receipts::{DurableModuleContext, read_module_receipt};
+use crate::infrastructure::resource_authorization;
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 use crate::infrastructure::store::SqliteStoreKernel;
 use crate::infrastructure::writer::{StoreReaders, StoreWriter};
@@ -321,10 +323,19 @@ impl OwnedDocumentModule {
                         DocumentAccessKind::Read,
                     )?;
                     let store_epoch = read_store_epoch(connection)?;
+                    let commit_head = read_local_commit_head(connection)?;
+                    let authorization = issue_descriptor_read_stamp(
+                        connection,
+                        context,
+                        &authority,
+                        &store_epoch,
+                        commit_head,
+                    )?;
                     Ok(ModuleReadSnapshot {
                         contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                         store_epoch: StoreEpoch(store_epoch.clone()),
-                        commit_head: read_local_commit_head(connection)?,
+                        commit_head,
+                        authorization: Some(authorization),
                         value: OwnedDocumentReadValue::Descriptor {
                             descriptor: authority_descriptor(&authority, &store_epoch),
                         },
@@ -351,6 +362,7 @@ impl OwnedDocumentModule {
                             contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                             store_epoch: StoreEpoch(store_epoch.clone()),
                             commit_head: read_local_commit_head(connection)?,
+                            authorization: None,
                             value: OwnedDocumentReadValue::YjsSync {
                                 descriptor: authority_descriptor(&authority, &store_epoch),
                                 update,
@@ -459,6 +471,7 @@ impl OwnedDocumentModule {
                             contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                             store_epoch: StoreEpoch(store_epoch),
                             commit_head: read_local_commit_head(connection)?,
+                            authorization: None,
                             value,
                         })
                     })
@@ -485,6 +498,7 @@ impl OwnedDocumentModule {
                         contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                         store_epoch: StoreEpoch(read_store_epoch(connection)?),
                         commit_head: read_local_commit_head(connection)?,
+                        authorization: None,
                         value: OwnedDocumentReadValue::Versions { items, next },
                     })
                 })
@@ -509,6 +523,7 @@ impl OwnedDocumentModule {
                         contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                         store_epoch: StoreEpoch(read_store_epoch(connection)?),
                         commit_head: read_local_commit_head(connection)?,
+                        authorization: None,
                         value: OwnedDocumentReadValue::Version {
                             value: json!({
                                 "summary": version.summary,
@@ -529,6 +544,7 @@ impl OwnedDocumentModule {
                         contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                         store_epoch: StoreEpoch(read_store_epoch(connection)?),
                         commit_head: read_local_commit_head(connection)?,
+                        authorization: None,
                         value: OwnedDocumentReadValue::CanvasCompactionEligibility { stats },
                     })
                 })
@@ -1034,6 +1050,7 @@ impl OwnedDocumentModule {
                     contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                     store_epoch: StoreEpoch(store_epoch),
                     commit_head,
+                    authorization: None,
                     value: OwnedDocumentReadValue::AgentSemanticSnapshot {
                         snapshot: Box::new(snapshot),
                     },
@@ -1202,6 +1219,7 @@ impl OwnedDocumentModule {
                 contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                 store_epoch: StoreEpoch(store_epoch),
                 commit_head,
+                authorization: None,
                 value: OwnedDocumentReadValue::AgentSemanticMutationPreparation {
                     preparation: AgentOperationPreparation {
                         state: AgentOperationPreparationState::CommittedReplay,
@@ -1227,6 +1245,7 @@ impl OwnedDocumentModule {
                     contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                     store_epoch: StoreEpoch(store_epoch),
                     commit_head,
+                    authorization: None,
                     value: OwnedDocumentReadValue::AgentSemanticMutationPreparation {
                         preparation: AgentOperationPreparation {
                             state: AgentOperationPreparationState::Prepared,
@@ -1341,7 +1360,8 @@ impl OwnedDocumentModule {
                     });
                 }
                 let committed_at = sqlite_now(&transaction)?;
-                let commit_context = durable_mutation::prepare(
+                let mut execution_delivery = None;
+                let result = durable_mutation::run(
                     &transaction,
                     OperationIdentity {
                         module: ModuleName::OwnedDocument,
@@ -1352,67 +1372,71 @@ impl OwnedDocumentModule {
                         committed_at: &committed_at,
                         context: &context,
                     },
-                )?;
-                let executed = execute_owner_command(
-                    &transaction,
-                    &context,
-                    commit_context.evidence(),
-                    &store_epoch,
-                    &operation_id,
-                    &command,
-                )?;
-                let committed_at = executed
-                    .events
-                    .iter()
-                    .find(|event| event.sequence == executed.event_sequence)
-                    .map(|event| event.committed_at.clone())
-                    .map_or_else(|| sqlite_now(&transaction), Ok)?;
-                let mut committed = crate::ModuleWriterResult {
-                    value: OwnedDocumentCommitValue {
-                        document_id: executed.primary_document_id.clone(),
-                        generation: executed.generation,
-                        head_seq: executed.head_seq,
-                        outcome: DocumentCommitOutcome::Committed,
-                        committed_at: Some(committed_at),
-                        canvas: None,
-                        owner_effect: Some(executed.effect),
-                        checkpoint_effect: None,
-                        mutation_effect: None,
-                        semantic_etags: None,
-                        semantic_block_etags: None,
-                        semantic_local_block_ids: None,
-                        semantic_deleted_owner_block_ids: None,
+                    |scope| {
+                        let executed = execute_owner_command(
+                            &transaction,
+                            &context,
+                            scope.evidence(),
+                            &store_epoch,
+                            &operation_id,
+                            &command,
+                        )?;
+                        let outcome_committed_at = executed
+                            .events
+                            .iter()
+                            .find(|event| event.sequence == executed.event_sequence)
+                            .map(|event| event.committed_at.clone())
+                            .map_or_else(|| sqlite_now(&transaction), Ok)?;
+                        let committed = crate::ModuleWriterResult {
+                            value: OwnedDocumentCommitValue {
+                                document_id: executed.primary_document_id.clone(),
+                                generation: executed.generation,
+                                head_seq: executed.head_seq,
+                                outcome: DocumentCommitOutcome::Committed,
+                                committed_at: Some(outcome_committed_at),
+                                canvas: None,
+                                owner_effect: Some(executed.effect),
+                                checkpoint_effect: None,
+                                mutation_effect: None,
+                                semantic_etags: None,
+                                semantic_block_etags: None,
+                                semantic_local_block_ids: None,
+                                semantic_deleted_owner_block_ids: None,
+                            },
+                            receipt: OwnedDocumentReceipt {
+                                mutation: ModuleMutationReceipt {
+                                    operation_id: operation_id.clone(),
+                                    duplicate: false,
+                                },
+                                document_id: executed.primary_document_id,
+                                generation: executed.generation,
+                                head_seq: executed.head_seq,
+                            },
+                            commit_seq: 0,
+                            event_sequence: executed.event_sequence,
+                            store_epoch: StoreEpoch(store_epoch.clone()),
+                        };
+                        let event_sequence = executed.events.last().map(|event| event.sequence);
+                        execution_delivery =
+                            Some((executed.events, executed.invalidate_document_ids));
+                        seal_typed_receipt(
+                            scope,
+                            owner_command_kind(&command),
+                            committed,
+                            event_sequence,
+                        )
                     },
-                    receipt: OwnedDocumentReceipt {
-                        mutation: ModuleMutationReceipt {
-                            operation_id: operation_id.clone(),
-                            duplicate: false,
-                        },
-                        document_id: executed.primary_document_id,
-                        generation: executed.generation,
-                        head_seq: executed.head_seq,
-                    },
-                    commit_seq: 0,
-                    event_sequence: executed.event_sequence,
-                    store_epoch: StoreEpoch(store_epoch.clone()),
-                };
-                insert_typed_receipt(
-                    &transaction,
-                    &context,
-                    &operation_id,
-                    &request_hash,
-                    &store_epoch,
-                    owner_command_kind(&command),
-                    &mut committed,
-                    executed.events.last().map(|event| event.sequence),
-                    Some(commit_context),
                 )?;
+                let committed = resolve_typed_commit(result);
+                let (events, invalidate_document_ids) = execution_delivery.ok_or_else(|| {
+                    internal("Document owner mutation omitted its delivery result")
+                })?;
                 transaction.commit()?;
                 {
                     let mut cache = cache
                         .lock()
                         .map_err(|_| internal("Document cache lock failed"))?;
-                    for document_id in &executed.invalidate_document_ids {
+                    for document_id in &invalidate_document_ids {
                         cache.invalidate(document_id);
                     }
                 }
@@ -1423,10 +1447,7 @@ impl OwnedDocumentModule {
                         true,
                     ));
                 }
-                Ok(OwnedDocumentApplyOutcome {
-                    committed,
-                    events: executed.events,
-                })
+                Ok(OwnedDocumentApplyOutcome { committed, events })
             })
             .map_err(core_error)
     }
@@ -1536,7 +1557,6 @@ impl OwnedDocumentModule {
                         "prepare_owner",
                         &mut committed,
                         None,
-                        None,
                     )?;
                     transaction.commit()?;
                     if fail_after_commit.swap(false, Ordering::AcqRel) {
@@ -1553,7 +1573,7 @@ impl OwnedDocumentModule {
                 }
                 let schema = registered_yjs_schema(&authority)?;
                 let root_block_id = allocate_document_block_id(&operation_id, 1);
-                let (mut committed, event, next_head, next_engine, commit_context) =
+                let (committed, event, next_head, next_engine) =
                     match (authority.head.readiness, authority.head.authority) {
                         (DocumentReadiness::PendingGenesis, DocumentAuthority::LegacyShadow) => {
                             if authority.head.head_seq != 0 {
@@ -1570,7 +1590,8 @@ impl OwnedDocumentModule {
                                 &root_block_id,
                             )?;
                             let committed_at = sqlite_now(&transaction)?;
-                            let commit_context = durable_mutation::prepare(
+                            let mut prepared_delivery = None;
+                            let result = durable_mutation::run(
                                 &transaction,
                                 OperationIdentity {
                                     module: ModuleName::OwnedDocument,
@@ -1581,47 +1602,56 @@ impl OwnedDocumentModule {
                                     committed_at: &committed_at,
                                     context: &context,
                                 },
-                            )?;
-                            let persisted = persist_yjs_genesis_with_local_commit(
-                                &transaction,
-                                PersistYjsGenesis {
-                                    authority: &authority,
-                                    materialization: &prepared.materialization,
-                                    update_id: &operation_id,
-                                    client_session_id: &context.connection_id,
-                                    update: &prepared.update_v1,
-                                    state_vector: &prepared.state_vector_v1,
-                                    full_state: &prepared.update_v1,
-                                    store_epoch: &store_epoch,
-                                    operation_id: &operation_id,
-                                    emit_event: true,
+                                |scope| {
+                                    let persisted = persist_yjs_genesis_with_local_commit(
+                                        &transaction,
+                                        PersistYjsGenesis {
+                                            authority: &authority,
+                                            materialization: &prepared.materialization,
+                                            update_id: &operation_id,
+                                            client_session_id: &context.connection_id,
+                                            update: &prepared.update_v1,
+                                            state_vector: &prepared.state_vector_v1,
+                                            full_state: &prepared.update_v1,
+                                            store_epoch: &store_epoch,
+                                            operation_id: &operation_id,
+                                            emit_event: true,
+                                        },
+                                        scope.evidence(),
+                                    )?;
+                                    let committed = committed_value(
+                                        &operation_id,
+                                        &store_epoch,
+                                        &authority,
+                                        persisted.head_seq,
+                                        DocumentCommitOutcome::Committed,
+                                        persisted.event_sequence,
+                                    );
+                                    let event = load_committed_event_by_sequence(
+                                        &transaction,
+                                        persisted.event_sequence,
+                                    )?;
+                                    let mut next_head = authority.head.clone();
+                                    next_head.head_seq = persisted.head_seq;
+                                    next_head.state_vector = persisted.state_vector;
+                                    next_head.readiness = DocumentReadiness::Ready;
+                                    next_head.authority = DocumentAuthority::YdocPrimary;
+                                    prepared_delivery =
+                                        Some((Some(event), next_head, prepared.engine));
+                                    seal_typed_receipt(
+                                        scope,
+                                        "prepare_owner",
+                                        committed,
+                                        Some(persisted.event_sequence),
+                                    )
                                 },
-                                commit_context.evidence(),
                             )?;
-                            let committed = committed_value(
-                                &operation_id,
-                                &store_epoch,
-                                &authority,
-                                persisted.head_seq,
-                                DocumentCommitOutcome::Committed,
-                                persisted.event_sequence,
-                            );
-                            let event = load_committed_event_by_sequence(
-                                &transaction,
-                                persisted.event_sequence,
-                            )?;
-                            let mut next_head = authority.head.clone();
-                            next_head.head_seq = persisted.head_seq;
-                            next_head.state_vector = persisted.state_vector;
-                            next_head.readiness = DocumentReadiness::Ready;
-                            next_head.authority = DocumentAuthority::YdocPrimary;
-                            (
-                                committed,
-                                Some(event),
-                                next_head,
-                                prepared.engine,
-                                commit_context,
-                            )
+                            let committed = resolve_typed_commit(result);
+                            let (event, next_head, engine) =
+                                prepared_delivery.ok_or_else(|| {
+                                    internal("Document genesis omitted its delivery result")
+                                })?;
+                            (committed, event, next_head, engine)
                         }
                         (DocumentReadiness::Ready, DocumentAuthority::YdocPrimary) => {
                             authorize_yjs(
@@ -1660,7 +1690,6 @@ impl OwnedDocumentModule {
                                     "prepare_owner",
                                     &mut committed,
                                     None,
-                                    None,
                                 )?;
                                 transaction.commit()?;
                                 cache
@@ -1680,7 +1709,8 @@ impl OwnedDocumentModule {
                             let state_vector = candidate_transaction.state_vector().encode_v1();
                             drop(candidate_transaction);
                             let committed_at = sqlite_now(&transaction)?;
-                            let commit_context = durable_mutation::prepare(
+                            let mut prepared_delivery = None;
+                            let result = durable_mutation::run(
                                 &transaction,
                                 OperationIdentity {
                                     module: ModuleName::OwnedDocument,
@@ -1691,45 +1721,60 @@ impl OwnedDocumentModule {
                                     committed_at: &committed_at,
                                     context: &context,
                                 },
-                            )?;
-                            let persisted = persist_yjs_commit_with_local_commit(
-                                &transaction,
-                                PersistYjsCommit {
-                                    authority: &authority,
-                                    base_materialization: &base_materialization,
-                                    materialization: &materialization,
-                                    update_id: &operation_id,
-                                    client_session_id: &context.connection_id,
-                                    base_head_seq: authority.head.head_seq,
-                                    client_touched_block_ids: &[],
-                                    update: &prepared.update_v1,
-                                    state_vector: &state_vector,
-                                    store_epoch: &store_epoch,
-                                    operation_id: &operation_id,
-                                    local_commit_id: None,
-                                    event_kind: "document_updated",
-                                    write_fence_block_ids: &prepared.write_fence_block_ids,
-                                    title_write_fence_required: prepared.title_write_fence_required,
+                                |scope| {
+                                    let persisted = persist_yjs_commit_with_local_commit(
+                                        &transaction,
+                                        PersistYjsCommit {
+                                            authority: &authority,
+                                            base_materialization: &base_materialization,
+                                            materialization: &materialization,
+                                            update_id: &operation_id,
+                                            client_session_id: &context.connection_id,
+                                            base_head_seq: authority.head.head_seq,
+                                            client_touched_block_ids: &[],
+                                            update: &prepared.update_v1,
+                                            state_vector: &state_vector,
+                                            store_epoch: &store_epoch,
+                                            operation_id: &operation_id,
+                                            local_commit_id: None,
+                                            event_kind: "document_updated",
+                                            write_fence_block_ids: &prepared.write_fence_block_ids,
+                                            title_write_fence_required: prepared
+                                                .title_write_fence_required,
+                                        },
+                                        scope.evidence(),
+                                    )?;
+                                    let committed = committed_value(
+                                        &operation_id,
+                                        &store_epoch,
+                                        &authority,
+                                        persisted.head_seq,
+                                        DocumentCommitOutcome::Committed,
+                                        persisted.event_sequence,
+                                    );
+                                    let event = load_committed_event_by_sequence(
+                                        &transaction,
+                                        persisted.event_sequence,
+                                    )?;
+                                    engine.commit_candidate(candidate).map_err(engine_error)?;
+                                    let mut next_head = authority.head.clone();
+                                    next_head.head_seq = persisted.head_seq;
+                                    next_head.state_vector = persisted.state_vector;
+                                    prepared_delivery = Some((Some(event), next_head, engine));
+                                    seal_typed_receipt(
+                                        scope,
+                                        "prepare_owner",
+                                        committed,
+                                        Some(persisted.event_sequence),
+                                    )
                                 },
-                                commit_context.evidence(),
                             )?;
-                            let committed = committed_value(
-                                &operation_id,
-                                &store_epoch,
-                                &authority,
-                                persisted.head_seq,
-                                DocumentCommitOutcome::Committed,
-                                persisted.event_sequence,
-                            );
-                            let event = load_committed_event_by_sequence(
-                                &transaction,
-                                persisted.event_sequence,
-                            )?;
-                            engine.commit_candidate(candidate).map_err(engine_error)?;
-                            let mut next_head = authority.head.clone();
-                            next_head.head_seq = persisted.head_seq;
-                            next_head.state_vector = persisted.state_vector;
-                            (committed, Some(event), next_head, engine, commit_context)
+                            let committed = resolve_typed_commit(result);
+                            let (event, next_head, engine) =
+                                prepared_delivery.ok_or_else(|| {
+                                    internal("Document preparation omitted its delivery result")
+                                })?;
+                            (committed, event, next_head, engine)
                         }
                         _ => {
                             return Err(StoreError::new(
@@ -1739,17 +1784,6 @@ impl OwnedDocumentModule {
                             ));
                         }
                     };
-                insert_typed_receipt(
-                    &transaction,
-                    &context,
-                    &operation_id,
-                    &request_hash,
-                    &store_epoch,
-                    "prepare_owner",
-                    &mut committed,
-                    event.as_ref().map(|event| event.sequence),
-                    Some(commit_context),
-                )?;
                 transaction.commit()?;
                 if fail_after_commit.swap(false, Ordering::AcqRel) {
                     cache
@@ -1864,99 +1898,112 @@ impl OwnedDocumentModule {
                     &assets_root,
                 )?;
                 let committed_at = sqlite_now(&transaction)?;
-                let commit_context = prepared
-                    .changed()
-                    .then(|| {
-                        durable_mutation::prepare(
-                            &transaction,
-                            OperationIdentity {
-                                module: ModuleName::OwnedDocument,
-                                module_name: MODULE_NAME,
-                                operation_id: &operation_id,
-                                intent_hash: &request_hash,
-                                store_epoch: &store_epoch,
-                                committed_at: &committed_at,
-                                context: &context,
-                            },
-                        )
-                    })
-                    .transpose()?;
-                if prepared.changed() {
-                    let revision_now = sqlite_now(&transaction)?;
-                    if let Some(revision) =
-                        prepare_canvas_revision(&transaction, &authority, &revision_now)?
-                    {
-                        let loaded = load_canvas_scene(&transaction, &authority)?;
-                        insert_prepared_canvas_revision(
-                            &transaction,
-                            &authority,
-                            &loaded.scene,
-                            &context,
-                            &revision_now,
-                            &revision,
-                        )?;
-                    }
-                }
-                let persisted = persist_prepared_canvas_mutation(
-                    &transaction,
-                    commit_context
-                        .as_ref()
-                        .map(PreparedDurableMutation::evidence),
-                    &authority,
-                    &store_epoch,
-                    &operation_id,
-                    base_head_seq,
-                    &request_hash,
-                    &mutation,
-                    &prepared,
-                    &assets_root,
-                    "canvas_scene_updated",
-                )?;
-                if persisted.event_delta.is_some() {
-                    record_document_revision_edit(
+                let (committed, event) = if prepared.changed() {
+                    let mut delivered_event = None;
+                    let result = durable_mutation::run(
                         &transaction,
-                        &authority.head.id,
-                        authority.head.generation,
-                        persisted.head_seq,
-                        &context.connection_id,
-                        &persisted.committed_at,
+                        OperationIdentity {
+                            module: ModuleName::OwnedDocument,
+                            module_name: MODULE_NAME,
+                            operation_id: &operation_id,
+                            intent_hash: &request_hash,
+                            store_epoch: &store_epoch,
+                            committed_at: &committed_at,
+                            context: &context,
+                        },
+                        |scope| {
+                            let revision_now = sqlite_now(&transaction)?;
+                            if let Some(revision) =
+                                prepare_canvas_revision(&transaction, &authority, &revision_now)?
+                            {
+                                let loaded = load_canvas_scene(&transaction, &authority)?;
+                                insert_prepared_canvas_revision(
+                                    &transaction,
+                                    &authority,
+                                    &loaded.scene,
+                                    &context,
+                                    &revision_now,
+                                    &revision,
+                                )?;
+                            }
+                            let persisted = persist_prepared_canvas_mutation(
+                                &transaction,
+                                Some(scope.evidence()),
+                                &authority,
+                                &store_epoch,
+                                &operation_id,
+                                base_head_seq,
+                                &request_hash,
+                                &mutation,
+                                &prepared,
+                                &assets_root,
+                                "canvas_scene_updated",
+                            )?;
+                            record_document_revision_edit(
+                                &transaction,
+                                &authority.head.id,
+                                authority.head.generation,
+                                persisted.head_seq,
+                                &context.connection_id,
+                                &persisted.committed_at,
+                            )?;
+                            let committed = committed_canvas_value(
+                                &operation_id,
+                                &store_epoch,
+                                &authority,
+                                persisted.head_seq,
+                                DocumentCommitOutcome::Committed,
+                                persisted.event_sequence,
+                                persisted.result,
+                            );
+                            delivered_event = Some(load_committed_event_by_sequence(
+                                &transaction,
+                                persisted.event_sequence,
+                            )?);
+                            seal_typed_receipt(
+                                scope,
+                                "apply_canvas_mutation",
+                                committed,
+                                Some(persisted.event_sequence),
+                            )
+                        },
                     )?;
-                }
-                let outcome = if persisted.event_delta.is_some() {
-                    DocumentCommitOutcome::Committed
+                    (resolve_typed_commit(result), delivered_event)
                 } else {
-                    DocumentCommitOutcome::NoChange
+                    let persisted = persist_prepared_canvas_mutation(
+                        &transaction,
+                        None,
+                        &authority,
+                        &store_epoch,
+                        &operation_id,
+                        base_head_seq,
+                        &request_hash,
+                        &mutation,
+                        &prepared,
+                        &assets_root,
+                        "canvas_scene_updated",
+                    )?;
+                    let mut committed = committed_canvas_value(
+                        &operation_id,
+                        &store_epoch,
+                        &authority,
+                        persisted.head_seq,
+                        DocumentCommitOutcome::NoChange,
+                        persisted.event_sequence,
+                        persisted.result,
+                    );
+                    insert_typed_receipt(
+                        &transaction,
+                        &context,
+                        &operation_id,
+                        &request_hash,
+                        &store_epoch,
+                        "apply_canvas_mutation",
+                        &mut committed,
+                        None,
+                    )?;
+                    (committed, None)
                 };
-                let mut committed = committed_canvas_value(
-                    &operation_id,
-                    &store_epoch,
-                    &authority,
-                    persisted.head_seq,
-                    outcome,
-                    persisted.event_sequence,
-                    persisted.result.clone(),
-                );
-                insert_typed_receipt(
-                    &transaction,
-                    &context,
-                    &operation_id,
-                    &request_hash,
-                    &store_epoch,
-                    "apply_canvas_mutation",
-                    &mut committed,
-                    persisted
-                        .event_delta
-                        .as_ref()
-                        .map(|_| persisted.event_sequence),
-                    commit_context,
-                )?;
-                let event = persisted
-                    .event_delta
-                    .as_ref()
-                    .map(|_| {
-                        load_committed_event_by_sequence(&transaction, persisted.event_sequence)
-                    })
-                    .transpose()?;
                 transaction.commit()?;
                 if fail_after_commit.swap(false, Ordering::AcqRel) {
                     return Err(StoreError::new(
@@ -2067,167 +2114,203 @@ impl OwnedDocumentModule {
                 let prepared = prepare_canvas_compaction(&transaction, &authority)?;
                 let now = sqlite_now(&transaction)?;
                 let changed = prepared.stats.tombstone_count > 0;
-                let commit_context = changed
-                    .then(|| {
-                        durable_mutation::prepare(
-                            &transaction,
-                            OperationIdentity {
-                                module: ModuleName::OwnedDocument,
-                                module_name: MODULE_NAME,
-                                operation_id: &operation_id,
-                                intent_hash: &request_hash,
-                                store_epoch: &store_epoch,
-                                committed_at: &now,
-                                context: &context,
-                            },
-                        )
-                    })
-                    .transpose()?;
-                let (next_authority, checkpoint_version_id) = if changed {
-                    let checkpoint = insert_canvas_checkpoint(
+                let (committed, event) = if changed {
+                    let mut delivered_event = None;
+                    let result = durable_mutation::run(
                         &transaction,
-                        &authority,
-                        &prepared.original_scene,
-                        NewDocumentCheckpoint {
+                        OperationIdentity {
+                            module: ModuleName::OwnedDocument,
+                            module_name: MODULE_NAME,
                             operation_id: &operation_id,
-                            cause: "canvas_tombstone_compaction",
-                            label: Some("Before Canvas compaction"),
-                            revision_kind: "safety",
-                            source_mutation_id: None,
-                            source_change_seq: None,
-                            actor: Some(&actor),
+                            intent_hash: &request_hash,
+                            store_epoch: &store_epoch,
+                            committed_at: &now,
                             context: &context,
-                            now: &now,
+                        },
+                        |scope| {
+                            let checkpoint = insert_canvas_checkpoint(
+                                &transaction,
+                                &authority,
+                                &prepared.original_scene,
+                                NewDocumentCheckpoint {
+                                    operation_id: &operation_id,
+                                    cause: "canvas_tombstone_compaction",
+                                    label: Some("Before Canvas compaction"),
+                                    revision_kind: "safety",
+                                    source_mutation_id: None,
+                                    source_change_seq: None,
+                                    actor: Some(&actor),
+                                    context: &context,
+                                    now: &now,
+                                },
+                            )?;
+                            let checkpoint_version_id = checkpoint
+                                .version
+                                .summary
+                                .get("versionId")
+                                .and_then(Value::as_str)
+                                .map(str::to_owned)
+                                .ok_or_else(|| {
+                                    internal("Canvas compaction checkpoint identity is missing")
+                                })?;
+                            let persisted = persist_canvas_compaction(
+                                &transaction,
+                                &authority,
+                                &prepared,
+                                &now,
+                                &assets_root,
+                            )?;
+                            let mut next_authority = authority.clone();
+                            next_authority.head.generation = persisted.generation;
+                            next_authority.head.head_seq = persisted.head_seq;
+                            next_authority.head.state_hash = persisted.scene_hash;
+                            transaction.execute(
+                                "INSERT INTO canvas_scene_mutation_receipts (\
+                                   document_id, generation, mutation_id, base_head_seq, committed_head_seq, \
+                                   intent_hash, intent_byte_length, outcome, committed_at\
+                                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'committed', ?8)",
+                                rusqlite::params![
+                                    authority.head.id,
+                                    next_authority.head.generation,
+                                    operation_id,
+                                    authority.head.head_seq,
+                                    next_authority.head.head_seq,
+                                    request_hash,
+                                    i64::try_from(fingerprint.len()).map_err(|_| {
+                                        internal("Canvas compaction intent length")
+                                    })?,
+                                    now,
+                                ],
+                            )?;
+                            let payload = json!({
+                                "module": "owned_document",
+                                "kind": "canvas_generation_changed",
+                                "documentId": authority.head.id,
+                                "previousGeneration": authority.head.generation,
+                                "previousHeadSeq": authority.head.head_seq,
+                                "generation": next_authority.head.generation,
+                                "headSeq": next_authority.head.head_seq,
+                                "sceneHash": next_authority.head.state_hash,
+                            });
+                            let block_ids = vec![authority.owner_block_id.clone()];
+                            let document_ids = vec![authority.head.id.clone()];
+                            let payload_json = serde_json::to_string(&payload)
+                                .map_err(|_| internal("Canvas compaction event payload"))?;
+                            let event_sequence = append_change_log(
+                                &transaction,
+                                NewChangeLogEntry {
+                                    project_id: &authority.head.project_id,
+                                    store_epoch: &store_epoch,
+                                    kind: "owned_document.canvas_generation_changed",
+                                    operation_id: Some(&operation_id),
+                                    block_ids: &block_ids,
+                                    document_ids: &document_ids,
+                                    database_block_ids: &[],
+                                    payload_json: &payload_json,
+                                    projection_impact: &ProjectionImpact::None,
+                                    committed_at: &now,
+                                },
+                                scope.evidence(),
+                            )?;
+                            let canvas_result = json!({
+                                "version": 1,
+                                "kind": "tombstone_compaction",
+                                "operationId": operation_id,
+                                "projectId": authority.head.project_id,
+                                "documentId": authority.head.id,
+                                "storeEpoch": store_epoch,
+                                "previousGeneration": authority.head.generation,
+                                "previousHeadSeq": authority.head.head_seq,
+                                "generation": next_authority.head.generation,
+                                "headSeq": next_authority.head.head_seq,
+                                "duplicate": false,
+                                "outcome": "committed",
+                                "sceneHash": next_authority.head.state_hash,
+                                "removedTombstoneCount": prepared.stats.tombstone_count,
+                                "removedTombstoneBytes": prepared.stats.tombstone_bytes,
+                                "checkpointVersionId": checkpoint_version_id,
+                                "committedAt": now,
+                            });
+                            let committed = committed_canvas_value(
+                                &operation_id,
+                                &store_epoch,
+                                &next_authority,
+                                next_authority.head.head_seq,
+                                DocumentCommitOutcome::Committed,
+                                event_sequence,
+                                canvas_result,
+                            );
+                            delivered_event = Some(load_committed_event_by_sequence(
+                                &transaction,
+                                event_sequence,
+                            )?);
+                            seal_typed_receipt(
+                                scope,
+                                "compact_canvas_tombstones",
+                                committed,
+                                Some(event_sequence),
+                            )
                         },
                     )?;
-                    let checkpoint_version_id = checkpoint
-                        .version
-                        .summary
-                        .get("versionId")
-                        .and_then(Value::as_str)
-                        .map(str::to_owned)
-                        .ok_or_else(|| {
-                            internal("Canvas compaction checkpoint identity is missing")
-                        })?;
-                    let persisted = persist_canvas_compaction(
-                        &transaction,
-                        &authority,
-                        &prepared,
-                        &now,
-                        &assets_root,
-                    )?;
-                    let mut next_authority = authority.clone();
-                    next_authority.head.generation = persisted.generation;
-                    next_authority.head.head_seq = persisted.head_seq;
-                    next_authority.head.state_hash = persisted.scene_hash;
-                    (next_authority, Some(checkpoint_version_id))
+                    (resolve_typed_commit(result), delivered_event)
                 } else {
-                    (authority.clone(), None)
-                };
-                let outcome = if changed { "committed" } else { "no_change" };
-                transaction.execute(
-                    "INSERT INTO canvas_scene_mutation_receipts (\
-                       document_id, generation, mutation_id, base_head_seq, committed_head_seq, \
-                       intent_hash, intent_byte_length, outcome, committed_at\
-                     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-                    rusqlite::params![
-                        authority.head.id,
-                        next_authority.head.generation,
-                        operation_id,
-                        authority.head.head_seq,
-                        next_authority.head.head_seq,
-                        request_hash,
-                        i64::try_from(fingerprint.len())
-                            .map_err(|_| internal("Canvas compaction intent length"))?,
-                        outcome,
-                        now,
-                    ],
-                )?;
-                let event_sequence = if changed {
-                    let payload = json!({
-                        "module": "owned_document",
-                        "kind": "canvas_generation_changed",
+                    transaction.execute(
+                        "INSERT INTO canvas_scene_mutation_receipts (\
+                           document_id, generation, mutation_id, base_head_seq, committed_head_seq, \
+                           intent_hash, intent_byte_length, outcome, committed_at\
+                         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'no_change', ?8)",
+                        rusqlite::params![
+                            authority.head.id,
+                            authority.head.generation,
+                            operation_id,
+                            authority.head.head_seq,
+                            authority.head.head_seq,
+                            request_hash,
+                            i64::try_from(fingerprint.len())
+                                .map_err(|_| internal("Canvas compaction intent length"))?,
+                            now,
+                        ],
+                    )?;
+                    let canvas_result = json!({
+                        "version": 1,
+                        "kind": "tombstone_compaction",
+                        "operationId": operation_id,
+                        "projectId": authority.head.project_id,
                         "documentId": authority.head.id,
+                        "storeEpoch": store_epoch,
                         "previousGeneration": authority.head.generation,
                         "previousHeadSeq": authority.head.head_seq,
-                        "generation": next_authority.head.generation,
-                        "headSeq": next_authority.head.head_seq,
-                        "sceneHash": next_authority.head.state_hash,
+                        "generation": authority.head.generation,
+                        "headSeq": authority.head.head_seq,
+                        "duplicate": false,
+                        "outcome": "no_change",
+                        "sceneHash": authority.head.state_hash,
+                        "removedTombstoneCount": 0,
+                        "removedTombstoneBytes": 0,
+                        "checkpointVersionId": Value::Null,
+                        "committedAt": now,
                     });
-                    let block_ids = vec![authority.owner_block_id.clone()];
-                    let document_ids = vec![authority.head.id.clone()];
-                    let payload_json = serde_json::to_string(&payload)
-                        .map_err(|_| internal("Canvas compaction event payload"))?;
-                    append_change_log(
+                    let mut committed = committed_canvas_value(
+                        &operation_id,
+                        &store_epoch,
+                        &authority,
+                        authority.head.head_seq,
+                        DocumentCommitOutcome::NoChange,
+                        read_event_head(&transaction)?,
+                        canvas_result,
+                    );
+                    insert_typed_receipt(
                         &transaction,
-                        NewChangeLogEntry {
-                            project_id: &authority.head.project_id,
-                            store_epoch: &store_epoch,
-                            kind: "owned_document.canvas_generation_changed",
-                            operation_id: Some(&operation_id),
-                            block_ids: &block_ids,
-                            document_ids: &document_ids,
-                            database_block_ids: &[],
-                            payload_json: &payload_json,
-                            projection_impact: &ProjectionImpact::None,
-                            committed_at: &now,
-                        },
-                        commit_context
-                            .as_ref()
-                            .map(PreparedDurableMutation::evidence)
-                            .ok_or_else(|| {
-                                internal("Canvas compaction lost its LocalCommit context")
-                            })?,
-                    )?
-                } else {
-                    read_event_head(&transaction)?
-                };
-                let result = json!({
-                    "version": 1,
-                    "kind": "tombstone_compaction",
-                    "operationId": operation_id,
-                    "projectId": authority.head.project_id,
-                    "documentId": authority.head.id,
-                    "storeEpoch": store_epoch,
-                    "previousGeneration": authority.head.generation,
-                    "previousHeadSeq": authority.head.head_seq,
-                    "generation": next_authority.head.generation,
-                    "headSeq": next_authority.head.head_seq,
-                    "duplicate": false,
-                    "outcome": outcome,
-                    "sceneHash": next_authority.head.state_hash,
-                    "removedTombstoneCount": prepared.stats.tombstone_count,
-                    "removedTombstoneBytes": prepared.stats.tombstone_bytes,
-                    "checkpointVersionId": checkpoint_version_id,
-                    "committedAt": now,
-                });
-                let mut committed = committed_canvas_value(
-                    &operation_id,
-                    &store_epoch,
-                    &next_authority,
-                    next_authority.head.head_seq,
-                    if changed {
-                        DocumentCommitOutcome::Committed
-                    } else {
-                        DocumentCommitOutcome::NoChange
-                    },
-                    event_sequence,
-                    result,
-                );
-                insert_typed_receipt(
-                    &transaction,
-                    &context,
-                    &operation_id,
-                    &request_hash,
-                    &store_epoch,
-                    "compact_canvas_tombstones",
+                        &context,
+                        &operation_id,
+                        &request_hash,
+                        &store_epoch,
+                        "compact_canvas_tombstones",
                     &mut committed,
-                    changed.then_some(event_sequence),
-                    commit_context,
+                    None,
                 )?;
-                let event = changed
-                    .then(|| load_committed_event_by_sequence(&transaction, event_sequence))
-                    .transpose()?;
+                    (committed, None)
+                };
                 transaction.commit()?;
                 if fail_after_commit.swap(false, Ordering::AcqRel) {
                     return Err(StoreError::new(
@@ -2834,7 +2917,6 @@ impl OwnedDocumentModule {
                     "create_checkpoint",
                     &mut committed,
                     None,
-                    None,
                 )?;
                 transaction.commit()?;
                 if let Some(engine) = yjs_engine {
@@ -3097,7 +3179,6 @@ impl OwnedDocumentModule {
                         "restore_version",
                         &mut committed,
                         None,
-                        None,
                     )?;
                     transaction.commit()?;
                     return Ok(OwnedDocumentApplyOutcome {
@@ -3106,7 +3187,8 @@ impl OwnedDocumentModule {
                     });
                 };
                 let now = sqlite_now(&transaction)?;
-                let commit_context = durable_mutation::prepare(
+                let mut delivered_event = None;
+                let result = durable_mutation::run(
                     &transaction,
                     OperationIdentity {
                         module: ModuleName::OwnedDocument,
@@ -3117,95 +3199,97 @@ impl OwnedDocumentModule {
                         committed_at: &now,
                         context: &context,
                     },
-                )?;
-                let safety_label = format!("Before restore {version_id}");
-                insert_canvas_checkpoint(
-                    &transaction,
-                    &authority,
-                    &loaded.scene,
-                    NewDocumentCheckpoint {
-                        operation_id: &operation_id,
-                        cause: "before_restore",
-                        label: Some(&safety_label),
-                        revision_kind: "restore",
-                        source_mutation_id: Some(&operation_id),
-                        source_change_seq: None,
-                        actor: Some(&before_restore_actor),
-                        context: &context,
-                        now: &now,
+                    |scope| {
+                        let safety_label = format!("Before restore {version_id}");
+                        insert_canvas_checkpoint(
+                            &transaction,
+                            &authority,
+                            &loaded.scene,
+                            NewDocumentCheckpoint {
+                                operation_id: &operation_id,
+                                cause: "before_restore",
+                                label: Some(&safety_label),
+                                revision_kind: "restore",
+                                source_mutation_id: Some(&operation_id),
+                                source_change_seq: None,
+                                actor: Some(&before_restore_actor),
+                                context: &context,
+                                now: &now,
+                            },
+                        )?;
+                        let applied = apply_canvas_candidate(&loaded.scene, &mutation)?;
+                        let persisted = persist_canvas_mutation(
+                            &transaction,
+                            Some(scope.evidence()),
+                            &authority,
+                            &store_epoch,
+                            &operation_id,
+                            authority.head.head_seq,
+                            &request_hash,
+                            &mutation,
+                            &applied,
+                            &assets_root,
+                            "document_restored",
+                        )?;
+                        let mut restored_authority = authority.clone();
+                        restored_authority.head.head_seq = persisted.head_seq;
+                        restored_authority.head.state_hash = persisted.scene_hash.clone();
+                        insert_canvas_checkpoint(
+                            &transaction,
+                            &restored_authority,
+                            &applied.scene,
+                            NewDocumentCheckpoint {
+                                operation_id: &operation_id,
+                                cause: "after_restore",
+                                label: Some(&format!("Restored {version_id}")),
+                                revision_kind: "restore",
+                                source_mutation_id: Some(&operation_id),
+                                source_change_seq: Some(persisted.event_sequence),
+                                actor: Some(&actor),
+                                context: &context,
+                                now: &persisted.committed_at,
+                            },
+                        )?;
+                        transaction.execute(
+                            "DELETE FROM document_revision_sessions WHERE document_id = ?1",
+                            [&authority.head.id],
+                        )?;
+                        let mut committed = committed_canvas_value(
+                            &operation_id,
+                            &store_epoch,
+                            &authority,
+                            persisted.head_seq,
+                            DocumentCommitOutcome::Committed,
+                            persisted.event_sequence,
+                            persisted.result,
+                        );
+                        committed.value.committed_at = Some(persisted.committed_at.clone());
+                        committed.value.mutation_effect = Some(DocumentMutationEffect {
+                            base_head_seq: authority.head.head_seq,
+                            touched_block_ids: vec![authority.owner_block_id.clone()],
+                            created_block_ids: Vec::new(),
+                            deleted_block_ids: Vec::new(),
+                            updated_block_ids: vec![authority.owner_block_id.clone()],
+                            moved_block_ids: Vec::new(),
+                            write_fence_block_ids: vec![authority.owner_block_id.clone()],
+                            title_changed: false,
+                            coordination: DocumentMutationCoordination::WriteFence,
+                        });
+                        delivered_event = Some(load_committed_event_by_sequence(
+                            &transaction,
+                            persisted.event_sequence,
+                        )?);
+                        seal_typed_receipt(
+                            scope,
+                            "restore_version",
+                            committed,
+                            Some(persisted.event_sequence),
+                        )
                     },
                 )?;
-                let applied = apply_canvas_candidate(&loaded.scene, &mutation)?;
-                let persisted = persist_canvas_mutation(
-                    &transaction,
-                    Some(commit_context.evidence()),
-                    &authority,
-                    &store_epoch,
-                    &operation_id,
-                    authority.head.head_seq,
-                    &request_hash,
-                    &mutation,
-                    &applied,
-                    &assets_root,
-                    "document_restored",
-                )?;
-                let mut restored_authority = authority.clone();
-                restored_authority.head.head_seq = persisted.head_seq;
-                restored_authority.head.state_hash = persisted.scene_hash.clone();
-                insert_canvas_checkpoint(
-                    &transaction,
-                    &restored_authority,
-                    &applied.scene,
-                    NewDocumentCheckpoint {
-                        operation_id: &operation_id,
-                        cause: "after_restore",
-                        label: Some(&format!("Restored {version_id}")),
-                        revision_kind: "restore",
-                        source_mutation_id: Some(&operation_id),
-                        source_change_seq: Some(persisted.event_sequence),
-                        actor: Some(&actor),
-                        context: &context,
-                        now: &persisted.committed_at,
-                    },
-                )?;
-                transaction.execute(
-                    "DELETE FROM document_revision_sessions WHERE document_id = ?1",
-                    [&authority.head.id],
-                )?;
-                let mut committed = committed_canvas_value(
-                    &operation_id,
-                    &store_epoch,
-                    &authority,
-                    persisted.head_seq,
-                    DocumentCommitOutcome::Committed,
-                    persisted.event_sequence,
-                    persisted.result,
-                );
-                committed.value.committed_at = Some(persisted.committed_at.clone());
-                committed.value.mutation_effect = Some(DocumentMutationEffect {
-                    base_head_seq: authority.head.head_seq,
-                    touched_block_ids: vec![authority.owner_block_id.clone()],
-                    created_block_ids: Vec::new(),
-                    deleted_block_ids: Vec::new(),
-                    updated_block_ids: vec![authority.owner_block_id.clone()],
-                    moved_block_ids: Vec::new(),
-                    write_fence_block_ids: vec![authority.owner_block_id.clone()],
-                    title_changed: false,
-                    coordination: DocumentMutationCoordination::WriteFence,
-                });
-                insert_typed_receipt(
-                    &transaction,
-                    &context,
-                    &operation_id,
-                    &request_hash,
-                    &store_epoch,
-                    "restore_version",
-                    &mut committed,
-                    Some(persisted.event_sequence),
-                    Some(commit_context),
-                )?;
-                let event =
-                    load_committed_event_by_sequence(&transaction, persisted.event_sequence)?;
+                let committed = resolve_typed_commit(result);
+                let event = delivered_event
+                    .ok_or_else(|| internal("Canvas restore omitted its delivery event"))?;
                 transaction.commit()?;
                 if fail_after_commit.swap(false, Ordering::AcqRel) {
                     return Err(StoreError::new(
@@ -3430,10 +3514,9 @@ impl OwnedDocumentModule {
                         &job.request_hash,
                         &store_epoch,
                         job.operation_kind,
-                        &mut committed,
-                        None,
-                        None,
-                    )?;
+                    &mut committed,
+                    None,
+                )?;
                     transaction.commit()?;
                     consume_prepared_agent_lease(&mut prepared_agent_lease)?;
                     cache
@@ -3477,10 +3560,9 @@ impl OwnedDocumentModule {
                         &job.request_hash,
                         &store_epoch,
                         job.operation_kind,
-                        &mut committed,
-                        None,
-                        None,
-                    )?;
+                    &mut committed,
+                    None,
+                )?;
                     transaction.commit()?;
                     consume_prepared_agent_lease(&mut prepared_agent_lease)?;
                     cache
@@ -3496,7 +3578,8 @@ impl OwnedDocumentModule {
                 let state_vector = candidate_transaction.state_vector().encode_v1();
                 drop(candidate_transaction);
                 let revision_now = sqlite_now(&transaction)?;
-                let commit_context = durable_mutation::prepare(
+                let mut committed_delivery = None;
+                let result = durable_mutation::run(
                     &transaction,
                     OperationIdentity {
                         module: ModuleName::OwnedDocument,
@@ -3507,121 +3590,126 @@ impl OwnedDocumentModule {
                         committed_at: &revision_now,
                         context: &job.context,
                     },
-                )?;
-                prepare_document_revision(
-                    &transaction,
-                    &authority,
-                    &base_materialization,
-                    &job.context,
-                    &revision_now,
-                )?;
-                let persisted = persist_yjs_commit_with_local_commit(
-                    &transaction,
-                    PersistYjsCommit {
-                        authority: &authority,
-                        base_materialization: &base_materialization,
-                        materialization: &materialization,
-                        update_id: &update_id,
-                        client_session_id: &job.client_session_id,
-                        base_head_seq,
-                        client_touched_block_ids: &touched_block_ids,
-                        update: &update,
-                        state_vector: &state_vector,
-                        store_epoch: &store_epoch,
-                        operation_id: &job.operation_id,
-                        local_commit_id: None,
-                        event_kind: match job.publication {
-                            UpdatePublication::Updated => "document_updated",
-                            UpdatePublication::Invalidated(
-                                DocumentInvalidationReason::Restored,
-                            ) => "document_restored",
-                            UpdatePublication::Invalidated(_) => "document_invalidated",
-                        },
-                        write_fence_block_ids: &write_fence_block_ids,
-                        title_write_fence_required,
+                    |scope| {
+                        prepare_document_revision(
+                            &transaction,
+                            &authority,
+                            &base_materialization,
+                            &job.context,
+                            &revision_now,
+                        )?;
+                        let persisted = persist_yjs_commit_with_local_commit(
+                            &transaction,
+                            PersistYjsCommit {
+                                authority: &authority,
+                                base_materialization: &base_materialization,
+                                materialization: &materialization,
+                                update_id: &update_id,
+                                client_session_id: &job.client_session_id,
+                                base_head_seq,
+                                client_touched_block_ids: &touched_block_ids,
+                                update: &update,
+                                state_vector: &state_vector,
+                                store_epoch: &store_epoch,
+                                operation_id: &job.operation_id,
+                                local_commit_id: None,
+                                event_kind: match job.publication {
+                                    UpdatePublication::Updated => "document_updated",
+                                    UpdatePublication::Invalidated(
+                                        DocumentInvalidationReason::Restored,
+                                    ) => "document_restored",
+                                    UpdatePublication::Invalidated(_) => "document_invalidated",
+                                },
+                                write_fence_block_ids: &write_fence_block_ids,
+                                title_write_fence_required,
+                            },
+                            scope.evidence(),
+                        )?;
+                        if commit_checkpoint.is_some() {
+                            let mut committed_authority = authority.clone();
+                            committed_authority.head.head_seq = persisted.head_seq;
+                            committed_authority.head.state_vector = persisted.state_vector.clone();
+                            insert_document_checkpoint(
+                                &transaction,
+                                &committed_authority,
+                                &materialization,
+                                NewDocumentCheckpoint {
+                                    operation_id: &job.operation_id,
+                                    cause: commit_checkpoint
+                                        .as_ref()
+                                        .map(|checkpoint| checkpoint.cause)
+                                        .unwrap_or("operation"),
+                                    label: commit_checkpoint
+                                        .as_ref()
+                                        .and_then(|checkpoint| checkpoint.label.as_deref()),
+                                    revision_kind: commit_checkpoint
+                                        .as_ref()
+                                        .map(|checkpoint| checkpoint.revision_kind)
+                                        .unwrap_or("operation"),
+                                    source_mutation_id: Some(&job.operation_id),
+                                    source_change_seq: Some(persisted.event_sequence),
+                                    actor: commit_checkpoint
+                                        .as_ref()
+                                        .map(|checkpoint| &checkpoint.actor),
+                                    context: &job.context,
+                                    now: &persisted.committed_at,
+                                },
+                            )?;
+                            transaction.execute(
+                                "DELETE FROM document_revision_sessions WHERE document_id = ?1",
+                                [&authority.head.id],
+                            )?;
+                        } else {
+                            record_document_revision_edit(
+                                &transaction,
+                                &authority.head.id,
+                                authority.head.generation,
+                                persisted.head_seq,
+                                &job.client_session_id,
+                                &persisted.committed_at,
+                            )?;
+                        }
+                        let mut committed = committed_value(
+                            &job.operation_id,
+                            &store_epoch,
+                            &authority,
+                            persisted.head_seq,
+                            DocumentCommitOutcome::Committed,
+                            persisted.event_sequence,
+                        );
+                        committed.value.committed_at = Some(persisted.committed_at.clone());
+                        committed.value.mutation_effect = mutation_effect.map(|effect| *effect);
+                        committed.value.semantic_local_block_ids = semantic_local_block_ids.clone();
+                        committed.value.semantic_deleted_owner_block_ids =
+                            semantic_deleted_owner_block_ids.clone();
+                        attach_semantic_etags(
+                            &transaction,
+                            &job,
+                            &store_epoch,
+                            &authority,
+                            &materialization,
+                            &mut committed,
+                        )?;
+                        let event = load_committed_event_by_sequence(
+                            &transaction,
+                            persisted.event_sequence,
+                        )?;
+                        committed_delivery = Some((
+                            event,
+                            persisted.head_seq,
+                            persisted.state_vector,
+                        ));
+                        seal_typed_receipt(
+                            scope,
+                            job.operation_kind,
+                            committed,
+                            Some(persisted.event_sequence),
+                        )
                     },
-                    commit_context.evidence(),
                 )?;
-                if commit_checkpoint.is_some() {
-                    let mut committed_authority = authority.clone();
-                    committed_authority.head.head_seq = persisted.head_seq;
-                    committed_authority.head.state_vector = persisted.state_vector.clone();
-                    insert_document_checkpoint(
-                        &transaction,
-                        &committed_authority,
-                        &materialization,
-                        NewDocumentCheckpoint {
-                            operation_id: &job.operation_id,
-                            cause: commit_checkpoint
-                                .as_ref()
-                                .map(|checkpoint| checkpoint.cause)
-                                .unwrap_or("operation"),
-                            label: commit_checkpoint
-                                .as_ref()
-                                .and_then(|checkpoint| checkpoint.label.as_deref()),
-                            revision_kind: commit_checkpoint
-                                .as_ref()
-                                .map(|checkpoint| checkpoint.revision_kind)
-                                .unwrap_or("operation"),
-                            source_mutation_id: Some(&job.operation_id),
-                            source_change_seq: Some(persisted.event_sequence),
-                            actor: commit_checkpoint
-                                .as_ref()
-                                .map(|checkpoint| &checkpoint.actor),
-                            context: &job.context,
-                            now: &persisted.committed_at,
-                        },
-                    )?;
-                    transaction.execute(
-                        "DELETE FROM document_revision_sessions WHERE document_id = ?1",
-                        [&authority.head.id],
-                    )?;
-                } else {
-                    record_document_revision_edit(
-                        &transaction,
-                        &authority.head.id,
-                        authority.head.generation,
-                        persisted.head_seq,
-                        &job.client_session_id,
-                        &persisted.committed_at,
-                    )?;
-                }
-                let mut committed = committed_value(
-                    &job.operation_id,
-                    &store_epoch,
-                    &authority,
-                    persisted.head_seq,
-                    DocumentCommitOutcome::Committed,
-                    persisted.event_sequence,
-                );
-                committed.value.committed_at = Some(persisted.committed_at.clone());
-                committed.value.mutation_effect = mutation_effect.map(|effect| *effect);
-                committed.value.semantic_local_block_ids = semantic_local_block_ids;
-                committed.value.semantic_deleted_owner_block_ids =
-                    semantic_deleted_owner_block_ids;
-                attach_semantic_etags(
-                    &transaction,
-                    &job,
-                    &store_epoch,
-                    &authority,
-                    &materialization,
-                    &mut committed,
-                )?;
-                insert_typed_receipt(
-                    &transaction,
-                    &job.context,
-                    &job.operation_id,
-                    &job.request_hash,
-                    &store_epoch,
-                    job.operation_kind,
-                    &mut committed,
-                    Some(persisted.event_sequence),
-                    Some(commit_context),
-                )?;
-                let event = load_committed_event_by_sequence(
-                    &transaction,
-                    persisted.event_sequence,
-                )?;
+                let committed = resolve_typed_commit(result);
+                let (event, next_head_seq, next_state_vector) = committed_delivery
+                    .ok_or_else(|| internal("Document update omitted its delivery result"))?;
                 transaction.commit()?;
                 consume_prepared_agent_lease(&mut prepared_agent_lease)?;
                 if fail_after_commit.swap(false, Ordering::AcqRel) {
@@ -3637,8 +3725,8 @@ impl OwnedDocumentModule {
                 }
                 engine.commit_candidate(candidate).map_err(engine_error)?;
                 let mut next_head = authority.head.clone();
-                next_head.head_seq = persisted.head_seq;
-                next_head.state_vector = persisted.state_vector;
+                next_head.head_seq = next_head_seq;
+                next_head.state_vector = next_state_vector;
                 cache
                     .lock()
                     .map_err(|_| internal("Document cache lock failed"))?
@@ -4166,6 +4254,38 @@ fn committed_canvas_value(
     committed
 }
 
+type OwnedDocumentWriterResult =
+    crate::ModuleWriterResult<OwnedDocumentCommitValue, OwnedDocumentReceipt>;
+
+fn seal_typed_receipt(
+    scope: &DurableMutationScope<'_>,
+    operation_kind: &str,
+    mut committed: OwnedDocumentWriterResult,
+    event_sequence: Option<i64>,
+) -> Result<SealedOutcome<OwnedDocumentWriterResult>, StoreError> {
+    committed.commit_seq = scope.commit_seq();
+    Ok(scope.seal(
+        committed,
+        ReceiptMetadata {
+            operation_kind,
+            event_sequence,
+            committed_at: scope.committed_at(),
+        },
+    ))
+}
+
+fn resolve_typed_commit(
+    result: CommitResult<OwnedDocumentWriterResult>,
+) -> OwnedDocumentWriterResult {
+    match result {
+        CommitResult::Committed { outcome, .. } | CommitResult::NoOp { outcome } => outcome,
+        CommitResult::IdempotentReplay { mut outcome, .. } => {
+            outcome.receipt.mutation.duplicate = true;
+            outcome
+        }
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn insert_typed_receipt(
     connection: &rusqlite::Connection,
@@ -4176,42 +4296,28 @@ fn insert_typed_receipt(
     operation_kind: &str,
     committed: &mut crate::ModuleWriterResult<OwnedDocumentCommitValue, OwnedDocumentReceipt>,
     event_sequence: Option<i64>,
-    commit_context: Option<PreparedDurableMutation<'_>>,
 ) -> Result<(), StoreError> {
-    committed.commit_seq = commit_context
-        .as_ref()
-        .map_or(read_local_commit_head(connection)?, |prepared| {
-            prepared.commit_seq()
-        });
-    let committed_at = commit_context
-        .as_ref()
-        .map(PreparedDurableMutation::committed_at)
-        .map(str::to_owned)
-        .map_or_else(|| sqlite_now(connection), Ok)?;
+    committed.commit_seq = read_local_commit_head(connection)?;
+    let committed_at = sqlite_now(connection)?;
     let receipt = ReceiptMetadata {
         operation_kind,
         event_sequence,
         committed_at: &committed_at,
     };
-    if let Some(prepared) = commit_context {
-        durable_mutation::finish_prepared(prepared, &*committed, receipt)?;
-    } else {
-        durable_mutation::record_no_op(
-            connection,
-            OperationIdentity {
-                module: ModuleName::OwnedDocument,
-                module_name: MODULE_NAME,
-                operation_id,
-                intent_hash: request_hash,
-                store_epoch,
-                context,
-                committed_at: &committed_at,
-            },
-            &*committed,
-            receipt,
-        )?;
-    }
-    Ok(())
+    durable_mutation::record_no_op(
+        connection,
+        OperationIdentity {
+            module: ModuleName::OwnedDocument,
+            module_name: MODULE_NAME,
+            operation_id,
+            intent_hash: request_hash,
+            store_epoch,
+            context,
+            committed_at: &committed_at,
+        },
+        &*committed,
+        receipt,
+    )
 }
 
 fn authority_descriptor(authority: &DocumentAuthorityRow, store_epoch: &str) -> Value {
@@ -4242,6 +4348,39 @@ fn authority_descriptor(authority: &DocumentAuthorityRow, store_epoch: &str) -> 
         "readiness": readiness,
         "sync": sync,
     })
+}
+
+fn issue_descriptor_read_stamp(
+    connection: &Connection,
+    context: &BoundModuleContext,
+    authority: &DocumentAuthorityRow,
+    store_epoch: &str,
+    commit_head: i64,
+) -> Result<nodex_core_contracts::events::AuthorizedReadStamp, StoreError> {
+    let document = ResourceKey::Document {
+        document_id: authority.head.id.clone(),
+    };
+    let subject = match authority.owner_type.as_str() {
+        "page" => ResourceKey::Page {
+            page_id: authority.owner_block_id.clone(),
+        },
+        "database" => ResourceKey::Database {
+            database_id: authority.owner_block_id.clone(),
+        },
+        "canvas" => ResourceKey::Canvas {
+            canvas_id: authority.owner_block_id.clone(),
+        },
+        _ => document.clone(),
+    };
+    resource_authorization::issue_read_stamp(
+        connection,
+        context,
+        StoreEpoch(store_epoch.to_owned()),
+        commit_head,
+        subject.clone(),
+        vec![subject.clone()],
+        vec![subject, document],
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -6334,14 +6473,16 @@ mod tests {
             .expect("authorize exact Canvas delivery")
             .expect("Canvas mutation addresses its exact Document");
         assert!(matches!(
-            delivery.effects.as_slice(),
-            [nodex_core_contracts::AuthorizedModuleEffect {
-                payload: nodex_core_contracts::AuthorizedModulePayload::OwnedDocument(
+            delivery.atoms.as_slice(),
+            [nodex_core_contracts::AuthorizedDeliveryAtom {
+                payload: nodex_core_contracts::DeliveryAtomPayload::OwnedDocument {
+                    event:
                     nodex_core_contracts::AuthorizedOwnedDocumentEvent::CanvasUpdated {
                         document_id,
                         ..
-                    }
-                ),
+                    },
+                    ..
+                },
                 ..
             }] if document_id == DOCUMENT_ID
         ));

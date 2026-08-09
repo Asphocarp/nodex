@@ -144,6 +144,7 @@ export const parsePageLifecyclePreflightResultV2 = (
       libraryId,
       storeEpoch,
       commitSeq,
+      authorization: null,
       value: { kind: "query", value: preflight.defaultView },
     },
   });

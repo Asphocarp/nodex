@@ -16,6 +16,7 @@ const descriptor: PrimaryPageBlockDocumentDescriptor = {
   ownerType: "page",
   ownerLifecycle: "active",
   documentId: "document:sync-design",
+  authorization: null,
   storeEpoch: "store:local",
   generation: 4,
   headSeq: 27,

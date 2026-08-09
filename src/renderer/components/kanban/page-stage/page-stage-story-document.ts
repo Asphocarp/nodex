@@ -94,6 +94,7 @@ export function createPageStageStoryDocument(input: {
         ownerType: "page",
         ownerLifecycle: "active",
         documentId,
+        authorization: null,
         storeEpoch: "storybook-store",
         generation: 1,
         headSeq: 0,

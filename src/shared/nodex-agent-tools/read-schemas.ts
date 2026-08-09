@@ -28,7 +28,6 @@ export const DatabasePropertyValueTypeSchema = z.enum([
   "multi_select",
   "date",
   "datetime",
-  "person",
 ]) satisfies z.ZodType<DatabasePropertyValueType>;
 
 export const DatabaseViewKindSchema = z.enum([

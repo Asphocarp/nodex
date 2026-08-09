@@ -1154,7 +1154,6 @@ pub enum ProjectedPropertyTypeV1 {
     MultiSelect,
     Date,
     Datetime,
-    Person,
     Relation,
 }
 

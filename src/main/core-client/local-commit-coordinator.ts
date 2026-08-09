@@ -1,15 +1,20 @@
 import type { CoreProjectionEffect } from "../../shared/projection-stream";
 import type {
   CoreAuthorizedDeliveryPacket,
-  CoreAuthorizedModuleEffect,
+  CoreAuthorizedDeliveryAtom,
   CoreStreamCheckpoint,
 } from "./types";
 
-export type LocalCommitIngress = "apply" | "tailer" | "replay" | "resolve";
+export type LocalCommitIngress =
+  | "apply"
+  | "projection_live"
+  | "tailer"
+  | "replay"
+  | "resolve";
 export type LocalCommitLaneKind =
   | "document"
   | "projection"
-  | "revocation"
+  | "visibility"
   | "notification";
 export type LocalCommitStreamResetReason =
   | "event_gap"
@@ -41,12 +46,12 @@ export interface LocalCommitCoordinatorInput {
   ) => void | Promise<void>;
   readonly onNotification: (
     packet: CoreAuthorizedDeliveryPacket,
-    effect: CoreAuthorizedModuleEffect,
+    atom: CoreAuthorizedDeliveryAtom,
     ingress: LocalCommitIngress,
   ) => void | Promise<void>;
-  readonly onRevocation: (
+  readonly onVisibility: (
     packet: CoreAuthorizedDeliveryPacket,
-    revocation: CoreAuthorizedDeliveryPacket["revocations"][number],
+    delta: CoreAuthorizedDeliveryPacket["visibility_deltas"][number],
     ingress: LocalCommitIngress,
   ) => void | Promise<void>;
   readonly onError?: (failure: LocalCommitDeliveryError) => void;
@@ -167,8 +172,13 @@ const identityOf = (packet: CoreAuthorizedDeliveryPacket) => {
     throw new Error("Authorized delivery packet manifest header is invalid");
   }
   validateAuthorizationScope(packet.authorization_scope);
-  for (const revocation of packet.revocations) {
-    validateAuthorizationScope(revocation.authorization_scope);
+  validateAuthorizationScope(packet.delivery_address);
+  if (authorizationScopeKey(packet.authorization_scope)
+    !== authorizationScopeKey(packet.delivery_address)) {
+    throw new Error("Delivery address and authorization scope diverge");
+  }
+  for (const delta of packet.visibility_deltas) {
+    validateAuthorizationScope(delta.authorization_scope);
   }
   validateCoverage(packet);
   return {
@@ -185,9 +195,7 @@ const sameValues = <Value>(
   && actual.every((value, index) => value === expected[index]);
 
 const validateCoverage = (packet: CoreAuthorizedDeliveryPacket): void => {
-  const semanticOrders = packet.effects.map(
-    (effect) => effect.semantic.effect_order,
-  );
+  const atomIds = packet.atoms.map((atom) => atom.descriptor.atom_id);
   const documentOrders = packet.document_effects.map(
     (effect) => effect.reference.effect_order,
   );
@@ -198,7 +206,7 @@ const validateCoverage = (packet: CoreAuthorizedDeliveryPacket): void => {
     (effect) => effect.scope.canonical_key,
   );
   if (
-    !sameValues(packet.coverage.semantic_effect_orders, semanticOrders)
+    !sameValues(packet.coverage.atom_ids, atomIds)
     || !sameValues(packet.coverage.document_effect_orders, documentOrders)
     || !sameValues(
       packet.coverage.inline_document_effect_orders,
@@ -226,20 +234,19 @@ const resourceClaims = (
   packet: CoreAuthorizedDeliveryPacket,
 ): readonly ResourceClaim[] => {
   const claims: ResourceClaim[] = [];
-  const packetClaimKey = (claim: string): string =>
-    scopedClaimKey(packet.authorization_scope, claim);
-  for (const effect of packet.effects) {
-    const semantic = effect.semantic;
+  for (const atom of packet.atoms) {
+    const descriptor = atom.descriptor;
     claims.push({
-      key: packetClaimKey(`notification:semantic:${semantic.effect_order}`),
-      fingerprint: `${semantic.module}:${semantic.effect_kind}:${semantic.payload_hash}`,
+      key: scopedClaimKey(
+        packet.authorization_scope,
+        `notification:atom:${descriptor.atom_id}`,
+      ),
+      fingerprint: `${descriptor.kind}:${descriptor.payload_hash}`,
     });
-    if (effect.payload.module === "owned_document") {
+    if (atom.payload.module === "owned_document") {
       claims.push({
-        key: packetClaimKey(
-          `document-control:semantic:${semantic.effect_order}:${effect.payload.event.document_id}`,
-        ),
-        fingerprint: `${semantic.effect_kind}:${semantic.payload_hash}`,
+        key: `document-control:atom:${descriptor.atom_id}:${atom.payload.event.document_id}`,
+        fingerprint: `${descriptor.kind}:${descriptor.payload_hash}`,
       });
     }
   }
@@ -253,31 +260,29 @@ const resourceClaims = (
       reference.effect_order,
     ].join(":");
     claims.push({
-      key: packetClaimKey(`document:${coordinate}`),
+      key: `document:${coordinate}`,
       fingerprint: `${reference.update_id}:${reference.update_hash}:${reference.update_byte_length}`,
     });
     if (effect.inline_update) {
       claims.push({
-        key: packetClaimKey(`document-inline:${coordinate}`),
+        key: `document-inline:${coordinate}`,
         fingerprint: `${reference.update_hash}:${reference.update_byte_length}`,
       });
     }
   }
   for (const effect of packet.projection_effects) {
     claims.push({
-      key: packetClaimKey(
-        `projection:${effect.scope.canonical_key}:${effect.result_revision}`,
-      ),
+      key: `projection:${effect.scope.canonical_key}:${effect.result_revision}`,
       fingerprint: effect.effect_hash,
     });
   }
-  for (const revocation of packet.revocations) {
+  for (const delta of packet.visibility_deltas) {
     claims.push({
       key: scopedClaimKey(
-        revocation.authorization_scope,
-        `revocation:${revocation.resource_kind}:${revocation.resource_id}`,
+        delta.authorization_scope,
+        `visibility:${delta.delta_hash}`,
       ),
-      fingerprint: revocation.reason,
+      fingerprint: JSON.stringify([delta.change, delta.roots]),
     });
   }
   return claims;
@@ -308,8 +313,6 @@ const documentDeliveries = (
   admittedByKey: ReadonlyMap<string, AdmittedClaim>,
 ): readonly DocumentDelivery[] => {
   const claimsByDocument = new Map<string, AdmittedClaim[]>();
-  const packetClaimKey = (claim: string): string =>
-    scopedClaimKey(packet.authorization_scope, claim);
   const add = (documentId: string, key: string): void => {
     const claim = admittedByKey.get(key);
     if (!claim) return;
@@ -326,17 +329,15 @@ const documentDeliveries = (
       reference.result_head_seq,
       reference.effect_order,
     ].join(":");
-    add(reference.document_id, packetClaimKey(`document:${coordinate}`));
-    add(reference.document_id, packetClaimKey(`document-inline:${coordinate}`));
+    add(reference.document_id, `document:${coordinate}`);
+    add(reference.document_id, `document-inline:${coordinate}`);
   }
-  for (const effect of packet.effects) {
-    if (effect.payload.module !== "owned_document") continue;
-    const documentId = effect.payload.event.document_id;
+  for (const atom of packet.atoms) {
+    if (atom.payload.module !== "owned_document") continue;
+    const documentId = atom.payload.event.document_id;
     add(
       documentId,
-      packetClaimKey(
-        `document-control:semantic:${effect.semantic.effect_order}:${documentId}`,
-      ),
+      `document-control:atom:${atom.descriptor.atom_id}:${documentId}`,
     );
   }
   return [...claimsByDocument]
@@ -357,7 +358,7 @@ export class LocalCommitCoordinator {
   readonly #lanes: Record<LocalCommitLaneKind, Map<string, DeliveryLane>> = {
     document: new Map(),
     projection: new Map(),
-    revocation: new Map(),
+    visibility: new Map(),
     notification: new Map(),
   };
   #pendingDeliveries = 0;
@@ -410,20 +411,20 @@ export class LocalCommitCoordinator {
     if (packet.authorization_scope.library_id !== this.#input.expectedLibraryId) {
       throw new Error("Commit delivery belongs to another Library");
     }
-    if (packet.revocations.some(
-      (revocation) =>
-        revocation.authorization_scope.library_id !== this.#input.expectedLibraryId,
+    if (packet.visibility_deltas.some(
+      (delta) =>
+        delta.authorization_scope.library_id !== this.#input.expectedLibraryId,
     )) {
-      throw new Error("Commit revocation belongs to another Library");
+      throw new Error("Commit visibility delta belongs to another Library");
     }
     const claims = resourceClaims(packet);
     const remembered = this.#remembered.get(identity.key);
     if (remembered && remembered.manifestHash !== identity.manifestHash) {
       throw new Error(`Commit manifest identity collision for ${identity.key}`);
     }
-    const state = remembered ?? {
+    const state: RememberedCommit = {
       manifestHash: identity.manifestHash,
-      resources: new Map<string, RememberedResource>(),
+      resources: new Map(remembered?.resources ?? []),
     };
     const admittedByKey = new Map<string, AdmittedClaim>();
     const completions = new Set<Promise<void>>();
@@ -442,7 +443,7 @@ export class LocalCommitCoordinator {
       admittedByKey.set(claim.key, admitted);
       completions.add(resource.completion);
     }
-    if (!remembered) this.#remembered.set(identity.key, state);
+    this.#remembered.set(identity.key, state);
     this.#touch(identity.key, state);
     if (admittedByKey.size === 0) {
       return {
@@ -451,20 +452,20 @@ export class LocalCommitCoordinator {
       };
     }
 
-    for (const revocation of packet.revocations) {
-      const scopeKey = authorizationScopeKey(revocation.authorization_scope);
+    for (const delta of packet.visibility_deltas) {
+      const scopeKey = authorizationScopeKey(delta.authorization_scope);
       const key = scopedClaimKey(
-        revocation.authorization_scope,
-        `revocation:${revocation.resource_kind}:${revocation.resource_id}`,
+        delta.authorization_scope,
+        `visibility:${delta.delta_hash}`,
       );
       const claim = admittedByKey.get(key);
       if (!claim) continue;
       this.#schedule(
-        "revocation",
-        `${scopeKey}:${revocation.resource_kind}:${revocation.resource_id}`,
+        "visibility",
+        `${scopeKey}:${delta.delta_hash}`,
         packet,
         [claim],
-        () => this.#input.onRevocation(packet, revocation, ingress),
+        () => this.#input.onVisibility(packet, delta, ingress),
       );
     }
     for (const delivery of documentDeliveries(packet, admittedByKey)) {
@@ -477,10 +478,7 @@ export class LocalCommitCoordinator {
       );
     }
     for (const effect of packet.projection_effects) {
-      const key = scopedClaimKey(
-        packet.authorization_scope,
-        `projection:${effect.scope.canonical_key}:${effect.result_revision}`,
-      );
+      const key = `projection:${effect.scope.canonical_key}:${effect.result_revision}`;
       const claim = admittedByKey.get(key);
       if (!claim) continue;
       this.#schedule(
@@ -491,19 +489,20 @@ export class LocalCommitCoordinator {
         () => this.#input.onProjection(packet, effect, ingress),
       );
     }
-    for (const effect of packet.effects) {
+    for (const atom of packet.atoms) {
+      const scopeKey = authorizationScopeKey(packet.authorization_scope);
       const key = scopedClaimKey(
         packet.authorization_scope,
-        `notification:semantic:${effect.semantic.effect_order}`,
+        `notification:atom:${atom.descriptor.atom_id}`,
       );
       const claim = admittedByKey.get(key);
       if (!claim) continue;
       this.#schedule(
         "notification",
-        identity.key,
+        `${scopeKey}:${identity.key}`,
         packet,
         [claim],
-        () => this.#input.onNotification(packet, effect, ingress),
+        () => this.#input.onNotification(packet, atom, ingress),
       );
     }
     return {
@@ -540,7 +539,7 @@ export class LocalCommitCoordinator {
       activeLanes: {
         document: this.#lanes.document.size,
         projection: this.#lanes.projection.size,
-        revocation: this.#lanes.revocation.size,
+        visibility: this.#lanes.visibility.size,
         notification: this.#lanes.notification.size,
       },
       pendingDeliveries: this.#pendingDeliveries,

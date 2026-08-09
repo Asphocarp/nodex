@@ -1,4 +1,5 @@
 import type { ContentAccessContext } from "./content-access-context";
+import type { AuthorizedReadStamp } from "./authorized-read-stamp";
 
 export interface ResolvePageOwnershipPathInput {
   /** Authority inherited from the Page surface requesting the breadcrumb. */
@@ -21,6 +22,7 @@ export type PageOwnershipPathReadModel =
       readonly libraryId: string;
       readonly storeEpoch: string;
       readonly commitSeq: number;
+      readonly authorization: AuthorizedReadStamp | null;
       readonly status: "missing";
       readonly targetPageId: string;
     }
@@ -28,6 +30,7 @@ export type PageOwnershipPathReadModel =
       readonly libraryId: string;
       readonly storeEpoch: string;
       readonly commitSeq: number;
+      readonly authorization: AuthorizedReadStamp | null;
       readonly status: "available";
       readonly targetPageId: string;
       readonly ancestors: readonly PageOwnershipPathAncestor[];

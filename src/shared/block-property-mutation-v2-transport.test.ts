@@ -41,6 +41,10 @@ describe("Block property mutation v2 transport binding", () => {
     };
     const exposed = toLibraryBlockPropertyMutationCommandResultV2({
       ok: true,
+      localCommit: {
+        status: "no_op",
+        observed: { store_epoch: "epoch-1", commit_head: 3 },
+      },
       value: {
         version: 2,
         mutationId: "mutation-v2-1",

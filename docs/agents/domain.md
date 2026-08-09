@@ -1,19 +1,32 @@
 # Domain docs
 
-Nodex uses a single-context domain-documentation layout.
+How the engineering skills should consume Nodex's domain documentation when exploring the codebase.
 
-## Read before exploring
+## Before exploring, read these
 
-- Read the root `CONTEXT.md` for the canonical domain language and invariants.
-- Read relevant decisions under `docs/adr/` before changing the affected Module or Interface.
-- Read `ARCHITECTURE.md` for system ownership and dependency flow.
+- **`CONTEXT.md`** at the repo root, or **`CONTEXT-MAP.md`** if it exists — it points at one `CONTEXT.md` per context. Read each one relevant to the topic.
+- **`docs/adr/`** — read ADRs that touch the area about to change.
+- **`ARCHITECTURE.md`** — read the system ownership and dependency flow before changing a Module or Interface.
 
-If a file does not exist yet, proceed without treating its absence as a blocker. Producer workflows create domain documents when terminology or decisions become stable.
+If any of these files do not exist, proceed silently. Do not treat their absence as a blocker; producer workflows create domain documents lazily when terminology or decisions become stable.
+
+## File structure
+
+Nodex currently uses a single-context layout:
+
+```text
+/
+├── CONTEXT.md
+├── docs/adr/              # system-wide decisions
+└── src/
+```
+
+If `CONTEXT-MAP.md` is introduced later, follow it and read the relevant context-scoped `CONTEXT.md` and ADRs as well.
 
 ## Use the glossary vocabulary
 
-Use the terms defined in `CONTEXT.md` in issues, plans, tests, implementation names, and architectural proposals. Avoid introducing synonyms for an established concept. If a necessary concept is missing, record the gap and resolve it in the domain docs.
+When an engineering skill names a domain concept, use the term defined in `CONTEXT.md` in issues, plans, tests, implementation names, and architectural proposals. Avoid introducing synonyms for an established concept. If a necessary concept is missing, record the gap and resolve it through `/domain-modeling`.
 
-## ADR conflicts
+## Flag ADR conflicts
 
 If proposed work contradicts an accepted ADR, identify the conflict explicitly. Supersede the ADR deliberately instead of silently implementing a second model.

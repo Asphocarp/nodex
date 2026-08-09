@@ -4,7 +4,9 @@ mod mutation;
 mod projection_delta;
 pub(crate) mod property_semantics;
 pub(crate) mod read;
+mod read_authorization;
 mod relation;
+mod relation_projection;
 mod window;
 
 pub(crate) const MAX_PROPERTY_OPTIONS: usize = 100;
@@ -27,6 +29,7 @@ pub(crate) use mutation::{
     transfer_existing_page_for_block_transfer,
 };
 pub(crate) use projection_delta::record_local_projection_delta;
+pub(crate) use relation::copy_relation_edges;
 pub(crate) use window::{default_page_move_view_id, mint_page_move_etag};
 
 use nodex_core_contracts::database::{
@@ -119,18 +122,28 @@ impl DatabaseModule {
                     .optional()?
                     .ok_or_else(|| corrupt("Profile store epoch is unavailable"))?;
                 let commit_seq = crate::infrastructure::local_commit::head(&transaction)?;
+                let read = request.read;
                 let value = read::read_at_commit_head(
                     &transaction,
                     &library_id,
                     commit_seq,
                     &context,
-                    request.read,
+                    read.clone(),
+                )?;
+                let authorization = read_authorization::issue(
+                    &transaction,
+                    &context,
+                    &store_epoch,
+                    commit_seq,
+                    &read,
+                    &value,
                 )?;
                 transaction.commit()?;
                 Ok(ModuleReadSnapshot {
                     contract_version: DATABASE_CONTRACT_VERSION,
                     store_epoch: nodex_core_contracts::StoreEpoch(store_epoch),
                     commit_head: commit_seq,
+                    authorization,
                     value,
                 })
             })
@@ -822,6 +835,29 @@ mod tests {
                 },
             )
             .expect("read the first bounded Database View window");
+        let authorization = first_window
+            .authorization
+            .as_ref()
+            .expect("Database View window has canonical read authorization");
+        assert_eq!(authorization.covered_commit_seq, first_window.commit_head);
+        assert!(matches!(
+            &authorization.subject,
+            nodex_core_contracts::events::ResourceKey::Project { project_id }
+                if project_id == "project-1"
+        ));
+        assert!(
+            authorization
+                .authorization_dependencies
+                .iter()
+                .any(|resource| {
+                    matches!(
+                        resource,
+                        nodex_core_contracts::events::ResourceKey::Page { page_id }
+                            if page_id == "page:database-row"
+                    )
+                })
+        );
+        assert_eq!(authorization.stamp_hash.len(), 64);
         let DatabaseReadValue::ViewWindow {
             value: first_window,
         } = first_window.value
@@ -991,6 +1027,25 @@ mod tests {
         };
         assert_eq!(value.rows.items[0].page_id, "page:database-row-2");
         assert!(value.rows.next_cursor.is_none());
+        kernel
+            .writer()
+            .call(|connection| {
+                connection.execute(
+                    "INSERT INTO projects(id, library_id, name, created, updated) \
+                     VALUES ('project-2', 'library-1', 'Granted reader', ?1, ?1)",
+                    [NOW],
+                )?;
+                connection.execute(
+                    "INSERT INTO project_resource_grants(\
+                       id, project_id, library_id, root_kind, root_id, access, recursive, \
+                       revision, lifecycle, created_at, updated_at\
+                     ) VALUES ('grant:project-2-database', 'project-2', 'library-1', \
+                       'database', ?1, 'read', 1, 1, 'active', ?2, ?2)",
+                    params![DATABASE_ID, NOW],
+                )?;
+                Ok(())
+            })
+            .expect("grant a second Project the source Database");
         let transfer = module
             .apply(
                 &context(),
@@ -1010,9 +1065,51 @@ mod tests {
             )
             .expect("remove second Agent query row from the shared fixture");
         assert!(matches!(
-            transfer.event.expect("transfer event").projection_impact,
-            ProjectionImpact::All
+            transfer
+                .event
+                .as_ref()
+                .expect("transfer event")
+                .projection_impact,
+            ProjectionImpact::Resources { .. }
         ));
+        let transfer_manifest = kernel
+            .readers()
+            .read_default(|connection| {
+                crate::infrastructure::local_commit::read_manifest(
+                    connection,
+                    transfer.committed.commit_seq,
+                )
+            })
+            .expect("transfer projection manifest");
+        assert!(transfer_manifest.projection_effects.iter().any(|effect| {
+            matches!(
+                &effect.patch,
+                Some(nodex_core_contracts::LocalProjectionPatch::DatabaseRowRemove {
+                    project_id,
+                    page_id,
+                    ..
+                }) if project_id == "project-1" && page_id == "page:database-row-2"
+            )
+        }));
+        assert!(transfer_manifest.projection_effects.iter().any(|effect| {
+            matches!(
+                &effect.patch,
+                Some(nodex_core_contracts::LocalProjectionPatch::DatabaseRowRemove {
+                    project_id,
+                    page_id,
+                    ..
+                }) if project_id == "project-2" && page_id == "page:database-row-2"
+            )
+        }));
+        assert!(transfer_manifest.revocations.iter().any(|revocation| {
+            matches!(
+                &revocation.authorization_scope,
+                nodex_core_contracts::events::DeliveryAuthorizationScope::Project {
+                    project_id,
+                    ..
+                } if project_id == "project-2"
+            ) && revocation.resource_id == "page:database-row-2"
+        }));
         let continued_after_change = module
             .read(
                 &context(),
@@ -2264,10 +2361,9 @@ mod tests {
                                 data_source_id: SOURCE_ID.to_owned(),
                                 property_id: "blocked_by".to_owned(),
                             },
-                            edit: DatabasePropertyValueEdit::Replace {
-                                expected_value_revision: 0,
-                                value: DatabasePropertyValueInput::Relation {
-                                    page_ids: [
+                            edit: DatabasePropertyValueEdit::PatchSet {
+                                delta: nodex_core_contracts::database::DatabasePropertySetDelta::Relation {
+                                    add_page_ids: [
                                         "page:relation-row",
                                         "page:target-a",
                                         "page:target-b",
@@ -2277,6 +2373,7 @@ mod tests {
                                     .into_iter()
                                     .map(str::to_owned)
                                     .collect(),
+                                    remove_edge_ids: Vec::new(),
                                 },
                             },
                         }],
@@ -2335,7 +2432,7 @@ mod tests {
                             edit: DatabasePropertyValueEdit::PatchSet {
                                 delta: nodex_core_contracts::database::DatabasePropertySetDelta::Relation {
                                     add_page_ids: vec!["page:relation-row".to_owned()],
-                                    remove_page_ids: Vec::new(),
+                                    remove_edge_ids: Vec::new(),
                                 },
                             },
                         }],
@@ -2375,7 +2472,7 @@ mod tests {
                             edit: DatabasePropertyValueEdit::PatchSet {
                                 delta: nodex_core_contracts::database::DatabasePropertySetDelta::Relation {
                                     add_page_ids: Vec::new(),
-                                    remove_page_ids: vec!["page:already-absent".to_owned()],
+                                    remove_edge_ids: vec!["0".repeat(64)],
                                 },
                             },
                         }],
@@ -2402,11 +2499,8 @@ mod tests {
                                 data_source_id: SOURCE_ID.to_owned(),
                                 property_id: "blocked_by".to_owned(),
                             },
-                            edit: DatabasePropertyValueEdit::Replace {
+                            edit: DatabasePropertyValueEdit::ClearRelation {
                                 expected_value_revision: 0,
-                                value: DatabasePropertyValueInput::Relation {
-                                    page_ids: Vec::new(),
-                                },
                             },
                         }],
                     }],
@@ -2524,13 +2618,16 @@ mod tests {
         };
         assert_eq!(value.value_revision, 1);
         assert_eq!(value.total_count, 5);
-        assert!(matches!(
-            value.targets.items.as_slice(),
-            [nodex_core_contracts::database::DatabaseRelationTargetItem::Visible {
-                page_id,
-                ..
-            }] if page_id == "page:relation-row"
-        ));
+        let first_edge_id = match value.targets.items.as_slice() {
+            [
+                nodex_core_contracts::database::DatabaseRelationTargetItem::Visible {
+                    edge_id,
+                    page_id,
+                    ..
+                },
+            ] if page_id == "page:relation-row" => edge_id.clone(),
+            targets => panic!("unexpected Relation targets: {targets:?}"),
+        };
         let cursor = value.targets.next_cursor.expect("Relation continuation");
         let encoded_payload = cursor.split('.').nth(1).expect("cursor payload");
         let payload = String::from_utf8(
@@ -2576,6 +2673,68 @@ mod tests {
         };
         assert_eq!(candidates.items.len(), 1);
         assert_eq!(candidates.items[0].page_id, "page:relation-row");
+
+        module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    operation_id: "operation:remove-relation-edge".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: vec![DatabaseIntent::EditPropertyValues {
+                        edits: vec![DatabasePropertyValueMutation {
+                            address: DatabasePagePropertyAddress {
+                                page_id: "page:relation-row".to_owned(),
+                                data_source_id: SOURCE_ID.to_owned(),
+                                property_id: "blocked_by".to_owned(),
+                            },
+                            edit: DatabasePropertyValueEdit::PatchSet {
+                                delta: nodex_core_contracts::database::DatabasePropertySetDelta::Relation {
+                                    add_page_ids: Vec::new(),
+                                    remove_edge_ids: vec![first_edge_id],
+                                },
+                            },
+                        }],
+                    }],
+                },
+            )
+            .expect("remove Relation by source-owned edge handle");
+        module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    operation_id: "operation:clear-relation".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: vec![DatabaseIntent::EditPropertyValues {
+                        edits: vec![DatabasePropertyValueMutation {
+                            address: DatabasePagePropertyAddress {
+                                page_id: "page:relation-row".to_owned(),
+                                data_source_id: SOURCE_ID.to_owned(),
+                                property_id: "blocked_by".to_owned(),
+                            },
+                            edit: DatabasePropertyValueEdit::ClearRelation {
+                                expected_value_revision: 2,
+                            },
+                        }],
+                    }],
+                },
+            )
+            .expect("clear Relation by revision fence");
+        let remaining_edges = kernel
+            .readers()
+            .read_default(|connection| {
+                connection
+                    .query_row(
+                        "SELECT count(*) FROM data_source_relation_edges \
+                         WHERE source_data_source_id = ?1 AND property_id = 'blocked_by'",
+                        [SOURCE_ID],
+                        |row| row.get::<_, i64>(0),
+                    )
+                    .map_err(StoreError::from)
+            })
+            .expect("read remaining Relation edges");
+        assert_eq!(remaining_edges, 0);
     }
 
     fn read_view_window(

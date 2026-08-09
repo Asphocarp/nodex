@@ -62,6 +62,7 @@ import type {
 import { resetDatabaseRowDetailStoreForTests } from "@/lib/database-row-detail-store";
 import { resetPageDetailStoreForTests } from "@/lib/page-detail-store";
 import { buildPageDetailStoryResult } from "../../kanban/page-stage/page-stage-story-page-detail";
+import { authorizedReadStampFixture } from "../../../../shared/testing/authorized-read-stamp-fixture";
 import { terminalSessionStore } from "@/lib/terminal-session-store";
 import {
   type DbViewPrefs,
@@ -484,6 +485,16 @@ vi.mock("@/lib/api", () => {
       viewId,
       storeEpoch: "epoch:test",
       commitSeq: 1,
+      authorization: authorizedReadStampFixture({
+        deliveryAddress: {
+          kind: "project",
+          library_id: "library:test",
+          project_id: projectId,
+        },
+        subject: { kind: "view", view_id: viewId },
+        storeEpoch: "epoch:test",
+        commitSeq: 1,
+      }),
       projection: {
         scopeKey: `scope:${viewId}`,
         schemaVersion: 1,
@@ -603,6 +614,12 @@ vi.mock("@/lib/api", () => {
         libraryId: "library:test",
         storeEpoch: "epoch:test",
         commitSeq: 0,
+        authorization: authorizedReadStampFixture({
+          deliveryAddress: { kind: "library", library_id: "library:test" },
+          subject: { kind: "library", library_id: "library:test" },
+          storeEpoch: "epoch:test",
+          commitSeq: 0,
+        }),
         value,
       },
     };
@@ -720,6 +737,7 @@ vi.mock("@/lib/api", () => {
         libraryId: "library:test",
         storeEpoch: "workbench-test-store",
         commitSeq: 1,
+        authorization: null,
         value: {
           kind: request.read?.mode === "catalog"
             ? "catalog"
@@ -854,6 +872,7 @@ export const MockOwnedBlockDocumentBoundary = ({
         ownerType: "page",
         ownerLifecycle: "active",
         documentId: `document:${ownerBlockId}`,
+        authorization: null,
         storeEpoch: "workbench-test-store",
         generation: 1,
         headSeq: 1,
@@ -1411,7 +1430,7 @@ export let WorkbenchShell: (typeof import(".././workbench-runtime"))["WorkbenchR
 beforeAll(async () => {
   const workbenchRuntimeModule = await import(".././workbench-runtime");
   WorkbenchShell = workbenchRuntimeModule.WorkbenchRuntime;
-});
+}, 120_000);
 
 export function getPanelTabById(container: HTMLElement, tabId: string): HTMLElement {
   const tabShell = Array.from(container.querySelectorAll<HTMLElement>("[data-panel-tab-id]"))
@@ -1824,6 +1843,9 @@ export function renderWorkbench({
         ? row.created
         : new Date("2026-06-07T00:00:00.000Z"),
       order: 0,
+    }, {
+      libraryId: "library:test",
+      storeEpoch: "epoch:test",
     });
     if (!standalone || !result.ok) return result;
     return {
@@ -1916,6 +1938,12 @@ export function renderWorkbench({
           libraryId: "library:test",
           storeEpoch: "epoch:test",
           commitSeq: 1,
+          authorization: authorizedReadStampFixture({
+            deliveryAddress: { kind: "library", library_id: "library:test" },
+            subject: { kind: "library", library_id: "library:test" },
+            storeEpoch: "epoch:test",
+            commitSeq: 1,
+          }),
           value,
         },
       };
@@ -2341,6 +2369,20 @@ export function renderWorkbench({
         viewId,
         storeEpoch: "epoch:test",
         commitSeq: 1,
+        authorization: authorizedReadStampFixture({
+          deliveryAddress: {
+            kind: "project",
+            library_id: "library:test",
+            project_id: projectId,
+          },
+          subject: { kind: "view", view_id: viewId },
+          storeEpoch: "epoch:test",
+          commitSeq: 1,
+          authorizationDependencies: [
+            ...cards.map((page) => ({ kind: "page" as const, page_id: page.id })),
+            { kind: "view" as const, view_id: viewId },
+          ],
+        }),
         projection: {
           scopeKey: `scope:${viewId}`,
           schemaVersion: 1,

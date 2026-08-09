@@ -15,7 +15,6 @@ pub(crate) fn value_type(schema: &DatabasePropertySchema) -> &'static str {
         DatabasePropertySchema::MultiSelect => "multi_select",
         DatabasePropertySchema::Date => "date",
         DatabasePropertySchema::Datetime => "datetime",
-        DatabasePropertySchema::Person => "person",
         DatabasePropertySchema::Relation { .. } => "relation",
     }
 }
@@ -27,22 +26,20 @@ pub(crate) fn capabilities(schema: &DatabasePropertySchema) -> DatabasePropertyC
 
     let equality = vec![Equals, NotEquals, IsEmpty, IsNotEmpty];
     match schema {
-        DatabasePropertySchema::Text | DatabasePropertySchema::Person => {
-            DatabasePropertyCapabilities {
-                replace: true,
-                patch_set_member: None,
-                filter_operators: vec![
-                    Equals,
-                    NotEquals,
-                    Contains,
-                    NotContains,
-                    IsEmpty,
-                    IsNotEmpty,
-                ],
-                sortable: true,
-                groupable: true,
-            }
-        }
+        DatabasePropertySchema::Text => DatabasePropertyCapabilities {
+            replace: true,
+            patch_set_member: None,
+            filter_operators: vec![
+                Equals,
+                NotEquals,
+                Contains,
+                NotContains,
+                IsEmpty,
+                IsNotEmpty,
+            ],
+            sortable: true,
+            groupable: true,
+        },
         DatabasePropertySchema::MultiSelect => DatabasePropertyCapabilities {
             replace: true,
             patch_set_member: Some(DatabasePropertySetMemberKind::Option),
@@ -92,7 +89,6 @@ pub(crate) fn schema_from_storage(
         "multi_select" => DatabasePropertySchema::MultiSelect,
         "date" => DatabasePropertySchema::Date,
         "datetime" => DatabasePropertySchema::Datetime,
-        "person" => DatabasePropertySchema::Person,
         "relation" => {
             let target_data_source_id = connection
                 .query_row(

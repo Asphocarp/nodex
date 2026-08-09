@@ -580,6 +580,7 @@ function makeDescriptor(): OwnedDocumentDescriptor {
     ownerType: "page",
     ownerLifecycle: "active",
     documentId: "document-1",
+    authorization: null,
     storeEpoch: "epoch-1",
     generation: 1,
     headSeq: 14,

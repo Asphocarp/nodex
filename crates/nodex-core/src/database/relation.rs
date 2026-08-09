@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use nodex_core_contracts::collection::{CollectionWindowAuthority, CollectionWindowRequest};
 use nodex_core_contracts::database::{
     DatabasePagePropertyAddress, DatabaseRelationCandidate, DatabaseRelationTargetItem,
-    DatabaseRelationTargetWindow, DatabaseRelationValuePreview, DatabaseRowSummary,
+    DatabaseRelationTargetWindow,
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::{Value, json};
@@ -21,13 +21,12 @@ pub(crate) const RELATION_PREVIEW_TARGETS: usize = 3;
 const MAX_RELATION_CANDIDATE_QUERY_BYTES: usize = 512;
 
 pub(crate) enum RelationValueEdit<'a> {
-    Replace {
+    Clear {
         expected_value_revision: i64,
-        page_ids: &'a [String],
     },
     Patch {
         add_page_ids: &'a [String],
-        remove_page_ids: &'a [String],
+        remove_edge_ids: &'a [String],
     },
 }
 
@@ -35,6 +34,37 @@ pub(crate) struct RelationMutationOutcome {
     pub membership_id: String,
     pub value_revision: i64,
     pub changed: bool,
+}
+
+#[derive(Clone)]
+enum ProjectedRelationTarget {
+    Visible {
+        page_id: String,
+        title: String,
+        lifecycle: String,
+        membership_state: String,
+    },
+    Restricted,
+}
+
+impl ProjectedRelationTarget {
+    fn with_edge(self, edge_id: String) -> DatabaseRelationTargetItem {
+        match self {
+            Self::Visible {
+                page_id,
+                title,
+                lifecycle,
+                membership_state,
+            } => DatabaseRelationTargetItem::Visible {
+                edge_id,
+                page_id,
+                title,
+                lifecycle,
+                membership_state,
+            },
+            Self::Restricted => DatabaseRelationTargetItem::Restricted { edge_id },
+        }
+    }
 }
 
 pub(crate) fn target_data_source_id(
@@ -97,50 +127,54 @@ pub(crate) fn apply_value_edit(
         )
         .optional()?
         .unwrap_or(0);
-    let current = connection
+    let current_edges = connection
         .prepare(
-            "SELECT target_page_block_id FROM data_source_relation_edges \
+            "SELECT edge_id, target_page_block_id FROM data_source_relation_edges \
              WHERE source_data_source_id = ?1 AND source_membership_id = ?2 \
                AND property_id = ?3 ORDER BY target_page_block_id",
         )?
         .query_map(params![data_source_id, membership_id, property_id], |row| {
-            row.get::<_, String>(0)
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
         })?
-        .collect::<rusqlite::Result<BTreeSet<_>>>()?;
+        .collect::<rusqlite::Result<BTreeMap<_, _>>>()?;
+    let current = current_edges.values().cloned().collect::<BTreeSet<_>>();
 
-    let (desired, targets_requiring_read_access) = match edit {
-        RelationValueEdit::Replace {
+    let (desired, targets_requiring_read_access, removed_edge_ids) = match edit {
+        RelationValueEdit::Clear {
             expected_value_revision,
-            page_ids,
         } => {
             require_revision(expected_value_revision, current_revision)?;
-            let desired = canonical_targets(page_ids, "Relation replacement")?;
-            let targets_requiring_read_access = if desired.is_empty() {
-                BTreeSet::new()
-            } else {
-                desired.clone()
-            };
-            (desired, targets_requiring_read_access)
+            (
+                BTreeSet::new(),
+                BTreeSet::new(),
+                current_edges.keys().cloned().collect(),
+            )
         }
         RelationValueEdit::Patch {
             add_page_ids,
-            remove_page_ids,
+            remove_edge_ids,
         } => {
-            if add_page_ids.len() + remove_page_ids.len() > MAX_RELATION_PATCH_TARGETS {
+            if add_page_ids.len() + remove_edge_ids.len() > MAX_RELATION_PATCH_TARGETS {
                 return Err(resource_exhausted(format!(
                     "Relation patch exceeds {MAX_RELATION_PATCH_TARGETS} targets"
                 )));
             }
             let add = canonical_targets(add_page_ids, "Relation add set")?;
-            let remove = canonical_targets(remove_page_ids, "Relation remove set")?;
-            if add.iter().any(|page_id| remove.contains(page_id)) {
-                return Err(invalid("Relation add/remove sets must not overlap"));
+            let remove = canonical_edge_ids(remove_edge_ids)?;
+            if !remove
+                .iter()
+                .all(|edge_id| current_edges.contains_key(edge_id))
+            {
+                return Err(not_found("Relation edge is unavailable"));
             }
             let mut desired = current.clone();
             desired.extend(add.clone());
-            desired.retain(|page_id| !remove.contains(page_id));
-            let targets_requiring_read_access = add.union(&remove).cloned().collect();
-            (desired, targets_requiring_read_access)
+            for edge_id in &remove {
+                if let Some(page_id) = current_edges.get(edge_id) {
+                    desired.remove(page_id);
+                }
+            }
+            (desired, add, remove)
         }
     };
     if desired.len() > MAX_RELATION_TARGETS {
@@ -184,25 +218,21 @@ pub(crate) fn apply_value_edit(
     let mut delete = connection.prepare(
         "DELETE FROM data_source_relation_edges \
          WHERE source_data_source_id = ?1 AND source_membership_id = ?2 \
-           AND property_id = ?3 AND target_page_block_id = ?4",
+           AND property_id = ?3 AND edge_id = ?4",
     )?;
-    for target_page_id in current.difference(&desired) {
-        delete.execute(params![
-            data_source_id,
-            membership_id,
-            property_id,
-            target_page_id
-        ])?;
+    for edge_id in removed_edge_ids {
+        delete.execute(params![data_source_id, membership_id, property_id, edge_id])?;
     }
     drop(delete);
     let mut insert = connection.prepare(
         "INSERT INTO data_source_relation_edges(\
-           source_data_source_id, source_membership_id, property_id, \
+           edge_id, source_data_source_id, source_membership_id, property_id, \
            target_page_block_id, created_at\
-         ) VALUES (?1, ?2, ?3, ?4, ?5)",
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
     )?;
     for target_page_id in additions {
         insert.execute(params![
+            new_edge_id()?,
             data_source_id,
             membership_id,
             property_id,
@@ -215,6 +245,52 @@ pub(crate) fn apply_value_edit(
         value_revision: next_revision,
         changed: true,
     })
+}
+
+pub(crate) fn new_edge_id() -> Result<String, StoreError> {
+    let mut bytes = [0_u8; 32];
+    getrandom::fill(&mut bytes).map_err(|_| internal("Relation edge identity entropy failed"))?;
+    Ok(hex::encode(bytes))
+}
+
+pub(crate) fn copy_relation_edges(
+    connection: &Connection,
+    data_source_id: &str,
+    source_membership_id: &str,
+    target_membership_id: &str,
+    now: &str,
+) -> Result<(), StoreError> {
+    let edges = connection
+        .prepare(
+            "SELECT property_id, target_page_block_id \
+             FROM data_source_relation_edges \
+             WHERE source_data_source_id = ?1 AND source_membership_id = ?2 \
+             ORDER BY property_id, target_page_block_id",
+        )?
+        .query_map(params![data_source_id, source_membership_id], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    if edges.is_empty() {
+        return Ok(());
+    }
+    let mut insert = connection.prepare(
+        "INSERT INTO data_source_relation_edges(\
+           edge_id, source_data_source_id, source_membership_id, property_id, \
+           target_page_block_id, created_at\
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+    )?;
+    for (property_id, target_page_id) in edges {
+        insert.execute(params![
+            new_edge_id()?,
+            data_source_id,
+            target_membership_id,
+            property_id,
+            target_page_id,
+            now,
+        ])?;
+    }
+    Ok(())
 }
 
 fn canonical_targets(values: &[String], label: &str) -> Result<BTreeSet<String>, StoreError> {
@@ -241,6 +317,27 @@ fn canonical_targets(values: &[String], label: &str) -> Result<BTreeSet<String>,
         }
     }
     Ok(targets)
+}
+
+fn canonical_edge_ids(values: &[String]) -> Result<BTreeSet<String>, StoreError> {
+    let mut edge_ids = BTreeSet::new();
+    for edge_id in values {
+        if edge_id.len() != 64
+            || !edge_id
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        {
+            return Err(invalid(
+                "Relation remove set contains an invalid edge handle",
+            ));
+        }
+        if !edge_ids.insert(edge_id.clone()) {
+            return Err(invalid(
+                "Relation remove set contains a duplicate edge handle",
+            ));
+        }
+    }
+    Ok(edge_ids)
 }
 
 pub(crate) fn target_window(
@@ -305,13 +402,13 @@ pub(crate) fn target_window(
         .transpose()?;
     let mut statement = connection.prepare(
         "WITH ranked AS (\
-           SELECT target_page_block_id, \
+           SELECT edge_id, target_page_block_id, \
              row_number() OVER (ORDER BY target_page_block_id) AS ordinal \
            FROM data_source_relation_edges \
            WHERE source_data_source_id = ?1 AND source_membership_id = ?2 \
              AND property_id = ?3\
          ) \
-         SELECT target_page_block_id, ordinal FROM ranked \
+         SELECT edge_id, target_page_block_id, ordinal FROM ranked \
          WHERE ordinal > COALESCE(?4, 0) ORDER BY ordinal LIMIT ?5",
     )?;
     let targets_with_ordinals = statement
@@ -324,21 +421,28 @@ pub(crate) fn target_window(
                 i64::try_from(normalized.first + 1)
                     .map_err(|_| invalid("Relation window size is invalid"))?
             ],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?,
+                ))
+            },
         )?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     let target_keys = targets_with_ordinals
         .iter()
-        .map(|(page_id, _)| (target_source.clone(), page_id.clone()))
+        .map(|(_, page_id, _)| (target_source.clone(), page_id.clone()))
         .collect::<BTreeSet<_>>();
     let projected = project_targets(connection, library_id, project_id, &target_keys)?;
     let candidates = targets_with_ordinals
         .into_iter()
-        .map(|(page_id, ordinal)| {
+        .map(|(edge_id, page_id, ordinal)| {
             let item = projected
                 .get(&(target_source.clone(), page_id.clone()))
                 .cloned()
-                .unwrap_or(DatabaseRelationTargetItem::Restricted);
+                .unwrap_or(ProjectedRelationTarget::Restricted)
+                .with_edge(edge_id);
             Ok(WindowCandidate {
                 item,
                 coordinate: KeysetCoordinate {
@@ -486,207 +590,6 @@ pub(crate) fn candidate_window(
     )
 }
 
-pub(crate) fn hydrate_row_previews(
-    connection: &Connection,
-    library_id: &str,
-    project_id: Option<&str>,
-    data_source_id: &str,
-    rows: &mut [DatabaseRowSummary],
-) -> Result<(), StoreError> {
-    if rows.is_empty() {
-        return Ok(());
-    }
-    let memberships = rows
-        .iter()
-        .map(|row| row.membership_id.as_str())
-        .collect::<Vec<_>>();
-    let memberships_json = serde_json::to_string(&memberships)
-        .map_err(|_| internal("Relation preview memberships cannot encode"))?;
-    let relation_properties = connection
-        .prepare(
-            "SELECT property_id, target_data_source_id \
-             FROM data_source_relation_properties WHERE data_source_id = ?1",
-        )?
-        .query_map([data_source_id], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        })?
-        .collect::<rusqlite::Result<BTreeMap<_, _>>>()?;
-    if relation_properties.is_empty() {
-        return Ok(());
-    }
-    let mut statement = connection.prepare(
-        "WITH ranked AS (\
-           SELECT edge.source_membership_id, edge.property_id, edge.target_page_block_id, \
-             count(*) OVER (\
-               PARTITION BY edge.source_membership_id, edge.property_id\
-             ) AS total_count \
-           FROM data_source_relation_edges edge \
-           JOIN json_each(?2) candidate ON candidate.value = edge.source_membership_id \
-           WHERE edge.source_data_source_id = ?1\
-         ) \
-         SELECT value.membership_id, value.property_id, value.revision, \
-           ranked.target_page_block_id, COALESCE(ranked.total_count, 0) \
-         FROM data_source_property_values value \
-         JOIN json_each(?2) candidate ON candidate.value = value.membership_id \
-         LEFT JOIN ranked ON ranked.source_membership_id = value.membership_id \
-           AND ranked.property_id = value.property_id \
-         WHERE value.data_source_id = ?1 AND value.value_type = 'relation' \
-         ORDER BY value.membership_id, value.property_id, ranked.target_page_block_id",
-    )?;
-    let records = statement
-        .query_map(params![data_source_id, memberships_json], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, i64>(2)?,
-                row.get::<_, Option<String>>(3)?,
-                row.get::<_, i64>(4)?,
-            ))
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    let target_keys = records
-        .iter()
-        .filter_map(|(_, property_id, _, target_page_id, _)| {
-            let target_page_id = target_page_id.as_ref()?;
-            relation_properties
-                .get(property_id)
-                .map(|target_source| (target_source.clone(), target_page_id.clone()))
-        })
-        .collect::<BTreeSet<_>>();
-    let projected = project_targets(connection, library_id, project_id, &target_keys)?;
-    let mut previews = BTreeMap::<(String, String), DatabaseRelationValuePreview>::new();
-    for (membership_id, property_id, revision, target_page_id, total_count) in records {
-        let preview = previews
-            .entry((membership_id, property_id.clone()))
-            .or_insert_with(|| DatabaseRelationValuePreview {
-                value_revision: revision,
-                total_count,
-                targets: Vec::new(),
-                restricted_count: 0,
-                has_more: false,
-            });
-        let Some(target_page_id) = target_page_id else {
-            continue;
-        };
-        let target_source = relation_properties
-            .get(&property_id)
-            .ok_or_else(|| corrupt("Relation preview has no definition"))?;
-        let target = projected
-            .get(&(target_source.clone(), target_page_id))
-            .cloned()
-            .unwrap_or(DatabaseRelationTargetItem::Restricted);
-        match target {
-            DatabaseRelationTargetItem::Restricted => preview.restricted_count += 1,
-            visible if preview.targets.len() < RELATION_PREVIEW_TARGETS => {
-                preview.targets.push(visible);
-            }
-            _ => {}
-        }
-        preview.has_more = preview.total_count
-            > i64::try_from(preview.targets.len())
-                .map_err(|_| internal("Relation preview size overflowed"))?;
-    }
-    for row in rows {
-        let membership_id = row.membership_id.clone();
-        for property_id in relation_properties.keys() {
-            let Some(preview) = previews.remove(&(membership_id.clone(), property_id.clone()))
-            else {
-                continue;
-            };
-            row.database_values.insert(
-                property_id.clone(),
-                json!({
-                    "kind": "relation",
-                    "value": preview,
-                }),
-            );
-        }
-    }
-    Ok(())
-}
-
-pub(crate) fn hydrate_projection_values(
-    connection: &Connection,
-    library_id: &str,
-    project_id: Option<&str>,
-    data_source_id: &str,
-    membership_id: &str,
-    values: &mut BTreeMap<String, Value>,
-) -> Result<(), StoreError> {
-    let records = connection
-        .prepare(
-            "SELECT relation.property_id, relation.target_data_source_id, value.revision, \
-               edge.target_page_block_id \
-             FROM data_source_relation_properties relation \
-             JOIN data_source_property_values value \
-               ON value.data_source_id = relation.data_source_id \
-               AND value.membership_id = ?2 AND value.property_id = relation.property_id \
-             LEFT JOIN data_source_relation_edges edge \
-               ON edge.source_data_source_id = relation.data_source_id \
-               AND edge.source_membership_id = value.membership_id \
-               AND edge.property_id = relation.property_id \
-             WHERE relation.data_source_id = ?1 ORDER BY relation.property_id",
-        )?
-        .query_map(params![data_source_id, membership_id], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, i64>(2)?,
-                row.get::<_, Option<String>>(3)?,
-            ))
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    let mut previews = BTreeMap::<String, (String, i64, Vec<String>)>::new();
-    let mut target_keys = BTreeSet::new();
-    for (property_id, target_source, value_revision, target_page_id) in records {
-        let preview = previews
-            .entry(property_id)
-            .or_insert_with(|| (target_source.clone(), value_revision, Vec::new()));
-        let Some(target_page_id) = target_page_id else {
-            continue;
-        };
-        target_keys.insert((target_source, target_page_id.clone()));
-        preview.2.push(target_page_id);
-    }
-    let projected = project_targets(connection, library_id, project_id, &target_keys)?;
-    for (property_id, (target_source, value_revision, target_ids)) in previews {
-        let total_count = i64::try_from(target_ids.len())
-            .map_err(|_| internal("Relation target count overflowed"))?;
-        let mut targets = Vec::new();
-        let mut restricted_count = 0_i64;
-        for page_id in target_ids {
-            match projected
-                .get(&(target_source.clone(), page_id))
-                .cloned()
-                .unwrap_or(DatabaseRelationTargetItem::Restricted)
-            {
-                DatabaseRelationTargetItem::Restricted => restricted_count += 1,
-                visible if targets.len() < RELATION_PREVIEW_TARGETS => targets.push(visible),
-                _ => {}
-            }
-        }
-        let preview = DatabaseRelationValuePreview {
-            value_revision,
-            total_count,
-            targets,
-            restricted_count,
-            has_more: total_count
-                > i64::try_from(RELATION_PREVIEW_TARGETS)
-                    .map_err(|_| internal("Relation preview bound is invalid"))?
-                || restricted_count > 0,
-        };
-        let record = values
-            .get_mut(&property_id)
-            .and_then(Value::as_object_mut)
-            .ok_or_else(|| corrupt("Relation value header projection is missing"))?;
-        record.insert(
-            "value".to_owned(),
-            json!({ "kind": "relation", "value": preview }),
-        );
-    }
-    Ok(())
-}
-
 fn active_membership_id(
     connection: &Connection,
     data_source_id: &str,
@@ -729,7 +632,7 @@ fn project_targets(
     library_id: &str,
     project_id: Option<&str>,
     targets: &BTreeSet<(String, String)>,
-) -> Result<BTreeMap<(String, String), DatabaseRelationTargetItem>, StoreError> {
+) -> Result<BTreeMap<(String, String), ProjectedRelationTarget>, StoreError> {
     if targets.is_empty() {
         return Ok(BTreeMap::new());
     }
@@ -824,14 +727,14 @@ fn project_targets(
                     _ if active_membership => "active_in_target_source",
                     _ => "out_of_source",
                 };
-                DatabaseRelationTargetItem::Visible {
+                ProjectedRelationTarget::Visible {
                     page_id: page_id.clone(),
                     title,
                     lifecycle,
                     membership_state: membership_state.to_owned(),
                 }
             }
-            _ => DatabaseRelationTargetItem::Restricted,
+            _ => ProjectedRelationTarget::Restricted,
         };
         projected.insert((target_source_id, page_id), item);
     }
@@ -859,7 +762,7 @@ fn validate_readable_targets(
     if targets.iter().all(|target| {
         matches!(
             projected.get(target),
-            Some(DatabaseRelationTargetItem::Visible { .. })
+            Some(ProjectedRelationTarget::Visible { .. })
         )
     }) {
         return Ok(());
@@ -923,7 +826,7 @@ pub(crate) fn validate_view_filter_read_access(
     if targets.iter().all(|target| {
         matches!(
             projected.get(target),
-            Some(DatabaseRelationTargetItem::Visible { .. })
+            Some(ProjectedRelationTarget::Visible { .. })
         )
     }) {
         return Ok(());

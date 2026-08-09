@@ -9,6 +9,7 @@ import {
   parseDocumentOperationCommandResult,
   parseReplaceDocumentFromNfm,
 } from "./document-operations";
+import { committedLocalCommit } from "../testing/local-commit";
 
 const BASE = {
   version: 1,
@@ -267,6 +268,7 @@ describe("Document operation contract", () => {
   test("strictly parses transport-neutral success and conflict results", () => {
     const success = parseDocumentOperationCommandResult({
       ok: true,
+      localCommit: committedLocalCommit("epoch-1", 7),
       value: {
         version: 1,
         mutationKind: "document_operation_batch",

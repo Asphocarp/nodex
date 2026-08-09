@@ -64,6 +64,7 @@ function documentAuthority(): PageStageProps["documentAuthority"] {
       ownerType: "page",
       ownerLifecycle: "active",
       documentId: "document-1",
+      authorization: null,
       storeEpoch: "store-epoch-1",
       generation: 1,
       headSeq: 1,

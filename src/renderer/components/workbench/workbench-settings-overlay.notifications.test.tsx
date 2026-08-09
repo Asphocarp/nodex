@@ -72,7 +72,12 @@ describe("ThreadNotificationSettingControl", () => {
       expect(trigger.hasAttribute("disabled")).toBe(false);
     });
     await act(async () => {
-      fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
+      fireEvent.pointerDown(trigger, {
+        button: 0,
+        ctrlKey: false,
+        pointerId: 1,
+        pointerType: "mouse",
+      });
       await Promise.resolve();
     });
     await waitFor(() => {

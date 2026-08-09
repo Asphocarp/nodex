@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { parseDatabaseId } from "../../../shared/database-identities";
 import type { LibraryCatalogEntry } from "../../../shared/library-module";
+import { AUTHORIZED_READ_STAMP_EXAMPLE } from "../../../shared/testing/authorized-read-stamp-example";
 import {
   PagesTabPicker,
   type PagesTabPickerDataSource,
@@ -55,6 +56,7 @@ const dataSource = {
         libraryId: "library:storybook",
         storeEpoch: "epoch:storybook",
         commitSeq: 1,
+        authorization: AUTHORIZED_READ_STAMP_EXAMPLE,
         items,
         nextCursor: null,
         hasMore: false,
@@ -111,6 +113,7 @@ export const Empty: Story = {
             libraryId: "library:storybook",
             storeEpoch: "epoch:storybook",
             commitSeq: 1,
+            authorization: AUTHORIZED_READ_STAMP_EXAMPLE,
             items: [],
             nextCursor: null,
             hasMore: false,

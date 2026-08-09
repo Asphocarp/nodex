@@ -19,6 +19,8 @@ import type {
 } from "../../shared/block-documents/document-sync";
 import type { ExecuteNodexAgentDuplicatePageResult } from "../../shared/nodex-agent-tools";
 import { DuplicatePageV3OutputSchema } from "../../shared/nodex-agent-tools/v3-write-schemas";
+import { committedLocalCommit } from "../../shared/testing/local-commit";
+import { authorizedReadStampFixture } from "../../shared/testing/authorized-read-stamp-fixture";
 import {
   createDesktopDocumentSyncBridge,
   type DesktopDocumentSyncPort,
@@ -228,6 +230,8 @@ const compactedDocumentCommitEnvelope = (
   const envelope = documentCommitEnvelope(commitSeq, [documentId]);
   const payload = {
     module: "owned_document" as const,
+    library_id: "library-1",
+    canvas_id: null,
     event: {
       kind: "document_resync_required" as const,
       document_id: documentId,
@@ -331,6 +335,16 @@ const ownedDocumentDescriptorSnapshot = (projectId = "project:one") => ({
   contract_version: 1 as const,
   store_epoch: "epoch:test",
   commit_head: 2,
+  authorization: authorizedReadStampFixture({
+    deliveryAddress: {
+      kind: "project",
+      library_id: "library:test",
+      project_id: projectId,
+    },
+    subject: { kind: "page", page_id: "page:one" },
+    commitSeq: 2,
+    storeEpoch: "epoch:test",
+  }),
   value: {
     kind: "descriptor" as const,
     descriptor: {
@@ -569,7 +583,7 @@ describe("Desktop Document sync bridge", () => {
     target.sent.splice(0);
 
     client.emitDocument(subscribeRequest.documentId, {
-      transport_version: 6,
+      transport_version: 8,
       packet: documentCommitEnvelope(1, [subscribeRequest.documentId]),
     });
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -584,7 +598,7 @@ describe("Desktop Document sync bridge", () => {
       1,
     );
     client.emitDocument(subscribeRequest.documentId, {
-      transport_version: 6,
+      transport_version: 8,
       packet: documentCommitEnvelope(2, [subscribeRequest.documentId]),
     });
     await vi.waitFor(() => {
@@ -909,7 +923,18 @@ describe("Desktop Document sync bridge", () => {
     };
     const packet = {
       ...documentCommitEnvelope(4, [subscribeRequest.documentId]),
-      revocations: [revocation],
+      visibility_deltas: [{
+        authorization_scope: revocation.authorization_scope,
+        change: {
+          kind: "revoke" as const,
+          reason: revocation.reason,
+        },
+        roots: [{
+          kind: "document" as const,
+          document_id: revocation.resource_id,
+        }],
+        delta_hash: "e".repeat(64),
+      }],
     };
 
     bridge.publishDocumentEffects(packet);
@@ -949,7 +974,7 @@ describe("Desktop Document sync bridge", () => {
       reason: "access_revoked" as const,
     };
     client.emitDocument(subscribeRequest.documentId, {
-      transport_version: 6,
+      transport_version: 8,
       packet: createCoreLocalCommitFixture({
         authorizationScope: revocation.authorization_scope,
         commitSeq: 5,
@@ -1231,7 +1256,7 @@ describe("Desktop Document sync bridge", () => {
       onDocument: (packet) => bridge.publishDocumentEffects(packet),
       onProjection: () => undefined,
       onNotification: () => undefined,
-      onRevocation: () => undefined,
+      onVisibility: () => undefined,
     });
     const envelope = documentCommitEnvelope(6, [subscribeRequest.documentId]);
 
@@ -2107,7 +2132,11 @@ describe("Desktop Document sync bridge", () => {
       mutationId: operationId,
       trigger: "automatic_idle",
     });
-    expect(result).toEqual({ ok: true, value: compactionValue });
+    expect(result).toEqual({
+      ok: true,
+      value: compactionValue,
+      localCommit: committedLocalCommit(storeEpoch, 4),
+    });
     expect(projectClient.documentApplies[0]?.intent).toMatchObject({
       kind: "compact_canvas_tombstones",
     });

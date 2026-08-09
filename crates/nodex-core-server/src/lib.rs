@@ -10,6 +10,7 @@ mod metrics;
 mod runtime_files;
 mod transport_bounds;
 
+use std::collections::HashSet;
 use std::convert::Infallible;
 use std::fs;
 use std::io::{self, Write};
@@ -55,10 +56,11 @@ use nodex_core_contracts::document::{
     DocumentLiveBarrier, DocumentLiveEngine, DocumentLiveRepair, DocumentLiveRepairReason,
     OwnedDocumentIntent, OwnedDocumentRead,
 };
+use nodex_core_contracts::events::DeliveryAuthorizationScope;
 use nodex_core_contracts::{
-    AdapterKind, ApplyResponse, AuthorizedDeliveryPacket, BoundModuleContext, CoreError,
-    CoreErrorCode, CoreErrorRecovery, LibraryId, ModuleName, ProfileId, ProjectId, StoreEpoch,
-    StoreObservation, StreamCheckpoint,
+    AdapterKind, ApplyResponse, AuthorizedDeliveryPacket, AuthorizedRecipientLease,
+    BoundModuleContext, CoreError, CoreErrorCode, CoreErrorRecovery, DeliveryAddress, LibraryId,
+    ModuleName, ProfileId, ProjectId, StoreEpoch, StoreObservation, StreamCheckpoint,
 };
 use nodex_core_protocol::{
     AutomationApplyRequest, AutomationApplyResponse, AutomationReadRequest, AutomationReadResponse,
@@ -101,6 +103,7 @@ use runtime_files::{
 use transport_bounds::{MAX_DOCUMENT_REQUEST_BYTES, MAX_JSON_REQUEST_BYTES};
 
 const EVENT_CHANNEL_CAPACITY: usize = 64;
+const COMMIT_WAKE_SCAN_LIMIT: u32 = 1_024;
 const PROJECT_HEADER: &str = "x-nodex-project-id";
 const CONNECTION_HEADER: &str = "x-nodex-connection-id";
 const CONNECTION_BINDING_HEADER: &str = "x-nodex-connection-binding";
@@ -204,11 +207,131 @@ struct ServerState {
     document_realtime: OwnedDocumentRealtimeAdapter,
     store: SqliteStoreKernel,
     event_log: CoreEventLog,
-    event_sender: broadcast::Sender<i64>,
+    commit_wake_scanner: CommitWakeScanner,
+    event_sender: broadcast::Sender<CommitWake>,
     document_live: DocumentLiveHub,
     document_live_publisher: DocumentLivePublisher,
     metrics: ServerMetrics,
     logging: logging::LoggingHandle,
+}
+
+/// A deliberately opaque notification that durable LocalCommit state may
+/// have advanced. It contains no sequence that a consumer could mistake for
+/// an ordered queue cursor.
+#[derive(Clone, Copy, Debug)]
+struct CommitWake;
+
+#[derive(Clone)]
+struct CommitWakeScanner {
+    event_log: CoreEventLog,
+    scan_limit: u32,
+}
+
+#[derive(Clone)]
+enum CommitRecipientResolver {
+    BoundScope {
+        generation: String,
+        context: BoundModuleContext,
+    },
+    ProjectionBroker {
+        generation: String,
+        host_context: BoundModuleContext,
+        scopes: Vec<DeliveryAuthorizationScope>,
+    },
+}
+
+impl CommitRecipientResolver {
+    fn bound_scope(generation: String, context: BoundModuleContext) -> Self {
+        Self::BoundScope {
+            generation,
+            context,
+        }
+    }
+
+    fn projection_broker(
+        generation: String,
+        host_context: BoundModuleContext,
+        scopes: Vec<DeliveryAuthorizationScope>,
+    ) -> Self {
+        Self::ProjectionBroker {
+            generation,
+            host_context,
+            scopes,
+        }
+    }
+}
+
+impl CommitWakeScanner {
+    fn new(event_log: CoreEventLog, scan_limit: u32) -> Self {
+        Self {
+            event_log,
+            scan_limit,
+        }
+    }
+
+    async fn barrier(&self) -> Result<(StoreEpoch, i64), StoreError> {
+        let event_log = self.event_log.clone();
+        tokio::task::spawn_blocking(move || event_log.stream_barrier())
+            .await
+            .map_err(blocking_event_delivery_error)?
+    }
+
+    async fn scan(
+        &self,
+        durable_cursor: i64,
+        resolver: CommitRecipientResolver,
+    ) -> Result<CoreAuthorizedEventReplay, StoreError> {
+        let event_log = self.event_log.clone();
+        let scan_limit = self.scan_limit;
+        tokio::task::spawn_blocking(move || match resolver {
+            CommitRecipientResolver::BoundScope {
+                generation,
+                context,
+            } => event_log.scan_authorized(
+                durable_cursor,
+                Some(scan_limit),
+                &generation,
+                &context,
+                None,
+            ),
+            CommitRecipientResolver::ProjectionBroker {
+                generation,
+                host_context,
+                scopes,
+            } => event_log.scan_authorized_projection_live(
+                durable_cursor,
+                Some(scan_limit),
+                &generation,
+                &host_context,
+                &scopes,
+            ),
+        })
+        .await
+        .map_err(blocking_event_delivery_error)?
+    }
+}
+
+#[cfg(test)]
+mod commit_wake_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn lagged_wakes_expose_no_cursor_and_leave_the_receiver_live() {
+        assert_eq!(std::mem::size_of::<CommitWake>(), 0);
+        let (sender, _) = broadcast::channel(1);
+        let mut receiver = sender.subscribe();
+
+        sender.send(CommitWake).expect("first wake");
+        sender.send(CommitWake).expect("second wake");
+        assert!(matches!(
+            receiver.recv().await,
+            Err(broadcast::error::RecvError::Lagged(1))
+        ));
+
+        assert!(matches!(receiver.recv().await, Ok(CommitWake)));
+        sender.send(CommitWake).expect("post-lag wake");
+        assert!(matches!(receiver.recv().await, Ok(CommitWake)));
+    }
 }
 
 fn descriptor_snapshot(state: &ServerState) -> RuntimeDescriptor {
@@ -223,6 +346,40 @@ fn descriptor_snapshot(state: &ServerState) -> RuntimeDescriptor {
 struct EventQuery {
     #[serde(default)]
     after: i64,
+}
+
+#[derive(Deserialize)]
+struct ProjectionLiveQuery {
+    scopes: String,
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum ProjectionLiveRequestedScope {
+    Library,
+    Project { project_id: String },
+}
+
+#[derive(Serialize)]
+struct ProjectionLiveBarrier {
+    store_epoch: StoreEpoch,
+    core_generation: String,
+    commit_head: i64,
+    recipient_leases: Vec<AuthorizedRecipientLease>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "snake_case")]
+enum ProjectionLiveRepairReason {
+    PayloadUnavailable,
+    IdentityChanged,
+}
+
+#[derive(Serialize)]
+struct ProjectionLiveRepair {
+    store_epoch: StoreEpoch,
+    commit_head: i64,
+    reason: ProjectionLiveRepairReason,
 }
 
 #[derive(Serialize)]
@@ -267,8 +424,7 @@ async fn authenticate(
         .get(AUTHORIZATION)
         .and_then(|value| value.to_str().ok())
         .unwrap_or_default();
-    if peer.uid != state.owner_uid
-        || peer.pid.is_none()
+    if !peer.is_authenticated_owner(state.owner_uid)
         || !constant_time_equal(supplied.as_bytes(), state.auth_header.as_bytes())
     {
         return ApiError::new(StatusCode::UNAUTHORIZED, "unauthorized").into_response();
@@ -669,35 +825,18 @@ fn module_storage_name(module: ModuleName) -> &'static str {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum LocalCommitDeliveryAudience {
-    BoundScope,
-    HostLibraryBroker,
-}
-
-/// Command authorization and local delivery authorization are separate
-/// capabilities. The Electron Host coordinates every mounted Project surface,
-/// but its broker audience never rewrites or discards the command context.
-fn local_commit_delivery_audience(context: &BoundModuleContext) -> LocalCommitDeliveryAudience {
-    if context.adapter == AdapterKind::ElectronHost {
-        return LocalCommitDeliveryAudience::HostLibraryBroker;
-    }
-    LocalCommitDeliveryAudience::BoundScope
-}
-
+/// Apply responses are capabilities for the command's bound authorization
+/// scope. The Electron Host receives its broader, multiplexed broker view on
+/// the live/durable delivery interfaces; that authority must never ride an IPC
+/// response into the initiating renderer.
 fn authorized_apply_packet(
     state: &ServerState,
     commit_seq: i64,
     context: &BoundModuleContext,
 ) -> Result<Option<AuthorizedDeliveryPacket>, StoreError> {
-    match local_commit_delivery_audience(context) {
-        LocalCommitDeliveryAudience::BoundScope => state
-            .event_log
-            .authorized_packet(commit_seq, context, None, true),
-        LocalCommitDeliveryAudience::HostLibraryBroker => state
-            .event_log
-            .authorized_packet_for_library_broker(commit_seq, context, true),
-    }
+    state
+        .event_log
+        .authorized_packet(commit_seq, context, None, true)
 }
 
 fn build_authorized_apply_response<T, R>(
@@ -1454,9 +1593,9 @@ async fn events(
         .map_err(connection_registry_error)?;
     let context = module_context(&state, &headers, &bound).map_err(api_core_error)?;
     let generation = descriptor_snapshot(&state).start_nonce;
-    let event_log = state.event_log.clone();
-    let stream_context = context.clone();
-    let stream_generation = generation.clone();
+    let scanner = state.commit_wake_scanner.clone();
+    let recipient = CommitRecipientResolver::bound_scope(generation.clone(), context);
+    let stream_generation = generation;
     let stream_metrics = state.metrics.clone();
     let mut stream_shutdown = state.lifecycle.subscribe_stream_shutdown();
     let stream = async_stream::stream! {
@@ -1466,12 +1605,7 @@ async fn events(
         let mut opening_packet_count = 0_u64;
         loop {
             loop {
-                match scan_authorized(
-                    event_log.clone(),
-                    scanned_through,
-                    stream_generation.clone(),
-                    stream_context.clone(),
-                ).await {
+                match scanner.scan(scanned_through, recipient.clone()).await {
                     Ok(CoreAuthorizedEventReplay::Scan { packets, checkpoint, commit_head }) => {
                         if opening {
                             stream_metrics.record_event_replay_lag(commit_head, query.after);
@@ -1546,7 +1680,7 @@ async fn events(
             let mut wake_channel_closed = false;
             loop {
                 match receiver.try_recv() {
-                    Ok(commit_seq) => rescan |= commit_seq > scanned_through,
+                    Ok(CommitWake) => rescan = true,
                     Err(broadcast::error::TryRecvError::Lagged(_)) => rescan = true,
                     Err(broadcast::error::TryRecvError::Empty) => break,
                     Err(broadcast::error::TryRecvError::Closed) => {
@@ -1567,6 +1701,283 @@ async fn events(
                 }
                 received = receiver.recv() => match received {
                     Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(broadcast::error::RecvError::Closed) => break,
+                },
+            }
+        }
+    };
+    Ok(Sse::new(stream))
+}
+
+fn projection_live_scopes(
+    state: &ServerState,
+    encoded: &str,
+) -> Result<Vec<DeliveryAuthorizationScope>, ApiError> {
+    if encoded.is_empty() || encoded.len() > 128 * 1024 {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "Projection live scopes exceed their bound",
+        ));
+    }
+    let requested =
+        serde_json::from_str::<Vec<ProjectionLiveRequestedScope>>(encoded).map_err(|_| {
+            ApiError::new(
+                StatusCode::BAD_REQUEST,
+                "Projection live scopes are invalid",
+            )
+        })?;
+    if requested.is_empty() || requested.len() > 200 {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "Projection live broker requires between 1 and 200 scopes",
+        ));
+    }
+    let mut seen = HashSet::with_capacity(requested.len());
+    let mut scopes = Vec::with_capacity(requested.len());
+    for scope in requested {
+        let (key, scope) = match scope {
+            ProjectionLiveRequestedScope::Library => (
+                "library".to_owned(),
+                DeliveryAuthorizationScope::Library {
+                    library_id: state.library_id.clone(),
+                },
+            ),
+            ProjectionLiveRequestedScope::Project { project_id }
+                if !project_id.is_empty()
+                    && project_id.len() <= 512
+                    && project_id.trim() == project_id =>
+            {
+                (
+                    format!("project:{project_id}"),
+                    DeliveryAuthorizationScope::Project {
+                        library_id: state.library_id.clone(),
+                        project_id,
+                    },
+                )
+            }
+            ProjectionLiveRequestedScope::Project { .. } => {
+                return Err(ApiError::new(
+                    StatusCode::BAD_REQUEST,
+                    "Projection live Project identity is invalid",
+                ));
+            }
+        };
+        if !seen.insert(key) {
+            return Err(ApiError::new(
+                StatusCode::BAD_REQUEST,
+                "Projection live scopes must be unique",
+            ));
+        }
+        scopes.push(scope);
+    }
+    scopes.sort();
+    Ok(scopes)
+}
+
+fn projection_live_subscription_key(
+    scopes: &[DeliveryAuthorizationScope],
+) -> Result<String, ApiError> {
+    let canonical = serde_json::to_vec(scopes).map_err(|_| {
+        ApiError::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Projection live subscription identity could not be encoded",
+        )
+    })?;
+    Ok(hex::encode(Sha256::digest(canonical)))
+}
+
+fn projection_live_recipient_leases(
+    generation: &str,
+    scopes: &[DeliveryAuthorizationScope],
+) -> Result<Vec<AuthorizedRecipientLease>, ApiError> {
+    scopes
+        .iter()
+        .map(|scope| {
+            let delivery_address = match scope {
+                DeliveryAuthorizationScope::Library { library_id } => DeliveryAddress::Library {
+                    library_id: library_id.clone(),
+                },
+                DeliveryAuthorizationScope::Project {
+                    library_id,
+                    project_id,
+                } => DeliveryAddress::Project {
+                    library_id: library_id.clone(),
+                    project_id: project_id.clone(),
+                },
+                DeliveryAuthorizationScope::Document { .. } => {
+                    return Err(ApiError::new(
+                        StatusCode::BAD_REQUEST,
+                        "Projection live broker does not accept Document addresses",
+                    ));
+                }
+            };
+            let encoded =
+                serde_json::to_vec(&("recipient-lease-v1", generation, &delivery_address, scope))
+                    .map_err(|_| {
+                    ApiError::new(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "Projection live recipient lease could not be encoded",
+                    )
+                })?;
+            Ok(AuthorizedRecipientLease {
+                lease_id: hex::encode(Sha256::digest(encoded)),
+                delivery_address,
+                authorization_scope: scope.clone(),
+            })
+        })
+        .collect()
+}
+
+async fn projection_live_events(
+    State(state): State<Arc<ServerState>>,
+    Extension(bound): Extension<BoundConnection>,
+    headers: HeaderMap,
+    Query(query): Query<ProjectionLiveQuery>,
+) -> Result<Sse<impl futures_core::Stream<Item = Result<Event, Infallible>>>, ApiError> {
+    if bound.adapter != AdapterKind::ElectronHost {
+        return Err(ApiError::new(
+            StatusCode::UNAUTHORIZED,
+            "Projection live broker requires the Electron Host Adapter",
+        ));
+    }
+    if optional_header(&headers, PROJECT_HEADER, "Project")
+        .map_err(api_core_error)?
+        .is_some()
+    {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "Projection live broker cannot bind one command Project",
+        ));
+    }
+    let scopes = projection_live_scopes(&state, &query.scopes)?;
+    let subscription_key = projection_live_subscription_key(&scopes)?;
+    let event_subscription = state
+        .connections
+        .acquire_event_subscription(
+            &bound.id,
+            EventSubscriptionKey::ProjectionLive(subscription_key),
+        )
+        .map_err(connection_registry_error)?;
+    // Install the receiver before observing the barrier. Commits racing the
+    // barrier are therefore either covered by the canonical floor or queued.
+    let mut receiver = state.event_sender.subscribe();
+    let context = module_context(&state, &headers, &bound).map_err(api_core_error)?;
+    let scanner = state.commit_wake_scanner.clone();
+    let (barrier_epoch, barrier_head) = scanner
+        .barrier()
+        .await
+        .map_err(|error| ApiError::new(StatusCode::CONFLICT, error.message))?;
+    let descriptor = descriptor_snapshot(&state);
+    if descriptor.store_epoch != barrier_epoch.0 {
+        return Err(ApiError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Projection live Store identity changed while opening",
+        ));
+    }
+    let recipient = CommitRecipientResolver::projection_broker(
+        descriptor.start_nonce.clone(),
+        context,
+        scopes.clone(),
+    );
+    let recipient_leases = projection_live_recipient_leases(&descriptor.start_nonce, &scopes)?;
+    let barrier = ProjectionLiveBarrier {
+        store_epoch: barrier_epoch,
+        core_generation: descriptor.start_nonce,
+        commit_head: barrier_head,
+        recipient_leases,
+    };
+    let mut stream_shutdown = state.lifecycle.subscribe_stream_shutdown();
+    let stream_state = Arc::clone(&state);
+    let stream = async_stream::stream! {
+        let _event_subscription = event_subscription;
+        yield Ok(sse_projection_live_barrier(&barrier));
+        let mut delivered_through = barrier.commit_head;
+        loop {
+            let current = descriptor_snapshot(&stream_state);
+            if current.store_epoch != barrier.store_epoch.0 {
+                yield Ok(sse_projection_live_repair(&ProjectionLiveRepair {
+                    store_epoch: StoreEpoch(current.store_epoch),
+                    commit_head: 0,
+                    reason: ProjectionLiveRepairReason::IdentityChanged,
+                }));
+                break;
+            }
+            loop {
+                match scanner.scan(delivered_through, recipient.clone()).await {
+                    Ok(CoreAuthorizedEventReplay::Scan { packets, checkpoint, commit_head }) => {
+                        for packet in packets {
+                            yield Ok(sse_event(&EventEnvelope {
+                                transport_version: TRANSPORT_PROTOCOL_MAX,
+                                packet,
+                            }));
+                        }
+                        let previous = delivered_through;
+                        delivered_through = checkpoint.scanned_through_seq;
+                        if delivered_through >= commit_head {
+                            break;
+                        }
+                        if delivered_through <= previous {
+                            tracing::error!(
+                                durableCursor = previous,
+                                commitHead = commit_head,
+                                "Projection live scanner did not advance"
+                            );
+                            yield Ok(sse_projection_live_repair(&ProjectionLiveRepair {
+                                store_epoch: barrier.store_epoch.clone(),
+                                commit_head,
+                                reason: ProjectionLiveRepairReason::PayloadUnavailable,
+                            }));
+                            return;
+                        }
+                    }
+                    Ok(CoreAuthorizedEventReplay::ResyncRequired { commit_head, .. }) => {
+                        yield Ok(sse_projection_live_repair(&ProjectionLiveRepair {
+                            store_epoch: barrier.store_epoch.clone(),
+                            commit_head,
+                            reason: ProjectionLiveRepairReason::PayloadUnavailable,
+                        }));
+                        return;
+                    }
+                    Err(error) => {
+                        tracing::error!(
+                            error = %error.message,
+                            durableCursor = delivered_through,
+                            "Projection live durable scan failed"
+                        );
+                        yield Ok(sse_projection_live_repair(&ProjectionLiveRepair {
+                            store_epoch: barrier.store_epoch.clone(),
+                            commit_head: delivered_through,
+                            reason: ProjectionLiveRepairReason::PayloadUnavailable,
+                        }));
+                        return;
+                    }
+                }
+            }
+
+            let mut rescan = false;
+            let mut wake_channel_closed = false;
+            loop {
+                match receiver.try_recv() {
+                    Ok(CommitWake) | Err(broadcast::error::TryRecvError::Lagged(_)) => {
+                        rescan = true;
+                    }
+                    Err(broadcast::error::TryRecvError::Empty) => break,
+                    Err(broadcast::error::TryRecvError::Closed) => {
+                        wake_channel_closed = true;
+                        break;
+                    }
+                }
+            }
+            if wake_channel_closed {
+                break;
+            }
+            if rescan {
+                continue;
+            }
+            tokio::select! {
+                () = LifecycleCoordinator::wait_for_stream_shutdown(&mut stream_shutdown) => break,
+                received = receiver.recv() => match received {
+                    Ok(CommitWake) | Err(broadcast::error::RecvError::Lagged(_)) => continue,
                     Err(broadcast::error::RecvError::Closed) => break,
                 },
             }
@@ -1772,19 +2183,6 @@ async fn document_live_events(
     Ok(Sse::new(stream))
 }
 
-async fn scan_authorized(
-    event_log: CoreEventLog,
-    after: i64,
-    generation: String,
-    context: BoundModuleContext,
-) -> Result<CoreAuthorizedEventReplay, StoreError> {
-    tokio::task::spawn_blocking(move || {
-        event_log.scan_authorized(after, Some(1_024), &generation, &context, None)
-    })
-    .await
-    .map_err(blocking_event_delivery_error)?
-}
-
 #[allow(clippy::too_many_arguments)]
 async fn resolve_document_live_delivery(
     event_log: CoreEventLog,
@@ -1932,6 +2330,7 @@ fn router(state: Arc<ServerState>) -> Router {
         .route("/core/v1/admin/shutdown", post(shutdown));
     let connected_routes = Router::new()
         .route("/core/v1/events", get(events))
+        .route("/core/v1/projections/live", get(projection_live_events))
         .route(
             "/core/v1/local-mutations/resolve",
             post(resolve_local_mutation),
@@ -2263,8 +2662,8 @@ fn connection_binding(
     digest.update(b"\0");
     digest.update(adapter.as_bytes());
     digest.update(b"\0");
-    digest.update(peer.uid.to_be_bytes());
-    digest.update(peer.gid.to_be_bytes());
+    digest.update(peer.uid.unwrap_or_default().to_be_bytes());
+    digest.update(peer.gid.unwrap_or_default().to_be_bytes());
     digest.update(peer.pid.unwrap_or_default().to_be_bytes());
     digest.update(b"\0");
     digest.update(build_id.as_bytes());
@@ -2392,7 +2791,7 @@ fn publish_local_commit(state: &ServerState, commit_seq: i64, store_epoch: Strin
         commitSequence = commit_seq,
         "Core commit scanner wake published"
     );
-    let _ = state.event_sender.send(commit_seq);
+    let _ = state.event_sender.send(CommitWake);
     state
         .document_live_publisher
         .publish(commit_seq, store_epoch);
@@ -2419,6 +2818,20 @@ fn sse_document_live_barrier(barrier: &DocumentLiveBarrier) -> Event {
     Event::default()
         .event("document-live-opened")
         .data(serde_json::to_string(barrier).expect("Document live barrier serializes"))
+}
+
+fn sse_projection_live_barrier(barrier: &ProjectionLiveBarrier) -> Event {
+    Event::default()
+        .event("projection-live-opened")
+        .id(barrier.commit_head.to_string())
+        .data(serde_json::to_string(barrier).expect("Projection live barrier serializes"))
+}
+
+fn sse_projection_live_repair(repair: &ProjectionLiveRepair) -> Event {
+    Event::default()
+        .event("projection-live-repair")
+        .id(repair.commit_head.to_string())
+        .data(serde_json::to_string(repair).expect("Projection live repair serializes"))
 }
 
 fn sse_document_live_repair(repair: &DocumentLiveRepair) -> Event {
@@ -2709,6 +3122,7 @@ pub async fn run_with_selection(
 
     let descriptor = Arc::new(Mutex::new(descriptor));
     let event_log = CoreEventLog::new(store.readers());
+    let commit_wake_scanner = CommitWakeScanner::new(event_log.clone(), COMMIT_WAKE_SCAN_LIMIT);
     let (event_sender, _) = broadcast::channel(EVENT_CHANNEL_CAPACITY);
     let document_live = DocumentLiveHub::new(store_epoch.clone(), EVENT_CHANNEL_CAPACITY);
     let document_live_publisher =
@@ -2727,6 +3141,7 @@ pub async fn run_with_selection(
     let replacement_document = document.clone();
     let replacement_realtime = document_realtime.clone();
     let replacement_document_live = document_live.clone();
+    let replacement_event_sender = event_sender.clone();
     let replacement_descriptor = Arc::clone(&descriptor);
     let replacement_paths = paths.clone();
     let replacement_lifecycle_summary = lifecycle_summary.clone();
@@ -2787,6 +3202,7 @@ pub async fn run_with_selection(
                     0,
                     DocumentLiveRepairKind::IdentityChanged,
                 );
+                let _ = replacement_event_sender.send(CommitWake);
                 Ok(())
             });
     let drain_lifecycle_summary = lifecycle_summary.clone();
@@ -2811,6 +3227,7 @@ pub async fn run_with_selection(
         schema_version,
         descriptor,
         event_log,
+        commit_wake_scanner,
         event_sender,
         document_live,
         document_live_publisher,
@@ -2938,48 +3355,4 @@ fn unix_time_millis() -> Result<i64, std::time::SystemTimeError> {
 
 fn store_replacement_hook_error(error: CoreError) -> StoreError {
     StoreError::new(StoreErrorCode::Internal, error.message, error.retryable)
-}
-
-#[cfg(test)]
-mod local_commit_delivery_audience_tests {
-    use super::*;
-
-    fn context(adapter: AdapterKind) -> BoundModuleContext {
-        BoundModuleContext {
-            profile_id: ProfileId("profile:test".to_owned()),
-            library_id: LibraryId("library:test".to_owned()),
-            project_id: Some(ProjectId("project:test".to_owned())),
-            connection_id: "connection:test".to_owned(),
-            adapter,
-        }
-    }
-
-    #[test]
-    fn electron_host_receives_explicit_library_broker_audience() {
-        let command_context = context(AdapterKind::ElectronHost);
-        assert_eq!(
-            local_commit_delivery_audience(&command_context),
-            LocalCommitDeliveryAudience::HostLibraryBroker
-        );
-        assert_eq!(
-            command_context.project_id,
-            Some(ProjectId("project:test".to_owned()))
-        );
-    }
-
-    #[test]
-    fn non_broker_adapters_keep_their_exact_delivery_scope() {
-        for adapter in [
-            AdapterKind::NativeCli,
-            AdapterKind::Test,
-            AdapterKind::Agent,
-            AdapterKind::LoopbackHttp,
-        ] {
-            let command_context = context(adapter);
-            assert_eq!(
-                local_commit_delivery_audience(&command_context),
-                LocalCommitDeliveryAudience::BoundScope
-            );
-        }
-    }
 }

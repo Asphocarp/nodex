@@ -4,8 +4,9 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use nodex_core_contracts::administration::{
-    BackupTrigger, MaintenanceTask, SchemaOwner, StoreAdministrationIntent,
-    StoreAdministrationRead, StoreAdministrationReadValue, StoreIntegrity, StoreReadiness,
+    BackupTrigger, MaintenanceTask, SchemaOwner, StoreAdministrationEvent,
+    StoreAdministrationIntent, StoreAdministrationRead, StoreAdministrationReadValue,
+    StoreIntegrity, StoreReadiness,
 };
 use nodex_core_contracts::collection::CollectionWindowRequest;
 use nodex_core_contracts::{
@@ -41,17 +42,28 @@ struct Fixture {
 
 impl Fixture {
     fn new() -> Self {
-        Self::new_with_hook(|_| Ok(()))
+        Self::new_with_project_and_hook(true, |_| Ok(()))
+    }
+
+    fn new_without_project() -> Self {
+        Self::new_with_project_and_hook(false, |_| Ok(()))
     }
 
     fn new_with_hook(
+        hook: impl Fn(&str) -> Result<(), StoreError> + Send + Sync + 'static,
+    ) -> Self {
+        Self::new_with_project_and_hook(true, hook)
+    }
+
+    fn new_with_project_and_hook(
+        seed_project: bool,
         hook: impl Fn(&str) -> Result<(), StoreError> + Send + Sync + 'static,
     ) -> Self {
         let home = tempfile::tempdir().expect("Profile home");
         let kernel = SqliteStoreKernel::open_test(home.path()).expect("fresh store");
         kernel
             .writer()
-            .call(|connection| {
+            .call(move |connection| {
                 with_immediate_transaction(connection, |transaction| {
                     transaction.execute(
                         "INSERT INTO block_store_metadata(id, store_epoch, created_at, updated_at) \
@@ -70,15 +82,17 @@ impl Fixture {
                            '2026-07-19T00:00:00.000Z')",
                         [LIBRARY_ID, PROFILE_ID],
                     )?;
-                    transaction.execute(
-                        "INSERT INTO projects(\
-                           id, library_id, database_block_id, lifecycle, binding_revision, \
-                           name, description, created, updated\
-                         ) VALUES ('project:administration-test', ?1, NULL, 'active', 1, \
-                           'Administration', '', '2026-07-19T00:00:00.000Z', \
-                           '2026-07-19T00:00:00.000Z')",
-                        [LIBRARY_ID],
-                    )?;
+                    if seed_project {
+                        transaction.execute(
+                            "INSERT INTO projects(\
+                               id, library_id, database_block_id, lifecycle, binding_revision, \
+                               name, description, created, updated\
+                             ) VALUES ('project:administration-test', ?1, NULL, 'active', 1, \
+                               'Administration', '', '2026-07-19T00:00:00.000Z', \
+                               '2026-07-19T00:00:00.000Z')",
+                            [LIBRARY_ID],
+                        )?;
+                    }
                     Ok(())
                 })
             })
@@ -117,6 +131,37 @@ impl Fixture {
             )
             .expect("Store Administration read")
             .value
+    }
+
+    fn administration_event(&self, commit_seq: i64) -> StoreAdministrationEvent {
+        self.kernel
+            .readers()
+            .read_default(move |connection| {
+                let verified = crate::infrastructure::local_commit::load_verified_commit(
+                    connection, commit_seq,
+                )?;
+                let event = verified
+                    .delivery_atoms
+                    .into_iter()
+                    .find_map(|atom| {
+                        match atom.payload {
+                        nodex_core_contracts::events::DeliveryAtomPayload::StoreAdministration {
+                            event,
+                            ..
+                        } => Some(event),
+                        _ => None,
+                    }
+                    })
+                    .ok_or_else(|| {
+                        StoreError::new(
+                            StoreErrorCode::StoreCorrupt,
+                            "Store Administration commit has no Library atom",
+                            false,
+                        )
+                    })?;
+                Ok(event)
+            })
+            .expect("Store Administration Library atom")
     }
 
     fn create_backup(
@@ -242,6 +287,121 @@ impl Fixture {
 }
 
 #[test]
+fn completes_the_backup_lifecycle_without_a_project() {
+    let fixture = Fixture::new_without_project();
+    let restore_target = fixture.create_backup(
+        "administration:zero-project:restore-target",
+        Some("Restore target"),
+        false,
+    );
+    let restore_backup_id = restore_target
+        .committed
+        .value
+        .backup_id
+        .expect("restore Backup ID");
+    let created = fixture.create_backup(
+        "administration:zero-project:create",
+        Some("Projectless"),
+        false,
+    );
+    let backup_id = created.committed.value.backup_id.expect("backup ID");
+    let automatic = fixture.create_backup_with_trigger(
+        "administration:zero-project:auto",
+        Some("Projectless auto"),
+        false,
+        BackupTrigger::Auto,
+    );
+    let automatic_backup_id = automatic.committed.value.backup_id.expect("auto backup ID");
+    let created_commit_seq = created.committed.commit_seq;
+    assert!(created_commit_seq > 0);
+    let (manifest, change_log_count) = fixture
+        .kernel
+        .readers()
+        .read_default(move |connection| {
+            Ok((
+                crate::infrastructure::local_commit::read_manifest(connection, created_commit_seq)?,
+                connection.query_row("SELECT count(*) FROM change_log", [], |row| {
+                    row.get::<_, i64>(0)
+                })?,
+            ))
+        })
+        .expect("Projectless Administration Manifest");
+    assert_eq!(change_log_count, 0);
+    assert_eq!(manifest.physical_evidence.effect_count, 1);
+    assert_eq!(manifest.physical_evidence.first_change_log_seq, None);
+    assert_eq!(manifest.delivery_atoms.len(), 1);
+    assert_eq!(
+        manifest.delivery_atoms[0].required_resources,
+        [nodex_core_contracts::events::ResourceKey::Library {
+            library_id: LIBRARY_ID.to_owned(),
+        }]
+    );
+
+    let StoreAdministrationReadValue::Backups { backups } = fixture.read(backups_read()) else {
+        panic!("backup list")
+    };
+    assert_eq!(backups.items.len(), 3);
+    assert!(
+        backups
+            .items
+            .iter()
+            .any(|backup| backup.backup_id == backup_id)
+    );
+    assert!(
+        backups
+            .items
+            .iter()
+            .any(|backup| backup.backup_id == restore_backup_id)
+    );
+
+    let pruned = fixture.prune_backups("administration:zero-project:prune", 0);
+    assert!(pruned.committed.commit_seq > automatic.committed.commit_seq);
+    assert!(pruned.event.is_none());
+    assert_eq!(
+        fixture
+            .administration_event(pruned.committed.commit_seq)
+            .backup_ids
+            .as_slice(),
+        std::slice::from_ref(&automatic_backup_id)
+    );
+    assert!(
+        !fixture
+            .home()
+            .join("backups")
+            .join(automatic_backup_id)
+            .exists()
+    );
+
+    let deleted = fixture.delete_backup("administration:zero-project:delete", &backup_id);
+    assert!(deleted.committed.commit_seq > created_commit_seq);
+    assert!(!fixture.home().join("backups").join(&backup_id).exists());
+
+    let retry = fixture.delete_backup("administration:zero-project:delete", &backup_id);
+    assert_eq!(retry.committed.commit_seq, deleted.committed.commit_seq);
+    assert!(retry.committed.receipt.mutation.duplicate);
+    assert!(retry.event.is_none());
+
+    let restored = fixture.restore_backup(
+        "administration:zero-project:restore",
+        &restore_backup_id,
+        false,
+    );
+    assert_ne!(restored.committed.store_epoch.0, STORE_EPOCH);
+    let project_count = fixture
+        .kernel
+        .readers()
+        .read_default(|connection| {
+            connection
+                .query_row("SELECT count(*) FROM projects", [], |row| {
+                    row.get::<_, i64>(0)
+                })
+                .map_err(Into::into)
+        })
+        .expect("Project count after restore");
+    assert_eq!(project_count, 0);
+}
+
+#[test]
 fn reports_rust_readiness_and_publishes_a_valid_exact_retry_backup() {
     let fixture = Fixture::new();
     fs::create_dir(fixture.home().join("assets")).expect("assets root");
@@ -264,7 +424,14 @@ fn reports_rust_readiness_and_publishes_a_valid_exact_retry_backup() {
     );
     let backup_id = first.committed.value.backup_id.clone().expect("backup ID");
     assert!(!first.committed.receipt.mutation.duplicate);
-    assert!(first.event.is_some());
+    assert!(first.event.is_none());
+    assert_eq!(
+        fixture
+            .administration_event(first.committed.commit_seq)
+            .backup_ids
+            .as_slice(),
+        std::slice::from_ref(&backup_id)
+    );
     assert_eq!(
         fs::read(
             fixture
@@ -392,7 +559,7 @@ fn rejects_request_collisions_and_symlinked_assets_without_a_receipt() {
 }
 
 #[test]
-fn adopts_a_published_backup_after_a_pre_receipt_crash_boundary() {
+fn reuses_a_staged_backup_after_a_pre_receipt_crash_boundary() {
     let fixture = Fixture::new();
     let operation_id = "administration:create-backup:adopt";
     let label = Some("published before receipt".to_owned());
@@ -409,7 +576,7 @@ fn adopts_a_published_backup_after_a_pre_receipt_crash_boundary() {
     let request_hash = super::sha256(&fingerprint);
     let home = fixture.home().to_path_buf();
     let operation = operation_id.to_owned();
-    let published = fixture
+    let staged = fixture
         .kernel
         .writer()
         .call(move |connection| {
@@ -424,7 +591,21 @@ fn adopts_a_published_backup_after_a_pre_receipt_crash_boundary() {
                 BackupTrigger::Manual,
             )
         })
-        .expect("published backup");
+        .expect("staged backup");
+    assert!(
+        fixture
+            .home()
+            .join("backups")
+            .join(format!(".{}.tmp", staged.backup_id))
+            .exists()
+    );
+    assert!(
+        !fixture
+            .home()
+            .join("backups")
+            .join(&staged.backup_id)
+            .exists()
+    );
 
     let receipt_count = fixture
         .kernel
@@ -445,10 +626,114 @@ fn adopts_a_published_backup_after_a_pre_receipt_crash_boundary() {
     let adopted = fixture.create_backup(operation_id, Some("published before receipt"), false);
     assert_eq!(
         adopted.committed.value.backup_id.as_deref(),
-        Some(published.backup_id.as_str())
+        Some(staged.backup_id.as_str())
     );
     assert!(!adopted.committed.receipt.mutation.duplicate);
-    assert!(adopted.event.is_some());
+    assert!(adopted.event.is_none());
+    assert_eq!(
+        fixture
+            .administration_event(adopted.committed.commit_seq)
+            .operation,
+        "create_backup"
+    );
+}
+
+#[test]
+fn exact_create_retry_publishes_after_the_store_receipt_commit() {
+    let fixture = Fixture::new();
+    let operation_id = "administration:create-backup:publish-after-receipt";
+    let label = Some("publish after receipt".to_owned());
+    let fingerprint = serde_json::to_vec(&(
+        PROFILE_ID,
+        LIBRARY_ID,
+        STORE_ADMINISTRATION_CONTRACT_VERSION,
+        StoreEpoch(STORE_EPOCH.to_owned()),
+        &label,
+        false,
+        BackupTrigger::Manual,
+    ))
+    .expect("request fingerprint");
+    let request_hash = super::sha256(&fingerprint);
+    let context = fixture.context();
+    let home = fixture.home().to_path_buf();
+    let operation = operation_id.to_owned();
+    let request_hash_for_write = request_hash.clone();
+    let record = fixture
+        .kernel
+        .writer()
+        .call(move |connection| {
+            let record = super::operation_journal::stage_backup(
+                connection,
+                &home,
+                PROFILE_ID,
+                &operation,
+                &request_hash_for_write,
+                label.as_deref(),
+                false,
+                BackupTrigger::Manual,
+            )?;
+            super::finish_backup_creation(
+                connection,
+                LIBRARY_ID,
+                &context,
+                &operation,
+                &request_hash_for_write,
+                STORE_EPOCH,
+                &record,
+            )?;
+            Ok(record)
+        })
+        .expect("receipt committed before publication");
+    let staged = fixture
+        .home()
+        .join("backups")
+        .join(format!(".{}.tmp", record.backup_id));
+    let published = fixture.home().join("backups").join(&record.backup_id);
+    assert!(staged.exists());
+    assert!(!published.exists());
+
+    let retry = fixture.create_backup(operation_id, Some("publish after receipt"), false);
+    assert!(retry.committed.receipt.mutation.duplicate);
+    assert_eq!(retry.committed.value.backup_id, Some(record.backup_id));
+    assert!(!staged.exists());
+    assert!(published.exists());
+}
+
+#[test]
+fn exact_no_op_retry_keeps_its_original_observation_after_an_unrelated_commit() {
+    let fixture = Fixture::new_without_project();
+    let operation_id = "administration:prune-backups:no-op-observation";
+    let first = fixture.prune_backups(operation_id, 1);
+    assert_eq!(first.committed.commit_seq, 0);
+    assert!(first.event.is_none());
+
+    let unrelated = fixture.create_backup(
+        "administration:create-backup:after-no-op",
+        Some("unrelated"),
+        false,
+    );
+    assert!(unrelated.committed.commit_seq > first.committed.commit_seq);
+
+    let replay = fixture.prune_backups(operation_id, 1);
+    assert_eq!(replay.committed.commit_seq, first.committed.commit_seq);
+    assert_eq!(replay.committed.store_epoch, first.committed.store_epoch);
+    assert!(replay.committed.receipt.mutation.duplicate);
+    assert!(replay.event.is_none());
+    let receipt_coordinates = fixture
+        .kernel
+        .readers()
+        .read_default(|connection| {
+            connection
+                .query_row(
+                    "SELECT event_sequence, local_commit_seq FROM core_module_receipts \
+                     WHERE module_name = 'store_administration' AND operation_id = ?1",
+                    [operation_id],
+                    |row| Ok((row.get::<_, Option<i64>>(0)?, row.get::<_, Option<i64>>(1)?)),
+                )
+                .map_err(Into::into)
+        })
+        .expect("no-op receipt coordinates");
+    assert_eq!(receipt_coordinates, (None, None));
 }
 
 #[test]
@@ -515,8 +800,14 @@ fn restores_database_assets_epoch_and_exact_retry_with_a_safety_backup() {
         restored.committed.receipt.safety_backup_id.as_deref(),
         Some(safety_backup_id.as_str())
     );
-    assert!(restored.event.is_some());
-    let (marker, live_epoch, event_epochs, receipt_epochs, result_epochs) = fixture
+    assert!(restored.event.is_none());
+    assert_eq!(
+        fixture
+            .administration_event(restored.committed.commit_seq)
+            .operation,
+        "restore_backup"
+    );
+    let (marker, live_epoch, effect_epochs, receipt_epochs, result_epochs) = fixture
         .kernel
         .readers()
         .read_default(|connection| {
@@ -532,7 +823,8 @@ fn restores_database_assets_epoch_and_exact_retry_with_a_safety_backup() {
                     |row| row.get::<_, String>(0),
                 )?,
                 connection.query_row(
-                    "SELECT group_concat(DISTINCT store_epoch) FROM change_log",
+                    "SELECT group_concat(DISTINCT store_epoch) \
+                     FROM local_commit_library_effects",
                     [],
                     |row| row.get::<_, String>(0),
                 )?,
@@ -552,7 +844,7 @@ fn restores_database_assets_epoch_and_exact_retry_with_a_safety_backup() {
         .expect("restored authority");
     assert_eq!(marker, "backup");
     assert_eq!(live_epoch, installed_epoch);
-    assert_eq!(event_epochs, installed_epoch);
+    assert_eq!(effect_epochs, installed_epoch);
     assert_eq!(receipt_epochs, installed_epoch);
     assert_eq!(result_epochs, installed_epoch);
     assert_eq!(
@@ -783,7 +1075,13 @@ fn adopts_a_committed_restore_after_the_pre_receipt_crash_boundary() {
         adopted.committed.store_epoch.0,
         installation.installed_epoch
     );
-    assert!(adopted.event.is_some());
+    assert!(adopted.event.is_none());
+    assert_eq!(
+        fixture
+            .administration_event(adopted.committed.commit_seq)
+            .operation,
+        "restore_backup"
+    );
     assert!(
         !fixture
             .home()
@@ -908,17 +1206,13 @@ fn deletes_one_backup_with_exact_replay_and_rejects_later_restore() {
         Some(backup_id.as_str())
     );
     assert!(!deleted.committed.receipt.mutation.duplicate);
+    assert!(deleted.event.is_none());
     assert_eq!(
-        deleted
-            .event
-            .as_ref()
-            .and_then(|event| match &event.payload {
-                nodex_core_contracts::CoreModuleEventPayload::StoreAdministration(event) => {
-                    Some(event.backup_ids.as_slice())
-                }
-                _ => None,
-            }),
-        Some([backup_id.clone()].as_slice())
+        fixture
+            .administration_event(deleted.committed.commit_seq)
+            .backup_ids
+            .as_slice(),
+        std::slice::from_ref(&backup_id)
     );
     assert!(!fixture.home().join("backups").join(&backup_id).exists());
     let StoreAdministrationReadValue::Backups { backups } = fixture.read(backups_read()) else {
@@ -990,9 +1284,18 @@ fn exact_delete_retry_finishes_physical_cleanup_after_receipt_commit() {
         panic!("backup list")
     };
     assert!(backups.items.is_empty());
+    let cleanup_staging = super::backup::stage_backup_deletions(
+        fixture.home(),
+        operation_id,
+        std::slice::from_ref(&backup_id),
+    )
+    .expect("started physical cleanup");
+    assert!(cleanup_staging.exists());
+    assert!(!fixture.home().join("backups").join(&backup_id).exists());
 
     let retry = fixture.delete_backup(operation_id, &backup_id);
     assert!(retry.committed.receipt.mutation.duplicate);
+    assert!(!cleanup_staging.exists());
     assert!(!fixture.home().join("backups").join(&backup_id).exists());
 }
 
@@ -1026,16 +1329,10 @@ fn prunes_only_automatic_backups_beyond_the_retention_count() {
     let expected_removed = automatic_inventory[1..].to_vec();
 
     let pruned = fixture.prune_backups("administration:prune-backups:1", 1);
-    let removed = pruned
-        .event
-        .as_ref()
-        .and_then(|event| match &event.payload {
-            nodex_core_contracts::CoreModuleEventPayload::StoreAdministration(event) => {
-                Some(event.backup_ids.clone())
-            }
-            _ => None,
-        })
-        .expect("prune event");
+    assert!(pruned.event.is_none());
+    let removed = fixture
+        .administration_event(pruned.committed.commit_seq)
+        .backup_ids;
     assert_eq!(removed, expected_removed);
     assert!(fixture.home().join("backups").join(&manual_id).exists());
     assert!(
@@ -1091,7 +1388,13 @@ fn runs_supported_maintenance_in_module_owned_order_with_exact_replay() {
             MaintenanceTask::BlockRetention,
         ]
     );
-    assert!(maintained.event.is_some());
+    assert!(maintained.event.is_none());
+    assert_eq!(
+        fixture
+            .administration_event(maintained.committed.commit_seq)
+            .operation,
+        "run_maintenance"
+    );
     assert_eq!(
         fixture.read(StoreAdministrationRead::Status),
         StoreAdministrationReadValue::Status {

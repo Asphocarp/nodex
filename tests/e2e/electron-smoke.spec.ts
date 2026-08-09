@@ -7,6 +7,7 @@ import {
   type Page,
 } from "playwright";
 import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -356,9 +357,12 @@ interface BoardTransferPerformanceMetrics {
   cpuModel: string;
   cpuCount: number;
   totalMemoryBytes: number;
+  normalizedOneMinuteLoadAtStart: number;
+  normalizedOneMinuteLoadMax: number;
   fixturePreparationMs: number;
   boardInitialRenderMs: number;
   transferCommitMs: number;
+  transferToSourceRemovalMs: number;
   transferToCardMs: number;
   endToEndMs: number;
   sourceBlockCount: number;
@@ -373,10 +377,25 @@ interface BoardTransferPerformanceMetrics {
   rendererLongTaskTotalMs: number;
   rendererMaxLongTaskMs: number;
   peakWorkingSetBytes: number;
+  firstTransferVisibilityFacts: Array<{
+    relationKind: string;
+    operation: string;
+    count: number;
+  }>;
+  firstTransferVisibilityRows: Array<{
+    relationKind: string;
+    operation: string;
+    oldRow: string | null;
+    newRow: string | null;
+  }>;
   transferCommitP50Ms: number;
   transferCommitP95Ms: number;
   transferCommitP99Ms: number | null;
   transferCommitMaxMs: number;
+  transferToSourceRemovalP50Ms: number;
+  transferToSourceRemovalP95Ms: number;
+  transferToSourceRemovalP99Ms: number | null;
+  transferToSourceRemovalMaxMs: number;
   transferToCardP50Ms: number;
   transferToCardP95Ms: number;
   transferToCardP99Ms: number | null;
@@ -384,7 +403,9 @@ interface BoardTransferPerformanceMetrics {
   coreStages: Record<CoreTransferStage, CoreTransferStageSummary>;
   rawSamples: {
     transferCommitMs: number[];
+    transferToSourceRemovalMs: number[];
     transferToCardMs: number[];
+    normalizedOneMinuteLoad: number[];
     coreStages: Record<CoreTransferStage, number[]>;
   };
   rounds: number;
@@ -421,11 +442,32 @@ const HIGH_PRESSURE_BOARD_PAGE_COUNT = 100;
 const HIGH_PRESSURE_BOARD_TRIAGE_PAGE_COUNT = 50;
 const HIGH_PRESSURE_BOARD_PLAN_PAGE_COUNT =
   HIGH_PRESSURE_BOARD_PAGE_COUNT - HIGH_PRESSURE_BOARD_TRIAGE_PAGE_COUNT;
+const HIGH_PRESSURE_SOURCE_REMAINDER = [
+  ...Array.from(
+    { length: HIGH_PRESSURE_SIBLING_BLOCK_COUNT },
+    (_, index) => `before-placeholder-${index.toString().padStart(3, "0")}`,
+  ),
+  ...Array.from(
+    { length: HIGH_PRESSURE_SIBLING_BLOCK_COUNT },
+    (_, index) => `after-placeholder-${index.toString().padStart(3, "0")}`,
+  ),
+].join(" ");
 const HIGH_PRESSURE_ROUNDS = Math.max(
   1,
   Math.min(
     100,
     Number.parseInt(process.env.NODEX_HIGH_PRESSURE_ROUNDS ?? "1", 10) || 1,
+  ),
+);
+const HIGH_PRESSURE_TEST_TIMEOUT_MS =
+  180_000 + Math.max(0, HIGH_PRESSURE_ROUNDS - 1) * 2_000;
+const PAGE_READY_HISTORY_COMMITS = 14_419;
+const PAGE_READY_ROUNDS = 20;
+const IDLE_CPU_SAMPLE_SECONDS = Math.max(
+  1,
+  Math.min(
+    60,
+    Number.parseInt(process.env.NODEX_IDLE_CPU_SAMPLE_SECONDS ?? "60", 10) || 60,
   ),
 );
 
@@ -444,6 +486,86 @@ const buildHighPressureSourceNfm = (titlePrefix = "title-A"): string => [
     (_, index) => `after-placeholder-${index.toString().padStart(3, "0")}`,
   ),
 ].join("\n");
+
+function readVisibilityFactCounts(
+  nodexHome: string,
+  commitSeq: number,
+): BoardTransferPerformanceMetrics["firstTransferVisibilityFacts"] {
+  const raw = execFileSync(
+    "sqlite3",
+    [
+      "-json",
+      path.join(nodexHome, "nodex.db"),
+      `SELECT relation_kind AS relationKind, operation, count(*) AS count
+       FROM local_commit_visibility_dirty_facts
+       WHERE commit_seq = ${commitSeq}
+       GROUP BY relation_kind, operation
+       ORDER BY relation_kind, operation`,
+    ],
+    { encoding: "utf8" },
+  ).trim();
+  if (!raw) return [];
+  const rows: unknown = JSON.parse(raw);
+  if (!Array.isArray(rows)) {
+    throw new Error("Visibility fact evidence is not an array");
+  }
+  return rows.map((row) => {
+    if (
+      !isRecord(row)
+      || typeof row.relationKind !== "string"
+      || typeof row.operation !== "string"
+      || typeof row.count !== "number"
+    ) {
+      throw new Error("Visibility fact evidence is invalid");
+    }
+    return {
+      relationKind: row.relationKind,
+      operation: row.operation,
+      count: row.count,
+    };
+  });
+}
+
+function readVisibilityFactRows(
+  nodexHome: string,
+  commitSeq: number,
+): BoardTransferPerformanceMetrics["firstTransferVisibilityRows"] {
+  const raw = execFileSync(
+    "sqlite3",
+    [
+      "-json",
+      path.join(nodexHome, "nodex.db"),
+      `SELECT relation_kind AS relationKind, operation,
+              old_row_json AS oldRow, new_row_json AS newRow
+       FROM local_commit_visibility_dirty_facts
+       WHERE commit_seq = ${commitSeq}
+       ORDER BY fact_seq`,
+    ],
+    { encoding: "utf8" },
+  ).trim();
+  if (!raw) return [];
+  const rows: unknown = JSON.parse(raw);
+  if (!Array.isArray(rows)) {
+    throw new Error("Visibility fact row evidence is not an array");
+  }
+  return rows.map((row) => {
+    if (
+      !isRecord(row)
+      || typeof row.relationKind !== "string"
+      || typeof row.operation !== "string"
+      || (row.oldRow !== null && typeof row.oldRow !== "string")
+      || (row.newRow !== null && typeof row.newRow !== "string")
+    ) {
+      throw new Error("Visibility fact row evidence is invalid");
+    }
+    return {
+      relationKind: row.relationKind,
+      operation: row.operation,
+      oldRow: row.oldRow,
+      newRow: row.newRow,
+    };
+  });
+}
 
 const summarizeDurations = (values: readonly number[]): {
   p50: number;
@@ -503,6 +625,149 @@ const buildBoardFixtureNfm = (): string => [
   ),
 ].join("\n");
 
+interface SyntheticHistoryResult {
+  readonly commitCountBefore: number;
+  readonly commitCountAfter: number;
+  readonly commitHeadAfter: number;
+  readonly storeVersion: number;
+  readonly databaseBytes: number;
+}
+
+const sqliteScalarRow = (databasePath: string, query: string): readonly string[] =>
+  execFileSync(
+    "sqlite3",
+    ["-batch", "-noheader", "-separator", "|", databasePath, query],
+    { encoding: "utf8" },
+  ).trim().split("|");
+
+const requireSafeInteger = (value: string | undefined, label: string): number => {
+  const parsed = Number.parseInt(value ?? "", 10);
+  if (Number.isSafeInteger(parsed) && parsed >= 0) return parsed;
+  throw new Error(`${label} is not a non-negative safe integer`);
+};
+
+function seedSyntheticLocalCommitHistory(
+  nodexHome: string,
+  targetCommitCount: number,
+): SyntheticHistoryResult {
+  const databasePath = path.join(nodexHome, "nodex.db");
+  const [rawCount, rawHead, storeEpoch, rawVersion] = sqliteScalarRow(
+    databasePath,
+    "SELECT count(*), COALESCE(max(commit_seq), 0), "
+      + "(SELECT store_epoch FROM block_store_metadata WHERE id = 1), "
+      + "(SELECT user_version FROM pragma_user_version) FROM local_commits;",
+  );
+  const commitCountBefore = requireSafeInteger(rawCount, "History commit count");
+  const commitHeadBefore = requireSafeInteger(rawHead, "History commit head");
+  const storeVersion = requireSafeInteger(rawVersion, "History Store version");
+  if (!storeEpoch) throw new Error("History fixture Store epoch is missing");
+  if (commitCountBefore >= targetCommitCount) {
+    throw new Error("History fixture already meets or exceeds its target");
+  }
+  const missing = targetCommitCount - commitCountBefore;
+  const finalCommitSeq = commitHeadBefore + missing;
+  const sql = `
+PRAGMA foreign_keys = ON;
+BEGIN IMMEDIATE;
+WITH RECURSIVE fixture_seq(commit_seq) AS (
+  SELECT ${commitHeadBefore + 1}
+  UNION ALL
+  SELECT commit_seq + 1 FROM fixture_seq WHERE commit_seq < ${finalCommitSeq}
+)
+INSERT INTO local_commits(
+  commit_seq, store_epoch, operation_id, committed_at,
+  projection_impact_json, canonical_hash, intent_hash, projection_json,
+  receipt_json, audience_json, finalized, manifest_json
+)
+SELECT
+  commit_seq,
+  '${storeEpoch}',
+  'm3-history-fixture-' || printf('%08d', commit_seq),
+  '2026-08-10T00:00:00.000Z',
+  '{}',
+  printf('%064x', commit_seq),
+  printf('%064x', commit_seq),
+  '{}', '{}', '{}', 1, '{}'
+FROM fixture_seq;
+COMMIT;
+`;
+  execFileSync("sqlite3", ["-batch", databasePath, sql], { encoding: "utf8" });
+  const [rawFinalCount, rawFinalHead, integrity] = sqliteScalarRow(
+    databasePath,
+    "SELECT count(*), COALESCE(max(commit_seq), 0), "
+      + "(SELECT integrity_check FROM pragma_integrity_check) FROM local_commits;",
+  );
+  const commitCountAfter = requireSafeInteger(rawFinalCount, "Final history commit count");
+  const commitHeadAfter = requireSafeInteger(rawFinalHead, "Final history commit head");
+  if (commitCountAfter !== targetCommitCount || integrity !== "ok") {
+    throw new Error("Synthetic LocalCommit history failed its integrity check");
+  }
+  return {
+    commitCountBefore,
+    commitCountAfter,
+    commitHeadAfter,
+    storeVersion,
+    databaseBytes: fs.statSync(databasePath).size,
+  };
+}
+
+interface ElectronProcessCpuSample {
+  readonly creationTime: number;
+  readonly cumulativeSeconds: number;
+  readonly percent: number;
+  readonly pid: number;
+  readonly type: string;
+}
+
+const readElectronProcessCpu = async (
+  application: ElectronApplication,
+): Promise<readonly ElectronProcessCpuSample[]> =>
+  await application.evaluate(({ app }) => app.getAppMetrics().map((metric) => ({
+    creationTime: metric.creationTime,
+    cumulativeSeconds: metric.cpu.cumulativeCPUUsage ?? 0,
+    percent: metric.cpu.percentCPUUsage,
+    pid: metric.pid,
+    type: metric.type,
+  })));
+
+const parseProcessCpuTime = (raw: string): number => {
+  const fields = raw.trim().split(":").map((field) => Number.parseInt(field, 10));
+  if (fields.some((field) => !Number.isSafeInteger(field) || field < 0)) {
+    throw new Error("Process CPU time is invalid");
+  }
+  if (fields.length === 2) return fields[0]! * 60 + fields[1]!;
+  if (fields.length === 3) {
+    return fields[0]! * 3_600 + fields[1]! * 60 + fields[2]!;
+  }
+  throw new Error("Process CPU time has an unsupported shape");
+};
+
+const readProcessCpuTime = (pid: number): number => parseProcessCpuTime(
+  execFileSync("ps", ["-o", "time=", "-p", String(pid)], { encoding: "utf8" }),
+);
+
+const readProcessCpuPercent = (pid: number): number => {
+  const value = Number.parseFloat(
+    execFileSync("ps", ["-o", "%cpu=", "-p", String(pid)], { encoding: "utf8" }).trim(),
+  );
+  if (Number.isFinite(value) && value >= 0) return value;
+  throw new Error("Process CPU percentage is invalid");
+};
+
+const cumulativeElectronCpuDelta = (
+  before: readonly ElectronProcessCpuSample[],
+  after: readonly ElectronProcessCpuSample[],
+): number => {
+  const beforeByIdentity = new Map(
+    before.map((sample) => [`${sample.pid}:${sample.creationTime}`, sample.cumulativeSeconds]),
+  );
+  return after.reduce((total, sample) => {
+    const previous = beforeByIdentity.get(`${sample.pid}:${sample.creationTime}`);
+    if (previous === undefined) return total;
+    return total + Math.max(0, sample.cumulativeSeconds - previous);
+  }, 0);
+};
+
 async function readConvergenceDatabase(
   page: Page,
   project: ConvergenceProject,
@@ -541,6 +806,52 @@ async function readConvergenceDatabase(
     dataSourceId: requireString(view.dataSourceId, "Project Data Source id"),
     viewId: requireString(view.viewId, "Project Database View id"),
   };
+}
+
+async function transferBoardFixturePages(
+  page: Page,
+  project: ConvergenceProject,
+  database: ConvergenceDatabase,
+  documentId: string,
+  rootBlockIds: readonly string[],
+  groupKey: string,
+  label: string,
+): Promise<readonly string[]> {
+  const resultPageIds: string[] = [];
+  for (let offset = 0; offset < rootBlockIds.length; offset += 20) {
+    const batch = rootBlockIds.slice(offset, offset + 20);
+    const result = requireIpcValue<Record<string, unknown>>(
+      await invokeIpc(
+        page,
+        "blocks:transfer",
+        project.projectId,
+        {
+          version: 2,
+          operationId: createUuidV7(),
+          projectId: project.projectId,
+          storeEpoch: project.storeEpoch,
+          mode: "move",
+          rootBlockIds: batch,
+          source: { kind: "document", documentId },
+          target: {
+            kind: "data_source",
+            dataSourceId: database.dataSourceId,
+            viewId: database.viewId,
+            groupKey,
+          },
+        },
+      ),
+      `${label} batch ${Math.floor(offset / 20) + 1}`,
+    );
+    if (!Array.isArray(result.resultRootBlockIds)) {
+      throw new Error(`${label} returned no Page ids`);
+    }
+    expect(result.resultRootBlockIds).toHaveLength(batch.length);
+    resultPageIds.push(...result.resultRootBlockIds.map((value, index) =>
+      requireString(value, `${label} Page id ${offset + index}`)
+    ));
+  }
+  return resultPageIds;
 }
 
 async function readConvergenceBoardTotal(
@@ -1606,7 +1917,323 @@ test("moves a Block into a Board with native DnD @dnd-smoke", async () => {
   }
 });
 
-test("converges a high-pressure Page promotion across tab groups", async ({}, testInfo) => {
+test("keeps Page ready and idle CPU bounded with 14k LocalCommit history", async ({}, testInfo) => {
+  test.setTimeout(360_000);
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nx-pr-"));
+  const nodexHome = path.join(fixtureRoot, "profile");
+  const workspace = path.join(fixtureRoot, "workspace");
+  fs.mkdirSync(workspace, { recursive: true });
+  prepareRuntimeFixture(fixtureRoot);
+
+  let application: ElectronApplication | undefined;
+  try {
+    application = await launchApplication(fixtureRoot, nodexHome);
+    const setupPage = await application.firstWindow();
+    await setupPage.evaluate(() => window.api?.awaitInitialization?.());
+    const project = await createConvergenceProject(
+      setupPage,
+      "Large history Page ready",
+      workspace,
+    );
+    const fixturePages: Array<ConvergencePage & { readonly title: string }> = [];
+    for (let round = 0; round < PAGE_READY_ROUNDS; round += 1) {
+      const title = `History Page ${round.toString().padStart(2, "0")}`;
+      fixturePages.push({
+        ...await createConvergenceBoardPage(
+          setupPage,
+          project,
+          title,
+          `Deterministic Page-ready fixture ${round}`,
+        ),
+        title,
+      });
+    }
+
+    await stopApplication(application);
+    application = undefined;
+    await shutdownTemporaryCore(nodexHome);
+    const history = seedSyntheticLocalCommitHistory(
+      nodexHome,
+      PAGE_READY_HISTORY_COMMITS,
+    );
+    expect(history).toMatchObject({
+      commitCountAfter: PAGE_READY_HISTORY_COMMITS,
+      storeVersion: 110,
+    });
+
+    application = await launchApplication(fixtureRoot, nodexHome);
+    const page = await application.firstWindow();
+    await page.evaluate(() => window.api?.awaitInitialization?.());
+    await page.evaluate(() => {
+      const target = globalThis as typeof globalThis & {
+        __nodexPageReadyLongTasks?: number[];
+      };
+      target.__nodexPageReadyLongTasks = [];
+      if (typeof PerformanceObserver === "undefined") return;
+      const observer = new PerformanceObserver((list) => {
+        for (const entry of list.getEntries()) {
+          target.__nodexPageReadyLongTasks?.push(entry.duration);
+        }
+      });
+      observer.observe({ type: "longtask", buffered: true });
+    });
+    const coreClient = await CoreClient.connect({
+      nodexHome,
+      clientKind: "test",
+      buildId: "page-ready-history-e2e",
+      requestTimeoutMs: 60_000,
+    });
+    const healthBefore = await coreClient.health();
+    expect(healthBefore.metrics.commit_head).toBeGreaterThanOrEqual(
+      history.commitHeadAfter,
+    );
+
+    await page.getByRole("button", {
+      name: "Open Large history Page ready",
+      exact: true,
+    }).click();
+    await page.getByRole("tab", { name: "Project Home" }).waitFor();
+    await expect.poll(
+      async () => await page.locator("[data-kanban-uuid-v7]").count(),
+      { timeout: 15_000 },
+    ).toBe(PAGE_READY_ROUNDS);
+
+    const pageReadySamples: Array<{
+      readonly cold: boolean;
+      readonly durationMs: number;
+      readonly round: number;
+    }> = [];
+    for (const [round, fixturePage] of fixturePages.entries()) {
+      const card = page.locator(
+        `[data-kanban-uuid-v7="${fixturePage.pageId}"]`,
+      );
+      await expect(card).toBeVisible({ timeout: 15_000 });
+      await page.evaluate((loadingLabel) => {
+        const target = globalThis as typeof globalThis & {
+          __nodexPageReadyMeasurement?: {
+            durationMs: number | null;
+            skeletonAt: number | null;
+            startedAt: number;
+          };
+        };
+        const measurement: {
+          durationMs: number | null;
+          skeletonAt: number | null;
+          startedAt: number;
+        } = {
+          durationMs: null,
+          skeletonAt: null,
+          startedAt: performance.now(),
+        };
+        target.__nodexPageReadyMeasurement = measurement;
+        const sample = (): boolean => {
+          if (
+            measurement.skeletonAt === null
+            && [...document.querySelectorAll<HTMLElement>('[role="status"][aria-busy="true"]')]
+              .some((status) => status.getAttribute("aria-label") === loadingLabel)
+          ) {
+            measurement.skeletonAt = performance.now();
+          }
+          if (measurement.skeletonAt === null) return false;
+          const editor = document.querySelector(
+            '[data-page-stage-surface="true"] '
+              + '.nfm-editor .ProseMirror[contenteditable="true"]',
+          );
+          if (!editor) return false;
+          measurement.durationMs = performance.now() - measurement.skeletonAt;
+          return true;
+        };
+        const observer = new MutationObserver(() => {
+          if (sample()) observer.disconnect();
+        });
+        observer.observe(document.documentElement, {
+          childList: true,
+          subtree: true,
+        });
+        if (sample()) observer.disconnect();
+      }, `Loading ${fixturePage.title}`);
+      await card.click({ force: true });
+      await expect.poll(async () => await page.evaluate(() => (
+        globalThis as typeof globalThis & {
+          __nodexPageReadyMeasurement?: { durationMs: number | null };
+        }
+      ).__nodexPageReadyMeasurement?.durationMs ?? null), {
+        timeout: 15_000,
+      }).not.toBeNull();
+      const durationMs = await page.evaluate(() => (
+        globalThis as typeof globalThis & {
+          __nodexPageReadyMeasurement?: { durationMs: number | null };
+        }
+      ).__nodexPageReadyMeasurement?.durationMs ?? Number.NaN);
+      if (!Number.isFinite(durationMs)) {
+        throw new Error("Page editor readiness measurement is missing");
+      }
+      await page.getByRole("tab", { name: fixturePage.title, exact: true }).waitFor();
+      const editor = page.locator(
+        '[data-page-stage-surface="true"]:visible '
+          + '.nfm-editor .ProseMirror[contenteditable="true"]',
+      ).last();
+      await expect(editor).toBeVisible({ timeout: 15_000 });
+      pageReadySamples.push({
+        cold: round === 0,
+        durationMs,
+        round,
+      });
+      await page.getByRole("button", {
+        name: `Close ${fixturePage.title} tab`,
+        exact: true,
+      }).click({ force: true });
+      await expect(page.getByRole("tab", {
+        name: fixturePage.title,
+        exact: true,
+      })).toHaveCount(0);
+      await page.evaluate(async () => {
+        await new Promise<void>((resolve) => {
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+        });
+      });
+      await page.waitForTimeout(100);
+    }
+    const pageReadySummary = summarizeDurations(
+      pageReadySamples.map((sample) => sample.durationMs),
+    );
+    const normalizedOneMinuteLoad = os.loadavg()[0] / Math.max(1, os.cpus().length);
+    const noisyEnvironment = normalizedOneMinuteLoad >= 1;
+    const frozenBaselineUpperBoundMs = 92;
+    const medianDeltaRatio = (
+      pageReadySummary.p50 - frozenBaselineUpperBoundMs
+    ) / frozenBaselineUpperBoundMs;
+    console.info(`[page-ready-samples] ${JSON.stringify(pageReadySamples)}`);
+    if (noisyEnvironment) {
+      expect(medianDeltaRatio).toBeLessThanOrEqual(0.1);
+    } else {
+      expect(pageReadySummary.p95).toBeLessThanOrEqual(112);
+      expect(pageReadySummary.p95).toBeLessThanOrEqual(150);
+    }
+
+    await page.waitForTimeout(2_000);
+    const electronCpuBefore = await readElectronProcessCpu(application);
+    const coreCpuBefore = readProcessCpuTime(coreClient.handshake.generation.pid);
+    const coreCpuPercentSamples: number[] = [];
+    const electronCpuPercentSamples: Array<readonly ElectronProcessCpuSample[]> = [];
+    for (let second = 0; second < IDLE_CPU_SAMPLE_SECONDS; second += 1) {
+      coreCpuPercentSamples.push(
+        readProcessCpuPercent(coreClient.handshake.generation.pid),
+      );
+      electronCpuPercentSamples.push(await readElectronProcessCpu(application));
+      await page.waitForTimeout(1_000);
+    }
+    const coreCpuAfter = readProcessCpuTime(coreClient.handshake.generation.pid);
+    const electronCpuAfter = await readElectronProcessCpu(application);
+    const healthAfter = await coreClient.health();
+    const coreCpuDeltaSeconds = Math.max(0, coreCpuAfter - coreCpuBefore);
+    const electronCpuDeltaSeconds = cumulativeElectronCpuDelta(
+      electronCpuBefore,
+      electronCpuAfter,
+    );
+    const coreAverageCores = coreCpuDeltaSeconds / IDLE_CPU_SAMPLE_SECONDS;
+    expect(coreAverageCores).toBeLessThanOrEqual(0.05);
+    expect(Math.max(0, ...coreCpuPercentSamples)).toBeLessThan(100);
+    expect(healthAfter.metrics.event_replay_lag_max).toBe(
+      healthBefore.metrics.event_replay_lag_max,
+    );
+    expect(healthAfter.metrics.writer_queue_depth).toBe(0);
+    expect(healthAfter.metrics.active_writer_commands).toBe(0);
+
+    const rendererLongTasks = await page.evaluate(() => [
+      ...((globalThis as typeof globalThis & {
+        __nodexPageReadyLongTasks?: number[];
+      }).__nodexPageReadyLongTasks ?? []),
+    ]);
+    const appMetrics = await application.evaluate(({ app }) => app.getAppMetrics());
+    const metrics = {
+      capturedAt: new Date().toISOString(),
+      gitSha: execFileSync("git", ["rev-parse", "HEAD"], {
+        cwd: repositoryRoot,
+        encoding: "utf8",
+      }).trim(),
+      buildMode: process.env.NODEX_CORE_EXECUTABLE?.includes("/release/")
+        ? "electron-test-release-core"
+        : "electron-test-debug-core",
+      fixtureSeed: "page-ready-v1-20-pages-14419-local-commits",
+      hardware: {
+        architecture: process.arch,
+        cpuCount: os.cpus().length,
+        cpuModel: os.cpus()[0]?.model ?? "unknown",
+        osRelease: os.release(),
+        platform: process.platform,
+        totalMemoryBytes: os.totalmem(),
+        normalizedOneMinuteLoad,
+      },
+      history,
+      pageReady: {
+        samples: pageReadySamples,
+        p50Ms: pageReadySummary.p50,
+        p95Ms: pageReadySummary.p95,
+        maxMs: pageReadySummary.max,
+        preCommitP95UpperBoundMs: 92,
+        allowedP95Ms: 112,
+        absoluteGateMs: 150,
+        medianDeltaRatio,
+        noisyEnvironment,
+        verdictBasis: noisyEnvironment
+          ? "median-vs-frozen-pre-commit-upper-bound"
+          : "p95",
+      },
+      globalReplay: {
+        eventReplayLagMaxBefore: healthBefore.metrics.event_replay_lag_max,
+        eventReplayLagMaxAfter: healthAfter.metrics.event_replay_lag_max,
+        publicationCountBefore:
+          healthBefore.metrics.local_commit_publication_duration.count,
+        publicationCountAfter:
+          healthAfter.metrics.local_commit_publication_duration.count,
+      },
+      idleCpu: {
+        sampleSeconds: IDLE_CPU_SAMPLE_SECONDS,
+        corePid: coreClient.handshake.generation.pid,
+        coreCpuDeltaSeconds,
+        coreAverageCores,
+        corePercentSamples: coreCpuPercentSamples,
+        electronCpuDeltaSeconds,
+        aggregateCpuDeltaSeconds: coreCpuDeltaSeconds + electronCpuDeltaSeconds,
+        electronPercentSamples: electronCpuPercentSamples,
+      },
+      renderer: {
+        longTaskCount: rendererLongTasks.length,
+        maxLongTaskMs: Math.max(0, ...rendererLongTasks),
+        peakWorkingSetBytes: Math.max(
+          0,
+          ...appMetrics.map((metric) => metric.memory.peakWorkingSetSize * 1_024),
+        ),
+      },
+      healthAfter: {
+        activeDocumentSubscriptions: healthAfter.metrics.active_document_subscriptions,
+        activeEventSubscriptions: healthAfter.metrics.active_event_subscriptions,
+        activeReadCommands: healthAfter.metrics.active_read_commands,
+        activeWriterCommands: healthAfter.metrics.active_writer_commands,
+        documentCacheEntries: healthAfter.metrics.document_cache_entries,
+        writerQueueDepth: healthAfter.metrics.writer_queue_depth,
+      },
+    };
+    const metricsPath = testInfo.outputPath("page-ready-14k-history-raw.json");
+    fs.writeFileSync(metricsPath, `${JSON.stringify(metrics, null, 2)}\n`);
+    await testInfo.attach("page-ready-14k-history-raw", {
+      path: metricsPath,
+      contentType: "application/json",
+    });
+    console.info(`[page-ready-14k-history] ${JSON.stringify({
+      coreAverageCores,
+      pageReadyP95Ms: pageReadySummary.p95,
+      pageReadyMaxMs: pageReadySummary.max,
+    })}`);
+  } finally {
+    if (application) await stopApplication(application);
+    await shutdownTemporaryCore(nodexHome);
+    fs.rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test("converges a high-pressure Page promotion across tab groups and WebContents", async ({}, testInfo) => {
   test.setTimeout(180_000);
   const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nx-cross-tab-"));
   const nodexHome = path.join(fixtureRoot, "profile");
@@ -1638,68 +2265,31 @@ test("converges a high-pressure Page promotion across tab groups", async ({}, te
       boardFixture,
       buildBoardFixtureNfm(),
     );
-    const boardTriageFixtureTransfer = requireIpcValue<Record<string, unknown>>(
-      await invokeIpc(
-        page,
-        "blocks:transfer",
-        project.projectId,
-        {
-          version: 2,
-          operationId: createUuidV7(),
-          projectId: project.projectId,
-          storeEpoch: project.storeEpoch,
-          mode: "move",
-          rootBlockIds: seededBoard.blockIds.slice(
-            1,
-            initialTriageFixturePageCount + 1,
-          ),
-          source: { kind: "document", documentId: seededBoard.documentId },
-          target: {
-            kind: "data_source",
-            dataSourceId: database.dataSourceId,
-            viewId: database.viewId,
-            groupKey: "triage",
-          },
-        },
-      ),
+    const boardTriageFixturePageIds = await transferBoardFixturePages(
+      page,
+      project,
+      database,
+      seededBoard.documentId,
+      seededBoard.blockIds.slice(1, initialTriageFixturePageCount + 1),
+      "triage",
       "Seed cross-tab Triage Pages",
     );
-    const boardPlanFixtureTransfer = requireIpcValue<Record<string, unknown>>(
-      await invokeIpc(
-        page,
-        "blocks:transfer",
-        project.projectId,
-        {
-          version: 2,
-          operationId: createUuidV7(),
-          projectId: project.projectId,
-          storeEpoch: project.storeEpoch,
-          mode: "move",
-          rootBlockIds: seededBoard.blockIds.slice(
-            initialTriageFixturePageCount + 1,
-            HIGH_PRESSURE_BOARD_PAGE_COUNT,
-          ),
-          source: { kind: "document", documentId: seededBoard.documentId },
-          target: {
-            kind: "data_source",
-            dataSourceId: database.dataSourceId,
-            viewId: database.viewId,
-            groupKey: "plan",
-          },
-        },
+    const boardPlanFixturePageIds = await transferBoardFixturePages(
+      page,
+      project,
+      database,
+      seededBoard.documentId,
+      seededBoard.blockIds.slice(
+        initialTriageFixturePageCount + 1,
+        HIGH_PRESSURE_BOARD_PAGE_COUNT,
       ),
+      "plan",
       "Seed cross-tab Plan Pages",
     );
-    expect(boardTriageFixtureTransfer.resultRootBlockIds).toHaveLength(
-      initialTriageFixturePageCount,
-    );
-    expect(boardPlanFixtureTransfer.resultRootBlockIds).toHaveLength(
-      HIGH_PRESSURE_BOARD_PLAN_PAGE_COUNT,
-    );
+    expect(boardTriageFixturePageIds).toHaveLength(initialTriageFixturePageCount);
+    expect(boardPlanFixturePageIds).toHaveLength(HIGH_PRESSURE_BOARD_PLAN_PAGE_COUNT);
     const triageAnchorPageId = requireString(
-      Array.isArray(boardTriageFixtureTransfer.resultRootBlockIds)
-        ? boardTriageFixtureTransfer.resultRootBlockIds[0]
-        : undefined,
+      boardTriageFixturePageIds[0],
       "Cross-tab Triage anchor Page id",
     );
     const source = await createConvergenceBoardPage(
@@ -1747,6 +2337,67 @@ test("converges a high-pressure Page promotion across tab groups", async ({}, te
     }).first();
     await expect(titleBlock).toBeVisible({ timeout: 15_000 });
 
+    const audienceWindowOpened = application.waitForEvent("window");
+    expect(await invokeIpc(page, "window:new", {})).toBe(true);
+    const audiencePage = await audienceWindowOpened;
+    await audiencePage.evaluate(() => window.api?.awaitInitialization?.());
+    const webContentsIds = await application.evaluate(({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows()
+        .filter((window) => !window.isDestroyed())
+        .map((window) => window.webContents.id)
+    );
+    expect(new Set(webContentsIds).size).toBeGreaterThanOrEqual(2);
+
+    const audienceTriageColumn = audiencePage.locator(
+      '[data-kanban-column-id="triage"]',
+    );
+    await expect(audienceTriageColumn).toBeVisible({ timeout: 15_000 });
+    await expect.poll(
+      async () => await audiencePage.locator("[data-kanban-uuid-v7]").count(),
+      { timeout: 15_000 },
+    ).toBe(HIGH_PRESSURE_BOARD_PAGE_COUNT);
+    const audienceSourceCard = audiencePage.locator(
+      `[data-kanban-uuid-v7="${source.pageId}"]`,
+    );
+    await expect(audienceSourceCard).toBeVisible({ timeout: 15_000 });
+    await audienceSourceCard.evaluate((element) =>
+      (element as HTMLElement).click()
+    );
+    await audiencePage.getByRole("tab", { name: "Cross-tab source" }).waitFor();
+    await expect(audienceTriageColumn).toBeVisible({ timeout: 15_000 });
+    const audienceSourceEditor = audiencePage.locator(
+      '.nfm-editor .ProseMirror[contenteditable="true"]',
+    ).last();
+    await expect(audienceSourceEditor).toBeVisible({ timeout: 15_000 });
+    const audienceTitleBlock = audienceSourceEditor
+      .locator(".bn-block[data-id]")
+      .filter({ hasText: "title-A-cross-tab" })
+      .first();
+    await expect(audienceTitleBlock).toBeVisible({ timeout: 15_000 });
+
+    const triageBeforeTransfer = requireIpcValue<Record<string, unknown>>(
+      await invokeIpc(page, "database:view-window:get", project.projectId, {
+        databaseViewId: database.viewId,
+        groupScope: { kind: "key", key: "triage" },
+        first: HIGH_PRESSURE_BOARD_TRIAGE_PAGE_COUNT,
+      }),
+      "Read canonical Triage coordinate before cross-tab promotion",
+    );
+    const projectionBeforeTransfer = triageBeforeTransfer.projection;
+    if (!isRecord(projectionBeforeTransfer)) {
+      throw new Error("Canonical Triage window returned no projection coordinate");
+    }
+
+    await audiencePage.evaluate(() => {
+      const target = globalThis as typeof globalThis & {
+        __nodexRecipientDeliveries?: unknown[];
+      };
+      target.__nodexRecipientDeliveries = [];
+      window.api?.on("recipient-delivery:message", (...args: unknown[]) => {
+        target.__nodexRecipientDeliveries?.push(args[0]);
+      });
+    });
+
     const sourceDescriptorBefore = requireIpcValue<Record<string, unknown>>(
       await invokeIpc(
         page,
@@ -1770,8 +2421,7 @@ test("converges a high-pressure Page promotion across tab groups", async ({}, te
     // destination/source surfaces remain mounted, then verify the complete
     // publication outcome without conflating gesture and convergence pressure.
     const startedAt = performance.now();
-    const transfer = requireIpcValue<Record<string, unknown>>(
-      await invokeIpc(
+    const transferCommand = await invokeIpc(
         page,
         "blocks:transfer",
         project.projectId,
@@ -1796,7 +2446,9 @@ test("converges a high-pressure Page promotion across tab groups", async ({}, te
             beforePageId: triageAnchorPageId,
           },
         },
-      ),
+      );
+    const transfer = requireIpcValue<Record<string, unknown>>(
+      transferCommand,
       "Promote title-A in the live cross-tab surfaces",
     );
     const committedAt = performance.now();
@@ -1804,6 +2456,46 @@ test("converges a high-pressure Page promotion across tab groups", async ({}, te
     if (typeof commitSeq !== "number") {
       throw new Error("Cross-tab promotion returned no LocalCommit sequence");
     }
+    expect(transferCommand).toMatchObject({
+      ok: true,
+      localCommit: {
+        status: "committed",
+        commit: { commit_seq: commitSeq },
+        delivery: {
+          projection_effects: expect.arrayContaining([
+            expect.objectContaining({
+              patch: expect.objectContaining({
+                kind: "database_row_upsert",
+                view_id: database.viewId,
+              }),
+            }),
+          ]),
+        },
+      },
+    });
+    const localCommit = isRecord(transferCommand)
+      ? transferCommand.localCommit
+      : undefined;
+    const delivery = isRecord(localCommit) ? localCommit.delivery : undefined;
+    const effects = isRecord(delivery) && Array.isArray(delivery.projection_effects)
+      ? delivery.projection_effects
+      : [];
+    const boardEffect = effects.find((effect) => {
+      if (!isRecord(effect) || !isRecord(effect.patch)) return false;
+      return effect.patch.kind === "database_row_upsert"
+        && effect.patch.view_id === database.viewId;
+    });
+    if (!isRecord(boardEffect)) {
+      throw new Error("Cross-tab promotion returned no Board projection effect");
+    }
+    expect(boardEffect).toMatchObject({
+      base_revision: projectionBeforeTransfer.revision,
+      result_revision: Number(projectionBeforeTransfer.revision) + 1,
+      scope: {
+        canonical_key: projectionBeforeTransfer.scopeKey,
+        schema_version: projectionBeforeTransfer.schemaVersion,
+      },
+    });
     if (!Array.isArray(transfer.resultRootBlockIds)) {
       throw new Error("Cross-tab promotion returned no result Page ids");
     }
@@ -1812,16 +2504,140 @@ test("converges a high-pressure Page promotion across tab groups", async ({}, te
       transfer.resultRootBlockIds[0],
       "Cross-tab promoted Page id",
     );
+    const groupsAfterTransfer = requireIpcValue<Record<string, unknown>>(
+      await invokeIpc(
+        page,
+        "database:view-groups:get",
+        project.projectId,
+        {
+          databaseViewId: database.viewId,
+          minimumCommitSeq: commitSeq,
+        },
+      ),
+      "Read canonical Board totals after cross-tab promotion",
+    );
+    expect(groupsAfterTransfer.totalRows).toBe(HIGH_PRESSURE_BOARD_PAGE_COUNT + 1);
+    const triageAfterTransfer = requireIpcValue<Record<string, unknown>>(
+      await invokeIpc(
+        page,
+        "database:view-window:get",
+        project.projectId,
+        {
+          databaseViewId: database.viewId,
+          groupScope: { kind: "key", key: "triage" },
+          first: HIGH_PRESSURE_BOARD_TRIAGE_PAGE_COUNT + 1,
+          minimumCommitSeq: commitSeq,
+        },
+      ),
+      "Read canonical Triage window after cross-tab promotion",
+    );
+    expect(triageAfterTransfer.rows).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        page: expect.objectContaining({ id: resultPageId }),
+      }),
+    ]));
+    try {
+      await expect.poll(async () => await audiencePage.evaluate((targetCommitSeq) => {
+        const deliveries = (
+          globalThis as typeof globalThis & {
+            __nodexRecipientDeliveries?: Array<Record<string, unknown>>;
+          }
+        ).__nodexRecipientDeliveries ?? [];
+        return deliveries.some((delivery) => {
+          const payload = delivery.payload as Record<string, unknown> | undefined;
+          const packet = payload?.packet as Record<string, unknown> | undefined;
+          const manifest = packet?.manifest as Record<string, unknown> | undefined;
+          const identity = manifest?.identity as Record<string, unknown> | undefined;
+          return payload?.kind === "packet"
+            && identity?.commit_seq === targetCommitSeq;
+        });
+      }, commitSeq), { timeout: 5_000 }).toBe(true);
+    } catch (error) {
+      const deliveries = await audiencePage.evaluate(() => (
+        globalThis as typeof globalThis & {
+          __nodexRecipientDeliveries?: unknown[];
+        }
+      ).__nodexRecipientDeliveries ?? []);
+      console.info(`[cross-webcontents-recipient-deliveries] ${JSON.stringify(deliveries)}`);
+      throw error;
+    }
+    const audienceAdmittedAt = performance.now();
+    const recipientDeliverySummary = await audiencePage.evaluate((targetCommitSeq) => {
+      const deliveries = (
+        globalThis as typeof globalThis & {
+          __nodexRecipientDeliveries?: Array<Record<string, unknown>>;
+        }
+      ).__nodexRecipientDeliveries ?? [];
+      return deliveries.flatMap((delivery) => {
+        const payload = delivery.payload as Record<string, unknown> | undefined;
+        const packet = payload?.packet as Record<string, unknown> | undefined;
+        const manifest = packet?.manifest as Record<string, unknown> | undefined;
+        const identity = manifest?.identity as Record<string, unknown> | undefined;
+        if (payload?.kind !== "packet" || identity?.commit_seq !== targetCommitSeq) {
+          return [];
+        }
+        const effects = Array.isArray(packet?.projection_effects)
+          ? packet.projection_effects
+          : [];
+        return effects.flatMap((candidate) => {
+          if (
+            typeof candidate !== "object"
+            || candidate === null
+            || Array.isArray(candidate)
+          ) return [];
+          const effect = candidate as Record<string, unknown>;
+          if (
+            typeof effect.patch !== "object"
+            || effect.patch === null
+            || Array.isArray(effect.patch)
+          ) return [];
+          const patch = effect.patch as Record<string, unknown>;
+          return [{
+            deliveryId: delivery.deliveryId,
+            recipientLeaseId: delivery.recipientLeaseId,
+            address: delivery.deliveryAddress,
+            baseRevision: effect.base_revision,
+            resultRevision: effect.result_revision,
+            patchKind: patch.kind,
+            viewId: patch.view_id,
+          }];
+        });
+      });
+    }, commitSeq);
+    expect(recipientDeliverySummary).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        deliveryId: expect.stringMatching(/^[a-f0-9]{64}$/u),
+        recipientLeaseId: expect.stringMatching(/^[a-f0-9]{64}$/u),
+        address: expect.objectContaining({
+          kind: "project",
+          project_id: project.projectId,
+        }),
+        patchKind: "database_row_upsert",
+        viewId: database.viewId,
+      }),
+    ]));
     const transferredCard = page.locator('[data-kanban-uuid-v7]').filter({
       hasText: "title-A-cross-tab",
     }).first();
-    const [cardVisibleAt, sourceRemovedAt] = await Promise.all([
+    const audienceTransferredCard = audiencePage
+      .locator('[data-kanban-uuid-v7]')
+      .filter({ hasText: "title-A-cross-tab" })
+      .first();
+    const [cardVisibleAt, sourceRemovedAt, audienceCardVisibleAt, audienceSourceRemovedAt] =
+      await Promise.all([
       expect(transferredCard).toBeVisible({ timeout: 15_000 })
         .then(async () => {
           await expect(transferredCard).toContainText("title-A-cross-tab");
           return performance.now();
         }),
       expect(titleBlock).toHaveCount(0, { timeout: 15_000 })
+        .then(() => performance.now()),
+      expect(audienceTransferredCard).toBeVisible({ timeout: 15_000 })
+        .then(async () => {
+          await expect(audienceTransferredCard).toContainText("title-A-cross-tab");
+          return performance.now();
+        }),
+      expect(audienceTitleBlock).toHaveCount(0, { timeout: 15_000 })
         .then(() => performance.now()),
     ]);
     const sourceDescriptorAfter = requireIpcValue<Record<string, unknown>>(
@@ -1864,6 +2680,9 @@ test("converges a high-pressure Page promotion across tab groups", async ({}, te
     expect(await sourceEditor.locator(".bn-block[data-id]").count()).toBe(
       HIGH_PRESSURE_SIBLING_BLOCK_COUNT * 2,
     );
+    expect(await audienceSourceEditor.locator(".bn-block[data-id]").count()).toBe(
+      HIGH_PRESSURE_SIBLING_BLOCK_COUNT * 2,
+    );
 
     const metrics = {
       fixtureSeed: "cross-tab-board-transfer-v1-100x100x100",
@@ -1876,9 +2695,13 @@ test("converges a high-pressure Page promotion across tab groups", async ({}, te
       requestToCommitMs: committedAt - startedAt,
       commitToCardMs: cardVisibleAt - committedAt,
       commitToSourceRemovalMs: sourceRemovedAt - committedAt,
+      commitToAudienceAdmissionObservedMs: audienceAdmittedAt - committedAt,
+      commitToAudienceCardMs: audienceCardVisibleAt - committedAt,
+      commitToAudienceSourceRemovalMs: audienceSourceRemovedAt - committedAt,
       requestToCardMs: cardVisibleAt - startedAt,
       requestToSourceRemovalMs: sourceRemovedAt - startedAt,
-      transferPath: "renderer-block-transfer-boundary",
+      transferPath: "origin-apply-response-plus-audience-scanner",
+      webContentsCount: new Set(webContentsIds).size,
       commitSeq,
     };
     const metricsPath = testInfo.outputPath("cross-tab-transfer-performance.json");
@@ -1896,7 +2719,7 @@ test("converges a high-pressure Page promotion across tab groups", async ({}, te
 });
 
 test("measures high-pressure nested Block transfer into a populated Board", async ({}, testInfo) => {
-  test.setTimeout(180_000);
+  test.setTimeout(HIGH_PRESSURE_TEST_TIMEOUT_MS);
   const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nx-board-stress-"));
   const nodexHome = path.join(fixtureRoot, "profile");
   const workspace = path.join(fixtureRoot, "workspace");
@@ -1926,68 +2749,28 @@ test("measures high-pressure nested Block transfer into a populated Board", asyn
     const database = await readConvergenceDatabase(page, project);
 
     const boardFixtureRootBlockIds = seededBoard.blockIds.slice(1);
-    const triageFixtureTransfer = requireIpcValue<Record<string, unknown>>(
-      await invokeIpc(
-        page,
-        "blocks:transfer",
-        project.projectId,
-        {
-          version: 2,
-          operationId: createUuidV7(),
-          projectId: project.projectId,
-          storeEpoch: project.storeEpoch,
-          mode: "move",
-          rootBlockIds: boardFixtureRootBlockIds.slice(
-            0,
-            HIGH_PRESSURE_BOARD_TRIAGE_PAGE_COUNT,
-          ),
-          source: { kind: "document", documentId: seededBoard.documentId },
-          target: {
-            kind: "data_source",
-            dataSourceId: database.dataSourceId,
-            viewId: database.viewId,
-            groupKey: "triage",
-          },
-        },
-      ),
+    const triageFixturePageIds = await transferBoardFixturePages(
+      page,
+      project,
+      database,
+      seededBoard.documentId,
+      boardFixtureRootBlockIds.slice(0, HIGH_PRESSURE_BOARD_TRIAGE_PAGE_COUNT),
+      "triage",
       "Create populated Triage fixture",
     );
-    const planFixtureTransfer = requireIpcValue<Record<string, unknown>>(
-      await invokeIpc(
-        page,
-        "blocks:transfer",
-        project.projectId,
-        {
-          version: 2,
-          operationId: createUuidV7(),
-          projectId: project.projectId,
-          storeEpoch: project.storeEpoch,
-          mode: "move",
-          rootBlockIds: boardFixtureRootBlockIds.slice(
-            HIGH_PRESSURE_BOARD_TRIAGE_PAGE_COUNT,
-          ),
-          source: { kind: "document", documentId: seededBoard.documentId },
-          target: {
-            kind: "data_source",
-            dataSourceId: database.dataSourceId,
-            viewId: database.viewId,
-            groupKey: "plan",
-          },
-        },
-      ),
+    const planFixturePageIds = await transferBoardFixturePages(
+      page,
+      project,
+      database,
+      seededBoard.documentId,
+      boardFixtureRootBlockIds.slice(HIGH_PRESSURE_BOARD_TRIAGE_PAGE_COUNT),
+      "plan",
       "Create populated Plan fixture",
     );
-    expect(triageFixtureTransfer.resultRootBlockIds).toHaveLength(
-      HIGH_PRESSURE_BOARD_TRIAGE_PAGE_COUNT,
-    );
-    expect(planFixtureTransfer.resultRootBlockIds).toHaveLength(
-      HIGH_PRESSURE_BOARD_PLAN_PAGE_COUNT,
-    );
-    if (!Array.isArray(triageFixtureTransfer.resultRootBlockIds)) {
-      throw new Error("Triage fixture transfer returned no Page ids");
-    }
+    expect(triageFixturePageIds).toHaveLength(HIGH_PRESSURE_BOARD_TRIAGE_PAGE_COUNT);
+    expect(planFixturePageIds).toHaveLength(HIGH_PRESSURE_BOARD_PLAN_PAGE_COUNT);
     const firstTriagePageId = requireString(
-      triageFixtureTransfer.resultRootBlockIds[0],
+      triageFixturePageIds[0],
       "First Triage fixture Page id",
     );
     expect(await readConvergenceBoardTotal(page, project)).toBe(
@@ -2019,14 +2802,10 @@ test("measures high-pressure nested Block transfer into a populated Board", asyn
     await page.evaluate(() => {
       const state = {
         longTasks: [] as number[],
-        projectionMessages: [] as unknown[],
       };
       Object.defineProperty(window, "__nodexBoardTransferPerformance", {
         configurable: true,
         value: state,
-      });
-      window.api?.on("projection-stream:message", (...args: unknown[]) => {
-        state.projectionMessages.push(args[0]);
       });
       if (typeof PerformanceObserver === "undefined") return;
       const observer = new PerformanceObserver((list) => {
@@ -2036,9 +2815,13 @@ test("measures high-pressure nested Block transfer into a populated Board", asyn
     });
 
     const transferCommitDurations: number[] = [];
+    const transferToSourceRemovalDurations: number[] = [];
     const transferToCardDurations: number[] = [];
+    const normalizedOneMinuteLoads: number[] = [];
     const coreStageDurations = {} as Record<CoreTransferStage, number[]>;
     const coreStageObservationCounts = {} as Record<CoreTransferStage, number>;
+    let firstTransferVisibilityFacts: BoardTransferPerformanceMetrics["firstTransferVisibilityFacts"] = [];
+    let firstTransferVisibilityRows: BoardTransferPerformanceMetrics["firstTransferVisibilityRows"] = [];
     for (const stage of Object.keys(CORE_TRANSFER_STAGES) as CoreTransferStage[]) {
       coreStageDurations[stage] = [];
       coreStageObservationCounts[stage] = 0;
@@ -2070,6 +2853,9 @@ test("measures high-pressure nested Block transfer into a populated Board", asyn
       const titleBlockId = seededSource.blockIds[HIGH_PRESSURE_SIBLING_BLOCK_COUNT];
       if (!titleBlockId) throw new Error("High-pressure source title Block is missing");
       const coreMetricsBefore = (await metricsClient.health()).metrics;
+      normalizedOneMinuteLoads.push(
+        os.loadavg()[0] / Math.max(1, os.cpus().length),
+      );
       const transferStartedAt = performance.now();
       const receipt = requireIpcValue<Record<string, unknown>>(
         await invokeIpc(
@@ -2120,6 +2906,10 @@ test("measures high-pressure nested Block transfer into a populated Board", asyn
         throw new Error("High-pressure Block transfer returned no semantic commit sequence");
       }
       lastChangeLogSeq = commitSeq;
+      if (index === 0) {
+        firstTransferVisibilityFacts = readVisibilityFactCounts(nodexHome, commitSeq);
+        firstTransferVisibilityRows = readVisibilityFactRows(nodexHome, commitSeq);
+      }
 
       const evidence = Array.isArray(receipt.transformationEvidence)
         ? receipt.transformationEvidence.find((entry) =>
@@ -2131,6 +2921,40 @@ test("measures high-pressure nested Block transfer into a populated Board", asyn
       expect(evidence.kind).toBe("promote");
       expect(evidence.resultPageId).toBe(resultPageId);
       expect(evidence.bodyRootBlockIds).toHaveLength(HIGH_PRESSURE_CHILD_BLOCK_COUNT);
+
+      const card = page.locator(`[data-kanban-uuid-v7="${resultPageId}"]`);
+      const sourceObservation = invokeIpc(
+        page,
+        "pages:detail:get",
+        project.projectId,
+        sourcePage.pageId,
+        commitSeq,
+      ).then((value) => ({
+        observedAt: performance.now(),
+        sourceDetail: requireIpcValue<Record<string, unknown>>(
+          value,
+          `Read high-pressure source Page ${index + 1} after transfer`,
+        ),
+      }));
+      const cardObservation = expect(card).toBeVisible({ timeout: 15_000 })
+        .then(async () => {
+          await expect(card).toContainText(`title-A-${index}`);
+          return performance.now();
+        });
+      const [{ observedAt: sourceObservedAt, sourceDetail }, cardVisibleAt] =
+        await Promise.all([sourceObservation, cardObservation]);
+      const sourcePageAfter = isRecord(sourceDetail.page)
+        ? sourceDetail.page
+        : null;
+      const sourcePlainText = sourcePageAfter?.plainText;
+      if (typeof sourcePlainText !== "string") {
+        throw new Error("High-pressure source Page returned no plain text");
+      }
+      expect(sourcePlainText).toBe(HIGH_PRESSURE_SOURCE_REMAINDER);
+      transferToSourceRemovalDurations.push(
+        sourceObservedAt - transferCommittedAt,
+      );
+      transferToCardDurations.push(cardVisibleAt - transferCommittedAt);
 
       if (index === 0) {
         const detail = requireIpcValue<Record<string, unknown>>(
@@ -2157,26 +2981,6 @@ test("measures high-pressure nested Block transfer into a populated Board", asyn
           plainText: expect.stringContaining("child-placeholder-099"),
         });
       }
-
-      const card = page.locator(`[data-kanban-uuid-v7="${resultPageId}"]`);
-      try {
-        await expect(card).toBeVisible({ timeout: 15_000 });
-      } catch (error) {
-        const projectionMessages = await page.evaluate(() =>
-          (window as typeof window & {
-            __nodexBoardTransferPerformance?: {
-              projectionMessages: unknown[];
-            };
-          }).__nodexBoardTransferPerformance?.projectionMessages ?? []
-        );
-        console.info(
-          `[board-transfer-projection-messages] ${JSON.stringify(projectionMessages)}`,
-        );
-        throw error;
-      }
-      await expect(card).toContainText(`title-A-${index}`);
-      const cardVisibleAt = performance.now();
-      transferToCardDurations.push(cardVisibleAt - transferCommittedAt);
       await expect.poll(
         async () => await readConvergenceBoardTotal(page, project, commitSeq),
         { timeout: 15_000 },
@@ -2186,6 +2990,9 @@ test("measures high-pressure nested Block transfer into a populated Board", asyn
       HIGH_PRESSURE_BOARD_PAGE_COUNT + HIGH_PRESSURE_ROUNDS,
     );
     const transferCommitSummary = summarizeDurations(transferCommitDurations);
+    const transferToSourceRemovalSummary = summarizeDurations(
+      transferToSourceRemovalDurations,
+    );
     const transferToCardSummary = summarizeDurations(transferToCardDurations);
     const coreStages = Object.fromEntries(
       Object.entries(coreStageDurations).map(([stage, durations]) => {
@@ -2229,9 +3036,12 @@ test("measures high-pressure nested Block transfer into a populated Board", asyn
       cpuModel: cpus[0]?.model ?? "unknown",
       cpuCount: cpus.length,
       totalMemoryBytes: os.totalmem(),
+      normalizedOneMinuteLoadAtStart: normalizedOneMinuteLoads[0] ?? 0,
+      normalizedOneMinuteLoadMax: Math.max(0, ...normalizedOneMinuteLoads),
       fixturePreparationMs: performance.now() - fixturePreparationStartedAt,
       boardInitialRenderMs,
       transferCommitMs: transferCommitSummary.p50,
+      transferToSourceRemovalMs: transferToSourceRemovalSummary.p50,
       transferToCardMs: transferToCardSummary.p50,
       endToEndMs: transferCommitSummary.p50 + transferToCardSummary.p50,
       sourceBlockCount: blocksPerRound,
@@ -2243,10 +3053,16 @@ test("measures high-pressure nested Block transfer into a populated Board", asyn
       initialDomNodes,
       ...rendererMetrics,
       peakWorkingSetBytes,
+      firstTransferVisibilityFacts,
+      firstTransferVisibilityRows,
       transferCommitP50Ms: transferCommitSummary.p50,
       transferCommitP95Ms: transferCommitSummary.p95,
       transferCommitP99Ms: transferCommitSummary.p99,
       transferCommitMaxMs: transferCommitSummary.max,
+      transferToSourceRemovalP50Ms: transferToSourceRemovalSummary.p50,
+      transferToSourceRemovalP95Ms: transferToSourceRemovalSummary.p95,
+      transferToSourceRemovalP99Ms: transferToSourceRemovalSummary.p99,
+      transferToSourceRemovalMaxMs: transferToSourceRemovalSummary.max,
       transferToCardP50Ms: transferToCardSummary.p50,
       transferToCardP95Ms: transferToCardSummary.p95,
       transferToCardP99Ms: transferToCardSummary.p99,
@@ -2254,7 +3070,9 @@ test("measures high-pressure nested Block transfer into a populated Board", asyn
       coreStages,
       rawSamples: {
         transferCommitMs: transferCommitDurations,
+        transferToSourceRemovalMs: transferToSourceRemovalDurations,
         transferToCardMs: transferToCardDurations,
+        normalizedOneMinuteLoad: normalizedOneMinuteLoads,
         coreStages: coreStageDurations,
       },
       rounds: HIGH_PRESSURE_ROUNDS,
@@ -2278,10 +3096,15 @@ test("measures high-pressure nested Block transfer into a populated Board", asyn
     if (process.env.NODEX_SKIP_PERFORMANCE_GATES !== "1") {
       const isReleaseCore = metrics.buildMode === "electron-test-release-core";
       expect(metrics.transferCommitP95Ms).toBeLessThan(isReleaseCore ? 250 : 750);
+      expect(metrics.transferToSourceRemovalP95Ms).toBeLessThan(100);
       expect(metrics.transferToCardP95Ms).toBeLessThan(100);
       if (isReleaseCore && metrics.rounds >= 100) {
         expect(metrics.transferCommitP99Ms).not.toBeNull();
         expect(metrics.transferCommitP99Ms ?? Number.POSITIVE_INFINITY).toBeLessThan(350);
+        expect(metrics.transferToSourceRemovalP99Ms).not.toBeNull();
+        expect(
+          metrics.transferToSourceRemovalP99Ms ?? Number.POSITIVE_INFINITY,
+        ).toBeLessThan(100);
         expect(metrics.transferToCardP99Ms).not.toBeNull();
         expect(metrics.transferToCardP99Ms ?? Number.POSITIVE_INFINITY).toBeLessThan(100);
       }

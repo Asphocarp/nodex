@@ -13,6 +13,8 @@ import {
 import { LIBRARY_NAVIGATION_EVENT_VERSION } from "../../shared/library-events";
 import { LIBRARY_MODULE_CONTRACT_VERSION } from "../../shared/library-module";
 import { PAGE_HISTORY_CONTRACT_VERSION } from "../../shared/page-history";
+import { committedLocalCommit } from "../../shared/testing/local-commit";
+import { authorizedReadStampFixture } from "../../shared/testing/authorized-read-stamp-fixture";
 import type { PageLifecycleMutationRequestV2 } from "../../shared/page-lifecycle-v2";
 import {
   createFakeCoreHandshake,
@@ -34,10 +36,22 @@ const identity = {
 
 const fakeHandshake = () => createFakeCoreHandshake(identity);
 
+const pageAuthorization = (commitSeq: number) => authorizedReadStampFixture({
+  deliveryAddress: {
+    kind: "project",
+    library_id: identity.libraryId,
+    project_id: "project:test",
+  },
+  subject: { kind: "page", page_id: "page:one" },
+  commitSeq,
+  storeEpoch: identity.storeEpoch,
+});
+
 const pageDetailSnapshot = () => ({
   contract_version: 9 as const,
   store_epoch: identity.storeEpoch,
   commit_head: 9,
+  authorization: pageAuthorization(9),
   value: {
     kind: "page_detail" as const,
     value: {
@@ -83,6 +97,7 @@ const pageHistorySnapshot = () => ({
   contract_version: 2 as const,
   store_epoch: identity.storeEpoch,
   commit_head: 12,
+  authorization: null,
   value: {
     kind: "page_history" as const,
     value: {
@@ -127,6 +142,7 @@ const projectPageSearchSnapshot = () => ({
   contract_version: 2 as const,
   store_epoch: identity.storeEpoch,
   commit_head: 13,
+  authorization: null,
   value: {
     kind: "project_page_search" as const,
     items: [{
@@ -144,6 +160,7 @@ const pageTargetSnapshot = () => ({
   contract_version: 2 as const,
   store_epoch: identity.storeEpoch,
   commit_head: 14,
+  authorization: null,
   value: {
     kind: "page_target" as const,
     value: {
@@ -163,6 +180,7 @@ const pageOwnershipPathSnapshot = () => ({
   contract_version: 2 as const,
   store_epoch: identity.storeEpoch,
   commit_head: 14,
+  authorization: null,
   value: {
     kind: "page_ownership_path" as const,
     value: {
@@ -181,6 +199,7 @@ const pageLocationSnapshot = () => ({
   contract_version: 2 as const,
   store_epoch: identity.storeEpoch,
   commit_head: 14,
+  authorization: null,
   value: {
     kind: "page_location" as const,
     value: { page_id: "page:one", project_id: "project:test" },
@@ -191,6 +210,7 @@ const viewLocationSnapshot = () => ({
   contract_version: 4 as const,
   store_epoch: identity.storeEpoch,
   commit_head: 14,
+  authorization: null,
   value: {
     kind: "view_location" as const,
     value: {
@@ -303,6 +323,7 @@ const pageLifecyclePreflightSnapshot = () => ({
   contract_version: 2 as const,
   store_epoch: identity.storeEpoch,
   commit_head: 15,
+  authorization: null,
   value: {
     kind: "page_lifecycle_preflight" as const,
     value: {
@@ -555,6 +576,7 @@ describe("Core Library Module Adapter", () => {
       libraryId: "library:test",
       storeEpoch: "epoch:test",
       commitSeq: 14,
+      authorization: null,
       status: "available",
       targetPageId: "page:one",
       ancestors: [{
@@ -684,6 +706,7 @@ describe("Core Library Module Adapter", () => {
 
     await expect(adapter.applyPageLifecycleMutation(request)).resolves.toEqual({
       ok: true,
+      localCommit: committedLocalCommit(identity.storeEpoch, 16),
       value: {
         version: 2,
         operationKind: "archive_page",
@@ -786,6 +809,7 @@ describe("Core Library Module Adapter", () => {
 
     await expect(adapter.applyBlockPropertyMutation(request)).resolves.toEqual({
       ok: true,
+      localCommit: committedLocalCommit(identity.storeEpoch, 21),
       value: {
         version: 2,
         mutationId: request.mutationId,
@@ -1185,6 +1209,7 @@ describe("Core Library Module Adapter", () => {
       contract_version: 2,
       store_epoch: identity.storeEpoch,
       commit_head: 7,
+      authorization: null,
       value: {
         kind: "children",
         parent: { kind: "library" },
@@ -1219,6 +1244,7 @@ describe("Core Library Module Adapter", () => {
         libraryId: identity.libraryId,
         storeEpoch: identity.storeEpoch,
         commitSeq: 7,
+        authorization: null,
         value: {
           kind: "children",
           parent: { kind: "library" },
@@ -1254,6 +1280,7 @@ describe("Core Library Module Adapter", () => {
       contract_version: 8,
       store_epoch: identity.storeEpoch,
       commit_head: 8,
+      authorization: null,
       value: {
         kind: "standalone_roots",
         items: [{
@@ -1305,6 +1332,7 @@ describe("Core Library Module Adapter", () => {
       contract_version: 8,
       store_epoch: identity.storeEpoch,
       commit_head: 9,
+      authorization: null,
       value: {
         kind: "resource_project_access",
         value: {
@@ -1422,6 +1450,7 @@ describe("Core Library Module Adapter", () => {
       contract_version: 2,
       store_epoch: identity.storeEpoch,
       commit_head: 11,
+      authorization: null,
       value: {
         kind: "canvas_target",
         value: {
@@ -1530,6 +1559,7 @@ describe("Core Library Module Adapter", () => {
       contract_version: 2,
       store_epoch: identity.storeEpoch,
       commit_head: 11,
+      authorization: null,
       value: {
         kind: "canvas_target",
         value: {
@@ -1793,6 +1823,7 @@ describe("Core Library Module Adapter", () => {
         committedAt: "2026-07-19T15:02:00.000Z",
         payload: {
           module: "library",
+          library_id: "library:test",
           event: {
             kind: "library_changed",
             page_ids: ["page:one"],
@@ -1806,7 +1837,7 @@ describe("Core Library Module Adapter", () => {
     } as const;
     expect(mapCoreLibraryEvent(
       envelope,
-      envelope.packet.effects[0]!,
+      envelope.packet.atoms[0]!,
       identity.libraryId,
     )).toEqual({
       version: LIBRARY_NAVIGATION_EVENT_VERSION,
