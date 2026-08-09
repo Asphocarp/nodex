@@ -181,18 +181,20 @@ pub(crate) fn resolve_verified(
         }
     }
 
-    let projection_effects = manifest
-        .projection_effects
-        .iter()
-        .filter(|effect| {
-            request.document_id.is_none()
-                && (library_authority
-                    || project_id.is_some_and(|project_id| {
-                        projection_scope_project(&effect.scope.scope) == Some(project_id)
-                    }))
-        })
-        .cloned()
-        .collect::<Vec<_>>();
+    let projection_effects = authorize_projection_effects(
+        &verified.sealed_projection_effects,
+        request.document_id.is_none(),
+        library_authority,
+        project_id,
+        |resource| {
+            super::resource_authorization::can_read(
+                connection,
+                request.context,
+                &authorization_scope,
+                resource,
+            )
+        },
+    )?;
     let revocations = authorized_revocations(manifest, request);
     if atoms.is_empty()
         && document_effects.is_empty()
@@ -358,6 +360,44 @@ fn projection_scope_project(scope: &LocalProjectionScope) -> Option<&str> {
     }
 }
 
+fn authorize_projection_effects(
+    effects: &[local_commit::SealedProjectionEffect],
+    include_projections: bool,
+    library_authority: bool,
+    project_id: Option<&str>,
+    mut can_read: impl FnMut(&ResourceKey) -> Result<bool, StoreError>,
+) -> Result<Vec<nodex_core_contracts::ProjectionEffect>, StoreError> {
+    if !include_projections {
+        return Ok(Vec::new());
+    }
+    let mut authorized = Vec::new();
+    for sealed in effects {
+        let audience_matches = library_authority
+            || project_id.is_some_and(|project_id| {
+                projection_scope_project(&sealed.transition.scope.scope) == Some(project_id)
+            });
+        if !audience_matches || !can_read(&sealed.subject)? {
+            continue;
+        }
+        let mut all_requirements_readable = true;
+        for resource in &sealed.required_resources {
+            if !can_read(resource)? {
+                all_requirements_readable = false;
+                break;
+            }
+        }
+        if all_requirements_readable {
+            authorized.push(sealed.transition.clone());
+            continue;
+        }
+        let mut repair = sealed.transition.clone();
+        repair.patch = None;
+        repair.requires_read_at_least = true;
+        authorized.push(repair);
+    }
+    Ok(authorized)
+}
+
 fn packet_hash(packet: CanonicalPacket<'_>) -> Result<String, StoreError> {
     let encoded = serde_json::to_vec(&packet)
         .map_err(|_| corrupt("AuthorizedDeliveryPacket hash input is invalid"))?;
@@ -371,7 +411,8 @@ fn corrupt(message: &str) -> StoreError {
 #[cfg(test)]
 mod tests {
     use nodex_core_contracts::events::{
-        CommitIdentity, CoreModuleEventPayload, DocumentEffectResourceKind,
+        CommitIdentity, CoreModuleEventPayload, DocumentEffectResourceKind, LocalProjectionPatch,
+        LocalProjectionScope, ProjectionEffect, ProjectionScopeKey,
     };
     use nodex_core_contracts::{StoreEpoch, document::OwnedDocumentEvent};
 
@@ -494,5 +535,154 @@ mod tests {
         assert_ne!(reference_hash, inline_hash);
         assert_ne!(reference_hash, other_scope_hash);
         assert_eq!(manifest.identity.manifest_hash, "a".repeat(64));
+    }
+
+    #[test]
+    fn historical_projection_with_a_revoked_relation_target_becomes_read_at_least() {
+        let patch: LocalProjectionPatch = serde_json::from_value(serde_json::json!({
+            "kind": "database_row_upsert",
+            "project_id": "project:reader",
+            "database_id": "database:board",
+            "data_source_id": "source:board",
+            "view_id": "view:board",
+            "row": {
+                "page_id": "page:row",
+                "lifecycle": "active",
+                "title": "Row",
+                "rich_title": [],
+                "description_preview": "",
+                "description_length": 0,
+                "has_description": false,
+                "database_values": {
+                    "p_relation": {
+                        "kind": "relation",
+                        "value": {
+                            "value_revision": 1,
+                            "total_count": 1,
+                            "targets": [{
+                                "kind": "visible",
+                                "edge_id": "edge:target",
+                                "page_id": "page:revoked-target",
+                                "title": "Secret target",
+                                "lifecycle": "active",
+                                "membership_state": "active"
+                            }],
+                            "restricted_count": 0,
+                            "has_more": false
+                        }
+                    }
+                },
+                "intrinsic_properties": {},
+                "database_value_revisions": {},
+                "metadata_revision": 1,
+                "parent_revision": 1,
+                "document_id": "document:row",
+                "document_generation": 1,
+                "document_head_seq": 1,
+                "membership_id": "membership:row",
+                "membership_revision": 1,
+                "membership_created_at": "2026-08-09T00:00:00Z",
+                "created_at": "2026-08-09T00:00:00Z",
+                "updated_at": "2026-08-09T00:00:00Z",
+                "effective_group_key": null,
+                "rank_key": null,
+                "position_revision": null,
+                "position_order": null
+            },
+            "total_rows": 1,
+            "group_total": null
+        }))
+        .expect("projection patch");
+        let effects = vec![ProjectionEffect {
+            scope: ProjectionScopeKey {
+                schema_version: 1,
+                canonical_key: "scope:view".to_owned(),
+                scope: LocalProjectionScope::DatabaseView {
+                    project_id: "project:reader".to_owned(),
+                    database_id: "database:board".to_owned(),
+                    data_source_id: "source:board".to_owned(),
+                    view_id: "view:board".to_owned(),
+                },
+            },
+            base_revision: 4,
+            result_revision: 5,
+            covered_commit_seq: 9,
+            patch: Some(patch),
+            requires_read_at_least: false,
+            effect_hash: "e".repeat(64),
+        }];
+        let sealed = local_commit::sealed_projection_effects(&effects)
+            .expect("seal projection requirements");
+
+        let authorized = authorize_projection_effects(
+            &sealed,
+            true,
+            false,
+            Some("project:reader"),
+            |resource| {
+                Ok(!matches!(
+                    resource,
+                    ResourceKey::Page { page_id } if page_id == "page:revoked-target"
+                ))
+            },
+        )
+        .expect("authorize historical projection");
+
+        assert_eq!(authorized.len(), 1);
+        assert!(authorized[0].patch.is_none());
+        assert!(authorized[0].requires_read_at_least);
+        assert_eq!(authorized[0].effect_hash, "e".repeat(64));
+        let encoded = serde_json::to_string(&authorized).expect("encode repair effect");
+        assert!(!encoded.contains("page:revoked-target"));
+        assert!(!encoded.contains("Secret target"));
+        assert!(!encoded.contains("edge:target"));
+    }
+
+    #[test]
+    fn consecutive_safe_projection_transitions_remain_incremental() {
+        let effects = [4_i64, 5_i64]
+            .into_iter()
+            .map(|result_revision| ProjectionEffect {
+                scope: ProjectionScopeKey {
+                    schema_version: 1,
+                    canonical_key: "scope:page".to_owned(),
+                    scope: LocalProjectionScope::Page {
+                        project_id: "project:reader".to_owned(),
+                        page_id: "page:visible".to_owned(),
+                    },
+                },
+                base_revision: result_revision - 1,
+                result_revision,
+                covered_commit_seq: result_revision + 10,
+                patch: Some(LocalProjectionPatch::PageChanged {
+                    project_id: "project:reader".to_owned(),
+                    page_id: "page:visible".to_owned(),
+                }),
+                requires_read_at_least: false,
+                effect_hash: format!("{result_revision:x}").repeat(64),
+            })
+            .collect::<Vec<_>>();
+        let sealed = local_commit::sealed_projection_effects(&effects)
+            .expect("seal consecutive transitions");
+
+        let authorized =
+            authorize_projection_effects(&sealed, true, false, Some("project:reader"), |_| {
+                Ok(true)
+            })
+            .expect("authorize consecutive transitions");
+
+        assert_eq!(
+            authorized
+                .iter()
+                .map(|effect| effect.result_revision)
+                .collect::<Vec<_>>(),
+            vec![4, 5]
+        );
+        assert!(authorized.iter().all(|effect| effect.patch.is_some()));
+        assert!(
+            authorized
+                .iter()
+                .all(|effect| !effect.requires_read_at_least)
+        );
     }
 }

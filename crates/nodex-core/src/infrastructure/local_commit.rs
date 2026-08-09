@@ -195,6 +195,7 @@ pub(crate) struct LocalCommitRow {
 
 pub(crate) struct VerifiedCommit {
     pub manifest: CommitManifest,
+    pub(crate) sealed_projection_effects: Vec<SealedProjectionEffect>,
     #[cfg(test)]
     pub physical_effects: Vec<PhysicalEffectEvidence>,
     pub delivery_atoms: Vec<StoredDeliveryAtom>,
@@ -205,6 +206,14 @@ pub(crate) struct VerifiedCommit {
 pub(crate) struct StoredDeliveryAtom {
     pub descriptor: DeliveryAtomDescriptor,
     pub payload: DeliveryAtomPayload,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct SealedProjectionEffect {
+    pub transition: ProjectionEffect,
+    pub subject: ResourceKey,
+    pub required_resources: Vec<ResourceKey>,
+    pub patch_hash: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -742,6 +751,7 @@ pub(super) fn seal(connection: &Connection, context: &CommitContext) -> Result<i
     }
     canonicalize_projection(&mut projection);
     projection.effects = seal_projection_effects(connection, context, &projection)?;
+    sealed_projection_effects(&projection.effects)?;
 
     let receipt = read_required_receipt(connection, context.commit_seq)?;
     let manifest = compile_manifest(
@@ -1187,6 +1197,7 @@ pub(crate) fn load_verified_commit(
         ));
     }
     Ok(VerifiedCommit {
+        sealed_projection_effects: sealed_projection_effects(&compiled.projection_effects)?,
         manifest: row.manifest.unwrap_or(compiled),
         #[cfg(test)]
         physical_effects,
@@ -2663,6 +2674,101 @@ fn projection_scope_for_patch(patch: &LocalProjectionPatch) -> LocalProjectionSc
             page_id: page_id.clone(),
         },
     }
+}
+
+pub(crate) fn sealed_projection_effects(
+    effects: &[ProjectionEffect],
+) -> Result<Vec<SealedProjectionEffect>, StoreError> {
+    effects
+        .iter()
+        .map(|effect| {
+            if effect.patch.is_none() {
+                let (subject, required_resources) = requirements_for_scope(&effect.scope.scope);
+                return Ok(SealedProjectionEffect {
+                    transition: effect.clone(),
+                    subject,
+                    required_resources,
+                    patch_hash: None,
+                });
+            }
+            let patch = effect
+                .patch
+                .as_ref()
+                .ok_or_else(|| corrupt("Projection patch disappeared during sealing"))?;
+            if projection_scope_for_patch(patch) != effect.scope.scope {
+                return Err(corrupt(
+                    "Projection patch requirements belong to another scope",
+                ));
+            }
+            let extracted = super::projection_requirement_extractor::extract(patch)?;
+            Ok(SealedProjectionEffect {
+                transition: effect.clone(),
+                subject: extracted.subject,
+                required_resources: extracted.required_resources,
+                patch_hash: Some(extracted.patch_hash),
+            })
+        })
+        .collect()
+}
+
+fn requirements_for_scope(scope: &LocalProjectionScope) -> (ResourceKey, Vec<ResourceKey>) {
+    let (subject, required_resources) = match scope {
+        LocalProjectionScope::Library { library_id } => {
+            let subject = ResourceKey::Library {
+                library_id: library_id.clone(),
+            };
+            (subject.clone(), BTreeSet::from([subject]))
+        }
+        LocalProjectionScope::Project { project_id } => {
+            let subject = ResourceKey::Project {
+                project_id: project_id.clone(),
+            };
+            (subject.clone(), BTreeSet::from([subject]))
+        }
+        LocalProjectionScope::DatabaseView {
+            project_id,
+            database_id,
+            data_source_id,
+            view_id,
+        } => {
+            let subject = ResourceKey::View {
+                view_id: view_id.clone(),
+            };
+            (
+                subject.clone(),
+                BTreeSet::from([
+                    ResourceKey::Project {
+                        project_id: project_id.clone(),
+                    },
+                    ResourceKey::Database {
+                        database_id: database_id.clone(),
+                    },
+                    ResourceKey::DataSource {
+                        data_source_id: data_source_id.clone(),
+                    },
+                    subject,
+                ]),
+            )
+        }
+        LocalProjectionScope::Page {
+            project_id,
+            page_id,
+        } => {
+            let subject = ResourceKey::Page {
+                page_id: page_id.clone(),
+            };
+            (
+                subject.clone(),
+                BTreeSet::from([
+                    ResourceKey::Project {
+                        project_id: project_id.clone(),
+                    },
+                    subject,
+                ]),
+            )
+        }
+    };
+    (subject, required_resources.into_iter().collect())
 }
 
 fn canonicalize_projection_scopes(scopes: &mut Vec<LocalProjectionScope>) {
