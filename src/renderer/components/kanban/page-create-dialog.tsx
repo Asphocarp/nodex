@@ -105,25 +105,6 @@ const INITIAL_PAGE_CREATE_NESTED_SURFACES: Record<PageCreateNestedSurface, boole
   tags: false,
 };
 
-function PageDraftClosedToast({
-  onRestore,
-}: {
-  readonly onRestore: () => boolean;
-}) {
-  return (
-    <div className="flex min-w-0 items-center gap-3">
-      <span className="min-w-0 flex-1 truncate text-sm">Page draft closed</span>
-      <button
-        type="button"
-        className="shrink-0 rounded-full px-2 py-1 text-xs font-medium text-token-foreground hover:bg-token-foreground/8"
-        onClick={() => onRestore()}
-      >
-        Restore
-      </button>
-    </div>
-  );
-}
-
 function PageCreateDialogContent({
   requestId,
   target,
@@ -227,22 +208,17 @@ function PageCreateDialogContent({
     closeAndRestoreFocus();
     if (!dirty) return;
 
-    toast.custom({
+    toast.info("Page draft closed", {
       id: `page-create-draft:${target.surfaceId}`,
       duration: 10_000,
-      content: ({ close }) => (
-        <PageDraftClosedToast
-          onRestore={() => {
-            const restored = restorePageCreateDraft(appHandle, {
-              target,
-              origin,
-              snapshot,
-            });
-            if (restored) close();
-            return restored;
-          }}
-        />
-      ),
+      action: {
+        label: "Restore",
+        onClick: () => restorePageCreateDraft(appHandle, {
+          target,
+          origin,
+          snapshot,
+        }),
+      },
     });
   };
 
@@ -394,8 +370,8 @@ function PageCreateDialogContent({
                 className="grid size-7 place-items-center rounded-full text-token-description-foreground outline-none hover:bg-token-foreground/5 hover:text-token-foreground focus-visible:ring-2 focus-visible:ring-token-focus disabled:cursor-not-allowed disabled:opacity-40"
               >
                 {expanded
-                  ? <RestorePanelIcon className="icon-xs" />
-                  : <ExpandPanelIcon className="icon-xs" />}
+                  ? <ExpandPanelIcon className="icon-xs" />
+                  : <RestorePanelIcon className="icon-xs" />}
               </button>
               <NodexDialogClose asChild>
                 <button

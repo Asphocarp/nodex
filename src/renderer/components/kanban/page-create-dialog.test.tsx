@@ -345,7 +345,8 @@ describe("PageCreateDialog", () => {
     fireEvent.change(description, { target: { value: "Recovered body" } });
     fireEvent.click(view.getByRole("button", { name: "Close Page creation" }));
 
-    expect(await view.findByText("Page draft closed")).toBeTruthy();
+    const recoveryToast = await view.findByRole("alert");
+    expect(recoveryToast.textContent).toContain("Page draft closed");
     fireEvent.click(view.getByRole("button", { name: "Restore" }));
     expect(await view.findByRole("dialog")).toBeTruthy();
     expect((view.getByLabelText("Page title") as HTMLInputElement).value).toBe("Recover me");

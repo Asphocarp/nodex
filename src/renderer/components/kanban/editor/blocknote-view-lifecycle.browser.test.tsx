@@ -1,8 +1,10 @@
 import { BlockNoteEditor } from "@blocknote/core";
 import { DropCursorExtension } from "@blocknote/core/extensions";
 import { BlockNoteViewRaw } from "@blocknote/react";
+import { TextSelection } from "@tiptap/pm/state";
 import { act, render } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
+import { NfmFormattingToolbarController } from "./nfm-formatting-toolbar-controller";
 import { NfmSideMenuOpenProvider } from "./nfm-side-menu";
 
 const settleEditor = async (): Promise<void> => {
@@ -132,6 +134,47 @@ describe("BlockNote view lifecycle in Chromium", () => {
       expect(document.querySelector(".prosemirror-dropcursor-block")).toBeNull();
     } finally {
       releaseOwnership();
+      view.unmount();
+      editor._tiptapEditor.destroy();
+    }
+  });
+
+  test("portals the formatting toolbar outside the editor clipping container", async () => {
+    const editor = BlockNoteEditor.create({
+      initialContent: [{ id: "block-1", type: "paragraph", content: "Select me" }],
+    });
+    const view = render(
+      <BlockNoteViewRaw
+        editor={editor}
+        formattingToolbar={false}
+        linkToolbar={false}
+        slashMenu={false}
+        sideMenu={false}
+        tableHandles={false}
+      >
+        <NfmSideMenuOpenProvider>
+          <NfmFormattingToolbarController
+            formattingToolbar={() => <div data-testid="formatting-toolbar-portal-probe" />}
+          />
+        </NfmSideMenuOpenProvider>
+      </BlockNoteViewRaw>,
+    );
+
+    try {
+      await act(settleEditor);
+      await act(async () => {
+        const transaction = editor.prosemirrorState.tr.setSelection(
+          TextSelection.create(editor.prosemirrorState.doc, 2, 8),
+        );
+        editor.prosemirrorView.dispatch(transaction);
+        editor.focus();
+        await settleEditor();
+      });
+
+      const toolbar = await view.findByTestId("formatting-toolbar-portal-probe");
+      expect(document.body.contains(toolbar)).toBe(true);
+      expect(view.container.contains(toolbar)).toBe(false);
+    } finally {
       view.unmount();
       editor._tiptapEditor.destroy();
     }

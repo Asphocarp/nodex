@@ -5,6 +5,7 @@ import {
   useSyncExternalStore,
 } from "react";
 import { AlertCircle, AlertTriangle, CheckCircle2, Info, X } from "@/components/shared/icons/generic-icons";
+import { NodexButton } from "@/components/ui/button";
 import { motion } from "motion/react";
 import { cn } from "@/lib/utils";
 
@@ -19,6 +20,10 @@ export interface ToastHandle {
 
 export interface ToastOptions {
   description?: ReactNode;
+  action?: {
+    label: ReactNode;
+    onClick: () => boolean | void;
+  };
   duration?: number;
   id?: string;
   hasCloseButton?: boolean;
@@ -47,6 +52,7 @@ export interface ToastPlainRecord extends ToastBaseRecord {
   kind: "plain";
   title: ReactNode;
   description?: ReactNode;
+  action?: ToastOptions["action"];
 }
 
 export interface ToastCustomRecord extends ToastBaseRecord {
@@ -193,6 +199,7 @@ class NodexToastStore {
       isShown: true,
       title,
       description: options?.description,
+      action: options?.action,
     };
     return this.insertRecord(record, options?.onRemove);
   }
@@ -335,6 +342,20 @@ function NodexToastPlainSurface({
           </div>
         ) : null}
       </div>
+      {record.action ? (
+        <NodexButton
+          type="button"
+          variant="secondary"
+          size="xs"
+          className="mt-px"
+          onClick={() => {
+            const shouldClose = record.action?.onClick();
+            if (shouldClose !== false) onClose();
+          }}
+        >
+          {record.action.label}
+        </NodexButton>
+      ) : null}
       {record.hasCloseButton ? <ToastDismissButton onClick={onClose} /> : null}
     </div>
   );
@@ -433,7 +454,7 @@ function ToastLifecycleWrapper({
           nodexToastStore.remove(record.id);
         }
       }}
-      className="w-full"
+      className="w-fit max-w-full"
     >
       {children}
     </motion.div>
@@ -449,7 +470,7 @@ export function NodexToastProvider({ children }: { children: ReactNode }) {
       <div className="pointer-events-none fixed inset-0 z-[60]">
         <div
           data-slot="toast-viewport"
-          className="pointer-events-none mx-auto flex w-full max-w-[560px] flex-col gap-2 px-3 pt-3"
+          className="pointer-events-none mx-auto flex w-full max-w-[440px] flex-col items-center gap-2 px-3 pt-3"
         >
           {records.map((record) => (
             <NodexToastItem key={record.id} record={record} />
