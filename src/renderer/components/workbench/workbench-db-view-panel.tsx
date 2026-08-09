@@ -105,6 +105,7 @@ export function DatabaseViewTabSurface({
   onCloseTaskSearch,
   onOpenPage,
   onCommitted,
+  keyboardSurface,
 }: {
   readonly model: DatabaseViewRenderModel;
   readonly toolbarItems?: DbViewToolbarItem[];
@@ -122,6 +123,10 @@ export function DatabaseViewTabSurface({
   readonly onCloseTaskSearch: () => void;
   readonly onOpenPage: (pageId: string, titleSnapshot: string) => void;
   readonly onCommitted?: () => void | Promise<void>;
+  readonly keyboardSurface?: {
+    readonly surfaceId: string;
+    readonly presentationId: string;
+  };
 }) {
   return (
     <div className="flex h-full min-h-0 flex-col bg-token-main-surface-primary">
@@ -151,6 +156,7 @@ export function DatabaseViewTabSurface({
           searchQuery={activeSearchQuery}
           onOpenPage={onOpenPage}
           onCommitted={onCommitted}
+          keyboardSurface={keyboardSurface}
         />
       </div>
     </div>
@@ -469,6 +475,10 @@ export function DbViewSessionTab({
           });
         }}
         onCommitted={selectedDatabaseView.refresh}
+        keyboardSurface={{
+          surfaceId,
+          presentationId: tab.id,
+        }}
       />
     );
   }

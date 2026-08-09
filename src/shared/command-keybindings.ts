@@ -69,6 +69,25 @@ export interface MouseShortcutEventLike {
   button: number;
 }
 
+export interface KeyboardShortcutSequenceState {
+  prefix: readonly string[];
+  expiresAt: number;
+}
+
+export type KeyboardShortcutSequenceMatch =
+  | { readonly kind: "none"; readonly state: KeyboardShortcutSequenceState }
+  | { readonly kind: "pending"; readonly state: KeyboardShortcutSequenceState }
+  | {
+      readonly kind: "matched";
+      readonly commandId: CommandId;
+      readonly state: KeyboardShortcutSequenceState;
+    };
+
+export const EMPTY_KEYBOARD_SHORTCUT_SEQUENCE_STATE: KeyboardShortcutSequenceState = {
+  prefix: [],
+  expiresAt: 0,
+};
+
 const MODIFIER_ALIASES = new Map<string, string>([
   ["cmdorctrl", "CmdOrCtrl"],
   ["commandorcontrol", "CmdOrCtrl"],
@@ -163,7 +182,26 @@ export const CODEX_COMMAND_REGISTRY = [
   command("toggleFileTreePanel", "Toggle file tree panel", "Open the Files panel", 190, "app", ["CmdOrCtrl+Shift+E"]),
   command("searchChats", "Search chats", "Search chats in the command palette", 200, "app", ["CmdOrCtrl+G"]),
   command("searchPages", "Search Pages", "Search Pages in the command palette", 210, "app", ["CmdOrCtrl+P"]),
-  command("createPage", "Create Page", "Create a Page in the active Project Board", 212, "app", ["CmdOrCtrl+Shift+C"]),
+  command(
+    "createPage",
+    "Create Page",
+    "Create a Page in the active Project",
+    212,
+    "app",
+    ["C", "CmdOrCtrl+Shift+C"],
+    { allowsMultiple: true },
+  ),
+  command(
+    "createPageExpanded",
+    "Create Page in expanded composer",
+    "Create a Page using the full-window composer",
+    213,
+    "app",
+    ["V"],
+  ),
+  command("searchAll", "Search", "Search Pages and chats", 214, "app", ["/"], {
+    commandMenuGroupKey: "general",
+  }),
   command("searchFiles", "Search files", "Search files in the command palette", 215, "app", [], {
     available: false,
   }),
@@ -171,10 +209,92 @@ export const CODEX_COMMAND_REGISTRY = [
     allowsMultiple: true,
   }),
   command("settings", "Settings", "Open settings", 230, "app", ["CmdOrCtrl+,"]),
-  command("showKeyboardShortcuts", "Keyboard shortcuts", "Open the keyboard shortcuts settings", 240, "app", ["CmdOrCtrl+Shift+/"]),
-  command("renameThread", "Rename chat", "Rename the active chat", 250, "app", ["CmdOrCtrl+Alt+R"]),
-  command("closeTab", "Close tab", "Close the focused panel tab", 260, "app", ["CmdOrCtrl+W"]),
-  command("closeWindow", "Close window", "Close the active app window", 270, "electron", ["CmdOrCtrl+Shift+W"]),
+  command("showKeyboardShortcuts", "Keyboard shortcuts", "Show available keyboard shortcuts", 240, "app", ["Shift+/", "CmdOrCtrl+Shift+/"], {
+    allowsMultiple: true,
+    commandMenuGroupKey: "general",
+  }),
+  command("goToPages", "Go to Pages", "Open the Pages workspace", 241, "app", ["G P"], {
+    allowsSequences: true,
+    commandMenuGroupKey: "navigation",
+  }),
+  command("goToSettings", "Go to Settings", "Open Settings", 242, "app", ["G S"], {
+    allowsSequences: true,
+    commandMenuGroupKey: "navigation",
+  }),
+  command("openPage", "Open Page", "Search and open a Page", 243, "app", ["O P"], {
+    allowsSequences: true,
+    commandMenuGroupKey: "navigation",
+  }),
+  command("openChat", "Open chat", "Search and open a chat", 244, "app", ["O T"], {
+    allowsSequences: true,
+    commandMenuGroupKey: "navigation",
+  }),
+  command("openLastToastAction", "Open latest notification action", "Run the action from the latest notification", 245, "app", ["CmdOrCtrl+Alt+O"], {
+    commandMenuGroupKey: "general",
+  }),
+  command("workOnPage", "Work on Page", "Start a new chat from the highlighted Page", 246, "app", ["W O"], {
+    allowsSequences: true,
+    commandMenuGroupKey: "page",
+  }),
+  command("boardFocusNext", "Highlight next Page", "Move the Board highlight forward", 246, "app", ["J", "Down"], {
+    allowsMultiple: true,
+    commandMenuGroupKey: "board",
+  }),
+  command("boardFocusPrevious", "Highlight previous Page", "Move the Board highlight backward", 247, "app", ["K", "Up"], {
+    allowsMultiple: true,
+    commandMenuGroupKey: "board",
+  }),
+  command("boardFocusLeft", "Highlight Page to the left", "Move the Board highlight to the previous column", 248, "app", ["Left"], {
+    commandMenuGroupKey: "board",
+  }),
+  command("boardFocusRight", "Highlight Page to the right", "Move the Board highlight to the next column", 249, "app", ["Right"], {
+    commandMenuGroupKey: "board",
+  }),
+  command("boardPeek", "Peek Page", "Preview the highlighted Page", 250, "app", ["Space"], {
+    commandMenuGroupKey: "board",
+  }),
+  command("boardOpen", "Open Page", "Open the highlighted Page", 251, "app", ["Enter"], {
+    commandMenuGroupKey: "board",
+  }),
+  command("boardToggleSelection", "Select Page", "Toggle selection for the highlighted Page", 252, "app", ["X"], {
+    commandMenuGroupKey: "board",
+  }),
+  command("boardClearSelection", "Clear Page selection", "Clear selected Pages or close Peek", 253, "app", ["Escape"], {
+    commandMenuGroupKey: "board",
+  }),
+  command("boardSetStatus", "Set Page status", "Change status for the highlighted or selected Pages", 254, "app", ["S"], {
+    commandMenuGroupKey: "page",
+  }),
+  command("boardSetPriority", "Set Page priority", "Change priority for the highlighted or selected Pages", 255, "app", ["P"], {
+    commandMenuGroupKey: "page",
+  }),
+  command("boardSetEstimate", "Set Page estimate", "Change estimate for the highlighted or selected Pages", 256, "app", ["Shift+E"], {
+    commandMenuGroupKey: "page",
+  }),
+  command("boardSetTags", "Set Page tags", "Change tags for the highlighted or selected Pages", 257, "app", ["L"], {
+    commandMenuGroupKey: "page",
+  }),
+  command("boardMoveUp", "Move Page up", "Move highlighted or selected Pages up", 258, "app", ["Alt+Up"], {
+    commandMenuGroupKey: "board",
+  }),
+  command("boardMoveDown", "Move Page down", "Move highlighted or selected Pages down", 259, "app", ["Alt+Down"], {
+    commandMenuGroupKey: "board",
+  }),
+  command("boardMoveTop", "Move Page to top", "Move highlighted or selected Pages to the top", 260, "app", ["Alt+Shift+Up"], {
+    commandMenuGroupKey: "board",
+  }),
+  command("boardMoveBottom", "Move Page to bottom", "Move highlighted or selected Pages to the bottom", 261, "app", ["Alt+Shift+Down"], {
+    commandMenuGroupKey: "board",
+  }),
+  command("boardMoveLeft", "Move Page left", "Move highlighted or selected Pages to the previous column", 262, "app", ["Alt+Left"], {
+    commandMenuGroupKey: "board",
+  }),
+  command("boardMoveRight", "Move Page right", "Move highlighted or selected Pages to the next column", 263, "app", ["Alt+Right"], {
+    commandMenuGroupKey: "board",
+  }),
+  command("renameThread", "Rename chat", "Rename the active chat", 270, "app", ["CmdOrCtrl+Alt+R"]),
+  command("closeTab", "Close tab", "Close the focused panel tab", 280, "app", ["CmdOrCtrl+W"]),
+  command("closeWindow", "Close window", "Close the active app window", 290, "electron", ["CmdOrCtrl+Shift+W"]),
   command("newWindow", "New window", "Open a new app window", 280, "electron", ["CmdOrCtrl+Shift+N"]),
   command("openFolder", "Open folder", "Open a local folder", 290, "electron", ["CmdOrCtrl+O"], { available: false }),
   command("openProcessManager", "Open process manager", "Open the process manager", 300, "electron", ["Ctrl+Alt+M"]),
@@ -192,6 +312,14 @@ export const CODEX_COMMAND_REGISTRY = [
 ] as const satisfies readonly CommandRegistryEntry[];
 
 export type CommandId = (typeof CODEX_COMMAND_REGISTRY)[number]["id"];
+
+const COMMAND_IDS = new Set<string>(
+  CODEX_COMMAND_REGISTRY.map((entry) => entry.id),
+);
+
+function isCommandId(value: string): value is CommandId {
+  return COMMAND_IDS.has(value);
+}
 
 function command<const Id extends string>(
   id: Id,
@@ -482,6 +610,76 @@ export function matchesKeyboardEventToAccelerator(
   return eventAccel === normalized;
 }
 
+export function matchKeyboardShortcutSequence(
+  event: KeyboardShortcutEventLike,
+  state: CommandKeymapState,
+  previous: KeyboardShortcutSequenceState,
+  options: {
+    readonly now?: number;
+    readonly timeoutMs?: number;
+    readonly commandAvailable?: (commandId: CommandId) => boolean;
+  } = {},
+): KeyboardShortcutSequenceMatch {
+  const now = options.now ?? Date.now();
+  const timeoutMs = options.timeoutMs ?? 900;
+  const prefix = previous.expiresAt > now ? previous.prefix : [];
+  const chord = keyboardEventToAccelerator(event, state.platform);
+  if (!chord || chord.startsWith("Mouse")) {
+    return { kind: "none", state: EMPTY_KEYBOARD_SHORTCUT_SEQUENCE_STATE };
+  }
+
+  const candidate = [...prefix, chord];
+  const available = options.commandAvailable ?? (() => true);
+  const sequenceBindings: Array<{
+    readonly commandId: CommandId;
+    readonly chords: string[];
+  }> = state.entries.flatMap((entry) => {
+    if (!isCommandId(entry.id) || !entry.available || !available(entry.id)) {
+      return [];
+    }
+    const commandId = entry.id;
+    return entry.keybindings.flatMap((binding) => {
+      const normalized = normalizeAccelerator(binding.key);
+      if (!normalized.includes(" ")) return [];
+      return [{ commandId, chords: normalized.split(/\s+/) }];
+    });
+  });
+
+  const exact = sequenceBindings.find(({ chords }) =>
+    chords.length === candidate.length
+    && chords.every((part, index) => part === candidate[index])
+  );
+  if (exact) {
+    return {
+      kind: "matched",
+      commandId: exact.commandId,
+      state: EMPTY_KEYBOARD_SHORTCUT_SEQUENCE_STATE,
+    };
+  }
+
+  const hasPrefix = sequenceBindings.some(({ chords }) =>
+    chords.length > candidate.length
+    && candidate.every((part, index) => part === chords[index])
+  );
+  if (hasPrefix) {
+    return {
+      kind: "pending",
+      state: { prefix: candidate, expiresAt: now + timeoutMs },
+    };
+  }
+
+  if (prefix.length > 0) {
+    return matchKeyboardShortcutSequence(
+      event,
+      state,
+      EMPTY_KEYBOARD_SHORTCUT_SEQUENCE_STATE,
+      options,
+    );
+  }
+
+  return { kind: "none", state: EMPTY_KEYBOARD_SHORTCUT_SEQUENCE_STATE };
+}
+
 export function matchesMouseEventToCommand(
   event: MouseShortcutEventLike,
   state: CommandKeymapState | null | undefined,
@@ -581,9 +779,10 @@ function normalizeKeyName(rawKey: string): string {
 }
 
 function normalizeEventKey(
-  event: Pick<KeyboardShortcutEventLike, "key" | "code">,
+  event: Pick<KeyboardShortcutEventLike, "key" | "code" | "shiftKey">,
 ): string {
   if (event.key === " ") return "Space";
+  if (event.shiftKey && event.code === "Slash") return "/";
   if (event.key && event.key !== "Unidentified") {
     return normalizeKeyName(event.key);
   }
@@ -611,6 +810,14 @@ function sortModifiers(modifiers: string[]): string[] {
 function formatChordLabel(chord: string, platform: RuntimePlatform): string {
   const parsed = parseChord(chord);
   if (!parsed) return "";
+
+  if (
+    parsed.key === "/"
+    && parsed.modifiers.length === 1
+    && parsed.modifiers[0] === "Shift"
+  ) {
+    return "?";
+  }
 
   const keyLabel = parsed.key ? formatKeyLabel(parsed.key) : "";
   if (platform === "macOS") {

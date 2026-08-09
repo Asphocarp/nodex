@@ -18,6 +18,7 @@ import { noOpLocalCommit } from "../../shared/testing/local-commit";
 import type { DatabaseViewRenderModel } from "./database-view-render-model";
 import {
   buildDatabaseViewMoveOperations,
+  buildDatabaseViewMovePageRunOperations,
   buildDatabaseViewPropertyValueOperations,
   commitDatabaseViewOperations,
 } from "./database-view-row-mutations";
@@ -223,6 +224,7 @@ describe("selected Database View Page mutations", () => {
       model: model(),
       pageId: "page-a",
       direction: "down",
+      groupComplete: true,
     });
     expect(operations[0]).toEqual({
       kind: "position_pages",
@@ -233,6 +235,51 @@ describe("selected Database View Page mutations", () => {
         { pageId: "page-c", expectedPositionRevision: 0 },
       ],
       groupKey: null,
+    });
+  });
+
+  test("moves a Page to either manual-order boundary", () => {
+    expect(buildDatabaseViewMoveOperations({
+      model: model(),
+      pageId: "page-c",
+      direction: "top",
+      groupComplete: true,
+    })[0]).toMatchObject({
+      kind: "position_pages",
+      pages: [
+        { pageId: "page-c" },
+        { pageId: "page-a" },
+        { pageId: "page-b" },
+      ],
+    });
+    expect(buildDatabaseViewMoveOperations({
+      model: model(),
+      pageId: "page-a",
+      direction: "bottom",
+      groupComplete: true,
+    })[0]).toMatchObject({
+      kind: "position_pages",
+      pages: [
+        { pageId: "page-b" },
+        { pageId: "page-c" },
+        { pageId: "page-a" },
+      ],
+    });
+  });
+
+  test("moves a multi-selection atomically in visible order", () => {
+    expect(buildDatabaseViewMovePageRunOperations({
+      model: model(),
+      pageIds: ["page-c", "page-a"],
+      direction: "bottom",
+      groupComplete: true,
+    })[0]).toMatchObject({
+      kind: "position_pages",
+      pages: [
+        { pageId: "page-b" },
+        { pageId: "page-a" },
+        { pageId: "page-c" },
+      ],
     });
   });
 

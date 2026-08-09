@@ -148,6 +148,20 @@ class NodexToastStore {
     this.emit();
   }
 
+  runLatestAction(): boolean {
+    const record = this.orderedIds
+      .map((id) => this.records.get(id) ?? null)
+      .find((candidate): candidate is ToastPlainRecord =>
+        candidate?.kind === "plain"
+        && candidate.isShown
+        && candidate.action !== undefined,
+      );
+    if (!record?.action) return false;
+    const shouldClose = record.action.onClick();
+    if (shouldClose !== false) this.close(record.id);
+    return true;
+  }
+
   close(id: string): void {
     const record = this.records.get(id);
     if (!record || !record.isShown) return;
@@ -257,6 +271,7 @@ export const toast = {
   warning: (title: ReactNode, options?: ToastOptions) => nodexToastStore.warning(title, options),
   danger: (title: ReactNode, options?: ToastOptions) => nodexToastStore.danger(title, options),
   custom: (options: ToastCustomOptions) => nodexToastStore.custom(options),
+  runLatestAction: () => nodexToastStore.runLatestAction(),
   closeAll: () => nodexToastStore.closeAll(),
 };
 

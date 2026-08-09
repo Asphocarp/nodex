@@ -81,7 +81,7 @@ describe("buildCommandPaletteCommands", () => {
       pageCreateUnavailableReason: "Focus a Board before creating a Page.",
     })).find((command) => command.id === "createPage");
 
-    expect(available?.shortcut).toBe("⌘⇧C");
+    expect(available?.shortcut).toBe("C");
     expect(Boolean(available?.disabled)).toBe(false);
     expect(unavailable?.disabled).toBe(true);
     expect(unavailable?.disabledReason).toBe("Focus a Board before creating a Page.");

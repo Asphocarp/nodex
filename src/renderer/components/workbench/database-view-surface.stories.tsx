@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { DatabaseViewRenderModel } from "@/lib/database-view-render-model";
 import { plainTextToPortableRichText } from "../../../shared/block-documents";
 import {
@@ -11,6 +11,7 @@ import {
 import { testPropertySemantics } from "../../../shared/testing/database-property-record";
 import { DatabaseViewSurface } from "./database-view-surface";
 import { DatabaseViewTabSurface } from "./workbench-db-view-panel";
+import { executeContextualKeyboardAction } from "@/lib/contextual-keyboard-actions";
 
 const timestamp = "2026-07-12T00:00:00.000Z";
 const libraryId = "library:nodex";
@@ -176,6 +177,29 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const SecondaryView: Story = {};
+
+function KeyboardSelectedBoard() {
+  useEffect(() => {
+    executeContextualKeyboardAction("boardFocusNext");
+    executeContextualKeyboardAction("boardToggleSelection");
+  }, []);
+  return (
+    <DatabaseViewSurface
+      model={model}
+      searchQuery=""
+      keyboardSurface={{
+        surfaceId: "story-keyboard-board",
+        presentationId: "story-keyboard-tab",
+      }}
+      onOpenPage={() => undefined}
+      commitOperations={async () => null}
+    />
+  );
+}
+
+export const KeyboardHighlightedSelection: Story = {
+  render: () => <KeyboardSelectedBoard />,
+};
 
 const withKind = (
   kind: "list" | "calendar",

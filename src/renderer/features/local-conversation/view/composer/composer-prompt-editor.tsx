@@ -1470,6 +1470,7 @@ export const ComposerPromptEditor = forwardRef<ComposerPromptEditorHandle, Compo
     return (
       <div
         data-composer-prompt-frame={dataComposerPromptFrame}
+        data-nodex-keyboard-context={dataComposerPromptFrame ? "composer" : undefined}
         data-single-line={singleLine ? "true" : "false"}
         className={[
           "text-size-chat [&_.ProseMirror]:focus-visible:outline-none text-token-foreground h-auto [&_.ProseMirror]:h-auto [&_.ProseMirror]:resize-none [&_.ProseMirror_p]:m-0 text-base [&_.ProseMirror]:leading-5",

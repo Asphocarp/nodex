@@ -29,11 +29,15 @@ function ColumnStoryFrame({
   createDisabledReason,
   collapsed = false,
   pagination,
+  highlightedPageId,
+  selectedPageIds,
 }: {
   cards?: CardType[];
   createDisabledReason?: string;
   collapsed?: boolean;
   pagination?: ColumnPaginationState;
+  highlightedPageId?: string;
+  selectedPageIds?: ReadonlySet<string>;
 }) {
   return (
     <div className="flex min-h-screen items-start bg-token-main-surface-primary p-8">
@@ -44,6 +48,8 @@ function ColumnStoryFrame({
           column={{ id: "build", name: "Build", cards }}
           createDisabledReason={createDisabledReason}
           pagination={pagination}
+          highlightedPageId={highlightedPageId}
+          selectedPageIds={selectedPageIds}
           onLoadMore={() => {}}
           layout={{ width: 320, collapsed }}
           onRequestCreatePage={() => {}}
@@ -81,6 +87,16 @@ export const FullyLoaded: Story = {
         loadingMore: false,
         error: null,
       }}
+    />
+  ),
+};
+
+/** Keyboard activity and multi-selection collapse to one selected-card halo. */
+export const SelectedAndKeyboardActive: Story = {
+  render: () => (
+    <ColumnStoryFrame
+      highlightedPageId="card-2"
+      selectedPageIds={new Set(["card-2"])}
     />
   ),
 };

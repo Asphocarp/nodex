@@ -18,7 +18,15 @@ The editable settings tab covers Nodex-supported command ids only. Editor-native
 | `⌘/Ctrl+K` | Search commands and chats | Opens the global command palette in root mode; chat metadata joins at two query characters and chat history at three; works from editable surfaces too |
 | `⌘/Ctrl+G` | Search chats | Opens the global palette in chat-search mode |
 | `⌘/Ctrl+P` | Search Pages | Opens the global palette in Page-search mode, including Page filter controls |
-| `⌘/Ctrl+Shift+C` | Create Page | Opens the app-owned composer for the active writable Project Board; safely falls back when only one writable Board is mounted, reports ambiguous/missing targets, and is ignored in inputs, chat composers, NFM editors, and Terminals |
+| `C` / `⌘/Ctrl+Shift+C` | Create Page | Opens the app-owned composer for the active Project. An explicitly active writable Board supplies its View and column; otherwise Nodex uses the active Project's durable default Database View. The command is ignored in editable fields, editors, local floating surfaces, dialogs, and Terminals. An expanded non-editor text selection becomes the initial title. |
+| `V` | Create Page expanded | Opens the same app-owned composer directly in full-window mode |
+| `/` | Search | Opens the command palette from a non-editable app surface |
+| `?` / `⌘/Ctrl+Shift+/` | Keyboard shortcuts | Opens the searchable contextual shortcut reference; its Customize action opens Settings |
+| `G` then `P` | Go to Pages | Opens the Pages workspace |
+| `G` then `S` | Go to Settings | Opens Settings |
+| `O` then `P` | Open Page | Opens Page search in the command palette |
+| `O` then `T` | Open chat | Opens chat search in the command palette |
+| `⌘/Ctrl+Alt+O` | Latest notification action | Runs the newest still-visible plain toast action and dismisses it when the action succeeds |
 | `⌘/Ctrl+[` | Back | Restores the previous shell-owned Project/Session/Library target and its route-local presentation; works from editable surfaces too |
 | `⌘/Ctrl+]` | Forward | Restores the next shell-owned Project/Session/Library target and its route-local presentation; works from editable surfaces too |
 | `⌘/Ctrl+Shift+A` | Archive chat | Archives the active project or projectless session |
@@ -51,6 +59,32 @@ The editable settings tab covers Nodex-supported command ids only. Editor-native
 | `⌘/Ctrl+W` | Close panel tab | Closes the active closable tab in the focused right or bottom panel tab group, then reveals that leaf's most recently active remaining tab |
 
 Bottom-panel toggle is a shell-global command and remains available from editable targets. Other panel action shortcuts are ignored from editable targets and dialog surfaces. Side chat, Browser, Terminal, Files, and Review resolve availability through the same capability model as panel menus and the command palette. An unavailable action returns before suppressing the browser/editor key; in particular a blank projectless Session handles Browser only, and an attached projectless Session handles Side chat plus Terminal only when their thread/cwd requirements are satisfied. Focused panel tab cycling and close-tab shortcuts also work from NFM editor content inside a panel tab group, consume the shortcut as a no-op when the focused group has no matching action, still ignore input fields, dialogs, and Terminal surfaces, and leave plain `⌘/Ctrl+[` / `⌘/Ctrl+]` as app-window Back/Forward. The previous/next panel-tab bindings and `closeTab` use the shared command-keymap registry across renderer and native-menu ingress; explicit unassignment is respected. Close-panel-tab routing is leaf-scoped for keyboard, menu, close-button, and middle-click single-tab closes: Nodex reveals the most recently active remaining tab, falling back to the right neighbor and then the left neighbor only when MRU cannot answer. Durable Card Stage tabs keep their description editor mounted across focused panel-tab cycling while the tab remains open, so returning to the tab restores the previous editor cursor. On macOS, `⌘⇧W` closes the app window.
+
+App-owned shortcuts run from the active renderer window after local surfaces have had the opportunity to handle the event. They ignore consumed events, IME composition, key-repeat unless explicitly supported, and declared local or Terminal keyboard scopes. A bare binding such as `C` consumes the key only after its capability is ready and the command accepts the request; unavailable bare commands fail open without a toast. User overrides replace the ordered defaults, while Reset restores both Create Page bindings.
+
+Two-chord sequences use a 900 ms continuation window. The first chord is consumed only when at least one currently available command owns that prefix. A mismatch is re-evaluated as a fresh shortcut, and input/editor/local surfaces never arm a sequence.
+
+## Board and Page Actions
+
+These actions require the current Workbench tab to present a Board. Pointer activation or keyboard navigation establishes the active Page; hover remains transient visual feedback and never changes the active Page or selection. When no Page is active, the first navigation key starts at the first visible Page. `X` changes selection independently, and reactive active-Page/selection/Peek updates do not relinquish the tab's keyboard ownership. When the active Page belongs to a multi-selection, property and move actions apply to that selection in visible order. Manual placement commands are accepted only when the selected View can compile the requested move atomically; unsupported sorted, filtered, grouped, or read-only arrangements leave the key available to the local surface.
+
+| Shortcut | Action | Notes |
+|----------|--------|-------|
+| `J` / `K` or `↓` / `↑` | Highlight next / previous Page | Uses visible column-major order and updates an open Peek |
+| `←` / `→` | Highlight adjacent column | Preserves the nearest visible row and skips empty columns |
+| Tap `Space` | Toggle Peek | Opens or closes the highlighted Page preview |
+| Hold `Space` | Momentary Peek | Opens while held and closes on release; the threshold is 220 ms |
+| `Enter` | Open Page | Opens a durable Page Stage |
+| `X` | Toggle selection | Adds or removes the highlighted Page from the selection |
+| `Escape` | Clear selection / close Peek | Clears selection first, then closes the Page preview |
+| `S` | Set status | Opens the canonical status menu; moving multiple selected Pages is atomic |
+| `P` | Set priority | Opens the canonical priority menu |
+| `Shift+E` | Set estimate | Opens the canonical estimate menu |
+| `L` | Set tags | Opens the canonical multi-select tag menu |
+| `Alt+↑` / `Alt+↓` | Move Page(s) | Moves by one visible position when the View permits manual placement |
+| `Alt+Shift+↑` / `Alt+Shift+↓` | Move to top / bottom | Uses the same optimistic receipt-backed mutation path as drag-and-drop |
+| `Alt+←` / `Alt+→` | Move across columns | Preserves the nearest visible row in the destination column |
+| `W` then `O` | Work on Page | Starts a new chat with the highlighted Page as context |
 
 ### Browser
 
@@ -167,6 +201,6 @@ unless a separately listed app command owns an accelerator.
 
 The editable command registry and accelerator helpers live in `src/shared/command-keybindings.ts`. Renderer query/mutation state uses `codex-command-keymap-state`, `set-codex-command-keybinding`, and `reset-codex-command-keybindings`; main-process persistence writes user overrides to `~/.nodex/config.toml`.
 
-Workbench navigation keyboard and mouse shortcuts are classified in `src/renderer/lib/use-workbench-shortcuts.ts`, then routed into the shell's shared panel-action dispatcher in `src/renderer/components/workbench/workbench-shell.tsx`. That dispatcher consumes `workbench-panel-capabilities.ts`, as do the bottom-panel toolbar, command palette, browser-runtime keyboard fallback, and typed desktop application-menu request. Electron owns its application-menu accelerator while the browser runtime owns the renderer key listener, preventing one keypress from toggling twice. Owner-scoped panel tab cycling and close-tab remain owned by `WorkbenchShell` because they depend on the active Project, Session, or Pages Scene, focused panel leaf, and the owning Session projection or durable Scene surface registry. Retired stage/sliding-window shortcuts are deliberately left unhandled so the mounted editor or application surface can claim them.
+Workbench navigation keyboard and mouse shortcuts are classified by `src/renderer/lib/keyboard-action-runtime.ts` and `src/renderer/lib/use-workbench-shortcuts.ts`, then routed into the shell's shared panel-action dispatcher in `src/renderer/components/workbench/workbench-shell.tsx`. Contextual surfaces register capabilities through `src/renderer/lib/contextual-keyboard-actions.ts`; the Workbench owns gesture arbitration and sequence state while the active Board owns Page state and execution. That dispatcher consumes `workbench-panel-capabilities.ts`, as do the bottom-panel toolbar, command palette, browser-runtime keyboard fallback, and typed desktop application-menu request. Electron owns its application-menu accelerator while the browser runtime owns the renderer key listener, preventing one keypress from toggling twice. Owner-scoped panel tab cycling and close-tab remain owned by `WorkbenchShell` because they depend on the active Project, Session, or Pages Scene, focused panel leaf, and the owning Session projection or durable Scene surface registry. Retired stage/sliding-window shortcuts are deliberately left unhandled so the mounted editor or application surface can claim them.
 Collaborative title/body undo is owned by the mounted Block Document surface and its local Yjs transaction origins. Editor shortcuts are in `src/renderer/components/kanban/editor/nfm-editor-extensions.ts` and `nfm-editor.tsx`; there is no Workbench- or Project-wide undo shortcut owner.
 Terminal panel shortcut routing is in `src/renderer/lib/use-workbench-shortcuts.ts`.

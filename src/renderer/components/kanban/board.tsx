@@ -1,7 +1,11 @@
 import { useState, useEffect, useCallback, useDeferredValue, useMemo, useRef } from "react";
 import { autoScrollForElements } from "@atlaskit/pragmatic-drag-and-drop-auto-scroll/element";
 import { Column } from "./column";
-import { type CardPropertyUpdateInput } from "./card";
+import {
+  type CardEditableProperty,
+  type CardKeyboardPropertyRequest,
+  type CardPropertyUpdateInput,
+} from "./card";
 import type { OpenPageStageOptions } from "./open-page-stage";
 import {
   emptyCardSelection,
@@ -80,10 +84,44 @@ import {
   type PageCreateTarget,
 } from "@/lib/page-create-target-registry";
 import { requestPageCreate } from "@/lib/page-create-workflow";
+import { materializePageCreateTarget } from "@/lib/page-create-target";
+import { usePropertyOptionRegistries } from "@/components/database/use-property-option-registries";
+import { resolvePageCreatePropertyCapabilities } from "@/lib/page-create-capabilities";
+import {
+  markContextualKeyboardActionTargetActive,
+} from "@/lib/contextual-keyboard-actions";
+import { useContextualKeyboardActionTarget } from "@/lib/use-contextual-keyboard-action-target";
+import type { CommandId } from "../../../shared/command-keybindings";
+import {
+  findBoardKeyboardLocation,
+  resolveBoardKeyboardActionPageIds,
+  resolveBoardKeyboardNavigation,
+  type BoardKeyboardDirection,
+} from "./board-keyboard-navigation";
 
 const KANBAN_CARD_PREVIEW_OPEN_DELAY_MS = 180;
+const KANBAN_CARD_PEEK_HOLD_DELAY_MS = 220;
 type KanbanCardOpenMode = NonNullable<OpenPageStageOptions["openMode"]>;
 type CardType = DatabasePageSummary;
+
+function applyBulkTagToggle(
+  currentTags: readonly string[],
+  addedTag: string | undefined,
+  removedTag: string | undefined,
+  sourceValue?: readonly string[],
+): readonly string[] {
+  if (addedTag) {
+    return currentTags.includes(addedTag)
+      ? currentTags
+      : [...currentTags, addedTag];
+  }
+  if (removedTag) {
+    return currentTags.includes(removedTag)
+      ? currentTags.filter((tag) => tag !== removedTag)
+      : currentTags;
+  }
+  return sourceValue ?? currentTags;
+}
 
 function hasSameCardSelection(
   left: CardSelectionState,
@@ -168,7 +206,17 @@ export function KanbanBoard({
     });
 
   const [cardSelection, setCardSelection] = useState<CardSelectionState>(() => emptyCardSelection());
+  const [highlightedPageId, setHighlightedPageId] = useState<string | null>(null);
+  const [keyboardPropertyRequest, setKeyboardPropertyRequest] = useState<
+    CardKeyboardPropertyRequest | null
+  >(null);
   const boardScrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const boardRootRef = useRef<HTMLDivElement | null>(null);
+  const peekPressRef = useRef<{
+    readonly pageId: string;
+    readonly startedAt: number;
+    readonly wasOpen: boolean;
+  } | null>(null);
   const [dragInstanceId] = useState(() => Symbol("kanban-board-dnd"));
   const [pageCreateRegistrationToken] = useState(() => crypto.randomUUID());
 
@@ -244,6 +292,19 @@ export function KanbanBoard({
   }, [board, filteredBoard]);
 
   useEffect(() => {
+    if (!filteredBoard) {
+      setHighlightedPageId(null);
+      return;
+    }
+    setHighlightedPageId((current) => {
+      if (current && findBoardKeyboardLocation(filteredBoard, current)) {
+        return current;
+      }
+      return null;
+    });
+  }, [filteredBoard]);
+
+  useEffect(() => {
     setColumnLayoutPrefs(readKanbanColumnLayoutPrefs(projectId));
   }, [projectId]);
 
@@ -253,29 +314,19 @@ export function KanbanBoard({
   );
 
   const pageCreateTarget = useMemo<PageCreateTarget | null>(() => {
-    if (!currentProject || !databaseView || !board) return null;
-    return {
+    if (!currentProject) return null;
+    return materializePageCreateTarget({
       surfaceId,
       panelTabId,
-      project: {
-        id: currentProject.id,
-        name: currentProject.name,
-        appearance: currentProject.appearance,
-      },
-      databaseViewId,
+      project: currentProject,
+      databaseView,
+      board,
       clientSessionId: mutationAuditSessionId,
-      accessContext: databaseView.accessContext,
-      properties: databaseView.query.properties,
-      columns: board.columns,
-      readOnlyReason: databaseView.primaryWriteCompatible
-        ? null
-        : databaseView.readOnlyReason ?? "The selected Database View is read-only.",
-    };
+    });
   }, [
     board,
     currentProject,
     databaseView,
-    databaseViewId,
     mutationAuditSessionId,
     panelTabId,
     surfaceId,
@@ -306,11 +357,29 @@ export function KanbanBoard({
   }, [appHandle, pageCreateRegistrationToken, surfaceId]);
 
   const selectedPageIds = cardSelection.pageIds;
+  const databaseProperties = useMemo(
+    () => databaseView?.query.properties ?? [],
+    [databaseView?.query.properties],
+  );
+  const propertyCapabilities = useMemo(
+    () => resolvePageCreatePropertyCapabilities(databaseProperties),
+    [databaseProperties],
+  );
+  const propertyOptionRegistries = usePropertyOptionRegistries({
+    accessContext: { kind: "project", projectId },
+    properties: databaseProperties,
+  });
+  const tagsProperty = propertyCapabilities.tagsProperty;
+  const tagOptions = tagsProperty
+    ? propertyOptionRegistries.options[tagsProperty.propertyId] ?? []
+    : [];
 
   const resolveColumnSurface = useCallback((columnId: string): HTMLElement | null => {
     if (typeof document === "undefined") return null;
 
-    return document.querySelector<HTMLElement>(`[data-kanban-column-id="${columnId}"]`);
+    return document.querySelector<HTMLElement>(
+      `[data-kanban-column-root][data-kanban-column-id="${columnId}"]`,
+    );
   }, []);
 
   const buildDragData = useCallback(
@@ -811,37 +880,342 @@ export function KanbanBoard({
   const handleUpdatePageProperty = useCallback(
     async ({
       pageId,
-      columnId,
       property,
       value,
     }: CardPropertyUpdateInput) => {
-      const column = board?.columns.find((candidate) => candidate.id === columnId);
-      const card = column?.cards.find((candidate) => candidate.id === pageId);
-      if (!card) {
-        return;
-      }
+      if (!board) return;
+      const targetPageIds = selectedPageIds.has(pageId)
+        ? [...selectedPageIds]
+        : [pageId];
+      const entries = board.columns.flatMap((column) =>
+        column.cards
+          .filter((card) => targetPageIds.includes(card.id))
+          .map((card) => ({ card, columnId: column.id })),
+      );
+      if (entries.length === 0) return;
 
-      if (property === "priority") {
-        if ((card.priority ?? "none") === value) {
+      if (property === "status") {
+        const toStatus = value as WorkflowStatus;
+        if (entries.every((entry) => entry.columnId === toStatus)) return;
+        if (entries.length === 1) {
+          const entry = entries[0]!;
+          await movePage({
+            pageId: entry.card.id,
+            fromStatus: entry.columnId,
+            toStatus,
+          });
           return;
         }
-        await updatePage(columnId, pageId, {
-          priority: value === "none" ? null : (value as CardType["priority"]),
+        await movePages({
+          pageIds: entries.map((entry) => entry.card.id),
+          toStatus,
         });
         return;
       }
 
-      const nextEstimate = value === "none" ? null : value;
-      if ((card.estimate ?? null) === nextEstimate) {
+      if (property === "tags") {
+        const sourceCard = entries.find((entry) => entry.card.id === pageId)?.card;
+        if (!sourceCard) return;
+        const addedTag = value.find((tag) => !sourceCard.tags.includes(tag));
+        const removedTag = sourceCard.tags.find((tag) => !value.includes(tag));
+        await Promise.all(entries.map(async (entry) => {
+          const nextTags = applyBulkTagToggle(
+            entry.card.tags,
+            addedTag,
+            removedTag,
+            entry.card.id === pageId ? value : undefined,
+          );
+          if (nextTags === entry.card.tags) return;
+          await updatePage(entry.columnId, entry.card.id, { tags: [...nextTags] });
+        }));
         return;
       }
 
-      await updatePage(columnId, pageId, {
-        estimate: nextEstimate as CardType["estimate"],
-      });
+      if (property === "priority") {
+        await Promise.all(entries.map(async (entry) => {
+          if ((entry.card.priority ?? "none") === value) return;
+          await updatePage(entry.columnId, entry.card.id, {
+            priority: value === "none" ? null : (value as CardType["priority"]),
+          });
+        }));
+        return;
+      }
+
+      const nextEstimate = value === "none" ? null : value;
+      await Promise.all(entries.map(async (entry) => {
+        if ((entry.card.estimate ?? null) === nextEstimate) return;
+        await updatePage(entry.columnId, entry.card.id, {
+          estimate: nextEstimate as CardType["estimate"],
+        });
+      }));
     },
-    [board, updatePage],
+    [board, movePage, movePages, selectedPageIds, updatePage],
   );
+
+  const resolveHighlightedCard = useCallback(() => {
+    if (!filteredBoard || !highlightedPageId) return null;
+    const location = findBoardKeyboardLocation(filteredBoard, highlightedPageId);
+    if (!location) return null;
+    const card = filteredBoard.columns[location.columnIndex]?.cards[location.cardIndex];
+    return card ? { card, location } : null;
+  }, [filteredBoard, highlightedPageId]);
+
+  const highlightCard = useCallback((pageId: string, focus = false) => {
+    setHighlightedPageId(pageId);
+    markContextualKeyboardActionTargetActive(surfaceId);
+    if (!focus || typeof document === "undefined") return;
+    requestAnimationFrame(() => {
+      const element = boardRootRef.current?.querySelector<HTMLElement>(
+        `[data-kanban-uuid-v7="${pageId}"]`,
+      );
+      element?.focus({ preventScroll: true });
+      element?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    });
+  }, [surfaceId]);
+
+  const navigateBoardHighlight = useCallback((direction: BoardKeyboardDirection) => {
+    if (!filteredBoard) return false;
+    const next = resolveBoardKeyboardNavigation(
+      filteredBoard,
+      highlightedPageId,
+      direction,
+    );
+    if (!next) return false;
+    highlightCard(next.pageId, true);
+    if (pageStagePageId) {
+      const card = filteredBoard.columns[next.columnIndex]?.cards[next.cardIndex];
+      if (card) void openPageStageFromCard(card, "preview");
+    }
+    return true;
+  }, [
+    filteredBoard,
+    highlightCard,
+    highlightedPageId,
+    openPageStageFromCard,
+    pageStagePageId,
+  ]);
+
+  const requestKeyboardProperty = useCallback((property: CardEditableProperty) => {
+    const active = resolveHighlightedCard();
+    if (!active) return false;
+    if (property === "tags" && tagsProperty) {
+      propertyOptionRegistries.requestOptions(tagsProperty);
+    }
+    setKeyboardPropertyRequest((current) => ({
+      requestId: (current?.requestId ?? 0) + 1,
+      pageId: active.card.id,
+      property,
+    }));
+    return true;
+  }, [propertyOptionRegistries, resolveHighlightedCard, tagsProperty]);
+
+  const handleBoardPeek = useCallback((phase: "keydown" | "keyup") => {
+    const active = resolveHighlightedCard();
+    if (!active) return false;
+    if (phase === "keydown") {
+      if (peekPressRef.current?.pageId === active.card.id) return true;
+      peekPressRef.current = {
+        pageId: active.card.id,
+        startedAt: performance.now(),
+        wasOpen: pageStagePageId === active.card.id,
+      };
+      if (pageStagePageId !== active.card.id) {
+        void openPageStageFromCard(active.card, "preview");
+      }
+      return true;
+    }
+
+    const press = peekPressRef.current;
+    peekPressRef.current = null;
+    if (!press || press.pageId !== active.card.id) return false;
+    const held = performance.now() - press.startedAt >= KANBAN_CARD_PEEK_HOLD_DELAY_MS;
+    if ((held && !press.wasOpen) || (!held && press.wasOpen)) {
+      void pageStageCloseRef?.current?.();
+    }
+    return true;
+  }, [openPageStageFromCard, pageStageCloseRef, pageStagePageId, resolveHighlightedCard]);
+
+  const moveHighlightedCards = useCallback((commandId: CommandId) => {
+    if (!board || !filteredBoard) return false;
+    const active = resolveHighlightedCard();
+    if (!active) return false;
+
+    const draggedPageIds = resolveBoardKeyboardActionPageIds(
+      filteredBoard,
+      active.card.id,
+      selectedPageIds,
+    );
+    const dragItems = filteredBoard.columns.flatMap((column) =>
+      column.cards
+        .filter((card) => draggedPageIds.includes(card.id))
+        .map((card) => ({ card, columnId: column.id })),
+    );
+    if (dragItems.length === 0) return false;
+
+    const activeColumn = filteredBoard.columns[active.location.columnIndex];
+    if (!activeColumn) return false;
+    const vertical = commandId === "boardMoveUp"
+      || commandId === "boardMoveDown"
+      || commandId === "boardMoveTop"
+      || commandId === "boardMoveBottom";
+    if (
+      vertical
+      && dragItems.some((entry) => entry.columnId !== activeColumn.id)
+    ) return false;
+
+    let destinationColumnId = activeColumn.id;
+    let destinationIndex = active.location.cardIndex;
+    if (commandId === "boardMoveLeft" || commandId === "boardMoveRight") {
+      const offset = commandId === "boardMoveRight" ? 1 : -1;
+      const destinationColumn = filteredBoard.columns[active.location.columnIndex + offset];
+      if (!destinationColumn) return false;
+      destinationColumnId = destinationColumn.id;
+      destinationIndex = Math.min(active.location.cardIndex, destinationColumn.cards.length);
+    } else {
+      const indices = dragItems.map((entry) =>
+        activeColumn.cards.findIndex((card) => card.id === entry.card.id),
+      ).filter((index) => index >= 0);
+      if (indices.length === 0) return false;
+      const first = Math.min(...indices);
+      const last = Math.max(...indices);
+      if (commandId === "boardMoveUp") destinationIndex = Math.max(0, first - 1);
+      if (commandId === "boardMoveDown") {
+        destinationIndex = Math.min(activeColumn.cards.length, last + 2);
+      }
+      if (commandId === "boardMoveTop") destinationIndex = 0;
+      if (commandId === "boardMoveBottom") destinationIndex = activeColumn.cards.length;
+      if (destinationIndex === first && commandId !== "boardMoveBottom") return false;
+    }
+
+    const intent = resolveKanbanCardDropIntent({
+      board,
+      visibleBoard: filteredBoard,
+      rules: viewPrefs.rules,
+      destinationColumnId,
+      destinationIndex,
+      dragItems,
+    });
+    if (intent.kind === "blocked") {
+      toast.info(intent.message, { id: "kanban-keyboard-move-blocked" });
+      return true;
+    }
+    const newOrder = intent.kind === "reorder" || intent.kind === "reorder-with-patch"
+      ? intent.newOrder
+      : undefined;
+    const fieldPatch = intent.kind === "reorder-with-patch"
+      ? intent.fieldPatch
+      : undefined;
+    const sharedSource = dragItems.every((entry) => entry.columnId === dragItems[0]?.columnId)
+      ? dragItems[0]?.columnId
+      : undefined;
+
+    if (dragItems.length === 1) {
+      const entry = dragItems[0]!;
+      void movePage({
+        pageId: entry.card.id,
+        fromStatus: entry.columnId,
+        toStatus: destinationColumnId,
+        ...(typeof newOrder === "number" ? { newOrder } : {}),
+        ...(fieldPatch ? { fieldPatch } : {}),
+      });
+      return true;
+    }
+    void movePages({
+      pageIds: dragItems.map((entry) => entry.card.id),
+      ...(sharedSource ? { fromStatus: sharedSource } : {}),
+      toStatus: destinationColumnId,
+      ...(typeof newOrder === "number" ? { newOrder } : {}),
+      ...(fieldPatch ? { fieldPatch } : {}),
+    });
+    return true;
+  }, [
+    board,
+    filteredBoard,
+    movePage,
+    movePages,
+    resolveHighlightedCard,
+    selectedPageIds,
+    viewPrefs.rules,
+  ]);
+
+  useContextualKeyboardActionTarget({
+    surfaceId,
+    presentationId: panelTabId,
+    canExecute: (commandId: CommandId): boolean => {
+      const hasCards = Boolean(filteredBoard?.columns.some((column) => column.cards.length > 0));
+      if (
+        commandId === "boardFocusNext"
+        || commandId === "boardFocusPrevious"
+        || commandId === "boardFocusLeft"
+        || commandId === "boardFocusRight"
+      ) return hasCards;
+      if (commandId === "boardClearSelection") {
+        return selectedPageIds.size > 0 || Boolean(pageStagePageId);
+      }
+      if (commandId === "workOnPage") {
+        return Boolean(resolveHighlightedCard() && onOpenPageInNewChat);
+      }
+      if (commandId === "boardSetTags") {
+        return Boolean(resolveHighlightedCard() && tagsProperty);
+      }
+      if (commandId === "boardSetPriority") {
+        return Boolean(resolveHighlightedCard() && propertyCapabilities.priorityProperty);
+      }
+      if (commandId === "boardSetEstimate") {
+        return Boolean(resolveHighlightedCard() && propertyCapabilities.estimateProperty);
+      }
+      if (commandId === "boardSetStatus") return Boolean(resolveHighlightedCard());
+      if (commandId.startsWith("boardMove")) {
+        return Boolean(resolveHighlightedCard() && databaseView?.primaryWriteCompatible);
+      }
+      return commandId === "boardPeek"
+        || commandId === "boardOpen"
+        || commandId === "boardToggleSelection"
+        ? Boolean(resolveHighlightedCard())
+        : false;
+    },
+    execute: (commandId: CommandId, phase: "keydown" | "keyup"): boolean => {
+      if (commandId === "boardFocusNext") return navigateBoardHighlight("next");
+      if (commandId === "boardFocusPrevious") return navigateBoardHighlight("previous");
+      if (commandId === "boardFocusLeft") return navigateBoardHighlight("left");
+      if (commandId === "boardFocusRight") return navigateBoardHighlight("right");
+      if (commandId === "boardPeek") return handleBoardPeek(phase);
+      if (commandId === "boardClearSelection") {
+        if (selectedPageIds.size > 0) {
+          setCardSelection(emptyCardSelection());
+        } else {
+          void pageStageCloseRef?.current?.();
+        }
+        return true;
+      }
+      const active = resolveHighlightedCard();
+      if (!active) return false;
+      if (commandId === "boardOpen") {
+        void openPageStageFromCard(active.card, "durable");
+        return true;
+      }
+      if (commandId === "boardToggleSelection") {
+        setCardSelection((current) => toggleCardSelection(current, active.card.id));
+        return true;
+      }
+      if (commandId === "boardSetStatus") return requestKeyboardProperty("status");
+      if (commandId === "boardSetPriority") return requestKeyboardProperty("priority");
+      if (commandId === "boardSetEstimate") return requestKeyboardProperty("estimate");
+      if (commandId === "boardSetTags") return requestKeyboardProperty("tags");
+      if (commandId === "workOnPage" && onOpenPageInNewChat) {
+        void onOpenPageInNewChat({
+          projectId,
+          pageId: active.card.id,
+          titleSnapshot: active.card.title,
+        });
+        return true;
+      }
+      if (commandId.startsWith("boardMove")) {
+        return moveHighlightedCards(commandId);
+      }
+      return false;
+    },
+  });
 
   const updateColumnLayout = useCallback((
     columnId: WorkflowStatus,
@@ -888,12 +1262,19 @@ export function KanbanBoard({
 
   return (
     <div
+      ref={boardRootRef}
       className="flex h-full min-h-0 flex-col"
       data-kanban-board-root
       data-kanban-surface-id={surfaceId}
       tabIndex={-1}
-      onFocusCapture={() => markPageCreateTargetActive(appHandle, surfaceId)}
-      onPointerDownCapture={() => markPageCreateTargetActive(appHandle, surfaceId)}
+      onFocusCapture={() => {
+        markPageCreateTargetActive(appHandle, surfaceId);
+        markContextualKeyboardActionTargetActive(surfaceId);
+      }}
+      onPointerDownCapture={() => {
+        markPageCreateTargetActive(appHandle, surfaceId);
+        markContextualKeyboardActionTargetActive(surfaceId);
+      }}
     >
       <KanbanBoardScrollContainer ref={boardScrollContainerRef} scrollStateKey={scrollStateKey}>
         {/* Board container - Notion-style scroll with sticky headers */}
@@ -945,6 +1326,10 @@ export function KanbanBoard({
               focusedPageId={pageStagePageId}
               activePanelPageStagePageIds={activePanelPageStagePageIds}
               selectedPageIds={selectedPageIds}
+              highlightedPageId={highlightedPageId}
+              keyboardPropertyRequest={keyboardPropertyRequest}
+              tagOptions={tagOptions}
+              onCardHighlight={(pageId) => highlightCard(pageId)}
               onExternalBlockDragOver={handleExternalBlockDragOver}
               onExternalBlockDragLeave={handleExternalBlockDragLeave}
               onExternalBlockDrop={(columnId, event) => {

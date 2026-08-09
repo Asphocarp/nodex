@@ -139,6 +139,12 @@ describe("workbench session shell / layout-panel-actions", () => {
     expect(requestPageCreateFromContextMock).toHaveBeenCalledTimes(1);
     expect(requestPageCreateFromContextMock).toHaveBeenCalledWith(
       expect.any(Object),
+      {
+        activeProjectId: "alpha",
+        captureSelection: true,
+        expanded: false,
+        unavailableFeedback: "silent",
+      },
     );
   });
 

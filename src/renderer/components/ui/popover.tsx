@@ -66,6 +66,7 @@ export const NodexPopoverContent = forwardRef<
       )}
       style={{ ...CODEX_POPOVER_BOUNDARY_STYLE, ...style }}
       {...props}
+      data-nodex-keyboard-scope="local"
     />
   );
 

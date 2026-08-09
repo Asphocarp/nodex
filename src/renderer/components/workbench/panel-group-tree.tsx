@@ -14,6 +14,9 @@ import {
   type AppShellTabItem,
 } from "./app-shell-tabs";
 import {
+  markContextualKeyboardActionPresentationActive,
+} from "@/lib/contextual-keyboard-actions";
+import {
   findWorkbenchPanelLeaf,
   getWorkbenchPanelTopLeftLeafId,
   getWorkbenchPanelTopRightLeafId,
@@ -464,6 +467,9 @@ function PanelGroupLeaf({
     onActivateGroup(leaf.id, activeTabId);
   };
   const focusLeaf = () => {
+    if (activeTabId) {
+      markContextualKeyboardActionPresentationActive(activeTabId);
+    }
     onFocusGroup?.(leaf.id);
   };
   const focusAndActivateLeaf = () => {
@@ -488,7 +494,10 @@ function PanelGroupLeaf({
           activeTabId={activeTabId}
           panelId={`${panelId}:${leaf.id}`}
           controllerId={`session-${sessionId}-${panelId}-${leaf.id}`}
-          onSelect={(tabId) => onSelectTab(leaf.id, tabId)}
+          onSelect={(tabId) => {
+            markContextualKeyboardActionPresentationActive(tabId);
+            onSelectTab(leaf.id, tabId);
+          }}
           onCloseTab={(tabId) => onCloseTab(leaf.id, tabId)}
           onDirectCloseTab={onDirectCloseTab ? (tabId) => onDirectCloseTab(leaf.id, tabId) : undefined}
           onPinTab={onPinTab ? (tabId) => onPinTab(leaf.id, tabId) : undefined}

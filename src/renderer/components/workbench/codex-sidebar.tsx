@@ -34,6 +34,7 @@ import {
 } from "@/components/ui/dropdown";
 import { NodexHoverCard } from "@/components/ui/hover-card";
 import { NodexTooltip } from "@/components/ui/tooltip";
+import { ShortcutKeycaps } from "@/components/ui/shortcut-keycaps";
 import { toast } from "@/components/ui/toast";
 import { getGitWorkerClient, invoke } from "@/lib/api";
 import { CODEX_SIDEBAR_PROJECT_FOLDER_TRANSITION } from "@/lib/codex-panel-motion";
@@ -236,7 +237,7 @@ export function CodexSidebarTopAction({
 }: {
   label: string;
   icon: ReactNode;
-  shortcutLabel?: ReactNode;
+  shortcutLabel?: string;
   active?: boolean;
   onClick: () => void;
 }) {
@@ -264,7 +265,7 @@ export function CodexSidebarTopActionButton({
 }: {
   label: string;
   icon: ReactNode;
-  shortcutLabel?: ReactNode;
+  shortcutLabel?: string;
   active?: boolean;
   onClick: () => void;
 }) {
@@ -284,9 +285,7 @@ export function CodexSidebarTopActionButton({
           aria-hidden="true"
           className="opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100"
         >
-          <kbd className="inline-flex !rounded-md !border-0 !bg-current/10 !font-sans !text-xs !text-current !shadow-none !px-1.5 !py-0.5 !leading-none">
-            {shortcutLabel}
-          </kbd>
+          <ShortcutKeycaps keys={[shortcutLabel]} tone="current" />
         </span>
       ) : null}
     </button>

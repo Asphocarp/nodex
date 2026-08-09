@@ -107,6 +107,7 @@ export function NodexDialogContent({
           className,
         )}
         {...props}
+        data-nodex-keyboard-scope="local"
       >
         {children}
         {showCloseButton ? (
