@@ -8,13 +8,15 @@ Clearing a non-empty Relation requires explicit confirmation and uses a revision
 
 CLI `meta.yaml` represents a non-empty Relation as a read-only bounded summary containing visible `{id, name}` targets, `total_count`, `restricted_count`, and `has_more`. Restricted identities are never serialized, and a long or partially restricted Relation does not make the Page unreadable.
 
-Fresh Profiles use Store v109. Exact older native Stores are backed up and
+Fresh Profiles use Store v110. Exact older native Stores are backed up and
 atomically advanced through the v102 LocalCommit ledger, v103 composite Store
 identity, v104 canonical evidence hash, v105 Manifest/authorized packet split,
 v106 Projection scope heads, v107 exact Block child-key indexes, v108 scoped
 resource-revocation evidence, and v109 resource-atomic delivery, complete
 Projection audiences, opaque Relation edge identities, and sealed mutation
-finalization. Drifted or
+finalization, followed by v110 transaction-owned visibility journaling,
+canonical pre/post authorization deltas, and private sealed Projection
+descriptors. Drifted or
 partially migrated inventories fail closed.
 
 ## Overview

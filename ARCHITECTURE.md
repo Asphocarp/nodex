@@ -147,12 +147,17 @@ fact through Main's scoped live broker and result-bearing recipient router. A
 scope that lost access receives only its typed revoke, and canonical reads
 remain independently authorized by Core.
 
-Core's durable stream is log-driven. Broadcast is only a wake signal: each
-subscriber first installs its receiver, scans a single SQLite read snapshot in
-ledger order, emits zero or more authorized packets, then emits an explicit
-`StreamCheckpoint`. Only that checkpoint proves `scanned_through_seq`; commit
-numbers may contain gaps and a packet's arrival alone never advances the resume
-cursor. A retention gap returns a generation-bound resync token. Renderer and
+Core's durable streams are log-driven. Global subscribers and the scoped
+Electron Host broker share the private `CommitWakeScanner`: each first installs
+an opaque wake receiver, then scans a single SQLite read snapshot in ledger
+order from its durable cursor. Broadcast payloads contain no commit sequence;
+wake reordering, loss, or receiver lag can only request another scan. A scan
+emits zero or more authorized packets and advances an explicit checkpoint even
+when every commit filters to zero packets. Only that checkpoint proves
+`scanned_through_seq`; commit numbers may contain gaps and a packet's arrival
+alone never advances the cursor. A retention gap returns a generation-bound
+resync token. Exact Document live remains a separate resource-addressed channel
+and does not scan the global ledger. Renderer and
 Main ingress admit apply, scoped-live, and durable-stream packets by Manifest
 and resource identity, deliver complementary coverage as enrichment, and
 reject a hash collision. Projection integrity is checked without recipient
@@ -1454,9 +1459,9 @@ Block-first migration foundation:
 1. Core accepts the exact frozen v26, both v57, v68, v82, and v83
    TypeScript inventories as historical import sources, the exact final
    TypeScript v84 inventory as its direct handoff, and exact Rust-owned v85
-   through v108 stores. Historical sources are snapshotted with their asset
+   through v109 stores. Historical sources are snapshotted with their asset
    closure, advanced only in staging by the hash-pinned migrator, reconstructed
-   through Yrs, semantically validated, and atomically published as v109 under
+   through Yrs, semantically validated, and atomically published as v110 under
    the crash-recovery journal. Direct native upgrades use the same exact-schema
    validation and durable backup boundary. v102 introduced the LocalCommit
    ledger, v103 its composite Store identity, v104 canonical physical evidence
@@ -1464,9 +1469,11 @@ Block-first migration foundation:
    Projection scope heads, v107 exact child-key indexes for Block Project-key
    cascades, v108 immutable scoped resource revocations, and v109
    resource-atomic delivery, complete Projection audiences, opaque Relation
-   edge identity, and sealed DurableMutation finalization. Unfrozen
+   edge identity, and sealed DurableMutation finalization. v110 adds the
+   transaction-owned visibility journal, pre/post authorization deltas, and
+   private sealed Projection descriptors. Unfrozen
    same-version lineages, near-matches, ambiguous owners, and future stores
-   fail closed; a Rust-owned v109 Store is
+   fail closed; a Rust-owned v110 Store is
    validated exactly and never silently repaired.
 2. A successful Document apply tentatively reconstructs and validates a Y.Doc, derives the changed title/Block identities from before/after state, reconciles the registry/index, and writes the binary update, immutable receipt, exact-blob checksum, state vector, and new head under one immediate SQLite transaction. Receipts remain independently of update payload retention; compaction verifies and semantically reloads a full snapshot at the current head, then atomically removes only its covered payload tail. Store epoch, Document generation, update identity, `headSeq`, Yjs state vector, and exact retained-blob integrity remain separate concepts. Equivalent Y.Docs may produce different full-state wire bytes, so Store v98 removes Yjs reconstruction fingerprints and excludes full-state hashes from authority, integrity, and concurrency.
 3. Production Page Stage prepares the exact owned descriptor before rendering content. Only a ready `yjs`/`block_tree` descriptor enters the Page editor: its canonical DocumentSession completes Core state-vector sync before resolving `Y.Text("title")` / `Y.XmlFragment("body")`, then starts disposable checkpoint recovery in a separate lane. BlockNote binds directly to that fragment without projection-based initialization. The NFM parser produces a zero-or-more Block forest without editor policy. Document create/replace/patch boundaries normalize an empty forest to one registered stable-ID paragraph, while Fragment insertion rejects an empty forest and points callers to `<empty-block/>`. A first root insertion into a semantically blank Document promotes the existing seed ID through a fenced Block update, preventing the authority scaffold from appearing in canonical NFM.

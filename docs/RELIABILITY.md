@@ -19,12 +19,15 @@ coordinate fails closed. Document update bytes never appear in an authorized
 Module payload; they are available only through a `DocumentEffectRef` with an
 optional, hash- and length-verified inline resource.
 
-The durable stream scans the SQLite ledger in one read transaction after
-installing its wake receiver. Broadcast only triggers another scan. The scanner
-emits authorized packets followed by a `StreamCheckpoint`; only the checkpoint
-advances the reconnect cursor. Sequence gaps and commits filtered to zero
-packets are therefore safe. A cursor older than `oldest_available_seq` returns
-a typed resync boundary with generation and opaque token. Current exact
+The global durable stream and scoped projection broker scan the SQLite ledger
+through one private `CommitWakeScanner` after installing their wake receivers.
+Broadcast carries an opaque zero-data wake and only triggers another keyset
+scan; it is never a commit queue or cursor source. The scanner emits authorized
+packets plus a checkpoint, and advances that checkpoint across sequence gaps
+and commits filtered to zero packets. Wake loss is recovered by the next wake
+or reconnect barrier, and receiver lag requests a scan rather than a repair.
+A cursor older than `oldest_available_seq` returns a typed resync boundary with
+generation and opaque token. Current exact
 Document resource reads reauthorize and return typed unavailable reasons for a
 missing, compacted, generation-changed, or hash-mismatched ref.
 
@@ -147,7 +150,7 @@ history retained before the cursor.
 
 ## Relation authority
 
-Store v109 retains Relation targets only in normalized edge authority and gives every edge a Core-authored 256-bit opaque identity. Adding an edge requires source write plus current target read. Incremental removal accepts only the source-owned edge identity and validates its source membership/Property scope without requiring continuing target read; clear-all uses the value revision. Relation headers retain revision and JSON `null`; triggers and readiness validation reject incomplete definitions, invalid targets, and header/edge divergence. Complete values are capped at 10,000 targets, patches at 100 identities, full target/candidate windows at 100 items, and row previews at the first three visible items with exact total/restricted counts. The shared SQL projection returns one row per selected Relation value and hydrates at most three visible targets; hidden target identities are absent from its rowset. Signed target continuations contain only ordinal coordinates and a constant marker. Selected-target windows may return a generic restricted row with only the source-owned edge handle so it can be removed; they never return the target Page ID, title, Document, parent, or Data Source metadata. Candidate search is scoped directly to the configured target Data Source and paged independently of its Views. Copy preserves outbound targets with newly allocated edge identities. External inbound edges retain target Pages and target Data Sources; edges whose source is inside the same deletion closure do not retain that closure. Projection impact follows inbound edges for one hop and falls back to global invalidation when the existing identity budget is exceeded.
+Store v109 and later retain Relation targets only in normalized edge authority and give every edge a Core-authored 256-bit opaque identity. Adding an edge requires source write plus current target read. Incremental removal accepts only the source-owned edge identity and validates its source membership/Property scope without requiring continuing target read; clear-all uses the value revision. Relation headers retain revision and JSON `null`; triggers and readiness validation reject incomplete definitions, invalid targets, and header/edge divergence. Complete values are capped at 10,000 targets, patches at 100 identities, full target/candidate windows at 100 items, and row previews at the first three visible items with exact total/restricted counts. The shared SQL projection returns one row per selected Relation value and hydrates at most three visible targets; hidden target identities are absent from its rowset. Signed target continuations contain only ordinal coordinates and a constant marker. Selected-target windows may return a generic restricted row with only the source-owned edge handle so it can be removed; they never return the target Page ID, title, Document, parent, or Data Source metadata. Candidate search is scoped directly to the configured target Data Source and paged independently of its Views. Copy preserves outbound targets with newly allocated edge identities. External inbound edges retain target Pages and target Data Sources; edges whose source is inside the same deletion closure do not retain that closure. Projection impact follows inbound edges for one hop and falls back to global invalidation when the existing identity budget is exceeded.
 
 ## Reliability Goals
 - Maintain durable local task state across app restarts.
@@ -544,13 +547,15 @@ Store v109 retains Relation targets only in normalized edge authority and gives 
   `integrity_check`, `foreign_key_check`, and the expected covering-index query
   plan. The gate may create only synthetic Profiles and must never point at a
   developer's real `NODEX_HOME`.
-- Native global Module events are reconstructed from the durable SQLite change
-  log in one read transaction after the broadcast receiver is installed. The
+- Native global and scoped projection events are reconstructed from the durable
+  SQLite LocalCommit ledger in one read transaction after the broadcast
+  receiver is installed. The
   fixed catch-up window is bounded and never returns a partial prefix: a
   retention hole or an oversized replay emits `core-resync-required` with the
-  requested cursor, oldest available sequence, and durable head. Live broadcast
-  or Document/Awareness lag emits the corresponding Core- or Document-specific
-  resync boundary and closes that subscription. A reconnect after process
+  requested cursor, oldest available sequence, and durable head. Global/scoped
+  broadcast lag is only a wake to rescan durable state; Document/Awareness lag
+  emits the Document-specific repair boundary and closes that resource
+  subscription. A reconnect after process
   restart therefore replays retained typed events; a slow or stale consumer is
   forced onto fresh authoritative reads instead of silently skipping changes.
   The Host configures its decoder only after a successful handshake and accepts

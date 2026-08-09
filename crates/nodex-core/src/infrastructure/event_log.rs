@@ -284,6 +284,13 @@ impl CoreEventLog {
         self.readers.read_default(local_commit_head)
     }
 
+    pub fn stream_barrier(&self) -> Result<(StoreEpoch, i64), StoreError> {
+        self.readers.read_default(|connection| {
+            let (store_epoch, _, commit_head) = authorized_stream_bounds(connection)?;
+            Ok((StoreEpoch(store_epoch), commit_head))
+        })
+    }
+
     pub fn commit_identity(&self, commit_seq: i64) -> Result<CommitIdentity, StoreError> {
         self.readers.read_default(move |connection| {
             local_commit::read_manifest(connection, commit_seq).map(|manifest| manifest.identity)
@@ -466,71 +473,47 @@ impl CoreEventLog {
         host_context: &BoundModuleContext,
         scopes: &[DeliveryAuthorizationScope],
     ) -> Result<Vec<AuthorizedDeliveryPacket>, StoreError> {
-        if host_context.adapter != AdapterKind::ElectronHost || host_context.project_id.is_some() {
-            return Err(StoreError::new(
-                StoreErrorCode::Unauthorized,
-                "Projection live broker requires an unscoped Electron Host",
-                false,
-            ));
-        }
-        if scopes.len() > 200 {
-            return Err(StoreError::new(
-                StoreErrorCode::ResourceExhausted,
-                "Projection live broker exceeds the active scope bound",
-                false,
-            ));
-        }
+        validate_projection_live_request(host_context, scopes)?;
         let host_context = host_context.clone();
         let scopes = scopes.to_vec();
         self.readers.read_default(move |connection| {
             let transaction = connection.unchecked_transaction()?;
-            let verified = local_commit::load_verified_commit(&transaction, commit_seq)?;
-            if verified.manifest.projection_effects.is_empty()
-                && verified.manifest.revocations.is_empty()
-            {
-                transaction.commit()?;
-                return Ok(Vec::new());
-            }
-            let mut packets = Vec::with_capacity(scopes.len());
-            for scope in scopes {
-                let context = match scope {
-                    DeliveryAuthorizationScope::Library { library_id }
-                        if library_id == host_context.library_id.0 =>
-                    {
-                        host_context.clone()
-                    }
-                    DeliveryAuthorizationScope::Project {
-                        library_id,
-                        project_id,
-                    } if library_id == host_context.library_id.0 => BoundModuleContext {
-                        project_id: Some(ProjectId(project_id)),
-                        ..host_context.clone()
-                    },
-                    DeliveryAuthorizationScope::Library { .. }
-                    | DeliveryAuthorizationScope::Project { .. }
-                    | DeliveryAuthorizationScope::Document { .. } => {
-                        return Err(StoreError::new(
-                            StoreErrorCode::Unauthorized,
-                            "Projection live scope is outside the Host Library",
-                            false,
-                        ));
-                    }
-                };
-                if let Some(packet) = authorized_delivery::resolve_verified(
-                    &transaction,
-                    &verified,
-                    DeliveryRequest {
-                        context: &context,
-                        audience: DeliveryAudience::BoundScope,
-                        document_id: None,
-                        resource_mode: DeliveryResourceMode::ProjectionOnly,
-                    },
-                )? {
-                    packets.push(packet);
-                }
-            }
+            let packets =
+                resolve_projection_live_packets(&transaction, commit_seq, &host_context, &scopes)?;
             transaction.commit()?;
             Ok(packets)
+        })
+    }
+
+    /// Scans the durable LocalCommit ledger for one trusted Host projection
+    /// broker. Broadcast delivery is deliberately absent from this interface:
+    /// callers can only advance from a durable cursor and the returned
+    /// checkpoint includes commits that authorize to zero packets.
+    pub fn scan_authorized_projection_live(
+        &self,
+        after: i64,
+        limit: Option<u32>,
+        generation: &str,
+        host_context: &BoundModuleContext,
+        scopes: &[DeliveryAuthorizationScope],
+    ) -> Result<CoreAuthorizedEventReplay, StoreError> {
+        validate_projection_live_request(host_context, scopes)?;
+        let generation = generation.to_owned();
+        let host_context = host_context.clone();
+        let scopes = scopes.to_vec();
+        self.readers.read_default(move |connection| {
+            let transaction = connection.unchecked_transaction()?;
+            let replay = scan_authorized_events_with(
+                &transaction,
+                after,
+                limit,
+                &generation,
+                |connection, commit_seq| {
+                    resolve_projection_live_packets(connection, commit_seq, &host_context, &scopes)
+                },
+            )?;
+            transaction.commit()?;
+            Ok(replay)
         })
     }
 
@@ -729,6 +712,35 @@ fn scan_authorized_events(
     context: &BoundModuleContext,
     document_id: Option<&str>,
 ) -> Result<CoreAuthorizedEventReplay, StoreError> {
+    scan_authorized_events_with(
+        connection,
+        after,
+        limit,
+        generation,
+        |connection, commit_seq| {
+            Ok(authorized_delivery::resolve(
+                connection,
+                commit_seq,
+                DeliveryRequest {
+                    context,
+                    audience: DeliveryAudience::BoundScope,
+                    document_id,
+                    resource_mode: DeliveryResourceMode::RefOnly,
+                },
+            )?
+            .into_iter()
+            .collect())
+        },
+    )
+}
+
+fn scan_authorized_events_with(
+    connection: &Connection,
+    after: i64,
+    limit: Option<u32>,
+    generation: &str,
+    mut resolve: impl FnMut(&Connection, i64) -> Result<Vec<AuthorizedDeliveryPacket>, StoreError>,
+) -> Result<CoreAuthorizedEventReplay, StoreError> {
     if after < 0 || generation.is_empty() || generation.len() > 512 {
         return Err(corrupt("Authorized commit stream cursor is invalid"));
     }
@@ -773,18 +785,7 @@ fn scan_authorized_events(
     };
     let mut packets = Vec::new();
     for commit_seq in sequences {
-        if let Some(packet) = authorized_delivery::resolve(
-            connection,
-            commit_seq,
-            DeliveryRequest {
-                context,
-                audience: DeliveryAudience::BoundScope,
-                document_id,
-                resource_mode: DeliveryResourceMode::RefOnly,
-            },
-        )? {
-            packets.push(packet);
-        }
+        packets.extend(resolve(connection, commit_seq)?);
     }
     Ok(CoreAuthorizedEventReplay::Scan {
         packets,
@@ -797,6 +798,78 @@ fn scan_authorized_events(
         },
         commit_head,
     })
+}
+
+fn validate_projection_live_request(
+    host_context: &BoundModuleContext,
+    scopes: &[DeliveryAuthorizationScope],
+) -> Result<(), StoreError> {
+    if host_context.adapter != AdapterKind::ElectronHost || host_context.project_id.is_some() {
+        return Err(StoreError::new(
+            StoreErrorCode::Unauthorized,
+            "Projection live broker requires an unscoped Electron Host",
+            false,
+        ));
+    }
+    if scopes.len() > 200 {
+        return Err(StoreError::new(
+            StoreErrorCode::ResourceExhausted,
+            "Projection live broker exceeds the active scope bound",
+            false,
+        ));
+    }
+    Ok(())
+}
+
+fn resolve_projection_live_packets(
+    connection: &Connection,
+    commit_seq: i64,
+    host_context: &BoundModuleContext,
+    scopes: &[DeliveryAuthorizationScope],
+) -> Result<Vec<AuthorizedDeliveryPacket>, StoreError> {
+    let verified = local_commit::load_verified_commit(connection, commit_seq)?;
+    if verified.manifest.projection_effects.is_empty() && verified.manifest.revocations.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut packets = Vec::with_capacity(scopes.len());
+    for scope in scopes {
+        let context = match scope {
+            DeliveryAuthorizationScope::Library { library_id }
+                if library_id == &host_context.library_id.0 =>
+            {
+                host_context.clone()
+            }
+            DeliveryAuthorizationScope::Project {
+                library_id,
+                project_id,
+            } if library_id == &host_context.library_id.0 => BoundModuleContext {
+                project_id: Some(ProjectId(project_id.clone())),
+                ..host_context.clone()
+            },
+            DeliveryAuthorizationScope::Library { .. }
+            | DeliveryAuthorizationScope::Project { .. }
+            | DeliveryAuthorizationScope::Document { .. } => {
+                return Err(StoreError::new(
+                    StoreErrorCode::Unauthorized,
+                    "Projection live scope is outside the Host Library",
+                    false,
+                ));
+            }
+        };
+        if let Some(packet) = authorized_delivery::resolve_verified(
+            connection,
+            &verified,
+            DeliveryRequest {
+                context: &context,
+                audience: DeliveryAudience::BoundScope,
+                document_id: None,
+                resource_mode: DeliveryResourceMode::ProjectionOnly,
+            },
+        )? {
+            packets.push(packet);
+        }
+    }
+    Ok(packets)
 }
 
 fn authorized_stream_bounds(connection: &Connection) -> Result<(String, i64, i64), StoreError> {
@@ -1195,6 +1268,16 @@ mod tests {
             project_id: Some(ProjectId(project_id.to_owned())),
             connection_id: format!("connection:{project_id}"),
             adapter: AdapterKind::Test,
+        }
+    }
+
+    fn host_context(library_id: &str) -> BoundModuleContext {
+        BoundModuleContext {
+            profile_id: ProfileId("profile:events".to_owned()),
+            library_id: LibraryId(library_id.to_owned()),
+            project_id: None,
+            connection_id: "connection:host".to_owned(),
+            adapter: AdapterKind::ElectronHost,
         }
     }
 
@@ -1852,7 +1935,7 @@ mod tests {
                      VALUES ('project:other', ?1, 'Other', '2026-01-01', '2026-01-01')",
                     [&library_id],
                 )?;
-                append_finalized_test_event(
+                append_finalized_test_event_with_revocations(
                     connection,
                     "project_workspace",
                     NewChangeLogEntry {
@@ -1871,13 +1954,22 @@ mod tests {
                         projection_impact: &ProjectionImpact::None,
                         committed_at: "2026-08-07T00:00:00Z",
                     },
+                    &[ResourceRevocation {
+                        authorization_scope: DeliveryAuthorizationScope::Project {
+                            library_id: library_id.clone(),
+                            project_id: "project:events".to_owned(),
+                        },
+                        resource_kind: RevokedResourceKind::Page,
+                        resource_id: "page:first".to_owned(),
+                        reason: ResourceRevocationReason::AccessRevoked,
+                    }],
                 )?;
                 let first_commit = local_commit::head(connection)?;
                 connection.execute(
                     "UPDATE sqlite_sequence SET seq = ?1 WHERE name = 'local_commits'",
                     [first_commit + 7],
                 )?;
-                append_finalized_test_event(
+                append_finalized_test_event_with_revocations(
                     connection,
                     "project_workspace",
                     NewChangeLogEntry {
@@ -1896,6 +1988,15 @@ mod tests {
                         projection_impact: &ProjectionImpact::None,
                         committed_at: "2026-08-07T00:00:01Z",
                     },
+                    &[ResourceRevocation {
+                        authorization_scope: DeliveryAuthorizationScope::Project {
+                            library_id: library_id.clone(),
+                            project_id: "project:events".to_owned(),
+                        },
+                        resource_kind: RevokedResourceKind::Page,
+                        resource_id: "page:second".to_owned(),
+                        reason: ResourceRevocationReason::AccessRevoked,
+                    }],
                 )?;
                 let second_commit = local_commit::head(connection)?;
                 Ok((store_epoch, library_id, first_commit, second_commit))
@@ -1941,6 +2042,75 @@ mod tests {
             .expect("filtered scan")
         else {
             panic!("expected filtered scan");
+        };
+        assert!(packets.is_empty());
+        assert_eq!(checkpoint.scanned_through_seq, second_commit);
+
+        let project_scope = [DeliveryAuthorizationScope::Project {
+            library_id: library_id.clone(),
+            project_id: "project:events".to_owned(),
+        }];
+        let CoreAuthorizedEventReplay::Scan {
+            packets,
+            checkpoint,
+            commit_head,
+        } = log
+            .scan_authorized_projection_live(
+                0,
+                Some(1),
+                "generation:test",
+                &host_context(&library_id),
+                &project_scope,
+            )
+            .expect("first projection scan page")
+        else {
+            panic!("expected first projection scan page");
+        };
+        assert_eq!(packets.len(), 1);
+        assert_eq!(packets[0].manifest.identity.commit_seq, first_commit);
+        assert_eq!(checkpoint.scanned_through_seq, first_commit);
+        assert_eq!(commit_head, second_commit);
+
+        let CoreAuthorizedEventReplay::Scan {
+            packets,
+            checkpoint,
+            commit_head,
+        } = log
+            .scan_authorized_projection_live(
+                checkpoint.scanned_through_seq,
+                Some(1),
+                "generation:test",
+                &host_context(&library_id),
+                &project_scope,
+            )
+            .expect("second projection scan page")
+        else {
+            panic!("expected second projection scan page");
+        };
+        assert_eq!(packets.len(), 1);
+        assert_eq!(packets[0].manifest.identity.commit_seq, second_commit);
+        assert_eq!(checkpoint.scanned_through_seq, second_commit);
+        assert_eq!(commit_head, second_commit);
+
+        let unrelated_scope = [DeliveryAuthorizationScope::Project {
+            library_id: library_id.clone(),
+            project_id: "project:other".to_owned(),
+        }];
+        let CoreAuthorizedEventReplay::Scan {
+            packets,
+            checkpoint,
+            ..
+        } = log
+            .scan_authorized_projection_live(
+                0,
+                None,
+                "generation:test",
+                &host_context(&library_id),
+                &unrelated_scope,
+            )
+            .expect("zero-packet projection scan")
+        else {
+            panic!("expected zero-packet projection scan");
         };
         assert!(packets.is_empty());
         assert_eq!(checkpoint.scanned_through_seq, second_commit);
