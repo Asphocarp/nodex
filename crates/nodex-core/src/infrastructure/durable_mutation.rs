@@ -35,6 +35,27 @@ pub(crate) struct OperationIdentity<'a> {
 }
 
 #[derive(Clone, Copy)]
+pub(crate) struct ReplayIdentity<'a> {
+    pub module: ModuleName,
+    pub module_name: &'a str,
+    pub operation_id: &'a str,
+    pub intent_hash: &'a str,
+    pub store_epoch: &'a str,
+}
+
+impl OperationIdentity<'_> {
+    fn replay_identity(&self) -> ReplayIdentity<'_> {
+        ReplayIdentity {
+            module: self.module,
+            module_name: self.module_name,
+            operation_id: self.operation_id,
+            intent_hash: self.intent_hash,
+            store_epoch: self.store_epoch,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
 pub(crate) struct ReceiptMetadata<'a> {
     pub operation_kind: &'a str,
     pub event_sequence: Option<i64>,
@@ -175,9 +196,7 @@ impl<T> CommitResult<T> {
             Self::NoOp { .. } => return Ok(()),
         };
         let Some(manifest) = manifest else {
-            return Err(corrupt(
-                "Committed durable mutation receipt has no manifest",
-            ));
+            return Ok(());
         };
         let (commit_seq, store_epoch) = identity(outcome);
         if manifest.identity.commit_seq == commit_seq
@@ -204,11 +223,9 @@ where
             "Durable mutation requires an active SQLite write transaction",
         ));
     }
-    validate_module_identity(identity)?;
-    if let Some(stored) =
-        read_module_receipt(connection, identity.module_name, identity.operation_id)?
-    {
-        return replay(connection, identity, stored);
+    validate_module_identity(identity.module, identity.module_name)?;
+    if let Some(replayed) = replay_existing(connection, identity.replay_identity())? {
+        return Ok(replayed);
     }
 
     let context = local_commit::allocate(
@@ -307,7 +324,7 @@ pub(crate) fn record_no_op<T: Serialize>(
     if receipt.event_sequence.is_some() || receipt.committed_at != identity.committed_at {
         return Err(corrupt("Durable mutation no-op receipt is inconsistent"));
     }
-    validate_module_identity(identity)?;
+    validate_module_identity(identity.module, identity.module_name)?;
     let context = local_commit::allocate(
         connection,
         identity.store_epoch,
@@ -337,9 +354,25 @@ pub(crate) fn record_no_op<T: Serialize>(
     )
 }
 
-fn replay<T>(
+pub(crate) fn replay_existing<T>(
     connection: &Connection,
-    identity: OperationIdentity<'_>,
+    identity: ReplayIdentity<'_>,
+) -> Result<Option<CommitResult<T>>, StoreError>
+where
+    T: DeserializeOwned,
+{
+    validate_module_identity(identity.module, identity.module_name)?;
+    let Some(stored) =
+        read_module_receipt(connection, identity.module_name, identity.operation_id)?
+    else {
+        return Ok(None);
+    };
+    replay_stored(connection, identity, stored).map(Some)
+}
+
+fn replay_stored<T>(
+    connection: &Connection,
+    identity: ReplayIdentity<'_>,
     stored: StoredModuleReceipt,
 ) -> Result<CommitResult<T>, StoreError>
 where
@@ -401,8 +434,8 @@ pub(crate) fn replay_apply_response<T, R>(
     })
 }
 
-fn validate_module_identity(identity: OperationIdentity<'_>) -> Result<(), StoreError> {
-    if module_name(identity.module) != identity.module_name {
+fn validate_module_identity(module: ModuleName, stored_name: &str) -> Result<(), StoreError> {
+    if module_name(module) != stored_name {
         return Err(corrupt(
             "Durable mutation Module enum and storage identity diverge",
         ));
@@ -555,6 +588,42 @@ mod tests {
         )
     }
 
+    fn apply_test_no_op(
+        connection: &Connection,
+        context: &BoundModuleContext,
+        store_epoch: &str,
+        operation_id: &str,
+        intent_hash: &str,
+        executions: &AtomicUsize,
+    ) -> Result<CommitResult<TestOutcome>, StoreError> {
+        run(
+            connection,
+            OperationIdentity {
+                module: ModuleName::Database,
+                module_name: "database",
+                operation_id,
+                intent_hash,
+                store_epoch,
+                committed_at: "2026-08-07T00:00:00Z",
+                context,
+            },
+            |scope| {
+                executions.fetch_add(1, Ordering::SeqCst);
+                Ok(scope.no_op(
+                    TestOutcome {
+                        operation_id: operation_id.to_owned(),
+                        commit_seq: local_commit::head(connection)?,
+                    },
+                    ReceiptMetadata {
+                        operation_kind: "test_no_op",
+                        event_sequence: None,
+                        committed_at: "2026-08-07T00:00:00Z",
+                    },
+                ))
+            },
+        )
+    }
+
     #[test]
     fn same_operation_and_intent_replays_the_original_manifest_without_reapplying() {
         let directory = tempdir().expect("temporary Profile");
@@ -606,6 +675,75 @@ mod tests {
                 Ok(())
             })
             .expect("durable replay");
+    }
+
+    #[test]
+    fn exact_no_op_replay_keeps_its_original_observation_after_a_later_commit() {
+        let directory = tempdir().expect("temporary Profile");
+        let kernel = SqliteStoreKernel::open_test(directory.path()).expect("Core store");
+        kernel
+            .writer()
+            .call(|connection| {
+                let store_epoch = seed(connection)?;
+                let context = context();
+                let no_op_hash = crate::document::sha256(b"no-op intent");
+                let no_op_executions = AtomicUsize::new(0);
+                let first = with_immediate_transaction(connection, |transaction| {
+                    apply_test_no_op(
+                        transaction,
+                        &context,
+                        &store_epoch,
+                        "operation:durable-no-op",
+                        &no_op_hash,
+                        &no_op_executions,
+                    )
+                })?;
+                let CommitResult::NoOp {
+                    outcome: first_outcome,
+                } = first
+                else {
+                    panic!("first mutation must be a no-op");
+                };
+
+                let committed_executions = AtomicUsize::new(0);
+                with_immediate_transaction(connection, |transaction| {
+                    apply_test_mutation(
+                        transaction,
+                        &context,
+                        &store_epoch,
+                        "operation:durable-after-no-op",
+                        &crate::document::sha256(b"later intent"),
+                        &committed_executions,
+                    )
+                    .map(|_| ())
+                })?;
+
+                let replay = with_immediate_transaction(connection, |transaction| {
+                    apply_test_no_op(
+                        transaction,
+                        &context,
+                        &store_epoch,
+                        "operation:durable-no-op",
+                        &no_op_hash,
+                        &no_op_executions,
+                    )
+                })?;
+                replay.verify_manifest_identity(|outcome| {
+                    (outcome.commit_seq, store_epoch.clone())
+                })?;
+                let CommitResult::IdempotentReplay {
+                    outcome: replay_outcome,
+                    manifest: None,
+                } = replay
+                else {
+                    panic!("no-op retry must replay without a Manifest");
+                };
+                assert_eq!(replay_outcome, first_outcome);
+                assert_eq!(no_op_executions.load(Ordering::SeqCst), 1);
+                assert_eq!(committed_executions.load(Ordering::SeqCst), 1);
+                Ok(())
+            })
+            .expect("durable no-op replay");
     }
 
     #[test]

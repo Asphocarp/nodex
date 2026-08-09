@@ -181,6 +181,14 @@ Nodex is local-first. Main risks are malformed local inputs, accidental data los
   validation must succeed before an
   fsynced journaled rename can replace live files; failure or interruption
   preserves or restores the original database, SQLite companions, and assets.
+- Store Administration accepts no filesystem path or Project identity from its
+  caller. Core derives bounded backup, staging, cleanup, and restore paths from
+  validated operation/Backup identities; every traversed entry must remain a
+  regular owned file or directory. A create receipt commits before publication,
+  delete/prune cleanup moves only validated Backup directories into an
+  operation-owned staging root, and restore retains the single fsynced Store
+  replacement journal. Exact retries verify the Core-authored intent hash and
+  original Manifest before completing any pending filesystem phase.
 - The native Core runtime validates the Profile, `run`, and `run/core`
   ancestry without following symlinks; requires current-user ownership; and
   requires 0700 for `run/core` plus 0600 and the expected file type for the

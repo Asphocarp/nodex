@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
+use nodex_core_contracts::administration::StoreAdministrationEvent;
 use nodex_core_contracts::events::{
     CommitIdentity, CommitManifest, DeliveryAtomDescriptor, DeliveryAtomKind, DeliveryAtomPayload,
     DeliveryAuthorizationScope, DocumentEffectRef, DocumentEffectResourceKind,
@@ -28,6 +29,16 @@ const PHYSICAL_EFFECT_EVIDENCE_SQL: &str =
             change.payload_json, effect.projection_impact_json
      FROM local_commit_effects effect
      JOIN change_log change ON change.seq = effect.change_log_seq
+     WHERE effect.store_epoch = ?1 AND effect.commit_seq = ?2
+     ORDER BY effect.effect_order ASC";
+const LIBRARY_EFFECT_EVIDENCE_SQL: &str =
+    "SELECT effect.effect_order, effect.library_id, effect.module_name,
+            effect.effect_kind, effect.operation_id, effect.payload_json,
+            effect.payload_hash, parent.operation_id
+     FROM local_commit_library_effects effect
+     JOIN local_commits parent
+       ON parent.store_epoch = effect.store_epoch
+      AND parent.commit_seq = effect.commit_seq
      WHERE effect.store_epoch = ?1 AND effect.commit_seq = ?2
      ORDER BY effect.effect_order ASC";
 const CANONICAL_DOCUMENT_EFFECTS_SQL: &str =
@@ -258,6 +269,23 @@ struct CanonicalPhysicalEffect {
     projection_impact: ProjectionImpact,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+struct CanonicalLibraryEffect {
+    effect_order: i64,
+    library_id: String,
+    module: ModuleName,
+    kind: String,
+    operation_id: String,
+    payload: StoreAdministrationEvent,
+    payload_hash: String,
+}
+
+#[derive(Serialize)]
+struct CanonicalPhysicalEvidence<'a> {
+    physical_effects: &'a [CanonicalPhysicalEffect],
+    library_effects: &'a [CanonicalLibraryEffect],
+}
+
 #[derive(Serialize)]
 struct CanonicalAtomIdentity<'a> {
     hash_version: u32,
@@ -453,6 +481,57 @@ pub(crate) fn record_effect(
             resources_json,
             effect.payload_hash,
             encode(&projection_impact)?,
+        ],
+    )?;
+    Ok(effect_order)
+}
+
+/// Records a semantic Store Administration change at Library scope without
+/// fabricating a Project-owned change-log row. The typed payload is retained
+/// as immutable private evidence and compiled into a Library-authorized atom
+/// only when the enclosing LocalCommit seals.
+pub(crate) fn record_administration_effect(
+    connection: &Connection,
+    context: &CommitContext,
+    library_id: &str,
+    event: &StoreAdministrationEvent,
+) -> Result<i64, StoreError> {
+    assert_open(connection, context)?;
+    validate_identity(library_id, "Store Administration effect Library")?;
+    let library_exists: bool = connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM libraries WHERE id = ?1)",
+        [library_id],
+        |row| row.get(0),
+    )?;
+    if !library_exists {
+        return Err(corrupt(
+            "Store Administration effect Library does not exist",
+        ));
+    }
+    let payload_json = serde_json::to_string(event)
+        .map_err(|_| corrupt("Store Administration effect payload is invalid"))?;
+    let payload_hash = sha256(payload_json.as_bytes());
+    let effect_order: i64 = connection.query_row(
+        "SELECT COALESCE(MAX(effect_order), -1) + 1
+         FROM local_commit_library_effects
+         WHERE store_epoch = ?1 AND commit_seq = ?2",
+        params![context.store_epoch, context.commit_seq],
+        |row| row.get(0),
+    )?;
+    connection.execute(
+        "INSERT INTO local_commit_library_effects(
+           store_epoch, commit_seq, effect_order, library_id, module_name,
+           effect_kind, operation_id, payload_json, payload_hash
+         ) VALUES (?1, ?2, ?3, ?4, 'store_administration',
+                   'store_administration.changed', ?5, ?6, ?7)",
+        params![
+            context.store_epoch,
+            context.commit_seq,
+            effect_order,
+            library_id,
+            context.operation_id,
+            payload_json,
+            payload_hash,
         ],
     )?;
     Ok(effect_order)
@@ -741,15 +820,28 @@ pub(super) fn seal(connection: &Connection, context: &CommitContext) -> Result<i
         params![context.store_epoch, context.commit_seq],
         |row| row.get(0),
     )?;
-    if effect_count == 0 && document_count == 0 {
+    let library_effect_count: i64 = connection.query_row(
+        "SELECT count(*) FROM local_commit_library_effects
+         WHERE store_epoch = ?1 AND commit_seq = ?2",
+        params![context.store_epoch, context.commit_seq],
+        |row| row.get(0),
+    )?;
+    if effect_count == 0 && document_count == 0 && library_effect_count == 0 {
         return Err(corrupt("LocalCommit has no semantic effects"));
     }
 
     let effects = canonical_effects(connection, context.coordinate())?;
+    let library_effects = canonical_library_effects(connection, context.coordinate())?;
     let document_effects = canonical_document_effects(connection, context.coordinate())?;
     let revocations = canonical_revocations(connection, context.coordinate())?;
-    let audience = derive_audience(connection, context.commit_seq, &effects, &document_effects)?;
-    compile_delivery_atoms(connection, context, &audience, &effects)?;
+    let audience = derive_audience(
+        connection,
+        context.commit_seq,
+        &effects,
+        &library_effects,
+        &document_effects,
+    )?;
+    compile_delivery_atoms(connection, context, &audience, &effects, &library_effects)?;
     let delivery_atoms = canonical_delivery_atoms(connection, context)?;
     let impact = merged_projection_impact(&effects)?;
     let mut projection = draft_projection(connection, context)?;
@@ -772,6 +864,7 @@ pub(super) fn seal(connection: &Connection, context: &CommitContext) -> Result<i
         context,
         ManifestEvidence {
             effects: &effects,
+            library_effects: &library_effects,
             atoms: &delivery_atoms,
             documents: &document_effects,
             projection: &projection,
@@ -842,6 +935,7 @@ fn compile_delivery_atoms(
     context: &CommitContext,
     audience: &RoutingEvidence,
     effects: &[CanonicalPhysicalEffect],
+    library_effects: &[CanonicalLibraryEffect],
 ) -> Result<(), StoreError> {
     let existing_count: i64 = connection.query_row(
         "SELECT count(*) FROM local_commit_delivery_atoms
@@ -870,6 +964,16 @@ fn compile_delivery_atoms(
         )?;
         record_delivery_atoms(connection, context, drafts)?;
     }
+    for effect in library_effects {
+        if effect.module != ModuleName::StoreAdministration {
+            return Err(corrupt("Library-scoped effect Module is unsupported"));
+        }
+        let drafts = super::delivery_atom::compile_store_administration(
+            &effect.library_id,
+            effect.payload.clone(),
+        )?;
+        record_delivery_atoms(connection, context, drafts)?;
+    }
     Ok(())
 }
 
@@ -887,6 +991,8 @@ pub(crate) fn abandon(connection: &Connection, context: &CommitContext) -> Resul
          + (SELECT count(*) FROM local_commit_revocations
              WHERE store_epoch = ?1 AND commit_seq = ?2)
          + (SELECT count(*) FROM local_commit_delivery_atoms
+             WHERE store_epoch = ?1 AND commit_seq = ?2)
+         + (SELECT count(*) FROM local_commit_library_effects
              WHERE store_epoch = ?1 AND commit_seq = ?2)
          + (SELECT count(*) FROM core_module_receipts
              WHERE store_epoch = ?1 AND local_commit_seq = ?2)",
@@ -1046,6 +1152,65 @@ pub(crate) fn physical_effect_evidence(
         .map_err(|_| corrupt("LocalCommit physical effect evidence is invalid"))
 }
 
+fn canonical_library_effects(
+    connection: &Connection,
+    coordinate: CommitCoordinate<'_>,
+) -> Result<Vec<CanonicalLibraryEffect>, StoreError> {
+    let rows = connection
+        .prepare_cached(LIBRARY_EFFECT_EVIDENCE_SQL)?
+        .query_map(
+            params![coordinate.store_epoch, coordinate.commit_seq],
+            |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, String>(5)?,
+                    row.get::<_, String>(6)?,
+                    row.get::<_, String>(7)?,
+                ))
+            },
+        )?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let mut effects = Vec::with_capacity(rows.len());
+    for (expected_order, row) in rows.into_iter().enumerate() {
+        let (
+            effect_order,
+            library_id,
+            module_raw,
+            kind,
+            operation_id,
+            payload_json,
+            payload_hash,
+            parent_operation_id,
+        ) = row;
+        if effect_order != i64::try_from(expected_order).expect("effect order is bounded")
+            || module_raw != "store_administration"
+            || kind != "store_administration.changed"
+            || operation_id != parent_operation_id
+            || payload_hash != sha256(payload_json.as_bytes())
+        {
+            return Err(corrupt(
+                "Store Administration Library effect evidence is invalid",
+            ));
+        }
+        let payload: StoreAdministrationEvent =
+            decode_json(&payload_json, "Store Administration Library effect")?;
+        effects.push(CanonicalLibraryEffect {
+            effect_order,
+            library_id,
+            module: ModuleName::StoreAdministration,
+            kind,
+            operation_id,
+            payload,
+            payload_hash,
+        });
+    }
+    Ok(effects)
+}
+
 fn canonical_delivery_atoms(
     connection: &Connection,
     context: &CommitContext,
@@ -1185,6 +1350,7 @@ pub(crate) fn load_verified_commit(
     let coordinate = context.coordinate();
     let physical_effects = physical_effect_evidence(connection, coordinate)?;
     let effects = canonical_effects_from_evidence(&physical_effects)?;
+    let library_effects = canonical_library_effects(connection, coordinate)?;
     let delivery_atoms = canonical_delivery_atoms(connection, &context)?;
     let documents = canonical_document_effects(connection, coordinate)?;
     let revocations = canonical_revocations(connection, coordinate)?;
@@ -1199,6 +1365,7 @@ pub(crate) fn load_verified_commit(
         &context,
         ManifestEvidence {
             effects: &effects,
+            library_effects: &library_effects,
             atoms: &delivery_atoms,
             documents: &documents,
             projection: &row.projection,
@@ -1580,6 +1747,7 @@ pub(crate) fn upgrade_v108_manifest(
             };
             let coordinate = context.coordinate();
             let effects = canonical_effects(connection, coordinate)?;
+            let library_effects = canonical_library_effects(connection, coordinate)?;
             let atoms = canonical_delivery_atoms(connection, &context)?;
             let documents = canonical_document_effects(connection, coordinate)?;
             let revocations = canonical_revocations(connection, coordinate)?;
@@ -1588,6 +1756,7 @@ pub(crate) fn upgrade_v108_manifest(
                 &context,
                 ManifestEvidence {
                     effects: &effects,
+                    library_effects: &library_effects,
                     atoms: &atoms,
                     documents: &documents,
                     projection: &row.projection,
@@ -1685,6 +1854,7 @@ pub(crate) fn upgrade_v109_manifest(
                 record_delivery_atoms(connection, &context, drafts)?;
             }
             let effects = canonical_effects_from_evidence(&physical)?;
+            let library_effects = canonical_library_effects(connection, context.coordinate())?;
             let atoms = canonical_delivery_atoms(connection, &context)?;
             let documents = canonical_document_effects(connection, context.coordinate())?;
             let revocations = canonical_revocations(connection, context.coordinate())?;
@@ -1693,6 +1863,7 @@ pub(crate) fn upgrade_v109_manifest(
                 &context,
                 ManifestEvidence {
                     effects: &effects,
+                    library_effects: &library_effects,
                     atoms: &atoms,
                     documents: &documents,
                     projection: &row.projection,
@@ -1768,6 +1939,7 @@ pub(crate) fn upgrade_v110_manifest(
             persist_sealed_projection_effects(connection, &context, &descriptors)?;
             let coordinate = context.coordinate();
             let effects = canonical_effects(connection, coordinate)?;
+            let library_effects = canonical_library_effects(connection, coordinate)?;
             let atoms = canonical_delivery_atoms(connection, &context)?;
             let documents = canonical_document_effects(connection, coordinate)?;
             let revocations = canonical_revocations(connection, coordinate)?;
@@ -1776,6 +1948,7 @@ pub(crate) fn upgrade_v110_manifest(
                 &context,
                 ManifestEvidence {
                     effects: &effects,
+                    library_effects: &library_effects,
                     atoms: &atoms,
                     documents: &documents,
                     projection: &row.projection,
@@ -1852,6 +2025,10 @@ pub(crate) fn rebase_store_epoch(
     )?;
     connection.execute(
         "UPDATE local_commit_documents SET store_epoch = ?1 WHERE store_epoch <> ?1",
+        [store_epoch],
+    )?;
+    connection.execute(
+        "UPDATE local_commit_library_effects SET store_epoch = ?1 WHERE store_epoch <> ?1",
         [store_epoch],
     )?;
     connection.execute(
@@ -2302,6 +2479,7 @@ fn derive_audience(
     connection: &Connection,
     commit_seq: i64,
     effects: &[CanonicalPhysicalEffect],
+    library_effects: &[CanonicalLibraryEffect],
     documents: &[CanonicalDocumentEffect],
 ) -> Result<RoutingEvidence, StoreError> {
     let mut project_ids = effects
@@ -2312,7 +2490,10 @@ fn derive_audience(
         .collect::<Vec<_>>();
     project_ids.sort();
     project_ids.dedup();
-    let mut library_ids = Vec::new();
+    let mut library_ids = library_effects
+        .iter()
+        .map(|effect| effect.library_id.clone())
+        .collect::<Vec<_>>();
     for project_id in &project_ids {
         let library_id = connection
             .query_row(
@@ -2353,6 +2534,7 @@ fn derive_audience(
 
 struct ManifestEvidence<'a> {
     effects: &'a [CanonicalPhysicalEffect],
+    library_effects: &'a [CanonicalLibraryEffect],
     atoms: &'a [StoredDeliveryAtom],
     documents: &'a [CanonicalDocumentEffect],
     projection: &'a CommitProjectionDraft,
@@ -2388,10 +2570,22 @@ fn compile_manifest(
             resource_kind: effect.resource_kind,
         })
         .collect::<Vec<_>>();
-    let physical_encoded = serde_json::to_vec(evidence.effects)
-        .map_err(|_| corrupt("PhysicalJournal evidence cannot be encoded"))?;
+    let physical_encoded = if evidence.library_effects.is_empty() {
+        serde_json::to_vec(evidence.effects)
+    } else {
+        serde_json::to_vec(&CanonicalPhysicalEvidence {
+            physical_effects: evidence.effects,
+            library_effects: evidence.library_effects,
+        })
+    }
+    .map_err(|_| corrupt("PhysicalJournal evidence cannot be encoded"))?;
+    let effect_count = evidence
+        .effects
+        .len()
+        .checked_add(evidence.library_effects.len())
+        .ok_or_else(|| corrupt("PhysicalJournal effect count overflowed"))?;
     let physical_evidence = PhysicalEvidenceDigest {
-        effect_count: u32::try_from(evidence.effects.len())
+        effect_count: u32::try_from(effect_count)
             .map_err(|_| corrupt("PhysicalJournal effect count overflowed"))?,
         first_change_log_seq: evidence.effects.first().map(|effect| effect.change_log_seq),
         last_change_log_seq: evidence.effects.last().map(|effect| effect.change_log_seq),

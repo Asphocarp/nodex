@@ -817,22 +817,28 @@ Automation now
 owns its accepted definition, lease, run, reminder, and Scheduled Page
 occurrence surface. Store Administration owns v92 readiness, backup listing,
 online SQLite backup creation, and whole-store restore through the same
-generated `read`/`apply` boundary. A backup uses a deterministic operation-owned
-directory, publishes a v2-compatible manifest last, validates the immutable
-snapshot, fsyncs database, assets, manifest, and directories, then commits its
-receipt/event. A retry after filesystem publication but before the SQLite
-receipt adopts only an exact operation/request-fingerprint match. Restore
+generated `read`/`apply` boundary. Each changed Administration command records
+one Library-scoped physical effect and resource-atomic DeliveryAtom in the same
+transaction as its receipt. It never selects or fabricates a Project-owned
+`change_log` row, so zero-Project and archived-only Libraries retain the full
+backup lifecycle. A backup uses a deterministic operation-owned staging
+directory, writes a v2-compatible manifest last, validates the immutable
+snapshot, and fsyncs database, assets, manifest, and directories. Core commits
+the receipt and Library effect before atomically publishing that directory. An
+exact retry either reuses uncommitted staging or completes publication from the
+verified receipt and Manifest. Restore
 semantically validates the complete v92 Document/Canvas/projection/managed-asset
 closure, optionally creates a safety backup inside one maintenance generation,
 installs through the Core-owned journal, rotates `storeEpoch`, resets Document
 cache and realtime state, republishes the runtime descriptor, and clears the
-old live subscriptions before committing its receipt/event. Epoch rotation also
+old live subscriptions before committing its receipt and Library effect. Epoch rotation also
 rebinds the restored change-log and Module-receipt epoch coordinates in the same
 maintenance transaction, so the new generation replays one internally
 consistent Store incarnation; subsequent replay is read from that installed
 Store's durable change log. Backup deletion
 and automatic-retention pruning commit a durable logical tombstone before
-best-effort physical cleanup, so a crash cannot make a deleted backup visible or
+moving targets into an operation-owned cleanup staging directory. Removing that
+directory is idempotent, so a crash cannot make a deleted backup visible or
 restorable and an exact retry finishes cleanup. Maintenance normalizes task
 order inside the Module and owns integrity/foreign-key verification, bounded
 idle Document-revision finalization, eligible Document compaction, revision

@@ -34,14 +34,14 @@ use crate::domain::fractional_rank::{
 };
 use crate::domain::identity::stable_uuid_v7;
 use crate::infrastructure::durable_mutation::{
-    self, CommitResult, DurableMutationScope, OperationIdentity, ReceiptMetadata, SealedOutcome,
+    self, CommitResult, DurableMutationScope, OperationIdentity, ReceiptMetadata, ReplayIdentity,
+    SealedOutcome,
 };
 use crate::infrastructure::event_log::{
     NewChangeLogEntry, append_change_log, load_committed_event_by_sequence,
 };
 use crate::infrastructure::local_commit;
 use crate::infrastructure::local_commit::CommitContext;
-use crate::infrastructure::module_receipts::read_module_receipt;
 #[cfg(test)]
 use crate::infrastructure::module_receipts::{NewModuleReceipt, insert_module_receipt};
 use crate::infrastructure::projection_impact::expand_database_coordinates;
@@ -184,29 +184,17 @@ pub(super) fn apply(
                     sha256(&fingerprint)
                 }
             };
-            if let Some(stored) =
-                read_module_receipt(transaction, MODULE_NAME, &request.operation_id)?
-            {
-                if stored.request_hash != request_hash {
-                    return Err(StoreError::new(
-                        StoreErrorCode::IdempotencyKeyReused,
-                        "operation_id is already bound to another Library intent",
-                        false,
-                    ));
-                }
-                let mut committed = serde_json::from_value::<
-                    crate::ModuleWriterResult<LibraryCommitValue, LibraryReceipt>,
-                >(stored.result)
-                .map_err(|_| corrupt("Stored Library receipt is invalid"))?;
-                committed.receipt.mutation.duplicate = true;
-                let event = load_committed_event_by_sequence(
-                    transaction,
-                    committed.event_sequence,
-                )?;
-                return Ok(LibraryApplyOutcome {
-                    committed,
-                    event: Some(event),
-                });
+            if let Some(replayed) = durable_mutation::replay_existing(
+                transaction,
+                ReplayIdentity {
+                    module: ModuleName::Library,
+                    module_name: MODULE_NAME,
+                    operation_id: &request.operation_id,
+                    intent_hash: &request_hash,
+                    store_epoch: &store_epoch,
+                },
+            )? {
+                return library_commit_result(transaction, replayed);
             }
             match &request.intent {
                 LibraryIntent::CreatePage {
@@ -3764,10 +3752,7 @@ mod tests {
 
         assert!(first.event.is_some());
         assert!(!first.committed.receipt.mutation.duplicate);
-        assert_eq!(
-            replay.event.as_ref().map(|event| event.sequence),
-            Some(first.committed.event_sequence)
-        );
+        assert!(replay.event.is_none());
         assert!(replay.committed.receipt.mutation.duplicate);
         assert_eq!(
             first.committed.event_sequence,
@@ -3895,10 +3880,7 @@ mod tests {
             )
             .expect("retry Database");
         assert!(database.event.is_some());
-        assert_eq!(
-            database_replay.event.as_ref().map(|event| event.sequence),
-            Some(database_replay.committed.event_sequence),
-        );
+        assert!(database_replay.event.is_none());
         assert!(database_replay.committed.receipt.mutation.duplicate);
 
         let views = module
@@ -5800,10 +5782,7 @@ mod tests {
             .apply(&retry_context, request("## Work\n\nNative placement."))
             .expect("exact Data Source Page replay");
         assert!(replay.committed.receipt.mutation.duplicate);
-        assert_eq!(
-            replay.event.as_ref().map(|event| event.sequence),
-            Some(replay.committed.event_sequence)
-        );
+        assert!(replay.event.is_none());
         assert_eq!(replay.committed.value.page_create, Some(created));
         let collision = module
             .apply(&context(), request("Changed body"))

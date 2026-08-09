@@ -933,6 +933,20 @@ pub(crate) fn validate_local_commit_index(connection: &Connection) -> Result<(),
             "LocalCommit Documents are not addressable by their complete parent coordinate",
         ));
     }
+    let orphaned_library_effects: i64 = connection.query_row(
+        "SELECT count(*) FROM local_commit_library_effects effect
+         LEFT JOIN local_commits parent
+           ON parent.store_epoch = effect.store_epoch
+          AND parent.commit_seq = effect.commit_seq
+         WHERE parent.commit_seq IS NULL",
+        [],
+        |row| row.get(0),
+    )?;
+    if orphaned_library_effects > 0 {
+        return Err(corrupt(
+            "Library effects are not addressable by their complete LocalCommit coordinate",
+        ));
+    }
     let orphaned_atoms: i64 = connection.query_row(
         "SELECT count(*) FROM local_commit_delivery_atoms atom
          LEFT JOIN local_commits parent

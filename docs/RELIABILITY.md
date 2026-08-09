@@ -403,18 +403,25 @@ Store v109 and later retain Relation targets only in normalized edge authority a
   manual online backup creation, and whole-store restore over its private
   generated Module route.
   Backup identity is derived from Profile plus operation identity; the manifest
-  binds the full request fingerprint, so an interruption after directory
-  publication but before receipt commit is adopted on exact retry and rejected
-  on collision. Staging and managed-asset trees refuse symlinks and special
-  files, the immutable candidate must pass schema-owner, integrity, and foreign
-  key validation, and every file plus containing directory is flushed before
-  publication. Restore validates the selected immutable v92 backup plus every
+  binds the full request fingerprint. Staging and managed-asset trees refuse
+  symlinks and special files, the immutable candidate must pass schema-owner,
+  integrity, and foreign-key validation, and every file plus containing
+  directory is flushed before the Store receipt commits. Publication is a
+  subsequent atomic rename. A crash before the receipt leaves reusable or
+  safely replaceable staging; a crash after the receipt is recovered by exact
+  replay, which verifies the original Manifest and finishes publication before
+  returning. Restore validates the selected immutable v92 backup plus every
   reconstructed ready Document, Canvas scene and current projection,
   Profile/Library identity, and referenced managed asset before file movement.
   Delete and automatic-retention pruning persist exact logical deletion
-  identities with the Store Administration receipt before best-effort physical
-  cleanup. Backup reads and restore filter those identities, and exact retry
-  completes cleanup after a post-receipt crash. Integrity/foreign-key checks,
+  identities with the Store Administration receipt before moving physical
+  targets into a deterministic operation-owned cleanup staging directory.
+  Backup reads and restore filter those identities, and exact retry completes
+  either an interrupted rename or directory removal. All changed Administration
+  receipts seal through Library-scoped LocalCommit evidence and a Library-only
+  DeliveryAtom; Project catalog presence and lifecycle are irrelevant. No-op
+  receipts retain their original Store observation even after later commits.
+  Integrity/foreign-key checks,
   bounded eligible Document compaction, and revision retention run in a
   Module-owned canonical order with physical Block retention and one exact
   receipt. Retention processes each older deleted root in its own IMMEDIATE
@@ -597,7 +604,7 @@ Store v109 and later retain Relation targets only in normalized edge authority a
 - Native whole-store replacement has a bounded, mode-restricted, atomically
   fsynced journal whose paths are controlled staging/rollback directory names,
   never caller-authored paths. It is inspected under the Profile lock before
-  any SQLite connection opens. A prepared candidate must be a Rust-owned v92
+  any SQLite connection opens. A prepared candidate must be a Rust-owned v110
   Store with a regular no-symlink asset tree. An interruption before file
   movement returns the journal to `prepared`; an interruption during install
   restores DB, WAL, SHM, and assets while moving the candidate back to staging.
@@ -605,14 +612,14 @@ Store v109 and later retain Relation targets only in normalized edge authority a
   until the exact Store Administration receipt exists, then removes only the
   journal-owned staging and rollback trees. If the process survives a failure
   between journal commit and receipt commit, the exact old-epoch restore retry
-  finalizes the receipt/event without reinstalling the Store. An installation
+  finalizes the receipt and Library effect without reinstalling the Store. An installation
   or runtime-reset failure before journal commit restores the complete source
   DB/WAL/SHM/assets set and resets the process runtime to the source epoch.
-- Whole-store backups include `nodex.db` and managed asset files from one Core maintenance boundary. Core drains accepted writes and asset materialization, blocks new admission, snapshots SQLite online, validates the asset closure, and atomically publishes the immutable backup; Electron has no database connection to close.
-- Manual and scheduled backups enter the Core Store Administration Module and use rusqlite's online backup API. The staged DB and every asset file/directory are fsynced before the backup directory rename is published.
+- Whole-store backups include `nodex.db` and managed asset files from one Core maintenance boundary. Core drains accepted writes and asset materialization, blocks new admission, snapshots SQLite online, validates and fsyncs the asset closure, commits the Administration receipt, and then atomically publishes the immutable backup; Electron has no database connection to close.
+- Manual and scheduled backups enter the Core Store Administration Module and use rusqlite's online backup API. The staged DB and every asset file/directory are fsynced before receipt commit; the operation-bound directory rename is the recoverable publication phase.
 - Restore requires explicit confirmation. Its optional pre-restore safety backup is created after the same asset/writer fence is acquired and before replacement, without reopening a write window between those operations.
 - Before swap, the staged DB must pass current schema, `quick_check`, `foreign_key_check`, Block store metadata, Page-owned-Document, and primary projection/head checks. Its managed asset root may contain only flat regular files with safe names: directories/symlinks are rejected, and every exact-head `nodex://assets/*` projection must resolve to an existing file (unreferenced files may remain).
-- Cross-file DB/WAL/assets replacement is protected by one atomically written and fsynced Core store-replacement journal. Rename parents and staged/live files are fsynced. Startup recovery restores the complete rollback for every pre-commit phase; a durable `committed` phase keeps the complete installed v103 store and removes only journal-owned recovery artifacts. Both candidate and installed stores receive exact v103 physical and semantic validation.
+- Cross-file DB/WAL/assets replacement is protected by one atomically written and fsynced Core store-replacement journal. Rename parents and staged/live files are fsynced. Startup recovery restores the complete rollback for every pre-commit phase; a durable `committed` phase keeps the complete installed v110 store and removes only journal-owned recovery artifacts. Both candidate and installed stores receive exact v110 physical and semantic validation.
 - The installed DB rotates `storeEpoch` transactionally before `committed`. Core then invalidates leases/subscriptions and publishes the replacement generation; missing Host fanout cannot turn a durable restore into an apparent failure. Old-epoch IPC updates fail closed, while providers clear checkpoints/outboxes and reload through a fresh descriptor/state-vector handshake after the controlled Electron relaunch.
 
 ## Sync and Event Delivery

@@ -63,6 +63,17 @@ Manifest identity. A committed apply response always returns command outcome,
 receipt, and Manifest identity; its delivery packet is optional and cannot
 expand post-state read capability.
 
+Store Administration is Library-scoped evidence, not a Project event. A
+changed backup, delete, prune, maintenance, or restore command writes one
+private `local_commit_library_effects` row and compiles its
+`StoreAdministrationChanged` atom against the exact Library root. The ordinary
+`change_log.project_id` column remains evidence for Project-domain events and is
+never populated with a selected, archived, or synthetic Project merely to make
+a LocalCommit seal. The same `DurableMutationScope::seal` and `no_op`
+dispositions own these receipts; pre-filesystem retry uses the shared durable
+replay path, so no-op observations and committed Manifests cannot borrow a
+later ambient event.
+
 Command authorization and delivery authorization are separate Core decisions.
 A Project-bound command remains constrained by that Project. When the connected
 adapter is the authenticated Electron Host, Core resolves the apply and

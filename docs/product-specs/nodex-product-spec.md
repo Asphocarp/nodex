@@ -1539,7 +1539,8 @@ the supported diagnostics.
 
 ### Why SQLite Online Backup API for Backups?
 - **WAL-safe snapshots**: Core's online backup API captures consistent state from the live WAL database
-- **Atomic backup directories**: Stage in temp dir and rename into place
+- **Receipt-ordered publication**: Core fsyncs an operation-owned staging directory, commits the exact Store Administration receipt, then atomically renames the Backup into place; retry completes whichever phase was interrupted
+- **Library-native lifecycle**: Backup, list, delete, prune, and restore work even when the Library has no Project; Administration commits use Library evidence instead of a synthetic Project event
 - **Restore safety**: A continuous maintenance fence, auto safety backup, integrity validation, and durable DB/WAL/assets restore journal protect against failed or interrupted restores
 - **Whole-store recovery**: Backups include both `nodex.db` and `assets/`
 

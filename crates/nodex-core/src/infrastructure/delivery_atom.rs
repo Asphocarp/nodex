@@ -7,6 +7,7 @@
 
 use std::collections::BTreeSet;
 
+use nodex_core_contracts::administration::StoreAdministrationEvent;
 use nodex_core_contracts::automation::AutomationEvent;
 use nodex_core_contracts::database::DatabaseEvent;
 use nodex_core_contracts::events::{
@@ -46,17 +47,31 @@ pub(crate) fn compile(
         CoreModuleEventPayload::Automation(event) => {
             compile_automation(library_id, physical_project_id, event)
         }
-        CoreModuleEventPayload::StoreAdministration(event) => vec![atom(
-            DeliveryAtomKind::StoreAdministrationChanged,
-            [ResourceKey::Library {
-                library_id: library_id.to_owned(),
-            }],
-            DeliveryAtomPayload::StoreAdministration {
-                library_id: library_id.to_owned(),
-                event,
-            },
-        )],
+        CoreModuleEventPayload::StoreAdministration(event) => {
+            compile_store_administration(library_id, event)?
+        }
     };
+    for atom in &atoms {
+        validate(atom)?;
+    }
+    Ok(atoms)
+}
+
+pub(crate) fn compile_store_administration(
+    library_id: &str,
+    event: StoreAdministrationEvent,
+) -> Result<Vec<DeliveryAtomDraft>, StoreError> {
+    validate_identity(library_id, "DeliveryAtom Library")?;
+    let atoms = vec![atom(
+        DeliveryAtomKind::StoreAdministrationChanged,
+        [ResourceKey::Library {
+            library_id: library_id.to_owned(),
+        }],
+        DeliveryAtomPayload::StoreAdministration {
+            library_id: library_id.to_owned(),
+            event,
+        },
+    )];
     for atom in &atoms {
         validate(atom)?;
     }

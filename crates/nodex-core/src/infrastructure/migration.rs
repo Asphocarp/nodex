@@ -1217,6 +1217,31 @@ CREATE INDEX idx_local_commit_delivery_atoms_id
   ON local_commit_delivery_atoms(atom_id);
 "#;
 
+const V110_LOCAL_COMMIT_LIBRARY_EFFECTS_SCHEMA_SQL: &str = r#"
+CREATE TABLE local_commit_library_effects (
+  store_epoch TEXT NOT NULL,
+  commit_seq INTEGER NOT NULL,
+  effect_order INTEGER NOT NULL CHECK (effect_order >= 0),
+  library_id TEXT NOT NULL REFERENCES libraries(id) ON DELETE RESTRICT,
+  module_name TEXT NOT NULL CHECK (module_name = 'store_administration'),
+  effect_kind TEXT NOT NULL CHECK (effect_kind = 'store_administration.changed'),
+  operation_id TEXT NOT NULL,
+  payload_json TEXT NOT NULL,
+  payload_hash TEXT NOT NULL,
+  PRIMARY KEY (store_epoch, commit_seq, effect_order),
+  FOREIGN KEY (store_epoch, commit_seq)
+    REFERENCES local_commits(store_epoch, commit_seq) ON DELETE CASCADE,
+  CHECK (length(store_epoch) BETWEEN 1 AND 512),
+  CHECK (length(library_id) BETWEEN 1 AND 512),
+  CHECK (length(operation_id) BETWEEN 1 AND 512),
+  CHECK (json_valid(payload_json) AND json_type(payload_json) = 'object'),
+  CHECK (length(payload_hash) = 64 AND payload_hash NOT GLOB '*[^0-9a-f]*')
+) WITHOUT ROWID, STRICT;
+
+CREATE INDEX idx_local_commit_library_effects_library
+  ON local_commit_library_effects(library_id, commit_seq);
+"#;
+
 const V109_PROPERTY_SEMANTICS_SCHEMA_SQL: &str = r#"
 CREATE TABLE data_source_properties_v109 (
   data_source_id TEXT NOT NULL REFERENCES data_sources(id) ON DELETE CASCADE,
@@ -3015,10 +3040,19 @@ fn ensure_v109_local_commit_delivery_atoms_schema(
 }
 
 fn ensure_v110_visibility_delta_journal_schema(connection: &Connection) -> Result<(), StoreError> {
-    if crate::infrastructure::visibility_delta_journal::is_installed(connection)? {
-        return Ok(());
+    let library_effects_exist: i64 = connection.query_row(
+        "SELECT count(*) FROM sqlite_schema
+         WHERE type = 'table' AND name = 'local_commit_library_effects'",
+        [],
+        |row| row.get(0),
+    )?;
+    if library_effects_exist == 0 {
+        connection.execute_batch(V110_LOCAL_COMMIT_LIBRARY_EFFECTS_SCHEMA_SQL)?;
     }
-    crate::infrastructure::visibility_delta_journal::install_schema(connection)
+    if !crate::infrastructure::visibility_delta_journal::is_installed(connection)? {
+        crate::infrastructure::visibility_delta_journal::install_schema(connection)?;
+    }
+    Ok(())
 }
 
 fn ensure_v109_property_semantics_schema(connection: &Connection) -> Result<(), StoreError> {

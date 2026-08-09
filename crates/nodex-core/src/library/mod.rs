@@ -1522,10 +1522,7 @@ mod tests {
             .apply(&persistent_context, archive_request)
             .expect("replay archive");
         assert!(replay.committed.receipt.mutation.duplicate);
-        assert_eq!(
-            replay.event.as_ref().map(|event| event.sequence),
-            Some(archived.committed.event_sequence)
-        );
+        assert!(replay.event.is_none());
 
         let unarchived = module
             .apply(
@@ -1852,10 +1849,7 @@ mod tests {
             .apply(&persistent_context, create_request)
             .expect("replay Page create");
         assert!(replay.committed.receipt.mutation.duplicate);
-        assert_eq!(
-            replay.event.as_ref().map(|event| event.sequence),
-            Some(created.committed.event_sequence)
-        );
+        assert!(replay.event.is_none());
         let LibraryReadValue::PageContent { value } = module
             .read(
                 &persistent_context,
@@ -5065,32 +5059,27 @@ mod tests {
             .apply(&persistent_context, request)
             .expect("replay mixed Properties");
         assert!(replay.committed.receipt.mutation.duplicate);
-        assert_eq!(
-            replay.event.as_ref().map(|event| event.sequence),
-            Some(committed.committed.event_sequence)
-        );
+        assert!(replay.event.is_none());
 
+        let rejected_request = ModuleApplyRequest {
+            contract_version: LIBRARY_CONTRACT_VERSION,
+            operation_id: "property:conflict".to_owned(),
+            store_epoch: StoreEpoch("epoch-1".to_owned()),
+            intent: LibraryIntent::ApplyBlockPropertyMutation {
+                mutation: Box::new(LibraryBlockPropertyMutation {
+                    actor: serde_json::json!({ "kind": "test" }),
+                    client_session_id: None,
+                    fields: vec![LibraryBlockPropertyFieldMutation::IntrinsicSet {
+                        block_id: PAGE.to_owned(),
+                        property_key: "run.target".to_owned(),
+                        expected_revision: 1,
+                        value: serde_json::json!("newWorktree"),
+                    }],
+                }),
+            },
+        };
         let rejected = module
-            .apply(
-                &persistent_context,
-                ModuleApplyRequest {
-                    contract_version: LIBRARY_CONTRACT_VERSION,
-                    operation_id: "property:conflict".to_owned(),
-                    store_epoch: StoreEpoch("epoch-1".to_owned()),
-                    intent: LibraryIntent::ApplyBlockPropertyMutation {
-                        mutation: Box::new(LibraryBlockPropertyMutation {
-                            actor: serde_json::json!({ "kind": "test" }),
-                            client_session_id: None,
-                            fields: vec![LibraryBlockPropertyFieldMutation::IntrinsicSet {
-                                block_id: PAGE.to_owned(),
-                                property_key: "run.target".to_owned(),
-                                expected_revision: 1,
-                                value: serde_json::json!("newWorktree"),
-                            }],
-                        }),
-                    },
-                },
-            )
+            .apply(&persistent_context, rejected_request.clone())
             .expect("conflict has a durable rejected outcome");
         assert_eq!(
             rejected.committed.receipt.commit_seq,
@@ -5111,6 +5100,43 @@ mod tests {
         ));
         assert!(rejected.event.is_none());
 
+        let unrelated = module
+            .apply(
+                &persistent_context,
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "property:after-conflict".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::ApplyBlockPropertyMutation {
+                        mutation: Box::new(LibraryBlockPropertyMutation {
+                            actor: serde_json::json!({ "kind": "test" }),
+                            client_session_id: None,
+                            fields: vec![LibraryBlockPropertyFieldMutation::IntrinsicSet {
+                                block_id: PAGE.to_owned(),
+                                property_key: "run.target".to_owned(),
+                                expected_revision: 2,
+                                value: serde_json::json!("localProject"),
+                            }],
+                        }),
+                    },
+                },
+            )
+            .expect("commit unrelated Property after rejection");
+        assert!(unrelated.committed.commit_seq > rejected.committed.commit_seq);
+        let rejected_replay = module
+            .apply(&persistent_context, rejected_request)
+            .expect("replay conflict after unrelated commit");
+        assert_eq!(
+            rejected_replay.committed.commit_seq,
+            rejected.committed.commit_seq
+        );
+        assert_eq!(
+            rejected_replay.committed.store_epoch,
+            rejected.committed.store_epoch
+        );
+        assert!(rejected_replay.committed.receipt.mutation.duplicate);
+        assert!(rejected_replay.event.is_none());
+
         let invalid_actor_request = ModuleApplyRequest {
             contract_version: LIBRARY_CONTRACT_VERSION,
             operation_id: "property:invalid-actor".to_owned(),
@@ -5122,7 +5148,7 @@ mod tests {
                     fields: vec![LibraryBlockPropertyFieldMutation::IntrinsicSet {
                         block_id: PAGE.to_owned(),
                         property_key: "run.target".to_owned(),
-                        expected_revision: 2,
+                        expected_revision: 3,
                         value: serde_json::json!("localProject"),
                     }],
                 }),
@@ -5180,9 +5206,9 @@ mod tests {
                 assert_eq!(
                     evidence,
                     (
-                        2,
-                        "\"cloud\"".to_owned(),
-                        2,
+                        3,
+                        "\"localProject\"".to_owned(),
+                        3,
                         "\"/tmp/nodex\"".to_owned(),
                         2,
                         1,
@@ -5450,8 +5476,8 @@ mod tests {
                             fields: vec![LibraryBlockPropertyFieldMutation::IntrinsicSet {
                                 block_id: PAGE.to_owned(),
                                 property_key: "run.target".to_owned(),
-                                expected_revision: 2,
-                                value: serde_json::json!("localProject"),
+                                expected_revision: 3,
+                                value: serde_json::json!("cloud"),
                             }],
                         }),
                     },

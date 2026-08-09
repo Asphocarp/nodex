@@ -138,23 +138,67 @@ pub(super) fn validate_backup_for_deletion(
     inspect_removable_tree(&directory, &mut inspected)
 }
 
-pub(super) fn delete_backup_directories(
+pub(super) fn publish_backup_deletions(
     profile_home: &Path,
+    operation_id: &str,
     backup_ids: &[String],
 ) -> Result<(), StoreError> {
     if backup_ids.is_empty() {
         return Ok(());
     }
+    let cleanup = stage_backup_deletions(profile_home, operation_id, backup_ids)?;
+    let root = profile_home.join("backups");
+    let mut inspected = 0usize;
+    inspect_removable_tree(&cleanup, &mut inspected)?;
+    fs::remove_dir_all(&cleanup).map_err(io_error)?;
+    sync_directory(&root)
+}
+
+pub(super) fn stage_backup_deletions(
+    profile_home: &Path,
+    operation_id: &str,
+    backup_ids: &[String],
+) -> Result<PathBuf, StoreError> {
+    if backup_ids.is_empty() {
+        return Err(internal("Empty backup cleanup has no staging phase"));
+    }
     let root = profile_home.join("backups");
     require_directory(&root, "Backup root")?;
+    let cleanup_digest = Sha256::digest(format!("backup-cleanup\0{operation_id}"));
+    let cleanup = root.join(format!(".cleanup-{}", hex(&cleanup_digest)));
+    match fs::symlink_metadata(&cleanup) {
+        Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_dir() => {
+            return Err(invalid_profile(
+                "Backup cleanup staging path must be a real owned directory",
+            ));
+        }
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            fs::create_dir(&cleanup).map_err(io_error)?;
+            sync_directory(&root)?;
+        }
+        Err(error) => return Err(io_error(error)),
+    }
     for backup_id in backup_ids {
         if !is_safe_backup_id(backup_id) {
             return Err(corrupt("Durable backup deletion identity is invalid"));
         }
         let directory = root.join(backup_id);
+        let staged = cleanup.join(backup_id);
         let metadata = match fs::symlink_metadata(&directory) {
             Ok(metadata) => metadata,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                match fs::symlink_metadata(&staged) {
+                    Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_dir() => {
+                        return Err(invalid_profile(
+                            "Backup cleanup target must remain a real owned directory",
+                        ));
+                    }
+                    Ok(_) => continue,
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                    Err(error) => return Err(io_error(error)),
+                }
+            }
             Err(error) => return Err(io_error(error)),
         };
         if metadata.file_type().is_symlink() || !metadata.is_dir() {
@@ -164,9 +208,15 @@ pub(super) fn delete_backup_directories(
         }
         let mut inspected = 0usize;
         inspect_removable_tree(&directory, &mut inspected)?;
-        fs::remove_dir_all(&directory).map_err(io_error)?;
+        if staged.exists() {
+            return Err(corrupt(
+                "Backup cleanup found duplicate published and staged directories",
+            ));
+        }
+        fs::rename(&directory, &staged).map_err(io_error)?;
+        sync_directory(&root)?;
     }
-    sync_directory(&root)
+    Ok(cleanup)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -185,7 +235,7 @@ pub(super) fn create_backup(
         BackupTrigger::Auto => "auto",
         BackupTrigger::PreRestore => "pre-restore",
     };
-    create_backup_with_trigger(
+    stage_backup_with_trigger(
         connection,
         profile_home,
         profile_id,
@@ -208,7 +258,7 @@ pub(super) fn create_safety_backup(
     let role_digest = Sha256::digest(format!("pre-restore\0{restore_operation_id}"));
     let operation_id = format!("pre-restore-{}", hex(&role_digest));
     let label = format!("Before restoring {restored_backup_id}");
-    create_backup_with_trigger(
+    let record = stage_backup_with_trigger(
         connection,
         profile_home,
         profile_id,
@@ -217,11 +267,13 @@ pub(super) fn create_safety_backup(
         Some(&label),
         true,
         "pre-restore",
-    )
+    )?;
+    publish_backup(profile_home, &operation_id, request_hash, &record.backup_id)?;
+    Ok(record)
 }
 
 #[allow(clippy::too_many_arguments)]
-fn create_backup_with_trigger(
+fn stage_backup_with_trigger(
     connection: &Connection,
     profile_home: &Path,
     profile_id: &str,
@@ -239,16 +291,14 @@ fn create_backup_with_trigger(
     if final_directory.exists() {
         return adopt_published_backup(&final_directory, operation_id, request_hash, &backup_id);
     }
-    recover_staging_backup(
+    if let Some(record) = recover_staging_backup(
         &root,
         &staging_directory,
-        &final_directory,
         operation_id,
         request_hash,
         &backup_id,
-    )?;
-    if final_directory.exists() {
-        return adopt_published_backup(&final_directory, operation_id, request_hash, &backup_id);
+    )? {
+        return Ok(record);
     }
 
     fs::create_dir(&staging_directory).map_err(io_error)?;
@@ -270,6 +320,31 @@ fn create_backup_with_trigger(
             return Err(error);
         }
     };
+    Ok(record)
+}
+
+pub(super) fn publish_backup(
+    profile_home: &Path,
+    operation_id: &str,
+    request_hash: &str,
+    backup_id: &str,
+) -> Result<BackupRecord, StoreError> {
+    if !is_safe_backup_id(backup_id) {
+        return Err(corrupt("Backup publication identity is invalid"));
+    }
+    let root = prepare_backup_root(profile_home)?;
+    let final_directory = root.join(backup_id);
+    let staging_directory = root.join(format!(".{backup_id}.tmp"));
+    if final_directory.exists() {
+        let record =
+            adopt_published_backup(&final_directory, operation_id, request_hash, backup_id)?;
+        if staging_directory.exists() {
+            adopt_published_backup(&staging_directory, operation_id, request_hash, backup_id)?;
+            remove_owned_staging_directory(&root, &staging_directory)?;
+        }
+        return Ok(record);
+    }
+    let record = adopt_published_backup(&staging_directory, operation_id, request_hash, backup_id)?;
     fs::rename(&staging_directory, &final_directory).map_err(io_error)?;
     sync_directory(&root)?;
     Ok(record)
@@ -464,27 +539,26 @@ fn validate_published_backup(
 fn recover_staging_backup(
     root: &Path,
     staging_directory: &Path,
-    final_directory: &Path,
     operation_id: &str,
     request_hash: &str,
     expected_backup_id: &str,
-) -> Result<(), StoreError> {
+) -> Result<Option<BackupRecord>, StoreError> {
     if !staging_directory.exists() {
-        return Ok(());
+        return Ok(None);
     }
     require_directory(staging_directory, "Staged backup")?;
     let manifest_path = staging_directory.join(BACKUP_MANIFEST_FILE_NAME);
     if !manifest_path.exists() {
-        return remove_owned_staging_directory(root, staging_directory);
+        remove_owned_staging_directory(root, staging_directory)?;
+        return Ok(None);
     }
-    adopt_published_backup(
+    let record = adopt_published_backup(
         staging_directory,
         operation_id,
         request_hash,
         expected_backup_id,
     )?;
-    fs::rename(staging_directory, final_directory).map_err(io_error)?;
-    sync_directory(root)
+    Ok(Some(record))
 }
 
 fn read_backup_root(root: &Path) -> Result<Option<Vec<fs::DirEntry>>, StoreError> {
