@@ -3,24 +3,8 @@ import { rendererViteResolve } from "./config/renderer-vite-shared";
 import { selectTieredTestFiles } from "./config/vitest-test-tier";
 
 const testFiles = selectTieredTestFiles({
-  defaultExclude: [
-    "packages/landing/src/download-cta.test.ts",
-    "third_party/**",
-  ],
-  defaultInclude: [
-    "config/**/*.test.ts",
-    "scripts/**/*.test.ts",
-    "src/shared/**/*.test.ts",
-    "src/renderer/**/*.node.test.{ts,tsx}",
-    "packages/landing/src/**/*.test.ts",
-  ],
-  stressInclude: [
-    "config/**/*.stress.test.ts",
-    "scripts/**/*.stress.test.ts",
-    "src/shared/**/*.stress.test.ts",
-    "src/renderer/**/*.stress.node.test.{ts,tsx}",
-    "packages/landing/src/**/*.stress.test.ts",
-  ],
+  defaultInclude: ["src/main/core-client/**/*.node.test.ts"],
+  stressInclude: ["src/main/core-client/**/*.stress.node.test.ts"],
 });
 
 export default defineConfig({

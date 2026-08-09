@@ -121,7 +121,8 @@ Treat `CHANGELOG.md` as a required deliverable only for **release-note-worthy** 
 ## Testing Expectations
 - Use a two-tier validation strategy: run targeted checks while iterating, then run risk-appropriate handoff checks once after the final edit set is stable.
 - Match targeted test commands to their runtime:
-  - Node/shared tests: `pnpm exec vitest run --config vitest.node.config.ts <path-to-test>`
+  - Node/shared tests outside CoreClient: `pnpm exec vitest run --config vitest.node.config.ts <path-to-test>`
+  - CoreClient tests: `pnpm test:core-client <path-to-test>`
   - Renderer/jsdom tests: `pnpm exec vitest run --config vitest.renderer.config.ts <path-to-test>`
   - Main/store tests: `pnpm test:main <path-to-test>`
   - Electron integration tests: `pnpm test:integration <path-to-test>`
