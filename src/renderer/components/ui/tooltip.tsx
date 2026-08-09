@@ -8,7 +8,10 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
-import { APP_SHELL_FLOATING_UI_LAYER_CLASS } from "@/lib/app-shell-layers";
+import {
+  APP_SHELL_FLOATING_UI_LAYER_CLASS,
+  APP_SHELL_TOOLTIP_LAYER_CLASS,
+} from "@/lib/app-shell-layers";
 import { cn } from "@/lib/utils";
 import {
   dismissNodexFloatingSurfaces,
@@ -144,9 +147,10 @@ export function NodexTooltip({
           className={cn(
             richSurface
               ? nodexFloatingSurfaceClassName
-              : "bg-token-dropdown-background text-token-foreground border-token-border w-fit select-none rounded-lg border px-2 py-1 text-sm whitespace-normal break-words",
+              : "no-drag bg-token-dropdown-background text-token-foreground border-token-border w-fit select-none rounded-lg border px-2 py-1 text-sm whitespace-normal break-words",
             !richSurface && APP_SHELL_FLOATING_UI_LAYER_CLASS,
             tooltipClassName,
+            APP_SHELL_TOOLTIP_LAYER_CLASS,
           )}
           style={{
             ...(richSurface

@@ -5,7 +5,9 @@ import {
   useSyncExternalStore,
 } from "react";
 import { AlertCircle, AlertTriangle, CheckCircle2, Info, X } from "@/components/shared/icons/generic-icons";
+import { NodexButton } from "@/components/ui/button";
 import { motion } from "motion/react";
+import { APP_SHELL_TOAST_LAYER_CLASS } from "@/lib/app-shell-layers";
 import { cn } from "@/lib/utils";
 
 const DEFAULT_TOAST_DURATION_MS = 5000;
@@ -19,6 +21,10 @@ export interface ToastHandle {
 
 export interface ToastOptions {
   description?: ReactNode;
+  action?: {
+    label: ReactNode;
+    onClick: () => boolean | void;
+  };
   duration?: number;
   id?: string;
   hasCloseButton?: boolean;
@@ -47,6 +53,7 @@ export interface ToastPlainRecord extends ToastBaseRecord {
   kind: "plain";
   title: ReactNode;
   description?: ReactNode;
+  action?: ToastOptions["action"];
 }
 
 export interface ToastCustomRecord extends ToastBaseRecord {
@@ -193,6 +200,7 @@ class NodexToastStore {
       isShown: true,
       title,
       description: options?.description,
+      action: options?.action,
     };
     return this.insertRecord(record, options?.onRemove);
   }
@@ -279,18 +287,18 @@ function ToastDismissButton({ onClick }: { onClick: () => void }) {
 
 function ToastLevelIcon({ level }: { level: ToastLevel }) {
   if (level === "success") {
-    return <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-token-charts-green" />;
+    return <CheckCircle2 className="size-4 shrink-0 text-token-charts-green" />;
   }
 
   if (level === "warning") {
-    return <AlertTriangle className="mt-0.5 size-4 shrink-0 text-[var(--color-text-warning)]" />;
+    return <AlertTriangle className="size-4 shrink-0 text-[var(--color-text-warning)]" />;
   }
 
   if (level === "danger") {
-    return <AlertCircle className="mt-0.5 size-4 shrink-0 text-token-charts-red" />;
+    return <AlertCircle className="size-4 shrink-0 text-token-charts-red" />;
   }
 
-  return <Info className="mt-0.5 size-4 shrink-0 text-token-description-foreground" />;
+  return <Info className="size-4 shrink-0 text-token-description-foreground" />;
 }
 
 function plainToastToneClassName(level: ToastLevel): string {
@@ -320,7 +328,7 @@ function NodexToastPlainSurface({
     <div
       role="alert"
       className={cn(
-        "pointer-events-auto flex min-w-0 items-start gap-2 rounded-[14px] px-3 py-2 shadow-lg ring-[0.5px] backdrop-blur-sm",
+        "no-drag pointer-events-auto flex min-w-0 items-center gap-2 rounded-[14px] px-3 py-2 shadow-lg ring-[0.5px] backdrop-blur-sm",
         plainToastToneClassName(record.level),
       )}
     >
@@ -335,6 +343,19 @@ function NodexToastPlainSurface({
           </div>
         ) : null}
       </div>
+      {record.action ? (
+        <NodexButton
+          type="button"
+          variant="secondary"
+          size="xs"
+          onClick={() => {
+            const shouldClose = record.action?.onClick();
+            if (shouldClose !== false) onClose();
+          }}
+        >
+          {record.action.label}
+        </NodexButton>
+      ) : null}
       {record.hasCloseButton ? <ToastDismissButton onClick={onClose} /> : null}
     </div>
   );
@@ -350,7 +371,7 @@ function NodexToastCustomSurface({
   return (
     <div
       className={cn(
-        "pointer-events-auto relative rounded-[16px] bg-token-dropdown-background/90 shadow-lg ring-[0.5px] ring-token-border backdrop-blur-sm",
+        "no-drag pointer-events-auto relative rounded-[16px] bg-token-dropdown-background/90 shadow-lg ring-[0.5px] ring-token-border backdrop-blur-sm",
         record.hasCloseButton ? "pr-10" : "",
       )}
     >
@@ -433,7 +454,7 @@ function ToastLifecycleWrapper({
           nodexToastStore.remove(record.id);
         }
       }}
-      className="w-full"
+      className="w-fit max-w-full"
     >
       {children}
     </motion.div>
@@ -446,10 +467,10 @@ export function NodexToastProvider({ children }: { children: ReactNode }) {
   return (
     <>
       {children}
-      <div className="pointer-events-none fixed inset-0 z-[60]">
+      <div className={cn("pointer-events-none fixed inset-0", APP_SHELL_TOAST_LAYER_CLASS)}>
         <div
           data-slot="toast-viewport"
-          className="pointer-events-none mx-auto flex w-full max-w-[560px] flex-col gap-2 px-3 pt-3"
+          className="pointer-events-none mx-auto flex w-full max-w-[440px] flex-col items-center gap-2 px-3 pt-3"
         >
           {records.map((record) => (
             <NodexToastItem key={record.id} record={record} />

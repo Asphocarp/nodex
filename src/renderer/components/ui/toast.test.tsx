@@ -165,6 +165,61 @@ describe("Nodex toast system", () => {
     expect(Boolean(view.getByRole("button", { name: "Dismiss notification" }))).toBe(true);
   });
 
+  test("keeps recoverable actions inside the shared plain toast shell", async () => {
+    const view = render(<ToastHarness />);
+    let restoreCalls = 0;
+
+    await act(async () => {
+      toast.info("Page draft closed", {
+        duration: 0,
+        action: {
+          label: "Restore",
+          onClick: () => {
+            restoreCalls += 1;
+          },
+        },
+      });
+      await settleAsyncRender();
+    });
+
+    const alert = view.getByRole("alert");
+    expect(Boolean(alert.textContent?.includes("Page draft closed"))).toBe(true);
+
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Restore" }));
+      await settleAsyncRender();
+    });
+
+    expect(restoreCalls).toBe(1);
+    await waitFor(() => {
+      if (view.baseElement.textContent?.includes("Page draft closed")) {
+        throw new Error("Expected the successful toast action to dismiss its toast.");
+      }
+    });
+  });
+
+  test("lets a recoverable action keep its toast open when recovery is unavailable", async () => {
+    const view = render(<ToastHarness />);
+
+    await act(async () => {
+      toast.info("Page draft closed", {
+        duration: 0,
+        action: {
+          label: "Restore",
+          onClick: () => false,
+        },
+      });
+      await settleAsyncRender();
+    });
+
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Restore" }));
+      await settleAsyncRender();
+    });
+
+    expect(Boolean(view.baseElement.textContent?.includes("Page draft closed"))).toBe(true);
+  });
+
   test("renders custom toasts and lets the custom content close itself", async () => {
     const view = render(<ToastHarness />);
 

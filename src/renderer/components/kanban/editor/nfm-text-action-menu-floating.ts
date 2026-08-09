@@ -1,16 +1,18 @@
 import type { FloatingUIOptions } from "@blocknote/react";
 import { flip, offset, shift } from "@floating-ui/react";
+import { NFM_EDITOR_FLOATING_UI_Z_INDEX } from "./nfm-blocknote-floating-ui";
 
 export const NFM_TEXT_ACTION_MENU_FLOATING_OPTIONS = {
   useFloatingOptions: {
     placement: "bottom-start",
+    strategy: "fixed",
     transform: false,
     middleware: [
       offset(({ rects }) => ({
         crossAxis: rects.reference.width,
       })),
-      shift(),
-      flip(),
+      shift({ padding: 8 }),
+      flip({ padding: 8 }),
     ],
   },
   useTransitionStylesProps: {
@@ -43,7 +45,7 @@ export const NFM_TEXT_ACTION_MENU_FLOATING_OPTIONS = {
   elementProps: {
     className: "notion-text-action-menu pointer-events-none",
     style: {
-      zIndex: 40,
+      zIndex: NFM_EDITOR_FLOATING_UI_Z_INDEX,
       transformOrigin: "112px center",
     },
   },

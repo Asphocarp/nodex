@@ -22,6 +22,8 @@ let currentHoveredLink:
       range: { from: number; to: number };
     }
   | undefined;
+let latestPortalElement: HTMLElement | null | undefined;
+let latestFloatingStrategy: unknown;
 
 vi.mock("./nfm-link-toolbar-controller-deps", () => ({
   useBlockNoteEditor: () => ({
@@ -46,9 +48,19 @@ vi.mock("./nfm-link-toolbar-controller-deps", () => ({
     getLinkAtElement: () => currentHoveredLink,
     getLinkElementAtPos: () => anchorElement,
   }),
-  NfmFloatingPopover: ({ children }: { children: ReactNode }) => (
-    <div data-testid="nfm-floating-popover">{children}</div>
-  ),
+  NfmFloatingPopover: ({
+    children,
+    portalElement,
+    useFloatingOptions,
+  }: {
+    children: ReactNode;
+    portalElement?: HTMLElement | null;
+    useFloatingOptions?: { strategy?: unknown };
+  }) => {
+    latestPortalElement = portalElement;
+    latestFloatingStrategy = useFloatingOptions?.strategy;
+    return <div data-testid="nfm-floating-popover">{children}</div>;
+  },
 }));
 
 function makeSelectionLink(href: string, text: string, from: number, to: number) {
@@ -68,10 +80,21 @@ beforeEach(() => {
   changeCallback = undefined;
   currentSelectionLink = undefined;
   currentHoveredLink = undefined;
+  latestPortalElement = undefined;
+  latestFloatingStrategy = undefined;
   anchorElement.href = "https://community.openai.com/t/example";
 });
 
 describe("NfmLinkToolbarController", () => {
+  test("uses the shared body portal and fixed positioning by default", async () => {
+    const { NfmLinkToolbarController } = await import("./nfm-link-toolbar-controller");
+
+    render(<NfmLinkToolbarController linkToolbar={() => null} />);
+
+    expect(latestPortalElement).toBeNull();
+    expect(latestFloatingStrategy).toBe("fixed");
+  });
+
   test("keeps the current link snapshot mounted while the toolbar is frozen", async () => {
     currentSelectionLink = makeSelectionLink(
       "https://community.openai.com/t/example",
