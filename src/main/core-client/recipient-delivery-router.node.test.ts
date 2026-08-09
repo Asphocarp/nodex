@@ -191,4 +191,36 @@ describe("RecipientDeliveryRouter", () => {
       scheduledResetRetries: 0,
     });
   });
+
+  test("bounds quiet reset retries over ten minutes and disposes the timer", async () => {
+    vi.useFakeTimers();
+    const target = sender();
+    let resetAttempts = 0;
+    const router = new RecipientDeliveryRouter({
+      random: () => 0,
+      send: (_sender, _channel, envelope) => {
+        if (envelope.payload.kind === "reset") resetAttempts += 1;
+        return false;
+      },
+    });
+    const recipient = router.register(target, lease);
+
+    recipient.publish(packet(10));
+    await vi.advanceTimersByTimeAsync(10 * 60_000);
+
+    expect(resetAttempts).toBeLessThanOrEqual(20);
+    expect(router.diagnostics().scheduledResetRetries).toBe(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(resetAttempts).toBe(21);
+    router.dispose();
+    expect(router.diagnostics()).toEqual({
+      recipients: 0,
+      pendingAdmissions: 0,
+      fencedRecipients: 0,
+      scheduledResetRetries: 0,
+    });
+    const attemptsAtDispose = resetAttempts;
+    await vi.advanceTimersByTimeAsync(10 * 60_000);
+    expect(resetAttempts).toBe(attemptsAtDispose);
+  });
 });

@@ -39,8 +39,13 @@ broaden its authorization scope. The renderer IPC carries exactly one complete
 packet or one lease-bound `AddressReset`; effect-only projection and revocation
 channels do not exist. Send failure, NACK, ACK timeout, queue overflow,
 integrity failure, reload, and epoch replacement fence the address and actively
-retry reset delivery with one bounded jittered timer. A reset ACK clears only
-the required floor it covers.
+retry reset delivery with one bounded jittered timer. Retry starts at 100 ms
+and caps at 60 seconds; an independent retry-window budget keeps a continuously
+failed active address within 20 attempts over ten minutes for every jitter
+sequence. Disposal cancels the timer and discards the budget.
+A reset ACK clears only the required floor it covers. If another WebContents
+later subscribes to an already-active address, Main installs the retained Core
+lease for that recipient and sends a floor reset before ordinary packets.
 
 Apply responses, including Document apply ACKs, enter the same renderer
 `LocalCommitIngress` before their feature Promise resolves. Audience packets
@@ -95,6 +100,13 @@ carry Project-scoped revocations, but adapters never infer historical scope
 from current ownership. Revocation identity uses a canonical structured scope
 encoding, never delimiter-concatenated IDs. A packet containing only
 revocations is valid.
+
+Dirty facts remain mechanical rather than command-specific. UPDATE triggers
+require an actual watched-value change, and ordinary content Block rows do not
+enter the authority journal. When one commit promotes a Block and advances its
+new Page/Document through genesis and placement states, every fact is retained
+but pre-visibility is mechanically empty for those born roots. Any fact that
+touches a pre-existing root falls back to exact reverse-overlay evaluation.
 
 For a Page-to-Board promotion, heavy Yrs reconstruction and transformation run
 against isolated working clones outside the SQLite writer. The writer then

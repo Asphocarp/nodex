@@ -5047,6 +5047,22 @@ mod tests {
         validate_exact_v108_schema(&connection).expect("exact v108 Store");
     }
 
+    fn seed_owned_v109_store(home: &Path) {
+        seed_owned_v108_store_with_person_value(home);
+        let mut connection = open_writer(&home.join("nodex.db")).expect("v108 writer");
+        with_immediate_transaction(&mut connection, |transaction| {
+            ensure_v109_local_commit_delivery_atoms_schema(transaction)?;
+            transaction.execute(
+                "UPDATE core_store_metadata SET store_format_version = 109 WHERE id = 1",
+                [],
+            )?;
+            transaction.pragma_update(None, "user_version", 109)?;
+            Ok(())
+        })
+        .expect("seed v109 Store");
+        validate_exact_v109_schema(&connection).expect("exact v109 Store");
+    }
+
     fn seed_v84_page(home: &Path) {
         let mut connection = open_writer(&home.join("nodex.db")).expect("v84 writer");
         install_v84_schema(&connection).expect("v84 schema");
@@ -6865,6 +6881,49 @@ mod tests {
                 Ok(())
             })
             .expect("verify v109 Property and delivery authority");
+    }
+
+    #[test]
+    fn v109_store_upgrades_visibility_journal_and_exact_schema() {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        seed_owned_v109_store(&home);
+
+        let upgraded = SqliteStoreKernel::open(&home).expect("upgrade exact v109 store");
+        assert_eq!(upgraded.preparation().migrated_from_version, Some(109));
+        assert!(upgraded.preparation().migration_backup_path.is_some());
+        upgraded
+            .readers()
+            .read_default(|connection| {
+                assert_eq!(
+                    connection
+                        .query_row("PRAGMA user_version", [], |row| { row.get::<_, i64>(0) })?,
+                    CORE_SCHEMA_VERSION
+                );
+                for table in [
+                    "local_commit_library_effects",
+                    "local_commit_visibility_context",
+                    "local_commit_visibility_dirty_facts",
+                    "local_commit_visibility_deltas",
+                    "local_commit_sealed_projection_effects",
+                ] {
+                    assert_eq!(
+                        connection.query_row(
+                            "SELECT count(*) FROM sqlite_schema
+                             WHERE type = 'table' AND name = ?1",
+                            [table],
+                            |row| row.get::<_, i64>(0),
+                        )?,
+                        1,
+                        "missing v110 table {table}"
+                    );
+                }
+                let actual = schema_inventory_fingerprint(&read_schema_inventory(connection)?);
+                let expected = expected_store_schema_fingerprint(CORE_SCHEMA_VERSION)?;
+                assert_eq!(actual, expected);
+                Ok(())
+            })
+            .expect("verify exact v110 visibility schema");
     }
 
     #[test]

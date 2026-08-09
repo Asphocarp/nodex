@@ -39,6 +39,8 @@ interface RecipientState {
   resetReason: AddressResetReason;
   retryTimer: ReturnType<typeof setTimeout> | null;
   retryAttempt: number;
+  retryWindowStartedAt: number;
+  retryWindowAttempts: number;
   released: boolean;
 }
 
@@ -63,6 +65,8 @@ export interface RecipientDeliveryRouterInput {
 }
 
 const HASH_PATTERN = /^[a-f0-9]{64}$/u;
+const RESET_RETRY_WINDOW_MS = 10 * 60_000;
+const RESET_RETRY_WINDOW_LIMIT = 20;
 
 const digest = (value: unknown): string => createHash("sha256")
   .update(JSON.stringify(value))
@@ -140,7 +144,7 @@ export class RecipientDeliveryRouter {
     this.#retryBaseMs = Math.max(1, Math.floor(input.retryBaseMs ?? 100));
     this.#retryMaxMs = Math.max(
       this.#retryBaseMs,
-      Math.floor(input.retryMaxMs ?? 30_000),
+      Math.floor(input.retryMaxMs ?? 60_000),
     );
     this.#random = input.random ?? Math.random;
   }
@@ -169,6 +173,8 @@ export class RecipientDeliveryRouter {
       resetReason: "stream_gap",
       retryTimer: null,
       retryAttempt: 0,
+      retryWindowStartedAt: Date.now(),
+      retryWindowAttempts: 0,
       released: false,
     };
     this.#states.set(key, state);
@@ -205,6 +211,8 @@ export class RecipientDeliveryRouter {
     ) {
       state.requiredFloor = null;
       state.retryAttempt = 0;
+      state.retryWindowStartedAt = Date.now();
+      state.retryWindowAttempts = 0;
       this.#requiredFloors.delete(stateKey(
         state.sender.id,
         state.lease.delivery_address,
@@ -303,6 +311,11 @@ export class RecipientDeliveryRouter {
   #sendReset(state: RecipientState): boolean {
     if (!state.requiredFloor || state.released) return false;
     if ([...state.pending.values()].some((pending) => pending.reset)) return true;
+    const retryBudgetDelay = this.#claimResetAttempt(state);
+    if (retryBudgetDelay > 0) {
+      this.#scheduleReset(state, retryBudgetDelay);
+      return false;
+    }
     for (const pending of [...state.pending.values()]) {
       this.#fence(state, pending.floor, state.resetReason);
       this.#forgetPending(state, pending);
@@ -401,14 +414,29 @@ export class RecipientDeliveryRouter {
     );
   }
 
-  #scheduleReset(state: RecipientState): void {
+  #claimResetAttempt(state: RecipientState): number {
+    const now = Date.now();
+    const windowEndsAt = state.retryWindowStartedAt + RESET_RETRY_WINDOW_MS;
+    if (now > windowEndsAt) {
+      state.retryWindowStartedAt = now;
+      state.retryWindowAttempts = 0;
+    }
+    if (state.retryWindowAttempts < RESET_RETRY_WINDOW_LIMIT) {
+      state.retryWindowAttempts += 1;
+      return 0;
+    }
+    return Math.max(1, windowEndsAt - now + 1);
+  }
+
+  #scheduleReset(state: RecipientState, requiredDelayMs?: number): void {
     if (state.released || state.retryTimer || !state.requiredFloor) return;
     const cap = Math.min(
       this.#retryMaxMs,
       this.#retryBaseMs * (2 ** Math.min(state.retryAttempt, 16)),
     );
-    const delay = Math.max(1, Math.floor(cap * this.#random()));
-    state.retryAttempt += 1;
+    const delay = requiredDelayMs
+      ?? Math.max(1, Math.floor(cap * this.#random()));
+    if (requiredDelayMs === undefined) state.retryAttempt += 1;
     state.retryTimer = setTimeout(() => {
       state.retryTimer = null;
       if (state.released || !state.requiredFloor) return;

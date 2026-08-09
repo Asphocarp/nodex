@@ -23,8 +23,13 @@ v110 adds transaction-owned authority dirty facts, canonical pre/post
 visibility deltas, and explicit private sealed Projection descriptors. SQLite
 triggers make authority capture mechanical while domain Modules retain their
 canonical writes; `DurableMutation` alone opens and finalizes the journal, and
-LocalCommit sealing rejects active or unconsumed evidence. Physical
-`change_log_seq` remains an internal
+LocalCommit sealing rejects active or unconsumed evidence. Update triggers
+record only actual watched-value changes, and Block facts are limited to the
+Page/Database/Canvas types that can carry read authority. A resource created
+and moved through several intermediate states in one commit has no pre-state
+claim, so the journal observes only that commit's born roots and uses an empty
+pre-set; updates to any pre-existing root still use the exact reverse overlay.
+Physical `change_log_seq` remains an internal
 history coordinate rather than a public cursor.
 
 Every LocalCommit child artifact is addressed by the complete
@@ -148,7 +153,11 @@ logical `DeliveryAddress`; the Core live barrier returns an
 `AuthorizedRecipientLease` that binds that address to its immutable
 authorization scope. Main cannot construct or broaden the scope. The recipient
 router carries either one intact packet-v4 value or one lease-bound
-`AddressReset`. Canonical reads remain independently authorized by Core.
+`AddressReset`. Several WebContents may subscribe to the same logical address.
+While that address remains active, Main retains the current Core lease and
+barrier floor; a later recipient first receives a lease-bound reset at that
+floor and then joins ordinary packet delivery. Canonical reads remain
+independently authorized by Core.
 
 Core's durable streams are log-driven. Global subscribers and the scoped
 Electron Host broker share the private `CommitWakeScanner`: each first installs

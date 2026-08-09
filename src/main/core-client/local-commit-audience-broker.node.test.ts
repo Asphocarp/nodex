@@ -131,4 +131,70 @@ describe("LocalCommitAudienceBroker", () => {
       },
     });
   });
+
+  test("binds a later recipient when its address is already leased", () => {
+    const sent: Array<{
+      readonly senderId: number;
+      readonly envelope: RecipientDeliveryEnvelope;
+    }> = [];
+    const router = new RecipientDeliveryRouter({
+      send: (target, _channel, envelope) => {
+        sent.push({ senderId: target.id, envelope });
+        return true;
+      },
+    });
+    const broker = new LocalCommitAudienceBroker({
+      router,
+      onScopesChanged: () => undefined,
+      resolveLibraryId: () => "library-1",
+    });
+    broker.subscribe(sender(1), address("project-1"));
+    broker.installLeases(
+      [lease("project-1", "c")],
+      { storeEpoch: "epoch-1", commitSeq: 4 },
+      [address("project-1")],
+      "stream_gap",
+    );
+    const firstReset = sent.at(-1)?.envelope;
+    if (!firstReset) throw new Error("First recipient received no reset");
+    expect(router.admit(1, {
+      version: 2,
+      deliveryId: firstReset.deliveryId,
+      outcome: "ack",
+    })).toBe(true);
+    sent.length = 0;
+
+    broker.subscribe(sender(2), address("project-1"));
+
+    expect(sent).toEqual([
+      expect.objectContaining({
+        senderId: 2,
+        envelope: expect.objectContaining({
+          recipientLeaseId: "c".repeat(64),
+          payload: {
+            kind: "reset",
+            reset: expect.objectContaining({
+              required_commit_seq: 4,
+              reason: "stream_gap",
+            }),
+          },
+        }),
+      }),
+    ]);
+    const secondReset = sent.at(-1)?.envelope;
+    if (!secondReset) throw new Error("Second recipient received no reset");
+    expect(router.admit(2, {
+      version: 2,
+      deliveryId: secondReset.deliveryId,
+      outcome: "ack",
+    })).toBe(true);
+
+    sent.length = 0;
+    const packet = createCoreLocalCommitFixture({
+      authorizationScope: address("project-1"),
+      commitSeq: 5,
+    });
+    expect(broker.publish(packet)).toMatchObject({ recipients: 2, sent: 2 });
+    expect(sent.map((entry) => entry.senderId)).toEqual([1, 2]);
+  });
 });

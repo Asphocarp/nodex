@@ -10,6 +10,13 @@ Physical Module events are private reconstruction evidence, never an authorizati
 
 Packet v4 binds a separate `DeliveryAddress`, a Core-authored `AuthorizationScope`, complete Manifest coverage, Document and Projection effects, and Manifest-bound `VisibilityDelta` values into one integrity identity. Exact `Revoke` deltas evict matching authority before post-state content; `ConservativeReset` fences an entire address only when the journal cannot prove an exact bounded closure. Transport failures never invent either delta: the Core barrier signs an `AuthorizedRecipientLease`, and Main may use that immutable lease only to route the exact address or author a non-Manifest `AddressReset`. Audience IPC accepts owned top-level renderer frames, validates the requested Library/address and a 200-address bound, and cannot submit an authorization scope. Apply, audience-live, and durable ingress use the same packet-v4 structural validator and fail closed on legacy shape, malformed lease, coverage mismatch, or Store/Library/event mismatch. Visibility evidence evicts stale client authority but never replaces Core authorization on a later canonical read.
 
+Multiple owned WebContents may consume one logical address without sharing
+renderer state. Main retains only the current Core lease and barrier floor for
+that active address; each later recipient must accept a lease-bound floor reset
+before packet admission. Destroying the recipient removes its pending packet,
+ACK, reset, timer, and WebContents reference. Neither ref-counting nor retry can
+mint a new scope or keep a released lease alive.
+
 Canonical Library navigation/Page, Database View/row, Page Detail, and owned-Document descriptor reads carry a Core-authored `AuthorizedReadStamp`. Its subject, request dependencies, dynamic authorization dependencies, address/scope, Store epoch, covered commit, and canonical hash come from the same SQLite read snapshot. Adapters may transport the stamp but cannot add roots or raise its floor. Renderer caches verify it and reject a response below any observed address or matching root floor. Exact revocation therefore cannot be defeated by a late response, an inferred ancestor path, or a cache entry created before its dynamic roots were known. Root, registration, address, and in-flight bounds fail closed; none use drop-oldest eviction.
 
 ## Threat Model

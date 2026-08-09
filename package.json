@@ -25,7 +25,7 @@
     "test:stress": "pnpm run test:unit:stress && pnpm run test:main:stress && pnpm run test:renderer:stress && pnpm run test:browser:stress && pnpm run test:integration:stress",
     "test:complete": "pnpm test && pnpm run test:stress",
     "test:e2e": "pnpm run core:binaries:build:dev && pnpm run build && playwright test --config playwright.e2e.config.ts",
-    "test:e2e:performance": "pnpm run core:binaries:build:dev && pnpm run build && playwright test --config playwright.e2e.config.ts --grep 'keeps representative large-content surfaces bounded|measures high-pressure nested Block transfer into a populated Board'",
+    "test:e2e:performance": "pnpm run core:binaries:build:dev && pnpm run build && playwright test --config playwright.e2e.config.ts --grep 'keeps representative large-content surfaces bounded|keeps Page ready and idle CPU bounded with 14k LocalCommit history|measures high-pressure nested Block transfer into a populated Board'",
     "test:performance": "pnpm run core:benchmark:rust && pnpm run test:e2e:performance",
     "test:all": "pnpm run verify:source",
     "test:watch": "vitest --config vitest.node.config.ts",

@@ -234,6 +234,7 @@ const expectedRoutes = new Set([
   "/core/v1/events",
   "/core/v1/handshake",
   "/core/v1/health",
+  "/core/v1/local-mutations/resolve",
   ...["administration", "automation", "database", "document", "library", "workspace"]
     .flatMap((module) => ["apply", "read"].map((operation) =>
       `/core/v1/modules/${module}/${operation}`)),

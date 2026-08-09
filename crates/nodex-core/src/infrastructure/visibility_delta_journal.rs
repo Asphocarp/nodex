@@ -580,8 +580,15 @@ impl VisibilityDeltaJournal {
             }));
             return Ok(());
         }
+        let pure_births = pure_resource_births(&facts)?;
+        if let Some(born) = pure_births.as_ref() {
+            candidates.retain(|resource| born.contains(resource));
+        }
         let post = observe_visibility(&CurrentGraphView::new(connection), &candidates)?;
-        let pre = observe_pre_visibility(connection, context, &facts, &candidates)?;
+        let pre = match pure_births {
+            Some(_) => BTreeSet::new(),
+            None => observe_pre_visibility(connection, context, &facts, &candidates)?,
+        };
         if pre.len().saturating_add(post.len()) > MAX_EXACT_VISIBILITY_CLAIMS {
             let conservative_scopes = pre
                 .iter()
@@ -978,6 +985,168 @@ fn required_string(row: &Value, field: &str) -> Result<String, StoreError> {
         .filter(|value| !value.is_empty())
         .map(str::to_owned)
         .ok_or_else(|| corrupt("Visibility dirty fact is missing a canonical identity"))
+}
+
+fn authority_block_resource(row: &Value) -> Result<Option<ResourceKey>, StoreError> {
+    let id = required_string(row, "id")?;
+    Ok(match required_string(row, "type")?.as_str() {
+        "page" => Some(ResourceKey::Page { page_id: id }),
+        "database" => Some(ResourceKey::Database { database_id: id }),
+        "canvas" => Some(ResourceKey::Canvas { canvas_id: id }),
+        _ => None,
+    })
+}
+
+fn inserted_resource(
+    fact: &DirtyFact,
+    relation: &str,
+    field: &str,
+    resource: impl FnOnce(String) -> ResourceKey,
+) -> Result<Option<ResourceKey>, StoreError> {
+    if fact.relation_kind != relation || fact.operation != "insert" {
+        return Ok(None);
+    }
+    let row = fact
+        .new_row
+        .as_ref()
+        .ok_or_else(|| corrupt("Inserted visibility fact has no new row"))?;
+    Ok(Some(resource(required_string(row, field)?)))
+}
+
+fn born_resources(facts: &[DirtyFact]) -> Result<BTreeSet<ResourceKey>, StoreError> {
+    let mut born = BTreeSet::new();
+    for fact in facts {
+        if fact.relation_kind == "blocks" {
+            let new_resource = fact
+                .new_row
+                .as_ref()
+                .map(authority_block_resource)
+                .transpose()?
+                .flatten();
+            let old_resource = fact
+                .old_row
+                .as_ref()
+                .map(authority_block_resource)
+                .transpose()?
+                .flatten();
+            if matches!(fact.operation.as_str(), "insert" | "update")
+                && old_resource.is_none()
+                && let Some(resource) = new_resource
+            {
+                born.insert(resource);
+            }
+            continue;
+        }
+        for resource in [
+            inserted_resource(fact, "documents", "id", |document_id| {
+                ResourceKey::Document { document_id }
+            })?,
+            inserted_resource(fact, "data_sources", "id", |data_source_id| {
+                ResourceKey::DataSource { data_source_id }
+            })?,
+            inserted_resource(fact, "database_views", "id", |view_id| ResourceKey::View {
+                view_id,
+            })?,
+        ]
+        .into_iter()
+        .flatten()
+        {
+            born.insert(resource);
+        }
+    }
+    Ok(born)
+}
+
+fn fact_is_resource_birth(
+    fact: &DirtyFact,
+    born: &BTreeSet<ResourceKey>,
+) -> Result<bool, StoreError> {
+    if fact.relation_kind == "blocks" {
+        let Some(new_row) = fact.new_row.as_ref() else {
+            return Ok(false);
+        };
+        let new_resource = authority_block_resource(new_row)?;
+        let old_resource = fact
+            .old_row
+            .as_ref()
+            .map(authority_block_resource)
+            .transpose()?
+            .flatten();
+        return Ok(matches!(fact.operation.as_str(), "insert" | "update")
+            && old_resource
+                .as_ref()
+                .is_none_or(|resource| born.contains(resource))
+            && new_resource.is_some_and(|resource| born.contains(&resource)));
+    }
+    if !matches!(fact.operation.as_str(), "insert" | "update") {
+        return Ok(false);
+    }
+    let Some(row) = fact.new_row.as_ref() else {
+        return Ok(false);
+    };
+    match fact.relation_kind.as_str() {
+        "documents" => Ok(born.contains(&ResourceKey::Document {
+            document_id: required_string(row, "id")?,
+        })),
+        "pages" => Ok(born.contains(&ResourceKey::Page {
+            page_id: required_string(row, "block_id")?,
+        }) && born.contains(&ResourceKey::Document {
+            document_id: required_string(row, "document_id")?,
+        })),
+        "block_documents" => Ok(born.contains(&ResourceKey::Document {
+            document_id: required_string(row, "document_id")?,
+        })),
+        "database_containers" => Ok(born.contains(&ResourceKey::Database {
+            database_id: required_string(row, "block_id")?,
+        })),
+        "data_sources" => Ok(born.contains(&ResourceKey::DataSource {
+            data_source_id: required_string(row, "id")?,
+        })),
+        "database_views" => Ok(born.contains(&ResourceKey::View {
+            view_id: required_string(row, "id")?,
+        })),
+        "data_source_page_memberships" => Ok(born.contains(&ResourceKey::Page {
+            page_id: required_string(row, "page_block_id")?,
+        })),
+        "canvas_owners" => Ok(born.contains(&ResourceKey::Canvas {
+            canvas_id: required_string(row, "block_id")?,
+        })),
+        "project_resource_grants" => {
+            let root_id = required_string(row, "root_id")?;
+            Ok(match required_string(row, "root_kind")?.as_str() {
+                "page" => born.contains(&ResourceKey::Page { page_id: root_id }),
+                "database" => born.contains(&ResourceKey::Database {
+                    database_id: root_id,
+                }),
+                _ => false,
+            })
+        }
+        "project_database_bindings" => Ok(born.contains(&ResourceKey::Database {
+            database_id: required_string(row, "database_block_id")?,
+        })),
+        "projects" if fact.operation == "insert" => {
+            let database_id = row.get("database_block_id").and_then(Value::as_str);
+            Ok(database_id.is_none_or(|database_id| {
+                born.contains(&ResourceKey::Database {
+                    database_id: database_id.to_owned(),
+                })
+            }))
+        }
+        _ => Ok(false),
+    }
+}
+
+fn pure_resource_births(facts: &[DirtyFact]) -> Result<Option<BTreeSet<ResourceKey>>, StoreError> {
+    let born = born_resources(facts)?;
+    if born.is_empty() {
+        return Ok(None);
+    }
+    for fact in facts {
+        if !fact_is_resource_birth(fact, &born)? {
+            return Ok(None);
+        }
+    }
+    Ok(Some(born))
 }
 
 fn observe_pre_visibility(
@@ -1515,9 +1684,11 @@ fn install_relation_triggers(
         ),
     ] {
         let trigger = quote_identifier(&trigger_name(relation.table, &operation));
+        let row_predicate = trigger_row_predicate(relation, &operation);
         connection.execute_batch(&format!(
             "CREATE TRIGGER {trigger}\n\
              BEFORE {event} ON {table}\n\
+             WHEN {row_predicate}\n\
              BEGIN\n\
                SELECT CASE WHEN NOT EXISTS (\n\
                  SELECT 1 FROM local_commit_visibility_context\n\
@@ -1533,6 +1704,34 @@ fn install_relation_triggers(
         ))?;
     }
     Ok(())
+}
+
+fn trigger_row_predicate(relation: &AuthorityRelation, operation: &str) -> String {
+    let row_filter = if relation.table == "blocks" {
+        match operation {
+            "insert" => "NEW.type IN ('page', 'database', 'canvas')",
+            "update" => {
+                "OLD.type IN ('page', 'database', 'canvas') OR NEW.type IN ('page', 'database', 'canvas')"
+            }
+            "delete" => "OLD.type IN ('page', 'database', 'canvas')",
+            _ => "0",
+        }
+    } else {
+        "1"
+    };
+    if operation != "update" {
+        return row_filter.to_owned();
+    }
+    let changed = relation
+        .watched_columns
+        .iter()
+        .map(|column| {
+            let column = quote_identifier(column);
+            format!("OLD.{column} IS NOT NEW.{column}")
+        })
+        .collect::<Vec<_>>()
+        .join(" OR ");
+    format!("({row_filter}) AND ({changed})")
 }
 
 fn row_json_expression(prefix: &str, columns: &[(String, String)]) -> String {
@@ -1629,6 +1828,20 @@ mod tests {
         }
     }
 
+    fn relation_fact(
+        relation_kind: &str,
+        operation: &str,
+        old_row: Option<Value>,
+        new_row: Option<Value>,
+    ) -> DirtyFact {
+        DirtyFact {
+            relation_kind: relation_kind.to_owned(),
+            operation: operation.to_owned(),
+            old_row,
+            new_row,
+        }
+    }
+
     fn stored_project(connection: &Connection) -> Option<(String, String, String)> {
         connection
             .query_row(
@@ -1710,6 +1923,106 @@ mod tests {
     }
 
     #[test]
+    fn resource_births_derive_pre_visibility_without_replaying_the_schema() {
+        let facts = vec![
+            relation_fact(
+                "blocks",
+                "update",
+                Some(json!({ "id": "page:born", "type": "paragraph" })),
+                Some(json!({ "id": "page:born", "type": "page" })),
+            ),
+            relation_fact(
+                "blocks",
+                "update",
+                Some(json!({ "id": "page:born", "type": "page" })),
+                Some(json!({ "id": "page:born", "type": "page" })),
+            ),
+            relation_fact(
+                "documents",
+                "insert",
+                None,
+                Some(json!({ "id": "document:born" })),
+            ),
+            relation_fact(
+                "documents",
+                "update",
+                Some(json!({ "id": "document:born" })),
+                Some(json!({ "id": "document:born" })),
+            ),
+            relation_fact(
+                "pages",
+                "insert",
+                None,
+                Some(json!({
+                    "block_id": "page:born",
+                    "document_id": "document:born"
+                })),
+            ),
+            relation_fact(
+                "pages",
+                "update",
+                Some(json!({
+                    "block_id": "page:born",
+                    "document_id": "document:born"
+                })),
+                Some(json!({
+                    "block_id": "page:born",
+                    "document_id": "document:born"
+                })),
+            ),
+            relation_fact(
+                "project_resource_grants",
+                "insert",
+                None,
+                Some(json!({ "root_kind": "page", "root_id": "page:born" })),
+            ),
+            relation_fact(
+                "data_source_page_memberships",
+                "insert",
+                None,
+                Some(json!({ "page_block_id": "page:born" })),
+            ),
+        ];
+        let births = pure_resource_births(&facts)
+            .expect("birth derivation")
+            .expect("birth-only facts");
+
+        assert_eq!(
+            births,
+            BTreeSet::from([
+                ResourceKey::Page {
+                    page_id: "page:born".to_owned(),
+                },
+                ResourceKey::Document {
+                    document_id: "document:born".to_owned(),
+                },
+            ])
+        );
+    }
+
+    #[test]
+    fn existing_resource_grants_still_require_the_reverse_overlay() {
+        let facts = vec![relation_fact(
+            "project_resource_grants",
+            "insert",
+            None,
+            Some(json!({ "root_kind": "page", "root_id": "page:existing" })),
+        )];
+
+        assert_eq!(
+            pure_resource_births(&facts).expect("grant classification"),
+            None
+        );
+        let blocks = AUTHORITY_RELATIONS
+            .iter()
+            .find(|relation| relation.table == "blocks")
+            .expect("blocks authority relation");
+        assert!(
+            trigger_row_predicate(blocks, "update").contains("OLD.\"type\" IS NOT NEW.\"type\"")
+        );
+    }
+
+    #[test]
     fn authority_writes_require_an_active_or_maintenance_context() {
         let directory = tempdir().expect("Profile");
         let kernel = SqliteStoreKernel::open(directory.path()).expect("production Core store");
@@ -1787,6 +2100,51 @@ mod tests {
                 Ok(())
             })
             .expect("maintenance authority write");
+    }
+
+    #[test]
+    fn authority_update_statements_ignore_unchanged_watched_values() {
+        let directory = tempdir().expect("Profile");
+        let kernel = SqliteStoreKernel::open_test(directory.path()).expect("test Core store");
+        kernel
+            .writer()
+            .call(|connection| {
+                connection.execute_batch(
+                    "INSERT INTO block_store_metadata(
+                       id, store_epoch, created_at, updated_at
+                     ) VALUES (1, 'epoch:unchanged-authority', '2026-08-09', '2026-08-09');
+                     INSERT INTO projects(id, name, lifecycle, created, updated)
+                     VALUES (
+                       'project:unchanged-authority', 'Unchanged', 'active',
+                       '2026-08-09', '2026-08-09'
+                     );",
+                )?;
+                with_immediate_transaction(connection, |transaction| {
+                    let context = local_commit::allocate(
+                        transaction,
+                        "epoch:unchanged-authority",
+                        "operation:unchanged-authority",
+                        &crate::document::sha256(b"unchanged authority"),
+                        "2026-08-09T00:00:00Z",
+                    )?;
+                    let journal = VisibilityDeltaJournal::begin(transaction, &context)?;
+                    transaction.execute(
+                        "UPDATE projects SET lifecycle = 'active', updated = '2026-08-10'
+                         WHERE id = 'project:unchanged-authority'",
+                        [],
+                    )?;
+                    let fact_count: i64 = transaction.query_row(
+                        "SELECT count(*) FROM local_commit_visibility_dirty_facts
+                         WHERE commit_seq = ?1",
+                        [context.commit_seq()],
+                        |row| row.get(0),
+                    )?;
+                    assert_eq!(fact_count, 0);
+                    journal.finish_no_op(transaction, &context)?;
+                    local_commit::abandon(transaction, &context)
+                })
+            })
+            .expect("unchanged authority update");
     }
 
     #[test]

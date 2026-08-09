@@ -182,6 +182,9 @@ Document apply ACK follows the same rule. Main routes only complete non-origin
 packets through a Core-issued address lease and requires a causal-ingress ACK.
 A missed recipient receives an actively retried `AddressReset` and canonical
 repair; projection and revocation effects are never separate IPC protocols.
+Two WebContents may mount the same logical address. A later recipient first
+accepts the retained Core lease's barrier-floor reset, then receives complete
+packets independently; it never borrows another renderer's ingress or cache.
 The ingress and projection registry are renderer-lifetime services rather than
 React Provider-owned state. Projection revision/hash integrity is shared across
 audiences, but delivery dedupe includes the concrete Library/Project address;

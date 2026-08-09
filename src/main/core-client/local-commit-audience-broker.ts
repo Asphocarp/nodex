@@ -35,6 +35,11 @@ interface AudienceSubscription {
   recipient: RecipientHandle | null;
 }
 
+interface CurrentLeaseGrant {
+  readonly lease: AuthorizedRecipientLease;
+  readonly floor: { readonly storeEpoch: string; readonly commitSeq: number };
+}
+
 const subscriptionKey = (senderId: number, address: DeliveryAddress): string =>
   `${senderId}:${deliveryAddressKey(address)}`;
 
@@ -67,6 +72,7 @@ export class LocalCommitAudienceBroker {
   readonly #onScopesChanged: (scopes: readonly ProjectionScope[]) => void;
   readonly #resolveLibraryId: () => string | null;
   readonly #subscriptions = new Map<string, AudienceSubscription>();
+  readonly #leaseGrants = new Map<string, CurrentLeaseGrant>();
 
   constructor(input: {
     readonly router: RecipientDeliveryRouter;
@@ -101,11 +107,18 @@ export class LocalCommitAudienceBroker {
       this.#subscriptions.delete(key);
       throw new RangeError("Local commit audience supports at most 200 addresses");
     }
+    const grant = this.#leaseGrants.get(deliveryAddressKey(address));
+    if (grant) {
+      state.lease = grant.lease;
+      state.recipient = this.#router.register(sender, grant.lease);
+      state.recipient.reset(grant.floor, "stream_gap");
+    }
     this.#notifyScopes();
     return () => {
       if (this.#subscriptions.get(key) !== state) return;
       this.#subscriptions.delete(key);
       this.#release(state);
+      this.#pruneLeaseGrants();
       this.#notifyScopes();
     };
   }
@@ -122,11 +135,18 @@ export class LocalCommitAudienceBroker {
     const byAddress = new Map(
       leases.map((lease) => [deliveryAddressKey(lease.delivery_address), lease]),
     );
+    this.#leaseGrants.clear();
+    for (const [addressKey, lease] of byAddress) {
+      this.#leaseGrants.set(addressKey, { lease, floor });
+    }
     const resetKeys = new Set(resetAddresses.map(deliveryAddressKey));
     for (const state of this.#subscriptions.values()) {
       const addressKey = deliveryAddressKey(state.address);
       const lease = byAddress.get(addressKey);
-      if (!lease) continue;
+      if (!lease) {
+        this.#release(state);
+        continue;
+      }
       if (state.lease?.lease_id !== lease.lease_id) {
         state.recipient?.release();
         state.lease = lease;
@@ -175,6 +195,7 @@ export class LocalCommitAudienceBroker {
       this.#subscriptions.delete(key);
       this.#release(state);
     }
+    this.#pruneLeaseGrants();
     this.#router.releaseSender(senderId);
     this.#notifyScopes();
   }
@@ -182,6 +203,7 @@ export class LocalCommitAudienceBroker {
   dispose(): void {
     for (const state of this.#subscriptions.values()) this.#release(state);
     this.#subscriptions.clear();
+    this.#leaseGrants.clear();
     this.#router.dispose();
     this.#notifyScopes();
   }
@@ -215,6 +237,17 @@ export class LocalCommitAudienceBroker {
 
   #notifyScopes(): void {
     this.#onScopesChanged(this.#scopes());
+  }
+
+  #pruneLeaseGrants(): void {
+    const activeAddresses = new Set(
+      [...this.#subscriptions.values()].map((state) =>
+        deliveryAddressKey(state.address)
+      ),
+    );
+    for (const addressKey of this.#leaseGrants.keys()) {
+      if (!activeAddresses.has(addressKey)) this.#leaseGrants.delete(addressKey);
+    }
   }
 
   #release(state: AudienceSubscription | undefined): void {
