@@ -13,6 +13,7 @@ import {
   parseDataSourcePropertyId,
 } from "../../shared/database-identities";
 import { testPropertySemantics } from "../../shared/testing/database-property-record";
+import { noOpLocalCommit } from "../../shared/testing/local-commit";
 import {
   commitDatabasePageDrag,
   DatabasePageDragMutationError,
@@ -132,6 +133,7 @@ const snapshot = (): DatabaseModuleReadSnapshotV2 => ({
 
 const committed = (request: DatabaseApplyV2): DatabaseApplyResultV2 => ({
   ok: true,
+  localCommit: noOpLocalCommit(request.storeEpoch),
   value: {
     version: DATABASE_MODULE_V2_CONTRACT_VERSION,
     operationId: request.operationId,

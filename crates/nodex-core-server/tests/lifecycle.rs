@@ -148,6 +148,24 @@ fn response_json(response: &str) -> serde_json::Value {
         .unwrap_or_else(|error| panic!("JSON response ({error}): {response:?}"))
 }
 
+fn wait_for_event_replay_metrics(socket: &str, auth: &str) -> serde_json::Value {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let health = response_json(&request(socket, auth, "GET", "/core/v1/health", ""));
+        if health["metrics"]["event_replay_lag_max"]
+            .as_u64()
+            .is_some_and(|lag| lag > 0)
+        {
+            return health;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "event replay metrics were not recorded after the stream opened"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
 fn bind_test_client(descriptor: &RuntimeDescriptor, auth: &str, connection_id: &str) -> String {
     let handshake = serde_json::to_string(&HandshakeRequest {
         requirements: core_client_requirements(),
@@ -704,8 +722,7 @@ fn concurrent_launchers_reuse_one_authenticated_profile_core() {
         "/core/v1/events?after=0",
         &connection_headers,
     );
-    let health = request(&expected.socket_path, &auth, "GET", "/core/v1/health", "");
-    let health = response_json(&health);
+    let health = wait_for_event_replay_metrics(&expected.socket_path, &auth);
     assert_eq!(health["status"], "ready");
     assert_eq!(health["metrics"]["active_event_subscriptions"], 1);
     assert!(health["metrics"]["active_clients"].as_u64().unwrap() >= 1);

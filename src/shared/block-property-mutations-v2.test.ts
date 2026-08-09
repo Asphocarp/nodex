@@ -10,6 +10,7 @@ import {
   parseBlockPropertyMutationRequestV2,
   parseBlockPropertyMutationResultV2,
 } from "./block-property-mutations-v2";
+import { committedLocalCommit } from "./testing/local-commit";
 
 const baseRequest = {
   version: 2 as const,
@@ -122,8 +123,16 @@ describe("Block Property mutation v2 contract", () => {
       propertyKey: "run.target",
     });
     expect(
-      parseBlockPropertyMutationCommandResultV2({ ok: true, value }),
-    ).toEqual({ ok: true, value: parsed });
+      parseBlockPropertyMutationCommandResultV2({
+        ok: true,
+        value,
+        localCommit: committedLocalCommit("epoch-1", 5),
+      }),
+    ).toEqual({
+      ok: true,
+      value: parsed,
+      localCommit: committedLocalCommit("epoch-1", 5),
+    });
 
     expect(() =>
       parseBlockPropertyMutationResultV2({

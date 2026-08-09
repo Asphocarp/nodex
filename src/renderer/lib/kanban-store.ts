@@ -36,7 +36,7 @@ import {
   groupScopeKeyForColumn,
   type DatabaseViewRenderModel,
 } from "./database-view-render-model";
-import { getActiveProjectionInvalidationRegistry } from "./projection-invalidation-context";
+import { getRendererProjectionInvalidationRegistry } from "./projection-invalidation-service";
 import type {
   ProjectionInvalidationCause,
   ProjectionInvalidationRegistry,
@@ -180,7 +180,7 @@ const defaultDependencies: KanbanStoreDependencies = {
   readViewWindow: readDatabaseViewWindow,
   readViewGroups: readDatabaseViewGroups,
   subscribeBoardChanges,
-  getProjectionInvalidationRegistry: getActiveProjectionInvalidationRegistry,
+  getProjectionInvalidationRegistry: getRendererProjectionInvalidationRegistry,
   now: () => Date.now(),
 };
 

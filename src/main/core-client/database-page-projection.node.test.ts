@@ -17,7 +17,7 @@ import {
   projectCoreDatabaseRowSummary,
   projectDatabasePage,
   projectDatabaseViewReference,
-} from "./database-page-projection";
+} from "../../shared/database-page-projection";
 import type { CoreDatabaseRowSummary } from "./types";
 
 const dataSourceId = parseDataSourceId("source:test");
@@ -76,7 +76,7 @@ const properties: readonly DataSourcePropertyRecordV2[] = [
   property("due_date", "date"),
   property("scheduled_start", "datetime"),
   property("scheduled_end", "datetime"),
-  property("assignee", "person"),
+  property("assignee", "text"),
 ];
 
 const databaseValue = (
@@ -133,7 +133,7 @@ const makeRow = (
       "datetime",
       "2026-07-25T09:00:00.000Z",
     ),
-    assignee: databaseValue("assignee", "person", "Ada"),
+    assignee: databaseValue("assignee", "text", "Ada"),
   },
   bodyNfm: "# Detail\n\nA body with **structure**.",
   intrinsicProperties: [

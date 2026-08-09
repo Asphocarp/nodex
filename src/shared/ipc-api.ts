@@ -603,6 +603,10 @@ export interface IpcApi {
     args: [scope: import("./projection-stream").ProjectionScope];
     result: void;
   };
+  "recipient-delivery:admit": {
+    args: [result: import("./recipient-delivery").RecipientAdmissionResult];
+    result: boolean;
+  };
   "pages:detail:get": {
     args: [projectId: string, pageId: string, minimumCommitSeq?: number];
     result: PageDetailResult;
@@ -2032,8 +2036,7 @@ export interface IpcEvents {
   "workspace-file:changed": import("./types").WorkspaceFileChangedEvent;
   "document-sync:event": DocumentSyncRealtimeEvent;
   "persisted-atom:updated": PersistedAtomEvent;
-  "projection-stream:message": import("./projection-stream").ProjectionStreamMessage;
-  "resource-revocation:message": import("./resource-revocation-stream").ResourceRevocationMessage;
+  "recipient-delivery:message": import("./recipient-delivery").RecipientDeliveryEnvelope;
   "board-changed": BoardChangeEvent;
   "page-ownership-paths-changed": import("./page-ownership-path-events").PageOwnershipPathsChangedEvent;
   "database-changed": DatabaseChangeEvent;

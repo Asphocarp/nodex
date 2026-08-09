@@ -11,6 +11,7 @@ import {
   type CanvasSceneSyncCommandResult,
   type CanvasSceneSyncRequest,
 } from "./canvas-scene-sync";
+import { parseLocalCommitApply } from "../local-commit-delivery";
 import {
   canonicalizeCanvasSceneElement,
   canonicalizeCanvasSceneFile,
@@ -278,6 +279,7 @@ export const decodeCanvasSceneMutationResultHttp = (
   if (!isRecord(envelope.value)) throw new TypeError("Canvas scene mutation result is invalid");
   const result: CanvasSceneMutationCommandResult = {
     ok: true,
+    localCommit: parseLocalCommitApply(envelope.localCommit),
     value: canonicalizeCanvasSceneMutationResult(envelope.value),
   };
   if (envelope.event !== undefined) {

@@ -10,7 +10,7 @@ import {
 import { blockTransferFailure } from "../../shared/block-transfer-transport";
 import type { BlockLocation } from "../../shared/block-documents/contracts";
 import { CoreModuleResponseError } from "./core-client";
-import { applyResultCursor } from "./types";
+import { applyResultCursor, rendererLocalCommitApply } from "./types";
 import type {
   CoreClientPort,
   LibraryIntent,
@@ -325,6 +325,7 @@ export const createCoreBlockTransferAdapter = (
         }
         return {
           ok: true,
+          localCommit: rendererLocalCommitApply(committed),
           value: fromCoreResult(
             intent,
             result,

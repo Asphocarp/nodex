@@ -64,6 +64,7 @@ const commit = (
   projectionEffects: options.projectionEffects,
   payload: {
     module: "project_workspace",
+    library_id: "library-1",
     event: {
       kind: "workspace_changed",
       project_catalog_change: null,
@@ -307,6 +308,41 @@ describe("LocalCommitCoordinator", () => {
         effect_hash: "e".repeat(64),
       }],
     }), "tailer")).toThrow("resource identity collision");
+  });
+
+  test("does not retain a valid prefix from a rejected enriched packet", async () => {
+    const projection = vi.fn();
+    const coordinator = new LocalCommitCoordinator({
+      expectedLibraryId: "library-1",
+      expectedStoreEpoch: "epoch-1",
+      onRevocation: vi.fn(),
+      onDocument: vi.fn(),
+      onProjection: projection,
+      onNotification: vi.fn(),
+    });
+    coordinator.admit(commit(7, {
+      projectionEffects: [projectionEffect(1, "scope-view-1", 7)],
+    }), "apply");
+    await flush();
+    projection.mockClear();
+    const validEnrichment = projectionEffect(1, "scope-view-2", 7);
+
+    expect(() => coordinator.admit(commit(7, {
+      projectionEffects: [
+        validEnrichment,
+        {
+          ...projectionEffect(1, "scope-view-1", 7),
+          effect_hash: "e".repeat(64),
+        },
+      ],
+    }), "tailer")).toThrow("resource identity collision");
+    expect(projection).not.toHaveBeenCalled();
+
+    expect(coordinator.admit(commit(7, {
+      projectionEffects: [validEnrichment],
+    }), "replay").kind).toBe("enriched");
+    await flush();
+    expect(projection).toHaveBeenCalledOnce();
   });
 
   test("bounds remembered identities after in-flight deliveries settle", async () => {

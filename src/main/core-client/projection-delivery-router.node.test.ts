@@ -33,14 +33,6 @@ const packet = (
 ) => createCoreLocalCommitFixture({
   commitSeq: 1,
   projectionEffects: [projectionEffect],
-  projectionImpact: {
-    kind: "resources",
-    page_ids: ["page-1"],
-    database_ids: [],
-    data_source_ids: [],
-    view_ids: [],
-    document_heads: [],
-  },
 });
 
 describe("ProjectionDeliveryRouter", () => {
@@ -108,6 +100,41 @@ describe("ProjectionDeliveryRouter", () => {
         ["checkpoint", 8],
         ["reset", 9],
       ]);
+  });
+
+  test("advances the broker floor while resetting only replacement scopes", () => {
+    const firstMessages: ProjectionStreamMessage[] = [];
+    const secondMessages: ProjectionStreamMessage[] = [];
+    const firstScope = {
+      kind: "project" as const,
+      libraryId: "library-1",
+      projectId: "project-1",
+    };
+    const secondScope = {
+      kind: "project" as const,
+      libraryId: "library-1",
+      projectId: "project-2",
+    };
+    const router = new ProjectionDeliveryRouter({
+      libraryId: "library-1",
+      initialCursor: { storeEpoch: "epoch-1", commitSeq: 4 },
+    });
+    router.subscribe(firstScope, (message) => firstMessages.push(message));
+    router.subscribe(secondScope, (message) => secondMessages.push(message));
+
+    router.resetScopes(
+      [secondScope],
+      { storeEpoch: "epoch-1", commitSeq: 8 },
+      "reconnect",
+    );
+
+    expect(firstMessages.map((message) => message.kind)).toEqual(["checkpoint"]);
+    expect(secondMessages.map((message) => message.kind)).toEqual([
+      "checkpoint",
+      "reset",
+    ]);
+    expect(secondMessages[1]?.stream.commitSeq).toBe(8);
+    expect(router.cursor.commitSeq).toBe(8);
   });
 
   test("isolates listener failures", () => {

@@ -163,7 +163,7 @@ function DurablePageSurface({
   readonly onPatchRelation: (
     pageId: string,
     propertyId: string,
-    delta: { readonly addPageIds: readonly string[]; readonly removePageIds: readonly string[] },
+    delta: { readonly addPageIds: readonly string[]; readonly removeEdgeIds: readonly string[] },
   ) => void;
   readonly onPatchOptions: (
     pageId: string,
@@ -503,7 +503,7 @@ export function DatabaseViewSurface({
   const patchRelation = (
     pageId: string,
     propertyId: string,
-    delta: { readonly addPageIds: readonly string[]; readonly removePageIds: readonly string[] },
+    delta: { readonly addPageIds: readonly string[]; readonly removeEdgeIds: readonly string[] },
   ) => void commit(
     [{
       kind: "edit_property_values",

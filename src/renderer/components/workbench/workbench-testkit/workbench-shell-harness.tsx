@@ -1411,7 +1411,7 @@ export let WorkbenchShell: (typeof import(".././workbench-runtime"))["WorkbenchR
 beforeAll(async () => {
   const workbenchRuntimeModule = await import(".././workbench-runtime");
   WorkbenchShell = workbenchRuntimeModule.WorkbenchRuntime;
-});
+}, 120_000);
 
 export function getPanelTabById(container: HTMLElement, tabId: string): HTMLElement {
   const tabShell = Array.from(container.querySelectorAll<HTMLElement>("[data-panel-tab-id]"))

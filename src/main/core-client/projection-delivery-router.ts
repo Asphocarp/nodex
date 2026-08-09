@@ -1,14 +1,14 @@
 import type {
   CoreProjectionEffect,
   ProjectionCursor,
-  ProjectionDelivery,
-  ProjectionEffect,
-  ProjectionPatch,
   ProjectionScope,
   ProjectionStreamMessage,
 } from "../../shared/projection-stream";
 import { projectionScopeKey } from "../../shared/projection-stream";
-import { projectCoreDatabaseRowSummaries } from "./database-page-projection";
+import {
+  projectionMessageFromDelivery,
+  projectionScopeCanReceive,
+} from "../../shared/local-commit-delivery";
 import type { CoreAuthorizedDeliveryPacket } from "./types";
 
 type Listener = (message: ProjectionStreamMessage) => void;
@@ -23,92 +23,6 @@ export interface ProjectionDeliveryRouterInput {
   readonly initialCursor: ProjectionCursor;
   readonly onListenerError?: (error: unknown, scope: ProjectionScope) => void;
 }
-
-const projectIdOf = (
-  effect: CoreProjectionEffect,
-): string | null => {
-  const scope = effect.scope.scope;
-  return scope.kind === "library" ? null : scope.project_id;
-};
-
-const scopeCanReceive = (
-  subscription: ProjectionScope,
-  effect: CoreProjectionEffect,
-): boolean => {
-  if (subscription.kind === "library") return true;
-  return projectIdOf(effect) === subscription.projectId;
-};
-
-const mapPatch = (
-  patch: CoreProjectionEffect["patch"],
-): ProjectionPatch | null => {
-  if (!patch) return null;
-  if (patch.kind === "page_changed") {
-    return {
-      kind: patch.kind,
-      projectId: patch.project_id,
-      pageId: patch.page_id,
-    };
-  }
-  if (patch.kind === "database_row_remove") {
-    return {
-      kind: patch.kind,
-      projectId: patch.project_id,
-      databaseId: patch.database_id,
-      dataSourceId: patch.data_source_id,
-      viewId: patch.view_id,
-      pageId: patch.page_id,
-      totalRows: patch.total_rows,
-      groupKey: patch.group_key ?? null,
-      groupTotal: patch.group_total ?? null,
-    };
-  }
-  const row = projectCoreDatabaseRowSummaries([patch.row])[0];
-  if (!row) throw new Error("Projection row patch is empty");
-  return {
-    kind: patch.kind,
-    projectId: patch.project_id,
-    databaseId: patch.database_id,
-    dataSourceId: patch.data_source_id,
-    viewId: patch.view_id,
-    row,
-    sourceRow: patch.row,
-    effectiveGroupKey: patch.row.effective_group_key ?? null,
-    rankKey: patch.row.rank_key ?? null,
-    totalRows: patch.total_rows,
-    groupTotal: patch.group_total ?? null,
-  };
-};
-
-const mapEffect = (effect: CoreProjectionEffect): ProjectionEffect => ({
-  scope: effect.scope,
-  baseRevision: effect.base_revision,
-  resultRevision: effect.result_revision,
-  coveredCommitSeq: effect.covered_commit_seq,
-  patch: mapPatch(effect.patch),
-  requiresReadAtLeast: effect.requires_read_at_least,
-  effectHash: effect.effect_hash,
-});
-
-const deliveryOf = (
-  packet: CoreAuthorizedDeliveryPacket,
-  effect: CoreProjectionEffect,
-): ProjectionDelivery => ({
-  storeEpoch: packet.manifest.identity.store_epoch,
-  commitSeq: packet.manifest.identity.commit_seq,
-  manifestHash: packet.manifest.identity.manifest_hash,
-  operationId: packet.manifest.operation_id,
-  committedAt: packet.manifest.committed_at,
-  impact: packet.projection_impact,
-  effect: mapEffect(effect),
-});
-
-const packetCursor = (
-  packet: CoreAuthorizedDeliveryPacket,
-): ProjectionCursor => ({
-  storeEpoch: packet.manifest.identity.store_epoch,
-  commitSeq: packet.manifest.identity.commit_seq,
-});
 
 /**
  * Routes already-authorized projection effects without performing reads.
@@ -164,16 +78,12 @@ export class ProjectionDeliveryRouter {
     packet: CoreAuthorizedDeliveryPacket,
     effect: CoreProjectionEffect,
   ): void {
-    const delivery = deliveryOf(packet, effect);
     for (const state of this.#scopes.values()) {
-      if (!scopeCanReceive(state.scope, effect)) continue;
-      this.#publish(state, {
-        version: 2,
-        kind: "effect",
-        scope: state.scope,
-        stream: packetCursor(packet),
-        delivery,
-      });
+      if (!projectionScopeCanReceive(state.scope, effect)) continue;
+      this.#publish(
+        state,
+        projectionMessageFromDelivery(packet, effect, state.scope),
+      );
     }
   }
 
@@ -193,13 +103,30 @@ export class ProjectionDeliveryRouter {
     cursor: ProjectionCursor,
     reason: Extract<ProjectionStreamMessage, { kind: "reset" }>["reason"],
   ): void {
-    this.#cursor = cursor;
-    for (const state of this.#scopes.values()) {
+    this.resetScopes(
+      [...this.#scopes.values()].map((state) => state.scope),
+      cursor,
+      reason,
+    );
+  }
+
+  resetScopes(
+    scopes: readonly ProjectionScope[],
+    cursor: ProjectionCursor,
+    reason: Extract<ProjectionStreamMessage, { kind: "reset" }>["reason"],
+  ): void {
+    this.#observe(cursor);
+    const keys = new Set(scopes.map((scope) => {
+      this.#assertScope(scope);
+      return projectionScopeKey(scope);
+    }));
+    for (const [key, state] of this.#scopes) {
+      if (!keys.has(key)) continue;
       this.#publish(state, {
         version: 2,
         kind: "reset",
         scope: state.scope,
-        stream: cursor,
+        stream: this.#cursor,
         reason,
       });
     }

@@ -1747,6 +1747,29 @@ test("converges a high-pressure Page promotion across tab groups", async ({}, te
     }).first();
     await expect(titleBlock).toBeVisible({ timeout: 15_000 });
 
+    const triageBeforeTransfer = requireIpcValue<Record<string, unknown>>(
+      await invokeIpc(page, "database:view-window:get", project.projectId, {
+        databaseViewId: database.viewId,
+        groupScope: { kind: "key", key: "triage" },
+        first: HIGH_PRESSURE_BOARD_TRIAGE_PAGE_COUNT,
+      }),
+      "Read canonical Triage coordinate before cross-tab promotion",
+    );
+    const projectionBeforeTransfer = triageBeforeTransfer.projection;
+    if (!isRecord(projectionBeforeTransfer)) {
+      throw new Error("Canonical Triage window returned no projection coordinate");
+    }
+
+    await page.evaluate(() => {
+      const target = globalThis as typeof globalThis & {
+        __nodexRecipientDeliveries?: unknown[];
+      };
+      target.__nodexRecipientDeliveries = [];
+      window.api?.on("recipient-delivery:message", (...args: unknown[]) => {
+        target.__nodexRecipientDeliveries?.push(args[0]);
+      });
+    });
+
     const sourceDescriptorBefore = requireIpcValue<Record<string, unknown>>(
       await invokeIpc(
         page,
@@ -1770,8 +1793,7 @@ test("converges a high-pressure Page promotion across tab groups", async ({}, te
     // destination/source surfaces remain mounted, then verify the complete
     // publication outcome without conflating gesture and convergence pressure.
     const startedAt = performance.now();
-    const transfer = requireIpcValue<Record<string, unknown>>(
-      await invokeIpc(
+    const transferCommand = await invokeIpc(
         page,
         "blocks:transfer",
         project.projectId,
@@ -1796,7 +1818,9 @@ test("converges a high-pressure Page promotion across tab groups", async ({}, te
             beforePageId: triageAnchorPageId,
           },
         },
-      ),
+      );
+    const transfer = requireIpcValue<Record<string, unknown>>(
+      transferCommand,
       "Promote title-A in the live cross-tab surfaces",
     );
     const committedAt = performance.now();
@@ -1804,6 +1828,46 @@ test("converges a high-pressure Page promotion across tab groups", async ({}, te
     if (typeof commitSeq !== "number") {
       throw new Error("Cross-tab promotion returned no LocalCommit sequence");
     }
+    expect(transferCommand).toMatchObject({
+      ok: true,
+      localCommit: {
+        status: "committed",
+        commit: { commit_seq: commitSeq },
+        delivery: {
+          projection_effects: expect.arrayContaining([
+            expect.objectContaining({
+              patch: expect.objectContaining({
+                kind: "database_row_upsert",
+                view_id: database.viewId,
+              }),
+            }),
+          ]),
+        },
+      },
+    });
+    const localCommit = isRecord(transferCommand)
+      ? transferCommand.localCommit
+      : undefined;
+    const delivery = isRecord(localCommit) ? localCommit.delivery : undefined;
+    const effects = isRecord(delivery) && Array.isArray(delivery.projection_effects)
+      ? delivery.projection_effects
+      : [];
+    const boardEffect = effects.find((effect) => {
+      if (!isRecord(effect) || !isRecord(effect.patch)) return false;
+      return effect.patch.kind === "database_row_upsert"
+        && effect.patch.view_id === database.viewId;
+    });
+    if (!isRecord(boardEffect)) {
+      throw new Error("Cross-tab promotion returned no Board projection effect");
+    }
+    expect(boardEffect).toMatchObject({
+      base_revision: projectionBeforeTransfer.revision,
+      result_revision: Number(projectionBeforeTransfer.revision) + 1,
+      scope: {
+        canonical_key: projectionBeforeTransfer.scopeKey,
+        schema_version: projectionBeforeTransfer.schemaVersion,
+      },
+    });
     if (!Array.isArray(transfer.resultRootBlockIds)) {
       throw new Error("Cross-tab promotion returned no result Page ids");
     }
@@ -1812,6 +1876,84 @@ test("converges a high-pressure Page promotion across tab groups", async ({}, te
       transfer.resultRootBlockIds[0],
       "Cross-tab promoted Page id",
     );
+    const groupsAfterTransfer = requireIpcValue<Record<string, unknown>>(
+      await invokeIpc(
+        page,
+        "database:view-groups:get",
+        project.projectId,
+        {
+          databaseViewId: database.viewId,
+          minimumCommitSeq: commitSeq,
+        },
+      ),
+      "Read canonical Board totals after cross-tab promotion",
+    );
+    expect(groupsAfterTransfer.totalRows).toBe(HIGH_PRESSURE_BOARD_PAGE_COUNT + 1);
+    const triageAfterTransfer = requireIpcValue<Record<string, unknown>>(
+      await invokeIpc(
+        page,
+        "database:view-window:get",
+        project.projectId,
+        {
+          databaseViewId: database.viewId,
+          groupScope: { kind: "key", key: "triage" },
+          first: HIGH_PRESSURE_BOARD_TRIAGE_PAGE_COUNT + 1,
+          minimumCommitSeq: commitSeq,
+        },
+      ),
+      "Read canonical Triage window after cross-tab promotion",
+    );
+    expect(triageAfterTransfer.rows).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        page: expect.objectContaining({ id: resultPageId }),
+      }),
+    ]));
+    await expect.poll(async () => await page.evaluate((targetCommitSeq) => {
+      const deliveries = (
+        globalThis as typeof globalThis & {
+          __nodexRecipientDeliveries?: Array<Record<string, unknown>>;
+        }
+      ).__nodexRecipientDeliveries ?? [];
+      return deliveries.some((delivery) => {
+        const payload = delivery.payload as Record<string, unknown> | undefined;
+        const message = payload?.message as Record<string, unknown> | undefined;
+        const stream = message?.stream as Record<string, unknown> | undefined;
+        return stream?.commitSeq === targetCommitSeq;
+      });
+    }, commitSeq), { timeout: 5_000 }).toBe(true);
+    const recipientDeliverySummary = await page.evaluate((targetCommitSeq) => {
+      const deliveries = (
+        globalThis as typeof globalThis & {
+          __nodexRecipientDeliveries?: Array<Record<string, unknown>>;
+        }
+      ).__nodexRecipientDeliveries ?? [];
+      return deliveries.flatMap((delivery) => {
+        const payload = delivery.payload as Record<string, unknown> | undefined;
+        const message = payload?.message as Record<string, unknown> | undefined;
+        const stream = message?.stream as Record<string, unknown> | undefined;
+        if (stream?.commitSeq !== targetCommitSeq) return [];
+        const effectDelivery = message?.delivery as Record<string, unknown> | undefined;
+        const effect = effectDelivery?.effect as Record<string, unknown> | undefined;
+        const patch = effect?.patch as Record<string, unknown> | undefined;
+        return [{
+          lane: payload?.lane,
+          kind: message?.kind,
+          scope: message?.scope,
+          baseRevision: effect?.baseRevision,
+          resultRevision: effect?.resultRevision,
+          patchKind: patch?.kind,
+          viewId: patch?.viewId,
+        }];
+      });
+    }, commitSeq);
+    expect(recipientDeliverySummary).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        lane: "projection",
+        kind: "effect",
+        patchKind: "database_row_upsert",
+        viewId: database.viewId,
+      }),
+    ]));
     const transferredCard = page.locator('[data-kanban-uuid-v7]').filter({
       hasText: "title-A-cross-tab",
     }).first();

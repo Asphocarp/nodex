@@ -6,6 +6,7 @@ import type {
   DocumentId,
   DocumentCommitRef,
 } from "./block-documents/contracts";
+import type { LocalCommitCommandSuccess } from "./local-commit-delivery";
 
 /** Exact writer request/receipt protocol. */
 export const BLOCK_TRANSFER_CONTRACT_VERSION = 1 as const;
@@ -199,7 +200,7 @@ export interface BlockTransferCommandError {
 }
 
 export type BlockTransferCommandResult<Value = BlockTransferReceipt> =
-  | { readonly ok: true; readonly value: Value }
+  | LocalCommitCommandSuccess<Value>
   | { readonly ok: false; readonly error: BlockTransferCommandError };
 
 export class BlockTransferContractError extends Error {

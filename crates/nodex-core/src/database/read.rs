@@ -117,7 +117,7 @@ pub(crate) fn page_data_source_projection(
     let mut values = read_values(connection, data_source_id, membership_id)?
         .into_iter()
         .collect();
-    super::relation::hydrate_projection_values(
+    super::relation_projection::hydrate_projection_values(
         connection,
         library_id,
         project_id,
@@ -735,7 +735,7 @@ fn hydrate_relation_previews(
 ) -> Result<(), StoreError> {
     match value {
         DatabaseReadValue::ViewWindow { value } | DatabaseReadValue::AgentQuery { value } => {
-            super::relation::hydrate_row_previews(
+            super::relation_projection::hydrate_row_previews(
                 connection,
                 library_id,
                 project_id,
@@ -793,7 +793,13 @@ fn hydrate_summary_rows(
         )
         .optional()?
         .ok_or_else(|| corrupt("Database row membership is unavailable"))?;
-    super::relation::hydrate_row_previews(connection, library_id, project_id, &data_source_id, rows)
+    super::relation_projection::hydrate_row_previews(
+        connection,
+        library_id,
+        project_id,
+        &data_source_id,
+        rows,
+    )
 }
 
 fn hydrate_summary_refs(
@@ -804,7 +810,7 @@ fn hydrate_summary_refs(
     rows: &mut [&mut nodex_core_contracts::database::DatabaseRowSummary],
 ) -> Result<(), StoreError> {
     let mut owned = rows.iter().map(|row| (*row).clone()).collect::<Vec<_>>();
-    super::relation::hydrate_row_previews(
+    super::relation_projection::hydrate_row_previews(
         connection,
         library_id,
         project_id,

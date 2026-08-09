@@ -441,8 +441,8 @@ const compileDataSourceFields = async (
       value = { kind: "date", value: requestedValue };
     } else if (property.valueType === "datetime") {
       value = { kind: "datetime", value: requestedValue };
-    } else if (property.valueType === "person") {
-      value = { kind: "person", personId: requestedValue };
+    } else if (property.valueType === "text") {
+      value = { kind: "text", value: requestedValue };
     } else {
       throw new Error(`Page Detail cannot edit ${property.valueType} Property ${property.propertyId}`);
     }
@@ -665,7 +665,7 @@ const compileDirectPropertyEdit = (
       dataSourceId: context.dataSource.dataSourceId,
       property,
       addPageIds: edit.addPageIds,
-      removePageIds: edit.removePageIds,
+      removeEdgeIds: edit.removeEdgeIds,
     });
   }
   if (edit.kind === "patch_multi_select") {

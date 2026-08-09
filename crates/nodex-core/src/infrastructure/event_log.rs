@@ -3,15 +3,16 @@ use nodex_core_contracts::administration::{
 };
 use nodex_core_contracts::automation::{AutomationEvent, AutomationEventKind};
 use nodex_core_contracts::database::{DatabaseEvent, DatabaseEventKind};
+use nodex_core_contracts::events::DeliveryAuthorizationScope;
 use nodex_core_contracts::library::{LibraryEvent, LibraryEventKind};
 use nodex_core_contracts::workspace::{
     ProjectCatalogChangeKind, ProjectSessionInvalidationScope, ProjectWorkspaceEvent,
     ProjectWorkspaceEventKind,
 };
 use nodex_core_contracts::{
-    AuthorizedDeliveryPacket, BoundModuleContext, CORE_EVENT_VERSION, CommitIdentity,
-    CommittedCoreModuleEvent, CoreModuleEventPayload, LocalCommitResources, ProjectionImpact,
-    StoreEpoch, StreamCheckpoint,
+    AdapterKind, AuthorizedDeliveryPacket, BoundModuleContext, CORE_EVENT_VERSION, CommitIdentity,
+    CommittedCoreModuleEvent, CoreModuleEventPayload, ProjectId, ProjectionImpact, StoreEpoch,
+    StreamCheckpoint,
 };
 use rusqlite::{Connection, params};
 use serde::Deserialize;
@@ -138,7 +139,7 @@ fn append_change_log_inner(
         ],
     )?;
     let sequence = connection.last_insert_rowid();
-    let resources = LocalCommitResources {
+    let resources = local_commit::PhysicalEffectResources {
         block_ids: entry.block_ids.to_vec(),
         document_ids: entry.document_ids.to_vec(),
         database_ids: entry.database_block_ids.to_vec(),
@@ -372,19 +373,25 @@ impl CoreEventLog {
                 transaction.commit()?;
                 return Ok(DocumentLiveDelivery::Unrelated);
             }
-            if let Err(error) = crate::document::require_owned_document_read_access(
+            let authorization_scope =
+                nodex_core_contracts::events::DeliveryAuthorizationScope::Document {
+                    library_id: context.library_id.0.clone(),
+                    project_id: context
+                        .project_id
+                        .as_ref()
+                        .map(|project_id| project_id.0.clone()),
+                    document_id: document_id.clone(),
+                };
+            if !super::resource_authorization::can_read(
                 &transaction,
                 &context,
-                &document_id,
-            ) {
-                if matches!(
-                    error.code,
-                    StoreErrorCode::NotFound | StoreErrorCode::Unauthorized
-                ) {
-                    transaction.commit()?;
-                    return Ok(DocumentLiveDelivery::AccessRevoked);
-                }
-                return Err(error);
+                &authorization_scope,
+                &nodex_core_contracts::events::ResourceKey::Document {
+                    document_id: document_id.clone(),
+                },
+            )? {
+                transaction.commit()?;
+                return Ok(DocumentLiveDelivery::AccessRevoked);
             }
             let packet = authorized_delivery::resolve(
                 &transaction,
@@ -448,6 +455,83 @@ impl CoreEventLog {
             inline_resources,
             DeliveryAudience::HostLibraryBroker,
         )
+    }
+
+    /// Resolves projection/revocation-only packets for one trusted Host broker
+    /// publication. The commit is verified once and every requested audience
+    /// is authorized by Core inside the same read transaction.
+    pub fn authorized_projection_live_packets(
+        &self,
+        commit_seq: i64,
+        host_context: &BoundModuleContext,
+        scopes: &[DeliveryAuthorizationScope],
+    ) -> Result<Vec<AuthorizedDeliveryPacket>, StoreError> {
+        if host_context.adapter != AdapterKind::ElectronHost || host_context.project_id.is_some() {
+            return Err(StoreError::new(
+                StoreErrorCode::Unauthorized,
+                "Projection live broker requires an unscoped Electron Host",
+                false,
+            ));
+        }
+        if scopes.len() > 200 {
+            return Err(StoreError::new(
+                StoreErrorCode::ResourceExhausted,
+                "Projection live broker exceeds the active scope bound",
+                false,
+            ));
+        }
+        let host_context = host_context.clone();
+        let scopes = scopes.to_vec();
+        self.readers.read_default(move |connection| {
+            let transaction = connection.unchecked_transaction()?;
+            let verified = local_commit::load_verified_commit(&transaction, commit_seq)?;
+            if verified.manifest.projection_effects.is_empty()
+                && verified.manifest.revocations.is_empty()
+            {
+                transaction.commit()?;
+                return Ok(Vec::new());
+            }
+            let mut packets = Vec::with_capacity(scopes.len());
+            for scope in scopes {
+                let context = match scope {
+                    DeliveryAuthorizationScope::Library { library_id }
+                        if library_id == host_context.library_id.0 =>
+                    {
+                        host_context.clone()
+                    }
+                    DeliveryAuthorizationScope::Project {
+                        library_id,
+                        project_id,
+                    } if library_id == host_context.library_id.0 => BoundModuleContext {
+                        project_id: Some(ProjectId(project_id)),
+                        ..host_context.clone()
+                    },
+                    DeliveryAuthorizationScope::Library { .. }
+                    | DeliveryAuthorizationScope::Project { .. }
+                    | DeliveryAuthorizationScope::Document { .. } => {
+                        return Err(StoreError::new(
+                            StoreErrorCode::Unauthorized,
+                            "Projection live scope is outside the Host Library",
+                            false,
+                        ));
+                    }
+                };
+                if let Some(packet) = authorized_delivery::resolve_verified(
+                    &transaction,
+                    &verified,
+                    DeliveryRequest {
+                        context: &context,
+                        audience: DeliveryAudience::BoundScope,
+                        document_id: None,
+                        resource_mode: DeliveryResourceMode::ProjectionOnly,
+                    },
+                )? {
+                    packets.push(packet);
+                }
+            }
+            transaction.commit()?;
+            Ok(packets)
+        })
     }
 
     fn authorized_packet_for_audience(
@@ -779,6 +863,20 @@ pub(crate) fn validate_local_commit_index(connection: &Connection) -> Result<(),
             "LocalCommit Documents are not addressable by their complete parent coordinate",
         ));
     }
+    let orphaned_atoms: i64 = connection.query_row(
+        "SELECT count(*) FROM local_commit_delivery_atoms atom
+         LEFT JOIN local_commits parent
+           ON parent.store_epoch = atom.store_epoch
+          AND parent.commit_seq = atom.commit_seq
+         WHERE parent.commit_seq IS NULL",
+        [],
+        |row| row.get(0),
+    )?;
+    if orphaned_atoms > 0 {
+        return Err(corrupt(
+            "DeliveryAtoms are not addressable by their complete LocalCommit coordinate",
+        ));
+    }
     let orphaned_receipts: i64 = connection.query_row(
         "SELECT count(*) FROM core_module_receipts receipt
          LEFT JOIN local_commits parent
@@ -1080,7 +1178,8 @@ fn corrupt(message: &str) -> StoreError {
 mod tests {
     use nodex_core_contracts::{
         AdapterKind, BoundModuleContext, LibraryId, ProfileId, ProjectId, ResourceRevocation,
-        ResourceRevocationReason, RevokedResourceKind, events::DeliveryAuthorizationScope,
+        ResourceRevocationReason, RevokedResourceKind,
+        events::{DeliveryAtomPayload, DeliveryAuthorizationScope},
     };
     use rusqlite::OptionalExtension;
     use tempfile::tempdir;
@@ -1137,6 +1236,7 @@ mod tests {
         entry: NewChangeLogEntry<'_>,
         revocations: &[ResourceRevocation],
     ) -> Result<i64, StoreError> {
+        let _ = store_identity(connection)?;
         let operation_id = entry
             .operation_id
             .ok_or_else(|| corrupt("Test LocalCommit needs an operation identity"))?
@@ -1219,7 +1319,11 @@ mod tests {
                         block_ids: &[],
                         document_ids: &[],
                         database_block_ids: &[],
-                        payload_json: "{}",
+                        payload_json: r#"{
+                          "module":"project_workspace",
+                          "kind":"workspace_changed",
+                          "projectIds":["project:events"]
+                        }"#,
                         projection_impact: &impact,
                         committed_at: "2026-07-22T00:00:00Z",
                     },
@@ -1301,7 +1405,7 @@ mod tests {
                             "module": "library",
                             "affectedPageIds": ["page:one"],
                             "affectedDatabaseIds": [],
-                            "affectedParentKeys": ["library:root"]
+                            "affectedParentKeys": ["library:events"]
                         }),
                     ),
                     (
@@ -1326,6 +1430,7 @@ mod tests {
                         params![kind, operation_id, payload.to_string()],
                     )?;
                 }
+                let _ = store_identity(connection)?;
                 local_commit::backfill(connection, &mut |_, _| {})?;
                 Ok(())
             })
@@ -1379,12 +1484,13 @@ mod tests {
                                 "module": "library",
                                 "affectedPageIds": [page_id],
                                 "affectedDatabaseIds": [],
-                                "affectedParentKeys": ["library:root"]
+                                "affectedParentKeys": ["library:events"]
                             })
                             .to_string()
                         ],
                     )?;
                 }
+                let _ = store_identity(connection)?;
                 local_commit::backfill(connection, &mut |_, _| {})?;
                 Ok(())
             })
@@ -1432,7 +1538,7 @@ mod tests {
                           "module":"library",
                           "affectedPageIds":["page:original"],
                           "affectedDatabaseIds":[],
-                          "affectedParentKeys":["library:root"]
+                          "affectedParentKeys":["library:events"]
                         }"#,
                         projection_impact: &ProjectionImpact::None,
                         committed_at: "2026-01-01",
@@ -1485,7 +1591,7 @@ mod tests {
                           "module":"library",
                           "affectedPageIds":["page:original"],
                           "affectedDatabaseIds":[],
-                          "affectedParentKeys":["library:root"]
+                          "affectedParentKeys":["library:events"]
                         }"#,
                         projection_impact: &ProjectionImpact::None,
                         committed_at: "2026-01-01",
@@ -1495,7 +1601,7 @@ mod tests {
                 connection.execute(
                     "UPDATE change_log SET payload_json = ?1 WHERE operation_id = ?2",
                     params![
-                        r#"{"module":"library","affectedPageIds":["page:tampered"],"affectedDatabaseIds":[],"affectedParentKeys":["library:root"]}"#,
+                        r#"{"module":"library","affectedPageIds":["page:tampered"],"affectedDatabaseIds":[],"affectedParentKeys":["library:events"]}"#,
                         "library:payload-evidence"
                     ],
                 )?;
@@ -1537,7 +1643,7 @@ mod tests {
                           "module":"library",
                           "affectedPageIds":["page:original"],
                           "affectedDatabaseIds":[],
-                          "affectedParentKeys":["library:root"]
+                          "affectedParentKeys":["library:events"]
                         }"#,
                         projection_impact: &ProjectionImpact::None,
                         committed_at: "2026-01-01",
@@ -1579,10 +1685,11 @@ mod tests {
                         "module": "library",
                         "affectedPageIds": ["page:one"],
                         "affectedDatabaseIds": [],
-                        "affectedParentKeys": ["library:root"]
+                        "affectedParentKeys": ["library:events"]
                     })
                     .to_string()],
                 )?;
+                let _ = store_identity(connection)?;
                 local_commit::backfill(connection, &mut |_, _| {})?;
                 connection.execute(
                     "UPDATE local_commit_effects SET store_epoch = 'epoch:other'",
@@ -1619,12 +1726,13 @@ mod tests {
                                 "module": "library",
                                 "affectedPageIds": [format!("page:{index}")],
                                 "affectedDatabaseIds": [],
-                                "affectedParentKeys": ["library:root"]
+                                "affectedParentKeys": ["library:events"]
                             })
                             .to_string()
                         ],
                     )?;
                 }
+                let _ = store_identity(connection)?;
                 local_commit::backfill(connection, &mut |_, _| {})?;
                 Ok(())
             })
@@ -1704,6 +1812,7 @@ mod tests {
                     })
                     .to_string()],
                 )?;
+                let _ = store_identity(connection)?;
                 local_commit::backfill(connection, &mut |_, _| {})?;
                 Ok(())
             })
@@ -2046,7 +2155,7 @@ mod tests {
                         payload_json: r#"{
                           "module":"library","affectedPageIds":["page:moved"],
                           "affectedDatabaseIds":[],"affectedViewIds":[],
-                          "affectedParentKeys":["library:root"]
+                          "affectedParentKeys":["library:events"]
                         }"#,
                         projection_impact: &ProjectionImpact::Resources {
                             page_ids: vec!["page:moved".to_owned()],
@@ -2121,15 +2230,24 @@ mod tests {
             .expect("broker packet")
             .expect("broker delivery packet");
 
-        assert!(source.effects.is_empty());
+        assert_eq!(source.atoms.len(), 1);
+        assert!(source.atoms.iter().all(|atom| {
+            let DeliveryAtomPayload::Library { event, .. } = &atom.payload else {
+                return false;
+            };
+            event.page_ids.is_empty()
+                && event.database_ids.is_empty()
+                && event.view_ids.is_empty()
+                && event.parent_keys == ["library:events"]
+        }));
         assert!(source.document_effects.is_empty());
         assert!(source.revocations.iter().any(|revocation| {
             revocation.resource_kind == RevokedResourceKind::Page
                 && revocation.resource_id == "page:moved"
         }));
-        assert_eq!(target.effects.len(), 1);
+        assert_eq!(target.atoms.len(), 2);
         assert!(target.revocations.is_empty());
-        assert_eq!(root.effects.len(), 1);
+        assert_eq!(root.atoms.len(), 2);
         assert_eq!(root.revocations, source.revocations);
         assert!(matches!(
             source.authorization_scope,
@@ -2164,5 +2282,103 @@ mod tests {
         );
         assert_ne!(source.packet_hash, target.packet_hash);
         assert_ne!(source.packet_hash, root.packet_hash);
+    }
+
+    #[test]
+    fn mixed_resource_event_delivers_visible_atom_without_hidden_sibling() {
+        let directory = tempdir().expect("temporary Profile");
+        let kernel = SqliteStoreKernel::open_test(directory.path()).expect("Core store");
+        let (library_id, commit_seq) = kernel
+            .writer()
+            .call(|connection| {
+                let (store_epoch, library_id) = store_identity(connection)?;
+                connection.execute_batch(
+                    "INSERT INTO projects(id, library_id, name, created, updated)
+                     VALUES ('project:reader', 'library:events', 'Reader', '2026-08-07', '2026-08-07');
+                     INSERT INTO projects(id, library_id, name, created, updated)
+                     VALUES ('project:owner', 'library:events', 'Owner', '2026-08-07', '2026-08-07');
+                     INSERT INTO blocks(
+                       id, project_id, type, lifecycle, location_kind,
+                       containing_document_id, containing_database_id,
+                       location_revision, metadata_revision, created_at, updated_at
+                     ) VALUES
+                     ('page:visible', 'project:owner', 'page', 'active', 'space',
+                       NULL, NULL, 1, 1, '2026-08-07', '2026-08-07'),
+                     ('page:hidden', 'project:owner', 'page', 'active', 'space',
+                       NULL, NULL, 1, 1, '2026-08-07', '2026-08-07');
+                     INSERT INTO documents(
+                       id, project_id, generation, head_seq, schema_key, schema_version,
+                       state_vector, state_hash, readiness, authority, created_at, updated_at,
+                       sync_engine
+                     ) VALUES
+                     ('document:visible', 'project:owner', 1, 0, 'nodex.page', 2,
+                       X'', '', 'ready', 'ydoc_primary', '2026-08-07', '2026-08-07', 'yjs'),
+                     ('document:hidden', 'project:owner', 1, 0, 'nodex.page', 2,
+                       X'', '', 'ready', 'ydoc_primary', '2026-08-07', '2026-08-07', 'yjs');
+                     INSERT INTO block_documents(block_id, document_id, project_id, created_at)
+                     VALUES
+                     ('page:visible', 'document:visible', 'project:owner', '2026-08-07'),
+                     ('page:hidden', 'document:hidden', 'project:owner', '2026-08-07');
+                     INSERT INTO pages(
+                       block_id, library_id, document_id, parent_kind, parent_id,
+                       lifecycle, created_at, updated_at
+                     ) VALUES
+                     ('page:visible', 'library:events', 'document:visible', 'library',
+                       'library:events', 'active', '2026-08-07', '2026-08-07'),
+                     ('page:hidden', 'library:events', 'document:hidden', 'library',
+                       'library:events', 'active', '2026-08-07', '2026-08-07');
+                     INSERT INTO project_resource_grants(
+                       id, project_id, library_id, root_kind, root_id, access,
+                       recursive, revision, lifecycle, created_at, updated_at
+                     ) VALUES (
+                       'grant:visible', 'project:reader', 'library:events', 'page',
+                       'page:visible', 'read', 1, 1, 'active', '2026-08-07', '2026-08-07'
+                     );",
+                )?;
+                append_finalized_test_event(
+                    connection,
+                    "library",
+                    NewChangeLogEntry {
+                        project_id: "project:owner",
+                        store_epoch: &store_epoch,
+                        kind: "library.changed",
+                        operation_id: Some("library:mixed-resource"),
+                        block_ids: &["page:visible".to_owned(), "page:hidden".to_owned()],
+                        document_ids: &[],
+                        database_block_ids: &[],
+                        payload_json: r#"{
+                          "module":"library",
+                          "affectedPageIds":["page:visible","page:hidden"],
+                          "affectedDatabaseIds":[],"affectedViewIds":[],
+                          "affectedParentKeys":[]
+                        }"#,
+                        projection_impact: &ProjectionImpact::Resources {
+                            page_ids: vec!["page:hidden".to_owned(), "page:visible".to_owned()],
+                            database_ids: Vec::new(),
+                            data_source_ids: Vec::new(),
+                            view_ids: Vec::new(),
+                            document_heads: Vec::new(),
+                        },
+                        committed_at: "2026-08-07T00:00:00Z",
+                    },
+                )?;
+                Ok((library_id, local_commit::head(connection)?))
+            })
+            .expect("mixed-resource fixture");
+        let packet = CoreEventLog::new(kernel.readers())
+            .authorized_packet(
+                commit_seq,
+                &context(&library_id, "project:reader"),
+                None,
+                false,
+            )
+            .expect("resolve packet")
+            .expect("visible sibling packet");
+
+        assert_eq!(packet.atoms.len(), 1);
+        let bytes = serde_json::to_string(&packet).expect("serialize packet");
+        assert!(bytes.contains("page:visible"));
+        assert!(!bytes.contains("page:hidden"));
+        assert_eq!(packet.coverage.atom_ids.len(), 1);
     }
 }

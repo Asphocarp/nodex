@@ -47,7 +47,7 @@ import type {
   RustDataAuthorityRuntime,
 } from "./desktop-data-authority";
 import type {
-  CoreAuthorizedModuleEffect,
+  CoreAuthorizedDeliveryAtom,
   CoreEventEnvelope,
 } from "./types";
 import {
@@ -61,7 +61,7 @@ import {
   projectCoreDatabaseRowSummaries,
   projectCoreDatabaseViewBoard,
   projectCoreDatabaseViewQuery,
-} from "./database-page-projection";
+} from "../../shared/database-page-projection";
 
 export interface DesktopDatabaseModuleBridgeInput {
   readonly authority: Promise<DesktopDataAuthorityRuntime>;
@@ -483,7 +483,7 @@ export const createDesktopDatabaseModuleBridge = (
 
 export const mapCoreDatabaseEvent = (
   envelope: CoreEventEnvelope,
-  effect: CoreAuthorizedModuleEffect,
+  effect: CoreAuthorizedDeliveryAtom,
   libraryId: string,
 ): DatabaseChangeEvent | null => {
   const payload = effect.payload;
@@ -508,7 +508,7 @@ export const mapCoreDatabaseEvent = (
 
 export const mapCoreLibraryDatabaseEvent = (
   envelope: CoreEventEnvelope,
-  effect: CoreAuthorizedModuleEffect,
+  effect: CoreAuthorizedDeliveryAtom,
   libraryId: string,
 ): LibraryNavigationChangedEvent | null => {
   const payload = effect.payload;

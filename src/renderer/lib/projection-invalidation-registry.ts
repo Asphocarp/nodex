@@ -21,10 +21,18 @@ export interface ProjectionDependencies {
   readonly aggregate?: boolean;
 }
 
-export type ProjectionRevocationMessage = ResourceRevocationMessage;
+export type ProjectionRevocationMessage = Extract<
+  ResourceRevocationMessage,
+  { readonly kind: "revocation" }
+>;
 export type ProjectionInvalidationCause =
   | ProjectionStreamMessage
   | ResourceRevocationMessage;
+export type ProjectionFenceCause =
+  | Extract<ProjectionStreamMessage, {
+      readonly kind: "checkpoint" | "reset";
+    }>
+  | Extract<ResourceRevocationMessage, { readonly kind: "reset" }>;
 
 export interface ProjectionRegistration {
   readonly scope: ProjectionScope;
@@ -37,9 +45,7 @@ export interface ProjectionRegistration {
   /** Applies cache removal synchronously, before any queued repair I/O. */
   revoke?(cause: ProjectionRevocationMessage): void;
   /** Clears authority synchronously when a checkpoint/reset exposes a gap. */
-  fence?(cause: Extract<ProjectionStreamMessage, {
-    readonly kind: "checkpoint" | "reset";
-  }>): void;
+  fence?(cause: ProjectionFenceCause): void;
   invalidate(cause: ProjectionInvalidationCause): void | Promise<void>;
 }
 
@@ -326,7 +332,7 @@ export const impactMatches = (
 
 export const revocationMatches = (
   dependencies: ProjectionDependencies,
-  revocation: ResourceRevocationMessage["delivery"]["revocation"],
+  revocation: ProjectionRevocationMessage["delivery"]["revocation"],
 ): boolean => {
   if (dependencies.aggregate === true) return true;
   const ids = [revocation.resource_id];

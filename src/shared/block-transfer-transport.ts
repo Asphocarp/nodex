@@ -8,6 +8,10 @@ import {
   type BlockTransferReceipt,
 } from "./block-transfer";
 import type { DatabaseJsonValue } from "./database-kernel";
+import {
+  parseLocalCommitApply,
+  type LocalCommitApply,
+} from "./local-commit-delivery";
 
 const MAX_ID_LENGTH = 512;
 const MAX_MESSAGE_LENGTH = 4_096;
@@ -202,7 +206,11 @@ interface BlockTransferReceiptWire
 }
 
 export type BlockTransferHttpWireResult =
-  | { readonly ok: true; readonly value: BlockTransferReceiptWire }
+  | {
+      readonly ok: true;
+      readonly value: BlockTransferReceiptWire;
+      readonly localCommit: LocalCommitApply;
+    }
   | { readonly ok: false; readonly error: BlockTransferCommandError };
 
 const bytesToBase64 = (bytes: Uint8Array): string => {
@@ -224,6 +232,7 @@ export const encodeBlockTransferHttpResult = (
   if (!result.ok) return result;
   return {
     ok: true,
+    localCommit: result.localCommit,
     value: {
       ...result.value,
       documentCommits: result.value.documentCommits.map((commit) => ({
@@ -268,6 +277,7 @@ export const decodeBlockTransferHttpResult = (
   }
   return {
     ok: true,
+    localCommit: parseLocalCommitApply(value.localCommit),
     value: {
       ...receipt,
       documentCommits: receipt.documentCommits.map((commit) => ({

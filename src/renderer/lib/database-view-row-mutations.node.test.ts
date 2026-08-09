@@ -14,6 +14,7 @@ import {
   parseDataSourcePropertyId,
 } from "../../shared/database-identities";
 import { testPropertySemantics } from "../../shared/testing/database-property-record";
+import { noOpLocalCommit } from "../../shared/testing/local-commit";
 import type { DatabaseViewRenderModel } from "./database-view-render-model";
 import {
   buildDatabaseViewMoveOperations,
@@ -245,6 +246,7 @@ describe("selected Database View Page mutations", () => {
     });
     const result = {
       ok: true,
+      localCommit: noOpLocalCommit("epoch-1"),
       value: {
         version: DATABASE_MODULE_V2_CONTRACT_VERSION,
         operationId: "operation-1",
@@ -310,6 +312,7 @@ describe("selected Database View Page mutations", () => {
           libraryRequests.push(request);
           return {
             ok: true,
+            localCommit: noOpLocalCommit("epoch-1"),
             value: {
               version: DATABASE_MODULE_V2_CONTRACT_VERSION,
               operationId: request.operationId,

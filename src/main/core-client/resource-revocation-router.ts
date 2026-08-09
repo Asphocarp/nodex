@@ -1,9 +1,13 @@
 import type {
-  ResourceRevocationDelivery,
   ResourceRevocationMessage,
+  ResourceRevocationResetMessage,
 } from "../../shared/resource-revocation-stream";
-import type { ProjectionScope } from "../../shared/projection-stream";
+import type { ProjectionCursor, ProjectionScope } from "../../shared/projection-stream";
 import { projectionScopeKey } from "../../shared/projection-stream";
+import {
+  revocationMessageFromDelivery,
+  revocationScopeCanReceive,
+} from "../../shared/local-commit-delivery";
 import type { CoreAuthorizedDeliveryPacket } from "./types";
 
 type Listener = (message: ResourceRevocationMessage) => void;
@@ -17,30 +21,6 @@ export interface ResourceRevocationRouterInput {
   readonly libraryId: string;
   readonly onListenerError?: (error: unknown, scope: ProjectionScope) => void;
 }
-
-const deliveryOf = (
-  packet: CoreAuthorizedDeliveryPacket,
-  revocation: CoreAuthorizedDeliveryPacket["revocations"][number],
-): ResourceRevocationDelivery => ({
-  storeEpoch: packet.manifest.identity.store_epoch,
-  commitSeq: packet.manifest.identity.commit_seq,
-  manifestHash: packet.manifest.identity.manifest_hash,
-  operationId: packet.manifest.operation_id,
-  committedAt: packet.manifest.committed_at,
-  revocation,
-});
-
-const scopeCanReceive = (
-  subscription: ProjectionScope,
-  revocation: CoreAuthorizedDeliveryPacket["revocations"][number],
-): boolean => {
-  const authorization = revocation.authorization_scope;
-  if (authorization.library_id !== subscription.libraryId) return false;
-  if (authorization.kind === "library") return subscription.kind === "library";
-  if (authorization.kind === "document") return false;
-  return subscription.kind === "project"
-    && subscription.projectId === authorization.project_id;
-};
 
 /** Routes immutable Core-authored revocations; it never re-evaluates authorization. */
 export class ResourceRevocationRouter {
@@ -76,18 +56,51 @@ export class ResourceRevocationRouter {
     packet: CoreAuthorizedDeliveryPacket,
     revocation: CoreAuthorizedDeliveryPacket["revocations"][number],
   ): void {
-    const delivery = deliveryOf(packet, revocation);
     for (const state of this.#scopes.values()) {
-      if (!scopeCanReceive(state.scope, revocation)) continue;
-      const message: ResourceRevocationMessage = {
+      if (!revocationScopeCanReceive(state.scope, revocation)) continue;
+      const message = revocationMessageFromDelivery(
+        packet,
+        revocation,
+        state.scope,
+      );
+      for (const listener of [...state.listeners]) {
+        try {
+          listener(message);
+        } catch (error) {
+          this.#onListenerError?.(error, state.scope);
+        }
+      }
+    }
+  }
+
+  reset(
+    cursor: ProjectionCursor,
+    reason: ResourceRevocationResetMessage["reason"],
+  ): void {
+    this.resetScopes(
+      [...this.#scopes.values()].map((state) => state.scope),
+      cursor,
+      reason,
+    );
+  }
+
+  resetScopes(
+    scopes: readonly ProjectionScope[],
+    cursor: ProjectionCursor,
+    reason: ResourceRevocationResetMessage["reason"],
+  ): void {
+    const keys = new Set(scopes.map((scope) => {
+      this.#assertScope(scope);
+      return projectionScopeKey(scope);
+    }));
+    for (const [key, state] of this.#scopes) {
+      if (!keys.has(key)) continue;
+      const message: ResourceRevocationResetMessage = {
         version: 1,
-        kind: "revocation",
+        kind: "reset",
         scope: state.scope,
-        stream: {
-          storeEpoch: packet.manifest.identity.store_epoch,
-          commitSeq: packet.manifest.identity.commit_seq,
-        },
-        delivery,
+        stream: cursor,
+        reason,
       };
       for (const listener of [...state.listeners]) {
         try {

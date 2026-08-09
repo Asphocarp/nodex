@@ -8,6 +8,7 @@ import {
   encodeCanvasSceneMutationRequestHttp,
   encodeCanvasSceneSyncRequestHttp,
 } from "./canvas-scene-http-contract";
+import { committedLocalCommit } from "../testing/local-commit";
 
 describe("Canvas scene HTTP contract", () => {
   const emptyScene = {
@@ -146,6 +147,7 @@ describe("Canvas scene HTTP contract", () => {
     expect(() => decodeCanvasSceneMutationResultHttp(JSON.stringify({
       ok: true,
       value,
+      localCommit: committedLocalCommit("store-1", 1),
       event: {
         type: "canvas_scene_resync_required",
         version: 1,

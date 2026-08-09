@@ -5,7 +5,10 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 import { plainTextToPortableRichText } from "../../shared/block-documents";
 import type { PageDetail } from "../../shared/page-detail";
 import type { ProjectionStreamMessage } from "../../shared/projection-stream";
-import type { ResourceRevocationMessage } from "../../shared/resource-revocation-stream";
+import type {
+  ResourceRevocationDeliveryMessage,
+  ResourceRevocationMessage,
+} from "../../shared/resource-revocation-stream";
 import { ProjectionInvalidationProvider } from "./projection-invalidation-context";
 import { ProjectionInvalidationRegistry } from "./projection-invalidation-registry";
 
@@ -116,7 +119,7 @@ const pageEvent = (
 
 const pageRevocation = (
   commitSeq: number,
-): ResourceRevocationMessage => ({
+): ResourceRevocationDeliveryMessage => ({
   version: 1,
   kind: "revocation",
   scope: {
@@ -164,7 +167,7 @@ describe("Page Detail store realtime convergence", () => {
   );
   const publish = (message: ProjectionStreamMessage | ResourceRevocationMessage) => {
     latestMessage = message;
-    if (message.kind === "revocation") {
+    if (message.version === 1) {
       revocationListener?.(message);
       return;
     }

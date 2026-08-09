@@ -31,7 +31,7 @@ import type {
   ResolvePageOwnershipPathInput,
 } from "../../shared/page-ownership-paths";
 import type {
-  CoreAuthorizedModuleEffect,
+  CoreAuthorizedDeliveryAtom,
   CoreEventEnvelope,
 } from "./types";
 import type {
@@ -222,7 +222,7 @@ export function createDesktopLibraryModuleBridge(
 
 export function mapCoreLibraryEvent(
   envelope: CoreEventEnvelope,
-  effect: CoreAuthorizedModuleEffect,
+  effect: CoreAuthorizedDeliveryAtom,
   libraryId: string,
 ): LibraryNavigationChangedEvent | null {
   const payload = effect.payload;

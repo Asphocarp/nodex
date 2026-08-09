@@ -202,8 +202,7 @@ import {
   mapCoreLibraryEvent,
   mapCoreProjectWorkspaceEvent,
   mapCoreStoreAdministrationEvent,
-  type CoreAuthorizedDeliveryPacket,
-  type CoreAuthorizedModuleEffect,
+  type CoreAuthorizedDeliveryAtom,
   type CoreEventEnvelope,
   type CoreEventSubscription,
   type CoreAuthorityState,
@@ -216,6 +215,9 @@ import {
 import { createDesktopNodexAgentV3DynamicService } from "./core-client/desktop-nodex-agent-dynamic-service";
 import { superviseCoreEventStream } from "./core-client/core-event-stream-supervisor";
 import { LocalCommitCoordinator } from "./core-client/local-commit-coordinator";
+import { ScopedProjectionLiveSupervisor } from "./core-client/scoped-projection-live-supervisor";
+import { RecipientDeliveryRouter } from "./core-client/recipient-delivery-router";
+import type { RecipientAdmissionResult } from "../shared/recipient-delivery";
 import { CoreEventCompatibilityError } from "./core-client/uds-http";
 import { ProjectionDeliveryRouter } from "./core-client/projection-delivery-router";
 import { ResourceRevocationRouter } from "./core-client/resource-revocation-router";
@@ -299,6 +301,8 @@ let desktopDocumentSync: DesktopDocumentSyncPort | null = null;
 let desktopStoreAdministration: DesktopStoreAdministrationPort | null = null;
 let coreEventSubscription: CoreEventSubscription | null = null;
 let localCommitCoordinator: LocalCommitCoordinator | null = null;
+let scopedProjectionLiveSupervisor: ScopedProjectionLiveSupervisor | null = null;
+let recipientDeliveryRouter: RecipientDeliveryRouter | null = null;
 let coreAuthorityStatus: CoreAuthorityStatus = { kind: "ready" };
 let releaseCoreAuthorityStatus: (() => void) | null = null;
 let storeAdministrationBackupScheduler: StoreAdministrationBackupScheduler | null = null;
@@ -936,14 +940,31 @@ interface ProjectionIpcSenderSubscriptions {
   readonly sender: WebContents;
   readonly projectionReleases: Map<string, () => void>;
   readonly revocationReleases: Map<string, () => void>;
+  readonly scopes: Map<string, ProjectionScope>;
   readonly onDestroyed: () => void;
 }
 
 const projectionIpcSubscriptions =
   new Map<number, ProjectionIpcSenderSubscriptions>();
 
+function refreshScopedProjectionLiveScopes(): void {
+  const scopes = new Map<string, ProjectionScope>();
+  for (const state of projectionIpcSubscriptions.values()) {
+    for (const [key, scope] of state.scopes) scopes.set(key, scope);
+  }
+  scopedProjectionLiveSupervisor?.setScopes([...scopes.values()]);
+}
+
 function registerProjectionStreamIpcHandlers(): void {
-  const releaseSender = (senderId: number): void => {
+  recipientDeliveryRouter ??= new RecipientDeliveryRouter({
+    send: (sender, channel, envelope) =>
+      safeSendToWebContents(sender, channel, [envelope]),
+  });
+  const recipientRouter = recipientDeliveryRouter;
+  const releaseSender = (
+    senderId: number,
+    clearRecipientRecovery: boolean,
+  ): void => {
     const state = projectionIpcSubscriptions.get(senderId);
     if (!state) return;
     projectionIpcSubscriptions.delete(senderId);
@@ -952,6 +973,9 @@ function registerProjectionStreamIpcHandlers(): void {
     for (const release of state.revocationReleases.values()) release();
     state.projectionReleases.clear();
     state.revocationReleases.clear();
+    state.scopes.clear();
+    if (clearRecipientRecovery) recipientRouter.releaseSender(senderId);
+    refreshScopedProjectionLiveScopes();
   };
   const ensureSender = (sender: WebContents): ProjectionIpcSenderSubscriptions => {
     const existing = projectionIpcSubscriptions.get(sender.id);
@@ -960,7 +984,8 @@ function registerProjectionStreamIpcHandlers(): void {
       sender,
       projectionReleases: new Map(),
       revocationReleases: new Map(),
-      onDestroyed: () => releaseSender(sender.id),
+      scopes: new Map(),
+      onDestroyed: () => releaseSender(sender.id, true),
     };
     projectionIpcSubscriptions.set(sender.id, state);
     sender.once("destroyed", state.onDestroyed);
@@ -980,9 +1005,14 @@ function registerProjectionStreamIpcHandlers(): void {
     releases.get(key)?.();
     releases.delete(key);
     if (
+      !state.projectionReleases.has(key)
+      && !state.revocationReleases.has(key)
+    ) state.scopes.delete(key);
+    if (
       state.projectionReleases.size === 0
       && state.revocationReleases.size === 0
-    ) releaseSender(senderId);
+    ) releaseSender(senderId, false);
+    else refreshScopedProjectionLiveScopes();
   };
 
   ipcMain.removeHandler("projection-stream:subscribe");
@@ -990,10 +1020,17 @@ function registerProjectionStreamIpcHandlers(): void {
     unsubscribe(event.sender.id, scope, "projection");
     const state = ensureSender(event.sender);
     const key = projectionScopeKey(scope);
-    const release = requireProjectionRouter().subscribe(scope, (message) => {
-      safeSendToWebContents(event.sender, "projection-stream:message", [message]);
+    state.scopes.set(key, scope);
+    const recipient = recipientRouter.register(event.sender, scope, "projection");
+    const releaseProjection = requireProjectionRouter().subscribe(
+      scope,
+      recipient.publishProjection,
+    );
+    state.projectionReleases.set(key, () => {
+      releaseProjection();
+      recipient.release();
     });
-    state.projectionReleases.set(key, release);
+    refreshScopedProjectionLiveScopes();
   });
 
   ipcMain.removeHandler("projection-stream:unsubscribe");
@@ -1006,16 +1043,30 @@ function registerProjectionStreamIpcHandlers(): void {
     unsubscribe(event.sender.id, scope, "revocation");
     const state = ensureSender(event.sender);
     const key = projectionScopeKey(scope);
-    const release = requireRevocationRouter().subscribe(scope, (message) => {
-      safeSendToWebContents(event.sender, "resource-revocation:message", [message]);
+    state.scopes.set(key, scope);
+    const recipient = recipientRouter.register(event.sender, scope, "revocation");
+    const releaseRevocation = requireRevocationRouter().subscribe(
+      scope,
+      recipient.publishRevocation,
+    );
+    state.revocationReleases.set(key, () => {
+      releaseRevocation();
+      recipient.release();
     });
-    state.revocationReleases.set(key, release);
+    refreshScopedProjectionLiveScopes();
   });
 
   ipcMain.removeHandler("resource-revocation:unsubscribe");
   ipcMain.handle("resource-revocation:unsubscribe", (event, scope: ProjectionScope) => {
     unsubscribe(event.sender.id, scope, "revocation");
   });
+
+  ipcMain.removeHandler("recipient-delivery:admit");
+  ipcMain.handle(
+    "recipient-delivery:admit",
+    (event, result: RecipientAdmissionResult) =>
+      recipientRouter.admit(event.sender.id, result),
+  );
 }
 
 function sendReminderOpenEvent(payload: {
@@ -1737,6 +1788,10 @@ async function publishCoreResync(eventHead: number): Promise<void> {
       storeEpoch: runtime.identity.storeEpoch,
       commitSeq: eventHead,
     }, "event_gap");
+    requireRevocationRouter().reset({
+      storeEpoch: runtime.identity.storeEpoch,
+      commitSeq: eventHead,
+    }, "event_gap");
   }
   dbNotifier.notifyLibraryNavigationChanged({
     version: 1,
@@ -1846,6 +1901,57 @@ async function initializeDesktopApp(
       }, "projection_integrity_failure");
     },
   });
+  scopedProjectionLiveSupervisor = new ScopedProjectionLiveSupervisor({
+    open: (scopes, onEvent, onRepair, signal) =>
+      coreClient.openProjectionEventStream(
+        scopes,
+        onEvent,
+        onRepair,
+        signal,
+      ),
+    onPacket: (envelope) => {
+      localCommitCoordinator?.admit(envelope.packet, "projection_live");
+    },
+    onBarrier: (barrier, scopes, resetScopes) => {
+      const storeEpochChanged = barrier.store_epoch !== coreIdentity.storeEpoch;
+      requireProjectionRouter().resetScopes(
+        storeEpochChanged ? scopes : resetScopes,
+        {
+          storeEpoch: barrier.store_epoch,
+          commitSeq: barrier.commit_head,
+        },
+        storeEpochChanged ? "store_epoch_changed" : "reconnect",
+      );
+      requireRevocationRouter().resetScopes(
+        storeEpochChanged ? scopes : resetScopes,
+        {
+          storeEpoch: barrier.store_epoch,
+          commitSeq: barrier.commit_head,
+        },
+        storeEpochChanged ? "store_epoch_changed" : "reconnect",
+      );
+    },
+    onRepair: (repair) => {
+      requireProjectionRouter().reset({
+        storeEpoch: repair.store_epoch,
+        commitSeq: repair.commit_head,
+      }, repair.reason === "identity_changed"
+        ? "store_epoch_changed"
+        : "event_gap");
+      requireRevocationRouter().reset({
+        storeEpoch: repair.store_epoch,
+        commitSeq: repair.commit_head,
+      }, repair.reason === "identity_changed"
+        ? "store_epoch_changed"
+        : "event_gap");
+    },
+    onError: (error) => {
+      logger.warn("Scoped Projection live broker interrupted", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    },
+  });
+  refreshScopedProjectionLiveScopes();
 
   coreEventSubscription = superviseCoreEventStream({
     initialAfter: coreClient.handshake.commit_head,
@@ -1880,6 +1986,10 @@ async function initializeDesktopApp(
       coreStreamInterruptionPublished = true;
       localCommitCoordinator?.resetStream("reconnect");
       requireProjectionRouter().reset({
+        storeEpoch: coreIdentity.storeEpoch,
+        commitSeq: requireProjectionRouter().cursor.commitSeq,
+      }, "reconnect");
+      requireRevocationRouter().reset({
         storeEpoch: coreIdentity.storeEpoch,
         commitSeq: requireProjectionRouter().cursor.commitSeq,
       }, "reconnect");
@@ -1941,14 +2051,9 @@ async function publishCoreModuleEvent(envelope: CoreEventEnvelope): Promise<void
   await localCommitCoordinator.admitAndWait(envelope.packet, "tailer");
 }
 
-function publishLocalCommitFromApply(packet: CoreAuthorizedDeliveryPacket): void {
-  if (!localCommitCoordinator) return;
-  localCommitCoordinator.admit(packet, "apply");
-}
-
 function publishCoreModuleEventToNotifiers(
   envelope: CoreEventEnvelope,
-  effect: CoreAuthorizedModuleEffect,
+  effect: CoreAuthorizedDeliveryAtom,
   libraryId: string,
 ): void {
   const administrationEvent = mapCoreStoreAdministrationEvent(effect);
@@ -2171,6 +2276,8 @@ function beginMainRuntimeShutdown(): void {
   logger.info("Nodex before-quit");
   coreEventSubscription?.close();
   coreEventSubscription = null;
+  scopedProjectionLiveSupervisor?.stop();
+  scopedProjectionLiveSupervisor = null;
   localCommitCoordinator = null;
   desktopDocumentSync = null;
   releaseCoreAuthorityStatus?.();
@@ -2188,8 +2295,11 @@ function beginMainRuntimeShutdown(): void {
     state.sender.removeListener("destroyed", state.onDestroyed);
     for (const release of state.projectionReleases.values()) release();
     for (const release of state.revocationReleases.values()) release();
+    state.scopes.clear();
   }
   projectionIpcSubscriptions.clear();
+  recipientDeliveryRouter?.dispose();
+  recipientDeliveryRouter = null;
   setProjectionDeliveryRouter(null);
   setResourceRevocationRouter(null);
   storeAdministrationBackupScheduler?.dispose();
@@ -2678,7 +2788,14 @@ export async function runMainAppStartup(
     buildId: `nodex-desktop/${app.getVersion()}`,
     isPackaged: app.isPackaged,
     nodexHome: getNodexHome(),
-    onLocalCommit: publishLocalCommitFromApply,
+    onAuthorityProcessExit: (event) => {
+      logger.error("Native Core authority process exited", {
+        code: event.code,
+        processId: event.processId,
+        signal: event.signal,
+        stderr: event.stderr || undefined,
+      });
+    },
     signal: coreLaunchAbortController.signal,
     onStartupEvent: (event) => {
       if (event.kind === "migration_started") {

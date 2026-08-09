@@ -34,6 +34,9 @@ import {
   encodeDocumentHttpEnvelope,
   DocumentHttpWireError,
 } from "./http-wire";
+import {
+  parseAuthorizedDeliveryPacket as parseAuthorizedDeliveryPacketValue,
+} from "../authorized-delivery-packet";
 import type { components } from "@nodex/core-protocol";
 
 export const DOCUMENT_HTTP_CONTENT_TYPE =
@@ -468,43 +471,11 @@ const parseStoreObservation = (value: unknown): StoreObservation => {
 };
 
 const parseAuthorizedDeliveryPacket = (value: unknown): AuthorizedDeliveryPacket => {
-  const record = readRecord(value);
-  const manifest = readRecord(record.manifest);
-  const identity = readRecord(manifest.identity);
-  if (
-    record.packet_version !== 2
-    || !isDeliveryAuthorizationScope(record.authorization_scope)
-    || typeof record.packet_hash !== "string"
-    || !/^[a-f0-9]{64}$/u.test(record.packet_hash)
-    || typeof manifest.event_version !== "number"
-    || !Number.isSafeInteger(manifest.event_version)
-    || typeof manifest.committed_at !== "string"
-    || typeof manifest.operation_id !== "string"
-    || typeof identity.commit_seq !== "number"
-    || !Number.isSafeInteger(identity.commit_seq)
-    || identity.commit_seq < 1
-    || typeof identity.manifest_hash !== "string"
-    || !/^[a-f0-9]{64}$/u.test(identity.manifest_hash)
-    || typeof identity.store_epoch !== "string"
-    || !Array.isArray(record.effects)
-    || !Array.isArray(record.document_effects)
-    || !Array.isArray(record.projection_effects)
-    || !Array.isArray(record.revocations)
-    || !isRecord(record.coverage)
-    || !isRecord(record.projection_impact)
-  ) {
+  try {
+    return parseAuthorizedDeliveryPacketValue(value);
+  } catch {
     throw new DocumentHttpWireError("Document update ACK delivery is invalid");
   }
-  return record as unknown as AuthorizedDeliveryPacket;
-};
-
-const isDeliveryAuthorizationScope = (value: unknown): boolean => {
-  if (!isRecord(value) || typeof value.library_id !== "string") return false;
-  if (value.kind === "library") return true;
-  if (value.kind === "project") return typeof value.project_id === "string";
-  return value.kind === "document"
-    && typeof value.document_id === "string"
-    && (value.project_id === null || typeof value.project_id === "string");
 };
 
 const parseAwarenessRequestMetadata = (

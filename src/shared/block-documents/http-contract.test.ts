@@ -36,8 +36,54 @@ import {
   encodeDocumentHttpEnvelope,
 } from "./http-wire";
 import { PAGE_DOCUMENT_SCHEMA_VERSION } from "./page-document";
+import type { AuthorizedDeliveryPacket } from "../authorized-delivery-packet";
 
 const bytes = (...values: number[]): Uint8Array => Uint8Array.from(values);
+
+const documentDelivery = (): AuthorizedDeliveryPacket => ({
+  packet_version: 3,
+  authorization_scope: {
+    kind: "document",
+    library_id: "library-1",
+    project_id: "project-1",
+    document_id: "document-1",
+  },
+  manifest: {
+    event_version: 7,
+    identity: {
+      store_epoch: "store-1",
+      commit_seq: 5,
+      manifest_hash: "f".repeat(64),
+    },
+    operation_id: "operation-1",
+    committed_at: "2026-08-09T00:00:00.000Z",
+  },
+  atoms: [],
+  document_effects: [{
+    reference: {
+      effect_order: 0,
+      page_id: "page-1",
+      document_id: "document-1",
+      generation: 1,
+      base_head_seq: 5,
+      result_head_seq: 6,
+      update_id: "update-1",
+      update_hash: "e".repeat(64),
+      update_byte_length: 2,
+      resource_kind: "document_update",
+    },
+    inline_update: [8, 9],
+  }],
+  projection_effects: [],
+  revocations: [],
+  coverage: {
+    atom_ids: [],
+    document_effect_orders: [0],
+    inline_document_effect_orders: [0],
+    projection_scope_keys: [],
+  },
+  packet_hash: "d".repeat(64),
+});
 
 describe("Document HTTP contract", () => {
   test("round-trips Library descriptors without a compatibility Project", () => {
@@ -187,6 +233,7 @@ describe("Document HTTP contract", () => {
         commit_seq: 5,
         manifest_hash: "f".repeat(64),
       },
+      delivery: documentDelivery(),
     } as const;
     const decodedAck = decodeDocumentApplyHttpAck(
       encodeDocumentApplyHttpAck(ack),
@@ -197,6 +244,8 @@ describe("Document HTTP contract", () => {
     }
     expect(decodedAck.committedSeq).toBe(5);
     expect(decodedAck.commit.commit_seq).toBe(5);
+    expect(decodedAck.delivery?.packet_version).toBe(3);
+    expect(decodedAck.delivery?.document_effects).toHaveLength(1);
     expect(Array.from(decodedAck.stateVector).join(",")).toBe("8,9");
 
     const noOpAck = {

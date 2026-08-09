@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import { DATABASE_MODULE_V2_CONTRACT_VERSION } from "../../shared/database-module-v2";
+import { committedLocalCommit } from "../../shared/testing/local-commit";
 import {
   parseDatabaseId,
   parseDatabaseViewId,
@@ -556,6 +557,7 @@ describe("Core Database Module Adapter", () => {
       ],
     })).resolves.toEqual({
       ok: true,
+      localCommit: committedLocalCommit(identity.storeEpoch, 41),
       value: {
         version: DATABASE_MODULE_V2_CONTRACT_VERSION,
         operationId: "operation:test",
@@ -896,6 +898,7 @@ describe("Core Database Module Adapter", () => {
         committedAt: "2026-07-20T00:00:00.000Z",
         payload: {
           module: "database",
+          library_id: "library:test",
           event: {
             kind: "database_changed",
             project_id: identity.projectId,
@@ -910,7 +913,7 @@ describe("Core Database Module Adapter", () => {
     } as const;
     expect(mapCoreDatabaseEvent(
       envelope,
-      envelope.packet.effects[0]!,
+      envelope.packet.atoms[0]!,
       identity.libraryId,
     )).toEqual({
       version: 2,
@@ -937,6 +940,7 @@ describe("Core Database Module Adapter", () => {
         committedAt: "2026-07-20T00:11:00.000Z",
         payload: {
           module: "database",
+          library_id: "library:test",
           event: {
             kind: "database_changed",
             project_id: null,
@@ -951,7 +955,7 @@ describe("Core Database Module Adapter", () => {
     } as const;
     expect(mapCoreLibraryDatabaseEvent(
       envelope,
-      envelope.packet.effects[0]!,
+      envelope.packet.atoms[0]!,
       identity.libraryId,
     )).toEqual({
       version: 1,

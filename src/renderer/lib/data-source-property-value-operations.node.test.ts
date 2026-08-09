@@ -121,7 +121,7 @@ describe("Data Source Property value operations", () => {
       dataSourceId,
       property: definition,
       addPageIds: ["page-2"],
-      removePageIds: ["page-3"],
+      removeEdgeIds: ["a".repeat(64)],
     })).toMatchObject([{
       kind: "edit_property_values",
       edits: [{
@@ -130,9 +130,37 @@ describe("Data Source Property value operations", () => {
           delta: {
             kind: "relation",
             addPageIds: ["page-2"],
-            removePageIds: ["page-3"],
+            removeEdgeIds: ["a".repeat(64)],
           },
         },
+      }],
+    }]);
+  });
+
+  test("clears every visible and restricted Relation edge behind a revision fence", () => {
+    const definition = property("p_0123abcd", "relation");
+    expect(buildDataSourcePropertyValueOperations({
+      pageId: "page-1",
+      dataSourceId,
+      property: definition,
+      current: value(definition, {
+        kind: "relation",
+        value: {
+          value_revision: 7,
+          total_count: 4,
+          targets: [],
+          restricted_count: 4,
+          has_more: true,
+        },
+      }, 7),
+      value: [],
+    })).toEqual([{
+      kind: "edit_property_values",
+      edits: [{
+        pageId: "page-1",
+        dataSourceId,
+        propertyId: definition.propertyId,
+        edit: { kind: "clear_relation", expectedValueRevision: 7 },
       }],
     }]);
   });

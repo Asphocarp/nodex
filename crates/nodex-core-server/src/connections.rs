@@ -14,20 +14,41 @@ const STALE_CONNECTION_AGE: Duration = Duration::from_secs(24 * 60 * 60);
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct PeerIdentity {
-    pub(crate) uid: u32,
-    pub(crate) gid: u32,
+    pub(crate) uid: Option<u32>,
+    pub(crate) gid: Option<u32>,
     pub(crate) pid: Option<u32>,
+}
+
+impl PeerIdentity {
+    fn unavailable() -> Self {
+        Self {
+            uid: None,
+            gid: None,
+            pid: None,
+        }
+    }
+
+    pub(crate) fn is_authenticated_owner(&self, owner_uid: u32) -> bool {
+        self.uid == Some(owner_uid) && self.gid.is_some() && self.pid.is_some()
+    }
 }
 
 impl Connected<IncomingStream<'_, UnixListener>> for PeerIdentity {
     fn connect_info(stream: IncomingStream<'_, UnixListener>) -> Self {
-        let credential = stream
-            .io()
-            .peer_cred()
-            .expect("accepted Unix stream exposes peer credentials");
+        let credential = match stream.io().peer_cred() {
+            Ok(credential) => credential,
+            Err(error) => {
+                tracing::warn!(
+                    subsystem = "transport",
+                    error = %error,
+                    "Disconnected Unix peer could not be authenticated"
+                );
+                return Self::unavailable();
+            }
+        };
         Self {
-            uid: credential.uid(),
-            gid: credential.gid(),
+            uid: Some(credential.uid()),
+            gid: Some(credential.gid()),
             pid: credential.pid().and_then(|pid| u32::try_from(pid).ok()),
         }
     }
@@ -57,6 +78,7 @@ struct RegistryState {
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub(crate) enum EventSubscriptionKey {
     Global,
+    ProjectionLive(String),
     Document(String),
 }
 
@@ -327,10 +349,18 @@ mod tests {
 
     fn peer(pid: u32) -> PeerIdentity {
         PeerIdentity {
-            uid: 501,
-            gid: 20,
+            uid: Some(501),
+            gid: Some(20),
             pid: Some(pid),
         }
+    }
+
+    #[test]
+    fn unavailable_peer_credentials_fail_closed_without_panicking() {
+        let unavailable = PeerIdentity::unavailable();
+
+        assert!(!unavailable.is_authenticated_owner(501));
+        assert_ne!(unavailable, peer(10));
     }
 
     #[test]
@@ -423,6 +453,44 @@ mod tests {
             .acquire_event_subscription("connection:one", EventSubscriptionKey::Global)
             .expect("released subscription capacity");
         drop(document_leases);
+    }
+
+    #[test]
+    fn projection_live_leases_are_unique_per_canonical_scope_set() {
+        let registry = ConnectionRegistry::new();
+        registry
+            .register(
+                "connection:one",
+                "binding:one".to_owned(),
+                AdapterKind::ElectronHost,
+                &peer(10),
+                "host-build",
+                1,
+            )
+            .expect("registration");
+
+        let first = registry
+            .acquire_event_subscription(
+                "connection:one",
+                EventSubscriptionKey::ProjectionLive("scope-set:a".to_owned()),
+            )
+            .expect("first Projection live lease");
+        let duplicate = registry.acquire_event_subscription(
+            "connection:one",
+            EventSubscriptionKey::ProjectionLive("scope-set:a".to_owned()),
+        );
+        assert_eq!(
+            duplicate.err().expect("duplicate lease is rejected").kind,
+            ConnectionRegistryErrorKind::Conflict
+        );
+        registry
+            .acquire_event_subscription(
+                "connection:one",
+                EventSubscriptionKey::ProjectionLive("scope-set:b".to_owned()),
+            )
+            .expect("overlapping replacement lease");
+
+        drop(first);
     }
 
     #[test]

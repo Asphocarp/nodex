@@ -56,29 +56,51 @@ impl CoreModuleEventPayload {
     }
 }
 
-/// Module notification payloads that may cross the authorized delivery
-/// boundary. Document updates are intentionally absent: their bytes are
-/// available only through `DocumentEffectRef` and its optional inline body.
+/// Closed notification payloads that may cross the authorized delivery
+/// boundary. Every value is the payload of one resource-atomic DeliveryAtom;
+/// aggregate physical events are split before the manifest is sealed.
+/// Document updates are intentionally absent: their bytes are available only
+/// through `DocumentEffectRef` and its optional inline body.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
-#[serde(tag = "module", content = "event", rename_all = "snake_case")]
-pub enum AuthorizedModulePayload {
-    Library(LibraryEvent),
-    Database(DatabaseEvent),
-    OwnedDocument(AuthorizedOwnedDocumentEvent),
-    ProjectWorkspace(ProjectWorkspaceEvent),
-    Automation(AutomationEvent),
-    StoreAdministration(StoreAdministrationEvent),
+#[serde(tag = "module", rename_all = "snake_case")]
+pub enum DeliveryAtomPayload {
+    Library {
+        library_id: String,
+        event: LibraryEvent,
+    },
+    Database {
+        library_id: String,
+        event: DatabaseEvent,
+    },
+    OwnedDocument {
+        library_id: String,
+        canvas_id: Option<String>,
+        event: AuthorizedOwnedDocumentEvent,
+    },
+    ProjectWorkspace {
+        library_id: String,
+        event: ProjectWorkspaceEvent,
+    },
+    Automation {
+        library_id: String,
+        project_id: String,
+        event: AutomationEvent,
+    },
+    StoreAdministration {
+        library_id: String,
+        event: StoreAdministrationEvent,
+    },
 }
 
-impl AuthorizedModulePayload {
+impl DeliveryAtomPayload {
     pub fn module_name(&self) -> ModuleName {
         match self {
-            Self::Library(_) => ModuleName::Library,
-            Self::Database(_) => ModuleName::Database,
-            Self::OwnedDocument(_) => ModuleName::OwnedDocument,
-            Self::ProjectWorkspace(_) => ModuleName::ProjectWorkspace,
-            Self::Automation(_) => ModuleName::Automation,
-            Self::StoreAdministration(_) => ModuleName::StoreAdministration,
+            Self::Library { .. } => ModuleName::Library,
+            Self::Database { .. } => ModuleName::Database,
+            Self::OwnedDocument { .. } => ModuleName::OwnedDocument,
+            Self::ProjectWorkspace { .. } => ModuleName::ProjectWorkspace,
+            Self::Automation { .. } => ModuleName::Automation,
+            Self::StoreAdministration { .. } => ModuleName::StoreAdministration,
         }
     }
 }
@@ -146,13 +168,6 @@ pub struct CommittedCoreModuleEvent {
     pub committed_at: String,
     pub projection_impact: ProjectionImpact,
     pub payload: CoreModuleEventPayload,
-}
-
-#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
-pub struct LocalCommitResources {
-    pub block_ids: Vec<String>,
-    pub document_ids: Vec<String>,
-    pub database_ids: Vec<String>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize, ToSchema)]
@@ -233,28 +248,42 @@ pub struct LocalCommitReceiptRef {
     pub result_hash: String,
 }
 
-/// A closed semantic index entry. The payload itself belongs to an authorized
-/// delivery packet; the manifest records only the owning Module, effect kind,
-/// resource index, and payload digest.
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+/// Exact authorization vocabulary used by semantic delivery. Scope resources
+/// are explicit requirements rather than ambient packet metadata.
+#[derive(Clone, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
-pub enum SemanticEffect {
-    ModuleChanged {
-        effect_order: i64,
-        module: ModuleName,
-        effect_kind: String,
-        resources: LocalCommitResources,
-        payload_hash: String,
-        projection_impact: ProjectionImpact,
-    },
+pub enum ResourceKey {
+    Library { library_id: String },
+    Project { project_id: String },
+    Page { page_id: String },
+    Document { document_id: String },
+    Database { database_id: String },
+    DataSource { data_source_id: String },
+    View { view_id: String },
+    Canvas { canvas_id: String },
 }
 
-impl SemanticEffect {
-    pub fn effect_order(&self) -> i64 {
-        match self {
-            Self::ModuleChanged { effect_order, .. } => *effect_order,
-        }
-    }
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DeliveryAtomKind {
+    LibraryNavigationChanged,
+    DatabaseChanged,
+    OwnedDocumentChanged,
+    ProjectWorkspaceChanged,
+    AutomationChanged,
+    StoreAdministrationChanged,
+}
+
+/// Immutable resource-atomic semantic index entry. `atom_order` is unique
+/// within one commit; `atom_id` authenticates its kind, exact requirements,
+/// payload digest, and commit coordinate.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct DeliveryAtomDescriptor {
+    pub atom_id: String,
+    pub atom_order: i64,
+    pub kind: DeliveryAtomKind,
+    pub required_resources: Vec<ResourceKey>,
+    pub payload_hash: String,
 }
 
 /// Immutable authority scope affected by a mutation. A routing claim is used
@@ -314,7 +343,7 @@ pub struct CommitManifest {
     pub operation_id: String,
     pub intent_hash: String,
     pub committed_at: String,
-    pub semantic_effects: Vec<SemanticEffect>,
+    pub delivery_atoms: Vec<DeliveryAtomDescriptor>,
     pub document_effects: Vec<DocumentEffectRef>,
     pub projection_effects: Vec<ProjectionEffect>,
     #[serde(default)]
@@ -336,9 +365,9 @@ pub struct CommitManifestHeader {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
-pub struct AuthorizedModuleEffect {
-    pub semantic: SemanticEffect,
-    pub payload: AuthorizedModulePayload,
+pub struct AuthorizedDeliveryAtom {
+    pub descriptor: DeliveryAtomDescriptor,
+    pub payload: DeliveryAtomPayload,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -396,7 +425,7 @@ pub struct ResourceRevocation {
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 pub struct DeliveryCoverage {
-    pub semantic_effect_orders: Vec<i64>,
+    pub atom_ids: Vec<String>,
     pub document_effect_orders: Vec<i64>,
     pub inline_document_effect_orders: Vec<i64>,
     pub projection_scope_keys: Vec<String>,
@@ -410,11 +439,10 @@ pub struct AuthorizedDeliveryPacket {
     pub packet_version: u32,
     pub authorization_scope: DeliveryAuthorizationScope,
     pub manifest: CommitManifestHeader,
-    pub effects: Vec<AuthorizedModuleEffect>,
+    pub atoms: Vec<AuthorizedDeliveryAtom>,
     pub document_effects: Vec<AuthorizedDocumentEffect>,
     pub projection_effects: Vec<ProjectionEffect>,
     pub revocations: Vec<ResourceRevocation>,
-    pub projection_impact: ProjectionImpact,
     pub coverage: DeliveryCoverage,
     pub packet_hash: String,
 }

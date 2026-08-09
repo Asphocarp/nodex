@@ -1180,6 +1180,344 @@ CREATE TABLE local_commit_revocations (
 ) WITHOUT ROWID, STRICT;
 "#;
 
+const V109_LOCAL_COMMIT_DELIVERY_ATOMS_SCHEMA_SQL: &str = r#"
+CREATE TABLE local_commit_delivery_atoms (
+  store_epoch TEXT NOT NULL,
+  commit_seq INTEGER NOT NULL,
+  atom_order INTEGER NOT NULL CHECK (atom_order >= 0),
+  atom_id TEXT NOT NULL,
+  atom_kind TEXT NOT NULL,
+  required_resources_json TEXT NOT NULL,
+  payload_json TEXT NOT NULL,
+  payload_hash TEXT NOT NULL,
+  PRIMARY KEY (store_epoch, commit_seq, atom_order),
+  UNIQUE (store_epoch, commit_seq, atom_id),
+  FOREIGN KEY (store_epoch, commit_seq)
+    REFERENCES local_commits(store_epoch, commit_seq) ON DELETE CASCADE,
+  CHECK (length(store_epoch) BETWEEN 1 AND 512),
+  CHECK (length(atom_id) = 64 AND atom_id NOT GLOB '*[^0-9a-f]*'),
+  CHECK (atom_kind IN (
+    'library_navigation_changed',
+    'database_changed',
+    'owned_document_changed',
+    'project_workspace_changed',
+    'automation_changed',
+    'store_administration_changed'
+  )),
+  CHECK (
+    json_valid(required_resources_json)
+    AND json_type(required_resources_json) = 'array'
+    AND json_array_length(required_resources_json) > 0
+  ),
+  CHECK (json_valid(payload_json) AND json_type(payload_json) = 'object'),
+  CHECK (length(payload_hash) = 64 AND payload_hash NOT GLOB '*[^0-9a-f]*')
+) WITHOUT ROWID, STRICT;
+
+CREATE INDEX idx_local_commit_delivery_atoms_id
+  ON local_commit_delivery_atoms(atom_id);
+"#;
+
+const V109_PROPERTY_SEMANTICS_SCHEMA_SQL: &str = r#"
+CREATE TABLE data_source_properties_v109 (
+  data_source_id TEXT NOT NULL REFERENCES data_sources(id) ON DELETE CASCADE,
+  id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  value_type TEXT NOT NULL,
+  config_json TEXT NOT NULL DEFAULT '{}',
+  rank_key TEXT NOT NULL,
+  lifecycle TEXT NOT NULL DEFAULT 'active',
+  schema_revision INTEGER NOT NULL DEFAULT 1 CHECK (schema_revision >= 1),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (data_source_id, id),
+  CHECK (length(id) BETWEEN 1 AND 128),
+  CHECK (length(name) BETWEEN 1 AND 256),
+  CHECK (value_type IN (
+    'text', 'number', 'checkbox', 'select', 'multi_select',
+    'date', 'datetime', 'relation'
+  )),
+  CHECK (lifecycle IN ('active', 'deleted')),
+  CHECK (json_valid(config_json) AND json_type(config_json) = 'object')
+) WITHOUT ROWID;
+
+CREATE TABLE data_source_property_values_v109 (
+  data_source_id TEXT NOT NULL,
+  membership_id TEXT NOT NULL,
+  property_id TEXT NOT NULL,
+  value_type TEXT NOT NULL,
+  value_json TEXT NOT NULL,
+  revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (data_source_id, membership_id, property_id),
+  FOREIGN KEY (membership_id, data_source_id)
+    REFERENCES data_source_page_memberships(id, data_source_id)
+    ON UPDATE CASCADE ON DELETE CASCADE,
+  FOREIGN KEY (data_source_id, property_id)
+    REFERENCES data_source_properties_v109(data_source_id, id)
+    ON UPDATE CASCADE ON DELETE CASCADE,
+  CHECK (value_type IN (
+    'text', 'number', 'checkbox', 'select', 'multi_select',
+    'date', 'datetime', 'relation'
+  )),
+  CHECK (json_valid(value_json)),
+  CHECK (value_type <> 'relation' OR json_type(value_json) = 'null')
+) WITHOUT ROWID;
+
+CREATE TABLE data_source_relation_properties_v109 (
+  data_source_id TEXT NOT NULL,
+  property_id TEXT NOT NULL,
+  target_data_source_id TEXT NOT NULL,
+  PRIMARY KEY (data_source_id, property_id),
+  FOREIGN KEY (data_source_id, property_id)
+    REFERENCES data_source_properties_v109(data_source_id, id)
+    ON UPDATE CASCADE ON DELETE CASCADE,
+  FOREIGN KEY (target_data_source_id)
+    REFERENCES data_sources(id)
+    ON UPDATE CASCADE ON DELETE NO ACTION
+    DEFERRABLE INITIALLY DEFERRED
+) WITHOUT ROWID, STRICT;
+
+CREATE TABLE data_source_relation_edges_v109 (
+  edge_id TEXT NOT NULL UNIQUE,
+  source_data_source_id TEXT NOT NULL,
+  source_membership_id TEXT NOT NULL,
+  property_id TEXT NOT NULL,
+  target_page_block_id TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (
+    source_data_source_id,
+    source_membership_id,
+    property_id,
+    target_page_block_id
+  ),
+  FOREIGN KEY (source_data_source_id, property_id)
+    REFERENCES data_source_relation_properties_v109(data_source_id, property_id)
+    ON UPDATE CASCADE ON DELETE CASCADE,
+  FOREIGN KEY (source_data_source_id, source_membership_id, property_id)
+    REFERENCES data_source_property_values_v109(
+      data_source_id,
+      membership_id,
+      property_id
+    ) ON UPDATE CASCADE ON DELETE CASCADE,
+  FOREIGN KEY (target_page_block_id)
+    REFERENCES blocks(id)
+    ON UPDATE CASCADE ON DELETE NO ACTION
+    DEFERRABLE INITIALLY DEFERRED,
+  CHECK (length(edge_id) = 64 AND edge_id NOT GLOB '*[^0-9a-f]*'),
+  CHECK (length(created_at) > 0)
+) WITHOUT ROWID, STRICT;
+
+INSERT INTO data_source_properties_v109(
+  data_source_id, id, name, value_type, config_json, rank_key, lifecycle,
+  schema_revision, created_at, updated_at
+)
+SELECT
+  data_source_id,
+  id,
+  name,
+  CASE value_type WHEN 'person' THEN 'text' ELSE value_type END,
+  config_json,
+  rank_key,
+  lifecycle,
+  schema_revision,
+  created_at,
+  updated_at
+FROM data_source_properties;
+
+INSERT INTO data_source_property_values_v109(
+  data_source_id, membership_id, property_id, value_type, value_json,
+  revision, updated_at
+)
+SELECT
+  data_source_id,
+  membership_id,
+  property_id,
+  CASE value_type WHEN 'person' THEN 'text' ELSE value_type END,
+  value_json,
+  revision,
+  updated_at
+FROM data_source_property_values;
+
+INSERT INTO data_source_relation_properties_v109(
+  data_source_id, property_id, target_data_source_id
+)
+SELECT data_source_id, property_id, target_data_source_id
+FROM data_source_relation_properties;
+
+INSERT INTO data_source_relation_edges_v109(
+  edge_id,
+  source_data_source_id,
+  source_membership_id,
+  property_id,
+  target_page_block_id,
+  created_at
+)
+SELECT
+  lower(hex(randomblob(32))),
+  source_data_source_id,
+  source_membership_id,
+  property_id,
+  target_page_block_id,
+  created_at
+FROM data_source_relation_edges;
+
+DROP TRIGGER data_source_property_values_require_matching_type_insert;
+DROP TRIGGER data_source_property_values_require_matching_type_update;
+DROP TRIGGER data_source_relation_properties_validate_insert;
+DROP TRIGGER data_source_relation_properties_are_immutable;
+DROP TRIGGER data_source_relation_property_type_is_stable;
+DROP TRIGGER data_source_relation_edges_validate_insert;
+DROP TRIGGER data_source_relation_edges_are_immutable;
+
+DROP INDEX idx_data_source_properties_order;
+DROP INDEX idx_data_source_property_values_property;
+DROP INDEX idx_data_source_relation_properties_target;
+DROP INDEX idx_data_source_relation_edges_property_target;
+DROP INDEX idx_data_source_relation_edges_target;
+
+ALTER TABLE data_source_relation_edges RENAME TO data_source_relation_edges_v108;
+ALTER TABLE data_source_relation_properties RENAME TO data_source_relation_properties_v108;
+ALTER TABLE data_source_property_values RENAME TO data_source_property_values_v108;
+ALTER TABLE data_source_properties RENAME TO data_source_properties_v108;
+
+ALTER TABLE data_source_properties_v109 RENAME TO data_source_properties;
+ALTER TABLE data_source_property_values_v109 RENAME TO data_source_property_values;
+ALTER TABLE data_source_relation_properties_v109 RENAME TO data_source_relation_properties;
+ALTER TABLE data_source_relation_edges_v109 RENAME TO data_source_relation_edges;
+
+DROP TABLE data_source_relation_edges_v108;
+DROP TABLE data_source_relation_properties_v108;
+DROP TABLE data_source_property_values_v108;
+DROP TABLE data_source_properties_v108;
+
+CREATE INDEX idx_data_source_properties_order
+  ON data_source_properties(data_source_id, lifecycle, rank_key, id);
+
+CREATE INDEX idx_data_source_property_values_property
+  ON data_source_property_values(data_source_id, property_id, membership_id);
+
+CREATE INDEX idx_data_source_relation_properties_target
+  ON data_source_relation_properties(
+    target_data_source_id,
+    data_source_id,
+    property_id
+  );
+
+CREATE INDEX idx_data_source_relation_edges_property_target
+  ON data_source_relation_edges(
+    source_data_source_id,
+    property_id,
+    target_page_block_id,
+    source_membership_id
+  );
+
+CREATE INDEX idx_data_source_relation_edges_target
+  ON data_source_relation_edges(
+    target_page_block_id,
+    source_data_source_id,
+    property_id,
+    source_membership_id
+  );
+
+CREATE TRIGGER data_source_property_values_require_matching_type_insert
+BEFORE INSERT ON data_source_property_values
+WHEN NOT EXISTS (
+  SELECT 1 FROM data_source_properties property
+  WHERE property.data_source_id = NEW.data_source_id
+    AND property.id = NEW.property_id
+    AND property.value_type = NEW.value_type
+    AND property.lifecycle = 'active'
+)
+BEGIN
+  SELECT RAISE(ABORT, 'Data Source Property value must match an active Property type');
+END;
+
+CREATE TRIGGER data_source_property_values_require_matching_type_update
+BEFORE UPDATE OF data_source_id, property_id, value_type
+ON data_source_property_values
+WHEN NOT EXISTS (
+  SELECT 1 FROM data_source_properties property
+  WHERE property.data_source_id = NEW.data_source_id
+    AND property.id = NEW.property_id
+    AND property.value_type = NEW.value_type
+    AND property.lifecycle = 'active'
+)
+BEGIN
+  SELECT RAISE(ABORT, 'Data Source Property value must match an active Property type');
+END;
+
+CREATE TRIGGER data_source_relation_properties_validate_insert
+BEFORE INSERT ON data_source_relation_properties
+WHEN NOT EXISTS (
+  SELECT 1
+  FROM data_source_properties property
+  JOIN data_sources source ON source.id = property.data_source_id
+  JOIN data_sources target ON target.id = NEW.target_data_source_id
+  WHERE property.data_source_id = NEW.data_source_id
+    AND property.id = NEW.property_id
+    AND property.value_type = 'relation'
+    AND property.config_json = '{}'
+    AND property.lifecycle = 'active'
+    AND source.lifecycle = 'active'
+    AND target.lifecycle = 'active'
+    AND source.library_id = target.library_id
+)
+BEGIN
+  SELECT RAISE(ABORT, 'Relation Property must target an active Data Source in the same Library');
+END;
+
+CREATE TRIGGER data_source_relation_properties_are_immutable
+BEFORE UPDATE ON data_source_relation_properties
+BEGIN
+  SELECT RAISE(ABORT, 'Relation Property target is immutable');
+END;
+
+CREATE TRIGGER data_source_relation_property_type_is_stable
+BEFORE UPDATE OF value_type ON data_source_properties
+WHEN NEW.value_type <> 'relation'
+  AND EXISTS (
+    SELECT 1 FROM data_source_relation_properties relation
+    WHERE relation.data_source_id = OLD.data_source_id
+      AND relation.property_id = OLD.id
+  )
+BEGIN
+  SELECT RAISE(ABORT, 'Relation Property type is immutable');
+END;
+
+CREATE TRIGGER data_source_relation_edges_validate_insert
+BEFORE INSERT ON data_source_relation_edges
+WHEN NOT EXISTS (
+  SELECT 1
+  FROM data_source_relation_properties relation
+  JOIN data_source_property_values value
+    ON value.data_source_id = NEW.source_data_source_id
+    AND value.membership_id = NEW.source_membership_id
+    AND value.property_id = NEW.property_id
+  JOIN blocks target_block ON target_block.id = NEW.target_page_block_id
+  JOIN pages target_page ON target_page.block_id = target_block.id
+  JOIN data_source_page_memberships target_membership
+    ON target_membership.page_block_id = target_block.id
+    AND target_membership.data_source_id = relation.target_data_source_id
+    AND target_membership.removed_at IS NULL
+  WHERE relation.data_source_id = NEW.source_data_source_id
+    AND relation.property_id = NEW.property_id
+    AND value.value_type = 'relation'
+    AND json_type(value.value_json) = 'null'
+    AND target_block.type = 'page'
+    AND target_block.lifecycle = 'active'
+    AND target_page.lifecycle = 'active'
+)
+BEGIN
+  SELECT RAISE(ABORT, 'Relation edge requires an active target Page in the configured Data Source');
+END;
+
+CREATE TRIGGER data_source_relation_edges_are_immutable
+BEFORE UPDATE ON data_source_relation_edges
+BEGIN
+  SELECT RAISE(ABORT, 'Relation edge identity is immutable');
+END;
+"#;
+
 const V94_PROJECT_APPEARANCE_SCHEMA_SQL: &str = r#"
 ALTER TABLE projects ADD COLUMN appearance_color TEXT NOT NULL DEFAULT 'black'
   CHECK (appearance_color IN ('black', 'red', 'orange', 'yellow', 'green', 'blue', 'purple', 'pink'));
@@ -1580,6 +1918,7 @@ fn upgrade_owned_store(
         105 => validate_exact_v105_schema(connection)?,
         106 => validate_exact_v106_schema(connection)?,
         107 => validate_exact_v107_schema(connection)?,
+        108 => validate_exact_v108_schema(connection)?,
         _ => return Err(corrupt("Rust Core forward-migration source is unsupported")),
     }
 
@@ -1652,6 +1991,9 @@ fn upgrade_owned_store(
             // canonical input rather than special-casing absent evidence.
             ensure_v108_local_commit_revocations_schema(transaction)?;
         }
+        if source_version < 109 {
+            ensure_v109_local_commit_delivery_atoms_schema(transaction)?;
+        }
         if source_version < 106 {
             upgrade_local_commit_artifacts(
                 transaction,
@@ -1666,6 +2008,14 @@ fn upgrade_owned_store(
         }
         if (106..108).contains(&source_version) {
             crate::infrastructure::local_commit::upgrade_v108_manifest(
+                transaction,
+                &mut |completed, total| {
+                    observer(StorePreparationEvent::MigrationProgress { completed, total });
+                },
+            )?;
+        }
+        if source_version < 109 {
+            crate::infrastructure::local_commit::upgrade_v109_manifest(
                 transaction,
                 &mut |completed, total| {
                     observer(StorePreparationEvent::MigrationProgress { completed, total });
@@ -2111,6 +2461,7 @@ fn publish_current_store(
         ensure_v102_local_commit_schema(transaction, &mut |_, _| {})?;
         ensure_v103_local_commit_composite_identity(transaction)?;
         ensure_v108_local_commit_revocations_schema(transaction)?;
+        ensure_v109_local_commit_delivery_atoms_schema(transaction)?;
         upgrade_local_commit_artifacts(
             transaction,
             TYPESCRIPT_SCHEMA_VERSION,
@@ -2155,6 +2506,7 @@ fn create_fresh_store(
         ensure_v102_local_commit_schema(transaction, &mut |_, _| {})?;
         ensure_v103_local_commit_composite_identity(transaction)?;
         ensure_v108_local_commit_revocations_schema(transaction)?;
+        ensure_v109_local_commit_delivery_atoms_schema(transaction)?;
         upgrade_local_commit_artifacts(transaction, TYPESCRIPT_SCHEMA_VERSION, &mut |_, _| {})?;
         ensure_v107_block_project_cascade_indexes(transaction)?;
         import_legacy_writable_roots(transaction, profile_home, now)?;
@@ -2624,6 +2976,46 @@ fn ensure_v108_local_commit_revocations_schema(connection: &Connection) -> Resul
     if exists == 0 {
         connection.execute_batch(V108_LOCAL_COMMIT_REVOCATIONS_SCHEMA_SQL)?;
     }
+    Ok(())
+}
+
+fn ensure_v109_local_commit_delivery_atoms_schema(
+    connection: &Connection,
+) -> Result<(), StoreError> {
+    let exists: i64 = connection.query_row(
+        "SELECT count(*) FROM sqlite_schema
+         WHERE type = 'table' AND name = 'local_commit_delivery_atoms'",
+        [],
+        |row| row.get(0),
+    )?;
+    if exists == 0 {
+        connection.execute_batch(V109_LOCAL_COMMIT_DELIVERY_ATOMS_SCHEMA_SQL)?;
+    }
+    ensure_v109_property_semantics_schema(connection)?;
+    Ok(())
+}
+
+fn ensure_v109_property_semantics_schema(connection: &Connection) -> Result<(), StoreError> {
+    let relation_table_exists: i64 = connection.query_row(
+        "SELECT count(*) FROM sqlite_schema
+         WHERE type = 'table' AND name = 'data_source_relation_edges'",
+        [],
+        |row| row.get(0),
+    )?;
+    if relation_table_exists == 0 {
+        return Ok(());
+    }
+    let edge_id_exists: i64 = connection.query_row(
+        "SELECT count(*) FROM pragma_table_info('data_source_relation_edges')
+         WHERE name = 'edge_id'",
+        [],
+        |row| row.get(0),
+    )?;
+    if edge_id_exists != 0 {
+        return Ok(());
+    }
+    connection.pragma_update(None, "defer_foreign_keys", true)?;
+    connection.execute_batch(V109_PROPERTY_SEMANTICS_SCHEMA_SQL)?;
     Ok(())
 }
 
@@ -4043,6 +4435,10 @@ fn validate_exact_v107_schema(connection: &Connection) -> Result<(), StoreError>
     validate_exact_core_schema(connection, true, true, true, true, true, true, true, 107)
 }
 
+fn validate_exact_v108_schema(connection: &Connection) -> Result<(), StoreError> {
+    validate_exact_core_schema(connection, true, true, true, true, true, true, true, 108)
+}
+
 fn validate_exact_current_schema(connection: &Connection) -> Result<(), StoreError> {
     validate_exact_core_schema(
         connection,
@@ -4189,6 +4585,9 @@ fn build_expected_core_schema_inventory(
     if schema_version >= 108 {
         ensure_v108_local_commit_revocations_schema(&expected)?;
     }
+    if schema_version >= 109 {
+        ensure_v109_local_commit_delivery_atoms_schema(&expected)?;
+    }
 
     read_schema_inventory(&expected)
 }
@@ -4301,6 +4700,9 @@ pub fn expected_store_schema_fingerprint(version: i64) -> Result<String, StoreEr
     }
     if version >= 108 {
         ensure_v108_local_commit_revocations_schema(&expected)?;
+    }
+    if version >= 109 {
+        ensure_v109_local_commit_delivery_atoms_schema(&expected)?;
     }
     read_schema_inventory(&expected).map(|inventory| schema_inventory_fingerprint(&inventory))
 }
@@ -4538,6 +4940,41 @@ mod tests {
         })
         .expect("seed v99 Store");
         validate_exact_v99_schema(&connection).expect("exact v99 Store");
+    }
+
+    fn seed_owned_v108_store_with_person_value(home: &Path) {
+        seed_owned_v99_store_with_property_value(home);
+        let mut connection = open_writer(&home.join("nodex.db")).expect("v99 writer");
+        with_immediate_transaction(&mut connection, |transaction| {
+            ensure_v100_relation_properties_schema(transaction)?;
+            ensure_v101_projectless_permission_mode_schema(transaction)?;
+            ensure_v102_local_commit_schema(transaction, &mut |_, _| {})?;
+            ensure_v103_local_commit_composite_identity(transaction)?;
+            ensure_v105_local_commit_manifest_schema(transaction)?;
+            ensure_v106_projection_scope_heads_schema(transaction)?;
+            ensure_v107_block_project_cascade_indexes(transaction)?;
+            ensure_v108_local_commit_revocations_schema(transaction)?;
+            transaction.execute(
+                "UPDATE data_source_properties SET value_type = 'person'
+                 WHERE data_source_id = 'source:v99' AND id = 'note'",
+                [],
+            )?;
+            transaction.execute(
+                "UPDATE data_source_property_values SET value_type = 'person'
+                 WHERE data_source_id = 'source:v99'
+                   AND membership_id = 'membership:v99'
+                   AND property_id = 'note'",
+                [],
+            )?;
+            transaction.execute(
+                "UPDATE core_store_metadata SET store_format_version = 108 WHERE id = 1",
+                [],
+            )?;
+            transaction.pragma_update(None, "user_version", 108)?;
+            Ok(())
+        })
+        .expect("seed v108 Store");
+        validate_exact_v108_schema(&connection).expect("exact v108 Store");
     }
 
     fn seed_v84_page(home: &Path) {
@@ -6293,30 +6730,20 @@ mod tests {
     }
 
     #[test]
-    fn v107_store_upgrades_to_scoped_revocation_authority() {
+    fn v108_store_upgrades_person_values_and_relation_edge_authority() {
         let directory = tempdir().expect("Profile");
         let home = directory.path().canonicalize().expect("absolute Profile");
-        drop(SqliteStoreKernel::open(&home).expect("create current Core store"));
+        seed_owned_v108_store_with_person_value(&home);
 
-        let connection = open_writer(&home.join("nodex.db")).expect("current writer");
-        connection
-            .execute_batch(
-                "DROP TABLE local_commit_revocations;
-                 UPDATE core_store_metadata SET store_format_version = 107 WHERE id = 1;
-                 PRAGMA user_version = 107;",
-            )
-            .expect("restore exact v107 schema");
-        drop(connection);
-
-        let upgraded = SqliteStoreKernel::open(&home).expect("upgrade exact v107 store");
-        assert_eq!(upgraded.preparation().migrated_from_version, Some(107));
+        let upgraded = SqliteStoreKernel::open(&home).expect("upgrade exact v108 store");
+        assert_eq!(upgraded.preparation().migrated_from_version, Some(108));
         upgraded
             .readers()
             .read_default(|connection| {
                 assert_eq!(
                     connection
                         .query_row("PRAGMA user_version", [], |row| { row.get::<_, i64>(0) })?,
-                    108
+                    109
                 );
                 assert_eq!(
                     connection.query_row(
@@ -6327,9 +6754,47 @@ mod tests {
                     )?,
                     1
                 );
+                assert_eq!(
+                    connection.query_row(
+                        "SELECT count(*) FROM sqlite_schema
+                         WHERE type = 'table' AND name = 'local_commit_delivery_atoms'",
+                        [],
+                        |row| row.get::<_, i64>(0),
+                    )?,
+                    1
+                );
+                assert_eq!(
+                    connection.query_row(
+                        "SELECT value_type FROM data_source_properties
+                         WHERE data_source_id = 'source:v99' AND id = 'note'",
+                        [],
+                        |row| row.get::<_, String>(0),
+                    )?,
+                    "text"
+                );
+                assert_eq!(
+                    connection.query_row(
+                        "SELECT value_type FROM data_source_property_values
+                         WHERE data_source_id = 'source:v99'
+                           AND membership_id = 'membership:v99'
+                           AND property_id = 'note'",
+                        [],
+                        |row| row.get::<_, String>(0),
+                    )?,
+                    "text"
+                );
+                assert_eq!(
+                    connection.query_row(
+                        "SELECT count(*) FROM pragma_table_info('data_source_relation_edges')
+                         WHERE name = 'edge_id'",
+                        [],
+                        |row| row.get::<_, i64>(0),
+                    )?,
+                    1
+                );
                 Ok(())
             })
-            .expect("verify scoped revocation schema");
+            .expect("verify v109 Property and delivery authority");
     }
 
     #[test]

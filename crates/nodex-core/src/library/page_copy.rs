@@ -10,7 +10,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::database::{
     PageCopyDataSourceDestination, PageCopyPositionAnchor, PageCopyValueDraft,
-    PageCopyViewPlacement, place_copied_page_in_data_source,
+    PageCopyViewPlacement, copy_relation_edges, place_copied_page_in_data_source,
     place_copied_page_in_data_source_prevalidated, resolve_page_copy_data_source_project,
     resolve_page_copy_data_source_project_prevalidated,
 };
@@ -795,17 +795,7 @@ pub(crate) fn clone_page_for_occurrence(
             ],
         )?;
     }
-    connection.execute(
-        "INSERT INTO data_source_relation_edges(\
-           source_data_source_id, source_membership_id, property_id, \
-           target_page_block_id, created_at\
-         ) \
-         SELECT edge.source_data_source_id, ?1, edge.property_id, \
-           edge.target_page_block_id, ?2 \
-         FROM data_source_relation_edges edge \
-         WHERE edge.source_data_source_id = ?3 AND edge.source_membership_id = ?4",
-        params![membership_id, input.now, source.8, source.7],
-    )?;
+    copy_relation_edges(connection, &source.8, &source.7, &membership_id, input.now)?;
     if required_schedule.len() != 2 {
         return Err(corrupt(
             "Occurrence source Page is missing required schedule properties",
@@ -3852,10 +3842,11 @@ mod tests {
                 )?;
                 connection.execute(
                     "INSERT INTO data_source_relation_edges(\
-                       source_data_source_id, source_membership_id, property_id, \
+                       edge_id, source_data_source_id, source_membership_id, property_id, \
                        target_page_block_id, created_at\
-                     ) VALUES (?1, ?2, ?3, ?4, ?5)",
+                     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
                     params![
+                        "a".repeat(64),
                         data_source_id,
                         membership_id,
                         property_id,

@@ -1,20 +1,25 @@
 # Architecture
 
-Current Rust Store authority is v108. Database contract v6 centralizes typed Property schema, capabilities, and edits. Relation definitions and Page-reference edges are normalized in `data_source_relation_properties` and `data_source_relation_edges`; JSON `null` headers retain revision/CAS leverage while reverse indexes support projection invalidation and retention. Main and renderer adapters map this contract mechanically: authorized Database catalogs, target-Source candidate windows, relation-value windows, and bounded summaries replace View-cache inference and per-Page hydration. Library contract v10 provides the upper transaction for Page Detail actions that combine Database-owned Source Properties with Library-owned intrinsic Properties, while preserving the lower ownership boundaries and restricting the composition to value edits over one identical Page set.
+Current Rust Store authority is v109. Database contract v6 centralizes typed Property schema, capabilities, and edits. Relation definitions and Page-reference edges are normalized in `data_source_relation_properties` and `data_source_relation_edges`; each edge has a Core-authored opaque identity used as the source-owned removal capability, while JSON `null` headers retain revision/CAS leverage and reverse indexes support projection invalidation and retention. One SQL-bounded Relation projection kernel computes exact total/restricted counts and at most three visible previews without materializing the complete edge set in Rust. Main and renderer adapters map this contract mechanically: authorized Database catalogs, target-Source candidate windows, relation-value windows, and bounded summaries replace View-cache inference and per-Page hydration. Library contract v10 provides the upper transaction for Page Detail actions that combine Database-owned Source Properties with Library-owned intrinsic Properties, while preserving the lower ownership boundaries and restricting the composition to value edits over one identical Page set.
 
-Store v108 retains the three-artifact semantic mutation model introduced by
-v105/v106. The existing
+Store v109 completes the semantic mutation model introduced by v105/v106. The existing
 `change_log`, Document update rows, and Module history form a private physical
 journal. An immutable `CommitManifest` records semantic identity, ordered
-physical evidence digest, Document refs, scoped resource revocations, routing claims, receipts, and
-per-scope Projection effects. A post-state-authorized
+physical evidence digest, resource-atomic `DeliveryAtom` descriptors, Document
+refs, scoped resource revocations, routing claims, receipts, and per-scope
+Projection effects. Every atom has one closed typed payload and a canonical
+all-of `ResourceKey` requirement set; physical aggregate events never cross the
+authorization boundary. A post-state-authorized
 `AuthorizedDeliveryPacket` is generated for one access context and may carry
 inline Document bytes or refs without changing the Manifest identity. Dynamic
 recipients, inline bytes, and transport retries never enter `manifest_hash`.
 v106 added the persisted manifest and transactionally advanced
 `projection_scope_heads`; v107 adds exact Block child-key indexes for
 Project-key cascades; v108 adds immutable Core-authored authorization-loss
-facts keyed by exact Library/Project/Document scope. Physical `change_log_seq` remains an internal
+facts keyed by exact Library/Project/Document scope; v109 adds resource-atomic
+delivery, authorization-complete Projection audiences, opaque Relation edge
+identity, and the sealed `DurableMutation` transaction boundary. Physical
+`change_log_seq` remains an internal
 history coordinate rather than a public cursor.
 
 Every LocalCommit child artifact is addressed by the complete
@@ -124,22 +129,36 @@ responses carry the command result independently from an optional authorized
 delivery packet. Command authorization and delivery audience are distinct: a
 Project header still constrains the mutation, while the authenticated Electron
 Host has a separate, explicit Library-broker delivery capability for its
-process-wide coordinator. The original command context is preserved; native
+process-wide broker. The original command context is preserved; native
 CLI, test, Agent, and loopback adapters retain their exact bound post-state
-scope. The Host therefore admits every
-affected local surface before returning the command without waiting for the
-durable stream; a scope that lost access receives only its typed revoke, and
-canonical reads remain independently authorized by Core.
+scope. The initiating renderer admits the optional apply-response packet into
+its process-local `LocalCommitIngress` before the feature Promise resolves. The
+ingress and its projection registry live for the renderer process, not for a
+React Provider mount, so StrictMode probes or route remounts cannot tear down
+external-store authority. It does not wait for Main fanout, a durable scan, a
+canonical projection read, or
+another renderer's acknowledgement. Other renderers receive the same committed
+fact through Main's scoped live broker and result-bearing recipient router. A
+scope that lost access receives only its typed revoke, and canonical reads
+remain independently authorized by Core.
 
 Core's durable stream is log-driven. Broadcast is only a wake signal: each
 subscriber first installs its receiver, scans a single SQLite read snapshot in
 ledger order, emits zero or more authorized packets, then emits an explicit
 `StreamCheckpoint`. Only that checkpoint proves `scanned_through_seq`; commit
 numbers may contain gaps and a packet's arrival alone never advances the resume
-cursor. A retention gap returns a generation-bound resync token. Main admits
-apply and stream packets by Manifest identity, delivers complementary coverage
-as enrichment, and rejects a hash collision. Core—not Main—filters all packet
-content against current post-state authority.
+cursor. A retention gap returns a generation-bound resync token. Renderer and
+Main ingress admit apply, scoped-live, and durable-stream packets by Manifest
+and resource identity, deliver complementary coverage as enrichment, and
+reject a hash collision. Projection integrity is checked without recipient
+scope so two audiences cannot disagree about one scope revision; delivery
+dedupe additionally includes the Library/Project recipient scope so one
+audience cannot consume another audience's copy. Main sends non-origin delivery
+with a bounded recipient sequence; renderer ACK means causal-ingress admission rather than
+React paint. Send failure, missing ACK, queue overflow, reload, or broker reset
+establishes an exact-scope repair floor instead of silently dropping the packet
+or delaying Core apply. Core—not Main—filters all packet content against current
+post-state authority.
 
 Every delivery packet carries a Core-authored authorization scope covered by
 its packet hash. A trusted Library stream may carry scoped revocations for
@@ -148,6 +167,9 @@ ownership. Revocation identity includes commit, authorization scope, resource
 kind, and resource ID. Scope identity is derived from canonical structured
 serialization rather than delimiter-concatenated IDs. Pure revocation packets
 are valid even when they contain no semantic, Document, or Projection effect.
+Semantic notification atoms include the authorization scope in their admission
+identity, so two authorized Projects cannot suppress one another merely because
+an atom ID is shared.
 
 An exact Document subscription is itself a resource boundary, but it is not a
 second durable-log reader. Core installs a receiver in a resource-addressed
@@ -225,6 +247,17 @@ composition and continuations never cross a scope revision. There is no
 item-level pending projection state: after Core commits, the apply response is
 the initiating renderer's immediate authority and durable replay is only the
 later convergence path.
+
+Projection compilation is audience-complete rather than actor-centric. Core
+computes the union of pre-state and post-state authorized scopes for every
+affected subject; lost scopes receive revocations, while retained and newly
+authorized scopes receive independent revision transitions or explicit read
+floors. Authorization-equivalent scopes may share one computed patch blob, but
+their identities, revisions, hashes, and delivery admission remain distinct.
+Main keeps one multiplexed `ScopedProjectionLiveBroker` for active scopes and
+switches scope sets make-before-break, so a subscribe change cannot open a
+delivery gap or force every Project to maintain a durable stream.
+
 Scoped revocations bypass projection cursors: mounted Page, Board, and query
 stores run the reducer for every matching revocation synchronously, and
 generation fences prevent reads started before the revocation from restoring
@@ -1406,8 +1439,8 @@ or the Electron client from reaching the local store.
 2. The Electron transport sends the typed request through the context-isolated preload bridge and IPC.
    Focused-window UI commands do not enter this mutation transport: application-menu accelerators send a typed command request through preload, `useWorkbenchCommandIngress` translates the event directly to the registered runtime command port, and toolbar/command-palette entry points execute the same command owner.
 3. Main starts or reuses Core before opening the Profile. Every production capability enters its owning native deep Module; Electron never opens SQLite or reconstructs the transaction. Migration conformance uses exact frozen legacy inventories, the frozen final TypeScript v84 schema artifact, and disposable copies. A Page editor sends binary Yjs updates; there is no Page title/body snapshot command or main-process SQLite fallback. Agent reads publish no mutation events.
-4. Core captures the canonical `ProjectionImpact` and sealed per-scope `ProjectionEffect`s in the same LocalCommit transaction as the semantic mutation and exact-head projections. Each effect names one canonical scope and carries `base_revision`, `result_revision`, `covered_commit_seq`, `effect_hash`, an optional complete patch, and an explicit `requires_read_at_least` bit. Main's `LocalCommitCoordinator` admits apply-response and durable-stream copies synchronously, validates Manifest/coverage identity, and deduplicates them by resource identity. Document heads, exact projection scopes, revocations, and domain notifications run in independent ordered retry lanes; failure or slowness in one lane cannot delay another or the mutation response. `ProjectionDeliveryRouter` only maps already-authorized effects to Library/Project renderer scopes and performs no projection read. The durable stream checkpoint advances replay bookkeeping but is never a local visibility prerequisite. Database, Library, Workspace, Automation, and compatibility `board-changed` events retain their domain effects but do not own projection correctness.
-5. Electron main broadcasts ordinary change events to all open windows through the safe IPC sender; Codex host-message/event fanout goes through the renderer-client router, which itself uses the safe sender. Direct `webContents.send` fanout is not allowed outside those helpers because renderer reload/close can dispose frames between lookup and send. Board subscriptions filter by `projectId`; Project-list and Session invalidation subscriptions are global, with Session summary scopes carried in the event.
+4. Core captures resource-atomic `DeliveryAtom`s, authorization-complete per-scope `ProjectionEffect`s, exact Document refs, and revocations in the same LocalCommit transaction as the semantic mutation. Each projection effect names one canonical scope and carries `base_revision`, `result_revision`, `covered_commit_seq`, `effect_hash`, an optional complete patch, and an explicit `requires_read_at_least` bit. The initiating renderer validates and admits its apply-response delivery before the API Promise resolves. Main's `LocalCommitCoordinator` admits scoped-live and durable-stream copies, while `RecipientDeliveryRouter` converts non-origin send/ACK failure into bounded scope reset. All ingress validates Manifest/coverage identity and deduplicates by authorization-scoped resource identity. Document heads, exact projection scopes, revocations, and domain notifications run in independent ordered lanes; failure or slowness in one lane cannot delay another or the mutation response. `ProjectionDeliveryRouter` only maps already-authorized effects to Library/Project renderer scopes and performs no projection read. The durable stream checkpoint advances replay bookkeeping but is never a local visibility prerequisite. Database, Library, Workspace, Automation, and compatibility `board-changed` notifications are projections of DeliveryAtoms and do not own projection correctness.
+5. Electron Main sends LocalCommit delivery only to registered recipient scopes through the result-bearing router. Direct `webContents.send` fanout is not allowed because renderer reload/close can dispose frames between lookup and send. Each delivery is acknowledged only after the renderer's causal ingress accepts it; send failure, NACK, missing ACK, queue pressure, or reload causes the next message/subscription to carry a projection or revocation reset. Codex host-message/event fanout remains a separate renderer-client route.
 6. Each renderer window owns one projection delivery registry before Query consumers render. Exact-scope consumers attach a `CausalProjectionRuntime`; it accepts only a contiguous `base_revision → result_revision`, applies a complete patch synchronously, buffers bounded future effects, detects duplicate-hash divergence, and coalesces canonical repairs for gaps, patchless effects, resets, or incomplete windows. The initial stream checkpoint closes only the read-before-subscribe race and never causes repeated global refreshes. Consumers without a direct reducer may still register bounded dependency rereads, but global impact cannot overwrite exact scope ordering. Canonical snapshots are admitted only when they do not move the current scope revision/floor backward and do not conflict on the same revision hash. Kanban's direct Database-row effect updates cards, query rows, per-group windows, totals, and the exact projection coordinate before any repair I/O. Ownership-path and navigation events remain for topology or permission side effects rather than freshness.
 7. Reminder scheduler polls occurrences, dedupes delivery via receipts, and emits `reminder:open` to renderer on notification click.
 
@@ -1416,17 +1449,19 @@ Block-first migration foundation:
 1. Core accepts the exact frozen v26, both v57, v68, v82, and v83
    TypeScript inventories as historical import sources, the exact final
    TypeScript v84 inventory as its direct handoff, and exact Rust-owned v85
-   through v107 stores. Historical sources are snapshotted with their asset
+   through v108 stores. Historical sources are snapshotted with their asset
    closure, advanced only in staging by the hash-pinned migrator, reconstructed
-   through Yrs, semantically validated, and atomically published as v108 under
+   through Yrs, semantically validated, and atomically published as v109 under
    the crash-recovery journal. Direct native upgrades use the same exact-schema
    validation and durable backup boundary. v102 introduced the LocalCommit
    ledger, v103 its composite Store identity, v104 canonical physical evidence
    hashing, v105 immutable Manifest/authorized packet separation, v106
    Projection scope heads, v107 exact child-key indexes for Block Project-key
-   cascades, and v108 immutable scoped resource revocations. Unfrozen
+   cascades, v108 immutable scoped resource revocations, and v109
+   resource-atomic delivery, complete Projection audiences, opaque Relation
+   edge identity, and sealed DurableMutation finalization. Unfrozen
    same-version lineages, near-matches, ambiguous owners, and future stores
-   fail closed; a Rust-owned v108 Store is
+   fail closed; a Rust-owned v109 Store is
    validated exactly and never silently repaired.
 2. A successful Document apply tentatively reconstructs and validates a Y.Doc, derives the changed title/Block identities from before/after state, reconciles the registry/index, and writes the binary update, immutable receipt, exact-blob checksum, state vector, and new head under one immediate SQLite transaction. Receipts remain independently of update payload retention; compaction verifies and semantically reloads a full snapshot at the current head, then atomically removes only its covered payload tail. Store epoch, Document generation, update identity, `headSeq`, Yjs state vector, and exact retained-blob integrity remain separate concepts. Equivalent Y.Docs may produce different full-state wire bytes, so Store v98 removes Yjs reconstruction fingerprints and excludes full-state hashes from authority, integrity, and concurrency.
 3. Production Page Stage prepares the exact owned descriptor before rendering content. Only a ready `yjs`/`block_tree` descriptor enters the Page editor: its canonical DocumentSession completes Core state-vector sync before resolving `Y.Text("title")` / `Y.XmlFragment("body")`, then starts disposable checkpoint recovery in a separate lane. BlockNote binds directly to that fragment without projection-based initialization. The NFM parser produces a zero-or-more Block forest without editor policy. Document create/replace/patch boundaries normalize an empty forest to one registered stable-ID paragraph, while Fragment insertion rejects an empty forest and points callers to `<empty-block/>`. A first root insertion into a semantically blank Document promotes the existing seed ID through a fenced Block update, preventing the authority scaffold from appearing in canonical NFM.

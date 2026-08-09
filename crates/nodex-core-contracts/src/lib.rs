@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-pub const CORE_EVENT_VERSION: u32 = 6;
+pub const CORE_EVENT_VERSION: u32 = 7;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(transparent)]
@@ -174,14 +174,14 @@ pub use automation::AUTOMATION_CONTRACT_VERSION;
 pub use database::DATABASE_CONTRACT_VERSION;
 pub use document::OWNED_DOCUMENT_CONTRACT_VERSION;
 pub use events::{
-    ApplyResponse, AuthorizedDeliveryPacket, AuthorizedDocumentEffect, AuthorizedModuleEffect,
-    AuthorizedModulePayload, AuthorizedOwnedDocumentEvent, CommitIdentity, CommitManifest,
-    CommitManifestHeader, CommittedCoreModuleEvent, CoreModuleEventPayload, DeliveryCoverage,
-    DocumentEffectRef, DocumentEffectResourceKind, LocalCommitReceiptRef, LocalCommitResources,
-    LocalProjectionPatch, LocalProjectionScope, PageDocumentHeadImpact, PhysicalEvidenceDigest,
-    ProjectionEffect, ProjectionImpact, ProjectionScopeKey, ProjectionSnapshotAuthority,
-    ResourceRevocation, ResourceRevocationReason, RevokedResourceKind, RoutingClaim,
-    SemanticEffect, StoreObservation, StreamCheckpoint,
+    ApplyResponse, AuthorizedDeliveryAtom, AuthorizedDeliveryPacket, AuthorizedDocumentEffect,
+    AuthorizedOwnedDocumentEvent, CommitIdentity, CommitManifest, CommitManifestHeader,
+    CommittedCoreModuleEvent, CoreModuleEventPayload, DeliveryAtomDescriptor, DeliveryAtomKind,
+    DeliveryAtomPayload, DeliveryCoverage, DocumentEffectRef, DocumentEffectResourceKind,
+    LocalCommitReceiptRef, LocalProjectionPatch, LocalProjectionScope, PageDocumentHeadImpact,
+    PhysicalEvidenceDigest, ProjectionEffect, ProjectionImpact, ProjectionScopeKey,
+    ProjectionSnapshotAuthority, ResourceKey, ResourceRevocation, ResourceRevocationReason,
+    RevokedResourceKind, RoutingClaim, StoreObservation, StreamCheckpoint,
 };
 pub use library::LIBRARY_CONTRACT_VERSION;
 pub use workspace::PROJECT_WORKSPACE_CONTRACT_VERSION;

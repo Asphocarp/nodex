@@ -100,7 +100,7 @@ export const buildPageDetailStoryResult = (
     property("due_date", "date"),
     property("scheduled_start", "datetime"),
     property("scheduled_end", "datetime"),
-    property("assignee", "person"),
+    property("assignee", "text"),
     property("p_C0nf1d3n", "number", {}, "Confidence"),
     property("p_Appr0v3d", "checkbox", {}, "Approved"),
     property("p_N0t3sxxx", "text", {}, "Notes"),

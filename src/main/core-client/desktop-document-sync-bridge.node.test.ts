@@ -19,6 +19,7 @@ import type {
 } from "../../shared/block-documents/document-sync";
 import type { ExecuteNodexAgentDuplicatePageResult } from "../../shared/nodex-agent-tools";
 import { DuplicatePageV3OutputSchema } from "../../shared/nodex-agent-tools/v3-write-schemas";
+import { committedLocalCommit } from "../../shared/testing/local-commit";
 import {
   createDesktopDocumentSyncBridge,
   type DesktopDocumentSyncPort,
@@ -228,6 +229,8 @@ const compactedDocumentCommitEnvelope = (
   const envelope = documentCommitEnvelope(commitSeq, [documentId]);
   const payload = {
     module: "owned_document" as const,
+    library_id: "library-1",
+    canvas_id: null,
     event: {
       kind: "document_resync_required" as const,
       document_id: documentId,
@@ -569,7 +572,7 @@ describe("Desktop Document sync bridge", () => {
     target.sent.splice(0);
 
     client.emitDocument(subscribeRequest.documentId, {
-      transport_version: 6,
+      transport_version: 7,
       packet: documentCommitEnvelope(1, [subscribeRequest.documentId]),
     });
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -584,7 +587,7 @@ describe("Desktop Document sync bridge", () => {
       1,
     );
     client.emitDocument(subscribeRequest.documentId, {
-      transport_version: 6,
+      transport_version: 7,
       packet: documentCommitEnvelope(2, [subscribeRequest.documentId]),
     });
     await vi.waitFor(() => {
@@ -949,7 +952,7 @@ describe("Desktop Document sync bridge", () => {
       reason: "access_revoked" as const,
     };
     client.emitDocument(subscribeRequest.documentId, {
-      transport_version: 6,
+      transport_version: 7,
       packet: createCoreLocalCommitFixture({
         authorizationScope: revocation.authorization_scope,
         commitSeq: 5,
@@ -2107,7 +2110,11 @@ describe("Desktop Document sync bridge", () => {
       mutationId: operationId,
       trigger: "automatic_idle",
     });
-    expect(result).toEqual({ ok: true, value: compactionValue });
+    expect(result).toEqual({
+      ok: true,
+      value: compactionValue,
+      localCommit: committedLocalCommit(storeEpoch, 4),
+    });
     expect(projectClient.documentApplies[0]?.intent).toMatchObject({
       kind: "compact_canvas_tombstones",
     });

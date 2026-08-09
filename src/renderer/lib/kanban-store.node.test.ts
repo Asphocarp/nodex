@@ -354,7 +354,7 @@ function createProjectionHarness() {
     getRegistry: () => registry,
     publish: (message: ProjectionStreamMessage | ResourceRevocationMessage) => {
       latestMessage = message;
-      if (message.kind === "revocation") {
+      if (message.version === 1) {
         for (const listener of revocationListeners) listener(message);
         return;
       }

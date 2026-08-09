@@ -22,6 +22,11 @@ import type {
 } from "../../shared/projection-stream";
 import type { ResourceRevocationMessage } from "../../shared/resource-revocation-stream";
 import {
+  RECIPIENT_DELIVERY_VERSION,
+  type RecipientAdmissionResult,
+  type RecipientDeliveryEnvelope,
+} from "../../shared/recipient-delivery";
+import {
   createElectronDocumentSyncAdapter,
   createElectronLibraryDocumentSyncAdapter,
 } from "./electron-document-sync-adapter";
@@ -56,8 +61,67 @@ import type {
 import type { PageLifecyclePreflightResultV2 } from "../../shared/page-lifecycle-v2-runtime";
 import type { ListPageHistoryRequest } from "../../shared/page-history";
 import type { PageHistoryCommandResult } from "../../shared/page-history-transport";
+import { rendererLocalCommitIngress } from "./local-commit-ingress";
 
 export type ElectronRendererBridge = NonNullable<Window["api"]>;
+
+const recipientIngressBridges = new WeakSet<object>();
+
+const sameProjectionScope = (
+  left: ProjectionScope,
+  right: ProjectionScope,
+): boolean => left.kind === right.kind
+  && left.libraryId === right.libraryId
+  && (left.kind === "library"
+    || (right.kind === "project" && left.projectId === right.projectId));
+
+export const initializeElectronRendererLocalCommitIngress = (
+  bridge: ElectronRendererBridge,
+): void => {
+  if (recipientIngressBridges.has(bridge)) return;
+  recipientIngressBridges.add(bridge);
+  bridge.on("recipient-delivery:message", (...args: unknown[]) => {
+    const envelope = args[0] as RecipientDeliveryEnvelope | undefined;
+    void (async () => {
+      let result: RecipientAdmissionResult | null = null;
+      try {
+        if (
+          !envelope
+          || envelope.version !== RECIPIENT_DELIVERY_VERSION
+          || !/^[a-f0-9]{64}$/u.test(envelope.deliveryId)
+          || !sameProjectionScope(envelope.scope, envelope.payload.message.scope)
+        ) {
+          throw new TypeError("Recipient delivery envelope is invalid");
+        }
+        if (envelope.payload.lane === "projection") {
+          rendererLocalCommitIngress.admitProjectionMessage(
+            envelope.payload.message,
+          );
+        } else {
+          rendererLocalCommitIngress.admitRevocationMessage(
+            envelope.payload.message,
+          );
+        }
+        result = {
+          version: RECIPIENT_DELIVERY_VERSION,
+          deliveryId: envelope.deliveryId,
+          outcome: "ack",
+        };
+      } catch {
+        if (envelope && /^[a-f0-9]{64}$/u.test(envelope.deliveryId)) {
+          result = {
+            version: RECIPIENT_DELIVERY_VERSION,
+            deliveryId: envelope.deliveryId,
+            outcome: "nack",
+            reason: "invalid_message",
+          };
+        }
+      }
+      if (!result) return;
+      await bridge.invoke("recipient-delivery:admit", result);
+    })().catch(() => undefined);
+  });
+};
 
 export function createElectronRendererTransport(
   bridge: ElectronRendererBridge,
@@ -217,26 +281,15 @@ export function createElectronRendererTransport(
       callback: (message: ProjectionStreamMessage) => void,
     ) {
       let active = true;
-      const removeListener = bridge.on(
-        "projection-stream:message",
-        (...args: unknown[]) => {
-          const message = args[0] as ProjectionStreamMessage | undefined;
-          if (!active || !message) return;
-          if (message.scope.kind !== scope.kind) return;
-          if (message.scope.libraryId !== scope.libraryId) return;
-          if (
-            scope.kind === "project"
-            && message.scope.kind === "project"
-            && message.scope.projectId !== scope.projectId
-          ) return;
-          callback(message);
-        },
+      const removeLocalListener = rendererLocalCommitIngress.subscribeProjection(
+        scope,
+        callback,
       );
       void bridge.invoke("projection-stream:subscribe", scope);
       return () => {
         if (!active) return;
         active = false;
-        removeListener();
+        removeLocalListener();
         void bridge.invoke("projection-stream:unsubscribe", scope);
       };
     },
@@ -245,26 +298,15 @@ export function createElectronRendererTransport(
       callback: (message: ResourceRevocationMessage) => void,
     ) {
       let active = true;
-      const removeListener = bridge.on(
-        "resource-revocation:message",
-        (...args: unknown[]) => {
-          const message = args[0] as ResourceRevocationMessage | undefined;
-          if (!active || !message) return;
-          if (message.scope.kind !== scope.kind) return;
-          if (message.scope.libraryId !== scope.libraryId) return;
-          if (
-            scope.kind === "project"
-            && message.scope.kind === "project"
-            && message.scope.projectId !== scope.projectId
-          ) return;
-          callback(message);
-        },
+      const removeLocalListener = rendererLocalCommitIngress.subscribeRevocation(
+        scope,
+        callback,
       );
       void bridge.invoke("resource-revocation:subscribe", scope);
       return () => {
         if (!active) return;
         active = false;
-        removeListener();
+        removeLocalListener();
         void bridge.invoke("resource-revocation:unsubscribe", scope);
       };
     },

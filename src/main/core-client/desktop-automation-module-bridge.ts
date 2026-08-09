@@ -25,7 +25,7 @@ import type { DesktopDataAuthorityRuntime } from "./desktop-data-authority";
 import {
   type AutomationApplyResult,
   type AutomationReadSnapshot,
-  type CoreAuthorizedModuleEffect,
+  type CoreAuthorizedDeliveryAtom,
   type CoreClientPort,
 } from "./types";
 
@@ -221,7 +221,7 @@ export interface CoreAutomationInvalidation {
 }
 
 export function mapCoreAutomationEvent(
-  effect: CoreAuthorizedModuleEffect,
+  effect: CoreAuthorizedDeliveryAtom,
 ): CoreAutomationInvalidation | null {
   const payload = effect.payload;
   if (payload.module !== "automation") return null;

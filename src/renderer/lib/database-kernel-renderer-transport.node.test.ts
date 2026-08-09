@@ -1,9 +1,12 @@
-import { describe, expect, test } from "vitest";
-import { createElectronRendererTransport } from "./electron-renderer-transport";
+import { describe, expect, test, vi } from "vitest";
+import {
+  createElectronRendererTransport,
+  initializeElectronRendererLocalCommitIngress,
+} from "./electron-renderer-transport";
 
 describe("Database event renderer IPC", () => {
   test("subscribes and filters the scoped projection contract", async () => {
-    const projection = {
+    const recipient = {
       listener: null as ((...args: unknown[]) => void) | null,
     };
     const invocations: Array<{ channel: string; args: unknown[] }> = [];
@@ -12,12 +15,13 @@ describe("Database event renderer IPC", () => {
         invocations.push({ channel, args });
       },
       on: (channel: string, listener: (...args: unknown[]) => void) => {
-        if (channel === "projection-stream:message") projection.listener = listener;
+        if (channel === "recipient-delivery:message") recipient.listener = listener;
         return () => {
-          projection.listener = null;
+          recipient.listener = null;
         };
       },
     };
+    initializeElectronRendererLocalCommitIngress(bridge as never);
     const transport = createElectronRendererTransport(bridge as never);
     const scope = {
       kind: "project" as const,
@@ -31,22 +35,31 @@ describe("Database event renderer IPC", () => {
     );
     await Promise.resolve();
     const message = {
-      version: 1 as const,
+      version: 2 as const,
       kind: "checkpoint" as const,
       scope,
-      cursor: { storeEpoch: "epoch-1", commitSeq: 7 },
+      stream: { storeEpoch: "epoch-1", commitSeq: 7 },
     };
-    projection.listener?.(message);
-    projection.listener?.({
-      ...message,
-      scope: { ...scope, projectId: "project-2" },
+    recipient.listener?.({
+      version: 1,
+      deliveryId: "a".repeat(64),
+      scope,
+      payload: { lane: "projection", message },
     });
+    await vi.waitFor(() => expect(messages).toEqual([message]));
+
     release();
     await Promise.resolve();
-
-    expect(messages).toEqual([message]);
     expect(invocations).toEqual([
       { channel: "projection-stream:subscribe", args: [scope] },
+      {
+        channel: "recipient-delivery:admit",
+        args: [{
+          version: 1,
+          deliveryId: "a".repeat(64),
+          outcome: "ack",
+        }],
+      },
       { channel: "projection-stream:unsubscribe", args: [scope] },
     ]);
   });

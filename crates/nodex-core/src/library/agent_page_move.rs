@@ -16,7 +16,7 @@ use nodex_core_contracts::library::{
 };
 use nodex_core_contracts::{
     AdapterKind, ApplyResponse, BoundModuleContext, LIBRARY_CONTRACT_VERSION, ModuleApplyRequest,
-    ModuleReadSnapshot, ProjectId, StoreEpoch,
+    ModuleName, ModuleReadSnapshot, ProjectId, StoreEpoch,
 };
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::Serialize;
@@ -30,7 +30,7 @@ use crate::document::{DocumentRuntimeCache, read_store_epoch, sha256};
 use crate::infrastructure::agent_operations::{
     PreparedAgentOperationBinding, PreparedAgentOperationRegistry,
 };
-use crate::infrastructure::durable_mutation::{self, DurableMutationScope};
+use crate::infrastructure::durable_mutation::{self, DurableMutationScope, OperationIdentity};
 use crate::infrastructure::module_receipts::read_module_receipt;
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 use crate::infrastructure::writer::{StoreReaders, StoreWriter};
@@ -49,8 +49,8 @@ use super::content_rehome::{
     prepare_content_rehome, remove_prevalidated_content_rehome_projections,
 };
 use super::mutation::{
-    MutationEffects, insert_library_placement, library_commit_result, prepare_mutation,
-    seal_mutation_with, sqlite_now,
+    MutationEffects, insert_library_placement, library_commit_result, seal_mutation_with,
+    sqlite_now,
 };
 
 const MODULE_NAME: &str = "library";
@@ -364,71 +364,75 @@ pub(super) fn execute_move_pages(
         let mut agent_context = context.clone();
         agent_context.adapter = AdapterKind::Agent;
         let committed_at = sqlite_now(&transaction)?;
-        let prepared = prepare_mutation(
+        let committed = durable_mutation::run(
             &transaction,
-            &agent_context,
-            &store_epoch,
-            &operation_id,
-            &request_hash,
-            &committed_at,
+            OperationIdentity {
+                module: ModuleName::Library,
+                module_name: "library",
+                operation_id: &operation_id,
+                intent_hash: &request_hash,
+                store_epoch: &store_epoch,
+                committed_at: &committed_at,
+                context: &agent_context,
+            },
+            |scope| {
+                let execution = apply_pages(
+                    &transaction,
+                    scope,
+                    &agent_context,
+                    &library_id,
+                    &operation_id,
+                    &store_epoch,
+                    &move_request,
+                    &mut preflight,
+                    &authorization.authorization,
+                    &assets_root,
+                    &committed_at,
+                )?;
+                let document_batch = execution.document_batch;
+                seal_mutation_with(
+                    scope,
+                    &agent_context,
+                    &operation_id,
+                    MutationEffects {
+                        project_id: preflight.destination_project_id,
+                        operation_kind: "agent_move_pages",
+                        change_kind: "library.changed",
+                        did_mutate: true,
+                        created_target: None,
+                        affected_parent_keys: execution.affected_parent_keys,
+                        affected_block_ids: move_request.page_ids.clone(),
+                        affected_page_ids: execution.affected_page_ids,
+                        affected_database_ids: execution.result.affected_database_ids.clone(),
+                        affected_view_ids: execution.affected_view_ids,
+                        affected_document_ids: execution.affected_document_ids,
+                        committed_revisions: execution.committed_revisions,
+                        page_create: None,
+                        page_copy: None,
+                        canvas_mutation: None,
+                        block_transfer: None,
+                        page_lifecycle: None,
+                        block_property_mutation: None,
+                        agent_page_copy: None,
+                        agent_create_pages: None,
+                        agent_move_pages: Some(execution.result),
+                        change_payload: None,
+                        committed_at: execution.committed_at,
+                    },
+                    |_, event_sequence| {
+                        super::block_transfer::persist_agent_page_document_batch_checkpoints(
+                            &transaction,
+                            &agent_context,
+                            &operation_id,
+                            &agent_actor(&authorization.authorization),
+                            &document_batch,
+                            event_sequence,
+                            &committed_at,
+                        )
+                    },
+                )
+            },
         )?;
-        let committed = durable_mutation::run_prepared(prepared, |scope| {
-            let execution = apply_pages(
-                &transaction,
-                scope,
-                &agent_context,
-                &library_id,
-                &operation_id,
-                &store_epoch,
-                &move_request,
-                &mut preflight,
-                &authorization.authorization,
-                &assets_root,
-                &committed_at,
-            )?;
-            let document_batch = execution.document_batch;
-            seal_mutation_with(
-                scope,
-                &agent_context,
-                &operation_id,
-                MutationEffects {
-                    project_id: preflight.destination_project_id,
-                    operation_kind: "agent_move_pages",
-                    change_kind: "library.changed",
-                    did_mutate: true,
-                    created_target: None,
-                    affected_parent_keys: execution.affected_parent_keys,
-                    affected_block_ids: move_request.page_ids.clone(),
-                    affected_page_ids: execution.affected_page_ids,
-                    affected_database_ids: execution.result.affected_database_ids.clone(),
-                    affected_view_ids: execution.affected_view_ids,
-                    affected_document_ids: execution.affected_document_ids,
-                    committed_revisions: execution.committed_revisions,
-                    page_create: None,
-                    page_copy: None,
-                    canvas_mutation: None,
-                    block_transfer: None,
-                    page_lifecycle: None,
-                    block_property_mutation: None,
-                    agent_page_copy: None,
-                    agent_create_pages: None,
-                    agent_move_pages: Some(execution.result),
-                    change_payload: None,
-                    committed_at: execution.committed_at,
-                },
-                |_, event_sequence| {
-                    super::block_transfer::persist_agent_page_document_batch_checkpoints(
-                        &transaction,
-                        &agent_context,
-                        &operation_id,
-                        &agent_actor(&authorization.authorization),
-                        &document_batch,
-                        event_sequence,
-                        &committed_at,
-                    )
-                },
-            )
-        })?;
         let outcome = library_commit_result(&transaction, committed)?;
         transaction.commit()?;
         Ok((outcome, Some(lease)))

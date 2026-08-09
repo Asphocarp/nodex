@@ -6,7 +6,7 @@ import type {
   DataSourcePropertyRecordV2,
   DatabaseViewQueryResultV2,
   PageIntrinsicPropertyValueV2,
-} from "../../shared/database-module-v2";
+} from "./database-module-v2";
 import type {
   BoardSummary,
   DatabasePage,
@@ -16,26 +16,26 @@ import type {
   Priority,
   RecurrenceConfig,
   ReminderConfig,
-} from "../../shared/types";
-import type {
-  CoreDatabaseRowDetail,
-  CoreDatabaseRowSummary,
-  CoreDatabaseViewWindow,
 } from "./types";
+import type { components } from "@nodex/core-protocol";
 import {
   evaluateDatabaseViewRows,
   type DatabaseViewJsonValue,
   type DatabaseViewReadModel,
   type ReadDatabaseViewReferenceInput,
-} from "../../shared/database-views";
-import { stableStringifyDatabaseJson } from "../../shared/database-kernel";
-import { toDatabasePageSummary } from "../../shared/page-summary";
+} from "./database-views";
+import { stableStringifyDatabaseJson } from "./database-kernel";
+import { toDatabasePageSummary } from "./page-summary";
 import {
   WORKFLOW_STATUS_COLUMNS,
   isWorkflowStatus,
-} from "../../shared/workflow-status";
-import { assertValidPageInput } from "../../shared/page-input-validation";
-import { projectCoreDatabaseQueryRow } from "../../shared/core-database-row-projection";
+} from "./workflow-status";
+import { assertValidPageInput } from "./page-input-validation";
+import { projectCoreDatabaseQueryRow } from "./core-database-row-projection";
+
+type CoreDatabaseRowDetail = components["schemas"]["DatabaseRowDetail"];
+type CoreDatabaseRowSummary = components["schemas"]["DatabaseRowSummary"];
+type CoreDatabaseViewWindow = components["schemas"]["DatabaseViewWindow"];
 
 const INTRINSIC_PROPERTY_KEYS = [
   "run.target",

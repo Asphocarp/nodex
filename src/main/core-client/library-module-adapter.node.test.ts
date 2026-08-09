@@ -13,6 +13,7 @@ import {
 import { LIBRARY_NAVIGATION_EVENT_VERSION } from "../../shared/library-events";
 import { LIBRARY_MODULE_CONTRACT_VERSION } from "../../shared/library-module";
 import { PAGE_HISTORY_CONTRACT_VERSION } from "../../shared/page-history";
+import { committedLocalCommit } from "../../shared/testing/local-commit";
 import type { PageLifecycleMutationRequestV2 } from "../../shared/page-lifecycle-v2";
 import {
   createFakeCoreHandshake,
@@ -684,6 +685,7 @@ describe("Core Library Module Adapter", () => {
 
     await expect(adapter.applyPageLifecycleMutation(request)).resolves.toEqual({
       ok: true,
+      localCommit: committedLocalCommit(identity.storeEpoch, 16),
       value: {
         version: 2,
         operationKind: "archive_page",
@@ -786,6 +788,7 @@ describe("Core Library Module Adapter", () => {
 
     await expect(adapter.applyBlockPropertyMutation(request)).resolves.toEqual({
       ok: true,
+      localCommit: committedLocalCommit(identity.storeEpoch, 21),
       value: {
         version: 2,
         mutationId: request.mutationId,
@@ -1793,6 +1796,7 @@ describe("Core Library Module Adapter", () => {
         committedAt: "2026-07-19T15:02:00.000Z",
         payload: {
           module: "library",
+          library_id: "library:test",
           event: {
             kind: "library_changed",
             page_ids: ["page:one"],
@@ -1806,7 +1810,7 @@ describe("Core Library Module Adapter", () => {
     } as const;
     expect(mapCoreLibraryEvent(
       envelope,
-      envelope.packet.effects[0]!,
+      envelope.packet.atoms[0]!,
       identity.libraryId,
     )).toEqual({
       version: LIBRARY_NAVIGATION_EVENT_VERSION,

@@ -33,6 +33,7 @@ import {
 import { executeWithDocumentSubscription } from "./core-document-subscription-lifecycle";
 import {
   findCoreModulePayload,
+  rendererLocalCommitApply,
   type CoreClientPort,
   type CoreEventEnvelope,
   type DocumentLiveRepair,
@@ -233,6 +234,7 @@ export const createCoreCanvasSceneAdapter = (
         }
         return {
           ok: true,
+          localCommit: rendererLocalCommitApply(committed),
           value: { ...value, projectId: canonical.projectId },
         };
       } catch (error) {
@@ -302,6 +304,7 @@ export const createCoreCanvasSceneAdapter = (
         }
         return {
           ok: true,
+          localCommit: rendererLocalCommitApply(committed),
           value: { ...value, projectId: request.projectId },
         };
       } catch (error) {

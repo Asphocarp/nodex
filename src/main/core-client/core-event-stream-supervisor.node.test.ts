@@ -36,6 +36,7 @@ function envelope(sequence: number): CoreEventEnvelope {
       committedAt: "2026-07-22T00:00:00.000Z",
       payload: {
         module: "project_workspace",
+        library_id: "library-1",
         event: {
           kind: "workspace_changed",
           project_ids: [],

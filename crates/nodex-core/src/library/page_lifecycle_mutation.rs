@@ -895,7 +895,7 @@ fn validate_create_values(
         (
             "assignee",
             (
-                "person",
+                "text",
                 assignee.map_or(Value::Null, |value| Value::String(value.to_owned())),
             ),
         ),
@@ -926,7 +926,7 @@ fn normalize_create_value(property: &CreateProperty, value: &Value) -> Result<Va
         return Ok(Value::Null);
     }
     match property.value_type.as_str() {
-        "person" | "text" => value
+        "text" => value
             .as_str()
             .map(|value| Value::String(value.to_owned()))
             .ok_or_else(|| invalid("Page Property requires a string or null")),

@@ -84,4 +84,37 @@ describe("ResourceRevocationRouter", () => {
 
     expect(listener).not.toHaveBeenCalled();
   });
+
+  test("resets only scopes whose live authorization interval changed", () => {
+    const sourceMessages: ResourceRevocationMessage[] = [];
+    const targetMessages: ResourceRevocationMessage[] = [];
+    const source = {
+      kind: "project" as const,
+      libraryId: "library-1",
+      projectId: "project-a",
+    };
+    const target = {
+      kind: "project" as const,
+      libraryId: "library-1",
+      projectId: "project-b",
+    };
+    const router = new ResourceRevocationRouter({ libraryId: "library-1" });
+    router.subscribe(source, (message) => sourceMessages.push(message));
+    router.subscribe(target, (message) => targetMessages.push(message));
+
+    router.resetScopes(
+      [target],
+      { storeEpoch: "epoch-1", commitSeq: 12 },
+      "reconnect",
+    );
+
+    expect(sourceMessages).toEqual([]);
+    expect(targetMessages).toEqual([{
+      version: 1,
+      kind: "reset",
+      scope: target,
+      stream: { storeEpoch: "epoch-1", commitSeq: 12 },
+      reason: "reconnect",
+    }]);
+  });
 });

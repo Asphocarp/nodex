@@ -26,6 +26,7 @@ import {
   applyResultCursor,
   applyResultDelivery,
   applyResultStoreEpoch,
+  rendererLocalCommitApply,
 } from "./types";
 import type {
   CoreClientPort,
@@ -306,15 +307,14 @@ export const toCoreDatabaseIntent = (
                   if (value.kind === "multi_select") {
                     return { kind: value.kind, option_ids: value.optionIds };
                   }
-                  if (value.kind === "person") {
-                    return { kind: value.kind, person_id: value.personId };
-                  }
-                  if (value.kind === "relation") {
-                    return { kind: value.kind, page_ids: value.pageIds };
-                  }
                   return value;
                 })(),
               }
+            : mutation.edit.kind === "clear_relation"
+              ? {
+                  kind: "clear_relation" as const,
+                  expected_value_revision: mutation.edit.expectedValueRevision,
+                }
             : {
                 kind: "patch_set" as const,
                 delta: mutation.edit.delta.kind === "multi_select"
@@ -326,7 +326,7 @@ export const toCoreDatabaseIntent = (
                   : {
                       kind: "relation" as const,
                       add_page_ids: mutation.edit.delta.addPageIds,
-                      remove_page_ids: mutation.edit.delta.removePageIds,
+                      remove_edge_ids: mutation.edit.delta.removeEdgeIds,
                     },
               },
         })),
@@ -483,7 +483,6 @@ export const mapCorePropertyDescriptor = (
     "multi_select",
     "date",
     "datetime",
-    "person",
     "relation",
   ].includes(schemaKind)) {
     throw new Error("Core Property schema is unsupported");
@@ -667,9 +666,10 @@ const hydrateCoreReadValue = async (
         valueRevision: value.value.value_revision,
         totalCount: value.value.total_count,
         targets: value.value.targets.items.map((target) => target.kind === "restricted"
-          ? { kind: "restricted" as const }
+          ? { kind: "restricted" as const, edgeId: target.edge_id }
           : {
               kind: "visible" as const,
+              edgeId: target.edge_id,
               pageId: target.page_id,
               title: target.title,
               lifecycle: target.lifecycle,
@@ -803,6 +803,7 @@ export const createCoreDatabaseModuleAdapter = (
         const operationKinds = validateCoreCommit(committed, request);
         return parseDatabaseApplyResultV2({
           ok: true,
+          localCommit: rendererLocalCommitApply(committed),
           value: {
             version: request.version,
             projectId: input.projectId,
@@ -874,6 +875,7 @@ export const createCoreLibraryDatabaseModuleAdapter = (
       const operationKinds = validateCoreCommit(committed, request);
       return parseLibraryDatabaseApplyResultV2({
         ok: true,
+        localCommit: rendererLocalCommitApply(committed),
         value: {
           version: request.version,
           accessContext: { kind: "library" },

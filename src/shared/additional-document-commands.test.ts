@@ -16,6 +16,7 @@ import {
   parseAdditionalDocumentCommandResult,
 } from "./additional-document-commands";
 import type { BlockTreeNode } from "./block-documents/block-document-codec";
+import { committedLocalCommit } from "./testing/local-commit";
 
 const host = {
   documentId: "document:host",
@@ -493,6 +494,7 @@ describe("additional document command result contract", () => {
     const result = parseAdditionalDocumentCommandResult({
       ok: true,
       value: receipt,
+      localCommit: committedLocalCommit("epoch:1", 41),
     });
     expect(result.ok).toBe(true);
     expect(isAdditionalDocumentSemanticHash(receipt.semanticHash)).toBe(true);

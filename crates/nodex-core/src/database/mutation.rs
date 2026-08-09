@@ -7,9 +7,10 @@ use nodex_core_contracts::database::{
     DatabasePropertyValueInput, DatabasePropertyValueMutation, DatabaseReceipt,
     DatabaseTransferTarget,
 };
+use nodex_core_contracts::events::ResourceKey;
 use nodex_core_contracts::{
     BoundModuleContext, CoreModuleEventPayload, ModuleApplyRequest, ModuleMutationReceipt,
-    ModuleName, ProjectionImpact, StoreEpoch,
+    ModuleName, StoreEpoch,
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
@@ -30,7 +31,7 @@ use crate::infrastructure::durable_mutation::{
 use crate::infrastructure::event_log::{
     NewChangeLogEntry, append_change_log, load_committed_event_by_sequence,
 };
-use crate::infrastructure::projection_impact::impact_for_payload;
+use crate::infrastructure::projection_impact::{expand_database_coordinates, impact_for_payload};
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode, with_immediate_transaction};
 use crate::infrastructure::writer::StoreWriter;
 
@@ -179,6 +180,19 @@ pub(crate) fn apply_in_transaction(
             context,
         },
         |scope| {
+            let transfer_pages = request.intent.iter().filter_map(|intent| match intent {
+                DatabaseIntent::TransferPage { page_id, .. } => Some(ResourceKey::Page {
+                    page_id: page_id.clone(),
+                }),
+                _ => None,
+            });
+            scope.observe_authorization_before(
+                crate::infrastructure::resource_authorization::capture_project_visibility(
+                    scope.connection(),
+                    library_id,
+                    transfer_pages,
+                )?,
+            );
             let mut effects = MutationEffects::default();
             for intent in &request.intent {
                 apply_intent(
@@ -940,21 +954,6 @@ fn edit_property_value(
             expected_value_revision,
             value,
         } => {
-            if let DatabasePropertyValueInput::Relation { page_ids } = value {
-                return edit_relation_value(
-                    connection,
-                    library_id,
-                    project_id,
-                    &input.address,
-                    RelationEdit::Replace {
-                        expected_value_revision: *expected_value_revision,
-                        page_ids,
-                    },
-                    now,
-                    effects,
-                    library_scope,
-                );
-            }
             let value = property_value_input_json(value)?;
             set_value(
                 connection,
@@ -987,7 +986,7 @@ fn edit_property_value(
             ),
             DatabasePropertySetDelta::Relation {
                 add_page_ids,
-                remove_page_ids,
+                remove_edge_ids,
             } => edit_relation_value(
                 connection,
                 library_id,
@@ -995,13 +994,27 @@ fn edit_property_value(
                 &input.address,
                 RelationEdit::Patch {
                     add_page_ids,
-                    remove_page_ids,
+                    remove_edge_ids,
                 },
                 now,
                 effects,
                 library_scope,
             ),
         },
+        DatabasePropertyValueEdit::ClearRelation {
+            expected_value_revision,
+        } => edit_relation_value(
+            connection,
+            library_id,
+            project_id,
+            &input.address,
+            RelationEdit::Clear {
+                expected_value_revision: *expected_value_revision,
+            },
+            now,
+            effects,
+            library_scope,
+        ),
     }
 }
 
@@ -1021,10 +1034,6 @@ fn property_value_input_json(input: &DatabasePropertyValueInput) -> Result<Value
         DatabasePropertyValueInput::Select { option_id } => Value::String(option_id.clone()),
         DatabasePropertyValueInput::MultiSelect { option_ids } => {
             Value::Array(option_ids.iter().cloned().map(Value::String).collect())
-        }
-        DatabasePropertyValueInput::Person { person_id } => Value::String(person_id.clone()),
-        DatabasePropertyValueInput::Relation { .. } => {
-            return Err(invalid("Relation Property requires the Relation edit path"));
         }
     };
     Ok(value)
@@ -1054,7 +1063,7 @@ fn edit_relation_value(
         return Err(invalid("Relation value edit requires a Relation Property"));
     }
     let added_page_ids = match &edit {
-        RelationEdit::Replace { page_ids, .. } => *page_ids,
+        RelationEdit::Clear { .. } => &[],
         RelationEdit::Patch { add_page_ids, .. } => *add_page_ids,
     };
     if !added_page_ids.is_empty() {
@@ -2948,21 +2957,12 @@ fn copy_same_source_property_values(
             source_membership.id,
         ],
     )?;
-    connection.execute(
-        "INSERT INTO data_source_relation_edges(\
-           source_data_source_id, source_membership_id, property_id, \
-           target_page_block_id, created_at\
-         ) \
-         SELECT edge.source_data_source_id, ?1, edge.property_id, \
-           edge.target_page_block_id, ?2 \
-         FROM data_source_relation_edges edge \
-         WHERE edge.source_data_source_id = ?3 AND edge.source_membership_id = ?4",
-        params![
-            target_membership_id,
-            now,
-            source_membership.data_source_id,
-            source_membership.id,
-        ],
+    super::relation::copy_relation_edges(
+        connection,
+        &source_membership.data_source_id,
+        &source_membership.id,
+        target_membership_id,
+        now,
     )?;
     Ok(())
 }
@@ -4623,7 +4623,7 @@ pub(crate) fn normalize_value(property: &PropertyRow, value: &Value) -> Result<V
         return Ok(Value::Null);
     }
     match property.value_type.as_str() {
-        "text" | "person" => value
+        "text" => value
             .as_str()
             .map(|value| Value::String(value.to_owned()))
             .ok_or_else(|| invalid("Property requires a string or null value")),
@@ -4986,24 +4986,29 @@ fn seal_commit(
         page_ids: page_ids.clone(),
         view_ids: view_ids.clone(),
     });
-    let projection_impact = if request
-        .intent
-        .iter()
-        .any(|intent| matches!(intent, DatabaseIntent::TransferPage { .. }))
-    {
-        ProjectionImpact::All
-    } else {
-        impact_for_payload(&event_payload)?
-    };
+    let projection_impact =
+        expand_database_coordinates(connection, impact_for_payload(&event_payload)?)?;
     let payload_json =
         serde_json::to_string(&payload).map_err(|_| internal("Database event payload"))?;
     super::record_local_projection_delta(
         connection,
         scope.evidence(),
         &context.library_id.0,
-        authority.project_id.as_deref(),
         &projection_impact,
+        &scope.authorization_before(),
     )?;
+    if request
+        .intent
+        .iter()
+        .any(|intent| matches!(intent, DatabaseIntent::TransferPage { .. }))
+    {
+        crate::infrastructure::resource_authorization::record_losses(
+            connection,
+            scope.evidence(),
+            &scope.authorization_before(),
+            nodex_core_contracts::ResourceRevocationReason::OwnershipMoved,
+        )?;
+    }
     let event_sequence = append_change_log(
         connection,
         NewChangeLogEntry {

@@ -18,6 +18,7 @@ import {
   createExactRemoteSubscriptionLifecycle,
   type ExactRemoteSubscriptionLifecycle,
 } from "./exact-remote-subscription-lifecycle";
+import { rendererLocalCommitIngress } from "./local-commit-ingress";
 
 interface SubscriptionEntry {
   readonly subscribers: Set<{
@@ -535,6 +536,12 @@ const createScopedElectronDocumentSyncAdapter = (
             );
           },
         );
+        const removeLocalListener = rendererLocalCommitIngress.subscribeDocument(
+          request.documentId,
+          (event) => {
+            subscribers.forEach((subscriber) => subscriber.listener(event));
+          },
+        );
         const lifecycle = createExactRemoteSubscriptionLifecycle<
           DocumentSyncCommandResult<DocumentSyncSubscriptionAck>
         >({
@@ -572,6 +579,7 @@ const createScopedElectronDocumentSyncAdapter = (
               subscriptions.delete(key);
             }
             removeBridgeListener();
+            removeLocalListener();
           },
         });
         const createdEntry: SubscriptionEntry = {

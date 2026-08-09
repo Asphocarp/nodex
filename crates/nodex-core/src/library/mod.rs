@@ -945,9 +945,8 @@ mod tests {
         ProjectWorkspaceTurnAuthoritySource,
     };
     use nodex_core_contracts::{
-        AdapterKind, DATABASE_CONTRACT_VERSION, LibraryId, LocalProjectionPatch,
-        LocalProjectionScope, ModuleName, OWNED_DOCUMENT_CONTRACT_VERSION, ProfileId, ProjectId,
-        SemanticEffect,
+        AdapterKind, DATABASE_CONTRACT_VERSION, DeliveryAtomKind, LibraryId, LocalProjectionPatch,
+        LocalProjectionScope, OWNED_DOCUMENT_CONTRACT_VERSION, ProfileId, ProjectId,
     };
     use rusqlite::params;
     use sha2::{Digest, Sha256};
@@ -3696,9 +3695,24 @@ mod tests {
                     "UPDATE projects SET database_block_id = ?1 WHERE id = 'project-1'",
                     [DATABASE],
                 )?;
+                connection.execute(
+                    "INSERT INTO projects(id, library_id, name, created, updated)
+                     VALUES ('project-shared', 'library-1', 'Shared reader', ?1, ?1)",
+                    [NOW],
+                )?;
+                connection.execute(
+                    "INSERT INTO project_resource_grants(
+                       id, project_id, library_id, root_kind, root_id, access,
+                       recursive, revision, lifecycle, created_at, updated_at
+                     ) VALUES (
+                       'grant-shared-database', 'project-shared', 'library-1',
+                       'database', ?1, 'read', 1, 1, 'active', ?2, ?2
+                     )",
+                    params![DATABASE, NOW],
+                )?;
                 Ok(())
             })
-            .expect("bind primary Database");
+            .expect("bind primary Database and shared audience");
         let roots = kernel
             .readers()
             .read_default(|connection| {
@@ -3852,30 +3866,14 @@ mod tests {
                 local_commit::read_manifest(connection, promoted.committed.commit_seq)
             })
             .expect("promotion CommitManifest");
-        assert_eq!(promotion_commit.semantic_effects.len(), 3);
-        assert_eq!(
-            promotion_commit
-                .semantic_effects
-                .iter()
-                .filter(|effect| matches!(
-                    effect,
-                    SemanticEffect::ModuleChanged {
-                        module: ModuleName::OwnedDocument,
-                        ..
-                    }
-                ))
-                .count(),
-            2
+        assert_eq!(promotion_commit.physical_evidence.effect_count, 3);
+        assert!(
+            !promotion_commit.delivery_atoms.is_empty()
+                && promotion_commit
+                    .delivery_atoms
+                    .iter()
+                    .all(|atom| { atom.kind == DeliveryAtomKind::LibraryNavigationChanged })
         );
-        assert!(matches!(
-            promotion_commit
-                .semantic_effects
-                .last()
-                .map(|effect| match effect {
-                    SemanticEffect::ModuleChanged { module, .. } => module,
-                }),
-            Some(ModuleName::Library)
-        ));
         assert_eq!(
             promotion_commit.identity.commit_seq,
             promoted.committed.commit_seq,
@@ -4822,46 +4820,14 @@ mod tests {
             })
             .expect("moved Data Source CommitManifest");
         assert_eq!(moved_result.document_commits.len(), 2);
-        assert_eq!(moved_commit.semantic_effects.len(), 3);
-        assert_eq!(
-            moved_commit
-                .semantic_effects
-                .iter()
-                .filter(|effect| matches!(
-                    effect,
-                    SemanticEffect::ModuleChanged {
-                        module: ModuleName::OwnedDocument,
-                        ..
-                    }
-                ))
-                .count(),
-            2
+        assert_eq!(moved_commit.physical_evidence.effect_count, 3);
+        assert!(
+            !moved_commit.delivery_atoms.is_empty()
+                && moved_commit
+                    .delivery_atoms
+                    .iter()
+                    .all(|atom| { atom.kind == DeliveryAtomKind::LibraryNavigationChanged })
         );
-        assert!(matches!(
-            moved_commit
-                .semantic_effects
-                .last()
-                .map(|effect| match effect {
-                    SemanticEffect::ModuleChanged { module, .. } => module,
-                }),
-            Some(ModuleName::Library)
-        ));
-        let library_projection_impact = moved_commit
-            .semantic_effects
-            .iter()
-            .find_map(|effect| match effect {
-                SemanticEffect::ModuleChanged {
-                    module: ModuleName::Library,
-                    projection_impact,
-                    ..
-                } => Some(projection_impact),
-                SemanticEffect::ModuleChanged { .. } => None,
-            })
-            .expect("Library projection impact");
-        assert!(matches!(
-            library_projection_impact,
-            ProjectionImpact::Resources { view_ids, .. } if view_ids == &[VIEW.to_owned()]
-        ));
         let promoted_page_id = moved_result
             .result_root_block_ids
             .first()
@@ -4872,13 +4838,30 @@ mod tests {
             .find(|effect| {
                 matches!(
                     &effect.scope.scope,
-                    LocalProjectionScope::DatabaseView { view_id, .. } if view_id == VIEW
+                    LocalProjectionScope::DatabaseView { project_id, view_id, .. }
+                        if project_id == "project-1" && view_id == VIEW
                 )
             })
             .expect("exact Database View projection effect");
         assert!(view_effect.requires_read_at_least);
         assert!(matches!(
             &view_effect.patch,
+            Some(LocalProjectionPatch::DatabaseRowUpsert { row, .. })
+                if &row.page_id == promoted_page_id
+        ));
+        let shared_effect = moved_commit
+            .projection_effects
+            .iter()
+            .find(|effect| {
+                matches!(
+                    &effect.scope.scope,
+                    LocalProjectionScope::DatabaseView { project_id, view_id, .. }
+                        if project_id == "project-shared" && view_id == VIEW
+                )
+            })
+            .expect("shared Project projection gain effect");
+        assert!(matches!(
+            &shared_effect.patch,
             Some(LocalProjectionPatch::DatabaseRowUpsert { row, .. })
                 if &row.page_id == promoted_page_id
         ));

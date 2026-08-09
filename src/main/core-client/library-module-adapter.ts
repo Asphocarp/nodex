@@ -63,7 +63,11 @@ import type {
 } from "../../shared/page-ownership-paths";
 import { isWorkflowStatus } from "../../shared/workflow-status";
 import { CoreModuleResponseError } from "./core-client";
-import { applyResultCursor, applyResultStoreEpoch } from "./types";
+import {
+  applyResultCursor,
+  applyResultStoreEpoch,
+  rendererLocalCommitApply,
+} from "./types";
 import {
   mapCorePropertyDescriptor,
   toCoreDatabaseIntent,
@@ -1502,6 +1506,7 @@ export const createCoreLibraryModuleAdapter = (
       }
       return parseBlockPropertyMutationCommandResultV2({
         ok: true,
+        localCommit: rendererLocalCommitApply(committed),
         value: {
           version: 2,
           mutationId: request.mutationId,
@@ -1559,6 +1564,7 @@ export const createCoreLibraryModuleAdapter = (
         const storeEpoch = applyResultStoreEpoch(committed);
         return {
           ok: true,
+          localCommit: rendererLocalCommitApply(committed),
           value: {
             version: request.version,
             operationId: receipt.operation_id,
@@ -1848,6 +1854,7 @@ export const createCoreLibraryModuleAdapter = (
         }
         return parsePageLifecycleMutationCommandResultV2({
           ok: true,
+          localCommit: rendererLocalCommitApply(committed),
           value: {
             version: 2,
             operationKind: lifecycle.operation_kind,
@@ -1890,6 +1897,7 @@ export const createCoreLibraryModuleAdapter = (
       if (!result.ok) return result;
       return parseLibraryBlockPropertyMutationCommandResultV2({
         ok: true,
+        localCommit: result.localCommit,
         value: {
           version: result.value.version,
           mutationId: result.value.mutationId,

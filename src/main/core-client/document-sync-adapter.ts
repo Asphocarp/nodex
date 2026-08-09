@@ -58,7 +58,11 @@ import type {
   DocumentSyncSubscribeRequest,
 } from "../../shared/block-documents/document-sync";
 import { CoreModuleResponseError } from "./core-client";
-import { applyResultCursor, applyResultStoreEpoch } from "./types";
+import {
+  applyResultCursor,
+  applyResultStoreEpoch,
+  rendererLocalCommitApply,
+} from "./types";
 import { isRetryableCoreEventStreamError } from "./core-event-stream-supervisor";
 import {
   superviseDocumentLiveStream,
@@ -1011,7 +1015,11 @@ export const createCoreDocumentSyncAdapter = (
           "Core Document mutation result escaped its public identity boundary",
         );
       }
-      return { ok: true, value: result };
+      return {
+        ok: true,
+        value: result,
+        localCommit: rendererLocalCommitApply(committed),
+      };
     } catch (error) {
       return documentMutationAdapterFailure(request, error);
     }
@@ -1081,6 +1089,7 @@ export const createCoreDocumentSyncAdapter = (
           .digest("hex");
         return parseAdditionalDocumentCommandResult({
           ok: true,
+          localCommit: rendererLocalCommitApply(committed),
           value: {
             version: 1,
             operationId: request.operationId,
@@ -1262,7 +1271,7 @@ const documentEvents = async (
 ): Promise<readonly DocumentSyncRealtimeEvent[]> => {
   const identity = envelope.packet.manifest.identity;
   const events: DocumentSyncRealtimeEvent[] = [];
-  const requiresResync = envelope.packet.effects.some((effect) =>
+  const requiresResync = envelope.packet.atoms.some((effect) =>
     effect.payload.module === "owned_document"
     && effect.payload.event.document_id === request.documentId
     && (
@@ -1282,7 +1291,7 @@ const documentEvents = async (
       fetchUpdateResource,
     )
   )));
-  envelope.packet.effects.forEach((effect) => {
+  envelope.packet.atoms.forEach((effect) => {
     const payload = effect.payload;
     if (payload.module !== "owned_document") return;
     const event = payload.event;
@@ -1295,7 +1304,7 @@ const documentEvents = async (
         generation: event.generation,
         headSeq: event.head_seq,
         commitSeq: identity.commit_seq,
-        effectSequence: effect.semantic.effect_order,
+        effectSequence: effect.descriptor.atom_order,
         reason: "history-compacted",
       });
       return;
@@ -1308,7 +1317,7 @@ const documentEvents = async (
         generation: 1,
         headSeq: 0,
         commitSeq: identity.commit_seq,
-        effectSequence: effect.semantic.effect_order,
+        effectSequence: effect.descriptor.atom_order,
         reason: event.reason === "access_changed"
           ? "access-revoked"
           : "identity-boundary-changed",

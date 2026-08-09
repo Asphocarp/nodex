@@ -63,40 +63,6 @@ pub(crate) struct AuthorizedResourceObservation {
     pub resource_id: String,
 }
 
-/// Type-state token for complex/prepared writers whose control flow cannot be
-/// expressed as one small closure. It is still allocated and consumed only by
-/// this module; dropping it without returning an error leaves an open ledger
-/// parent that makes the enclosing transaction fail its domain checks/tests.
-pub(crate) struct PreparedDurableMutation<'connection> {
-    scope: DurableMutationScope<'connection>,
-    module_name: String,
-    operation_id: String,
-    intent_hash: String,
-    store_epoch: String,
-    context: BoundModuleContext,
-}
-
-impl PreparedDurableMutation<'_> {
-    pub(crate) fn evidence(&self) -> &CommitContext {
-        self.scope.evidence()
-    }
-
-    pub(crate) fn commit_seq(&self) -> i64 {
-        self.scope.commit_seq()
-    }
-
-    pub(crate) fn committed_at(&self) -> &str {
-        self.scope.context.committed_at()
-    }
-
-    pub(crate) fn observe_authorization_before(
-        &self,
-        observations: impl IntoIterator<Item = AuthorizedResourceObservation>,
-    ) {
-        self.scope.observe_authorization_before(observations);
-    }
-}
-
 impl<'connection> DurableMutationScope<'connection> {
     pub(crate) fn connection(&self) -> &'connection Connection {
         self.connection
@@ -112,6 +78,10 @@ impl<'connection> DurableMutationScope<'connection> {
 
     pub(crate) fn store_epoch(&self) -> &str {
         self.context.store_epoch()
+    }
+
+    pub(crate) fn committed_at(&self) -> &str {
+        self.context.committed_at()
     }
 
     pub(crate) fn observe_authorization_before(
@@ -168,6 +138,7 @@ struct OwnedReceiptMetadata {
 
 /// Only `DurableMutationScope` can construct this value. Returning ordinary
 /// `T` from a mutation closure is therefore insufficient to commit.
+#[must_use = "a durable mutation must return its sealed outcome"]
 pub(crate) struct SealedOutcome<T> {
     outcome: T,
     receipt: OwnedReceiptMetadata,
@@ -183,6 +154,7 @@ impl<T> SealedOutcome<T> {
 }
 
 #[derive(Debug)]
+#[must_use = "a durable mutation result must be admitted or returned"]
 pub(crate) enum CommitResult<T> {
     Committed {
         outcome: T,
@@ -232,6 +204,11 @@ pub(crate) fn run<T>(
 where
     T: DeserializeOwned + Serialize,
 {
+    if connection.is_autocommit() {
+        return Err(internal(
+            "Durable mutation requires an active SQLite write transaction",
+        ));
+    }
     validate_module_identity(identity)?;
     if let Some(stored) =
         read_module_receipt(connection, identity.module_name, identity.operation_id)?
@@ -239,7 +216,7 @@ where
         return replay(connection, identity, stored);
     }
 
-    let context = local_commit::begin(
+    let context = local_commit::allocate(
         connection,
         identity.store_epoch,
         identity.operation_id,
@@ -288,7 +265,7 @@ where
                     committed_at: &sealed.receipt.committed_at,
                 },
             )?;
-            let commit_seq = local_commit::finalize(connection, &scope.context)?;
+            let commit_seq = local_commit::seal(connection, &scope.context)?;
             let manifest = local_commit::read_manifest(connection, commit_seq)?;
             Ok(CommitResult::Committed {
                 outcome: sealed.outcome,
@@ -319,145 +296,6 @@ where
     }
 }
 
-pub(crate) fn prepare<'connection>(
-    connection: &'connection Connection,
-    identity: OperationIdentity<'_>,
-) -> Result<PreparedDurableMutation<'connection>, StoreError> {
-    validate_module_identity(identity)?;
-    if read_module_receipt(connection, identity.module_name, identity.operation_id)?.is_some() {
-        return Err(StoreError::new(
-            StoreErrorCode::IdempotencyKeyReused,
-            "operation_id already has a durable mutation receipt",
-            false,
-        ));
-    }
-    let context = local_commit::begin(
-        connection,
-        identity.store_epoch,
-        identity.operation_id,
-        identity.intent_hash,
-        identity.committed_at,
-    )?;
-    Ok(PreparedDurableMutation {
-        scope: DurableMutationScope {
-            connection,
-            context,
-            module: identity.module,
-            authorization_before: RefCell::new(BTreeSet::new()),
-        },
-        module_name: identity.module_name.to_owned(),
-        operation_id: identity.operation_id.to_owned(),
-        intent_hash: identity.intent_hash.to_owned(),
-        store_epoch: identity.store_epoch.to_owned(),
-        context: identity.context.clone(),
-    })
-}
-
-pub(crate) fn finish_prepared<T: Serialize>(
-    prepared: PreparedDurableMutation<'_>,
-    outcome: &T,
-    receipt: ReceiptMetadata<'_>,
-) -> Result<CommitManifest, StoreError> {
-    if receipt.committed_at != prepared.committed_at() {
-        return Err(corrupt(
-            "Prepared durable mutation receipt timestamp diverges from its identity",
-        ));
-    }
-    let encoded = serde_json::to_value(outcome)
-        .map_err(|_| internal("Prepared durable mutation outcome could not be encoded"))?;
-    insert_module_receipt(
-        prepared.scope.connection,
-        NewModuleReceipt {
-            module_name: &prepared.module_name,
-            operation_id: &prepared.operation_id,
-            context: &prepared.context,
-            operation_kind: receipt.operation_kind,
-            store_epoch: &prepared.store_epoch,
-            request_hash: &prepared.intent_hash,
-            result: &encoded,
-            event_sequence: receipt.event_sequence,
-            local_commit: Some(&prepared.scope.context),
-            committed_at: receipt.committed_at,
-        },
-    )?;
-    let commit_seq = local_commit::finalize(prepared.scope.connection, &prepared.scope.context)?;
-    local_commit::read_manifest(prepared.scope.connection, commit_seq)
-}
-
-pub(crate) fn run_prepared<T>(
-    prepared: PreparedDurableMutation<'_>,
-    apply: impl FnOnce(&DurableMutationScope<'_>) -> Result<SealedOutcome<T>, StoreError>,
-) -> Result<CommitResult<T>, StoreError>
-where
-    T: Serialize,
-{
-    let sealed = apply(&prepared.scope)?;
-    if sealed.module != prepared.scope.module {
-        return Err(corrupt(
-            "Durable mutation outcome changed its owning Module",
-        ));
-    }
-    if sealed.receipt.committed_at != prepared.committed_at() {
-        return Err(corrupt(
-            "Prepared durable mutation receipt timestamp diverges from its identity",
-        ));
-    }
-    if sealed.disposition == Disposition::NoOp && sealed.receipt.event_sequence.is_some() {
-        return Err(corrupt(
-            "Durable mutation no-op references a physical event",
-        ));
-    }
-    let encoded = serde_json::to_value(&sealed.outcome)
-        .map_err(|_| internal("Prepared durable mutation outcome could not be encoded"))?;
-    match sealed.disposition {
-        Disposition::Commit => {
-            insert_module_receipt(
-                prepared.scope.connection,
-                NewModuleReceipt {
-                    module_name: &prepared.module_name,
-                    operation_id: &prepared.operation_id,
-                    context: &prepared.context,
-                    operation_kind: &sealed.receipt.operation_kind,
-                    store_epoch: &prepared.store_epoch,
-                    request_hash: &prepared.intent_hash,
-                    result: &encoded,
-                    event_sequence: sealed.receipt.event_sequence,
-                    local_commit: Some(&prepared.scope.context),
-                    committed_at: &sealed.receipt.committed_at,
-                },
-            )?;
-            let commit_seq =
-                local_commit::finalize(prepared.scope.connection, &prepared.scope.context)?;
-            let manifest = local_commit::read_manifest(prepared.scope.connection, commit_seq)?;
-            Ok(CommitResult::Committed {
-                outcome: sealed.outcome,
-                manifest,
-            })
-        }
-        Disposition::NoOp => {
-            local_commit::abandon(prepared.scope.connection, &prepared.scope.context)?;
-            insert_module_receipt(
-                prepared.scope.connection,
-                NewModuleReceipt {
-                    module_name: &prepared.module_name,
-                    operation_id: &prepared.operation_id,
-                    context: &prepared.context,
-                    operation_kind: &sealed.receipt.operation_kind,
-                    store_epoch: &prepared.store_epoch,
-                    request_hash: &prepared.intent_hash,
-                    result: &encoded,
-                    event_sequence: None,
-                    local_commit: None,
-                    committed_at: &sealed.receipt.committed_at,
-                },
-            )?;
-            Ok(CommitResult::NoOp {
-                outcome: sealed.outcome,
-            })
-        }
-    }
-}
-
 pub(crate) fn record_no_op<T: Serialize>(
     connection: &Connection,
     identity: OperationIdentity<'_>,
@@ -468,7 +306,7 @@ pub(crate) fn record_no_op<T: Serialize>(
         return Err(corrupt("Durable mutation no-op receipt is inconsistent"));
     }
     validate_module_identity(identity)?;
-    let context = local_commit::begin(
+    let context = local_commit::allocate(
         connection,
         identity.store_epoch,
         identity.operation_id,
@@ -673,7 +511,12 @@ mod tests {
                 executions.fetch_add(1, Ordering::SeqCst);
                 let payload = json!({
                     "module": "database",
-                    "operationId": operation_id,
+                    "kind": "database_changed",
+                    "projectId": "project:durable-mutation",
+                    "databaseIds": [],
+                    "dataSourceIds": [],
+                    "pageIds": [],
+                    "viewIds": [],
                 });
                 let payload_json = serde_json::to_string(&payload)
                     .map_err(|_| internal("test payload encoding"))?;
@@ -844,5 +687,40 @@ mod tests {
                 Ok(())
             })
             .expect("durable fault closure");
+    }
+
+    #[test]
+    fn durable_mutation_rejects_autocommit_before_allocating_evidence() {
+        let directory = tempdir().expect("temporary Profile");
+        let kernel = SqliteStoreKernel::open_test(directory.path()).expect("Core store");
+        kernel
+            .writer()
+            .call(|connection| {
+                let store_epoch = seed(connection)?;
+                let error = run::<TestOutcome>(
+                    connection,
+                    OperationIdentity {
+                        module: ModuleName::Database,
+                        module_name: "database",
+                        operation_id: "operation:autocommit",
+                        intent_hash: &crate::document::sha256(b"autocommit"),
+                        store_epoch: &store_epoch,
+                        committed_at: "2026-08-07T00:00:00Z",
+                        context: &context(),
+                    },
+                    |_| unreachable!("autocommit must be rejected before apply"),
+                )
+                .expect_err("semantic mutation requires an owned write transaction");
+                assert_eq!(error.code, StoreErrorCode::Internal);
+                let parent_count: i64 = connection.query_row(
+                    "SELECT count(*) FROM local_commits
+                     WHERE operation_id = 'operation:autocommit'",
+                    [],
+                    |row| row.get(0),
+                )?;
+                assert_eq!(parent_count, 0);
+                Ok(())
+            })
+            .expect("autocommit boundary proof");
     }
 }

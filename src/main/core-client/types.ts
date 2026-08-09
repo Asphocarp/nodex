@@ -1,5 +1,6 @@
 import type { components } from "@nodex/core-protocol";
-import type { ProjectionImpact } from "../../shared/projection-stream";
+import type { LocalCommitApply } from "../../shared/local-commit-delivery";
+import type { ProjectionImpact, ProjectionScope } from "../../shared/projection-stream";
 import type {
   DocumentAwarenessPublishAck,
   DocumentAwarenessPublishRequest,
@@ -18,8 +19,8 @@ export type CoreRuntimeDescriptor = components["schemas"]["RuntimeDescriptor"];
 export type CoreHandshakeResponse = components["schemas"]["HandshakeResponse"];
 export type CoreEventEnvelope = components["schemas"]["EventEnvelope"];
 export type CoreAuthorizedDeliveryPacket = CoreEventEnvelope["packet"];
-export type CoreAuthorizedModuleEffect = CoreAuthorizedDeliveryPacket["effects"][number];
-export type CoreModuleEventPayload = CoreAuthorizedModuleEffect["payload"];
+export type CoreAuthorizedDeliveryAtom = CoreAuthorizedDeliveryPacket["atoms"][number];
+export type CoreModuleEventPayload = CoreAuthorizedDeliveryAtom["payload"];
 export type CoreEventReplayRequired = components["schemas"]["EventReplayRequired"];
 export type CoreStreamCheckpoint = components["schemas"]["StreamCheckpoint"];
 export type CoreModuleError = components["schemas"]["CoreError"];
@@ -56,11 +57,25 @@ export const applyResultDelivery = (
 ): CoreAuthorizedDeliveryPacket | undefined =>
   result.status === "committed" ? result.delivery ?? undefined : undefined;
 
+/** Projects a Core command response into renderer-safe causal evidence. */
+export const rendererLocalCommitApply = (
+  result: CoreApplyCoordinate,
+): LocalCommitApply => result.status === "committed"
+  ? {
+      status: "committed",
+      commit: result.commit,
+      delivery: result.delivery ?? null,
+    }
+  : {
+      status: "no_op",
+      observed: result.observed,
+    };
+
 export const findCoreModulePayload = (
   envelope: CoreEventEnvelope,
   module: CoreModuleEventPayload["module"],
-): CoreModuleEventPayload | undefined => envelope.packet.effects
-  .find((effect) => effect.payload.module === module)
+): CoreModuleEventPayload | undefined => envelope.packet.atoms
+  .find((atom) => atom.payload.module === module)
   ?.payload;
 
 export type LibraryReadRequest = components["schemas"]["LibraryReadRequest"];
@@ -201,6 +216,23 @@ export interface CoreDocumentEventSubscription extends CoreEventSubscription {
   readonly barrier: DocumentLiveBarrier;
 }
 
+export interface ProjectionLiveBarrier {
+  readonly store_epoch: string;
+  readonly core_generation: string;
+  readonly commit_head: number;
+  readonly authorization_scopes: readonly CoreAuthorizedDeliveryPacket["authorization_scope"][];
+}
+
+export interface ProjectionLiveRepair {
+  readonly store_epoch: string;
+  readonly commit_head: number;
+  readonly reason: "receiver_lagged" | "payload_unavailable" | "identity_changed";
+}
+
+export interface CoreProjectionEventSubscription extends CoreEventSubscription {
+  readonly barrier: ProjectionLiveBarrier;
+}
+
 export interface CoreClientPort {
   resolveLocalMutation(
     input: CoreLocalMutationResolveRequest,
@@ -251,4 +283,10 @@ export interface CoreClientPort {
     onResyncRequired?: (event: CoreEventReplayRequired) => void,
     signal?: AbortSignal,
   ): Promise<CoreEventSubscription>;
+  openProjectionEventStream(
+    scopes: readonly ProjectionScope[],
+    onEvent: (event: CoreEventEnvelope) => void,
+    onRepair: (repair: ProjectionLiveRepair) => void,
+    signal?: AbortSignal,
+  ): Promise<CoreProjectionEventSubscription>;
 }

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { DATABASE_MODULE_CONTRACT_VERSION } from "./database-module";
 import { DATABASE_MODULE_V2_CONTRACT_VERSION } from "./database-module-v2";
+import { noOpLocalCommit } from "./testing/local-commit";
 import {
   bindDatabaseApplyV2,
   bindDatabaseModuleReadV2,
@@ -372,12 +373,12 @@ describe("Database Module v2 transport boundary", () => {
     );
   });
 
-  test("matches Core Relation replacement and patch cardinality limits", () => {
+  test("rejects Relation replacement and matches patch cardinality limits", () => {
     const replacementIds = Array.from(
       { length: 101 },
       (_, index) => `page-${index}`,
     );
-    const replacement = bindDatabaseApplyV2({
+    expect(() => bindDatabaseApplyV2({
       version: DATABASE_MODULE_V2_CONTRACT_VERSION,
       operationId: "relation-replace",
       projectId: "project-1",
@@ -396,14 +397,31 @@ describe("Database Module v2 transport boundary", () => {
           },
         }],
       }],
+    }, "project-1", { actor: { kind: "test" } })).toThrow(
+      "databaseApplyV2.operations[0].edits[0].edit.value.kind is unsupported",
+    );
+
+    const clear = bindDatabaseApplyV2({
+      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+      operationId: "relation-clear",
+      projectId: "project-1",
+      storeEpoch: "epoch-1",
+      actor: {},
+      operations: [{
+        kind: "edit_property_values",
+        edits: [{
+          pageId: "page-source",
+          dataSourceId: "source-1",
+          propertyId: CUSTOM_PROPERTY_ID,
+          edit: { kind: "clear_relation", expectedValueRevision: 7 },
+        }],
+      }],
     }, "project-1", { actor: { kind: "test" } });
     expect(
-      replacement.operations[0]?.kind === "edit_property_values"
-        ? replacement.operations[0].edits[0]?.edit.kind === "replace"
-          ? replacement.operations[0].edits[0].edit.value
-          : null
+      clear.operations[0]?.kind === "edit_property_values"
+        ? clear.operations[0].edits[0]?.edit
         : null,
-    ).toMatchObject({ kind: "relation", pageIds: replacementIds });
+    ).toEqual({ kind: "clear_relation", expectedValueRevision: 7 });
 
     expect(() => bindDatabaseApplyV2({
       version: DATABASE_MODULE_V2_CONTRACT_VERSION,
@@ -422,7 +440,10 @@ describe("Database Module v2 transport boundary", () => {
             delta: {
               kind: "relation",
               addPageIds: Array.from({ length: 60 }, (_, index) => `add-${index}`),
-              removePageIds: Array.from({ length: 41 }, (_, index) => `remove-${index}`),
+              removeEdgeIds: Array.from(
+                { length: 41 },
+                (_, index) => index.toString(16).padStart(64, "0"),
+              ),
             },
           },
         }],
@@ -479,6 +500,70 @@ describe("Database Module v2 transport boundary", () => {
     ).toThrow(".key is not supported");
   });
 
+  test("admits only unique opaque handles in Relation target windows", () => {
+    const edgeId = "a".repeat(64);
+    const result = {
+      ok: true,
+      value: {
+        version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+        projectId: "project-1",
+        libraryId: "library-1",
+        storeEpoch: "epoch-1",
+        commitSeq: 4,
+        value: {
+          kind: "relation_target_window",
+          value: {
+            valueRevision: 3,
+            totalCount: 1,
+            targets: [{ kind: "restricted", edgeId }],
+            nextCursor: null,
+            projectionRevision: 4,
+          },
+        },
+      },
+    };
+
+    expect(parseDatabaseModuleReadResultV2(result)).toMatchObject({
+      ok: true,
+      value: {
+        value: {
+          kind: "relation_target_window",
+          value: { targets: [{ kind: "restricted", edgeId }] },
+        },
+      },
+    });
+    expect(() => parseDatabaseModuleReadResultV2({
+      ...result,
+      value: {
+        ...result.value,
+        value: {
+          ...result.value.value,
+          value: {
+            ...result.value.value.value,
+            targets: [{ kind: "restricted", edgeId: "page-hidden" }],
+          },
+        },
+      },
+    })).toThrow("must be an opaque Relation edge handle");
+    expect(() => parseDatabaseModuleReadResultV2({
+      ...result,
+      value: {
+        ...result.value,
+        value: {
+          ...result.value.value,
+          value: {
+            ...result.value.value.value,
+            totalCount: 2,
+            targets: [
+              { kind: "restricted", edgeId },
+              { kind: "restricted", edgeId },
+            ],
+          },
+        },
+      },
+    })).toThrow("contains duplicate edge handles");
+  });
+
   test("round-trips identity conflicts and validates strict apply receipts", () => {
     const conflict = databaseModuleFailureV2(
       "identity_conflict",
@@ -492,6 +577,7 @@ describe("Database Module v2 transport boundary", () => {
 
     const receipt = {
       ok: true,
+      localCommit: noOpLocalCommit("epoch-1", 5),
       value: {
         version: DATABASE_MODULE_V2_CONTRACT_VERSION,
         operationId: "operation-1",
@@ -547,6 +633,7 @@ describe("Database Module v2 transport boundary", () => {
 
     const apply = parseLibraryDatabaseApplyResultV2({
       ok: true,
+      localCommit: noOpLocalCommit("epoch-1", 5),
       value: {
         version: DATABASE_MODULE_V2_CONTRACT_VERSION,
         operationId: "operation-1",

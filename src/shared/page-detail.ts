@@ -185,7 +185,6 @@ const valueType = (
     value === "multi_select" ||
     value === "date" ||
     value === "datetime" ||
-    value === "person" ||
     value === "relation"
   ) {
     return value;

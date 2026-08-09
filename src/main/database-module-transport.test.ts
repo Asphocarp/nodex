@@ -91,6 +91,10 @@ describe("Database Module IPC", () => {
       received.push(request);
       return {
         ok: true,
+        localCommit: {
+          status: "no_op",
+          observed: { store_epoch: request.storeEpoch, commit_head: 8 },
+        },
         value: {
           version: DATABASE_MODULE_V2_CONTRACT_VERSION,
           operationId: request.operationId,

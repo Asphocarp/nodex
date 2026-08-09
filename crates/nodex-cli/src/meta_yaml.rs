@@ -565,7 +565,6 @@ fn validate_property(
         "multi_select" => ProjectedPropertyTypeV1::MultiSelect,
         "date" => ProjectedPropertyTypeV1::Date,
         "datetime" => ProjectedPropertyTypeV1::Datetime,
-        "person" => ProjectedPropertyTypeV1::Person,
         "relation" => ProjectedPropertyTypeV1::Relation,
         _ => return Err(invalid("unsupported Property type").at_path(type_path)),
     };
@@ -605,10 +604,9 @@ fn validate_property_value(
         (ProjectedPropertyTypeV1::Checkbox, Value::Bool(value)) => {
             Ok(ProjectedPropertyValueV1::Checkbox(value))
         }
-        (
-            ProjectedPropertyTypeV1::Select | ProjectedPropertyTypeV1::Person,
-            Value::Mapping(map),
-        ) => validate_identity(map, span, path).map(ProjectedPropertyValueV1::Identity),
+        (ProjectedPropertyTypeV1::Select, Value::Mapping(map)) => {
+            validate_identity(map, span, path).map(ProjectedPropertyValueV1::Identity)
+        }
         (ProjectedPropertyTypeV1::MultiSelect, Value::Sequence(values)) => {
             if values.len() > MAX_META_YAML_SEQUENCE {
                 return Err(at_span(

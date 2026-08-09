@@ -23,11 +23,14 @@ projection cursor.
 
 ## Decision
 
-Core separates one semantic mutation into three artifacts. Private physical
-journal rows retain reconstruction evidence. One immutable `CommitManifest`
-owns `(store_epoch, commit_seq, manifest_hash)`, semantic effects, exact
-Document refs, Projection effects, scoped resource revocations, routing claims,
-and the receipt reference.
+Core separates one semantic mutation into private evidence, one immutable
+semantic Manifest, and dynamically authorized delivery. Physical journal rows
+retain reconstruction evidence. The `CommitManifest` owns
+`(store_epoch, commit_seq, manifest_hash)`, resource-atomic `DeliveryAtom`
+descriptors, exact Document refs, audience-scoped Projection effects, scoped
+resource revocations, routing claims, and the receipt reference. Each atom has
+one closed typed payload and a canonical all-of `ResourceKey` requirement set;
+aggregate physical events are never renderer-facing authorization units.
 An `AuthorizedDeliveryPacket` is resolved after commit for one current access
 context and may carry complementary inline/ref coverage without changing the
 Manifest identity. A committed apply response always returns command outcome,
@@ -67,17 +70,25 @@ they never prepare several updates against the same stale target head. The
 transaction cannot return a successful response with only a final Library
 effect or with an inferred operation-id grouping.
 
-Main admits both apply-response and durable-tail/replay packets into one
-synchronous `LocalCommitCoordinator`. Admission validates Manifest hash and
-coverage, claims semantic/resource identities, and schedules independent
-ordered retry lanes for each exact Document, exact projection scope,
-scoped resource revocation, and domain notification. Revocations are admitted
-before ordinary Document effects from the same packet. Transactions affecting
-overlapping Document sets serialize on each shared Document without creating a
-composite lane that blocks unrelated Documents. One lane cannot delay another
-or the apply response.
+The initiating renderer validates and admits `ApplyResponse.delivery` into one
+process-local `LocalCommitIngress` before the feature Promise resolves. Main's
+`LocalCommitCoordinator` admits scoped-live and durable-tail/replay packets for
+other recipients. Both ingress paths validate Manifest hash and coverage,
+claim authorization-scoped resource identities, and schedule independent
+ordered lanes for each exact Document, exact projection scope, scoped resource
+revocation, and domain notification. Revocations are admitted before ordinary
+Document effects from the same packet. Transactions affecting overlapping
+Document sets serialize on each shared Document without creating a composite
+lane that blocks unrelated Documents. No lane, durable stream, Main fanout, or
+recipient acknowledgement delays the apply response.
 
-Admission may select one semantic effect for a notification lane, but the
+Non-origin delivery is result-bearing. Main assigns a bounded recipient
+sequence and renderer ACK means the packet entered causal ingress, not that
+React painted. A failed send, NACK, missing ACK, queue overflow, reload, or
+broker reset records an exact-scope reset that is delivered before later work;
+the renderer then fences stale authority and performs a canonical repair.
+
+Admission may select one DeliveryAtom for a notification lane, but the
 Core-authored packet remains byte-for-byte intact with its original coverage
 and `packet_hash`; adapters receive the selected effect as a separate argument
 and never manufacture a sliced packet that reuses another packet's hash.
@@ -94,6 +105,14 @@ synchronously, buffers bounded future edges, and coalesces canonical repair for
 gaps, patchless effects, resets, or integrity conflicts. Canonical reads carry
 the exact coordinate and cannot replace newer local authority. The global
 LocalCommit sequence is never treated as a projection version.
+
+Projection audiences are the union of pre-state and post-state authorized
+scopes for the affected subjects, not merely the command actor. Lost scopes
+receive revocation; retained and newly authorized scopes receive independent
+revision transitions or explicit read floors. Equivalent authorization
+fingerprints may share computed patch bytes, but never scope identity,
+revision, hash, or deduplication. Main maintains one multiplexed scoped-live
+broker and changes its active scope set make-before-break.
 
 Every mounted collaborative Document surface exposes a
 `BlockDocumentMutationBarrier`. It flushes local durable updates and returns a
@@ -153,10 +172,11 @@ canonical snapshot/state vector rather than applying an invented empty update.
 
 The initiating window renders the committed source-Document and target-View
 result with the same latency as the Core response, while other windows and a
-restarted process converge from the durable stream. Main owns resource-level
-deduplication and independent delivery retry; renderer stores own Core-derived
-snapshots, exact scope coordinates, and deterministic reducers—not speculative
-ownership state.
+restarted process converge from scoped live delivery or the durable stream.
+Renderer ingress and Main each own authorization-scoped resource deduplication
+at their boundary; Main additionally owns bounded recipient delivery/reset,
+while renderer stores own Core-derived snapshots, exact scope coordinates, and
+deterministic reducers—not speculative ownership state.
 When access is lost, Page Detail, Board, and query stores synchronously remove
 the matching cached authority for every revocation before any canonical repair.
 Authorization-bearing inactive query entries retain a scope subscription. If a
@@ -189,13 +209,18 @@ or UI freeze is needed for the normal commit path.
 
 ## Acceptance
 
-- Apply response returns without waiting for projection or durable tailer work.
+- The initiating renderer admits apply-response delivery before its feature
+  Promise resolves, without waiting for a durable tailer, canonical read, Main
+  fanout, or another renderer's ACK.
 - A trusted local Project-bound cross-Project command returns a Library-scoped
   packet that can deliver both the source revocation and target projection
   before the command Promise resolves; the command authorization itself remains
   Project-bound.
 - Packets for the same Manifest arriving from apply and tailer produce one delivery per
   resource identity, while complementary authorized coverage is preserved.
+- A resource-atomic semantic packet contains an atom only when every declared
+  requirement is readable in that packet scope; mixed-resource physical events
+  neither leak a hidden sibling nor suppress a separately public atom.
 - A pure scoped revocation packet survives apply/tailer deduplication, reaches
   only its authorization scope, closes exact Document subscriptions, and
   synchronously evicts matching renderer caches even when their cursor is newer.
@@ -216,6 +241,9 @@ or UI freeze is needed for the normal commit path.
 - Exact live publication is not an apply-response prerequisite; queue or
   receiver pressure produces typed repair rather than synchronous replay or a
   best-effort silent drop.
+- A non-origin send failure, missing ACK, queue overflow, or renderer reload
+  establishes a bounded exact-scope reset and cannot block another recipient or
+  the committed command.
 - A high-pressure populated Board test moves 100 independently seeded nested
   100-child subtrees and reports commit/card visibility p50/p95/p99/max without
   a fixed sleep or manual refresh. Automated Electron coverage invokes the real

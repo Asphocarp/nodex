@@ -44,6 +44,7 @@ import {
   type DataSourceQueryResultV2,
   type DataSourceRecordV2,
 } from "./database-module-v2";
+import { parseLocalCommitApply } from "./local-commit-delivery";
 import {
   parseDatabaseViewConfigV2,
   type DatabaseJsonValue,
@@ -230,7 +231,6 @@ const readPropertyValueType = (
     value === "multi_select" ||
     value === "date" ||
     value === "datetime" ||
-    value === "person" ||
     value === "relation"
   ) {
     return value;
@@ -312,7 +312,7 @@ const parsePropertySchema = (
   if (
     kind === "text" || kind === "number" || kind === "checkbox"
     || kind === "select" || kind === "multi_select" || kind === "date"
-    || kind === "datetime" || kind === "person"
+    || kind === "datetime"
   ) {
     assertExactKeys(schema, label, ["kind"]);
     return { kind };
@@ -333,6 +333,20 @@ const readIdentityArray = (
     throw new TypeError(`${label} must contain unique identities`);
   }
   return ids;
+};
+
+const readRelationEdgeIdArray = (value: unknown, label: string): readonly string[] => {
+  const edgeIds = readIdentityArray(value, label, MAX_DATABASE_MODULE_V2_BULK_ENTRIES);
+  if (edgeIds.some((edgeId) => !/^[0-9a-f]{64}$/.test(edgeId))) {
+    throw new TypeError(`${label} must contain opaque Relation edge handles`);
+  }
+  return edgeIds;
+};
+
+const readRelationEdgeId = (value: unknown, label: string): string => {
+  const edgeId = readString(value, label, 64);
+  if (/^[0-9a-f]{64}$/.test(edgeId)) return edgeId;
+  throw new TypeError(`${label} must be an opaque Relation edge handle`);
 };
 
 const parsePropertyValueInput = (
@@ -368,17 +382,6 @@ const parsePropertyValueInput = (
   if (kind === "multi_select") {
     assertExactKeys(input, label, ["kind", "optionIds"]);
     return { kind, optionIds: readOptionIdArray(input.optionIds, propertyId, `${label}.optionIds`) };
-  }
-  if (kind === "person") {
-    assertExactKeys(input, label, ["kind", "personId"]);
-    return { kind, personId: readString(input.personId, `${label}.personId`) };
-  }
-  if (kind === "relation") {
-    assertExactKeys(input, label, ["kind", "pageIds"]);
-    return {
-      kind,
-      pageIds: readIdentityArray(input.pageIds, `${label}.pageIds`, 10_000),
-    };
   }
   throw new TypeError(`${label}.kind is unsupported`);
 };
@@ -528,6 +531,21 @@ const parseApplyOperation = (
           },
         };
       }
+      if (edit.kind === "clear_relation") {
+        assertExactKeys(edit, `${editLabel}.edit`, ["kind", "expectedValueRevision"]);
+        return {
+          pageId: readString(mutation.pageId, `${editLabel}.pageId`),
+          dataSourceId: readDataSourceId(mutation.dataSourceId, `${editLabel}.dataSourceId`),
+          propertyId,
+          edit: {
+            kind: "clear_relation" as const,
+            expectedValueRevision: readRevision(
+              edit.expectedValueRevision,
+              `${editLabel}.edit.expectedValueRevision`,
+            ),
+          },
+        };
+      }
       if (edit.kind !== "patch_set") {
         throw new TypeError(`${editLabel}.edit.kind is unsupported`);
       }
@@ -542,7 +560,7 @@ const parseApplyOperation = (
           removeOptionIds: readOptionIdArray(delta.removeOptionIds, propertyId, `${editLabel}.edit.delta.removeOptionIds`),
         };
       } else if (delta.kind === "relation") {
-        assertExactKeys(delta, `${editLabel}.edit.delta`, ["kind", "addPageIds", "removePageIds"]);
+        assertExactKeys(delta, `${editLabel}.edit.delta`, ["kind", "addPageIds", "removeEdgeIds"]);
         parsedDelta = {
           kind: "relation" as const,
           addPageIds: readIdentityArray(
@@ -550,23 +568,22 @@ const parseApplyOperation = (
             `${editLabel}.edit.delta.addPageIds`,
             MAX_DATABASE_MODULE_V2_BULK_ENTRIES,
           ),
-          removePageIds: readIdentityArray(
-            delta.removePageIds,
-            `${editLabel}.edit.delta.removePageIds`,
-            MAX_DATABASE_MODULE_V2_BULK_ENTRIES,
+          removeEdgeIds: readRelationEdgeIdArray(
+            delta.removeEdgeIds,
+            `${editLabel}.edit.delta.removeEdgeIds`,
           ),
         };
       } else {
         throw new TypeError(`${editLabel}.edit.delta.kind is unsupported`);
       }
       const add = parsedDelta.kind === "multi_select" ? parsedDelta.addOptionIds : parsedDelta.addPageIds;
-      const remove = parsedDelta.kind === "multi_select" ? parsedDelta.removeOptionIds : parsedDelta.removePageIds;
-      if (add.some((entry) => remove.includes(entry))) {
+      const remove = parsedDelta.kind === "multi_select" ? parsedDelta.removeOptionIds : parsedDelta.removeEdgeIds;
+      if (parsedDelta.kind === "multi_select" && add.some((entry) => remove.includes(entry))) {
         throw new TypeError(`${editLabel}.edit.delta add/remove sets must be disjoint`);
       }
       if (
         parsedDelta.kind === "relation"
-        && parsedDelta.addPageIds.length + parsedDelta.removePageIds.length
+        && parsedDelta.addPageIds.length + parsedDelta.removeEdgeIds.length
           > MAX_DATABASE_MODULE_V2_BULK_ENTRIES
       ) {
         throw new TypeError(
@@ -1635,23 +1652,39 @@ const parseReadValue = (value: unknown): DatabaseReadValueV2 => {
     assertExactKeys(window, "databaseModuleReadV2.value.value", [
       "valueRevision", "totalCount", "targets", "nextCursor", "projectionRevision",
     ]);
-    if (!Array.isArray(window.targets)) {
-      throw new TypeError("Relation target window targets must be an array");
+    if (
+      !Array.isArray(window.targets)
+      || window.targets.length > MAX_DATABASE_MODULE_V2_BULK_ENTRIES
+    ) {
+      throw new TypeError("Relation target window targets must be a bounded array");
     }
+    const edgeIds = new Set<string>();
     const targets = window.targets.map((rawTarget, index) => {
       const target = readRecord(rawTarget, `relationTargetWindow.targets[${index}]`);
+      const edgeId = readRelationEdgeId(
+        target.edgeId,
+        `relationTargetWindow.targets[${index}].edgeId`,
+      );
+      if (edgeIds.has(edgeId)) {
+        throw new TypeError("Relation target window contains duplicate edge handles");
+      }
+      edgeIds.add(edgeId);
       if (target.kind === "restricted") {
-        assertExactKeys(target, `relationTargetWindow.targets[${index}]`, ["kind"]);
-        return { kind: "restricted" as const };
+        assertExactKeys(target, `relationTargetWindow.targets[${index}]`, ["kind", "edgeId"]);
+        return {
+          kind: "restricted" as const,
+          edgeId,
+        };
       }
       assertExactKeys(target, `relationTargetWindow.targets[${index}]`, [
-        "kind", "pageId", "title", "lifecycle", "membershipState",
+        "kind", "edgeId", "pageId", "title", "lifecycle", "membershipState",
       ]);
       if (target.kind !== "visible") {
         throw new TypeError("Relation target kind is unsupported");
       }
       return {
         kind: "visible" as const,
+        edgeId,
         pageId: readString(target.pageId, `relationTargetWindow.targets[${index}].pageId`),
         title: typeof target.title === "string" ? target.title : "",
         lifecycle: readString(target.lifecycle, `relationTargetWindow.targets[${index}].lifecycle`),
@@ -1746,14 +1779,17 @@ const parseReadValue = (value: unknown): DatabaseReadValueV2 => {
 const parseResultEnvelope = (
   value: unknown,
   label: string,
+  allowLocalCommit = false,
 ): Readonly<Record<string, unknown>> => {
   const result = readRecord(value, label);
   const keys = Object.keys(result);
   if (
-    keys.length !== 2 ||
+    keys.length !== (allowLocalCommit && result.ok === true ? 3 : 2) ||
     !Object.prototype.hasOwnProperty.call(result, "ok") ||
     (!Object.prototype.hasOwnProperty.call(result, "value") &&
-      !Object.prototype.hasOwnProperty.call(result, "error"))
+      !Object.prototype.hasOwnProperty.call(result, "error")) ||
+    (allowLocalCommit && result.ok === true
+      && !Object.prototype.hasOwnProperty.call(result, "localCommit"))
   ) {
     throw new TypeError(`${label} envelope is invalid`);
   }
@@ -1824,7 +1860,7 @@ const OPERATION_KINDS = new Set<DatabaseApplyOperationV2["kind"]>([
 export const parseDatabaseApplyResultV2 = (
   value: unknown,
 ): DatabaseApplyResultV2 => {
-  const result = parseResultEnvelope(value, "Database Module v2 apply result");
+  const result = parseResultEnvelope(value, "Database Module v2 apply result", true);
   if (result.ok === false && Object.prototype.hasOwnProperty.call(result, "error")) {
     return { ok: false, error: parseDatabaseModuleErrorV2(result.error) };
   }
@@ -1872,6 +1908,7 @@ export const parseDatabaseApplyResultV2 = (
   );
   return {
     ok: true,
+    localCommit: parseLocalCommitApply(result.localCommit),
     value: {
       version: DATABASE_MODULE_V2_CONTRACT_VERSION,
       operationId: readString(receipt.operationId, "databaseApplyV2.receipt.operationId"),
@@ -1962,7 +1999,11 @@ export const parseLibraryDatabaseModuleReadResultV2 = (
 export const parseLibraryDatabaseApplyResultV2 = (
   value: unknown,
 ): LibraryDatabaseApplyResultV2 => {
-  const result = parseResultEnvelope(value, "Library Database Module v2 apply result");
+  const result = parseResultEnvelope(
+    value,
+    "Library Database Module v2 apply result",
+    true,
+  );
   if (result.ok === false && Object.prototype.hasOwnProperty.call(result, "error")) {
     return { ok: false, error: parseDatabaseModuleErrorV2(result.error) };
   }
@@ -1994,6 +2035,7 @@ export const parseLibraryDatabaseApplyResultV2 = (
   void _accessContext;
   const parsed = parseDatabaseApplyResultV2({
     ok: true,
+    localCommit: result.localCommit,
     value: { ...standardReceipt, projectId: "local-library" },
   });
   if (!parsed.ok) return parsed;
@@ -2001,6 +2043,7 @@ export const parseLibraryDatabaseApplyResultV2 = (
   void _privateProjectId;
   return {
     ok: true,
+    localCommit: parsed.localCommit,
     value: {
       ...publicReceipt,
       accessContext: { kind: "library" },

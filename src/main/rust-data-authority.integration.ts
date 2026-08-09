@@ -212,12 +212,15 @@ describe("Electron native data authority", () => {
         event.packet.manifest.operation_id === databaseWrite.operationId
       )).toMatchObject({
         packet: {
-          effects: [expect.objectContaining({
-            payload: {
+          atoms: expect.arrayContaining([expect.objectContaining({
+            descriptor: expect.objectContaining({
+              kind: "database_changed",
+            }),
+            payload: expect.objectContaining({
               module: "database",
               event: expect.objectContaining({ project_id: projectId }),
-            },
-          })],
+            }),
+          })]),
         },
       });
       await expect(database.apply(databaseWrite)).resolves.toMatchObject({
@@ -315,12 +318,15 @@ describe("Electron native data authority", () => {
         event.packet.manifest.operation_id === "electron-library-database-put-property"
       )).toMatchObject({
         packet: {
-          effects: [expect.objectContaining({
-            payload: {
+          atoms: expect.arrayContaining([expect.objectContaining({
+            descriptor: expect.objectContaining({
+              kind: "database_changed",
+            }),
+            payload: expect.objectContaining({
               module: "database",
               event: expect.objectContaining({ project_id: null }),
-            },
-          })],
+            }),
+          })]),
         },
       });
       const projectDocuments = createCoreDocumentSyncAdapter(
@@ -951,7 +957,7 @@ describe("Electron native data authority", () => {
             edit: {
               kind: "replace",
               expectedValueRevision: 1,
-              value: { kind: "person", personId: "native-core" },
+              value: { kind: "text", value: "native-core" },
             },
           }],
         }],
@@ -1002,7 +1008,7 @@ describe("Electron native data authority", () => {
             edit: {
               kind: "replace",
               expectedValueRevision: 1,
-              value: { kind: "person", personId: "native-core" },
+              value: { kind: "text", value: "native-core" },
             },
           }],
         }],

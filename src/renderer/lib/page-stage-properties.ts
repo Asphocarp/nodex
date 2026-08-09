@@ -86,7 +86,7 @@ export type PageStagePropertyEdit =
   | {
       readonly kind: "patch_relation";
       readonly addPageIds: readonly string[];
-      readonly removePageIds: readonly string[];
+      readonly removeEdgeIds: readonly string[];
     }
   | {
       readonly kind: "patch_multi_select";
@@ -104,7 +104,6 @@ const invalidValueReason = (
   if (value === null) return null;
   switch (property.valueType) {
     case "text":
-    case "person":
     case "select":
       return typeof value === "string" ? null : "Expected a text value";
     case "number":

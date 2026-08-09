@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 
 import { describe, expect, test, vi } from "vitest";
 
+import { committedLocalCommit } from "../../shared/testing/local-commit";
 import { CoreModuleResponseError } from "./core-client";
 import { createCoreDocumentSyncAdapter } from "./document-sync-adapter";
 import { FakeCoreClient } from "./testing/fake-core-client";
@@ -700,6 +701,7 @@ describe("Core Document sync adapter", () => {
 
     await expect(adapter.restoreVersion(request)).resolves.toEqual({
       ok: true,
+      localCommit: committedLocalCommit(request.storeEpoch, 9),
       value: {
         version: 1,
         mutationKind: "document_version_restore",

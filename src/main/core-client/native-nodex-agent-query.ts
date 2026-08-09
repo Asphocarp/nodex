@@ -11,7 +11,7 @@ import type {
 } from "../../shared/nodex-agent-tools";
 import { QueryDatabaseV3OutputSchema } from "../../shared/nodex-agent-tools/v3-read-schemas";
 import { projectNodexAgentQueryV3Data } from "../agent-tools/query-v3-projection";
-import { projectCoreDatabaseViewQuery } from "./database-page-projection";
+import { projectCoreDatabaseViewQuery } from "../../shared/database-page-projection";
 import type { RustDataAuthorityRuntime } from "./desktop-data-authority";
 import { toCoreAgentExecutionAuthorization } from "./desktop-nodex-agent-resource-authority";
 import { mapNativeNodexAgentCoreError } from "./native-nodex-agent-page-update";

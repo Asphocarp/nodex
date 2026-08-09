@@ -1,3 +1,8 @@
+import {
+  parseLocalCommitApply,
+  type LocalCommitCommandSuccess,
+} from "./local-commit-delivery";
+
 export const BLOCK_PROPERTY_MUTATION_V2_CONTRACT_VERSION = 2 as const;
 export const MAX_BLOCK_PROPERTY_MUTATION_V2_FIELDS = 256;
 
@@ -100,11 +105,11 @@ export interface BlockPropertyMutationCommandErrorV2 {
 }
 
 export type BlockPropertyMutationCommandResultV2 =
-  | { readonly ok: true; readonly value: BlockPropertyMutationResultV2 }
+  | LocalCommitCommandSuccess<BlockPropertyMutationResultV2>
   | { readonly ok: false; readonly error: BlockPropertyMutationCommandErrorV2 };
 
 export type LibraryBlockPropertyMutationCommandResultV2 =
-  | { readonly ok: true; readonly value: LibraryBlockPropertyMutationResultV2 }
+  | LocalCommitCommandSuccess<LibraryBlockPropertyMutationResultV2>
   | { readonly ok: false; readonly error: BlockPropertyMutationCommandErrorV2 };
 
 export class BlockPropertyMutationV2ContractError extends Error {
@@ -745,8 +750,16 @@ export const parseBlockPropertyMutationCommandResultV2 = (
 ): BlockPropertyMutationCommandResultV2 => {
   const result = readRecord(value, "propertyMutationCommandResultV2");
   if (result.ok === true) {
-    assertExactKeys(result, "propertyMutationCommandResultV2", ["ok", "value"]);
-    return { ok: true, value: parseBlockPropertyMutationResultV2(result.value) };
+    assertExactKeys(result, "propertyMutationCommandResultV2", [
+      "ok",
+      "value",
+      "localCommit",
+    ]);
+    return {
+      ok: true,
+      value: parseBlockPropertyMutationResultV2(result.value),
+      localCommit: parseLocalCommitApply(result.localCommit),
+    };
   }
   if (result.ok === false) {
     assertExactKeys(result, "propertyMutationCommandResultV2", ["ok", "error"]);
@@ -768,6 +781,7 @@ export const toLibraryBlockPropertyMutationCommandResultV2 = (
   void _privateProjectId;
   return {
     ok: true,
+    localCommit: result.localCommit,
     value: {
       ...receipt,
       accessContext: { kind: "library" },
@@ -797,6 +811,7 @@ export const parseLibraryBlockPropertyMutationCommandResultV2 = (
   assertExactKeys(result, "libraryPropertyMutationCommandResultV2", [
     "ok",
     "value",
+    "localCommit",
   ]);
   const receipt = readRecord(
     result.value,
@@ -831,6 +846,7 @@ export const parseLibraryBlockPropertyMutationCommandResultV2 = (
   void _libraryAccessContext;
   const parsed = parseBlockPropertyMutationCommandResultV2({
     ok: true,
+    localCommit: result.localCommit,
     value: {
       ...standardReceipt,
       projectId: "local-library",
