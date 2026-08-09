@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { plainTextToPortableRichText } from "../../shared/block-documents";
 import type { DataSourcePropertyRecordV2 } from "../../shared/database-module-v2";
-import type { DatabasePage } from "./types";
+import type { BoardSummary, DatabasePage } from "./types";
 
 const state = vi.hoisted(() => ({
   snapshot: { databaseView: null } as { databaseView: null | {
@@ -102,6 +102,13 @@ describe("createKanbanPage", () => {
         tags: [],
       }),
     }));
+    const optimisticMutation = state.runOptimisticMutation.mock.calls[0]?.[0] as {
+      apply: (board: BoardSummary) => BoardSummary;
+    };
+    const optimisticBoard = optimisticMutation.apply({
+      columns: [{ id: "plan", name: "Plan", cards: [] }],
+    });
+    expect(optimisticBoard.columns[0]?.cards[0]?.status).toBe("plan");
     expect(state.setDatabaseRowDetail).toHaveBeenCalledWith("project-test", page);
     expect(state.applyRemoteCard).toHaveBeenCalledWith(page);
   });

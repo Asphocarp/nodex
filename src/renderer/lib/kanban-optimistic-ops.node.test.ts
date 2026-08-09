@@ -85,6 +85,67 @@ describe("kanban optimistic ops", () => {
     ]);
   });
 
+  test("treats an existing Page identity as a converged create", () => {
+    const board = createBoard();
+    const optimisticCard = {
+      ...createPageSummary("new", 0),
+      title: "Optimistic title",
+      richTitle: plainTextToPortableRichText("Optimistic title"),
+    };
+    const transform = buildCreateCardTransform(
+      "build",
+      optimisticCard,
+      "top",
+    );
+
+    const created = transform(board);
+    const reapplied = transform(created);
+
+    expect(reapplied).toBe(created);
+    expect(
+      reapplied.columns.flatMap((column) => column.cards)
+        .filter((card) => card.id === optimisticCard.id),
+    ).toHaveLength(1);
+  });
+
+  test("preserves canonical placement and fields when create authority arrives", () => {
+    const baseBoard = createBoard();
+    const canonicalCard = {
+      ...createPageSummary("canonical", 0),
+      status: "ship" as const,
+      title: "Canonical title",
+      richTitle: plainTextToPortableRichText("Canonical title"),
+      revision: 1,
+    };
+    const board: BoardSummary = {
+      ...baseBoard,
+      columns: baseBoard.columns.map((column) =>
+        column.id === "ship"
+          ? { ...column, cards: [canonicalCard] }
+          : column
+      ),
+    };
+    const optimisticCard = {
+      ...canonicalCard,
+      status: "build" as const,
+      title: "Optimistic title",
+      richTitle: plainTextToPortableRichText("Optimistic title"),
+      revision: undefined,
+    };
+
+    const projected = buildCreateCardTransform(
+      "build",
+      optimisticCard,
+      "top",
+    )(board);
+
+    expect(projected).toBe(board);
+    expect(projected.columns[4]?.cards).toEqual([canonicalCard]);
+    expect(
+      projected.columns[2]?.cards.some((card) => card.id === canonicalCard.id),
+    ).toBe(false);
+  });
+
   test("treats equivalent projected title and structured values as a no-op", () => {
     const board = createBoard();
 

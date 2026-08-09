@@ -89,7 +89,10 @@ export async function createKanbanPage({
       )
     : input;
   const createInput = ensureCreateInputId(capabilityGatedInput);
-  const optimisticPage = createOptimisticCard(createInput);
+  const optimisticPage = createOptimisticCard({
+    ...createInput,
+    status,
+  });
   const operationId = crypto.randomUUID();
   const outcome = await store.runOptimisticMutation<DatabasePage>({
     kind: "page:create",

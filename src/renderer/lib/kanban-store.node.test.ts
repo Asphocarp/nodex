@@ -1683,6 +1683,73 @@ describe("kanban store", () => {
     expect(store.getSnapshot().pageIndex.get("018f0f85-6d56-7625-bdea-000000000000")?.title).toBe("Created edited");
   });
 
+  test("converges a pending create when its canonical projection arrives first", async () => {
+    const projection = createProjectionHarness();
+    const remote = createDeferred<{ id: string }>();
+    const pageId = "018f0f85-6d56-7625-bdea-000000000002";
+    const optimisticCard = createOptimisticCard({
+      id: pageId,
+      status: "triage",
+      title: "Optimistic title",
+    });
+    const canonicalCard: DatabasePageSummary = {
+      ...optimisticCard,
+      title: "Canonical title",
+      richTitle: plainTextToPortableRichText("Canonical title"),
+      revision: 1,
+      order: 1,
+    };
+    const registry = createTestRegistry({
+      readViewWindow: async () => createBoardSnapshot(),
+      subscribeBoardChanges: () => () => {},
+      getProjectionInvalidationRegistry: projection.getRegistry,
+    });
+    const store = registry.getStore("project-1");
+    const unsubscribe = store.subscribe(() => {});
+    await waitForMicrotasks();
+
+    const mutation = store.runOptimisticMutation({
+      kind: "page:create",
+      conflictKeys: conflictKeysForCreate("triage", pageId),
+      apply: buildCreateCardTransform("triage", optimisticCard, "bottom"),
+      runRemote: async () => remote.promise,
+      refreshOnSuccess: false,
+    });
+    expect(
+      store.getSnapshot().board?.columns.flatMap((column) => column.cards)
+        .filter((card) => card.id === pageId),
+    ).toHaveLength(1);
+
+    projection.publish(pageUpserted(2, canonicalCard));
+    await waitForMicrotasks();
+
+    const pendingOccurrences = store.getSnapshot().board?.columns
+      .flatMap((column) => column.cards)
+      .filter((card) => card.id === pageId) ?? [];
+    expect(pendingOccurrences).toEqual([canonicalCard]);
+    expect(store.getSnapshot().pendingMutationCount).toBe(1);
+
+    store.applyLocalPatch("triage", pageId, {
+      title: "Edited while create is pending",
+    });
+    const editedOccurrences = store.getSnapshot().board?.columns
+      .flatMap((column) => column.cards)
+      .filter((card) => card.id === pageId) ?? [];
+    expect(editedOccurrences).toHaveLength(1);
+    expect(editedOccurrences[0]?.title).toBe("Edited while create is pending");
+
+    remote.resolve({ id: pageId });
+    await mutation;
+
+    const settledOccurrences =
+      store.getSnapshot().board?.columns.flatMap((column) => column.cards)
+        .filter((card) => card.id === pageId) ?? [];
+    expect(settledOccurrences).toHaveLength(1);
+    expect(settledOccurrences[0]?.title).toBe("Edited while create is pending");
+    expect(store.getSnapshot().pendingMutationCount).toBe(0);
+    unsubscribe();
+  });
+
   test("failed delete rolls back automatically", async () => {
     const board = createBoard();
     const registry = createTestRegistry({

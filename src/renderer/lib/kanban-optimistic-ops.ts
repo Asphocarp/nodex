@@ -11,6 +11,11 @@ import { DEFAULT_WORKFLOW_STATUS } from "../../shared/workflow-status";
 import { pageInputToSummaryPatch, summarizePageDescription } from "../../shared/page-summary";
 import { plainTextToPortableRichText } from "../../shared/block-documents/portable-rich-text";
 
+/**
+ * An optimistic transform is replayed over the latest canonical Board while
+ * its mutation is pending. It must therefore be pure and converge by stable
+ * Page identity when authority has already applied the same effect.
+ */
 export type BoardTransform = (board: BoardSummary) => BoardSummary;
 
 interface PatchTransformOptions {
@@ -116,13 +121,19 @@ function replaceColumnCards(
   };
 }
 
-function insertCardIntoColumn(
+function insertNewCardIntoColumn(
   board: BoardSummary,
   columnId: string,
   card: DatabasePageSummary,
   placement: PageCreatePlacement,
   insertIndex?: number,
 ): BoardSummary {
+  // The LocalCommit projection can arrive before the initiating mutation
+  // Promise settles. Once authority contains this Page, the create overlay is
+  // converged: preserve the canonical fields and placement instead of
+  // projecting a second occurrence of the same identity.
+  if (findCardLocation(board, card.id)) return board;
+
   const columnIndex = board.columns.findIndex((column) => column.id === columnId);
   if (columnIndex < 0) return board;
 
@@ -232,7 +243,7 @@ export function buildCreateCardTransform(
   card: DatabasePageSummary,
   placement: PageCreatePlacement,
 ): BoardTransform {
-  return (board) => insertCardIntoColumn(board, columnId, card, placement);
+  return (board) => insertNewCardIntoColumn(board, columnId, card, placement);
 }
 
 export function buildDeletePageTransform(
