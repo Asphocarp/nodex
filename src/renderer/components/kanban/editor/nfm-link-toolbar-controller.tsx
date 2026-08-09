@@ -1,6 +1,7 @@
 import { LinkToolbarExtension } from "@blocknote/core/extensions";
 import type { Range } from "@tiptap/core";
 import { useEffect, useMemo, useState, type FC } from "react";
+import { flip, offset, shift } from "@floating-ui/react";
 import {
   NfmFloatingPopover,
   useBlockNoteEditor,
@@ -9,6 +10,10 @@ import {
   type LinkToolbarProps,
   type NfmPopoverReference,
 } from "./nfm-link-toolbar-controller-deps";
+import {
+  NFM_EDITOR_FLOATING_UI_PORTAL_ELEMENT,
+  NFM_EDITOR_FLOATING_UI_Z_INDEX,
+} from "./nfm-blocknote-floating-ui";
 
 interface LinkToolbarSnapshot {
   cursorType: "text" | "mouse";
@@ -39,6 +44,7 @@ function toLinkToolbarSnapshot(
 export function NfmLinkToolbarController(props: {
   linkToolbar?: FC<LinkToolbarProps>;
   floatingUIOptions?: FloatingUIOptions;
+  portalElement?: HTMLElement | null;
 }) {
   const editor = useBlockNoteEditor();
   const [toolbarOpen, setToolbarOpen] = useState(false);
@@ -121,6 +127,8 @@ export function NfmLinkToolbarController(props: {
           setToolbarOpen(open);
         },
         placement: "top-start",
+        strategy: "fixed",
+        middleware: [offset(8), shift({ padding: 8 }), flip({ padding: 8 })],
         ...props.floatingUIOptions?.useFloatingOptions,
       },
       useHoverProps: {
@@ -137,7 +145,7 @@ export function NfmLinkToolbarController(props: {
       },
       elementProps: {
         style: {
-          zIndex: 50,
+          zIndex: NFM_EDITOR_FLOATING_UI_Z_INDEX,
         },
         ...props.floatingUIOptions?.elementProps,
       },
@@ -160,7 +168,11 @@ export function NfmLinkToolbarController(props: {
   }
 
   return (
-    <NfmFloatingPopover reference={reference} {...floatingUIOptions}>
+    <NfmFloatingPopover
+      reference={reference}
+      portalElement={props.portalElement ?? NFM_EDITOR_FLOATING_UI_PORTAL_ELEMENT}
+      {...floatingUIOptions}
+    >
       {link && (
         <Component
           url={link.url}

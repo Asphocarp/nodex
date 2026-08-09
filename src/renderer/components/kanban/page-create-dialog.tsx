@@ -26,13 +26,10 @@ import {
   NodexDialogForm,
   NodexDialogTitle,
 } from "@/components/ui/dialog";
-import {
-  NodexDropdownButtonTrigger,
-  NodexDropdownChoiceMenu,
-} from "@/components/ui/dropdown";
 import { NodexSwitch } from "@/components/ui/button";
 import { toast } from "@/components/ui/toast";
 import { PropertyOptionPicker } from "@/components/database/property-option-picker";
+import { SemanticSelectPropertyEditor } from "@/components/database/semantic-property-editors";
 import { usePropertyOptionRegistries } from "@/components/database/use-property-option-registries";
 import { ProjectMarker } from "@/components/workbench/project-marker";
 import { resolvePageCreatePropertyCapabilities } from "@/lib/page-create-capabilities";
@@ -48,15 +45,11 @@ import {
 } from "@/lib/page-create-draft";
 import { restorePageCreateFocus, type PageCreateOrigin } from "@/lib/page-create-focus";
 import { createKanbanPage } from "@/lib/kanban-page-create-command";
-import {
-  KANBAN_PRIORITY_SELECT_OPTIONS,
-  resolveKanbanPriorityOption,
-} from "@/lib/kanban-options";
+import { KANBAN_PRIORITY_OPTIONS } from "@/lib/kanban-options";
 import { StatusIcon } from "@/lib/status-chip";
 import { defaultDataSourcePropertyOptionColor } from "@/lib/data-source-property-options";
 import {
   estimateOptions,
-  estimateStyles,
   type Estimate,
   type Priority,
   type WorkflowStatus,
@@ -105,24 +98,16 @@ const INITIAL_PAGE_CREATE_NESTED_SURFACES: Record<PageCreateNestedSurface, boole
   tags: false,
 };
 
-function PageDraftClosedToast({
-  onRestore,
-}: {
-  readonly onRestore: () => boolean;
-}) {
-  return (
-    <div className="flex min-w-0 items-center gap-3">
-      <span className="min-w-0 flex-1 truncate text-sm">Page draft closed</span>
-      <button
-        type="button"
-        className="shrink-0 rounded-full px-2 py-1 text-xs font-medium text-token-foreground hover:bg-token-foreground/8"
-        onClick={() => onRestore()}
-      >
-        Restore
-      </button>
-    </div>
-  );
-}
+const PAGE_CREATE_PRIORITY_OPTIONS: readonly DatabasePropertyOption[] =
+  KANBAN_PRIORITY_OPTIONS.map((option) => ({
+    id: option.value,
+    name: option.label,
+  }));
+
+const PAGE_CREATE_ESTIMATE_OPTIONS: readonly DatabasePropertyOption[] =
+  estimateOptions.flatMap((option) => option.value === "none"
+    ? []
+    : [{ id: option.value, name: option.label }]);
 
 function PageCreateDialogContent({
   requestId,
@@ -184,10 +169,10 @@ function PageCreateDialogContent({
     ? optionRegistries.options[tagsProperty.propertyId] ?? []
     : [];
   const tagOptions = [...persistedTagOptions, ...draftTagOptions];
-  const selectedStatus = target.columns.find((column) => column.id === status)
-    ?? target.columns[0];
-  const selectedPriority = resolveKanbanPriorityOption(priority);
-  const selectedEstimate = estimate ? estimateStyles[estimate] : null;
+  const statusOptions: readonly DatabasePropertyOption[] = target.columns.map((column) => ({
+    id: column.id,
+    name: column.name,
+  }));
   const baselineRef = useRef<PageCreateDraftSnapshot>(restoredSnapshot
     ? { ...restoredSnapshot, status: initialStatus }
     : createEmptyPageCreateDraftSnapshot(initialStatus));
@@ -227,22 +212,17 @@ function PageCreateDialogContent({
     closeAndRestoreFocus();
     if (!dirty) return;
 
-    toast.custom({
+    toast.info("Page draft closed", {
       id: `page-create-draft:${target.surfaceId}`,
       duration: 10_000,
-      content: ({ close }) => (
-        <PageDraftClosedToast
-          onRestore={() => {
-            const restored = restorePageCreateDraft(appHandle, {
-              target,
-              origin,
-              snapshot,
-            });
-            if (restored) close();
-            return restored;
-          }}
-        />
-      ),
+      action: {
+        label: "Restore",
+        onClick: () => restorePageCreateDraft(appHandle, {
+          target,
+          origin,
+          snapshot,
+        }),
+      },
     });
   };
 
@@ -394,8 +374,8 @@ function PageCreateDialogContent({
                 className="grid size-7 place-items-center rounded-full text-token-description-foreground outline-none hover:bg-token-foreground/5 hover:text-token-foreground focus-visible:ring-2 focus-visible:ring-token-focus disabled:cursor-not-allowed disabled:opacity-40"
               >
                 {expanded
-                  ? <RestorePanelIcon className="icon-xs" />
-                  : <ExpandPanelIcon className="icon-xs" />}
+                  ? <ExpandPanelIcon className="icon-xs" />
+                  : <RestorePanelIcon className="icon-xs" />}
               </button>
               <NodexDialogClose asChild>
                 <button
@@ -446,81 +426,85 @@ function PageCreateDialogContent({
           </div>
 
           <div className="flex shrink-0 flex-wrap items-center gap-1.5 px-4 pb-2 pt-1">
-            <NodexDropdownChoiceMenu
-              value={status}
+            <PropertyOptionPicker
+              label="Status"
+              triggerAriaLabel="Status"
+              mode="single"
+              presentation="chip"
+              triggerPrefix={<StatusIcon statusId={status} className="icon-xs" />}
+              options={statusOptions}
+              selectedIds={[status]}
               disabled={saving}
+              allowClear={false}
+              searchPlaceholder="Change status…"
+              searchLeading={null}
+              contentClassName="w-[min(220px,calc(100vw-16px))]"
               onOpenChange={(open) => setNestedSurfaceOpen("status", open)}
-              onEscapeKeyDown={(event) => event.stopPropagation()}
-              onValueChange={(value) => setStatus(value as WorkflowStatus)}
-              options={target.columns.map((column) => ({
-                value: column.id,
-                label: column.name,
-                leftSlot: <StatusIcon statusId={column.id} className="size-3" />,
-              }))}
-              triggerButton={(
-                <NodexDropdownButtonTrigger
-                  aria-label="Status"
-                  size="xs"
-                  shape="pill"
-                  chrome="raised"
-                  showChevron={false}
-                  className="max-w-48 font-medium"
-                >
-                  <StatusIcon statusId={status} className="size-3" />
-                  <span className="truncate">{selectedStatus?.name ?? status}</span>
-                </NodexDropdownButtonTrigger>
+              onSelectedIdsChange={(selectedIds) => {
+                const nextStatus = selectedIds[0];
+                if (!nextStatus) return;
+                if (!target.columns.some((column) => column.id === nextStatus)) return;
+                setStatus(nextStatus as WorkflowStatus);
+              }}
+              renderOption={(option) => (
+                <span className="flex min-w-0 items-center gap-2">
+                  <StatusIcon statusId={option.id} className="icon-xs" />
+                  <span className="truncate">{option.name}</span>
+                </span>
               )}
             />
             {capabilities.priorityProperty ? (
-              <NodexDropdownChoiceMenu
-                value={priority ?? "none"}
-                disabled={saving}
-                onOpenChange={(open) => setNestedSurfaceOpen("priority", open)}
-                onEscapeKeyDown={(event) => event.stopPropagation()}
-                onValueChange={(value) => setPriority(value === "none" ? null : value as Priority)}
-                options={KANBAN_PRIORITY_SELECT_OPTIONS.map((option) => ({
-                  value: option.value,
-                  label: option.label,
-                }))}
-                triggerButton={(
-                  <NodexDropdownButtonTrigger
-                    aria-label="Priority"
-                    size="xs"
-                    shape="pill"
-                    chrome="raised"
-                    showChevron={false}
-                    className="font-medium"
-                  >
-                    <PriorityPickerIcon className="size-3" />
-                    <span>{selectedPriority?.shortLabel ?? "Priority"}</span>
-                  </NodexDropdownButtonTrigger>
+              <SemanticSelectPropertyEditor
+                kind="priority"
+                label="Priority"
+                triggerAriaLabel="Priority"
+                triggerPrefix={(
+                  <PriorityPickerIcon className="icon-xs shrink-0 text-token-description-foreground" />
                 )}
+                options={PAGE_CREATE_PRIORITY_OPTIONS}
+                selectedId={priority}
+                disabled={saving}
+                presentation="chip"
+                searchPlaceholder="Change priority…"
+                searchLeading={null}
+                contentClassName="w-[min(220px,calc(100vw-16px))]"
+                emptyOptionLabel="No priority"
+                onOpenChange={(open) => setNestedSurfaceOpen("priority", open)}
+                onChange={(value) => {
+                  if (value === null) {
+                    setPriority(null);
+                    return;
+                  }
+                  if (!KANBAN_PRIORITY_OPTIONS.some((option) => option.value === value)) return;
+                  setPriority(value as Priority);
+                }}
               />
             ) : null}
             {capabilities.estimateProperty ? (
-              <NodexDropdownChoiceMenu
-                value={estimate ?? "none"}
-                disabled={saving}
-                onOpenChange={(open) => setNestedSurfaceOpen("estimate", open)}
-                onEscapeKeyDown={(event) => event.stopPropagation()}
-                onValueChange={(value) => setEstimate(value === "none" ? null : value as Estimate)}
-                options={estimateOptions.map((option) => ({
-                  value: option.value,
-                  label: option.label,
-                }))}
-                triggerButton={(
-                  <NodexDropdownButtonTrigger
-                    aria-label="Estimate"
-                    size="xs"
-                    shape="pill"
-                    chrome="raised"
-                    showChevron={false}
-                    className="font-medium"
-                  >
-                    <EstimatePickerIcon className="size-3" />
-                    <span>{selectedEstimate?.label ?? "Estimate"}</span>
-                  </NodexDropdownButtonTrigger>
+              <SemanticSelectPropertyEditor
+                kind="estimate"
+                label="Estimate"
+                triggerAriaLabel="Estimate"
+                triggerPrefix={(
+                  <EstimatePickerIcon className="icon-xs shrink-0 text-token-description-foreground" />
                 )}
+                options={PAGE_CREATE_ESTIMATE_OPTIONS}
+                selectedId={estimate}
+                disabled={saving}
+                presentation="chip"
+                searchPlaceholder="Change estimate…"
+                searchLeading={null}
+                contentClassName="w-[min(220px,calc(100vw-16px))]"
+                emptyOptionLabel="No estimate"
+                onOpenChange={(open) => setNestedSurfaceOpen("estimate", open)}
+                onChange={(value) => {
+                  if (value === null) {
+                    setEstimate(null);
+                    return;
+                  }
+                  if (!PAGE_CREATE_ESTIMATE_OPTIONS.some((option) => option.id === value)) return;
+                  setEstimate(value as Estimate);
+                }}
               />
             ) : null}
             {tagsProperty ? (
@@ -528,7 +512,7 @@ function PageCreateDialogContent({
                 label="Tags"
                 mode="multiple"
                 presentation="chip"
-                triggerPrefix={<TagIcon className="size-3 shrink-0 text-token-description-foreground" />}
+                triggerPrefix={<TagIcon className="icon-xs shrink-0 text-token-description-foreground" />}
                 options={tagOptions}
                 selectedIds={selectedTagIds}
                 disabled={saving}

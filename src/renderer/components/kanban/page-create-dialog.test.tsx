@@ -2,6 +2,12 @@ import type { ReactNode } from "react";
 import { act, fireEvent, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { plainTextToPortableRichText } from "../../../shared/block-documents";
+import {
+  parseDataSourceId,
+  parseDataSourcePropertyId,
+} from "../../../shared/database-identities";
+import type { DataSourcePropertyRecordV2 } from "../../../shared/database-module-v2";
+import { testPropertySemantics } from "../../../shared/testing/database-property-record";
 import { appScope, useScopeHandle } from "@/lib/maitai";
 import { NodexModalHost } from "@/lib/modal-registry";
 import {
@@ -24,6 +30,22 @@ const editorState = vi.hoisted(() => ({
     delete: (index: number, length: number) => void;
   },
 }));
+
+const property = (
+  propertyId: "priority" | "estimate",
+): DataSourcePropertyRecordV2 => ({
+  propertyId: parseDataSourcePropertyId(propertyId),
+  dataSourceId: parseDataSourceId("source-test"),
+  name: propertyId,
+  ...testPropertySemantics("select", 5),
+  valueType: "select",
+  config: {},
+  rankKey: propertyId,
+  lifecycle: "active",
+  revision: 1,
+  createdAt: "2026-08-08T00:00:00.000Z",
+  updatedAt: "2026-08-08T00:00:00.000Z",
+});
 
 vi.mock("@/lib/kanban-page-create-command", () => ({
   createKanbanPage: (...args: unknown[]) => commandState.create(...args),
@@ -106,7 +128,7 @@ const target: PageCreateTarget = {
   databaseViewId: "view-test",
   clientSessionId: "session-test",
   accessContext: { kind: "project", projectId: "project-test" },
-  properties: [],
+  properties: [property("priority"), property("estimate")],
   columns: [
     { id: "triage", name: "Triage" },
     { id: "plan", name: "Plan" },
@@ -345,7 +367,8 @@ describe("PageCreateDialog", () => {
     fireEvent.change(description, { target: { value: "Recovered body" } });
     fireEvent.click(view.getByRole("button", { name: "Close Page creation" }));
 
-    expect(await view.findByText("Page draft closed")).toBeTruthy();
+    const recoveryToast = await view.findByRole("alert");
+    expect(recoveryToast.textContent).toContain("Page draft closed");
     fireEvent.click(view.getByRole("button", { name: "Restore" }));
     expect(await view.findByRole("dialog")).toBeTruthy();
     expect((view.getByLabelText("Page title") as HTMLInputElement).value).toBe("Recover me");
@@ -379,18 +402,33 @@ describe("PageCreateDialog", () => {
     }
   });
 
-  test("lets the Status menu consume Escape before the dialog", async () => {
+  test("offers searchable Status choices and consumes Escape before the dialog", async () => {
     const view = renderWithMaitai(<TestShell />);
     fireEvent.click(view.getByRole("button", { name: "Open Page create" }));
     await view.findByRole("dialog");
+    await waitFor(() => expect(document.activeElement).toBe(
+      view.getByRole("textbox", { name: "Page title" }),
+    ));
     const statusTrigger = view.getByRole("button", { name: "Status" });
-    fireEvent.pointerDown(statusTrigger, { button: 0, ctrlKey: false });
-    const menu = await view.findByRole("menu");
-    const dialogForm = view.getByRole("dialog").querySelector("form");
-    expect(dialogForm?.contains(menu)).toBe(false);
+    fireEvent.click(statusTrigger);
+    const search = await view.findByRole("combobox", { name: "Search Status options" });
+    expect(search.getAttribute("placeholder")).toBe("Change status…");
+    expect(view.getByRole("option", { name: "Plan" }).getAttribute("aria-selected")).toBe("true");
+    const dialogForm = view.getByRole("heading", { name: "New page" })
+      .closest('[role="dialog"]')
+      ?.querySelector("form");
+    expect(dialogForm?.contains(search)).toBe(false);
+
+    await act(async () => {
+      fireEvent.change(search, { target: { value: "bui" } });
+      await Promise.resolve();
+    });
+    expect((search as HTMLInputElement).value).toBe("bui");
+    expect(view.getByRole("option", { name: "Build" })).toBeTruthy();
+    expect(view.queryByRole("option", { name: "Triage" })).toBeNull();
 
     fireEvent.keyDown(document, { key: "Escape" });
-    await waitFor(() => expect(view.queryByRole("menu")).toBeNull());
+    await waitFor(() => expect(view.queryByRole("combobox", { name: "Search Status options" })).toBeNull());
     expect(view.getByRole("dialog")).toBeTruthy();
 
     fireEvent.keyDown(document, { key: "Escape" });
@@ -402,13 +440,55 @@ describe("PageCreateDialog", () => {
     fireEvent.click(view.getByRole("button", { name: "Open Page create" }));
     await view.findByRole("dialog");
 
-    fireEvent.pointerDown(view.getByRole("button", { name: "Status" }), {
-      button: 0,
-      ctrlKey: false,
-    });
-    fireEvent.click(await view.findByText("Build"));
+    fireEvent.click(view.getByRole("button", { name: "Status" }));
+    fireEvent.click(await view.findByRole("option", { name: "Build" }));
 
     expect(view.getByRole("dialog")).toBeTruthy();
     expect(view.getByRole("button", { name: "Status" }).textContent).toContain("Build");
+  });
+
+  test("uses searchable semantic pickers for Priority and Estimate", async () => {
+    const view = renderWithMaitai(<TestShell />);
+    fireEvent.click(view.getByRole("button", { name: "Open Page create" }));
+    await view.findByRole("dialog");
+
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Priority" }));
+      await Promise.resolve();
+    });
+    const prioritySearch = await view.findByRole("combobox", {
+      name: "Search Priority options",
+    });
+    expect(prioritySearch.getAttribute("placeholder")).toBe("Change priority…");
+    await act(async () => {
+      fireEvent.click(view.getByRole("option", { name: "P1 - High" }));
+      await Promise.resolve();
+    });
+    expect(view.getByRole("button", { name: "Priority" }).textContent).toContain("P1 - High");
+
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Priority" }));
+      await Promise.resolve();
+    });
+    await act(async () => {
+      fireEvent.click(view.getByRole("option", { name: "No priority" }));
+      await Promise.resolve();
+    });
+    expect(view.getByRole("button", { name: "Priority" }).textContent).toContain("Priority");
+
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Estimate" }));
+      await Promise.resolve();
+    });
+    const estimateSearch = await view.findByRole("combobox", {
+      name: "Search Estimate options",
+    });
+    expect(estimateSearch.getAttribute("placeholder")).toBe("Change estimate…");
+    await act(async () => {
+      fireEvent.click(view.getByRole("option", { name: "M" }));
+      await Promise.resolve();
+    });
+    expect(view.getByRole("button", { name: "Estimate" }).textContent).toContain("M");
+    expect(view.getByRole("dialog")).toBeTruthy();
   });
 });

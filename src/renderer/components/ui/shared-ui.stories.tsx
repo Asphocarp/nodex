@@ -481,6 +481,13 @@ function ToastDemo() {
       description: "Nodex finished scanning 148 files.",
       duration: 0,
     });
+    toast.info("Page draft closed", {
+      action: {
+        label: "Restore",
+        onClick: () => false,
+      },
+      duration: 0,
+    });
     toast.success("Managed worktree ready", {
       description: "Environment setup completed successfully.",
       duration: 0,

@@ -22,6 +22,10 @@ import {
   type TextActionMenuEligibilityInput,
 } from "./nfm-text-action-menu-model";
 import { NFM_TEXT_ACTION_MENU_FLOATING_OPTIONS } from "./nfm-text-action-menu-floating";
+import {
+  NFM_EDITOR_FLOATING_UI_PORTAL_ELEMENT,
+  NFM_EDITOR_FLOATING_UI_Z_INDEX,
+} from "./nfm-blocknote-floating-ui";
 import { useNfmSideMenuOpenController, type NfmSideMenuSelectionRange } from "./nfm-side-menu";
 
 export type NfmFormattingToolbarMode = "text-action" | "legacy";
@@ -278,7 +282,8 @@ export function NfmFormattingToolbarController(props: {
         }
       },
       placement,
-      middleware: [offset(10), shift(), flip()],
+      strategy: "fixed",
+      middleware: [offset(10), shift({ padding: 8 }), flip({ padding: 8 })],
       ...props.floatingUIOptions?.useFloatingOptions,
       ...textActionFloatingOptions?.useFloatingOptions,
     },
@@ -291,7 +296,7 @@ export function NfmFormattingToolbarController(props: {
       ...props.floatingUIOptions?.elementProps,
       ...textActionFloatingOptions?.elementProps,
       style: {
-        zIndex: 40,
+        zIndex: NFM_EDITOR_FLOATING_UI_Z_INDEX,
         ...props.floatingUIOptions?.elementProps?.style,
         ...textActionFloatingOptions?.elementProps?.style,
       },
@@ -310,7 +315,7 @@ export function NfmFormattingToolbarController(props: {
   return (
     <PositionPopover
       position={position}
-      portalElement={props.portalElement}
+      portalElement={props.portalElement ?? NFM_EDITOR_FLOATING_UI_PORTAL_ELEMENT}
       {...floatingUIOptions}
     >
       {presentation.open ? (

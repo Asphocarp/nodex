@@ -12,6 +12,7 @@ import {
   useTransitionStyles,
 } from "@floating-ui/react";
 import {
+  CSSProperties,
   HTMLAttributes,
   ReactNode,
   useCallback,
@@ -163,6 +164,11 @@ export const GenericPopover = (
   const { getFloatingProps } = useInteractions([dismiss, hover]);
 
   const innerHTML = useRef<string>("");
+  // A live position reference can become invalid in the same transaction that
+  // closes a popover (for example, deleting its selected text). Exit motion is
+  // visual state, so it must use the final rendered geometry rather than
+  // recomputing against the mutated document.
+  const lastOpenFloatingStyles = useRef<CSSProperties>({});
   const ref = useRef<HTMLDivElement>(null);
   const interactionRootCleanup = useRef<(() => void) | undefined>(undefined);
   const setInteractionRoot = useCallback(
@@ -183,6 +189,14 @@ export const GenericPopover = (
     },
     [],
   );
+
+  if (status === "initial" || status === "open") {
+    lastOpenFloatingStyles.current = { ...floatingStyles };
+  }
+
+  const positionedStyles = status === "close"
+    ? lastOpenFloatingStyles.current
+    : floatingStyles;
 
   useEffect(() => {
     if (props.reference) {
@@ -238,7 +252,7 @@ export const GenericPopover = (
       display: "flex",
       ...props.elementProps?.style,
       zIndex: `calc(var(--bn-ui-base-z-index, 0) + ${props.elementProps?.style?.zIndex || 0})`,
-      ...floatingStyles,
+      ...positionedStyles,
       ...styles,
     },
     ...getFloatingProps(),
