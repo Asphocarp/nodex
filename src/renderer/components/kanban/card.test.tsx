@@ -78,7 +78,7 @@ describe("kanban card", () => {
     expect(card.container.querySelector(".select-none")).not.toBeNull();
   });
 
-  test("renders an active-panel ring when the card is open in a visible selected panel tab", async () => {
+  test("renders presence independently when the Page is open in a visible panel", async () => {
     mockCardPropertyPosition = "inline";
     const card = await renderCard({
       card: {
@@ -93,13 +93,14 @@ describe("kanban card", () => {
         order: 0,
       },
       columnId: "build",
-      isActiveInPanel: true,
+      isPresented: true,
+      isSelected: true,
       onClick: () => undefined,
     });
 
-    const surface = card.container.querySelector<HTMLElement>('[data-kanban-card-panel-active="true"]');
+    const surface = card.container.querySelector<HTMLElement>('[data-kanban-card-presented="true"]');
     expect(surface).not.toBeNull();
-    expect(surface?.getAttribute("style")?.includes("var(--accent-blue) 58%") ?? false).toBe(true);
+    expect(surface?.querySelector('[data-page-presence-rail="true"]')).not.toBeNull();
   });
 
   test("renders property chips as buttons when inline editing is enabled", async () => {

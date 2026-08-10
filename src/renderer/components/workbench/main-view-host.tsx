@@ -23,7 +23,7 @@ interface MainViewHostProps {
   dbViewPrefs: DbViewPrefs | null;
   onUpdateDbViewPrefs: ((update: (prev: DbViewPrefs) => DbViewPrefs) => void) | null;
   pageStagePageId?: string;
-  activePanelPageStagePageIds?: ReadonlySet<string>;
+  presentedPageIds?: ReadonlySet<string>;
   pageStageCloseRef: React.RefObject<(() => Promise<void>) | null>;
   pendingReminderOpen?: {
     projectId: string;
@@ -61,7 +61,7 @@ export function MainViewHost({
   dbViewPrefs,
   onUpdateDbViewPrefs,
   pageStagePageId,
-  activePanelPageStagePageIds,
+  presentedPageIds,
   pageStageCloseRef,
   pendingReminderOpen,
   calendarState,
@@ -88,7 +88,7 @@ export function MainViewHost({
         onOpenPageInNewChat={onOpenPageInNewChat}
         onSendPageToChat={onSendPageToChat}
         pageStagePageId={pageStagePageId}
-        activePanelPageStagePageIds={activePanelPageStagePageIds}
+        presentedPageIds={presentedPageIds}
         pageStageCloseRef={pageStageCloseRef}
         scrollStateKey={scrollStateKey}
       />

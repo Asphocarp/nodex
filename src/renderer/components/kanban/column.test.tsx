@@ -142,7 +142,7 @@ describe("Column", () => {
         width: 320,
         collapsed: false,
       },
-      activePanelPageStagePageIds: new Set(["card-1"]),
+      presentedPageIds: new Set(["card-1"]),
       onRequestCreatePage: () => {},
       onEditCard: (_columnId, _card, _event, openMode) => {
         lastMode = openMode;
@@ -152,7 +152,7 @@ describe("Column", () => {
       onWidthChange: () => {},
     }));
 
-    const cardSurface = container.querySelector("[data-kanban-card-panel-active='true']");
+    const cardSurface = container.querySelector("[data-kanban-card-presented='true']");
     if (!(cardSurface instanceof HTMLElement)) throw new Error("Expected active card surface");
 
     fireEvent.doubleClick(cardSurface);

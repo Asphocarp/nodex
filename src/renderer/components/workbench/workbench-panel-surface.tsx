@@ -61,7 +61,7 @@ export function WorkbenchTabProjectionPanel({
   activeDbViewPrefs,
   searchByProject,
   dbViewPrefsByProject,
-  activePanelPageStagePageIdsByProject,
+  presentedPageIds,
   pageStageTabTitleStore,
   pageStageCloseRef,
   pageStagePersistRef,
@@ -103,10 +103,7 @@ export function WorkbenchTabProjectionPanel({
     string,
     Partial<Record<SupportedDbView, DbViewPrefs>>
   >;
-  activePanelPageStagePageIdsByProject: ReadonlyMap<
-    string,
-    ReadonlySet<string>
-  >;
+  presentedPageIds: ReadonlySet<string>;
   pageStageTabTitleStore: PageStageTabTitleStore;
   pageStageCloseRef: RefObject<(() => Promise<void>) | null>;
   pageStagePersistRef?: MutableRefObject<(() => Promise<void>) | null>;
@@ -180,9 +177,7 @@ export function WorkbenchTabProjectionPanel({
         activeDbViewPrefs={activeDbViewPrefs}
         searchByProject={searchByProject}
         dbViewPrefsByProject={dbViewPrefsByProject}
-        activePanelPageStagePageIdsByProject={
-          activePanelPageStagePageIdsByProject
-        }
+        presentedPageIds={presentedPageIds}
         pageStageCloseRef={pageStageCloseRef}
         pendingReminderOpen={pendingReminderOpen}
         taskSearchOpenTick={taskSearchOpenTick}

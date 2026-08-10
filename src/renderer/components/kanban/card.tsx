@@ -21,6 +21,7 @@ import { mergePageDraftOverlay, usePageDraftOverlay } from "../../lib/page-draft
 import { ChipPropertyEditor } from "./editor/chip-property-editor";
 import { TOGGLE_LIST_STATUS_LABELS } from "@/lib/toggle-list/types";
 import { CardContextMenu } from "./card-context-menu";
+import { PagePresenceRail } from "./page-presence-rail";
 import type {
   OpenPageInNewChatInput,
   SendPageToChatInput,
@@ -74,8 +75,8 @@ interface CardProps {
   dragInstanceId?: symbol;
   dragDisabled?: boolean;
   dropDisabled?: boolean;
-  isFocused?: boolean;
-  isActiveInPanel?: boolean;
+  isKeyboardActive?: boolean;
+  isPresented?: boolean;
   isSelected?: boolean;
   onClick: (event: React.MouseEvent<HTMLDivElement>) => void;
   onDoubleClick?: (event: React.MouseEvent<HTMLDivElement>) => void;
@@ -408,8 +409,8 @@ interface CardSurfaceProps extends React.HTMLAttributes<HTMLDivElement> {
   fixedWidth?: number;
   fixedHeight?: number;
   isDragging?: boolean;
-  isFocused?: boolean;
-  isActiveInPanel?: boolean;
+  isKeyboardActive?: boolean;
+  isPresented?: boolean;
   isSelected?: boolean;
   position: CardPropertyPosition;
   activeProperty: CardEditableProperty | null;
@@ -431,8 +432,8 @@ const CardSurface = forwardRef<HTMLDivElement, CardSurfaceProps>(function CardSu
   fixedWidth,
   fixedHeight,
   isDragging = false,
-  isFocused,
-  isActiveInPanel = false,
+  isKeyboardActive = false,
+  isPresented = false,
   isSelected = false,
   position,
   activeProperty,
@@ -446,27 +447,29 @@ const CardSurface = forwardRef<HTMLDivElement, CardSurfaceProps>(function CardSu
   const isDark = resolved === "dark";
   const ringShadow = isSelected
       ? "0 0 0 1.5px color-mix(in srgb, var(--accent-blue) 72%, transparent)"
-      : isActiveInPanel
-        ? "0 0 0 1.5px color-mix(in srgb, var(--accent-blue) 58%, transparent)"
-        : isFocused
-          ? "0 0 0 1.5px color-mix(in srgb, var(--accent-blue) 50%, transparent)"
-          : null;
+      : isKeyboardActive
+        ? "0 0 0 1.5px color-mix(in srgb, var(--accent-blue) 50%, transparent)"
+        : null;
 
-  const baseShadow = isDragging
+  const elevationShadow = isDragging
     ? isDark
       ? "0 8px 16px rgba(0,0,0,0.3)"
       : "0 8px 16px rgba(25,25,25,0.08)"
     : isDark
-      ? "0 4px 12px rgba(0,0,0,0.15), 0 1px 2px rgba(0,0,0,0.1), 0 0 0 1px color-mix(in srgb, var(--column-accent, rgba(255,255,255,0.07)) 20%, transparent)"
-      : "0 4px 12px rgba(25,25,25,0.027), 0 1px 2px rgba(25,25,25,0.02), 0 0 0 1px color-mix(in srgb, var(--column-accent, rgba(42,28,0,0.07)) 15%, transparent)";
+      ? "0 4px 12px rgba(0,0,0,0.15), 0 1px 2px rgba(0,0,0,0.1)"
+      : "0 4px 12px rgba(25,25,25,0.027), 0 1px 2px rgba(25,25,25,0.02)";
+  const restingOutlineShadow = isDark
+    ? "0 0 0 1px color-mix(in srgb, var(--column-accent, rgba(255,255,255,0.07)) 20%, transparent)"
+    : "0 0 0 1px color-mix(in srgb, var(--column-accent, rgba(42,28,0,0.07)) 15%, transparent)";
+  const outlineShadow = ringShadow ?? (isDragging ? null : restingOutlineShadow);
 
   const mergedStyle: React.CSSProperties = {
     ...style,
     width: fixedWidth,
     minHeight: fixedHeight,
-    boxShadow: ringShadow
-      ? `${baseShadow}, ${ringShadow}`
-      : baseShadow,
+    boxShadow: outlineShadow
+      ? `${elevationShadow}, ${outlineShadow}`
+      : elevationShadow,
   };
 
   return (
@@ -474,9 +477,9 @@ const CardSurface = forwardRef<HTMLDivElement, CardSurfaceProps>(function CardSu
       ref={ref}
       style={mergedStyle}
       {...domProps}
-      data-kanban-card-panel-active={isActiveInPanel ? "true" : undefined}
+      data-kanban-card-presented={isPresented ? "true" : undefined}
       className={cn(
-        "min-h-10 overflow-hidden rounded-lg bg-(--card) select-none",
+        "relative min-h-10 overflow-hidden rounded-lg bg-(--card) select-none",
         dragDisabled ? "cursor-pointer" : "cursor-grab active:cursor-grabbing",
         "hover:bg-[color-mix(in_srgb,var(--column-accent,#888)_8%,var(--card))]",
         showStaticDragGhost && "opacity-35",
@@ -485,6 +488,7 @@ const CardSurface = forwardRef<HTMLDivElement, CardSurfaceProps>(function CardSu
         className,
       )}
     >
+      {isPresented ? <PagePresenceRail /> : null}
       <ResolvedCardBody
         projectId={projectId}
         card={card}
@@ -537,8 +541,8 @@ export function Card({
   dragInstanceId,
   dragDisabled = false,
   dropDisabled = false,
-  isFocused,
-  isActiveInPanel,
+  isKeyboardActive,
+  isPresented,
   isSelected = false,
   onClick,
   onDoubleClick,
@@ -759,8 +763,8 @@ export function Card({
       dragDisabled={dragDisabled}
       showStaticDragGhost={showStaticDragGhost}
       isDragging={isDragging}
-      isFocused={isFocused}
-      isActiveInPanel={isActiveInPanel}
+      isKeyboardActive={isKeyboardActive}
+      isPresented={isPresented}
       isSelected={isSelected}
       position={position}
       activeProperty={activeChipEdit?.property ?? null}

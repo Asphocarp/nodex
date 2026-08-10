@@ -240,6 +240,13 @@ describe("workbench session shell / sidebar-projects", () => {
     expect(pageRow?.getAttribute("data-panel-tab-row")).not.toBe(
       projectHomeRow?.getAttribute("data-panel-tab-row"),
     );
+    const nextProps = (globalThis as {
+      __lastMainViewHostProps?: Record<string, unknown>;
+    }).__lastMainViewHostProps;
+    const presentedPageIds = nextProps?.presentedPageIds as
+      | ReadonlySet<string>
+      | undefined;
+    expect(presentedPageIds?.has("card-1")).toBe(true);
     expect(invokeCalls.some((call) => call[0] === "project-sessions:create")).toBe(false);
   });
 
