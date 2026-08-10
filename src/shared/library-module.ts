@@ -11,7 +11,7 @@ import type { DatabaseApplyOperationV2 } from "./database-module-v2";
 import type { LocalCommitCommandSuccess } from "./local-commit-delivery";
 import type { AuthorizedReadStamp } from "./authorized-read-stamp";
 
-export const LIBRARY_MODULE_CONTRACT_VERSION = 7 as const;
+export const LIBRARY_MODULE_CONTRACT_VERSION = 8 as const;
 export const DEFAULT_LIBRARY_READ_LIMIT = 20 as const;
 export const MAX_LIBRARY_READ_LIMIT = 100 as const;
 export const MAX_LIBRARY_CURSOR_LENGTH = 2_048 as const;
@@ -103,6 +103,28 @@ export interface LibraryCatalogEntry {
   readonly metadataRevision: number;
 }
 
+export type LibraryMoveDestinationScope =
+  | { readonly kind: "suggested" }
+  | {
+      readonly kind: "children";
+      readonly parent: Extract<
+        LibraryNavigationParent,
+        { readonly kind: "library" | "page" }
+      >;
+    }
+  | { readonly kind: "search"; readonly query: string };
+
+export interface LibraryMoveDestinationEntry {
+  readonly pageId: string;
+  readonly title: string;
+  readonly path: readonly string[];
+  readonly hasChildren: boolean;
+  readonly isCurrent: boolean;
+  readonly documentGeneration: number;
+  readonly documentHeadSeq: number;
+  readonly updatedAt: string;
+}
+
 export type LibraryRead =
   | { readonly mode: "metadata" }
   | {
@@ -129,6 +151,13 @@ export type LibraryRead =
       readonly query?: string;
       readonly kinds?: readonly ("page" | "database" | "canvas")[];
       readonly lifecycle?: "active" | "archived";
+      readonly cursor?: string;
+      readonly limit?: number;
+    }
+  | {
+      readonly mode: "move_destinations";
+      readonly target: LibraryResourceTarget;
+      readonly scope: LibraryMoveDestinationScope;
       readonly cursor?: string;
       readonly limit?: number;
     };
@@ -205,6 +234,17 @@ export type LibraryReadValue =
       readonly nextCursor: string | null;
       readonly hasMore: boolean;
       readonly total: number;
+    }
+  | {
+      readonly kind: "move_destinations";
+      readonly target: LibraryResourceTarget;
+      readonly scope: LibraryMoveDestinationScope;
+      readonly items: readonly LibraryMoveDestinationEntry[];
+      readonly currentDestination: LibraryMoveDestinationEntry | null;
+      readonly nextCursor: string | null;
+      readonly hasMore: boolean;
+      readonly total: number;
+      readonly rootIsCurrent: boolean;
     };
 
 export interface LibraryModuleReadSnapshot {

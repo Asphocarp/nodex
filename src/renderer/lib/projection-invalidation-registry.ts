@@ -72,7 +72,7 @@ interface ScopeState {
   readonly consumers: Map<string, ConsumerState>;
   unsubscribeProjection: (() => void) | null;
   unsubscribeRevocations: (() => void) | null;
-  latestMessage: ProjectionInvalidationCause | null;
+  latestCursor: ProjectionCursor | null;
 }
 
 export class ProjectionInvalidationRegistry {
@@ -95,7 +95,7 @@ export class ProjectionInvalidationRegistry {
       consumers: new Map<string, ConsumerState>(),
       unsubscribeProjection: null,
       unsubscribeRevocations: null,
-      latestMessage: null,
+      latestCursor: null,
     };
     this.#scopes.set(scopeKey, scope);
     const existingConsumer = scope.consumers.get(registration.consumerKey);
@@ -123,8 +123,13 @@ export class ProjectionInvalidationRegistry {
         this.#handle(scope, message);
       });
     }
-    if (!existingConsumer && scope.latestMessage) {
-      this.#handleConsumer(consumer, scope.latestMessage);
+    if (!existingConsumer && scope.latestCursor) {
+      this.#handleConsumer(consumer, {
+        version: 2,
+        kind: "checkpoint",
+        scope: scope.scope,
+        stream: scope.latestCursor,
+      });
     }
 
     let active = true;
@@ -154,7 +159,7 @@ export class ProjectionInvalidationRegistry {
 
   #handle(scope: ScopeState, message: ProjectionInvalidationCause): void {
     if (projectionScopeKey(message.scope) !== projectionScopeKey(scope.scope)) return;
-    scope.latestMessage = laterCause(scope.latestMessage, message);
+    scope.latestCursor = laterCursor(scope.latestCursor, message.stream);
     for (const consumer of scope.consumers.values()) {
       this.#handleConsumer(consumer, message);
     }
@@ -323,6 +328,14 @@ const messagePriority = (message: ProjectionInvalidationCause): number => {
   if (message.kind === "revocation") return 3;
   if (message.kind === "effect") return 2;
   return 1;
+};
+
+const laterCursor = (
+  current: ProjectionCursor | null,
+  incoming: ProjectionCursor,
+): ProjectionCursor => {
+  if (!current || current.storeEpoch !== incoming.storeEpoch) return incoming;
+  return incoming.commitSeq >= current.commitSeq ? incoming : current;
 };
 
 const laterCause = (

@@ -41,6 +41,20 @@ vi.mock("@/lib/use-library-navigation", () => ({
   }),
   useLibraryCatalog: () => ({ data: { items: [] } }),
   useLibraryPath: () => ({ data: undefined, isPending: false }),
+  useLibraryMoveDestinations: () => ({
+    data: {
+      kind: "move_destinations",
+      items: [],
+      currentDestination: null,
+      nextCursor: null,
+      hasMore: false,
+      total: 0,
+      rootIsCurrent: false,
+    },
+    isPending: false,
+    error: null,
+  }),
+  useLibraryMoveDestinationChildren: () => [],
   useLibraryResourceProjectAccess: () => ({
     data: projectAccess,
     isPending: false,
@@ -56,6 +70,16 @@ const openActions = async (): Promise<void> => {
     }), { button: 0, ctrlKey: false });
     await Promise.resolve();
   });
+};
+
+const openMoveSubmenu = async () => {
+  const moveItem = await screen.findByRole("menuitem", { name: "Move to" });
+  await act(async () => {
+    moveItem.focus();
+    fireEvent.keyDown(moveItem, { key: "ArrowRight" });
+    await Promise.resolve();
+  });
+  return await screen.findByRole("combobox", { name: "Move Research to" });
 };
 
 const renderActions = (
@@ -141,13 +165,13 @@ describe("Library resource actions", () => {
     }));
   });
 
-  test("moves the resource from the registry-owned modal", async () => {
+  test("moves the resource from the menu-owned submenu", async () => {
     navigation.mutateAsync.mockResolvedValue({ didMutate: true });
     renderActions();
 
     await openActions();
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Move to…" }));
-    const moveButton = await screen.findByRole("button", { name: "Move" });
+    await openMoveSubmenu();
+    const moveButton = await screen.findByRole("option", { name: /Pages\s*Top level/ });
     await act(async () => {
       fireEvent.click(moveButton);
       await Promise.resolve();
@@ -191,7 +215,6 @@ describe("Library resource actions", () => {
   });
 
   test.each([
-    ["Move to…", "Move Research"],
     ["Manage access", "Manage access"],
     ["Open in Project…", "Open in Project"],
   ])("keeps the %s modal outside the draggable Page row", async (menuLabel, title) => {
@@ -204,6 +227,34 @@ describe("Library resource actions", () => {
     fireEvent.pointerDown(within(dialog).getByText(title));
 
     expect(onPageRowPointerDown).not.toHaveBeenCalled();
+  });
+
+  test("portals the Move to submenu outside the draggable Page row", async () => {
+    const onPageRowPointerDown = vi.fn();
+    renderActions({}, onPageRowPointerDown);
+
+    await openActions();
+    const searchInput = await openMoveSubmenu();
+    const submenu = searchInput.closest("[data-slot='dropdown-submenu-content']");
+    const pageRow = screen.getByTestId("page-row");
+    expect(submenu).not.toBeNull();
+    expect(pageRow.contains(submenu)).toBe(false);
+    expect(screen.queryByRole("dialog", { name: "Move Research" })).toBeNull();
+
+    fireEvent.pointerDown(searchInput);
+    expect(onPageRowPointerDown).not.toHaveBeenCalled();
+
+    await act(async () => {
+      fireEvent.keyDown(searchInput, { key: "Escape" });
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(screen.queryByRole("combobox", {
+      name: "Move Research to",
+    })).toBeNull());
+    expect(screen.queryByRole("menuitem", { name: "Move to" })).toBeNull();
+    expect(screen.getByRole("button", {
+      name: "Actions for Research",
+    }).getAttribute("aria-expanded")).toBe("false");
   });
 
   test("keeps Manage access mounted after its Page row unmounts", async () => {

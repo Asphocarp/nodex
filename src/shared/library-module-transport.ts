@@ -32,6 +32,8 @@ import {
   type LibraryModuleErrorCode,
   type LibraryModuleReadRequest,
   type LibraryModuleReadResult,
+  type LibraryMoveDestinationEntry,
+  type LibraryMoveDestinationScope,
   type LibraryNavigationNode,
   type LibraryNavigationParent,
   type LibraryPlacementAnchor,
@@ -227,6 +229,33 @@ const parseNavigationParent = (
       kind: "database",
       databaseId: parseDatabaseId(parent.databaseId),
     };
+  }
+  throw new TypeError(`${label}.kind is unsupported`);
+};
+
+const parseMoveDestinationScope = (
+  value: unknown,
+  label: string,
+): LibraryMoveDestinationScope => {
+  const scope = record(value, label);
+  if (scope.kind === "suggested") {
+    exactKeys(scope, label, ["kind"]);
+    return { kind: "suggested" };
+  }
+  if (scope.kind === "search") {
+    exactKeys(scope, label, ["kind", "query"]);
+    return {
+      kind: "search",
+      query: string(scope.query, `${label}.query`, MAX_LIBRARY_QUERY_LENGTH),
+    };
+  }
+  if (scope.kind === "children") {
+    exactKeys(scope, label, ["kind", "parent"]);
+    const parent = parseNavigationParent(scope.parent, `${label}.parent`);
+    if (parent.kind === "database") {
+      throw new TypeError(`${label}.parent cannot be a Database`);
+    }
+    return { kind: "children", parent };
   }
   throw new TypeError(`${label}.kind is unsupported`);
 };
@@ -987,6 +1016,36 @@ export const bindLibraryModuleRead = (
       },
     };
   }
+  if (read.mode === "move_destinations") {
+    exactKeys(
+      read,
+      "libraryModuleRead.read",
+      ["mode", "target", "scope"],
+      ["cursor", "limit"],
+    );
+    const cursor = optionalString(
+      read.cursor,
+      "libraryModuleRead.read.cursor",
+      MAX_LIBRARY_CURSOR_LENGTH,
+    );
+    const limit = readLimit(read.limit, "libraryModuleRead.read.limit");
+    return {
+      version: LIBRARY_MODULE_CONTRACT_VERSION,
+      read: {
+        mode: "move_destinations",
+        target: parseApplyResourceTarget(
+          read.target,
+          "libraryModuleRead.read.target",
+        ),
+        scope: parseMoveDestinationScope(
+          read.scope,
+          "libraryModuleRead.read.scope",
+        ),
+        ...(cursor === undefined ? {} : { cursor }),
+        ...(limit === undefined ? {} : { limit }),
+      },
+    };
+  }
   throw new TypeError("libraryModuleRead.read.mode is unsupported");
 };
 
@@ -1183,6 +1242,48 @@ const parseCatalogEntry = (
       entry.metadataRevision,
       `${label}.metadataRevision`,
     ),
+  };
+};
+
+const parseMoveDestinationEntry = (
+  value: unknown,
+  label: string,
+): LibraryMoveDestinationEntry => {
+  const entry = record(value, label);
+  exactKeys(entry, label, [
+    "pageId",
+    "title",
+    "path",
+    "hasChildren",
+    "isCurrent",
+    "documentGeneration",
+    "documentHeadSeq",
+    "updatedAt",
+  ]);
+  if (!Array.isArray(entry.path)) {
+    throw new TypeError(`${label}.path must be an array`);
+  }
+  const documentGeneration = revision(
+    entry.documentGeneration,
+    `${label}.documentGeneration`,
+  );
+  if (documentGeneration < 1) {
+    throw new TypeError(`${label}.documentGeneration must be positive`);
+  }
+  return {
+    pageId: string(entry.pageId, `${label}.pageId`),
+    title: string(entry.title, `${label}.title`, MAX_TITLE_LENGTH, true),
+    path: entry.path.map((part, index) =>
+      string(part, `${label}.path[${index}]`, MAX_TITLE_LENGTH, true)
+    ),
+    hasChildren: boolean(entry.hasChildren, `${label}.hasChildren`),
+    isCurrent: boolean(entry.isCurrent, `${label}.isCurrent`),
+    documentGeneration,
+    documentHeadSeq: revision(
+      entry.documentHeadSeq,
+      `${label}.documentHeadSeq`,
+    ),
+    updatedAt: string(entry.updatedAt, `${label}.updatedAt`),
   };
 };
 
@@ -1599,6 +1700,59 @@ const parseReadValue = (value: unknown): LibraryReadValue => {
       nextCursor,
       hasMore: boolean(readValue.hasMore, "library catalog hasMore"),
       total: revision(readValue.total, "library catalog total"),
+    };
+  }
+  if (readValue.kind === "move_destinations") {
+    exactKeys(readValue, "libraryModuleReadResult.value.value", [
+      "kind",
+      "target",
+      "scope",
+      "items",
+      "currentDestination",
+      "nextCursor",
+      "hasMore",
+      "total",
+      "rootIsCurrent",
+    ]);
+    if (!Array.isArray(readValue.items)) {
+      throw new TypeError("library move destination items must be an array");
+    }
+    const nextCursor = readValue.nextCursor === null
+      ? null
+      : string(
+          readValue.nextCursor,
+          "libraryModuleReadResult.value.value.nextCursor",
+          MAX_LIBRARY_CURSOR_LENGTH,
+        );
+    return {
+      kind: "move_destinations",
+      target: parseApplyResourceTarget(
+        readValue.target,
+        "libraryModuleReadResult.value.value.target",
+      ),
+      scope: parseMoveDestinationScope(
+        readValue.scope,
+        "libraryModuleReadResult.value.value.scope",
+      ),
+      items: readValue.items.map((entry, index) =>
+        parseMoveDestinationEntry(
+          entry,
+          `library move destination items[${index}]`,
+        )
+      ),
+      currentDestination: readValue.currentDestination === null
+        ? null
+        : parseMoveDestinationEntry(
+            readValue.currentDestination,
+            "library move current destination",
+          ),
+      nextCursor,
+      hasMore: boolean(readValue.hasMore, "library move destinations hasMore"),
+      total: revision(readValue.total, "library move destinations total"),
+      rootIsCurrent: boolean(
+        readValue.rootIsCurrent,
+        "library move destinations rootIsCurrent",
+      ),
     };
   }
   throw new TypeError("libraryModuleReadResult value kind is unsupported");

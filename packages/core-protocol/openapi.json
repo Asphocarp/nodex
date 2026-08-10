@@ -11399,6 +11399,104 @@
           "archived"
         ]
       },
+      "LibraryMoveDestinationEntry": {
+        "type": "object",
+        "required": [
+          "page_id",
+          "title",
+          "path",
+          "has_children",
+          "is_current",
+          "document_generation",
+          "document_head_seq",
+          "updated_at"
+        ],
+        "properties": {
+          "document_generation": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "document_head_seq": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "has_children": {
+            "type": "boolean"
+          },
+          "is_current": {
+            "type": "boolean"
+          },
+          "page_id": {
+            "type": "string"
+          },
+          "path": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "title": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        }
+      },
+      "LibraryMoveDestinationScope": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "suggested"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "parent",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "children"
+                ]
+              },
+              "parent": {
+                "$ref": "#/components/schemas/LibraryNavigationParent"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "query",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "search"
+                ]
+              },
+              "query": {
+                "type": "string"
+              }
+            }
+          }
+        ]
+      },
       "LibraryNavigationNode": {
         "oneOf": [
           {
@@ -19170,6 +19268,42 @@
               {
                 "type": "object",
                 "required": [
+                  "target",
+                  "scope",
+                  "kind"
+                ],
+                "properties": {
+                  "cursor": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "move_destinations"
+                    ]
+                  },
+                  "limit": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "format": "int32",
+                    "minimum": 0
+                  },
+                  "scope": {
+                    "$ref": "#/components/schemas/LibraryMoveDestinationScope"
+                  },
+                  "target": {
+                    "$ref": "#/components/schemas/LibraryResourceTarget"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
                   "page_id",
                   "kind"
                 ],
@@ -25739,6 +25873,65 @@
                               "string",
                               "null"
                             ]
+                          },
+                          "total": {
+                            "type": "integer",
+                            "format": "int64",
+                            "minimum": 0
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "target",
+                          "scope",
+                          "items",
+                          "has_more",
+                          "total",
+                          "root_is_current",
+                          "kind"
+                        ],
+                        "properties": {
+                          "current_destination": {
+                            "oneOf": [
+                              {
+                                "type": "null"
+                              },
+                              {
+                                "$ref": "#/components/schemas/LibraryMoveDestinationEntry"
+                              }
+                            ]
+                          },
+                          "has_more": {
+                            "type": "boolean"
+                          },
+                          "items": {
+                            "type": "array",
+                            "items": {
+                              "$ref": "#/components/schemas/LibraryMoveDestinationEntry"
+                            }
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "move_destinations"
+                            ]
+                          },
+                          "next_cursor": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "root_is_current": {
+                            "type": "boolean"
+                          },
+                          "scope": {
+                            "$ref": "#/components/schemas/LibraryMoveDestinationScope"
+                          },
+                          "target": {
+                            "$ref": "#/components/schemas/LibraryResourceTarget"
                           },
                           "total": {
                             "type": "integer",

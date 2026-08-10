@@ -14,6 +14,7 @@ import type {
   LibraryModuleReadResult,
   LibraryNavigationNode,
   LibraryNavigationParent,
+  LibraryMoveDestinationScope,
   LibraryReadValue,
   LibraryResourceTarget,
   LibraryRouteTarget,
@@ -162,6 +163,12 @@ const toCoreParent = (parent: LibraryNavigationParent) => {
   return { kind: parent.kind, database_id: parent.databaseId } as const;
 };
 
+const toCoreMoveDestinationScope = (scope: LibraryMoveDestinationScope) => {
+  if (scope.kind === "suggested") return scope;
+  if (scope.kind === "search") return scope;
+  return { kind: scope.kind, parent: toCoreParent(scope.parent) } as const;
+};
+
 const toCoreWriteParent = (parent: LibraryWriteParent) => {
   const before = parent.before
     ? {
@@ -259,6 +266,14 @@ const toCoreRead = (request: LibraryModuleReadRequest): LibraryRead => {
         query: read.query ?? null,
         kinds: read.kinds ?? null,
         lifecycle: read.lifecycle ?? null,
+        cursor: read.cursor ?? null,
+        limit: read.limit,
+      };
+    case "move_destinations":
+      return {
+        kind: "move_destinations",
+        target: toCoreResourceTarget(read.target),
+        scope: toCoreMoveDestinationScope(read.scope),
         cursor: read.cursor ?? null,
         limit: read.limit,
       };
@@ -749,6 +764,65 @@ const mapReadValue = (snapshot: LibraryReadSnapshot): LibraryReadValue => {
         nextCursor: value.next_cursor ?? null,
         hasMore: value.has_more,
         total: value.total,
+      } as const;
+    case "move_destinations":
+      return {
+        kind: value.kind,
+        target:
+          value.target.kind === "page"
+            ? { kind: "page" as const, pageId: value.target.page_id }
+            : value.target.kind === "database"
+              ? {
+                  kind: "database" as const,
+                  databaseId: parseDatabaseId(value.target.database_id),
+                }
+              : {
+                  kind: "canvas" as const,
+                  canvasId: value.target.canvas_id,
+                },
+        scope:
+          value.scope.kind === "suggested"
+            ? value.scope
+            : value.scope.kind === "search"
+              ? value.scope
+              : {
+                  kind: value.scope.kind,
+                  parent: (() => {
+                    const parent = fromCoreParent(value.scope.parent);
+                    if (parent.kind === "database") {
+                      throw new Error(
+                        "Core returned a Database move destination scope",
+                      );
+                    }
+                    return parent;
+                  })(),
+                },
+        items: value.items.map((item) => ({
+          pageId: item.page_id,
+          title: item.title,
+          path: item.path,
+          hasChildren: item.has_children,
+          isCurrent: item.is_current,
+          documentGeneration: item.document_generation,
+          documentHeadSeq: item.document_head_seq,
+          updatedAt: item.updated_at,
+        })),
+        currentDestination: value.current_destination
+          ? {
+              pageId: value.current_destination.page_id,
+              title: value.current_destination.title,
+              path: value.current_destination.path,
+              hasChildren: value.current_destination.has_children,
+              isCurrent: value.current_destination.is_current,
+              documentGeneration: value.current_destination.document_generation,
+              documentHeadSeq: value.current_destination.document_head_seq,
+              updatedAt: value.current_destination.updated_at,
+            }
+          : null,
+        nextCursor: value.next_cursor ?? null,
+        hasMore: value.has_more,
+        total: value.total,
+        rootIsCurrent: value.root_is_current,
       } as const;
     default:
       throw new Error(`Core Library read ${value.kind} cannot satisfy the catalog Adapter`);

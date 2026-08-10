@@ -40,6 +40,7 @@ interface PageDetailEntry {
   inFlight: InFlightPageDetail | null;
   projectionAuthority: {
     readonly registry: ProjectionInvalidationRegistry;
+    readonly libraryId: string;
     readonly release: () => void;
   } | null;
   freshnessAuthority: AuthorityRegistration | null;
@@ -429,7 +430,10 @@ const retainPageDetailAuthority = (
 ): void => {
   const key = detailKey(projectId, pageId);
   const entry = entryFor(key);
-  if (entry.projectionAuthority?.registry === registry) return;
+  if (
+    entry.projectionAuthority?.registry === registry
+    && entry.projectionAuthority.libraryId === libraryId
+  ) return;
   entry.projectionAuthority?.release();
   const release = registry.register({
     scope: { kind: "project", libraryId, projectId },
@@ -479,7 +483,7 @@ const retainPageDetailAuthority = (
     },
     invalidate: (cause) => requestPageDetailRefresh(projectId, pageId, cause),
   });
-  entry.projectionAuthority = { registry, release };
+  entry.projectionAuthority = { registry, libraryId, release };
 };
 
 export const usePageDetail = (

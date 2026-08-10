@@ -949,11 +949,11 @@ mod tests {
         LibraryBlockLocation, LibraryBlockPropertyFieldMutation, LibraryBlockPropertyMutation,
         LibraryBlockPropertyMutationErrorCode, LibraryBlockPropertyMutationOutcome,
         LibraryBlockTransferLogicalIntent, LibraryBlockTransferMode, LibraryBlockTransferSource,
-        LibraryBlockTransferTarget, LibraryDocumentHead, LibraryNavigationParent,
-        LibraryPageFileKind, LibraryPageLifecycleMutation, LibraryPageLifecycleState,
-        LibraryPageLifecycleTagOption, LibraryPageLifecycleViewPlacement, LibraryPagePrepareKind,
-        LibraryPageWorkflowStatus, LibraryPageWriteDestination, LibraryProjectAccessChange,
-        LibraryWriteParent,
+        LibraryBlockTransferTarget, LibraryDocumentHead, LibraryMoveDestinationScope,
+        LibraryNavigationParent, LibraryPageFileKind, LibraryPageLifecycleMutation,
+        LibraryPageLifecycleState, LibraryPageLifecycleTagOption,
+        LibraryPageLifecycleViewPlacement, LibraryPagePrepareKind, LibraryPageWorkflowStatus,
+        LibraryPageWriteDestination, LibraryProjectAccessChange, LibraryWriteParent,
     };
     use nodex_core_contracts::workspace::{
         PROJECT_WORKSPACE_CONTRACT_VERSION, ProjectWorkspaceIntent, ProjectWorkspaceThreadPatch,
@@ -2101,8 +2101,12 @@ mod tests {
     fn persistent_navigation_separates_roots_rows_paths_and_continues_cursors() {
         const ROOT_PAGE: &str = "page:root";
         const ROW_PAGE: &str = "page:row";
+        const MOVE_SOURCE_PAGE: &str = "page:move-source";
+        const MOVE_DESCENDANT_PAGE: &str = "page:move-descendant";
         const ROOT_DOCUMENT: &str = "document:root";
         const ROW_DOCUMENT: &str = "document:row";
+        const MOVE_SOURCE_DOCUMENT: &str = "document:move-source";
+        const MOVE_DESCENDANT_DOCUMENT: &str = "document:move-descendant";
         const DATABASE: &str = "database:root";
         const PRIMARY_CANVAS: &str = "canvas:primary:project-1";
         const CANVAS_DOCUMENT: &str = "document:canvas:primary:project-1";
@@ -2535,6 +2539,39 @@ mod tests {
                 Ok(())
             })
             .expect("restore Project");
+        let LibraryReadValue::Catalog {
+            items: first_catalog_page,
+            next_cursor: Some(catalog_cursor),
+            has_more: true,
+            total: catalog_total,
+        } = read(LibraryRead::Catalog {
+            query: None,
+            kinds: None,
+            lifecycle: None,
+            cursor: None,
+            limit: Some(1),
+        })
+        else {
+            panic!("first unfiltered catalog page");
+        };
+        let LibraryReadValue::Catalog {
+            items: second_catalog_page,
+            total: continued_catalog_total,
+            ..
+        } = read(LibraryRead::Catalog {
+            query: None,
+            kinds: None,
+            lifecycle: None,
+            cursor: Some(catalog_cursor),
+            limit: Some(1),
+        })
+        else {
+            panic!("continued unfiltered catalog page");
+        };
+        assert_eq!(catalog_total, continued_catalog_total);
+        assert_eq!(first_catalog_page.len(), 1);
+        assert_eq!(second_catalog_page.len(), 1);
+        assert_ne!(first_catalog_page[0].target, second_catalog_page[0].target);
         let LibraryReadValue::Catalog { items, .. } = read(LibraryRead::Catalog {
             query: Some("say hi".to_owned()),
             kinds: None,
@@ -3502,6 +3539,157 @@ mod tests {
         assert_eq!(items.len(), 2);
         assert_eq!(next_cursor, None);
         assert!(!has_more);
+
+        module
+            .apply(
+                &persistent_context,
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "create:move-destination-parent".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::CreatePage {
+                        page_id: MOVE_SOURCE_PAGE.to_owned(),
+                        document_id: MOVE_SOURCE_DOCUMENT.to_owned(),
+                        title: "Intermediate".to_owned(),
+                        parent: LibraryWriteParent::Library { before: None },
+                    },
+                },
+            )
+            .expect("create move destination parent");
+        module
+            .apply(
+                &persistent_context,
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "create:move-destination-descendant".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::CreatePage {
+                        page_id: MOVE_DESCENDANT_PAGE.to_owned(),
+                        document_id: MOVE_DESCENDANT_DOCUMENT.to_owned(),
+                        title: "Nested".to_owned(),
+                        parent: LibraryWriteParent::Page {
+                            page_id: MOVE_SOURCE_PAGE.to_owned(),
+                            expected_document_generation: 1,
+                            expected_document_head_seq: 1,
+                            before: None,
+                        },
+                    },
+                },
+            )
+            .expect("create move destination descendant");
+        let LibraryReadValue::MoveDestinations {
+            items,
+            root_is_current,
+            total,
+            ..
+        } = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    read: LibraryRead::MoveDestinations {
+                        target: LibraryResourceTarget::Page {
+                            page_id: MOVE_SOURCE_PAGE.to_owned(),
+                        },
+                        scope: LibraryMoveDestinationScope::Suggested,
+                        cursor: None,
+                        limit: None,
+                    },
+                },
+            )
+            .expect("move destinations")
+            .value
+        else {
+            panic!("move destinations");
+        };
+        assert!(root_is_current);
+        assert!(items.iter().all(|item| {
+            item.page_id != MOVE_SOURCE_PAGE && item.page_id != MOVE_DESCENDANT_PAGE
+        }));
+        assert_eq!(usize::try_from(total).expect("bounded total"), items.len());
+        let (root_document_head, row_document_head) = kernel
+            .writer()
+            .call(|connection| {
+                let read_head = |document_id: &str| {
+                    connection.query_row(
+                        "SELECT generation, head_seq FROM documents WHERE id = ?1",
+                        [document_id],
+                        |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+                    )
+                };
+                Ok((read_head(ROOT_DOCUMENT)?, read_head(ROW_DOCUMENT)?))
+            })
+            .expect("destination Document heads");
+        let root_destination = items
+            .iter()
+            .find(|item| item.page_id == ROOT_PAGE)
+            .expect("root Page destination");
+        assert!(!root_destination.is_current);
+        assert_eq!(root_destination.path, ["Pages"]);
+        assert_eq!(
+            (
+                root_destination.document_generation,
+                root_destination.document_head_seq,
+            ),
+            root_document_head,
+        );
+        let database_row = items
+            .iter()
+            .find(|item| item.page_id == ROW_PAGE)
+            .expect("Database row destination");
+        assert_eq!(database_row.path, ["Cards"]);
+        assert_eq!(
+            (
+                database_row.document_generation,
+                database_row.document_head_seq,
+            ),
+            row_document_head,
+        );
+        let LibraryReadValue::MoveDestinations {
+            current_destination: Some(current_destination),
+            ..
+        } = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    read: LibraryRead::MoveDestinations {
+                        target: LibraryResourceTarget::Page {
+                            page_id: MOVE_DESCENDANT_PAGE.to_owned(),
+                        },
+                        scope: LibraryMoveDestinationScope::Suggested,
+                        cursor: None,
+                        limit: Some(1),
+                    },
+                },
+            )
+            .expect("current move destination")
+            .value
+        else {
+            panic!("current move destination");
+        };
+        assert_eq!(current_destination.page_id, MOVE_SOURCE_PAGE);
+        assert!(current_destination.is_current);
+        assert_eq!(current_destination.path, ["Pages"]);
+        let source_document_head = kernel
+            .writer()
+            .call(|connection| {
+                connection
+                    .query_row(
+                        "SELECT generation, head_seq FROM documents WHERE id = ?1",
+                        [MOVE_SOURCE_DOCUMENT],
+                        |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+                    )
+                    .map_err(Into::into)
+            })
+            .expect("current destination Document head");
+        assert_eq!(
+            (
+                current_destination.document_generation,
+                current_destination.document_head_seq,
+            ),
+            source_document_head,
+        );
     }
 
     #[test]

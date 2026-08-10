@@ -50,12 +50,9 @@ pub(crate) fn decode(
 }
 
 fn fingerprint(subject: &[String]) -> Result<String, StoreError> {
-    if subject.is_empty()
-        || subject.len() > 8
-        || subject
-            .iter()
-            .any(|part| part.is_empty() || part.len() > 512)
-    {
+    // Empty members represent absent optional filters and remain distinct in
+    // the serialized tuple; only the tuple itself must identify a collection.
+    if subject.is_empty() || subject.len() > 8 || subject.iter().any(|part| part.len() > 512) {
         return Err(invalid("Library cursor subject is invalid"));
     }
     signed_cursor::query_fingerprint(&("library_collection_v2", subject))

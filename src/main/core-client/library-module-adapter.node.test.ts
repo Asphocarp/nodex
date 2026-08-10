@@ -1274,6 +1274,80 @@ describe("Core Library Module Adapter", () => {
     }]);
   });
 
+  test("maps move destination authority and exact Document heads", async () => {
+    const client = new FakeCoreClient();
+    client.enqueueRead({
+      contract_version: 11,
+      store_epoch: identity.storeEpoch,
+      commit_head: 8,
+      authorization: null,
+      value: {
+        kind: "move_destinations",
+        target: { kind: "page", page_id: "page:source" },
+        scope: { kind: "search", query: "roadmap" },
+        items: [{
+          page_id: "page:roadmap",
+          title: "Roadmap",
+          path: ["Pages", "Product"],
+          has_children: true,
+          is_current: false,
+          document_generation: 2,
+          document_head_seq: 7,
+          updated_at: "2026-08-11T00:00:00.000Z",
+        }],
+        current_destination: {
+          page_id: "page:product",
+          title: "Product",
+          path: ["Pages"],
+          has_children: true,
+          is_current: true,
+          document_generation: 1,
+          document_head_seq: 12,
+          updated_at: "2026-08-10T00:00:00.000Z",
+        },
+        next_cursor: null,
+        has_more: false,
+        total: 1,
+        root_is_current: false,
+      },
+    });
+    const adapter = createCoreLibraryModuleAdapter({ client, ...identity });
+
+    await expect(adapter.read({
+      version: LIBRARY_MODULE_CONTRACT_VERSION,
+      read: {
+        mode: "move_destinations",
+        target: { kind: "page", pageId: "page:source" },
+        scope: { kind: "search", query: "roadmap" },
+        limit: 50,
+      },
+    })).resolves.toMatchObject({
+      ok: true,
+      value: {
+        value: {
+          kind: "move_destinations",
+          items: [{
+            pageId: "page:roadmap",
+            path: ["Pages", "Product"],
+            documentGeneration: 2,
+            documentHeadSeq: 7,
+          }],
+          currentDestination: {
+            pageId: "page:product",
+            isCurrent: true,
+          },
+        },
+      },
+    });
+    expect(client.reads).toEqual([{
+      kind: "move_destinations",
+      target: { kind: "page", page_id: "page:source" },
+      scope: { kind: "search", query: "roadmap" },
+      cursor: null,
+      limit: 50,
+    }]);
+  });
+
   test("maps standalone root reads without deriving Project ownership", async () => {
     const client = new FakeCoreClient();
     client.enqueueRead({

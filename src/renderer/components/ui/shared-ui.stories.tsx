@@ -252,7 +252,7 @@ function LibraryActionIconDropdownDemo() {
         <NodexDropdownItem leftSlot={<PageIcon />}>Page</NodexDropdownItem>
         <NodexDropdownItem leftSlot={<DatabaseIcon />}>Database</NodexDropdownItem>
         <NodexDropdownSeparator />
-        <NodexDropdownItem leftSlot={<MoveToIcon />}>Move to…</NodexDropdownItem>
+        <NodexDropdownItem leftSlot={<MoveToIcon />}>Move to</NodexDropdownItem>
         <NodexDropdownItem leftSlot={<ProjectAccessIcon />}>
           Manage access
         </NodexDropdownItem>

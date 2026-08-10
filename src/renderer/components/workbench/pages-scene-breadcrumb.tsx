@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQueries } from "@tanstack/react-query";
 import {
   CanvasIcon,
   ChevronRightIcon,
@@ -87,16 +87,18 @@ export function usePagesSceneNavigation(scene: WorkbenchSceneSnapshot | null): {
 } {
   const activeSurface = activePagesSceneSurface(scene);
   const target = libraryTargetForPagesSurface(activeSurface);
-  const path = useQuery({
-    ...libraryPathQueryOptions(target ?? { kind: "page", pageId: "inactive" }),
-    enabled: target !== null,
-  });
+  const pathQueries: Array<ReturnType<typeof libraryPathQueryOptions>> = target
+    ? [libraryPathQueryOptions(target)]
+    : [];
+  const path = useQueries({
+    queries: pathQueries,
+  })[0];
   return {
     activeSurface,
-    activeRoot: target && path.data
+    activeRoot: target && path?.data
       ? resolveLibraryPathRoot(target, path.data.nodes)
       : null,
-    activeRootNode: path.data?.nodes[0] ?? null,
+    activeRootNode: path?.data?.nodes[0] ?? null,
   };
 }
 

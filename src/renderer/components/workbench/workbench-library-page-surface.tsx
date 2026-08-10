@@ -21,7 +21,7 @@ import {
 import type { DatabaseId } from "../../../shared/database-identities";
 import { queryKeys } from "../../lib/query-keys";
 import { invalidateExactQuery } from "../../lib/query-invalidation";
-import { useProjectionInvalidationRegistry } from "../../lib/projection-invalidation-context";
+import { useProjectionRegistration } from "../../lib/projection-invalidation-context";
 import { libraryContentAccess } from "../../../shared/content-access-context";
 import {
   pageDetailDataDependencies,
@@ -66,7 +66,6 @@ export function WorkbenchLibraryPageSurface({
   readonly onTitleChange?: (title: string) => void;
 }) {
   const queryClient = useQueryClient();
-  const projectionRegistry = useProjectionInvalidationRegistry();
   const detailQueryKey = useMemo(
     () => queryKeys.library.pageDetail(pageId),
     [pageId],
@@ -116,25 +115,24 @@ export function WorkbenchLibraryPageSurface({
     if (!title) return;
     onTitleChange?.(title);
   }, [onTitleChange, stagePage?.page.title]);
-  useEffect(() => {
-    const authority = detail.data;
-    if (!authority) return;
-    const getCursor = () => {
-      const currentDetail = queryClient.getQueryData<typeof authority>(detailQueryKey);
-      const currentDocument =
-        queryClient.getQueryData<ReadyPageBlockDocumentDescriptor>(documentQueryKey);
-      if (!currentDetail || !currentDocument) return null;
-      if (
-        currentDetail.storeEpoch !== currentDocument.storeEpoch
-        || currentDetail.page.documentGeneration !== currentDocument.generation
-        || currentDetail.page.documentHeadSeq !== currentDocument.headSeq
-      ) return null;
-      return {
-        storeEpoch: currentDetail.storeEpoch,
-        commitSeq: currentDetail.commitSeq,
-      };
+  const authority = detail.data;
+  const getCursor = () => {
+    const currentDetail = queryClient.getQueryData<typeof authority>(detailQueryKey);
+    const currentDocument =
+      queryClient.getQueryData<ReadyPageBlockDocumentDescriptor>(documentQueryKey);
+    if (!currentDetail || !currentDocument) return null;
+    if (
+      currentDetail.storeEpoch !== currentDocument.storeEpoch
+      || currentDetail.page.documentGeneration !== currentDocument.generation
+      || currentDetail.page.documentHeadSeq !== currentDocument.headSeq
+    ) return null;
+    return {
+      storeEpoch: currentDetail.storeEpoch,
+      commitSeq: currentDetail.commitSeq,
     };
-    const unregisterDetail = projectionRegistry.register({
+  };
+  useProjectionRegistration(authority
+    ? {
       scope: { kind: "library", libraryId: authority.libraryId },
       consumerKey: hashKey(["projection", detailQueryKey]),
       getDependencies: () => {
@@ -147,8 +145,10 @@ export function WorkbenchLibraryPageSurface({
       invalidate: async () => {
         await invalidateExactQuery(queryClient, detailQueryKey);
       },
-    });
-    const unregisterDocument = projectionRegistry.register({
+    }
+    : null);
+  useProjectionRegistration(authority
+    ? {
       scope: { kind: "library", libraryId: authority.libraryId },
       consumerKey: hashKey(["projection", documentQueryKey]),
       getDependencies: () => pageDetailDocumentDependencies(
@@ -159,19 +159,8 @@ export function WorkbenchLibraryPageSurface({
       invalidate: async () => {
         await invalidateExactQuery(queryClient, documentQueryKey);
       },
-    });
-    return () => {
-      unregisterDetail();
-      unregisterDocument();
-    };
-  }, [
-    detail.data,
-    detailQueryKey,
-    documentQueryKey,
-    pageId,
-    projectionRegistry,
-    queryClient,
-  ]);
+    }
+    : null);
 
   if (detail.isPending || document.isPending) {
     return (

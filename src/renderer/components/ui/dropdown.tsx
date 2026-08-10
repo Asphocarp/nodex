@@ -106,6 +106,7 @@ const NodexDropdownSubmenuContent = forwardRef<
   return (
     <DropdownMenuPrimitive.SubContent
       ref={ref}
+      data-slot="dropdown-submenu-content"
       collisionPadding={collisionPadding}
       sideOffset={sideOffset}
       alignOffset={alignOffset}
@@ -815,6 +816,7 @@ export function NodexDropdownFlyoutSubmenuItem({
   tooltipSide,
   tooltipAlign,
   onOpenChange,
+  open,
 }: {
   ariaLabel?: string;
   label: ReactNode;
@@ -832,6 +834,7 @@ export function NodexDropdownFlyoutSubmenuItem({
   tooltipSide?: "top" | "right" | "bottom" | "left";
   tooltipAlign?: "start" | "center" | "end";
   onOpenChange?: ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Sub>["onOpenChange"];
+  open?: boolean;
 }) {
   const trigger = (
     <NodexDropdownSubmenuTrigger
@@ -869,7 +872,7 @@ export function NodexDropdownFlyoutSubmenuItem({
   );
 
   return (
-    <NodexDropdownSubmenu onOpenChange={onOpenChange}>
+    <NodexDropdownSubmenu open={open} onOpenChange={onOpenChange}>
       {tooltipText ? (
         <NodexTooltip
           tooltipContent={
