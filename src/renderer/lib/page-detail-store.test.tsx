@@ -436,6 +436,7 @@ describe("Page Detail store realtime convergence", () => {
       loading: false,
       error: "Page not found",
     });
+    await waitFor(() => expect(pageDetailStoreDiagnostics().inFlight).toBe(0));
   });
 
   test("refreshes Page detail without tombstoning it when only a dependency is revoked", async () => {

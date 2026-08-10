@@ -22,6 +22,7 @@ export interface AuthorityReadLease {
   readonly leaseId: symbol;
   readonly deliveryAddress: DeliveryAddress;
   readonly storeEpoch: string | null;
+  readonly addressGeneration: number;
   readonly observedCommitSeq: number;
   readonly subject: AuthorityResource;
   readonly requestDependencies: readonly AuthorityResource[];
@@ -61,6 +62,7 @@ interface RegistrationState {
 interface AddressState {
   readonly deliveryAddress: DeliveryAddress;
   storeEpoch: string | null;
+  generation: number;
   latestCommitSeq: number;
   addressFloor: number;
   readonly rootFloors: Map<string, number>;
@@ -153,6 +155,7 @@ export class AuthorityFreshnessIndex {
       leaseId: Symbol("authority-read"),
       deliveryAddress: input.deliveryAddress,
       storeEpoch: state.storeEpoch,
+      addressGeneration: state.generation,
       observedCommitSeq: Math.max(input.observedCommitSeq, state.latestCommitSeq),
       subject: input.subject,
       requestDependencies: normalizeResources(input.requestDependencies),
@@ -381,6 +384,7 @@ export class AuthorityFreshnessIndex {
     const state: AddressState = {
       deliveryAddress,
       storeEpoch,
+      generation: 0,
       latestCommitSeq: observedCommitSeq,
       addressFloor: 0,
       rootFloors: new Map(),
@@ -402,6 +406,7 @@ export class AuthorityFreshnessIndex {
       this.#deliverFence(registration, fence);
     }
     state.storeEpoch = storeEpoch;
+    state.generation += 1;
     state.latestCommitSeq = commitSeq;
     state.addressFloor = commitSeq;
     state.rootFloors.clear();
@@ -417,6 +422,8 @@ export class AuthorityFreshnessIndex {
       (!allowLeaseEpochReplacement
         && lease.storeEpoch !== null
         && stamp.store_epoch !== lease.storeEpoch)
+      || (!allowLeaseEpochReplacement
+        && lease.addressGeneration !== state.generation)
       || (state.storeEpoch !== null && stamp.store_epoch !== state.storeEpoch)
       || deliveryAddressKey(stamp.delivery_address)
         !== deliveryAddressKey(lease.deliveryAddress)
@@ -437,6 +444,7 @@ export class AuthorityFreshnessIndex {
     commitSeq: number,
     kind: "address_reset",
   ): void {
+    state.generation += 1;
     state.latestCommitSeq = Math.max(state.latestCommitSeq, commitSeq);
     state.addressFloor = Math.max(state.addressFloor, commitSeq);
     state.rootFloors.clear();

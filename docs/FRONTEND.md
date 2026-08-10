@@ -197,7 +197,9 @@ address, subject, and request dependencies. Core's same-snapshot
 renderer DTO fields never infer them. Exact visibility changes fence only
 matching registrations, while conservative or address resets fence the whole
 address. Address, root-floor, in-flight, and registration bounds fail closed
-without drop-oldest eviction.
+without drop-oldest eviction. Every whole-address fence also advances a local
+generation, so a response started before a same-floor reset or capacity
+overflow cannot be adopted merely because its commit coordinate is equal.
 Contiguous complete projection effects reduce synchronously, while canonical
 stores reread only for a gap, reset, incomplete patch, or integrity conflict.
 Renderer code therefore needs neither a structural pending projection nor a

@@ -236,7 +236,9 @@ those roots before adopting the response. Exact visibility changes fence only
 matching registrations. Address or conservative reset fences the complete
 address. Root floors survive older in-flight reads and active registrations;
 capacity overflow clears the address authority and fails closed rather than
-dropping an old floor. This is a client consistency guarantee, not a
+dropping an old floor. A whole-address fence advances a renderer-local
+generation as well as its covered floor, which rejects reads started before a
+same-floor reset. This is a client consistency guarantee, not a
 replacement for Core's read authorization.
 
 Structural commands can still return a retryable revision conflict when a

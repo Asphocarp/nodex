@@ -275,6 +275,117 @@ describe("AuthorityFreshnessIndex", () => {
     expect(index.diagnostics()).toMatchObject({ rootFloors: 0, addressFloors: 1 });
   });
 
+  test("in-flight overflow fences the address and rejects an older response", async () => {
+    const index = new AuthorityFreshnessIndex({ maxInFlightReads: 1 });
+    const fence = vi.fn();
+    const adopted = index.beginRead({
+      deliveryAddress: address,
+      storeEpoch: "epoch-1",
+      observedCommitSeq: 4,
+      subject: page("page-adopted"),
+      requestDependencies: [page("page-adopted")],
+    });
+    const registration = await index.admitRead(
+      adopted,
+      await stamp({ subject: page("page-adopted"), commitSeq: 4 }),
+      fence,
+    );
+    const stale = index.beginRead({
+      deliveryAddress: address,
+      storeEpoch: "epoch-1",
+      observedCommitSeq: 4,
+      subject: page("page-stale"),
+      requestDependencies: [page("page-stale")],
+    });
+
+    expect(() => index.beginRead({
+      deliveryAddress: address,
+      storeEpoch: "epoch-1",
+      observedCommitSeq: 4,
+      subject: page("page-overflow"),
+      requestDependencies: [page("page-overflow")],
+    })).toThrow(AuthorityFreshnessCapacityError);
+    expect(fence).toHaveBeenCalledWith(expect.objectContaining({
+      kind: "address_reset",
+      commitSeq: 4,
+    }));
+    expect(index.diagnostics()).toMatchObject({
+      addressFloors: 1,
+      inFlightReads: 1,
+    });
+
+    await expect(index.admitRead(
+      stale,
+      await stamp({ subject: page("page-stale"), commitSeq: 4 }),
+      vi.fn(),
+    )).rejects.toBeInstanceOf(StaleAuthorizedReadError);
+    expect(index.diagnostics().inFlightReads).toBe(0);
+    registration.release();
+  });
+
+  test("registration overflow fences the address without evicting an older claim", async () => {
+    const index = new AuthorityFreshnessIndex({ maxRegistrations: 1 });
+    const fence = vi.fn();
+    const first = index.beginRead({
+      deliveryAddress: address,
+      storeEpoch: "epoch-1",
+      observedCommitSeq: 5,
+      subject: page("page-first"),
+      requestDependencies: [page("page-first")],
+    });
+    const registration = await index.admitRead(
+      first,
+      await stamp({ subject: page("page-first"), commitSeq: 5 }),
+      fence,
+    );
+    const overflow = index.beginRead({
+      deliveryAddress: address,
+      storeEpoch: "epoch-1",
+      observedCommitSeq: 5,
+      subject: page("page-overflow"),
+      requestDependencies: [page("page-overflow")],
+    });
+
+    await expect(index.admitRead(
+      overflow,
+      await stamp({ subject: page("page-overflow"), commitSeq: 5 }),
+      vi.fn(),
+    )).rejects.toBeInstanceOf(AuthorityFreshnessCapacityError);
+    expect(fence).toHaveBeenCalledWith(expect.objectContaining({
+      kind: "address_reset",
+      commitSeq: 5,
+    }));
+    expect(index.diagnostics()).toMatchObject({
+      addressFloors: 1,
+      registrations: 1,
+    });
+    registration.release();
+  });
+
+  test("address overflow rejects the new address without dropping the active one", () => {
+    const index = new AuthorityFreshnessIndex({ maxAddresses: 1 });
+    index.observeAddress({
+      deliveryAddress: address,
+      storeEpoch: "epoch-1",
+      commitSeq: 6,
+    });
+
+    expect(() => index.beginRead({
+      deliveryAddress: {
+        ...address,
+        project_id: "project-overflow",
+      },
+      storeEpoch: "epoch-1",
+      observedCommitSeq: 6,
+      subject: page("page-overflow"),
+      requestDependencies: [page("page-overflow")],
+    })).toThrow(AuthorityFreshnessCapacityError);
+    expect(index.diagnostics()).toMatchObject({
+      addresses: 1,
+      addressFloors: 0,
+    });
+  });
+
   test("keeps 10k protected root floors and fails closed at the hard bound", () => {
     const index = new AuthorityFreshnessIndex();
     const lease = index.beginRead({

@@ -362,6 +362,7 @@ interface BoardTransferPerformanceMetrics {
   fixturePreparationMs: number;
   boardInitialRenderMs: number;
   transferCommitMs: number;
+  transferToSourceRemovalMs: number;
   transferToCardMs: number;
   endToEndMs: number;
   sourceBlockCount: number;
@@ -391,6 +392,10 @@ interface BoardTransferPerformanceMetrics {
   transferCommitP95Ms: number;
   transferCommitP99Ms: number | null;
   transferCommitMaxMs: number;
+  transferToSourceRemovalP50Ms: number;
+  transferToSourceRemovalP95Ms: number;
+  transferToSourceRemovalP99Ms: number | null;
+  transferToSourceRemovalMaxMs: number;
   transferToCardP50Ms: number;
   transferToCardP95Ms: number;
   transferToCardP99Ms: number | null;
@@ -398,6 +403,7 @@ interface BoardTransferPerformanceMetrics {
   coreStages: Record<CoreTransferStage, CoreTransferStageSummary>;
   rawSamples: {
     transferCommitMs: number[];
+    transferToSourceRemovalMs: number[];
     transferToCardMs: number[];
     normalizedOneMinuteLoad: number[];
     coreStages: Record<CoreTransferStage, number[]>;
@@ -436,6 +442,16 @@ const HIGH_PRESSURE_BOARD_PAGE_COUNT = 100;
 const HIGH_PRESSURE_BOARD_TRIAGE_PAGE_COUNT = 50;
 const HIGH_PRESSURE_BOARD_PLAN_PAGE_COUNT =
   HIGH_PRESSURE_BOARD_PAGE_COUNT - HIGH_PRESSURE_BOARD_TRIAGE_PAGE_COUNT;
+const HIGH_PRESSURE_SOURCE_REMAINDER = [
+  ...Array.from(
+    { length: HIGH_PRESSURE_SIBLING_BLOCK_COUNT },
+    (_, index) => `before-placeholder-${index.toString().padStart(3, "0")}`,
+  ),
+  ...Array.from(
+    { length: HIGH_PRESSURE_SIBLING_BLOCK_COUNT },
+    (_, index) => `after-placeholder-${index.toString().padStart(3, "0")}`,
+  ),
+].join(" ");
 const HIGH_PRESSURE_ROUNDS = Math.max(
   1,
   Math.min(
@@ -2799,6 +2815,7 @@ test("measures high-pressure nested Block transfer into a populated Board", asyn
     });
 
     const transferCommitDurations: number[] = [];
+    const transferToSourceRemovalDurations: number[] = [];
     const transferToCardDurations: number[] = [];
     const normalizedOneMinuteLoads: number[] = [];
     const coreStageDurations = {} as Record<CoreTransferStage, number[]>;
@@ -2905,31 +2922,41 @@ test("measures high-pressure nested Block transfer into a populated Board", asyn
       expect(evidence.resultPageId).toBe(resultPageId);
       expect(evidence.bodyRootBlockIds).toHaveLength(HIGH_PRESSURE_CHILD_BLOCK_COUNT);
 
-      if (index === 0) {
-        const sourceDetail = requireIpcValue<Record<string, unknown>>(
-          await invokeIpc(
-            page,
-            "pages:detail:get",
-            project.projectId,
-            sourcePage.pageId,
-            commitSeq,
-          ),
-          "Read high-pressure source Page after transfer",
-        );
-        const sourcePageAfter = isRecord(sourceDetail.page)
-          ? sourceDetail.page
-          : null;
-        const sourcePlainText = sourcePageAfter?.plainText;
-        if (typeof sourcePlainText !== "string") {
-          throw new Error("High-pressure source Page returned no plain text");
-        }
-        expect(sourcePlainText).toContain("before-placeholder-000");
-        expect(sourcePlainText).toContain("before-placeholder-099");
-        expect(sourcePlainText).toContain("after-placeholder-000");
-        expect(sourcePlainText).toContain("after-placeholder-099");
-        expect(sourcePlainText).not.toContain("title-A-0");
-        expect(sourcePlainText).not.toContain("child-placeholder-");
+      const card = page.locator(`[data-kanban-uuid-v7="${resultPageId}"]`);
+      const sourceObservation = invokeIpc(
+        page,
+        "pages:detail:get",
+        project.projectId,
+        sourcePage.pageId,
+        commitSeq,
+      ).then((value) => ({
+        observedAt: performance.now(),
+        sourceDetail: requireIpcValue<Record<string, unknown>>(
+          value,
+          `Read high-pressure source Page ${index + 1} after transfer`,
+        ),
+      }));
+      const cardObservation = expect(card).toBeVisible({ timeout: 15_000 })
+        .then(async () => {
+          await expect(card).toContainText(`title-A-${index}`);
+          return performance.now();
+        });
+      const [{ observedAt: sourceObservedAt, sourceDetail }, cardVisibleAt] =
+        await Promise.all([sourceObservation, cardObservation]);
+      const sourcePageAfter = isRecord(sourceDetail.page)
+        ? sourceDetail.page
+        : null;
+      const sourcePlainText = sourcePageAfter?.plainText;
+      if (typeof sourcePlainText !== "string") {
+        throw new Error("High-pressure source Page returned no plain text");
+      }
+      expect(sourcePlainText).toBe(HIGH_PRESSURE_SOURCE_REMAINDER);
+      transferToSourceRemovalDurations.push(
+        sourceObservedAt - transferCommittedAt,
+      );
+      transferToCardDurations.push(cardVisibleAt - transferCommittedAt);
 
+      if (index === 0) {
         const detail = requireIpcValue<Record<string, unknown>>(
           await invokeIpc(
             page,
@@ -2954,12 +2981,6 @@ test("measures high-pressure nested Block transfer into a populated Board", asyn
           plainText: expect.stringContaining("child-placeholder-099"),
         });
       }
-
-      const card = page.locator(`[data-kanban-uuid-v7="${resultPageId}"]`);
-      await expect(card).toBeVisible({ timeout: 15_000 });
-      await expect(card).toContainText(`title-A-${index}`);
-      const cardVisibleAt = performance.now();
-      transferToCardDurations.push(cardVisibleAt - transferCommittedAt);
       await expect.poll(
         async () => await readConvergenceBoardTotal(page, project, commitSeq),
         { timeout: 15_000 },
@@ -2969,6 +2990,9 @@ test("measures high-pressure nested Block transfer into a populated Board", asyn
       HIGH_PRESSURE_BOARD_PAGE_COUNT + HIGH_PRESSURE_ROUNDS,
     );
     const transferCommitSummary = summarizeDurations(transferCommitDurations);
+    const transferToSourceRemovalSummary = summarizeDurations(
+      transferToSourceRemovalDurations,
+    );
     const transferToCardSummary = summarizeDurations(transferToCardDurations);
     const coreStages = Object.fromEntries(
       Object.entries(coreStageDurations).map(([stage, durations]) => {
@@ -3017,6 +3041,7 @@ test("measures high-pressure nested Block transfer into a populated Board", asyn
       fixturePreparationMs: performance.now() - fixturePreparationStartedAt,
       boardInitialRenderMs,
       transferCommitMs: transferCommitSummary.p50,
+      transferToSourceRemovalMs: transferToSourceRemovalSummary.p50,
       transferToCardMs: transferToCardSummary.p50,
       endToEndMs: transferCommitSummary.p50 + transferToCardSummary.p50,
       sourceBlockCount: blocksPerRound,
@@ -3034,6 +3059,10 @@ test("measures high-pressure nested Block transfer into a populated Board", asyn
       transferCommitP95Ms: transferCommitSummary.p95,
       transferCommitP99Ms: transferCommitSummary.p99,
       transferCommitMaxMs: transferCommitSummary.max,
+      transferToSourceRemovalP50Ms: transferToSourceRemovalSummary.p50,
+      transferToSourceRemovalP95Ms: transferToSourceRemovalSummary.p95,
+      transferToSourceRemovalP99Ms: transferToSourceRemovalSummary.p99,
+      transferToSourceRemovalMaxMs: transferToSourceRemovalSummary.max,
       transferToCardP50Ms: transferToCardSummary.p50,
       transferToCardP95Ms: transferToCardSummary.p95,
       transferToCardP99Ms: transferToCardSummary.p99,
@@ -3041,6 +3070,7 @@ test("measures high-pressure nested Block transfer into a populated Board", asyn
       coreStages,
       rawSamples: {
         transferCommitMs: transferCommitDurations,
+        transferToSourceRemovalMs: transferToSourceRemovalDurations,
         transferToCardMs: transferToCardDurations,
         normalizedOneMinuteLoad: normalizedOneMinuteLoads,
         coreStages: coreStageDurations,
@@ -3066,10 +3096,15 @@ test("measures high-pressure nested Block transfer into a populated Board", asyn
     if (process.env.NODEX_SKIP_PERFORMANCE_GATES !== "1") {
       const isReleaseCore = metrics.buildMode === "electron-test-release-core";
       expect(metrics.transferCommitP95Ms).toBeLessThan(isReleaseCore ? 250 : 750);
+      expect(metrics.transferToSourceRemovalP95Ms).toBeLessThan(100);
       expect(metrics.transferToCardP95Ms).toBeLessThan(100);
       if (isReleaseCore && metrics.rounds >= 100) {
         expect(metrics.transferCommitP99Ms).not.toBeNull();
         expect(metrics.transferCommitP99Ms ?? Number.POSITIVE_INFINITY).toBeLessThan(350);
+        expect(metrics.transferToSourceRemovalP99Ms).not.toBeNull();
+        expect(
+          metrics.transferToSourceRemovalP99Ms ?? Number.POSITIVE_INFINITY,
+        ).toBeLessThan(100);
         expect(metrics.transferToCardP99Ms).not.toBeNull();
         expect(metrics.transferToCardP99Ms ?? Number.POSITIVE_INFINITY).toBeLessThan(100);
       }
