@@ -66,6 +66,7 @@ import {
 } from "../kanban/board-keyboard-navigation";
 import { compileDatabasePagesDragFromQuery } from "../../../shared/database-page-drag";
 import { isWorkflowStatus } from "../../../shared/workflow-status";
+import { PagePresenceRail } from "../kanban/page-presence-rail";
 
 interface DatabaseViewSurfaceProps {
   readonly model: DatabaseViewRenderModel;
@@ -83,6 +84,7 @@ interface DatabaseViewSurfaceProps {
     readonly surfaceId: string;
     readonly presentationId: string;
   };
+  readonly presentedPageIds?: ReadonlySet<string>;
 }
 
 const rowByPageId = (
@@ -169,6 +171,7 @@ function DurablePageSurface({
   optionRegistryLoadingMore,
   onMove,
   highlighted,
+  presented,
   selected,
   onHighlight,
 }: {
@@ -228,6 +231,7 @@ function DurablePageSurface({
   readonly optionRegistryLoadingMore: Readonly<Record<string, boolean>>;
   readonly onMove: (pageId: string, direction: "up" | "down") => void;
   readonly highlighted: boolean;
+  readonly presented: boolean;
   readonly selected: boolean;
   readonly onHighlight: (pageId: string) => void;
 }) {
@@ -239,12 +243,13 @@ function DurablePageSurface({
   return (
     <article
       data-database-view-page-id={row.pageId}
+      data-database-view-page-presented={presented ? "true" : undefined}
       tabIndex={highlighted ? 0 : -1}
       aria-selected={selected}
       onPointerDown={() => onHighlight(row.pageId)}
       onFocus={() => onHighlight(row.pageId)}
       className={cn(
-        "group/card min-w-0 rounded-lg bg-token-foreground/5 outline-none",
+        "group/card relative min-w-0 overflow-hidden rounded-lg bg-token-foreground/5 outline-none",
         "hover:bg-token-foreground/8",
         (highlighted || selected) && "ring-1 ring-inset",
         highlighted && !selected
@@ -254,6 +259,7 @@ function DurablePageSurface({
         compact ? "px-2.5 py-2" : "px-2 py-1.5",
       )}
     >
+      {presented ? <PagePresenceRail /> : null}
       <div className="flex min-h-6 items-center gap-1">
         <button
           type="button"
@@ -414,6 +420,7 @@ export function DatabaseViewSurface({
   onCommitted,
   commitOperations = commitDatabaseViewOperations,
   keyboardSurface,
+  presentedPageIds,
 }: DatabaseViewSurfaceProps) {
   const [pendingMutationKeys, setPendingMutationKeys] = useState<ReadonlyMap<
     string,
@@ -881,6 +888,7 @@ export function DatabaseViewSurface({
     optionRegistryLoadingMore,
     onMove: move,
     highlighted: row.pageId === highlightedPageId,
+    presented: presentedPageIds?.has(row.pageId) ?? false,
     selected: selectedPageIds.has(row.pageId),
     onHighlight: highlightPage,
   } as const);

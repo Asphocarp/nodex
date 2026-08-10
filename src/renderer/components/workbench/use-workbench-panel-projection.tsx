@@ -44,7 +44,7 @@ import type {
   useWorkbenchSessionCommands,
 } from "@/lib/use-workbench-session-commands";
 import {
-  collectPanelPageStagePageIdsByProject,
+  collectPanelPresentedPageIds,
   type SessionPanelRenderModel,
 } from "@/lib/workbench-panel-projection";
 import {
@@ -377,11 +377,9 @@ export function useWorkbenchPanelProjection({
     onOpenLocalEnvironmentsSettings,
   } = automation;
 
-  const activePanelPageStagePageIdsByProject = useMemo<
-    ReadonlyMap<string, ReadonlySet<string>>
-  >(() => {
-    if (!activeRenderSession || !activeSessionPanelModel) return new Map();
-    return collectPanelPageStagePageIdsByProject(
+  const presentedPageIds = useMemo<ReadonlySet<string>>(() => {
+    if (!activeRenderSession || !activeSessionPanelModel) return new Set();
+    return collectPanelPresentedPageIds(
       activeRenderSession,
       activeSessionPanelModel,
     );
@@ -671,9 +669,7 @@ export function useWorkbenchPanelProjection({
               tab={tab}
               activeSession={session}
               projects={projects}
-              activePanelPageStagePageIdsByProject={
-                activePanelPageStagePageIdsByProject
-              }
+              presentedPageIds={presentedPageIds}
               pageStageTabTitleStore={pageStageTabTitleStore}
               onOpenCanvasStage={openCanvasStage}
               onOpenPageTab={openPageTab}
@@ -756,7 +752,7 @@ export function useWorkbenchPanelProjection({
     };
   }, [
     activateReviewTab,
-    activePanelPageStagePageIdsByProject,
+    presentedPageIds,
     browserBoundsSyncTriggerByPanel,
     closeEphemeralPanelTab,
     closeTab,

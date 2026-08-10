@@ -4,6 +4,7 @@ import { flattenWorkbenchPanelTabIds } from "./workbench-panel-layout";
 import {
   WORKBENCH_SCENE_MAX_PANEL_SURFACES,
   cloneWorkbenchSceneLayoutForNewWindow,
+  collectWorkbenchScenePresentedPageIds,
   createWorkbenchSceneSurface,
   getWorkbenchSurfaceReuseKey,
   makeWorkbenchSceneKey,
@@ -210,6 +211,39 @@ describe("WorkbenchScene", () => {
     const empty = removeWorkbenchSceneSurface(withPage, "library-page");
     expect(empty.panelSurfacesById).toEqual({});
     expect(WorkbenchSceneSnapshotSchema.parse(empty)).toEqual(empty);
+  });
+
+  test("collects Page presence only from visible active Scene tabs", () => {
+    const pageSurface: WorkbenchSurfaceDescriptor = {
+      id: "visible-page",
+      kind: "page_stage",
+      titleSnapshot: "Visible Page",
+      config: {
+        accessContext: { kind: "project", projectId: "project-1" },
+        pageId: "page:visible",
+      },
+      stateKey: 0,
+      state: null,
+    };
+    const withPage = createWorkbenchSceneSurface(projectScene(), {
+      panelId: "bottom",
+      surface: pageSurface,
+    });
+
+    expect([...collectWorkbenchScenePresentedPageIds(withPage)])
+      .toEqual(["page:visible"]);
+
+    const withBackgroundPage = createWorkbenchSceneSurface(withPage, {
+      panelId: "bottom",
+      surface: browserSurface(),
+    });
+    expect([...collectWorkbenchScenePresentedPageIds(withBackgroundPage)])
+      .toEqual([]);
+
+    const collapsed = patchWorkbenchScenePanel(withPage, "bottom", {
+      collapsed: true,
+    });
+    expect([...collectWorkbenchScenePresentedPageIds(collapsed)]).toEqual([]);
   });
 
   test("keeps a migrated Resource primary when the Pages surface cap is full", () => {

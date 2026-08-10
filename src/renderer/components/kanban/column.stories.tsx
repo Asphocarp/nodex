@@ -30,6 +30,7 @@ function ColumnStoryFrame({
   collapsed = false,
   pagination,
   highlightedPageId,
+  presentedPageIds,
   selectedPageIds,
 }: {
   cards?: CardType[];
@@ -37,6 +38,7 @@ function ColumnStoryFrame({
   collapsed?: boolean;
   pagination?: ColumnPaginationState;
   highlightedPageId?: string;
+  presentedPageIds?: ReadonlySet<string>;
   selectedPageIds?: ReadonlySet<string>;
 }) {
   return (
@@ -49,6 +51,7 @@ function ColumnStoryFrame({
           createDisabledReason={createDisabledReason}
           pagination={pagination}
           highlightedPageId={highlightedPageId}
+          presentedPageIds={presentedPageIds}
           selectedPageIds={selectedPageIds}
           onLoadMore={() => {}}
           layout={{ width: 320, collapsed }}
@@ -96,6 +99,16 @@ export const SelectedAndKeyboardActive: Story = {
   render: () => (
     <ColumnStoryFrame
       highlightedPageId="card-2"
+      selectedPageIds={new Set(["card-2"])}
+    />
+  ),
+};
+
+/** Presence remains legible without becoming a second selection halo. */
+export const PresentedAndSelected: Story = {
+  render: () => (
+    <ColumnStoryFrame
+      presentedPageIds={new Set(["card-2"])}
       selectedPageIds={new Set(["card-2"])}
     />
   ),

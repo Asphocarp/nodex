@@ -143,6 +143,7 @@ import {
 } from "@/lib/workbench-ui-scopes";
 import {
   applyForkBrowserTransferToWorkbenchScene,
+  collectWorkbenchScenePresentedPageIds,
   makeWorkbenchSceneKey,
   materializeInitialWorkbenchScene,
   resolveWorkbenchSceneSurface,
@@ -693,6 +694,18 @@ export function WorkbenchRuntime({
     ? workbenchWindow.scenesByOwnerKey[pagesSceneKey]
       ?? materializeInitialWorkbenchScene(pagesSceneOwner)
     : null;
+  const projectScenePresentedPageIds = useMemo<ReadonlySet<string>>(
+    () => activeProjectScene
+      ? collectWorkbenchScenePresentedPageIds(activeProjectScene)
+      : new Set(),
+    [activeProjectScene],
+  );
+  const pagesScenePresentedPageIds = useMemo<ReadonlySet<string>>(
+    () => activePagesScene
+      ? collectWorkbenchScenePresentedPageIds(activePagesScene)
+      : new Set(),
+    [activePagesScene],
+  );
   useEffect(() => {
     if (!pagesSceneOwner || !pagesSceneKey || !activePagesScene) {
       return;
@@ -3100,7 +3113,7 @@ export function WorkbenchRuntime({
           activeDbViewPrefs={activeDbViewPrefs}
           searchByProject={searchByProject}
           dbViewPrefsByProject={dbViewPrefsByProject}
-          activePanelPageStagePageIdsByProject={new Map()}
+          presentedPageIds={projectScenePresentedPageIds}
           pageStageCloseRef={pageStageCloseRef}
           pendingReminderOpen={pendingReminderOpen}
           taskSearchOpenTick={taskSearchOpenTick}
@@ -3421,6 +3434,7 @@ export function WorkbenchRuntime({
     pageStageTabTitleStore,
     pendingReminderOpen,
     projectSceneKey,
+    projectScenePresentedPageIds,
     projectSceneOwner,
     projects,
     knownSessions,
@@ -3498,6 +3512,7 @@ export function WorkbenchRuntime({
             surfaceId: surface.id,
             presentationId: surface.id,
           }}
+          presentedPageIds={pagesScenePresentedPageIds}
           onPresentationChange={({ databaseName, viewName }) => {
             publishTitle(
               surface.config.target.kind === "database-default"
@@ -3574,6 +3589,7 @@ export function WorkbenchRuntime({
     closePagesSceneSurfaceRuntime,
     presentLibraryTarget,
     pagesSceneKey,
+    pagesScenePresentedPageIds,
     pagesSceneOwner,
     updateSceneSurfacePresentation,
     windowSessionId,

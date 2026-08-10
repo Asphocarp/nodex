@@ -41,6 +41,7 @@ import {
   findWorkbenchPanelLeafForTab,
   flattenWorkbenchPanelTabIds,
   getWorkbenchPanelActiveLeaf,
+  listWorkbenchPanelLeaves,
   moveWorkbenchPanelTab,
   removeWorkbenchPanelTab,
   reorderWorkbenchPanelLeafTabs,
@@ -598,6 +599,37 @@ export function resolveWorkbenchSceneSurface(
   return surfaceId === scene.primary?.id
     ? scene.primary
     : scene.panelSurfacesById[surfaceId];
+}
+
+/**
+ * Page identities currently presented by visible Page Stage surfaces.
+ *
+ * Presence follows rendered panel geometry: collapsed panels, background
+ * tabs, and leaves hidden by panel maximization do not contribute. Page IDs
+ * are Library-global identities, so consumers can match this one projection
+ * against any authorized Database View without duplicating it per Project.
+ */
+export function collectWorkbenchScenePresentedPageIds(
+  scene: WorkbenchSceneSnapshot,
+): ReadonlySet<string> {
+  const pageIds = new Set<string>();
+
+  for (const panelId of PANEL_IDS) {
+    const panel = scene.panels[panelId];
+    if (panel.collapsed) continue;
+
+    const leaves = panel.layout.maximizedLeafId
+      ? [findWorkbenchPanelLeaf(panel.layout, panel.layout.maximizedLeafId)]
+      : listWorkbenchPanelLeaves(panel.layout);
+    for (const leaf of leaves) {
+      if (!leaf?.activeTabId) continue;
+      const surface = resolveWorkbenchSceneSurface(scene, leaf.activeTabId);
+      if (surface?.kind !== "page_stage") continue;
+      pageIds.add(surface.config.pageId);
+    }
+  }
+
+  return pageIds;
 }
 
 function toLegacyPanelTab(

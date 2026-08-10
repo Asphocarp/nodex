@@ -427,11 +427,11 @@ export function collectMountedBrowserTabIds(
   return mountedBrowserTabIds;
 }
 
-export function collectPanelPageStagePageIdsByProject(
+export function collectPanelPresentedPageIds(
   session: WorkbenchSessionRenderProjection,
   model: SessionPanelRenderModel,
-): ReadonlyMap<string, ReadonlySet<string>> {
-  const byProject = new Map<string, Set<string>>();
+): ReadonlySet<string> {
+  const pageIds = new Set<string>();
   const collectPanelVisiblePageStagePages = (
     panelId: PanelId,
     panelOpen: boolean,
@@ -456,11 +456,7 @@ export function collectPanelPageStagePageIdsByProject(
 
       const pageRef = readPageStagePanelTabPageRef(activeTab);
       if (!pageRef) continue;
-
-      const pageIds =
-        byProject.get(pageRef.projectId) ?? new Set<string>();
       pageIds.add(pageRef.pageId);
-      byProject.set(pageRef.projectId, pageIds);
     }
   };
 
@@ -469,5 +465,5 @@ export function collectPanelPageStagePageIdsByProject(
     "bottom",
     model.bottomPanelOpen,
   );
-  return byProject;
+  return pageIds;
 }

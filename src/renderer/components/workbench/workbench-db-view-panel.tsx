@@ -106,6 +106,7 @@ export function DatabaseViewTabSurface({
   onOpenPage,
   onCommitted,
   keyboardSurface,
+  presentedPageIds,
 }: {
   readonly model: DatabaseViewRenderModel;
   readonly toolbarItems?: DbViewToolbarItem[];
@@ -127,6 +128,7 @@ export function DatabaseViewTabSurface({
     readonly surfaceId: string;
     readonly presentationId: string;
   };
+  readonly presentedPageIds?: ReadonlySet<string>;
 }) {
   return (
     <div className="flex h-full min-h-0 flex-col bg-token-main-surface-primary">
@@ -157,6 +159,7 @@ export function DatabaseViewTabSurface({
           onOpenPage={onOpenPage}
           onCommitted={onCommitted}
           keyboardSurface={keyboardSurface}
+          presentedPageIds={presentedPageIds}
         />
       </div>
     </div>
@@ -172,7 +175,7 @@ export function DbViewSessionTab({
   activeDbViewPrefs,
   searchByProject,
   dbViewPrefsByProject,
-  activePanelPageStagePageIdsByProject,
+  presentedPageIds,
   pageStageCloseRef,
   pendingReminderOpen,
   taskSearchOpenTick,
@@ -197,10 +200,7 @@ export function DbViewSessionTab({
     string,
     Partial<Record<SupportedDbView, DbViewPrefs>>
   >;
-  activePanelPageStagePageIdsByProject: ReadonlyMap<
-    string,
-    ReadonlySet<string>
-  >;
+  presentedPageIds: ReadonlySet<string>;
   pageStageCloseRef: RefObject<(() => Promise<void>) | null>;
   pendingReminderOpen?: {
     projectId: string;
@@ -280,8 +280,6 @@ export function DbViewSessionTab({
   const lastHandledTaskSearchOpenTickRef = useRef(taskSearchOpenTick);
   const searchQuery = searchByProject[projectId]
     ?? (projectId === tab.projectId ? activeSearchQuery : "");
-  const activePanelPageStagePageIds =
-    activePanelPageStagePageIdsByProject.get(projectId);
   const availableTags = useMemo(() => {
     if (databaseView) {
       return Array.from(
@@ -479,6 +477,7 @@ export function DbViewSessionTab({
           surfaceId,
           presentationId: tab.id,
         }}
+        presentedPageIds={presentedPageIds}
       />
     );
   }
@@ -547,7 +546,7 @@ export function DbViewSessionTab({
           searchQuery={searchQuery}
           dbViewPrefs={dbViewPrefs}
           onUpdateDbViewPrefs={updateDbViewPrefs}
-          activePanelPageStagePageIds={activePanelPageStagePageIds}
+          presentedPageIds={presentedPageIds}
           pageStageCloseRef={pageStageCloseRef}
           pendingReminderOpen={pendingReminderOpen}
           calendarState={calendarState}
