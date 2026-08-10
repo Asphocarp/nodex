@@ -2535,6 +2535,39 @@ mod tests {
                 Ok(())
             })
             .expect("restore Project");
+        let LibraryReadValue::Catalog {
+            items: first_catalog_page,
+            next_cursor: Some(catalog_cursor),
+            has_more: true,
+            total: catalog_total,
+        } = read(LibraryRead::Catalog {
+            query: None,
+            kinds: None,
+            lifecycle: None,
+            cursor: None,
+            limit: Some(1),
+        })
+        else {
+            panic!("first unfiltered catalog page");
+        };
+        let LibraryReadValue::Catalog {
+            items: second_catalog_page,
+            total: continued_catalog_total,
+            ..
+        } = read(LibraryRead::Catalog {
+            query: None,
+            kinds: None,
+            lifecycle: None,
+            cursor: Some(catalog_cursor),
+            limit: Some(1),
+        })
+        else {
+            panic!("continued unfiltered catalog page");
+        };
+        assert_eq!(catalog_total, continued_catalog_total);
+        assert_eq!(first_catalog_page.len(), 1);
+        assert_eq!(second_catalog_page.len(), 1);
+        assert_ne!(first_catalog_page[0].target, second_catalog_page[0].target);
         let LibraryReadValue::Catalog { items, .. } = read(LibraryRead::Catalog {
             query: Some("say hi".to_owned()),
             kinds: None,

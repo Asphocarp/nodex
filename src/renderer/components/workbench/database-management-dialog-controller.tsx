@@ -22,7 +22,7 @@ import {
   readDatabaseManagementAuthority,
   type DatabaseManagementAuthority,
 } from "@/lib/database-management-runtime";
-import { useProjectionInvalidationRegistry } from "@/lib/projection-invalidation-context";
+import { useProjectionRegistration } from "@/lib/projection-invalidation-context";
 import {
   emptyDatabaseViewConfig,
   readDatabasePropertyOptions,
@@ -65,7 +65,6 @@ export function DatabaseManagementDialogController({
   open,
   onOpenChange,
 }: DatabaseManagementDialogControllerProps) {
-  const projectionRegistry = useProjectionInvalidationRegistry();
   const [authority, setAuthority] =
     useState<DatabaseManagementAuthority | null>(null);
   const [selectedDatabaseId, setSelectedDatabaseId] =
@@ -138,9 +137,8 @@ export function DatabaseManagementDialogController({
     void refresh(initialDatabaseId);
   }, [initialDatabaseId, open, projectId, refresh]);
 
-  useEffect(() => {
-    if (!open || !authority) return;
-    return projectionRegistry.register({
+  useProjectionRegistration(open && authority
+    ? {
       scope: {
         kind: "project",
         libraryId: authority.snapshot.libraryId,
@@ -169,8 +167,8 @@ export function DatabaseManagementDialogController({
           : null;
       },
       invalidate: () => refresh(),
-    });
-  }, [authority, open, projectId, projectionRegistry, refresh]);
+    }
+    : null);
 
   const selectDatabase = (databaseId: string): void => {
     selectedDatabaseIdRef.current = databaseId;

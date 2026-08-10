@@ -227,6 +227,37 @@ describe("ProjectionInvalidationRegistry", () => {
     expect(fence).toHaveBeenCalledOnce();
   });
 
+  test("replays the latest scope position as a checkpoint for a new consumer", async () => {
+    const stream = harness();
+    const revoke = vi.fn();
+    const invalidate = vi.fn();
+    stream.registry.register({
+      scope,
+      consumerKey: "keeper",
+      getDependencies: () => ({ aggregate: true }),
+      getCursor: () => ({ storeEpoch: "epoch-1", commitSeq: 1 }),
+      invalidate: () => undefined,
+    });
+    stream.publish(revocationMessage(2));
+
+    stream.registry.register({
+      scope,
+      consumerKey: "late-page",
+      getDependencies: () => ({ pageIds: ["page-1"] }),
+      getCursor: () => null,
+      revoke,
+      invalidate,
+    });
+    await flush();
+
+    expect(revoke).not.toHaveBeenCalled();
+    expect(invalidate).toHaveBeenCalledOnce();
+    expect(invalidate.mock.calls[0]?.[0]).toMatchObject({
+      kind: "checkpoint",
+      stream: { storeEpoch: "epoch-1", commitSeq: 2 },
+    });
+  });
+
   test("coalesces generic invalidations while a canonical read is running", async () => {
     const stream = harness();
     let release!: () => void;

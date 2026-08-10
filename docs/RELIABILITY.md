@@ -329,6 +329,17 @@ Store v109 and later retain Relation targets only in normalized edge authority a
   boundary instead of evicting the oldest floor.
   This prevents stale display or cache retention; it does not replace Core's
   authorization check on every subsequent read.
+- Renderer Projection registrations are owned by semantic scope and consumer
+  identity, never by a TanStack Query result object. Canonical refetches update
+  callback-visible cache state without disconnecting the consumer or replaying
+  its initial checkpoint. A consumer joining an already-live scope receives
+  the latest stream position as a checkpoint, not a historical effect or
+  revocation payload. Aggregate family cursors exclude disabled entries,
+  including never-fetched sentinels; UI without a complete target creates no
+  placeholder query inside that family. The renderer retains the last confirmed
+  Library identity through a query-authority reset so its audience remains
+  owned until the reset acknowledgement completes; a later canonical metadata
+  read may replace that identity.
 - Each renderer window has one renderer-lifetime LocalCommit ingress, while Main holds one multiplexed audience broker for its active Library/Project address set. Neither owner is tied to React Provider cleanup. Broker scope changes are make-before-break: the replacement barrier and Core recipient leases are accepted before the predecessor closes, and overlapping complete packets deduplicate by scoped resource identity. The broker retains the current lease and barrier floor while any recipient uses an address; a later WebContents for that same address receives the lease plus a floor reset before joining packet delivery. Quiet reset retries use one full-jitter timer with a 100 ms initial delay and 60-second cap, plus a hard budget of 20 attempts in any owned ten-minute retry window; disposal removes the timer, budget, and recipient. Exact consumers order by `(store_epoch, scope_key, schema_version, revision, effect_hash)`, never by the global stream cursor. Integrity claims intentionally omit recipient scope so audience divergence fails closed; delivery claims include the concrete Library/Project address so a Library packet cannot suppress a Project packet for the same effect. A Database-row patch is legal only when Core can prove that it is an exact reduction for the scoped bounded View: one active row in the primary unfiltered manual-order View with a persisted position. Filtered/custom-sorted/secondary, unpositioned, archived, and multi-row effects are patchless and converge through one `requires_read_at_least` floor read. Exact singleton reducers order the complete loaded row set by rank and rebuild sibling ordinals; they never compare one new ordinal with stale peer ordinals or inject a new row beyond a loaded continuation boundary. A patch is low-latency state, not proof that a committed overlay may retire; only a canonical bounded read supplies that proof. Group windows apply an upsert only inside the matching effective-group scope. Gaps, patchless effects, conservative visibility, address reset, or hash divergence coalesce into a canonical floor read; retry remains local to that exact address. Read floors carry both Store epoch and commit sequence: crossing to a new epoch returns replacement authority instead of waiting for an unreachable old sequence. Canonical snapshots cannot overwrite a newer coordinate. Database View groups and all group windows expose the same projection authority; mixed revisions are retried, and a continuation crossing a revision is discarded. Projection audiences use the pre/post authorization closure, so retained and newly authorized third-party Projects receive their own transition instead of waiting for a later canonical read. `board-changed` remains optional compatibility fanout and is never required for convergence.
 - `BlockTransfer` is the single public stable-ID Move/Copy command for
   cross-surface Block ownership. Its intent uses logical
@@ -540,6 +551,8 @@ Store v109 and later retain Relation targets only in normalized edge authority a
   Store-epoch rotation, or a payload-version change reject a cursor, and the
   consumer contract for any rejection is to drop the cursor and silently
   converge from the first window — never to surface it as an error. The cursor
+  fingerprint serializes the complete query tuple, so an empty member remains a
+  valid, unambiguous representation of an absent optional filter. The cursor
   never grants authority. OFFSET and full-load-then-slice are not valid
   implementations of this contract.
 - `pnpm run core:failure-matrix -- --profile <.generated/rust-core-migration/path>`

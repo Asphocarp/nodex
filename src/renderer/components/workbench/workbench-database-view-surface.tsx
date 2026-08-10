@@ -25,7 +25,7 @@ import {
   projectionCursorForSnapshots,
 } from "../../lib/query-invalidation";
 import { queryKeys } from "../../lib/query-keys";
-import { useProjectionInvalidationRegistry } from "../../lib/projection-invalidation-context";
+import { useProjectionRegistration } from "../../lib/projection-invalidation-context";
 import type { ProjectionInvalidationCause } from "../../lib/projection-invalidation-registry";
 import {
   admitResourceAuthorityQuery,
@@ -190,10 +190,10 @@ export function WorkbenchDatabaseViewSurface({
   readonly presentedPageIds?: ReadonlySet<string>;
 }) {
   const queryClient = useQueryClient();
-  const projectionRegistry = useProjectionInvalidationRegistry();
   const searchInputRef = useRef<HTMLInputElement>(null);
   const inFlightScopesRef = useRef(new Set<string>());
   const requiredMinimumCommitSeqRef = useRef(0);
+  const revocationRepairRef = useRef<Promise<void> | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const [continuations, setContinuations] = useState<
@@ -311,11 +311,9 @@ export function WorkbenchDatabaseViewSurface({
     [continuations, groupTotals, query.data, windowsByScope],
   );
 
-  useEffect(() => {
-    const authority = mergedWindow;
-    if (!authority) return;
-    let revocationRepair: Promise<void> | null = null;
-    return projectionRegistry.register({
+  const authority = mergedWindow;
+  useProjectionRegistration(authority
+    ? {
       scope: accessProjectId
         ? {
             kind: "project",
@@ -346,7 +344,10 @@ export function WorkbenchDatabaseViewSurface({
           requiredMinimumCommitSeqRef.current,
           cause.stream.commitSeq,
         );
-        revocationRepair = queryClient.resetQueries({ queryKey, exact: true });
+        revocationRepairRef.current = queryClient.resetQueries({
+          queryKey,
+          exact: true,
+        });
       },
       invalidate: async (cause: ProjectionInvalidationCause) => {
         requiredMinimumCommitSeqRef.current = Math.max(
@@ -354,20 +355,14 @@ export function WorkbenchDatabaseViewSurface({
           cause.stream.commitSeq,
         );
         if (cause.kind === "revocation") {
-          await revocationRepair;
-          revocationRepair = null;
+          await revocationRepairRef.current;
+          revocationRepairRef.current = null;
           return;
         }
         await invalidateExactQuery(queryClient, queryKey);
       },
-    });
-  }, [
-    accessProjectId,
-    mergedWindow,
-    projectionRegistry,
-    queryClient,
-    queryKey,
-  ]);
+    }
+    : null);
 
   const loadMoreGroup = async (scopeKey: string): Promise<void> => {
     if (inFlightScopesRef.current.has(scopeKey)) return;

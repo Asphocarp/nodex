@@ -81,19 +81,50 @@ describe("exact query invalidation", () => {
     queryClient.clear();
   });
 
-  test("does not claim a family cursor while any member lacks canonical data", () => {
+  test("ignores a disabled family member that has never owned canonical data", () => {
     const queryClient = new QueryClient();
     const familyKey = queryKeys.library.all();
     queryClient.setQueryData(queryKeys.library.metadata(), {
       storeEpoch: "epoch-1",
       commitSeq: 8,
     });
-    queryClient.getQueryCache().build(queryClient, {
+    const observer = new QueryObserver(queryClient, {
       queryKey: queryKeys.library.children("library", {}),
       queryFn: () => Promise.resolve({}),
+      enabled: false,
     });
+    const unsubscribe = observer.subscribe(() => undefined);
 
-    expect(queryFamilyProjectionCursor(queryClient, familyKey)).toBeNull();
-    queryClient.clear();
+    try {
+      expect(queryFamilyProjectionCursor(queryClient, familyKey)).toEqual({
+        storeEpoch: "epoch-1",
+        commitSeq: 8,
+      });
+    } finally {
+      unsubscribe();
+      queryClient.clear();
+    }
+  });
+
+  test("does not claim a family cursor while an active member is initially loading", () => {
+    const queryClient = new QueryClient();
+    const familyKey = queryKeys.library.all();
+    const read = deferred<{ storeEpoch: string; commitSeq: number }>();
+    queryClient.setQueryData(queryKeys.library.metadata(), {
+      storeEpoch: "epoch-1",
+      commitSeq: 8,
+    });
+    const observer = new QueryObserver(queryClient, {
+      queryKey: queryKeys.library.children("library", {}),
+      queryFn: () => read.promise,
+    });
+    const unsubscribe = observer.subscribe(() => undefined);
+
+    try {
+      expect(queryFamilyProjectionCursor(queryClient, familyKey)).toBeNull();
+    } finally {
+      unsubscribe();
+      queryClient.clear();
+    }
   });
 });

@@ -6,7 +6,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
 import {
   LIBRARY_MODULE_CONTRACT_VERSION,
@@ -29,7 +29,7 @@ import {
   invalidateQueryFamilyExactly,
   queryFamilyProjectionCursor,
 } from "./query-invalidation";
-import { useProjectionInvalidationRegistry } from "./projection-invalidation-context";
+import { useProjectionRegistration } from "./projection-invalidation-context";
 import type { AuthorizedReadStamp } from "../../shared/authorized-read-stamp";
 import {
   admitResourceAuthorityQuery,
@@ -197,16 +197,18 @@ export const useLibraryResourceProjectAccess = (
 
 export const useLibraryNavigationInvalidation = (): void => {
   const queryClient = useQueryClient();
-  const registry = useProjectionInvalidationRegistry();
   const metadata = useQuery(libraryMetadataQueryOptions());
+  const retainedLibraryId = useRef<string | null>(null);
+  // A reset clears query data before Main receives its acknowledgement. Keep
+  // the immutable audience identity alive across that bounded repair window.
+  if (metadata.data) retainedLibraryId.current = metadata.data.libraryId;
+  const libraryId = metadata.data?.libraryId ?? retainedLibraryId.current;
   useEffect(() => subscribeLibraryChanges(() => {
     void invalidateQueryFamilyExactly(queryClient, libraryModuleQueryKey);
   }), [queryClient]);
-  useEffect(() => {
-    const snapshot = metadata.data;
-    if (!snapshot) return;
-    return registry.register({
-      scope: { kind: "library", libraryId: snapshot.libraryId },
+  useProjectionRegistration(libraryId
+    ? {
+      scope: { kind: "library", libraryId },
       consumerKey: hashKey(libraryModuleQueryKey),
       getDependencies: () => ({ aggregate: true }),
       getCursor: () => queryFamilyProjectionCursor(
@@ -217,8 +219,8 @@ export const useLibraryNavigationInvalidation = (): void => {
         queryClient,
         libraryModuleQueryKey,
       ),
-    });
-  }, [metadata.data, queryClient, registry]);
+    }
+    : null);
 };
 
 export const useLibraryMetadata = (enabled = true) => useQuery({
