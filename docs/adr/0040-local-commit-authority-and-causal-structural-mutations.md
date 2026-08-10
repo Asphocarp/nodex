@@ -234,8 +234,17 @@ before I/O; it learns direct, ancestor, membership, and overlapping-grant roots
 from the stamp. The Core authorization evaluator returns those proof roots from
 the same decision that establishes readability; response payload resources are
 inputs to that evaluator, not substitutes for the proof. The root union uses the
-generated `ResourceKey` order so every grant-root `Revoke` intersects dependent
-stamps without enumerating descendants. The renderer verifies the stamp's
+generated `ResourceKey` order and includes every Page on an inherited
+grant-to-subject ownership path, so grant changes and structural edge changes
+both intersect dependent stamps without enumerating descendants. If an
+otherwise valid proof union exceeds the stamp bound, Core replaces it with the
+authorization scope's Library or Project aggregate root. Every exact visibility
+change for that scope also invalidates the same aggregate root; compiler budget
+overflow continues to emit a whole-address `ConservativeReset`. When an
+authority edge changes but a candidate resource remains readable, its exact
+`Grant` root schedules targeted proof repair; this prevents a registration from
+retaining an obsolete path until a later revoke. The renderer verifies the
+stamp's
 closed resource union, address/scope/epoch/covered floor, and registers those
 roots before adopting the response. Exact visibility changes fence only
 matching registrations. Address or conservative reset fences the complete

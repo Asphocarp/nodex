@@ -311,11 +311,19 @@ export const fetchPageDetail = async (
         authorityLease,
         result.value.authorization,
         (fence) => {
-          if (fence.kind === "grant") {
-            invalidatePageDetail(projectId, pageId);
+          const subjectRevoked = fence.kind === "revoke"
+            && fence.roots.some((root) =>
+              root.kind === "page" && root.page_id === pageId
+            );
+          if (subjectRevoked) {
+            revokePageDetail(projectId, pageId);
             return;
           }
-          revokePageDetail(projectId, pageId);
+          invalidatePageDetail(projectId, pageId);
+          void fetchPageDetail(projectId, pageId, {
+            minimumCommitSeq: fence.commitSeq,
+            libraryId,
+          }).catch(() => undefined);
         },
       );
       entry.freshnessAuthority?.release();

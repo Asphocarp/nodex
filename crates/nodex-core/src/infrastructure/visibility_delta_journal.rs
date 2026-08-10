@@ -14,7 +14,9 @@ use sha2::{Digest, Sha256};
 
 use super::durable_mutation::AuthorizedResourceObservation;
 use super::local_commit::CommitContext;
-use super::resource_authorization::{AuthorizationGraphView, CurrentGraphView};
+use super::resource_authorization::{
+    AuthorizationGraphView, CurrentGraphView, authorization_scope_aggregate_root,
+};
 use super::sqlite::{StoreError, StoreErrorCode};
 
 const CONTEXT_TABLE: &str = "local_commit_visibility_context";
@@ -377,7 +379,9 @@ pub(crate) fn validate_seal(
         let conservative_reset = delta_kind == "conservative_reset";
         if conservative_reset != roots.is_empty()
             || roots.windows(2).any(|pair| pair[0] >= pair[1])
-            || roots.iter().any(|root| !candidate_set.contains(root))
+            || roots.iter().any(|root| {
+                !candidate_set.contains(root) && root != &authorization_scope_aggregate_root(&scope)
+            })
         {
             return Err(corrupt(
                 "Visibility delta is not traceable to canonical dirty facts",
@@ -489,6 +493,31 @@ impl VisibilityDeltaJournal {
                 .entry((observation.authorization_scope.clone(), "grant"))
                 .or_default()
                 .push(resource);
+        }
+        // A resource can remain readable while the proof that authorizes it
+        // changes (for example, adding an overlapping ancestor grant). Mark
+        // that root as a targeted repair so registrations using the old proof
+        // cannot survive a later change to the new path.
+        for observation in snapshots.post.intersection(&snapshots.pre) {
+            let resource = resource_from_observation(observation);
+            deltas
+                .entry((observation.authorization_scope.clone(), "grant"))
+                .or_default()
+                .push(resource);
+        }
+        let mut aggregate_scopes = deltas
+            .keys()
+            .map(|(scope, _)| scope.clone())
+            .collect::<BTreeSet<_>>();
+        if snapshots.conservative_scopes.is_empty() {
+            aggregate_scopes.extend(project_fact_scopes(&facts)?);
+        }
+        for scope in aggregate_scopes {
+            let aggregate_root = authorization_scope_aggregate_root(&scope);
+            deltas
+                .entry((scope, "revoke"))
+                .or_default()
+                .push(aggregate_root);
         }
         for ((scope, delta_kind), mut roots) in deltas {
             roots.sort();
@@ -609,6 +638,30 @@ impl VisibilityDeltaJournal {
         }));
         Ok(())
     }
+}
+
+fn project_fact_scopes(
+    facts: &[DirtyFact],
+) -> Result<BTreeSet<DeliveryAuthorizationScope>, StoreError> {
+    let mut scopes = BTreeSet::new();
+    for fact in facts {
+        if fact.relation_kind != "projects" {
+            continue;
+        }
+        for row in [fact.old_row.as_ref(), fact.new_row.as_ref()]
+            .into_iter()
+            .flatten()
+        {
+            let Some(library_id) = row.get("library_id").and_then(Value::as_str) else {
+                continue;
+            };
+            scopes.insert(DeliveryAuthorizationScope::Project {
+                library_id: library_id.to_owned(),
+                project_id: required_string(row, "id")?,
+            });
+        }
+    }
+    Ok(scopes)
 }
 
 fn exceeds_project_scope_budget(connection: &Connection) -> Result<bool, StoreError> {

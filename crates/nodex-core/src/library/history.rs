@@ -193,32 +193,12 @@ fn page_authorization_roots(
             });
         }
     }
-    let page_grant_roots = connection
-        .prepare(
-            "WITH RECURSIVE ancestors(page_id, path) AS ( \
-               SELECT ?2, '|' || ?2 || '|' UNION ALL \
-               SELECT page.parent_id, ancestors.path || page.parent_id || '|' \
-               FROM pages page JOIN ancestors ON page.block_id = ancestors.page_id \
-               WHERE page.parent_kind = 'page' \
-                 AND instr(ancestors.path, '|' || page.parent_id || '|') = 0) \
-             SELECT grant_row.root_id FROM project_resource_grants grant_row JOIN ancestors \
-               ON grant_row.root_id = ancestors.page_id \
-             WHERE grant_row.project_id = ?1 AND grant_row.root_kind = 'page' \
-               AND grant_row.lifecycle = 'active' \
-               AND (?3 = 0 OR grant_row.access = 'read_write') \
-             ORDER BY grant_row.root_id",
-        )?
-        .query_map(
-            params![project_id, page_id, i64::from(write_required)],
-            |row| row.get::<_, String>(0),
-        )?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    for grant_page_id in &page_grant_roots {
-        roots.insert(ResourceKey::Page {
-            page_id: grant_page_id.clone(),
-        });
+    let page_grant_proof =
+        super::page_grant_ownership_proof(connection, project_id, page_id, write_required)?;
+    if let Some(proof) = &page_grant_proof {
+        roots.extend(proof.iter().cloned());
     }
-    if owned_by_project || primary_database || database_grant || !page_grant_roots.is_empty() {
+    if owned_by_project || primary_database || database_grant || page_grant_proof.is_some() {
         return Ok(Some(roots.into_iter().collect()));
     }
     Ok(None)

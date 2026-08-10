@@ -15,6 +15,33 @@ use super::sqlite::{StoreError, StoreErrorCode};
 
 const MAX_AUTHORIZATION_DEPENDENCIES: usize = 4_096;
 
+#[derive(Default)]
+struct AuthorizationDependencyAccumulator {
+    exact: BTreeSet<ResourceKey>,
+    use_scope_aggregate: bool,
+}
+
+impl AuthorizationDependencyAccumulator {
+    fn extend(&mut self, proof: impl IntoIterator<Item = ResourceKey>) {
+        if self.use_scope_aggregate {
+            return;
+        }
+        self.exact.extend(proof);
+        if self.exact.len() <= MAX_AUTHORIZATION_DEPENDENCIES {
+            return;
+        }
+        self.exact.clear();
+        self.use_scope_aggregate = true;
+    }
+
+    fn finish(self, scope: &DeliveryAuthorizationScope) -> Vec<ResourceKey> {
+        if self.use_scope_aggregate {
+            return vec![authorization_scope_aggregate_root(scope)];
+        }
+        self.exact.into_iter().collect()
+    }
+}
+
 pub(crate) trait AuthorizationGraphView {
     fn connection(&self) -> &Connection;
 }
@@ -98,7 +125,7 @@ pub(crate) fn issue_read_stamp(
         }
     };
     let graph = CurrentGraphView::new(connection);
-    let mut authorization_dependencies = BTreeSet::new();
+    let mut authorization_dependencies = AuthorizationDependencyAccumulator::default();
     for resource in &protected_resources {
         let Some(proof) =
             authorization_proof_in_view(&graph, context, &authorization_scope, resource)?
@@ -112,15 +139,8 @@ pub(crate) fn issue_read_stamp(
             ));
         };
         authorization_dependencies.extend(proof);
-        if authorization_dependencies.len() > MAX_AUTHORIZATION_DEPENDENCIES {
-            return Err(StoreError::new(
-                StoreErrorCode::ResourceExhausted,
-                "Canonical read authorization proof exceeds its dependency bound",
-                false,
-            ));
-        }
     }
-    let authorization_dependencies = authorization_dependencies.into_iter().collect::<Vec<_>>();
+    let authorization_dependencies = authorization_dependencies.finish(&authorization_scope);
     let encoded = serde_json::to_vec(&CanonicalAuthorizedReadStamp {
         hash_version: 1,
         store_epoch: &store_epoch,
@@ -142,6 +162,28 @@ pub(crate) fn issue_read_stamp(
         covered_commit_seq,
         stamp_hash: format!("{:x}", Sha256::digest(encoded)),
     })
+}
+
+pub(crate) fn authorization_scope_aggregate_root(
+    scope: &DeliveryAuthorizationScope,
+) -> ResourceKey {
+    match scope {
+        DeliveryAuthorizationScope::Library { library_id }
+        | DeliveryAuthorizationScope::Document {
+            library_id,
+            project_id: None,
+            ..
+        } => ResourceKey::Library {
+            library_id: library_id.clone(),
+        },
+        DeliveryAuthorizationScope::Project { project_id, .. }
+        | DeliveryAuthorizationScope::Document {
+            project_id: Some(project_id),
+            ..
+        } => ResourceKey::Project {
+            project_id: project_id.clone(),
+        },
+    }
 }
 
 pub(crate) fn can_read_in_view(
@@ -531,4 +573,36 @@ fn authorization_miss(error: &StoreError) -> bool {
 
 fn corrupt(message: &str) -> StoreError {
     StoreError::new(StoreErrorCode::StoreCorrupt, message, false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn oversized_project_proofs_use_the_project_authorization_aggregate() {
+        let scope = DeliveryAuthorizationScope::Project {
+            library_id: "library:one".to_owned(),
+            project_id: "project:one".to_owned(),
+        };
+        let proof = (0..MAX_AUTHORIZATION_DEPENDENCIES).map(|index| ResourceKey::Page {
+            page_id: format!("page:{index:04}"),
+        });
+        let mut exact = AuthorizationDependencyAccumulator::default();
+        exact.extend(proof.clone());
+        assert_eq!(exact.finish(&scope).len(), MAX_AUTHORIZATION_DEPENDENCIES);
+
+        let mut overflow = AuthorizationDependencyAccumulator::default();
+        overflow.extend(proof);
+        overflow.extend([ResourceKey::Page {
+            page_id: "page:overflow".to_owned(),
+        }]);
+
+        assert_eq!(
+            overflow.finish(&scope),
+            vec![ResourceKey::Project {
+                project_id: "project:one".to_owned(),
+            }]
+        );
+    }
 }

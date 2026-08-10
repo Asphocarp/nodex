@@ -952,7 +952,7 @@ mod tests {
         LibraryBlockTransferTarget, LibraryDocumentHead, LibraryNavigationParent,
         LibraryPageFileKind, LibraryPageLifecycleMutation, LibraryPageLifecycleState,
         LibraryPageLifecycleTagOption, LibraryPagePrepareKind, LibraryPageWorkflowStatus,
-        LibraryProjectAccessChange, LibraryWriteParent,
+        LibraryPageWriteDestination, LibraryProjectAccessChange, LibraryWriteParent,
     };
     use nodex_core_contracts::workspace::{
         PROJECT_WORKSPACE_CONTRACT_VERSION, ProjectWorkspaceIntent, ProjectWorkspaceThreadPatch,
@@ -985,6 +985,33 @@ mod tests {
             connection_id: "connection-1".to_owned(),
             adapter: AdapterKind::Test,
         }
+    }
+
+    fn prepare_page_move_etag(
+        module: &LibraryModule,
+        context: &BoundModuleContext,
+        page_id: &str,
+    ) -> String {
+        let prepared = module
+            .read(
+                context,
+                ModuleReadRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    read: LibraryRead::PageFile {
+                        page_id: page_id.to_owned(),
+                        file_kind: LibraryPageFileKind::MetaYaml,
+                        prepare: Some(LibraryPagePrepareKind::PageMove { view_id: None }),
+                    },
+                },
+            )
+            .expect("prepare Page move");
+        let LibraryReadValue::PageFile { value } = prepared.value else {
+            panic!("Page move preparation")
+        };
+        value
+            .validators
+            .move_etag
+            .expect("Page move preparation ETag")
     }
 
     fn request(operation_id: &str, page_id: &str) -> ModuleApplyRequest<LibraryIntent> {
@@ -2740,8 +2767,31 @@ mod tests {
             .expect_err("Project clients cannot perform global View lookup");
         assert_eq!(view_location_error.code, CoreErrorCode::Unauthorized);
 
+        const INTERMEDIATE_PAGE: &str = "page:intermediate";
+        const INTERMEDIATE_DOCUMENT: &str = "document:intermediate";
         const NESTED_PAGE: &str = "page:nested";
         const NESTED_DOCUMENT: &str = "document:nested";
+        module
+            .apply(
+                &persistent_context,
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "create:intermediate-reference-page".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::CreatePage {
+                        page_id: INTERMEDIATE_PAGE.to_owned(),
+                        document_id: INTERMEDIATE_DOCUMENT.to_owned(),
+                        title: "Intermediate reference".to_owned(),
+                        parent: LibraryWriteParent::Page {
+                            page_id: ROOT_PAGE.to_owned(),
+                            expected_document_generation: 1,
+                            expected_document_head_seq: 1,
+                            before: None,
+                        },
+                    },
+                },
+            )
+            .expect("create intermediate reference Page");
         module
             .apply(
                 &persistent_context,
@@ -2754,7 +2804,7 @@ mod tests {
                         document_id: NESTED_DOCUMENT.to_owned(),
                         title: "Nested reference".to_owned(),
                         parent: LibraryWriteParent::Page {
-                            page_id: ROOT_PAGE.to_owned(),
+                            page_id: INTERMEDIATE_PAGE.to_owned(),
                             expected_document_generation: 1,
                             expected_document_head_seq: 1,
                             before: None,
@@ -2808,8 +2858,9 @@ mod tests {
         else {
             panic!("available Page ownership path");
         };
-        assert_eq!(ancestors.len(), 1);
+        assert_eq!(ancestors.len(), 2);
         assert_eq!(ancestors[0].page_id, ROOT_PAGE);
+        assert_eq!(ancestors[1].page_id, INTERMEDIATE_PAGE);
         let project_two_context = BoundModuleContext {
             project_id: Some(ProjectId("project-2".to_owned())),
             connection_id: "connection:reference-project".to_owned(),
@@ -2958,8 +3009,8 @@ mod tests {
             .expect("overlapping grants authorize nested Page detail")
             .authorization
             .expect("overlapping-grant Page detail stamp");
-        assert_eq!(overlapping_stamp.authorization_dependencies.len(), 2);
-        for page_id in [NESTED_PAGE, ROOT_PAGE] {
+        assert_eq!(overlapping_stamp.authorization_dependencies.len(), 3);
+        for page_id in [NESTED_PAGE, INTERMEDIATE_PAGE, ROOT_PAGE] {
             assert!(overlapping_stamp.authorization_dependencies.contains(
                 &nodex_core_contracts::events::ResourceKey::Page {
                     page_id: page_id.to_owned(),
@@ -3022,8 +3073,145 @@ mod tests {
         else {
             panic!("available Page ownership path");
         };
-        assert_eq!(ancestors.len(), 1);
+        assert_eq!(ancestors.len(), 2);
         assert_eq!(ancestors[0].page_id, ROOT_PAGE);
+        assert_eq!(ancestors[1].page_id, INTERMEDIATE_PAGE);
+        let granted_intermediate = module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "grant:intermediate-reference-page".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::GrantProjectAccess {
+                        project_id: "project-2".to_owned(),
+                        target: LibraryResourceTarget::Page {
+                            page_id: INTERMEDIATE_PAGE.to_owned(),
+                        },
+                        access: LibraryAccess::Read,
+                    },
+                },
+            )
+            .expect("grant overlapping intermediate Page access");
+        let overlapping_path_grant_roots = kernel
+            .readers()
+            .read_default(|connection| {
+                connection
+                    .prepare(
+                        "SELECT roots_json FROM local_commit_visibility_deltas \
+                         WHERE commit_seq = ?1 AND delta_kind = 'grant' \
+                         ORDER BY scope_key, delta_hash",
+                    )?
+                    .query_map([granted_intermediate.committed.receipt.commit_seq], |row| {
+                        row.get::<_, String>(0)
+                    })?
+                    .collect::<rusqlite::Result<Vec<_>>>()
+                    .map_err(StoreError::from)
+            })
+            .expect("read overlapping-path grant visibility roots");
+        assert!(overlapping_path_grant_roots.iter().any(|encoded| {
+            serde_json::from_str::<Vec<nodex_core_contracts::events::ResourceKey>>(encoded)
+                .expect("visibility roots")
+                .iter()
+                .any(|root| {
+                    root == &nodex_core_contracts::events::ResourceKey::Page {
+                        page_id: INTERMEDIATE_PAGE.to_owned(),
+                    } && ancestor_stamp.authorization_dependencies.contains(root)
+                })
+        }));
+        module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "revoke:intermediate-reference-page".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::SetProjectAccess {
+                        target: LibraryResourceTarget::Page {
+                            page_id: INTERMEDIATE_PAGE.to_owned(),
+                        },
+                        changes: vec![LibraryProjectAccessChange {
+                            project_id: "project-2".to_owned(),
+                            access: None,
+                            expected_revision: Some(1),
+                        }],
+                    },
+                },
+            )
+            .expect("remove overlapping intermediate Page access");
+        let moved_intermediate = module
+            .apply(
+                &persistent_context,
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "move:intermediate-reference-page".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::MovePage {
+                        page_id: INTERMEDIATE_PAGE.to_owned(),
+                        destination: LibraryPageWriteDestination::Library { at: None },
+                        expected_etag: prepare_page_move_etag(
+                            &module,
+                            &persistent_context,
+                            INTERMEDIATE_PAGE,
+                        ),
+                    },
+                },
+            )
+            .expect("move intermediate Page outside the granted ownership path");
+        let moved_intermediate_manifest = kernel
+            .readers()
+            .read_default(|connection| {
+                local_commit::read_manifest(
+                    connection,
+                    moved_intermediate.committed.receipt.commit_seq,
+                )
+            })
+            .expect("read intermediate-move Manifest");
+        assert!(
+            moved_intermediate_manifest
+                .revocations
+                .iter()
+                .any(|revocation| {
+                    revocation.resource_kind == RevokedResourceKind::Page
+                        && revocation.resource_id == INTERMEDIATE_PAGE
+                })
+        );
+        assert!(
+            moved_intermediate_manifest
+                .revocations
+                .iter()
+                .any(|revocation| {
+                    revocation.resource_kind == RevokedResourceKind::Page
+                        && ancestor_stamp.authorization_dependencies.contains(
+                            &nodex_core_contracts::events::ResourceKey::Page {
+                                page_id: revocation.resource_id.clone(),
+                            },
+                        )
+                })
+        );
+        let moved_intermediate_delta_roots = kernel
+            .readers()
+            .read_default(|connection| {
+                connection
+                    .prepare(
+                        "SELECT roots_json FROM local_commit_visibility_deltas \
+                         WHERE commit_seq = ?1 AND delta_kind = 'revoke' \
+                         ORDER BY scope_key, delta_hash",
+                    )?
+                    .query_map([moved_intermediate.committed.receipt.commit_seq], |row| {
+                        row.get::<_, String>(0)
+                    })?
+                    .collect::<rusqlite::Result<Vec<_>>>()
+                    .map_err(StoreError::from)
+            })
+            .expect("read intermediate-move visibility roots");
+        assert!(moved_intermediate_delta_roots.iter().any(|encoded| {
+            serde_json::from_str::<Vec<nodex_core_contracts::events::ResourceKey>>(encoded)
+                .expect("visibility roots")
+                .contains(&nodex_core_contracts::events::ResourceKey::Project {
+                    project_id: "project-2".to_owned(),
+                })
+        }));
         let revoked_ancestor = module
             .apply(
                 &context(),
@@ -3200,7 +3388,7 @@ mod tests {
                     read: LibraryRead::Children {
                         parent: LibraryNavigationParent::Library,
                         cursor: Some(cursor),
-                        limit: Some(1),
+                        limit: Some(2),
                         force_include_target: None,
                     },
                 },
@@ -3210,7 +3398,7 @@ mod tests {
         else {
             panic!("paged roots continuation");
         };
-        assert_eq!(items.len(), 1);
+        assert_eq!(items.len(), 2);
         assert_eq!(next_cursor, None);
         assert!(!has_more);
     }
@@ -5676,11 +5864,13 @@ mod agent_page_write;
 mod agent_search;
 mod block_transfer;
 pub use block_transfer::BlockTransferMetrics;
+mod authorization;
 mod canvas_mutation;
 mod content;
 mod content_rehome;
 pub(crate) mod cursor;
 mod history;
+pub(crate) use authorization::page_grant_ownership_proof;
 pub(crate) use history::{
     page_read_authorization_roots, require_page_read_access, require_page_write_access,
 };

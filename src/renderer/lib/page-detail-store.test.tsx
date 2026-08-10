@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
 import { plainTextToPortableRichText } from "../../shared/block-documents";
+import type { AuthorityResource } from "../../shared/authorized-read-stamp";
 import type { PageDetail } from "../../shared/page-detail";
 import { authorizedReadStampFixture } from "../../shared/testing/authorized-read-stamp-fixture";
 import type { ProjectionStreamMessage } from "../../shared/projection-stream";
@@ -37,6 +38,7 @@ const detail = (
   title: string,
   headSeq: number,
   storeEpoch = "epoch-1",
+  authorizationDependencies?: readonly AuthorityResource[],
 ): PageDetail => ({
   version: 3,
   projectId: "project-1",
@@ -52,6 +54,7 @@ const detail = (
     subject: { kind: "page", page_id: "page-1" },
     storeEpoch,
     commitSeq: headSeq,
+    authorizationDependencies,
   }),
   page: {
     pageId: "page-1",
@@ -501,26 +504,30 @@ describe("Page Detail store realtime convergence", () => {
 
   test("refreshes Page detail without tombstoning it when only a dependency is revoked", async () => {
     mocks.readPageDetail
-      .mockResolvedValueOnce({ ok: true, value: detail("Before", 1) })
+      .mockResolvedValueOnce({
+        ok: true,
+        value: detail("Before", 1, "epoch-1", [
+          { kind: "page", page_id: "page-1" },
+          { kind: "page", page_id: "page-ancestor" },
+        ]),
+      })
       .mockResolvedValueOnce({ ok: true, value: detail("Still readable", 2) });
     const { result } = renderHook(
       () => usePageDetail("library-1", "project-1", "page-1"),
       { wrapper },
     );
     await waitFor(() => expect(result.current.detail?.page.title).toBe("Before"));
-    const revocation = pageRevocation(2);
-
     await act(async () => {
-      publish({
-        ...revocation,
-        delivery: {
-          ...revocation.delivery,
-          revocation: {
-            ...revocation.delivery.revocation,
-            resource_kind: "document",
-            resource_id: "document-1",
-          },
+      rendererAuthorityFreshnessIndex.admitVisibility({
+        deliveryAddress: {
+          kind: "project",
+          library_id: "library-1",
+          project_id: "project-1",
         },
+        storeEpoch: "epoch-1",
+        commitSeq: 2,
+        change: "revoke",
+        roots: [{ kind: "page", page_id: "page-ancestor" }],
       });
       await Promise.resolve();
     });
@@ -533,27 +540,30 @@ describe("Page Detail store realtime convergence", () => {
 
   test("keeps revoked dependency data empty after the trailing read fails", async () => {
     mocks.readPageDetail
-      .mockResolvedValueOnce({ ok: true, value: detail("Before", 1) })
-      .mockRejectedValueOnce(new Error("canonical read unavailable"))
+      .mockResolvedValueOnce({
+        ok: true,
+        value: detail("Before", 1, "epoch-1", [
+          { kind: "page", page_id: "page-1" },
+          { kind: "page", page_id: "page-ancestor" },
+        ]),
+      })
       .mockRejectedValueOnce(new Error("canonical read unavailable"));
     const { result } = renderHook(
       () => usePageDetail("library-1", "project-1", "page-1"),
       { wrapper },
     );
     await waitFor(() => expect(result.current.detail?.page.title).toBe("Before"));
-    const revocation = pageRevocation(2);
-
     await act(async () => {
-      publish({
-        ...revocation,
-        delivery: {
-          ...revocation.delivery,
-          revocation: {
-            ...revocation.delivery.revocation,
-            resource_kind: "document",
-            resource_id: "document-1",
-          },
+      rendererAuthorityFreshnessIndex.admitVisibility({
+        deliveryAddress: {
+          kind: "project",
+          library_id: "library-1",
+          project_id: "project-1",
         },
+        storeEpoch: "epoch-1",
+        commitSeq: 2,
+        change: "revoke",
+        roots: [{ kind: "page", page_id: "page-ancestor" }],
       });
       await Promise.resolve();
     });
@@ -565,7 +575,7 @@ describe("Page Detail store realtime convergence", () => {
         error: "canonical read unavailable",
       });
     });
-    expect(mocks.readPageDetail).toHaveBeenCalledTimes(3);
+    expect(mocks.readPageDetail).toHaveBeenCalledTimes(2);
   });
 
   test("retains an authorized Page across surface remounts without serving it past an effect", async () => {

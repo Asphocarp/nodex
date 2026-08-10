@@ -111,27 +111,11 @@ pub(crate) fn read_authorization_roots(
         }
         return Err(corrupt("Embedded Database has no owning Page"));
     };
-    let inherited_roots = connection
-        .prepare(
-            "WITH RECURSIVE ancestors(page_id, path) AS (\
-               SELECT ?2, '|' || ?2 || '|' \
-               UNION ALL \
-               SELECT page.parent_id, ancestors.path || page.parent_id || '|' \
-               FROM pages page JOIN ancestors ON page.block_id = ancestors.page_id \
-               WHERE page.parent_kind = 'page' \
-                 AND instr(ancestors.path, '|' || page.parent_id || '|') = 0\
-             ) SELECT grant_row.root_id FROM project_resource_grants grant_row JOIN ancestors \
-               ON grant_row.root_id = ancestors.page_id \
-             WHERE grant_row.project_id = ?1 AND grant_row.root_kind = 'page' \
-               AND grant_row.lifecycle = 'active' ORDER BY grant_row.root_id",
-        )?
-        .query_map(params![project_id, owner_page_id], |row| {
-            row.get::<_, String>(0)
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    for page_id in inherited_roots {
+    let inherited_proof =
+        crate::library::page_grant_ownership_proof(connection, project_id, &owner_page_id, false)?;
+    for root in inherited_proof.into_iter().flatten() {
         authorized = true;
-        roots.insert(ResourceKey::Page { page_id });
+        roots.insert(root);
     }
     Ok(authorized.then(|| roots.into_iter().collect()))
 }
