@@ -9,7 +9,7 @@ export const CORE_CLIENT_REQUIREMENTS = {
   "modules": [
     {
       "module": "library",
-      "contract_version": 10
+      "contract_version": 11
     },
     {
       "module": "database",

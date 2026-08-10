@@ -13,18 +13,14 @@ import {
 } from "@/components/ui/dialog";
 import { toast } from "@/components/ui/toast";
 import {
-  buildLibraryMoveOperation,
   buildLibraryProjectAccessOperation,
   buildLibraryProjectGrantOperation,
 } from "@/lib/library-operations";
 import type { ModalCloseProps } from "@/lib/modal-registry";
 import {
   useApplyLibraryOperation,
-  useLibraryCatalog,
-  useLibraryPath,
   useLibraryResourceProjectAccess,
 } from "@/lib/use-library-navigation";
-import type { LibraryWriteParent } from "../../../shared/library-module";
 import { LibraryResourceAccessDialog } from "./library-resource-access-dialog";
 import {
   libraryResourceTargetKey,
@@ -32,119 +28,6 @@ import {
   type LibraryResourceTarget,
   type OpenLibraryResourceInProject,
 } from "./library-resource-action-types";
-
-interface LibraryMoveModalProps extends ModalCloseProps {
-  readonly target: LibraryResourceTarget;
-  readonly title: string;
-  readonly expectedLocationRevision: number;
-}
-
-function LibraryMoveModalContent({
-  target,
-  title,
-  expectedLocationRevision,
-  onClose,
-}: LibraryMoveModalProps) {
-  const [destination, setDestination] = useState("library");
-  const { mutation } = useApplyLibraryOperation();
-  const pages = useLibraryCatalog({
-    kinds: ["page"],
-    lifecycle: "active",
-    limit: 100,
-  });
-  const destinationPageId = destination.startsWith("page:")
-    ? destination.slice("page:".length)
-    : "disabled-library-destination";
-  const destinationPath = useLibraryPath(
-    { kind: "page", pageId: destinationPageId },
-    destination.startsWith("page:"),
-  );
-  const destinationNode = destinationPath.data?.nodes.at(-1);
-  const selectedDestinationIsSelf = destination === libraryResourceTargetKey(target);
-
-  const applyMove = async () => {
-    let parent: LibraryWriteParent = { kind: "library" };
-    if (destination.startsWith("page:")) {
-      if (!destinationNode || destinationNode.kind !== "page") {
-        toast.danger("The destination Page changed. Choose it again.");
-        return;
-      }
-      parent = {
-        kind: "page",
-        pageId: destinationNode.pageId,
-        expectedDocumentGeneration: destinationNode.documentGeneration,
-        expectedDocumentHeadSeq: destinationNode.documentHeadSeq,
-      };
-    }
-    try {
-      await mutation.mutateAsync(buildLibraryMoveOperation({
-        target,
-        expectedLocationRevision,
-        parent,
-      }));
-      onClose();
-    } catch (error) {
-      toast.danger(error instanceof Error ? error.message : "Could not move Library item");
-    }
-  };
-
-  return (
-    <NodexDialog open onOpenChange={(open) => !open && onClose()}>
-      <NodexDialogContent size="compact">
-        <NodexDialogFrame>
-          <NodexDialogHeader>
-            <NodexDialogTitle>Move {title}</NodexDialogTitle>
-            <NodexDialogDescription>
-              Choose its owning location. IDs, Documents, and Database bindings are preserved.
-            </NodexDialogDescription>
-          </NodexDialogHeader>
-          <NodexDialogBody>
-            <label className="grid gap-1.5 text-sm text-token-text-primary">
-              Destination
-              <select
-                value={destination}
-                className="h-9 rounded-lg bg-token-bg-secondary px-3 outline-none focus:ring-2 focus:ring-token-border"
-                onChange={(event) => setDestination(event.target.value)}
-              >
-                <option value="library">Library root</option>
-                {(pages.data?.items ?? []).map((page) => page.target.kind === "page" ? (
-                  <option key={page.target.pageId} value={`page:${page.target.pageId}`}>
-                    {page.title || "Untitled"} — {page.locationLabel}
-                  </option>
-                ) : null)}
-              </select>
-            </label>
-          </NodexDialogBody>
-          <NodexDialogFooter>
-            <NodexDialogAction onClick={onClose}>
-              Cancel
-            </NodexDialogAction>
-            <NodexDialogAction
-              tone="primary"
-              disabled={
-                mutation.isPending
-                || selectedDestinationIsSelf
-                || destinationPath.isPending
-              }
-              onClick={() => void applyMove()}
-            >
-              Move
-            </NodexDialogAction>
-          </NodexDialogFooter>
-        </NodexDialogFrame>
-      </NodexDialogContent>
-    </NodexDialog>
-  );
-}
-
-export function LibraryMoveModal(props: LibraryMoveModalProps) {
-  return (
-    <LibraryMoveModalContent
-      key={libraryResourceTargetKey(props.target)}
-      {...props}
-    />
-  );
-}
 
 interface LibraryResourceAccessModalProps extends ModalCloseProps {
   readonly target: LibraryResourceTarget;

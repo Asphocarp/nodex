@@ -7,9 +7,8 @@ import {
   useState,
   type KeyboardEvent,
   type PointerEvent as ReactPointerEvent,
-  type ReactNode,
 } from "react";
-import { NfmSideMenuChevronRightIcon, PageIcon, SpinnerIcon, SearchIcon } from "@/components/shared/icons";
+import { NfmSideMenuChevronRightIcon, PageIcon, SpinnerIcon } from "@/components/shared/icons";
 import {
   resolveQueryFreshAccept,
   shouldConsumeStalePickerNavigation,
@@ -37,6 +36,11 @@ import {
 } from "./nfm-move-to-menu-model";
 import { createNfmMoveToSearchIndex } from "./nfm-move-to-menu-search";
 import { ProjectMarker } from "@/components/workbench/project-marker";
+import {
+  NodexDestinationPicker,
+  NodexDestinationPickerSection,
+  NodexDestinationPickerStatus,
+} from "@/components/ui/destination-picker";
 
 interface NfmMoveToMenuProps {
   sourceProjectId: string | null;
@@ -119,18 +123,6 @@ function isAcceptableMoveToRow(
   row: NfmMoveToRow,
 ): row is Extract<NfmMoveToRow, { kind: "page" | "db-column" }> {
   return row.kind === "page" || row.kind === "db-column";
-}
-
-function MoveToStatusRow({
-  children,
-}: {
-  children: ReactNode;
-}) {
-  return (
-    <div className="flex h-9 items-center px-3 text-[13px] leading-5 text-token-description-foreground">
-      {children}
-    </div>
-  );
 }
 
 function NfmMoveToResultRow({
@@ -260,11 +252,7 @@ function NfmMoveToSectionView({
   if (section.rows.length === 0) return null;
 
   return (
-    <div className="pb-1">
-      <div className="flex h-7 items-end px-[14px] pb-1 pt-3 text-[12px] leading-4 font-medium text-token-description-foreground">
-        <span className="min-w-0 flex-1 truncate">{section.label}</span>
-      </div>
-      <div className="flex flex-col gap-px px-1">
+    <NodexDestinationPickerSection label={section.label}>
         {section.rows.map((row, offset) => {
           const index = startIndex + offset;
           return (
@@ -282,8 +270,7 @@ function NfmMoveToSectionView({
             />
           );
         })}
-      </div>
-    </div>
+    </NodexDestinationPickerSection>
   );
 }
 
@@ -563,36 +550,21 @@ export function NfmMoveToMenuSurface({
   let rowIndex = 0;
 
   return (
-    <div
-      role="dialog"
-      aria-label={ariaLabel}
-      className="flex max-h-[70vh] w-[330px] max-w-[calc(100vw-24px)] flex-col overflow-hidden text-[14px] leading-[1.2]"
-      contentEditable={false}
+    <NodexDestinationPicker
+      ariaLabel={ariaLabel}
+      placeholder={placeholder}
+      query={query}
+      inputId={comboboxId}
+      listboxId={listboxId}
+      activeDescendantId={activeDescendantId}
+      busy={rowsStale || resolvedLoading}
+      onQueryChange={(nextQuery) => {
+        setAcceptError(null);
+        setFocusedRowId(null);
+        setQuery(nextQuery);
+      }}
+      onKeyDown={handleInputKeyDown}
     >
-      <div className="flex h-[38px] shrink-0 items-center gap-1.5 px-2 py-[5px]">
-        <SearchIcon className="size-4 shrink-0 text-token-description-foreground" aria-hidden="true" />
-        <input
-          id={comboboxId}
-          role="combobox"
-          aria-label={ariaLabel}
-          aria-autocomplete="list"
-          aria-controls={listboxId}
-          aria-expanded="true"
-          aria-haspopup="listbox"
-          aria-activedescendant={activeDescendantId}
-          value={query}
-          placeholder={placeholder}
-          className="h-7 min-w-0 flex-1 rounded-[7px] bg-transparent px-1.5 py-[3px] text-[14px] text-token-foreground outline-hidden placeholder:text-token-description-foreground focus:bg-token-foreground/5"
-          onChange={(event) => {
-            setAcceptError(null);
-            setFocusedRowId(null);
-            setQuery(event.target.value);
-          }}
-          onKeyDown={handleInputKeyDown}
-        />
-      </div>
-      <div className="notion-scroller vertical h-[374px] min-h-0 overflow-y-auto pb-3">
-        <div id={listboxId} role="listbox" aria-labelledby={comboboxId} aria-busy={rowsStale || resolvedLoading}>
           {sections.map((section) => {
             const startIndex = rowIndex;
             rowIndex += section.rows.length;
@@ -621,19 +593,17 @@ export function NfmMoveToMenuSurface({
             );
           })}
           {showDelayedLoading ? (
-            <MoveToStatusRow>
+            <NodexDestinationPickerStatus>
               <SpinnerIcon className="mr-2 size-3.5 text-token-description-foreground" />
               Loading…
-            </MoveToStatusRow>
+            </NodexDestinationPickerStatus>
           ) : null}
           {displayError ? (
-            <MoveToStatusRow>{MOVE_TO_MENU_ERROR}</MoveToStatusRow>
+            <NodexDestinationPickerStatus>{MOVE_TO_MENU_ERROR}</NodexDestinationPickerStatus>
           ) : null}
           {!resolvedLoading && !displayError && visibleRowCount === 0 ? (
-            <MoveToStatusRow>No results</MoveToStatusRow>
+            <NodexDestinationPickerStatus>No results</NodexDestinationPickerStatus>
           ) : null}
-        </div>
-      </div>
-    </div>
+    </NodexDestinationPicker>
   );
 }

@@ -177,6 +177,79 @@ describe("Library Module transport", () => {
     });
   });
 
+  test("binds and parses a move destination window", () => {
+    expect(bindLibraryModuleRead({
+      version: LIBRARY_MODULE_CONTRACT_VERSION,
+      read: {
+        mode: "move_destinations",
+        target: { kind: "page", pageId: "page-source" },
+        scope: {
+          kind: "children",
+          parent: { kind: "page", pageId: "page-parent" },
+        },
+        limit: 50,
+      },
+    })).toEqual({
+      version: LIBRARY_MODULE_CONTRACT_VERSION,
+      read: {
+        mode: "move_destinations",
+        target: { kind: "page", pageId: "page-source" },
+        scope: {
+          kind: "children",
+          parent: { kind: "page", pageId: "page-parent" },
+        },
+        limit: 50,
+      },
+    });
+
+    expect(parseLibraryModuleReadResult(readResult({
+      kind: "move_destinations",
+      target: { kind: "page", pageId: "page-source" },
+      scope: { kind: "search", query: "roadmap" },
+      items: [{
+        pageId: "page-roadmap",
+        title: "Roadmap",
+        path: ["Pages", "Product"],
+        hasChildren: true,
+        isCurrent: false,
+        documentGeneration: 2,
+        documentHeadSeq: 7,
+        updatedAt: "2026-08-11T00:00:00.000Z",
+      }],
+      currentDestination: {
+        pageId: "page-product",
+        title: "Product",
+        path: ["Pages"],
+        hasChildren: true,
+        isCurrent: true,
+        documentGeneration: 1,
+        documentHeadSeq: 12,
+        updatedAt: "2026-08-10T00:00:00.000Z",
+      },
+      nextCursor: null,
+      hasMore: false,
+      total: 1,
+      rootIsCurrent: false,
+    }))).toMatchObject({
+      ok: true,
+      value: {
+        value: {
+          kind: "move_destinations",
+          items: [{
+            pageId: "page-roadmap",
+            path: ["Pages", "Product"],
+            documentGeneration: 2,
+            documentHeadSeq: 7,
+          }],
+          currentDestination: {
+            pageId: "page-product",
+            isCurrent: true,
+          },
+        },
+      },
+    });
+  });
+
   test("binds and parses standalone roots while rejecting View entries", () => {
     const pageId = uuidV7(31);
     expect(bindLibraryModuleRead({

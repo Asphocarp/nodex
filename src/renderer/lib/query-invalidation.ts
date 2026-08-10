@@ -104,11 +104,14 @@ export const projectionCursorForSnapshots = (
   snapshots: readonly unknown[],
 ): ProjectionCursor | null => commonCursor(snapshots.map(snapshotCursor));
 
-/** Cursor satisfied by every materialized member of a canonical query family. */
+/** Cursor satisfied by every family member TanStack does not classify as disabled. */
 export const queryFamilyProjectionCursor = (
   queryClient: QueryClient,
   familyKey: QueryKey,
 ): ProjectionCursor | null => {
-  const queries = queryClient.getQueryCache().findAll({ queryKey: familyKey });
+  const queries = queryClient
+    .getQueryCache()
+    .findAll({ queryKey: familyKey })
+    .filter((query) => !query.isDisabled());
   return projectionCursorForSnapshots(queries.map((query) => query.state.data));
 };

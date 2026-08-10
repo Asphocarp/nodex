@@ -1425,6 +1425,19 @@ function installStoryApi(
                 total: 0,
               };
             }
+            if (read.mode === "move_destinations") {
+              return {
+                kind: "move_destinations",
+                target: read.target,
+                scope: read.scope,
+                items: [],
+                currentDestination: null,
+                nextCursor: null,
+                hasMore: false,
+                total: 0,
+                rootIsCurrent: false,
+              };
+            }
             return {
               kind: "children",
               parent: read.parent,

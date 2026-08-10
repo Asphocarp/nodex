@@ -1,5 +1,5 @@
 import { hashKey, useQueries, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useEffectEvent, useRef } from "react";
 import { subscribeBoardChanges } from "@/lib/api";
 import { applyBoardChangeEventToBoard } from "@/lib/board-summary-events";
 import { boardByProjectQueryOptions } from "@/lib/query-options";
@@ -7,6 +7,7 @@ import { queryKeys } from "@/lib/query-keys";
 import type { BoardSummary, BoardSummarySnapshot, Project } from "@/lib/types";
 import { invalidateExactQuery } from "./query-invalidation";
 import { useProjectionInvalidationRegistry } from "./projection-invalidation-context";
+import type { ProjectionInvalidationRegistry } from "./projection-invalidation-registry";
 
 const BOARD_CHANGE_REFETCH_COALESCE_MS = 50;
 
@@ -26,7 +27,11 @@ export function useBoardsForProjects(
 ) {
   const queryClient = useQueryClient();
   const projectionRegistry = useProjectionInvalidationRegistry();
-  const projectIdsKey = projects.map((project) => project.id).join("\n");
+  const projectAuthorityKey = JSON.stringify(projects.map((project) => [
+    project.id,
+    project.libraryId,
+    project.databaseId,
+  ]));
   const refetchTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const combineBoardResults = useCallback((results: readonly BoardSummaryQueryResult[]) => {
     const boards = new Map<string, BoardSummary>();
@@ -58,17 +63,20 @@ export function useBoardsForProjects(
     queries: projects.map((project) => boardByProjectQueryOptions(project.id)),
     combine: combineBoardResults,
   });
-  useEffect(() => {
-    if (!projectIdsKey) return;
+  const subscribeToProjects = useEffectEvent((
+    currentRegistry: ProjectionInvalidationRegistry,
+    currentQueryClient: typeof queryClient,
+  ) => {
+    if (projects.length === 0) return;
 
-    const projectIds = projectIdsKey.split("\n");
+    const projectIds = projects.map((project) => project.id);
     const refetchTimers = refetchTimersRef.current;
     const scheduleRefetch = (projectId: string) => {
       if (refetchTimers.has(projectId)) return;
       const timer = setTimeout(() => {
         refetchTimers.delete(projectId);
         void invalidateExactQuery(
-          queryClient,
+          currentQueryClient,
           queryKeys.boards.byProject(projectId),
         );
       }, BOARD_CHANGE_REFETCH_COALESCE_MS);
@@ -80,7 +88,7 @@ export function useBoardsForProjects(
       if (!project) continue;
       unsubscribes.push(subscribeBoardChanges(projectId, (event) => {
         let applied = false;
-        queryClient.setQueryData<BoardSummarySnapshot | undefined>(
+        currentQueryClient.setQueryData<BoardSummarySnapshot | undefined>(
           queryKeys.boards.byProject(projectId),
           (current) => {
             if (
@@ -102,7 +110,7 @@ export function useBoardsForProjects(
         );
         if (!applied) scheduleRefetch(projectId);
       }));
-      unsubscribes.push(projectionRegistry.register({
+      unsubscribes.push(currentRegistry.register({
         scope: {
           kind: "project",
           libraryId: project.libraryId,
@@ -110,7 +118,7 @@ export function useBoardsForProjects(
         },
         consumerKey: hashKey(queryKeys.boards.byProject(projectId)),
         getDependencies: () => {
-          const snapshot = queryClient.getQueryData<BoardSummarySnapshot>(
+          const snapshot = currentQueryClient.getQueryData<BoardSummarySnapshot>(
             queryKeys.boards.byProject(projectId),
           );
           return {
@@ -122,7 +130,7 @@ export function useBoardsForProjects(
           };
         },
         getCursor: () => {
-          const snapshot = queryClient.getQueryData<BoardSummarySnapshot>(
+          const snapshot = currentQueryClient.getQueryData<BoardSummarySnapshot>(
             queryKeys.boards.byProject(projectId),
           );
           return snapshot
@@ -133,7 +141,7 @@ export function useBoardsForProjects(
             : null;
         },
         invalidate: () => invalidateExactQuery(
-          queryClient,
+          currentQueryClient,
           queryKeys.boards.byProject(projectId),
         ),
       }));
@@ -150,7 +158,11 @@ export function useBoardsForProjects(
         refetchTimers.delete(projectId);
       }
     };
-  }, [projectIdsKey, projectionRegistry, projects, queryClient]);
+  });
+  useEffect(() => subscribeToProjects(
+    projectionRegistry,
+    queryClient,
+  ), [projectAuthorityKey, projectionRegistry, queryClient]);
 
   useEffect(() => {
     const refetchTimers = refetchTimersRef.current;

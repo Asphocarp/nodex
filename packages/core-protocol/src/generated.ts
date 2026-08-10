@@ -2907,6 +2907,30 @@ export interface components {
         };
         /** @enum {string} */
         readonly LibraryLifecycle: "active" | "archived";
+        readonly LibraryMoveDestinationEntry: {
+            /** Format: int64 */
+            readonly document_generation: number;
+            /** Format: int64 */
+            readonly document_head_seq: number;
+            readonly has_children: boolean;
+            readonly is_current: boolean;
+            readonly page_id: string;
+            readonly path: readonly string[];
+            readonly title: string;
+            readonly updated_at: string;
+        };
+        readonly LibraryMoveDestinationScope: {
+            /** @enum {string} */
+            readonly kind: "suggested";
+        } | {
+            /** @enum {string} */
+            readonly kind: "children";
+            readonly parent: components["schemas"]["LibraryNavigationParent"];
+        } | {
+            /** @enum {string} */
+            readonly kind: "search";
+            readonly query: string;
+        };
         readonly LibraryNavigationNode: {
             /** Format: int64 */
             readonly document_generation: number;
@@ -4744,6 +4768,14 @@ export interface components {
                 readonly limit?: number | null;
                 readonly query?: string | null;
             } | {
+                readonly cursor?: string | null;
+                /** @enum {string} */
+                readonly kind: "move_destinations";
+                /** Format: int32 */
+                readonly limit?: number | null;
+                readonly scope: components["schemas"]["LibraryMoveDestinationScope"];
+                readonly target: components["schemas"]["LibraryResourceTarget"];
+            } | {
                 /** @enum {string} */
                 readonly kind: "page_detail";
                 readonly page_id: string;
@@ -6184,6 +6216,18 @@ export interface components {
                     /** @enum {string} */
                     readonly kind: "catalog";
                     readonly next_cursor?: string | null;
+                    /** Format: int64 */
+                    readonly total: number;
+                } | {
+                    readonly current_destination?: null | components["schemas"]["LibraryMoveDestinationEntry"];
+                    readonly has_more: boolean;
+                    readonly items: readonly components["schemas"]["LibraryMoveDestinationEntry"][];
+                    /** @enum {string} */
+                    readonly kind: "move_destinations";
+                    readonly next_cursor?: string | null;
+                    readonly root_is_current: boolean;
+                    readonly scope: components["schemas"]["LibraryMoveDestinationScope"];
+                    readonly target: components["schemas"]["LibraryResourceTarget"];
                     /** Format: int64 */
                     readonly total: number;
                 } | {

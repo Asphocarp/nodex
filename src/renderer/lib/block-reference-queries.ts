@@ -1,4 +1,4 @@
-import { useEffect, useEffectEvent } from "react";
+import { useEffect } from "react";
 import { hashKey, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { PageTargetReadModel } from "../../shared/page-targets";
 import type { PageOwnershipPathReadModel } from "../../shared/page-ownership-paths";
@@ -12,7 +12,7 @@ import { queryKeys } from "./query-keys";
 import { resolveRendererTransport } from "./renderer-transport";
 import { createProjectEventSubscriptionHub } from "./project-event-subscription-hub";
 import { invalidateExactQuery } from "./query-invalidation";
-import { useProjectionInvalidationRegistry } from "./projection-invalidation-context";
+import { useProjectionRegistration } from "./projection-invalidation-context";
 import type { ProjectionDependencies } from "./projection-invalidation-registry";
 import type { ProjectionCursor, ProjectionScope } from "../../shared/projection-stream";
 import { useLibraryMetadata } from "./use-library-navigation";
@@ -80,39 +80,27 @@ const useProjectionQueryRefresh = (input: {
   readonly queryKey: readonly unknown[];
 }): void => {
   const queryClient = useQueryClient();
-  const registry = useProjectionInvalidationRegistry();
   const consumerKey = hashKey(input.queryKey);
-  const scopeKey = hashKey(["projection-scope", input.scope]);
-  const getDependencies = useEffectEvent(() => input.dependencies);
-  const getCursor = useEffectEvent(() => {
-    const current = queryClient.getQueryData<{
-      readonly storeEpoch: string;
-      readonly commitSeq: number;
-    }>(input.queryKey);
-    return current
-      ? {
-          storeEpoch: current.storeEpoch,
-          commitSeq: current.commitSeq,
-        }
-      : input.cursor;
-  });
-  const invalidate = useEffectEvent(() =>
-    invalidateExactQuery(queryClient, input.queryKey),
-  );
-  const subscribe = useEffectEvent(() => {
-    if (!input.scope) return;
-    return registry.register({
+  useProjectionRegistration(input.scope
+    ? {
       scope: input.scope,
       consumerKey,
-      getDependencies,
-      getCursor,
-      invalidate,
-    });
-  });
-
-  useEffect(() => {
-    return subscribe();
-  }, [consumerKey, scopeKey]);
+      getDependencies: () => input.dependencies,
+      getCursor: () => {
+        const current = queryClient.getQueryData<{
+          readonly storeEpoch: string;
+          readonly commitSeq: number;
+        }>(input.queryKey);
+        return current
+          ? {
+              storeEpoch: current.storeEpoch,
+              commitSeq: current.commitSeq,
+            }
+          : input.cursor;
+      },
+      invalidate: () => invalidateExactQuery(queryClient, input.queryKey),
+    }
+    : null);
 };
 
 export const usePageTargetReadModel = (
