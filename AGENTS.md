@@ -6,19 +6,10 @@
 - For frontend design, prioritize an elegant, information-dense layout with minimal logical/visual redundancy and shallow nesting.
 - Keep implementation notes, docs, changelog entries, commit messages, and handoff summaries product-native: describe what Nodex does and why, without surfacing private provenance, comparative targets, or reconstruction details unless the user explicitly asks for research notes.
 - Do not read repository contents via web crawling from `raw.githubusercontent.com` because it is not stable for agent workflows. For remote repository inspection, clone the repository into a temporary local directory and read files from the local clone instead.
-- DO NOT write tests that only assert a source file contains a string (source-string tests); that is redundant with the implementation and does not validate behavior. Prefer checking generated CSS/build output or a real rendered/runtime outcome.
+- DO NOT write tests that only assert a source file contains a string (source-string tests); that is redundant with the implementation and does not validate behavior.
 - Read [official doc of codex-app-server](https://developers.openai.com/codex/app-server.md) when dealing with codex-app-server.
-- After UI modification, no need to verify the UI changes yourself using playwright or anything. Just tell user to do it, which is more efficient.
 
 ## Agent skills
-
-### Issue tracker
-
-Issues and specs are tracked in this repository's GitHub Issues. See `docs/agents/issue-tracker.md`.
-
-### Triage labels
-
-Triage uses the canonical `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, and `wontfix` labels. See `docs/agents/triage-labels.md`.
 
 ### Domain docs
 
@@ -92,6 +83,7 @@ Use these docs as the source of truth:
 
 ## Documentation Update Rules
 Documentation maintenance is an active, required responsibility for every agent task.
+Default to one sentence per line when documenting ordinary body prose (this is not a hard rule though).
 
 When behavior changes, update the narrowest source-of-truth doc:
 - User-visible behavior/API contract changes: `docs/product-specs/nodex-product-spec.md`
@@ -111,7 +103,7 @@ Treat `CHANGELOG.md` as a required deliverable only for **release-note-worthy** 
   - Removed
   - Fixed
   - Security
-- Do NOT add changelog entries for tiny UI fixups, visual parity tweaks, styling/token/color adjustments, copy nits, or small interaction polish, even when user-visible.
+- Do NOT add changelog entries for tiny UI fixups, visual tweaks, styling/token/color adjustments, copy nits, or small interaction polish, even when user-visible.
 - Do NOT add entries for pure refactors, formatting, comments, test-only changes, or internal tooling changes unless they affect users.
 - Do NOT add entries to Changed/Fixed if you are changing/fixing a feature that is Unreleased.
 - If unsure whether a change belongs in release notes, default to leaving `CHANGELOG.md` unchanged and mention that choice in the final response.
@@ -155,41 +147,31 @@ Treat `CHANGELOG.md` as a required deliverable only for **release-note-worthy** 
 
 ### Electron HTML5 DnD E2E
 
-- The internal Block → Board native smoke must use the shared realistic
-  `page.mouse` helper in `tests/e2e/electron-smoke.spec.ts` and a real
-  `button[draggable="true"]` handle.
-- Do not replace it with `locator.drop`, synthetic `dragstart`, direct
-  `blocks:transfer`, or CDP `Input.dispatchDragEvent`; those exercise different
-  boundaries.
-- Do not use one-jump `dragTo` or invent another mouse path. Reuse the helper,
-  which waits for the hover-only handle, crosses the activation threshold,
-  moves in steps, and moves again inside the target to produce `dragover`.
-- If `dragstart` is missing, inspect the Playwright trace for handle remount,
-  hit target, draggable state, activation distance, and overlays before changing
-  frameworks or adding `Input.setInterceptDrags`.
-- Keep high-pressure and performance coverage on the direct typed transfer
-  boundary; those are convergence tests, not native DnD gesture tests.
+- The internal Block → Board native smoke must use the shared realistic `page.mouse` helper in `tests/e2e/electron-smoke.spec.ts` and a real `button[draggable="true"]` handle.
+- Do not replace it with `locator.drop`, synthetic `dragstart`, direct `blocks:transfer`, or CDP `Input.dispatchDragEvent`; those exercise different boundaries.
+- Do not use one-jump `dragTo` or invent another mouse path. Reuse the helper, which waits for the hover-only handle, crosses the activation threshold, moves in steps, and moves again inside the target to produce `dragover`.
+- If `dragstart` is missing, inspect the Playwright trace for handle remount, hit target, draggable state, activation distance, and overlays before changing frameworks or adding `Input.setInterceptDrags`.
+- Keep high-pressure and performance coverage on the direct typed transfer boundary; those are convergence tests, not native DnD gesture tests.
 
 ## Commit and PR Expectations
 - Keep changes scoped and atomic.
 - For ordinary commits, use `<area>: <precise imperative summary>`. Do not default to Conventional Commits or type prefixes such as `feat:`, `fix:`, `chore:`, or `refactor:`.
 - Choose `area` from stable repository terminology: a subsystem, package, component, or code region rather than a change type. If it is unclear, inspect `git log --oneline -- path/to/file`.
-- Make the summary state the concrete behavior change in imperative mood, omit a terminal period, and aim for at most 72 characters without sacrificing precision. Example: `editor: preserve selection across remote updates`.
-- For ordinary coding commits, include a body by default. Reserve subject-only messages for trivial, self-explanatory changes such as formatting, copy edits, or generated updates. Separate the subject and body with a blank line; use the body to explain the motivation, constraints, user-visible impact, or non-obvious trade-offs. Do not paraphrase the diff.
+- Make the summary state the concrete behavior change in imperative mood, omit a terminal period, and aim for at most 80 characters without sacrificing precision. Example: `editor: preserve selection across remote updates`.
+- For ordinary coding commits, include a body by default. Reserve subject-only messages for trivial, self-explanatory changes such as formatting, copy edits, or generated updates. Separate the subject and body with a blank line; use the body to explain the motivation, constraints, user-visible impact, or non-obvious trade-offs (focuses on the ‘why’ rather than the ‘what’).
 - When a subject-only message is genuinely appropriate, use `git commit -m "<subject>"`. For the usual subject-and-body message, pass real line breaks:
 
   ```bash
   git commit -F - <<'EOF'
   <subject>
 
-  <body paragraph wrapped at 72 columns>
+  <body paragraph; one sentence per line>
 
   <next body paragraph>
   EOF
   ```
 
   Never encode line breaks as literal `\n`; Git records them as text.
-- Hard-wrap ordinary body prose at 72 characters. URLs, commands, file paths, identifiers, code, and indivisible machine-readable content are exempt.
 - Place issue references and other trailers after the body, following existing repository conventions.
 - Merge, revert, release, and generated commits may follow their tool or established repository format.
 - Update related docs in the same change when contracts or workflows change.
