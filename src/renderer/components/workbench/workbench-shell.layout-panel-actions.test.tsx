@@ -142,6 +142,7 @@ describe("workbench session shell / layout-panel-actions", () => {
       {
         activeProjectId: "alpha",
         captureSelection: true,
+        expanded: false,
         unavailableFeedback: "silent",
       },
     );

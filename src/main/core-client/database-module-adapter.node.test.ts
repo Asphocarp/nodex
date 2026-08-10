@@ -47,7 +47,7 @@ const databaseRecord = () => ({
 
 const viewAuthorization = (
   commitSeq: number,
-  storeEpoch = identity.storeEpoch,
+  storeEpoch: string = identity.storeEpoch,
 ) => authorizedReadStampFixture({
   deliveryAddress: {
     kind: "project",

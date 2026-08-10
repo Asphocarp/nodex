@@ -377,7 +377,9 @@ export function KanbanBoard({
   const resolveColumnSurface = useCallback((columnId: string): HTMLElement | null => {
     if (typeof document === "undefined") return null;
 
-    return document.querySelector<HTMLElement>(`[data-kanban-column-id="${columnId}"]`);
+    return document.querySelector<HTMLElement>(
+      `[data-kanban-column-root][data-kanban-column-id="${columnId}"]`,
+    );
   }, []);
 
   const buildDragData = useCallback(

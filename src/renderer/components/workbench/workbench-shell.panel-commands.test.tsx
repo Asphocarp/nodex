@@ -226,7 +226,7 @@ describe("workbench session shell / panel-commands", () => {
     ).toBe(true);
   });
 
-  test("command palette opens keyboard shortcuts settings", async () => {
+  test("command palette opens shortcut help before customization", async () => {
     const screen = renderWorkbench({
       sessionsByProject: {
         alpha: [makeAttachedSession({ id: "session:alpha:keyboard" })],
@@ -237,9 +237,19 @@ describe("workbench session shell / panel-commands", () => {
 
     await executeCommandPaletteCommand(screen, "keyboard", "Keyboard shortcuts");
 
+    const shortcutDialog = screen.getByRole("dialog", {
+      name: "Keyboard shortcuts",
+    });
+    await act(async () => {
+      fireEvent.click(within(shortcutDialog).getByRole("button", {
+        name: "Customize shortcuts",
+      }));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
     const routeShell = screen.container.querySelector('[data-testid="settings-route-shell"]');
     expect(routeShell !== null).toBe(true);
-    expect(textContent(screen.container).includes("Keyboard shortcuts")).toBe(true);
   });
 
   test("command palette opens scheduled task management", async () => {

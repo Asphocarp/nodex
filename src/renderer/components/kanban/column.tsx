@@ -212,6 +212,7 @@ export const Column = memo(function Column({
   return (
     <div
       ref={columnRef}
+      data-kanban-column-root="true"
       data-kanban-column-id={column.id}
       data-kanban-column-collapsed={isCollapsed ? "true" : "false"}
       onDragOver={(event) => onExternalBlockDragOver?.(column.id, event)}
