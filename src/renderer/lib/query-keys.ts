@@ -115,6 +115,18 @@ export const queryKeys = {
       "catalogPages",
       input,
     ] as const,
+    moveDestinations: (target: unknown, input: unknown) => [
+      "libraryNavigation",
+      "moveDestinations",
+      target,
+      input,
+    ] as const,
+    moveDestinationPages: (target: unknown, input: unknown) => [
+      "libraryNavigation",
+      "moveDestinationPages",
+      target,
+      input,
+    ] as const,
     path: (target: unknown) => ["libraryNavigation", "path", target] as const,
     canvasTarget: (canvasId: string) => [
       "libraryNavigation",

@@ -4,6 +4,7 @@ import {
   useInfiniteQuery,
   useMutation,
   useQuery,
+  useQueries,
   useQueryClient,
 } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
@@ -149,6 +150,22 @@ export const libraryCatalogQueryOptions = (
     version: LIBRARY_MODULE_CONTRACT_VERSION,
     read: { mode: "catalog", ...input },
   }, "catalog"),
+  meta: libraryReadAuthorityMeta,
+  staleTime: 30_000,
+});
+
+export const libraryMoveDestinationsQueryOptions = (
+  target: LibraryResourceTarget,
+  input: Omit<
+    Extract<LibraryModuleReadRequest["read"], { mode: "move_destinations" }>,
+    "mode" | "target"
+  >,
+) => queryOptions({
+  queryKey: queryKeys.library.moveDestinations(target, input),
+  queryFn: () => requireReadValue({
+    version: LIBRARY_MODULE_CONTRACT_VERSION,
+    read: { mode: "move_destinations", target, ...input },
+  }, "move_destinations"),
   meta: libraryReadAuthorityMeta,
   staleTime: 30_000,
 });
@@ -321,6 +338,54 @@ export const useLibraryCatalog = (
   input: Parameters<typeof libraryCatalogQueryOptions>[0] = {},
   enabled = true,
 ) => useQuery({ ...libraryCatalogQueryOptions(input), enabled });
+
+export const useLibraryMoveDestinations = (
+  target: LibraryResourceTarget,
+  input: Parameters<typeof libraryMoveDestinationsQueryOptions>[1],
+  enabled = true,
+) => useQuery({
+  ...libraryMoveDestinationsQueryOptions(target, input),
+  enabled,
+});
+
+export const useInfiniteLibraryMoveDestinations = (
+  target: LibraryResourceTarget,
+  input: Omit<
+    Parameters<typeof libraryMoveDestinationsQueryOptions>[1],
+    "cursor"
+  >,
+  enabled = true,
+) => useInfiniteQuery({
+  queryKey: queryKeys.library.moveDestinationPages(target, input),
+  initialPageParam: undefined as string | undefined,
+  queryFn: ({ pageParam }) => requireReadValue({
+    version: LIBRARY_MODULE_CONTRACT_VERSION,
+    read: {
+      mode: "move_destinations",
+      target,
+      ...input,
+      ...(pageParam ? { cursor: pageParam } : {}),
+    },
+  }, "move_destinations"),
+  meta: libraryReadAuthorityMeta,
+  getNextPageParam: (page) => page.nextCursor ?? undefined,
+  staleTime: 30_000,
+  enabled,
+});
+
+export const useLibraryMoveDestinationChildren = (
+  target: LibraryResourceTarget,
+  pageIds: readonly string[],
+  enabled = true,
+) => useQueries({
+  queries: pageIds.map((pageId) => ({
+    ...libraryMoveDestinationsQueryOptions(target, {
+      scope: { kind: "children", parent: { kind: "page", pageId } },
+      limit: 100,
+    }),
+    enabled,
+  })),
+});
 
 export const useInfiniteLibraryCatalog = (
   input: Omit<

@@ -13,7 +13,7 @@ use crate::document::DocumentHeadRevision;
 use crate::workspace::{ProjectAppearance, ProjectLifecycle};
 use crate::{ApplyResponse, ModuleMutationReceipt, ModuleName, VersionedModuleContract};
 
-pub const LIBRARY_CONTRACT_VERSION: u32 = 10;
+pub const LIBRARY_CONTRACT_VERSION: u32 = 11;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -481,6 +481,12 @@ pub enum LibraryRead {
         cursor: Option<String>,
         limit: Option<u32>,
     },
+    MoveDestinations {
+        target: LibraryResourceTarget,
+        scope: LibraryMoveDestinationScope,
+        cursor: Option<String>,
+        limit: Option<u32>,
+    },
     PageDetail {
         page_id: String,
     },
@@ -646,6 +652,26 @@ pub struct LibraryCatalogEntry {
     pub updated_at: String,
     pub location_revision: i64,
     pub metadata_revision: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum LibraryMoveDestinationScope {
+    Suggested,
+    Children { parent: LibraryNavigationParent },
+    Search { query: String },
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryMoveDestinationEntry {
+    pub page_id: String,
+    pub title: String,
+    pub path: Vec<String>,
+    pub has_children: bool,
+    pub is_current: bool,
+    pub document_generation: i64,
+    pub document_head_seq: i64,
+    pub updated_at: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -1724,6 +1750,16 @@ pub enum LibraryReadValue {
         next_cursor: Option<String>,
         has_more: bool,
         total: u64,
+    },
+    MoveDestinations {
+        target: LibraryResourceTarget,
+        scope: LibraryMoveDestinationScope,
+        items: Vec<LibraryMoveDestinationEntry>,
+        current_destination: Option<LibraryMoveDestinationEntry>,
+        next_cursor: Option<String>,
+        has_more: bool,
+        total: u64,
+        root_is_current: bool,
     },
     PageDetail {
         value: Box<LibraryPageDetail>,

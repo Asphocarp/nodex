@@ -25,6 +25,7 @@ import {
   NodexDialogTitle,
 } from "@/components/ui/dialog";
 import {
+  NodexDropdownFlyoutSubmenuItem,
   NodexDropdownItem,
   NodexDropdownMenu,
 } from "@/components/ui/dropdown";
@@ -33,10 +34,10 @@ import { appScope, useScopeHandle } from "@/lib/maitai";
 import { openModal } from "@/lib/modal-registry";
 import { useApplyLibraryOperation } from "@/lib/use-library-navigation";
 import {
-  LibraryMoveModal,
   LibraryOpenInProjectModal,
   LibraryResourceAccessModal,
 } from "./library-resource-action-modals";
+import { LibraryMoveDestinationPicker } from "./library-move-destination-picker";
 import type {
   LibraryProjectOption,
   LibraryResourceTarget,
@@ -48,7 +49,7 @@ export type {
   LibraryResourceTarget,
 } from "./library-resource-action-types";
 
-type PendingDialog = "move" | "manage_access" | "open_project" | "archive" | null;
+type PendingDialog = "manage_access" | "open_project" | "archive" | null;
 
 const stopActionPropagation = (event: SyntheticEvent<HTMLElement>): void => {
   event.stopPropagation();
@@ -80,6 +81,8 @@ export function LibraryResourceActions({
 }) {
   const appHandle = useScopeHandle(appScope);
   const pendingDialogRef = useRef<PendingDialog>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [moveSubmenuOpen, setMoveSubmenuOpen] = useState(false);
   const [archiveOpen, setArchiveOpen] = useState(false);
   const { mutation } = useApplyLibraryOperation();
 
@@ -129,20 +132,17 @@ export function LibraryResourceActions({
       <NodexDropdownMenu
         triggerButton={triggerButton ?? defaultTrigger}
         align="end"
+        open={menuOpen}
+        onOpenChange={(open) => {
+          setMenuOpen(open);
+          if (!open) setMoveSubmenuOpen(false);
+        }}
         onCloseAutoFocus={(event) => {
           const pendingDialog = pendingDialogRef.current;
           if (!pendingDialog) return;
           pendingDialogRef.current = null;
           event.preventDefault();
 
-          if (pendingDialog === "move") {
-            openModal(appHandle, LibraryMoveModal, {
-              target,
-              title,
-              expectedLocationRevision,
-            });
-            return;
-          }
           if (pendingDialog === "manage_access") {
             openModal(appHandle, LibraryResourceAccessModal, { target, title });
             return;
@@ -159,14 +159,25 @@ export function LibraryResourceActions({
           setArchiveOpen(true);
         }}
       >
-        <NodexDropdownItem
+        <NodexDropdownFlyoutSubmenuItem
+          label="Move to…"
           leftSlot={<MoveToIcon />}
-          onSelect={() => {
-            pendingDialogRef.current = "move";
-          }}
+          open={moveSubmenuOpen}
+          onOpenChange={setMoveSubmenuOpen}
+          contentClassName="w-[330px] max-w-[calc(100vw-24px)] overflow-hidden p-0"
+          contentMotion="none"
         >
-          Move to…
-        </NodexDropdownItem>
+          <LibraryMoveDestinationPicker
+            target={target}
+            title={title}
+            expectedLocationRevision={expectedLocationRevision}
+            onClose={() => setMoveSubmenuOpen(false)}
+            onMoved={() => {
+              setMoveSubmenuOpen(false);
+              setMenuOpen(false);
+            }}
+          />
+        </NodexDropdownFlyoutSubmenuItem>
         <NodexDropdownItem
           leftSlot={<ProjectAccessIcon />}
           onSelect={() => {
