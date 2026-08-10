@@ -22,10 +22,12 @@ const SAMPLE_CARD: CardType = {
 };
 
 function CardStoryFrame({
-  isActiveInPanel = false,
+  isPresented = false,
+  isKeyboardActive = false,
   isSelected = false,
 }: {
-  isActiveInPanel?: boolean;
+  isPresented?: boolean;
+  isKeyboardActive?: boolean;
   isSelected?: boolean;
 }) {
   return (
@@ -39,7 +41,8 @@ function CardStoryFrame({
           card={SAMPLE_CARD}
           columnId="build"
           dragDisabled
-          isActiveInPanel={isActiveInPanel}
+          isPresented={isPresented}
+          isKeyboardActive={isKeyboardActive}
           isSelected={isSelected}
           onClick={() => {}}
         />
@@ -63,10 +66,18 @@ export const Default: Story = {
   render: () => <CardStoryFrame />,
 };
 
-export const ActiveInPanel: Story = {
-  render: () => <CardStoryFrame isActiveInPanel />,
+export const Presented: Story = {
+  render: () => <CardStoryFrame isPresented />,
 };
 
 export const Selected: Story = {
   render: () => <CardStoryFrame isSelected />,
+};
+
+export const PresentedAndSelected: Story = {
+  render: () => <CardStoryFrame isPresented isSelected />,
+};
+
+export const PresentedAndKeyboardActive: Story = {
+  render: () => <CardStoryFrame isPresented isKeyboardActive />,
 };

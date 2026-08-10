@@ -293,6 +293,25 @@ describe("DatabaseViewSurface", () => {
     expect(first.getAttribute("aria-selected")).toBe("false");
   });
 
+  test("projects Page presence independently from Board selection", () => {
+    const screen = render(
+      <DatabaseViewSurface
+        model={boardModel()}
+        searchQuery=""
+        presentedPageIds={new Set(["page-focused"])}
+        onOpenPage={() => undefined}
+      />,
+    );
+    const presented = screen.container.querySelector<HTMLElement>(
+      '[data-database-view-page-presented="true"]',
+    );
+
+    expect(presented?.dataset.databaseViewPageId).toBe("page-focused");
+    expect(presented?.getAttribute("aria-selected")).toBe("false");
+    expect(presented?.querySelector('[data-page-presence-rail="true"]'))
+      .not.toBeNull();
+  });
+
   test("commits a Board boundary move through the global shortcut route", async () => {
     const commitOperations = vi.fn<typeof commitDatabaseViewOperations>(
       async () => null,

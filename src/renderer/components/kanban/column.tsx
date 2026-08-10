@@ -77,8 +77,7 @@ interface ColumnProps {
   draggedPageIds?: ReadonlySet<string>;
   isDropTargetActive?: boolean;
   dropBlockedMessage?: string;
-  focusedPageId?: string;
-  activePanelPageStagePageIds?: ReadonlySet<string>;
+  presentedPageIds?: ReadonlySet<string>;
   selectedPageIds?: ReadonlySet<string>;
   highlightedPageId?: string | null;
   keyboardPropertyRequest?: CardKeyboardPropertyRequest | null;
@@ -128,8 +127,7 @@ export const Column = memo(function Column({
   draggedPageIds = new Set<string>(),
   isDropTargetActive = false,
   dropBlockedMessage,
-  focusedPageId,
-  activePanelPageStagePageIds,
+  presentedPageIds,
   selectedPageIds = new Set<string>(),
   highlightedPageId = null,
   keyboardPropertyRequest,
@@ -430,8 +428,8 @@ export const Column = memo(function Column({
                       buildDragData={buildDragData}
                       dragDisabled={dragDisabled}
                       dropDisabled={cardDropDisabled}
-                      isFocused={card.id === focusedPageId || card.id === highlightedPageId}
-                      isActiveInPanel={activePanelPageStagePageIds?.has(card.id) ?? false}
+                      isKeyboardActive={card.id === highlightedPageId}
+                      isPresented={presentedPageIds?.has(card.id) ?? false}
                       isSelected={selectedPageIds.has(card.id)}
                       onClick={(event) => onEditCard(column.id, card, event)}
                       onDoubleClick={(event) => onEditCard(column.id, card, event, "durable")}

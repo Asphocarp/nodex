@@ -178,6 +178,12 @@ type Story = StoryObj<typeof meta>;
 
 export const SecondaryView: Story = {};
 
+export const PresentedPage: Story = {
+  args: {
+    presentedPageIds: new Set(["page-1"]),
+  },
+};
+
 function KeyboardSelectedBoard() {
   useEffect(() => {
     executeContextualKeyboardAction("boardFocusNext");

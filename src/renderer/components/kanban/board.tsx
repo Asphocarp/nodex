@@ -153,7 +153,7 @@ interface KanbanBoardProps {
   onOpenPageInNewChat?: (input: OpenPageInNewChatInput) => Promise<void> | void;
   onSendPageToChat?: (input: SendPageToChatInput) => Promise<void> | void;
   pageStagePageId: string | undefined;
-  activePanelPageStagePageIds?: ReadonlySet<string>;
+  presentedPageIds?: ReadonlySet<string>;
   pageStageCloseRef?: React.MutableRefObject<(() => Promise<void>) | null>;
   scrollStateKey?: string | null;
 }
@@ -170,7 +170,7 @@ export function KanbanBoard({
   onOpenPageInNewChat,
   onSendPageToChat,
   pageStagePageId,
-  activePanelPageStagePageIds,
+  presentedPageIds,
   pageStageCloseRef,
   scrollStateKey,
 }: KanbanBoardProps) {
@@ -219,6 +219,12 @@ export function KanbanBoard({
   } | null>(null);
   const [dragInstanceId] = useState(() => Symbol("kanban-board-dnd"));
   const [pageCreateRegistrationToken] = useState(() => crypto.randomUUID());
+  const boardPresentedPageIds = useMemo<ReadonlySet<string>>(() => {
+    if (!pageStagePageId || presentedPageIds?.has(pageStagePageId)) {
+      return presentedPageIds ?? new Set();
+    }
+    return new Set([...(presentedPageIds ?? []), pageStagePageId]);
+  }, [pageStagePageId, presentedPageIds]);
 
   const [dropIndicator, setDropIndicator] = useState<{
     columnId: string;
@@ -1323,8 +1329,7 @@ export function KanbanBoard({
                   ? blockedDropMessage.message
                   : undefined
               }
-              focusedPageId={pageStagePageId}
-              activePanelPageStagePageIds={activePanelPageStagePageIds}
+              presentedPageIds={boardPresentedPageIds}
               selectedPageIds={selectedPageIds}
               highlightedPageId={highlightedPageId}
               keyboardPropertyRequest={keyboardPropertyRequest}

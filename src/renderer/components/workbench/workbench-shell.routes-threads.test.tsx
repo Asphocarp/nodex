@@ -196,6 +196,36 @@ describe("workbench session shell / routes-threads", () => {
     expect(screen.queryByText("Library")).toBeNull();
   });
 
+  test("projects a visible Pages Scene Page Stage back into its Database surface", async () => {
+    const screen = renderWorkbench({ libraryRoots: [standaloneTasksDatabase] });
+    await settleAsyncRender();
+    await openStandaloneTasksDatabase(screen);
+
+    const props = (globalThis as {
+      __lastWorkbenchDatabaseViewSurfaceProps?: Record<string, unknown>;
+    }).__lastWorkbenchDatabaseViewSurfaceProps;
+    if (typeof props?.onOpenPage !== "function") {
+      throw new Error("Expected the Pages Database Page opener");
+    }
+    await act(async () => {
+      (props.onOpenPage as (pageId: string, title: string) => void)(
+        "page:visible",
+        "Visible Page",
+      );
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const nextProps = (globalThis as {
+      __lastWorkbenchDatabaseViewSurfaceProps?: Record<string, unknown>;
+    }).__lastWorkbenchDatabaseViewSurfaceProps;
+    const presentedPageIds = nextProps?.presentedPageIds as
+      | ReadonlySet<string>
+      | undefined;
+    expect(presentedPageIds?.has("page:visible")).toBe(true);
+  });
+
   test("shares one Pages tablist across standalone roots and reuses open tabs", async () => {
     const screen = renderWorkbench({
       libraryRoots: [standaloneTasksDatabase, standaloneNotesDatabase],

@@ -11,7 +11,7 @@ import type { ProjectSessionPreviewTab } from "./workbench-panel-preview";
 import {
   buildSessionPanelRenderModel,
   collectMountedBrowserTabIds,
-  collectPanelPageStagePageIdsByProject,
+  collectPanelPresentedPageIds,
   getRenderablePanelPreviewTab,
   type SessionPanelRenderModelInput,
 } from "./workbench-panel-projection";
@@ -385,10 +385,7 @@ describe("workbench panel projection", () => {
       durableOnlyInput(session),
     );
     expect(
-      [...(collectPanelPageStagePageIdsByProject(
-        session,
-        model,
-      ).get("project-2") ?? [])],
+      [...collectPanelPresentedPageIds(session, model)],
     ).toEqual(["page-2"]);
 
     const collapsedSession = makeTestWorkbenchSession({
@@ -399,7 +396,7 @@ describe("workbench panel projection", () => {
       durableOnlyInput(collapsedSession),
     );
     expect(
-      collectPanelPageStagePageIdsByProject(
+      collectPanelPresentedPageIds(
         collapsedSession,
         collapsed,
       ).size,

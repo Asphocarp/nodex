@@ -1144,7 +1144,7 @@ describe("workbench session shell / pages-shell-navigation", () => {
     await settleAsyncRender();
 
     const props = (globalThis as { __lastMainViewHostProps?: Record<string, unknown> }).__lastMainViewHostProps;
-    const activePageIds = props?.activePanelPageStagePageIds as ReadonlySet<string> | undefined;
+    const activePageIds = props?.presentedPageIds as ReadonlySet<string> | undefined;
     expect(activePageIds?.has("card-1") ?? false).toBe(true);
   });
 
@@ -1216,7 +1216,7 @@ describe("workbench session shell / pages-shell-navigation", () => {
     await settleAsyncRender();
 
     const nextProps = (globalThis as { __lastMainViewHostProps?: Record<string, unknown> }).__lastMainViewHostProps;
-    const activePageIds = nextProps?.activePanelPageStagePageIds as ReadonlySet<string> | undefined;
+    const activePageIds = nextProps?.presentedPageIds as ReadonlySet<string> | undefined;
     expect(activePageIds?.has("card-1") ?? false).toBe(true);
   });
 
@@ -1262,7 +1262,7 @@ describe("workbench session shell / pages-shell-navigation", () => {
     await settleAsyncRender();
 
     const props = (globalThis as { __lastMainViewHostProps?: Record<string, unknown> }).__lastMainViewHostProps;
-    const activePageIds = props?.activePanelPageStagePageIds as ReadonlySet<string> | undefined;
+    const activePageIds = props?.presentedPageIds as ReadonlySet<string> | undefined;
     expect(activePageIds?.has("card-1") ?? false).toBe(false);
   });
 

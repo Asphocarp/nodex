@@ -174,6 +174,7 @@ export function WorkbenchDatabaseViewSurface({
   onOpenPage,
   onPresentationChange,
   keyboardSurface,
+  presentedPageIds,
 }: {
   readonly accessContext: ContentAccessContext;
   readonly target: DatabaseSurfaceTarget;
@@ -186,6 +187,7 @@ export function WorkbenchDatabaseViewSurface({
     readonly surfaceId: string;
     readonly presentationId: string;
   };
+  readonly presentedPageIds?: ReadonlySet<string>;
 }) {
   const queryClient = useQueryClient();
   const projectionRegistry = useProjectionInvalidationRegistry();
@@ -480,7 +482,8 @@ export function WorkbenchDatabaseViewSurface({
             onOpenTaskSearch={openSearch}
             onCloseTaskSearch={() => setSearchOpen(false)}
             onOpenPage={onOpenPage}
-            keyboardSurface={keyboardSurface}
+        keyboardSurface={keyboardSurface}
+        presentedPageIds={presentedPageIds}
             onCommitted={async () => {
               await query.refetch();
             }}
