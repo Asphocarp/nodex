@@ -231,8 +231,13 @@ the matching cached authority for every revocation before any canonical repair.
 Authority-bearing reads return a hash-bound `AuthorizedReadStamp` from the same
 SQLite snapshot as their data. A renderer records only the request identity
 before I/O; it learns direct, ancestor, membership, and overlapping-grant roots
-from the stamp, verifies its address/scope/epoch/covered floor, and registers
-those roots before adopting the response. Exact visibility changes fence only
+from the stamp. The Core authorization evaluator returns those proof roots from
+the same decision that establishes readability; response payload resources are
+inputs to that evaluator, not substitutes for the proof. The root union uses the
+generated `ResourceKey` order so every grant-root `Revoke` intersects dependent
+stamps without enumerating descendants. The renderer verifies the stamp's
+closed resource union, address/scope/epoch/covered floor, and registers those
+roots before adopting the response. Exact visibility changes fence only
 matching registrations. Address or conservative reset fences the complete
 address. Root floors survive older in-flight reads and active registrations;
 capacity overflow clears the address authority and fails closed rather than

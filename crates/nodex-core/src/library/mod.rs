@@ -952,7 +952,7 @@ mod tests {
         LibraryBlockTransferTarget, LibraryDocumentHead, LibraryNavigationParent,
         LibraryPageFileKind, LibraryPageLifecycleMutation, LibraryPageLifecycleState,
         LibraryPageLifecycleTagOption, LibraryPagePrepareKind, LibraryPageWorkflowStatus,
-        LibraryWriteParent,
+        LibraryProjectAccessChange, LibraryWriteParent,
     };
     use nodex_core_contracts::workspace::{
         PROJECT_WORKSPACE_CONTRACT_VERSION, ProjectWorkspaceIntent, ProjectWorkspaceThreadPatch,
@@ -962,6 +962,7 @@ mod tests {
     use nodex_core_contracts::{
         AdapterKind, DATABASE_CONTRACT_VERSION, DeliveryAtomKind, LibraryId, LocalProjectionPatch,
         LocalProjectionScope, OWNED_DOCUMENT_CONTRACT_VERSION, ProfileId, ProjectId,
+        RevokedResourceKind,
     };
     use rusqlite::params;
     use sha2::{Digest, Sha256};
@@ -2944,6 +2945,61 @@ mod tests {
                 },
             )
             .expect("grant root Page");
+        let overlapping_stamp = module
+            .read(
+                &project_two_context,
+                ModuleReadRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    read: LibraryRead::PageDetail {
+                        page_id: NESTED_PAGE.to_owned(),
+                    },
+                },
+            )
+            .expect("overlapping grants authorize nested Page detail")
+            .authorization
+            .expect("overlapping-grant Page detail stamp");
+        assert_eq!(overlapping_stamp.authorization_dependencies.len(), 2);
+        for page_id in [NESTED_PAGE, ROOT_PAGE] {
+            assert!(overlapping_stamp.authorization_dependencies.contains(
+                &nodex_core_contracts::events::ResourceKey::Page {
+                    page_id: page_id.to_owned(),
+                },
+            ));
+        }
+        module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "revoke:nested-reference-page".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::SetProjectAccess {
+                        target: LibraryResourceTarget::Page {
+                            page_id: NESTED_PAGE.to_owned(),
+                        },
+                        changes: vec![LibraryProjectAccessChange {
+                            project_id: "project-2".to_owned(),
+                            access: None,
+                            expected_revision: Some(1),
+                        }],
+                    },
+                },
+            )
+            .expect("revoke nested direct grant");
+        let ancestor_authorized_detail = module
+            .read(
+                &project_two_context,
+                ModuleReadRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    read: LibraryRead::PageDetail {
+                        page_id: NESTED_PAGE.to_owned(),
+                    },
+                },
+            )
+            .expect("ancestor grant authorizes nested Page detail");
+        let ancestor_stamp = ancestor_authorized_detail
+            .authorization
+            .expect("ancestor-authorized Page detail stamp");
         let LibraryReadValue::PageOwnershipPath { value } = module
             .read(
                 &project_two_context,
@@ -2968,6 +3024,124 @@ mod tests {
         };
         assert_eq!(ancestors.len(), 1);
         assert_eq!(ancestors[0].page_id, ROOT_PAGE);
+        let revoked_ancestor = module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "revoke:root-reference-page".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::SetProjectAccess {
+                        target: LibraryResourceTarget::Page {
+                            page_id: ROOT_PAGE.to_owned(),
+                        },
+                        changes: vec![LibraryProjectAccessChange {
+                            project_id: "project-2".to_owned(),
+                            access: None,
+                            expected_revision: Some(1),
+                        }],
+                    },
+                },
+            )
+            .expect("revoke ancestor grant");
+        let ancestor_manifest = kernel
+            .readers()
+            .read_default(|connection| {
+                local_commit::read_manifest(
+                    connection,
+                    revoked_ancestor.committed.receipt.commit_seq,
+                )
+            })
+            .expect("read ancestor-revoke Manifest");
+        assert!(ancestor_manifest.revocations.iter().any(|revocation| {
+            revocation.resource_kind == RevokedResourceKind::Page
+                && revocation.resource_id == ROOT_PAGE
+        }));
+        assert!(ancestor_manifest.revocations.iter().any(|revocation| {
+            revocation.resource_kind == RevokedResourceKind::Page
+                && ancestor_stamp.authorization_dependencies.contains(
+                    &nodex_core_contracts::events::ResourceKey::Page {
+                        page_id: revocation.resource_id.clone(),
+                    },
+                )
+        }));
+        module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "grant:reference-database".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::GrantProjectAccess {
+                        project_id: "project-2".to_owned(),
+                        target: LibraryResourceTarget::Database {
+                            database_id: DATABASE.to_owned(),
+                        },
+                        access: LibraryAccess::Read,
+                    },
+                },
+            )
+            .expect("grant reference Database");
+        let membership_stamp = module
+            .read(
+                &project_two_context,
+                ModuleReadRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    read: LibraryRead::PageDetail {
+                        page_id: ROW_PAGE.to_owned(),
+                    },
+                },
+            )
+            .expect("Database grant authorizes member Page detail")
+            .authorization
+            .expect("Database-authorized Page detail stamp");
+        assert!(membership_stamp.authorization_dependencies.contains(
+            &nodex_core_contracts::events::ResourceKey::Page {
+                page_id: ROW_PAGE.to_owned(),
+            },
+        ));
+        assert!(membership_stamp.authorization_dependencies.contains(
+            &nodex_core_contracts::events::ResourceKey::Database {
+                database_id: DATABASE.to_owned(),
+            },
+        ));
+        let revoked_database = module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "revoke:reference-database".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::SetProjectAccess {
+                        target: LibraryResourceTarget::Database {
+                            database_id: DATABASE.to_owned(),
+                        },
+                        changes: vec![LibraryProjectAccessChange {
+                            project_id: "project-2".to_owned(),
+                            access: None,
+                            expected_revision: Some(1),
+                        }],
+                    },
+                },
+            )
+            .expect("revoke reference Database");
+        let database_manifest = kernel
+            .readers()
+            .read_default(|connection| {
+                local_commit::read_manifest(
+                    connection,
+                    revoked_database.committed.receipt.commit_seq,
+                )
+            })
+            .expect("read Database-revoke Manifest");
+        assert!(database_manifest.revocations.iter().any(|revocation| {
+            revocation.resource_kind == RevokedResourceKind::Database
+                && membership_stamp.authorization_dependencies.contains(
+                    &nodex_core_contracts::events::ResourceKey::Database {
+                        database_id: revocation.resource_id.clone(),
+                    },
+                )
+        }));
         let missing_project_context = BoundModuleContext {
             project_id: Some(ProjectId("project:missing".to_owned())),
             connection_id: "connection:missing-project".to_owned(),
@@ -5507,7 +5681,9 @@ mod content;
 mod content_rehome;
 pub(crate) mod cursor;
 mod history;
-pub(crate) use history::{require_page_read_access, require_page_write_access};
+pub(crate) use history::{
+    page_read_authorization_roots, require_page_read_access, require_page_write_access,
+};
 pub(crate) use page_copy::{OccurrencePageCloneInput, clone_page_for_occurrence};
 mod mutation;
 mod navigation;

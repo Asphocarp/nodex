@@ -1,5 +1,7 @@
 //! Canonical read authorization and transaction-scoped visibility capture.
 
+use std::collections::BTreeSet;
+
 use nodex_core_contracts::BoundModuleContext;
 use nodex_core_contracts::StoreEpoch;
 use nodex_core_contracts::events::{
@@ -10,6 +12,8 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 
 use super::sqlite::{StoreError, StoreErrorCode};
+
+const MAX_AUTHORIZATION_DEPENDENCIES: usize = 4_096;
 
 pub(crate) trait AuthorizationGraphView {
     fn connection(&self) -> &Connection;
@@ -59,16 +63,14 @@ pub(crate) fn issue_read_stamp(
     covered_commit_seq: i64,
     subject: ResourceKey,
     mut request_dependencies: Vec<ResourceKey>,
-    mut authorization_dependencies: Vec<ResourceKey>,
+    protected_resources: Vec<ResourceKey>,
 ) -> Result<AuthorizedReadStamp, StoreError> {
     if covered_commit_seq < 0 {
         return Err(corrupt("Authorized read commit floor is invalid"));
     }
     request_dependencies.sort();
     request_dependencies.dedup();
-    authorization_dependencies.sort();
-    authorization_dependencies.dedup();
-    if request_dependencies.is_empty() || authorization_dependencies.is_empty() {
+    if request_dependencies.is_empty() || protected_resources.is_empty() {
         return Err(corrupt("Authorized read dependencies are empty"));
     }
     let authorization_scope = match &context.project_id {
@@ -95,8 +97,12 @@ pub(crate) fn issue_read_stamp(
             return Err(corrupt("Library read used a Document authorization scope"));
         }
     };
-    for resource in &authorization_dependencies {
-        if !can_read(connection, context, &authorization_scope, resource)? {
+    let graph = CurrentGraphView::new(connection);
+    let mut authorization_dependencies = BTreeSet::new();
+    for resource in &protected_resources {
+        let Some(proof) =
+            authorization_proof_in_view(&graph, context, &authorization_scope, resource)?
+        else {
             return Err(StoreError::new(
                 StoreErrorCode::Unauthorized,
                 format!(
@@ -104,8 +110,17 @@ pub(crate) fn issue_read_stamp(
                 ),
                 false,
             ));
+        };
+        authorization_dependencies.extend(proof);
+        if authorization_dependencies.len() > MAX_AUTHORIZATION_DEPENDENCIES {
+            return Err(StoreError::new(
+                StoreErrorCode::ResourceExhausted,
+                "Canonical read authorization proof exceeds its dependency bound",
+                false,
+            ));
         }
     }
+    let authorization_dependencies = authorization_dependencies.into_iter().collect::<Vec<_>>();
     let encoded = serde_json::to_vec(&CanonicalAuthorizedReadStamp {
         hash_version: 1,
         store_epoch: &store_epoch,
@@ -135,21 +150,37 @@ pub(crate) fn can_read_in_view(
     scope: &DeliveryAuthorizationScope,
     resource: &ResourceKey,
 ) -> Result<bool, StoreError> {
+    Ok(authorization_proof_in_view(view, context, scope, resource)?.is_some())
+}
+
+fn authorization_proof_in_view(
+    view: &impl AuthorizationGraphView,
+    context: &BoundModuleContext,
+    scope: &DeliveryAuthorizationScope,
+    resource: &ResourceKey,
+) -> Result<Option<Vec<ResourceKey>>, StoreError> {
     let connection = view.connection();
     if scope_library_id(scope) != context.library_id.0 {
-        return Ok(false);
+        return Ok(None);
     }
     match resource {
-        ResourceKey::Library { library_id } => Ok(library_id == &context.library_id.0),
-        ResourceKey::Project { project_id } => {
-            project_is_authorized(connection, scope, &context.library_id.0, project_id)
+        ResourceKey::Library { library_id } => {
+            Ok((library_id == &context.library_id.0).then(|| vec![resource.clone()]))
         }
-        ResourceKey::Page { page_id } => page_is_authorized(connection, scope, context, page_id),
+        ResourceKey::Project { project_id } => {
+            Ok(
+                project_is_authorized(connection, scope, &context.library_id.0, project_id)?
+                    .then(|| vec![resource.clone()]),
+            )
+        }
+        ResourceKey::Page { page_id } => {
+            page_authorization_proof(connection, scope, context, page_id, resource)
+        }
         ResourceKey::Document { document_id } => {
-            document_is_authorized(connection, scope, context, document_id)
+            document_authorization_proof(connection, scope, context, document_id, resource)
         }
         ResourceKey::Database { database_id } => {
-            database_is_authorized(connection, scope, context, database_id)
+            database_authorization_proof(connection, scope, context, database_id, resource)
         }
         ResourceKey::DataSource { data_source_id } => {
             let coordinates = connection
@@ -161,12 +192,23 @@ pub(crate) fn can_read_in_view(
                 )
                 .optional()?;
             let Some((library_id, database_id)) = coordinates else {
-                return Ok(false);
+                return Ok(None);
             };
             if library_id != context.library_id.0 {
-                return Ok(false);
+                return Ok(None);
             }
-            database_is_authorized(connection, scope, context, &database_id)
+            add_subject_to_proof(
+                database_authorization_proof(
+                    connection,
+                    scope,
+                    context,
+                    &database_id,
+                    &ResourceKey::Database {
+                        database_id: database_id.clone(),
+                    },
+                )?,
+                resource,
+            )
         }
         ResourceKey::View { view_id } => {
             let database_id = connection
@@ -178,12 +220,23 @@ pub(crate) fn can_read_in_view(
                 )
                 .optional()?;
             let Some(database_id) = database_id else {
-                return Ok(false);
+                return Ok(None);
             };
-            database_is_authorized(connection, scope, context, &database_id)
+            add_subject_to_proof(
+                database_authorization_proof(
+                    connection,
+                    scope,
+                    context,
+                    &database_id,
+                    &ResourceKey::Database {
+                        database_id: database_id.clone(),
+                    },
+                )?,
+                resource,
+            )
         }
         ResourceKey::Canvas { canvas_id } => {
-            canvas_is_authorized(connection, scope, context, canvas_id)
+            canvas_authorization_proof(connection, scope, context, canvas_id, resource)
         }
     }
 }
@@ -221,12 +274,13 @@ fn project_is_authorized(
     })
 }
 
-fn page_is_authorized(
+fn page_authorization_proof(
     connection: &Connection,
     scope: &DeliveryAuthorizationScope,
     context: &BoundModuleContext,
     page_id: &str,
-) -> Result<bool, StoreError> {
+    subject: &ResourceKey,
+) -> Result<Option<Vec<ResourceKey>>, StoreError> {
     let page = connection
         .query_row(
             "SELECT document_id FROM pages
@@ -236,42 +290,36 @@ fn page_is_authorized(
         )
         .optional()?;
     let Some(document_id) = page else {
-        return Ok(false);
+        return Ok(None);
     };
     match scope {
-        DeliveryAuthorizationScope::Library { .. } => Ok(true),
+        DeliveryAuthorizationScope::Library { .. } => Ok(Some(vec![subject.clone()])),
         DeliveryAuthorizationScope::Project { project_id, .. } => {
-            match crate::library::require_page_read_access(
+            match crate::library::page_read_authorization_roots(
                 connection,
                 &context.library_id.0,
                 project_id,
                 page_id,
             ) {
-                Ok(()) => Ok(true),
-                Err(error)
-                    if matches!(
-                        error.code,
-                        StoreErrorCode::NotFound | StoreErrorCode::Unauthorized
-                    ) =>
-                {
-                    Ok(false)
-                }
+                Ok(proof) => Ok(proof),
+                Err(error) if authorization_miss(&error) => Ok(None),
                 Err(error) => Err(error),
             }
         }
         DeliveryAuthorizationScope::Document {
             document_id: scope_document_id,
             ..
-        } => Ok(scope_document_id == &document_id),
+        } => Ok((scope_document_id == &document_id).then(|| vec![subject.clone()])),
     }
 }
 
-fn document_is_authorized(
+fn document_authorization_proof(
     connection: &Connection,
     scope: &DeliveryAuthorizationScope,
     context: &BoundModuleContext,
     document_id: &str,
-) -> Result<bool, StoreError> {
+    subject: &ResourceKey,
+) -> Result<Option<Vec<ResourceKey>>, StoreError> {
     let belongs = connection.query_row(
         "SELECT EXISTS(
            SELECT 1 FROM documents document
@@ -282,10 +330,10 @@ fn document_is_authorized(
         |row| row.get::<_, i64>(0),
     )? == 1;
     if !belongs {
-        return Ok(false);
+        return Ok(None);
     }
     if matches!(scope, DeliveryAuthorizationScope::Library { .. }) {
-        return Ok(true);
+        return Ok(Some(vec![subject.clone()]));
     }
     if let DeliveryAuthorizationScope::Document {
         document_id: scope_document_id,
@@ -293,28 +341,52 @@ fn document_is_authorized(
     } = scope
         && scope_document_id != document_id
     {
-        return Ok(false);
+        return Ok(None);
     }
     match crate::document::require_owned_document_read_access(connection, context, document_id) {
-        Ok(()) => Ok(true),
-        Err(error)
-            if matches!(
-                error.code,
-                StoreErrorCode::NotFound | StoreErrorCode::Unauthorized
-            ) =>
-        {
-            Ok(false)
+        Ok(()) => {
+            document_owner_authorization_proof(connection, scope, context, document_id, subject)
         }
+        Err(error) if authorization_miss(&error) => Ok(None),
         Err(error) => Err(error),
     }
 }
 
-fn database_is_authorized(
+fn document_owner_authorization_proof(
+    connection: &Connection,
+    scope: &DeliveryAuthorizationScope,
+    context: &BoundModuleContext,
+    document_id: &str,
+    subject: &ResourceKey,
+) -> Result<Option<Vec<ResourceKey>>, StoreError> {
+    let Some(authority) = crate::document::read_document_authority(connection, document_id)? else {
+        return Ok(None);
+    };
+    let owner = match authority.owner_type.as_str() {
+        "page" => ResourceKey::Page {
+            page_id: authority.owner_block_id,
+        },
+        "database" => ResourceKey::Database {
+            database_id: authority.owner_block_id,
+        },
+        "canvas" => ResourceKey::Canvas {
+            canvas_id: authority.owner_block_id,
+        },
+        _ => return Ok(Some(vec![subject.clone()])),
+    };
+    add_subject_to_proof(
+        authorization_proof_in_view(&CurrentGraphView::new(connection), context, scope, &owner)?,
+        subject,
+    )
+}
+
+fn database_authorization_proof(
     connection: &Connection,
     scope: &DeliveryAuthorizationScope,
     context: &BoundModuleContext,
     database_id: &str,
-) -> Result<bool, StoreError> {
+    subject: &ResourceKey,
+) -> Result<Option<Vec<ResourceKey>>, StoreError> {
     let owner_project_id = connection
         .query_row(
             "SELECT block.project_id FROM blocks block
@@ -327,16 +399,16 @@ fn database_is_authorized(
         )
         .optional()?;
     let Some(owner_project_id) = owner_project_id else {
-        return Ok(false);
+        return Ok(None);
     };
     if matches!(scope, DeliveryAuthorizationScope::Library { .. }) {
-        return Ok(true);
+        return Ok(Some(vec![subject.clone()]));
     }
     let Some(project_id) = scope_project_id(scope) else {
-        return Ok(false);
+        return Ok(None);
     };
     if project_id == owner_project_id {
-        return Ok(true);
+        return Ok(Some(vec![subject.clone()]));
     }
     let primary = match crate::database::authorization::project_primary_database(
         connection,
@@ -344,27 +416,28 @@ fn database_is_authorized(
         project_id,
     ) {
         Ok(primary) => primary,
-        Err(error) if authorization_miss(&error) => return Ok(false),
+        Err(error) if authorization_miss(&error) => return Ok(None),
         Err(error) => return Err(error),
     };
-    match crate::database::authorization::authorize_database(
+    match crate::database::authorization::read_authorization_roots(
         connection,
         project_id,
         primary.as_deref(),
         database_id,
     ) {
-        Ok(authorized) => Ok(authorized),
-        Err(error) if authorization_miss(&error) => Ok(false),
+        Ok(proof) => Ok(proof),
+        Err(error) if authorization_miss(&error) => Ok(None),
         Err(error) => Err(error),
     }
 }
 
-fn canvas_is_authorized(
+fn canvas_authorization_proof(
     connection: &Connection,
     scope: &DeliveryAuthorizationScope,
     context: &BoundModuleContext,
     canvas_id: &str,
-) -> Result<bool, StoreError> {
+    subject: &ResourceKey,
+) -> Result<Option<Vec<ResourceKey>>, StoreError> {
     let row = connection
         .query_row(
             "SELECT block.project_id, ownership.document_id, host_page.block_id
@@ -386,40 +459,45 @@ fn canvas_is_authorized(
         )
         .optional()?;
     let Some((owner_project_id, document_id, host_page_id)) = row else {
-        return Ok(false);
+        return Ok(None);
     };
     match scope {
-        DeliveryAuthorizationScope::Library { .. } => Ok(true),
+        DeliveryAuthorizationScope::Library { .. } => Ok(Some(vec![subject.clone()])),
         DeliveryAuthorizationScope::Project { project_id, .. } => {
             if project_id == &owner_project_id {
-                return Ok(true);
+                return Ok(Some(vec![subject.clone()]));
             }
             let Some(page_id) = host_page_id else {
-                return Ok(false);
+                return Ok(None);
             };
-            match crate::library::require_page_read_access(
+            match crate::library::page_read_authorization_roots(
                 connection,
                 &context.library_id.0,
                 project_id,
                 &page_id,
             ) {
-                Ok(()) => Ok(true),
-                Err(error)
-                    if matches!(
-                        error.code,
-                        StoreErrorCode::NotFound | StoreErrorCode::Unauthorized
-                    ) =>
-                {
-                    Ok(false)
-                }
+                Ok(proof) => add_subject_to_proof(proof, subject),
+                Err(error) if authorization_miss(&error) => Ok(None),
                 Err(error) => Err(error),
             }
         }
         DeliveryAuthorizationScope::Document {
             document_id: scope_document_id,
             ..
-        } => Ok(scope_document_id == &document_id),
+        } => Ok((scope_document_id == &document_id).then(|| vec![subject.clone()])),
     }
+}
+
+fn add_subject_to_proof(
+    proof: Option<Vec<ResourceKey>>,
+    subject: &ResourceKey,
+) -> Result<Option<Vec<ResourceKey>>, StoreError> {
+    let Some(proof) = proof else {
+        return Ok(None);
+    };
+    let mut roots = proof.into_iter().collect::<BTreeSet<_>>();
+    roots.insert(subject.clone());
+    Ok(Some(roots.into_iter().collect()))
 }
 
 fn scope_library_id(scope: &DeliveryAuthorizationScope) -> &str {

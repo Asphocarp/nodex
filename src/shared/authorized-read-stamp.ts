@@ -30,6 +30,31 @@ const isIdentity = (value: unknown): value is string =>
   && value.length <= 512
   && value === value.trim();
 
+const RESOURCE_KIND_ORDER: Readonly<Record<AuthorityResource["kind"], number>> = {
+  library: 0,
+  project: 1,
+  page: 2,
+  document: 3,
+  database: 4,
+  data_source: 5,
+  view: 6,
+  canvas: 7,
+};
+const UTF8_ENCODER = new TextEncoder();
+
+const authorityResourceId = (resource: AuthorityResource): string => {
+  switch (resource.kind) {
+    case "library": return resource.library_id;
+    case "project": return resource.project_id;
+    case "page": return resource.page_id;
+    case "document": return resource.document_id;
+    case "database": return resource.database_id;
+    case "data_source": return resource.data_source_id;
+    case "view": return resource.view_id;
+    case "canvas": return resource.canvas_id;
+  }
+};
+
 export const authorityResourceKey = (resource: AuthorityResource): string => {
   switch (resource.kind) {
     case "library": return JSON.stringify([resource.kind, resource.library_id]);
@@ -45,8 +70,63 @@ export const authorityResourceKey = (resource: AuthorityResource): string => {
 
 export const isAuthorityResource = (value: unknown): value is AuthorityResource => {
   if (!isRecord(value) || !isIdentity(value.kind)) return false;
-  const key = `${value.kind}_id`;
-  return hasExactKeys(value, ["kind", key]) && isIdentity(value[key]);
+  switch (value.kind) {
+    case "library":
+      return hasExactKeys(value, ["kind", "library_id"])
+        && isIdentity(value.library_id);
+    case "project":
+      return hasExactKeys(value, ["kind", "project_id"])
+        && isIdentity(value.project_id);
+    case "page":
+      return hasExactKeys(value, ["kind", "page_id"])
+        && isIdentity(value.page_id);
+    case "document":
+      return hasExactKeys(value, ["kind", "document_id"])
+        && isIdentity(value.document_id);
+    case "database":
+      return hasExactKeys(value, ["kind", "database_id"])
+        && isIdentity(value.database_id);
+    case "data_source":
+      return hasExactKeys(value, ["kind", "data_source_id"])
+        && isIdentity(value.data_source_id);
+    case "view":
+      return hasExactKeys(value, ["kind", "view_id"])
+        && isIdentity(value.view_id);
+    case "canvas":
+      return hasExactKeys(value, ["kind", "canvas_id"])
+        && isIdentity(value.canvas_id);
+    default:
+      return false;
+  }
+};
+
+const compareUtf8 = (left: string, right: string): number => {
+  const leftBytes = UTF8_ENCODER.encode(left);
+  const rightBytes = UTF8_ENCODER.encode(right);
+  const sharedLength = Math.min(leftBytes.length, rightBytes.length);
+  for (let index = 0; index < sharedLength; index += 1) {
+    const difference = leftBytes[index] - rightBytes[index];
+    if (difference !== 0) return difference;
+  }
+  return leftBytes.length - rightBytes.length;
+};
+
+export const compareAuthorityResources = (
+  left: AuthorityResource,
+  right: AuthorityResource,
+): number => {
+  const kindDifference = RESOURCE_KIND_ORDER[left.kind] - RESOURCE_KIND_ORDER[right.kind];
+  if (kindDifference !== 0) return kindDifference;
+  return compareUtf8(authorityResourceId(left), authorityResourceId(right));
+};
+
+export const canonicalizeAuthorityResources = (
+  resources: readonly AuthorityResource[],
+): readonly AuthorityResource[] => {
+  const byKey = new Map(
+    resources.map((resource) => [authorityResourceKey(resource), resource]),
+  );
+  return [...byKey.values()].sort(compareAuthorityResources);
 };
 
 const isAddress = (value: unknown): value is DeliveryAddress => {
@@ -67,8 +147,12 @@ const isAddress = (value: unknown): value is DeliveryAddress => {
 };
 
 const isSortedUniqueResources = (resources: readonly AuthorityResource[]): boolean => {
-  const keys = resources.map(authorityResourceKey);
-  return new Set(keys).size === keys.length;
+  for (let index = 1; index < resources.length; index += 1) {
+    if (compareAuthorityResources(resources[index - 1], resources[index]) >= 0) {
+      return false;
+    }
+  }
+  return true;
 };
 
 export const parseAuthorizedReadStamp = (

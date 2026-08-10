@@ -1,3 +1,6 @@
+use std::collections::BTreeSet;
+
+use nodex_core_contracts::events::ResourceKey;
 use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
@@ -56,9 +59,22 @@ pub(crate) fn authorize_database(
     primary_database_id: Option<&str>,
     database_id: &str,
 ) -> Result<bool, StoreError> {
-    if primary_database_id == Some(database_id) {
-        return Ok(true);
-    }
+    Ok(
+        read_authorization_roots(connection, project_id, primary_database_id, database_id)?
+            .is_some(),
+    )
+}
+
+pub(crate) fn read_authorization_roots(
+    connection: &Connection,
+    project_id: &str,
+    primary_database_id: Option<&str>,
+    database_id: &str,
+) -> Result<Option<Vec<ResourceKey>>, StoreError> {
+    let mut roots = BTreeSet::from([ResourceKey::Database {
+        database_id: database_id.to_owned(),
+    }]);
+    let primary = primary_database_id == Some(database_id);
     let direct = connection
         .query_row(
             "SELECT 1 FROM project_resource_grants WHERE project_id = ?1 \
@@ -66,10 +82,9 @@ pub(crate) fn authorize_database(
             params![project_id, database_id],
             |_| Ok(()),
         )
-        .optional()?;
-    if direct.is_some() {
-        return Ok(true);
-    }
+        .optional()?
+        .is_some();
+    let mut authorized = primary || direct;
     let containing_document_id = connection
         .query_row(
             "SELECT containing_document_id FROM blocks WHERE id = ?1 AND type = 'database'",
@@ -79,7 +94,7 @@ pub(crate) fn authorize_database(
         .optional()?
         .flatten();
     let Some(containing_document_id) = containing_document_id else {
-        return Ok(false);
+        return Ok(authorized.then(|| roots.into_iter().collect()));
     };
     let owner_page_id = connection
         .query_row(
@@ -91,24 +106,34 @@ pub(crate) fn authorize_database(
         )
         .optional()?;
     let Some(owner_page_id) = owner_page_id else {
+        if authorized {
+            return Ok(Some(roots.into_iter().collect()));
+        }
         return Err(corrupt("Embedded Database has no owning Page"));
     };
-    let inherited = connection
-        .query_row(
-            "WITH RECURSIVE ancestors(page_id) AS (\
-               SELECT ?2 \
+    let inherited_roots = connection
+        .prepare(
+            "WITH RECURSIVE ancestors(page_id, path) AS (\
+               SELECT ?2, '|' || ?2 || '|' \
                UNION ALL \
-               SELECT page.parent_id FROM pages page JOIN ancestors current \
-                 ON page.block_id = current.page_id WHERE page.parent_kind = 'page'\
-             ) SELECT 1 FROM project_resource_grants grant_row JOIN ancestors \
+               SELECT page.parent_id, ancestors.path || page.parent_id || '|' \
+               FROM pages page JOIN ancestors ON page.block_id = ancestors.page_id \
+               WHERE page.parent_kind = 'page' \
+                 AND instr(ancestors.path, '|' || page.parent_id || '|') = 0\
+             ) SELECT grant_row.root_id FROM project_resource_grants grant_row JOIN ancestors \
                ON grant_row.root_id = ancestors.page_id \
              WHERE grant_row.project_id = ?1 AND grant_row.root_kind = 'page' \
-               AND grant_row.lifecycle = 'active' LIMIT 1",
-            params![project_id, owner_page_id],
-            |_| Ok(()),
-        )
-        .optional()?;
-    Ok(inherited.is_some())
+               AND grant_row.lifecycle = 'active' ORDER BY grant_row.root_id",
+        )?
+        .query_map(params![project_id, owner_page_id], |row| {
+            row.get::<_, String>(0)
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    for page_id in inherited_roots {
+        authorized = true;
+        roots.insert(ResourceKey::Page { page_id });
+    }
+    Ok(authorized.then(|| roots.into_iter().collect()))
 }
 
 fn not_found(message: &str) -> StoreError {

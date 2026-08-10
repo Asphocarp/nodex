@@ -1,5 +1,6 @@
 import {
   authorityResourceKey,
+  canonicalizeAuthorityResources,
   verifyAuthorizedReadStamp,
   type AuthorityResource,
   type AuthorizedReadStamp,
@@ -34,7 +35,7 @@ export interface AuthorityRegistration {
 }
 
 export class StaleAuthorizedReadError extends Error {
-  constructor() {
+  constructor(readonly requiredCommitSeq = 0) {
     super("Canonical read response is older than renderer authority");
     this.name = "StaleAuthorizedReadError";
   }
@@ -78,12 +79,7 @@ const DEFAULT_READ_TIMEOUT_MS = 30_000;
 
 const normalizeResources = (
   resources: readonly AuthorityResource[],
-): readonly AuthorityResource[] => {
-  const byKey = new Map(resources.map((resource) => [authorityResourceKey(resource), resource]));
-  return [...byKey.entries()]
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([, resource]) => resource);
-};
+): readonly AuthorityResource[] => canonicalizeAuthorityResources(resources);
 
 const sameResources = (
   left: readonly AuthorityResource[],
@@ -197,8 +193,11 @@ export class AuthorityFreshnessIndex {
       || !active
       || !this.#stampMatchesLease(state, lease, stamp, replacedByStamp)
     ) {
+      const requiredCommitSeq = state
+        ? Math.max(lease.observedCommitSeq, this.#requiredCommitSeq(state))
+        : lease.observedCommitSeq;
       this.releaseRead(lease);
-      throw new StaleAuthorizedReadError();
+      throw new StaleAuthorizedReadError(requiredCommitSeq);
     }
     this.releaseRead(lease);
     return this.#registerStamp(state, stamp, onFence);
@@ -218,7 +217,7 @@ export class AuthorityFreshnessIndex {
     const existing = this.#addresses.get(key);
     if (existing && existing.storeEpoch !== null
       && existing.storeEpoch !== stamp.store_epoch) {
-      throw new StaleAuthorizedReadError();
+      throw new StaleAuthorizedReadError(this.#requiredCommitSeq(existing));
     }
     const state = existing ?? this.#address(
       stamp.delivery_address,
@@ -230,7 +229,7 @@ export class AuthorityFreshnessIndex {
       stamp.covered_commit_seq < state.latestCommitSeq
       || stamp.covered_commit_seq < state.addressFloor
     ) {
-      throw new StaleAuthorizedReadError();
+      throw new StaleAuthorizedReadError(this.#requiredCommitSeq(state));
     }
     return this.#registerStamp(state, stamp, onFence);
   }
@@ -254,7 +253,7 @@ export class AuthorityFreshnessIndex {
         this.#failClosed(state, state.latestCommitSeq);
         throw new AuthorityFreshnessCapacityError();
       }
-      throw new StaleAuthorizedReadError();
+      throw new StaleAuthorizedReadError(this.#requiredCommitSeq(state, roots));
     }
     const token = Symbol("authority-registration");
     state.latestCommitSeq = Math.max(state.latestCommitSeq, stamp.covered_commit_seq);
@@ -492,6 +491,17 @@ export class AuthorityFreshnessIndex {
   #registrationCount(): number {
     return [...this.#addresses.values()]
       .reduce((total, state) => total + state.registrations.size, 0);
+  }
+
+  #requiredCommitSeq(
+    state: AddressState,
+    roots: ReadonlySet<string> = new Set(),
+  ): number {
+    return Math.max(
+      state.latestCommitSeq,
+      state.addressFloor,
+      ...[...roots].map((root) => state.rootFloors.get(root) ?? 0),
+    );
   }
 }
 

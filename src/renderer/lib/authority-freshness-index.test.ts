@@ -4,7 +4,10 @@ import type {
   AuthorityResource,
   AuthorizedReadStamp,
 } from "../../shared/authorized-read-stamp";
-import { authorizedReadStampHash } from "../../shared/authorized-read-stamp";
+import {
+  authorizedReadStampHash,
+  canonicalizeAuthorityResources,
+} from "../../shared/authorized-read-stamp";
 import type { DeliveryAddress } from "../../shared/recipient-delivery";
 import {
   AuthorityFreshnessCapacityError,
@@ -38,7 +41,9 @@ const stamp = async (input: {
     authorization_scope: address,
     subject: input.subject,
     request_dependencies: [input.subject],
-    authorization_dependencies: input.dependencies ?? [input.subject],
+    authorization_dependencies: canonicalizeAuthorityResources(
+      input.dependencies ?? [input.subject],
+    ),
     covered_commit_seq: input.commitSeq,
   } as const;
   return {

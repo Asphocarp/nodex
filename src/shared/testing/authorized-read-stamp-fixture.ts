@@ -4,6 +4,7 @@ import type {
   AuthorityResource,
   AuthorizedReadStamp,
 } from "../authorized-read-stamp";
+import { canonicalizeAuthorityResources } from "../authorized-read-stamp";
 import type { DeliveryAddress } from "../recipient-delivery";
 
 const bytesToHex = (bytes: Uint8Array): string =>
@@ -22,8 +23,12 @@ export const authorizedReadStampFixture = (input: {
     delivery_address: input.deliveryAddress,
     authorization_scope: input.deliveryAddress,
     subject: input.subject,
-    request_dependencies: input.requestDependencies ?? [input.subject],
-    authorization_dependencies: input.authorizationDependencies ?? [input.subject],
+    request_dependencies: canonicalizeAuthorityResources(
+      input.requestDependencies ?? [input.subject],
+    ),
+    authorization_dependencies: canonicalizeAuthorityResources(
+      input.authorizationDependencies ?? [input.subject],
+    ),
     covered_commit_seq: input.commitSeq ?? 1,
   } as const;
   return {

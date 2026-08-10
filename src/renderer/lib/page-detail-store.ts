@@ -288,6 +288,7 @@ export const fetchPageDetail = async (
   const requestStoreGeneration = storeGeneration;
   const requestEntryGeneration = generation;
   const requestToken = {};
+  let staleRetryFloor: number | null = null;
   const request = (async (): Promise<PageDetail | null> => {
     try {
       const result = await readPageDetail(projectId, pageId, minimumCommitSeq);
@@ -327,7 +328,14 @@ export const fetchPageDetail = async (
         requestStoreGeneration !== storeGeneration
         || requestEntryGeneration !== entry.generation
       ) return null;
-      if (error instanceof StaleAuthorizedReadError) return null;
+      if (error instanceof StaleAuthorizedReadError) {
+        staleRetryFloor = Math.max(minimumCommitSeq, error.requiredCommitSeq);
+        entry.freshnessAuthority?.release();
+        entry.freshnessAuthority = null;
+        entry.snapshot = { detail: null, loading: false, error: null };
+        emit(entry);
+        return null;
+      }
       entry.snapshot = {
         detail: startingSnapshot.detail,
         loading: false,
@@ -337,8 +345,20 @@ export const fetchPageDetail = async (
       throw error;
     } finally {
       if (entry.inFlight?.token === requestToken) entry.inFlight = null;
-      if (entry.listeners.size === 0 && entry.snapshot === EMPTY_DETAIL) {
+      if (entry.listeners.size === 0 && entry.snapshot.detail === null) {
         deleteInactiveEntry(key, entry);
+      }
+      if (
+        staleRetryFloor !== null
+        && requestStoreGeneration === storeGeneration
+        && entries.get(key) === entry
+        && requestEntryGeneration === entry.generation
+        && entry.listeners.size > 0
+      ) {
+        void fetchPageDetail(projectId, pageId, {
+          minimumCommitSeq: staleRetryFloor,
+          libraryId,
+        }).catch(() => undefined);
       }
     }
   })();

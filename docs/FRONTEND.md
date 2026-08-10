@@ -200,6 +200,11 @@ address. Address, root-floor, in-flight, and registration bounds fail closed
 without drop-oldest eviction. Every whole-address fence also advances a local
 generation, so a response started before a same-floor reset or capacity
 overflow cannot be adopted merely because its commit coordinate is equal.
+If Page Detail rejects an admission after a previously unknown dynamic root
+changes, the store clears the protected snapshot and starts one coalesced
+trailing read at the freshness index's required commit floor. A failed retry
+leaves the entry empty/degraded; it never restores the fenced snapshot or leaves
+an initial request permanently loading.
 Contiguous complete projection effects reduce synchronously, while canonical
 stores reread only for a gap, reset, incomplete patch, or integrity conflict.
 Renderer code therefore needs neither a structural pending projection nor a

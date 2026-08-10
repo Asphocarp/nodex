@@ -29,6 +29,7 @@ import {
   setPageDetail,
   usePageDetail,
 } from "./page-detail-store";
+import { rendererAuthorityFreshnessIndex } from "./authority-freshness-index";
 
 const timestamp = "2026-07-22T00:00:00.000Z";
 
@@ -279,6 +280,65 @@ describe("Page Detail store realtime convergence", () => {
     });
     await waitFor(() => expect(result.current.detail?.page.title).toBe("Latest"));
     expect(mocks.readPageDetail).toHaveBeenCalledTimes(2);
+    expect(mocks.readPageDetail).toHaveBeenNthCalledWith(
+      2,
+      "project-1",
+      "page-1",
+      2,
+    );
+  });
+
+  test("rereads when admission rejects an unknown dynamic root change", async () => {
+    const firstRead = deferred<{ ok: true; value: PageDetail }>();
+    mocks.readPageDetail
+      .mockReturnValueOnce(firstRead.promise)
+      .mockResolvedValueOnce({ ok: true, value: detail("Latest", 2) });
+    const { result } = renderHook(
+      () => usePageDetail("library-1", "project-1", "page-1"),
+      { wrapper },
+    );
+    await waitFor(() => expect(result.current.loading).toBe(true));
+
+    rendererAuthorityFreshnessIndex.admitVisibility({
+      deliveryAddress: {
+        kind: "project",
+        library_id: "library-1",
+        project_id: "project-1",
+      },
+      storeEpoch: "epoch-1",
+      commitSeq: 2,
+      change: "revoke",
+      roots: [{ kind: "document", document_id: "document-1" }],
+    });
+    const stale = detail("Stale", 1);
+    await act(async () => {
+      firstRead.resolve({
+        ok: true,
+        value: {
+          ...stale,
+          authorization: authorizedReadStampFixture({
+            deliveryAddress: stale.authorization.delivery_address,
+            subject: { kind: "page", page_id: "page-1" },
+            storeEpoch: "epoch-1",
+            commitSeq: 1,
+            authorizationDependencies: [
+              { kind: "page", page_id: "page-1" },
+              { kind: "document", document_id: "document-1" },
+            ],
+          }),
+        },
+      });
+      await firstRead.promise;
+    });
+
+    await waitFor(() => expect(result.current.detail?.page.title).toBe("Latest"));
+    expect(mocks.readPageDetail).toHaveBeenCalledTimes(2);
+    expect(mocks.readPageDetail).toHaveBeenNthCalledWith(
+      2,
+      "project-1",
+      "page-1",
+      2,
+    );
   });
 
   test("does not refetch when the initial checkpoint is covered by an in-flight read", async () => {
