@@ -98,6 +98,7 @@ export function useSidebarScrollChrome() {
 
 export function SidebarExpandedHeader({
   productName,
+  productStatusLabel,
   searchShortcutLabel,
   newChatShortcutLabel,
   scrolledContentUnderHeader,
@@ -105,6 +106,7 @@ export function SidebarExpandedHeader({
   onNewChat,
 }: {
   productName: string;
+  productStatusLabel?: string;
   searchShortcutLabel: ReactNode;
   newChatShortcutLabel: string;
   scrolledContentUnderHeader: boolean;
@@ -122,8 +124,13 @@ export function SidebarExpandedHeader({
       )}
     >
       <div className="ml-2 flex items-center">
-        <div className="-ml-2 flex h-8 min-w-0 items-center rounded-xl border border-transparent px-2 text-[17px] leading-6 font-medium">
-          <span className="truncate font-semibold text-token-foreground">{productName}</span>
+        <div className="-ml-2 flex h-8 min-w-0 items-center gap-1.5 rounded-xl border border-transparent px-2 text-[17px] leading-6 font-medium select-none">
+          <span className="min-w-0 truncate font-semibold text-token-foreground">{productName}</span>
+          {productStatusLabel ? (
+            <span className="inline-flex h-4.5 shrink-0 items-center rounded-sm bg-token-foreground/5 px-1.5 text-xs font-medium leading-none text-token-description-foreground">
+              {productStatusLabel}
+            </span>
+          ) : null}
         </div>
         <NodexTooltip tooltipContent="Search" shortcut={searchShortcutLabel} side="right">
           <button

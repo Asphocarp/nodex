@@ -393,6 +393,7 @@ function SidebarNewChatControlsHarness() {
         >
           <SidebarExpandedHeader
             productName="Nodex"
+            productStatusLabel="Beta"
             searchShortcutLabel={resolveCodexPageSearchShortcutLabel()}
             newChatShortcutLabel="⌘N"
             scrolledContentUnderHeader={sidebarScrollChrome.scrolledContentUnderHeader}
@@ -1800,7 +1801,7 @@ export const NewChatControls: Story = {
   parameters: {
     docs: {
       description: {
-        story: "The fixed sidebar header keeps its top-edge treatment while the bottom fade appears only when additional rows remain below the scroll viewport.",
+        story: "The fixed sidebar header pairs the Nodex wordmark with a compact beta chip while retaining its top-edge treatment; the bottom fade appears only when additional rows remain below the scroll viewport.",
       },
     },
   },
