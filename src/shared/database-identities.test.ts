@@ -118,6 +118,22 @@ describe("database identities", () => {
     expect(isBuiltInDataSourceOptionId("priority", "p0-critical")).toBe(true);
     expect(isBuiltInDataSourceOptionId("estimate", "xs")).toBe(true);
     expect(isBuiltInDataSourceOptionId("priority", "ship")).toBe(false);
+    for (const priority of [
+      "p0-critical",
+      "p1-high",
+      "p2-medium",
+      "p3-low",
+    ]) {
+      expect(
+        parseDataSourceOptionId({ propertyId: "priority", value: priority }),
+      ).toBe(priority);
+    }
+    expect(() =>
+      parseDataSourceOptionId({
+        propertyId: "priority",
+        value: "p4-later",
+      }),
+    ).toThrow("not valid");
     expect(isBuiltInDataSourceOptionId("tags", "ship")).toBe(false);
     expect(isBuiltInDataSourceOptionId("toString", "call")).toBe(false);
 

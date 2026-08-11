@@ -20,6 +20,7 @@ import type {
   PageRunInTarget,
   Priority,
 } from "../../shared/types";
+import { PRIORITY_VALUES } from "../../shared/priority";
 import { canonicalizePortableRichText } from "../../shared/block-documents/portable-rich-text";
 import { isWorkflowStatus } from "../../shared/workflow-status";
 import type { DesktopDataAuthorityRuntime } from "./desktop-data-authority";
@@ -287,13 +288,7 @@ const mapInboxItem = (
   status: item.status,
 });
 
-const PRIORITIES = new Set<Priority>([
-  "p0-critical",
-  "p1-high",
-  "p2-medium",
-  "p3-low",
-  "p4-later",
-]);
+const PRIORITIES = new Set<Priority>(PRIORITY_VALUES);
 const ESTIMATES = new Set<Estimate>(["xs", "s", "m", "l", "xl"]);
 const RUN_TARGETS = new Set<PageRunInTarget>([
   "localProject",

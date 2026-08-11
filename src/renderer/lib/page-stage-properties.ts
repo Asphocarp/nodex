@@ -13,19 +13,13 @@ import {
 import type { LibraryPageDetail, PageDetail } from "../../shared/page-detail";
 import { isWorkflowStatus, type WorkflowStatus } from "../../shared/workflow-status";
 import type { Estimate, Priority } from "../../shared/types";
+import { isPriority } from "../../shared/priority";
 import {
   isCanonicalDataSourceDateTime,
   parseIsoDateToLocalDate,
 } from "./data-source-property-date";
 import { readRelationValuePreview } from "./data-source-relation-value";
 
-const PRIORITIES = new Set<Priority>([
-  "p0-critical",
-  "p1-high",
-  "p2-medium",
-  "p3-low",
-  "p4-later",
-]);
 const ESTIMATES = new Set<Estimate>(["xs", "s", "m", "l", "xl"]);
 
 export const PAGE_STAGE_PRIMARY_PROPERTY_IDS = [
@@ -196,7 +190,7 @@ export const readPageStageSemanticProperties = (
   );
   const priority = scalarSemantic(
     findBuiltInProperty(properties, "priority"),
-    (value): value is Priority => PRIORITIES.has(value as Priority),
+    isPriority,
   );
   const estimate = scalarSemantic(
     findBuiltInProperty(properties, "estimate"),

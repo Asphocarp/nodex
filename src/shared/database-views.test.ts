@@ -243,7 +243,6 @@ describe("durable Database View contracts", () => {
                   "p1-high",
                   "p2-medium",
                   "p3-low",
-                  "p4-later",
                 ],
                 includeEmpty: true,
               },
@@ -297,6 +296,84 @@ describe("durable Database View contracts", () => {
     expect(JSON.stringify(partial.filter)).toBe(JSON.stringify(noRules.filter));
     expect(JSON.stringify(partial.sort)).toBe(JSON.stringify(noRules.sort));
     expect(partial.options.includeHostCard).toBe(false);
+  });
+
+  test("compiles retired P4 filters to P3 while retaining raw provenance", () => {
+    const rules = {
+      filter: {
+        any: [
+          {
+            all: [
+              {
+                field: "priority",
+                op: "in",
+                values: ["p4-later", "p3-low"],
+                includeEmpty: false,
+              },
+            ],
+          },
+        ],
+      },
+      sort: [{ field: "priority", direction: "asc" }],
+    };
+    const rulesV2B64 = encodeBase64Url(JSON.stringify(rules));
+    const config = createLegacyInlineDatabaseViewConfig({
+      sourceBlockId: "inline-p4-cutover",
+      props: { sourceProjectId: "source-project", rulesV2B64 },
+    });
+
+    expect(config.filter).toEqual({
+      any: [
+        {
+          all: [
+            {
+              field: "priority",
+              op: "in",
+              values: ["p3-low"],
+              includeEmpty: false,
+            },
+          ],
+        },
+      ],
+    });
+    expect(config.legacy.rulesV2B64).toBe(rulesV2B64);
+    expect(config.legacy.rulesV2).toEqual(rules);
+  });
+
+  test("derives omitted legacy empty-priority semantics before P4 collapses", () => {
+    const compile = (values: string[]) => createLegacyInlineDatabaseViewConfig({
+      sourceBlockId: `inline-${values.length}`,
+      props: {
+        sourceProjectId: "source-project",
+        rulesV2B64: encodeBase64Url(JSON.stringify({
+          filter: {
+            any: [{
+              all: [{ field: "priority", op: "in", values }],
+            }],
+          },
+        })),
+      },
+    });
+    const clause = (values: string[]) => {
+      const config = compile(values);
+      return (config.filter as {
+        any: readonly { all: readonly { includeEmpty?: boolean }[] }[];
+      }).any[0]?.all[0];
+    };
+
+    expect(clause([
+      "p0-critical",
+      "p1-high",
+      "p2-medium",
+      "p3-low",
+    ])?.includeEmpty).toBe(false);
+    expect(clause([
+      "p0-critical",
+      "p1-high",
+      "p2-medium",
+      "p3-low",
+      "p4-later",
+    ])?.includeEmpty).toBe(true);
   });
 
   test("keeps an explicit empty-priority exclusion and defaults an empty sort", () => {

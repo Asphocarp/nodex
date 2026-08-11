@@ -1,6 +1,11 @@
 import type { DatabasePageSummary, Estimate, Priority } from "@/lib/types";
 import { WORKFLOW_STATUS_LABELS, WORKFLOW_STATUS_ORDER, compareWorkflowStatuses, type WorkflowStatus } from "../../shared/workflow-status";
 import { upgradeLegacyWorkflowStatus } from "../../shared/workflow-status-cutover";
+import { isPriority } from "../../shared/priority";
+import {
+  legacyPrioritySelectionIncludesEveryAssigned,
+  upgradeLegacyPriority,
+} from "../../shared/priority-cutover";
 import {
   TOGGLE_LIST_EMPTY_PRIORITY_LABEL,
   DEFAULT_TOGGLE_LIST_SETTINGS,
@@ -185,22 +190,53 @@ export function getDefaultDbViewPrefs(view: SupportedDbView): DbViewPrefs {
 }
 
 export function normalizeDbViewPrefs(view: SupportedDbView, value: unknown): DbViewPrefs {
+  return normalizeDbViewPrefsAtBoundary(view, value, false);
+}
+
+export function normalizeLegacyDbViewPrefs(
+  view: SupportedDbView,
+  value: unknown,
+): DbViewPrefs {
+  return normalizeDbViewPrefsAtBoundary(view, value, true);
+}
+
+function normalizeDbViewPrefsAtBoundary(
+  view: SupportedDbView,
+  value: unknown,
+  upgradeRetiredPriority: boolean,
+): DbViewPrefs {
   const fallback = getDefaultDbViewPrefs(view);
   if (!isRecord(value)) return fallback;
 
   return {
-    rules: normalizeDbViewRules(view, value.rules),
+    rules: normalizeDbViewRulesAtBoundary(
+      view,
+      value.rules,
+      upgradeRetiredPriority,
+    ),
     summaryExpanded: typeof value.summaryExpanded === "boolean" ? value.summaryExpanded : fallback.summaryExpanded,
     display: normalizeDbViewDisplayPrefs(view, value.display ?? value.toggleListDisplay),
   };
 }
 
 export function normalizeDbViewRules(view: SupportedDbView, value: unknown): DbViewRules {
+  return normalizeDbViewRulesAtBoundary(view, value, false);
+}
+
+function normalizeDbViewRulesAtBoundary(
+  view: SupportedDbView,
+  value: unknown,
+  upgradeRetiredPriority: boolean,
+): DbViewRules {
   const fallback = getDefaultDbViewRules(view);
   if (!isRecord(value)) return fallback;
 
   return {
-    filter: normalizeFilterSpec(value.filter, fallback.filter),
+    filter: normalizeFilterSpec(
+      value.filter,
+      fallback.filter,
+      upgradeRetiredPriority,
+    ),
     sort: normalizeSortKeys(value.sort, fallback.sort),
   };
 }
@@ -286,30 +322,40 @@ function normalizeDbViewDisplayPrefs(view: SupportedDbView, value: unknown): DbV
   };
 }
 
-function normalizeFilterSpec(value: unknown, fallback: DbViewFilterSpec): DbViewFilterSpec {
+function normalizeFilterSpec(
+  value: unknown,
+  fallback: DbViewFilterSpec,
+  upgradeRetiredPriority = false,
+): DbViewFilterSpec {
   if (!isRecord(value) || !Array.isArray(value.any)) {
     return cloneFilterSpec(fallback);
   }
 
   const groups = value.any
-    .map((group) => normalizeFilterGroup(group))
+    .map((group) => normalizeFilterGroup(group, upgradeRetiredPriority))
     .filter((group): group is DbViewFilterGroup => Boolean(group));
   if (groups.length === 0) return cloneFilterSpec(fallback);
 
   return { any: groups };
 }
 
-function normalizeFilterGroup(value: unknown): DbViewFilterGroup | null {
+function normalizeFilterGroup(
+  value: unknown,
+  upgradeRetiredPriority: boolean,
+): DbViewFilterGroup | null {
   if (!isRecord(value) || !Array.isArray(value.all)) return null;
 
   const clauses = value.all
-    .map((clause) => normalizeFilterClause(clause))
+    .map((clause) => normalizeFilterClause(clause, upgradeRetiredPriority))
     .filter((clause): clause is DbViewFilterClause => Boolean(clause));
 
   return { all: clauses };
 }
 
-function normalizeFilterClause(value: unknown): DbViewFilterClause | null {
+function normalizeFilterClause(
+  value: unknown,
+  upgradeRetiredPriority: boolean,
+): DbViewFilterClause | null {
   if (!isRecord(value) || typeof value.field !== "string" || typeof value.op !== "string" || !Array.isArray(value.values)) {
     return null;
   }
@@ -326,12 +372,22 @@ function normalizeFilterClause(value: unknown): DbViewFilterClause | null {
   }
 
   if (value.field === "priority" && value.op === "in") {
-    const values = Array.from(new Set(value.values.filter((item): item is Priority => typeof item === "string" && TOGGLE_LIST_PRIORITY_ORDER.includes(item as Priority))));
+    const values = Array.from(new Set(value.values.flatMap((item) => {
+      const priority = upgradeRetiredPriority
+        ? upgradeLegacyPriority(item)
+        : isPriority(item) ? item : null;
+      return priority ? [priority] : [];
+    })));
     return {
       field: "priority",
       op: "in",
       values,
-      includeEmpty: normalizePriorityClauseIncludeEmpty(value.includeEmpty, values),
+      includeEmpty:
+        typeof value.includeEmpty === "boolean"
+          ? value.includeEmpty
+          : upgradeRetiredPriority
+            ? legacyPrioritySelectionIncludesEveryAssigned(value.values)
+            : normalizePriorityClauseIncludeEmpty(value.includeEmpty, values),
     };
   }
 

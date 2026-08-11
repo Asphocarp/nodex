@@ -221,6 +221,10 @@ add/remove intent. Recurrence, reminders, run-target configuration, and other
 behavior intrinsic to a Page remain generic Block properties even if displayed
 by a View.
 
+Priority has four assigned option identities in severity order:
+`p0-critical`, `p1-high`, `p2-medium`, and `p3-low`.
+An unset value is `No priority`; planning horizons such as “later” belong to workflow or scheduling rather than the priority scale.
+
 ### Database View
 
 A Database View is a durable presentation belonging to one Database and

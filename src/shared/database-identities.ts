@@ -1,4 +1,5 @@
 import { WORKFLOW_STATUS_ORDER } from "./workflow-status";
+import { PRIORITY_VALUES } from "./priority";
 import { assertUuidV7, createUuidV7 } from "./uuid-v7";
 
 const MAX_OPAQUE_ID_LENGTH = 512;
@@ -54,20 +55,12 @@ export const BUILT_IN_DATA_SOURCE_PROPERTY_IDS = [
 export type BuiltInDataSourcePropertyId =
   (typeof BUILT_IN_DATA_SOURCE_PROPERTY_IDS)[number];
 
-const PRIORITY_OPTION_IDS = [
-  "p0-critical",
-  "p1-high",
-  "p2-medium",
-  "p3-low",
-  "p4-later",
-] as const;
-
 const ESTIMATE_OPTION_IDS = ["xs", "s", "m", "l", "xl"] as const;
 
 /** Built-in option identity is meaningful only under its owning Property. */
 export const BUILT_IN_DATA_SOURCE_OPTION_IDS = {
   status: WORKFLOW_STATUS_ORDER,
-  priority: PRIORITY_OPTION_IDS,
+  priority: PRIORITY_VALUES,
   estimate: ESTIMATE_OPTION_IDS,
 } as const;
 

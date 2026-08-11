@@ -48,7 +48,7 @@ function makeRules(sort: DbViewRules["sort"]): DbViewRules {
         {
           all: [
             { field: "status", op: "in", values: ["triage", "plan", "build", "review", "ship"] },
-            { field: "priority", op: "in", values: ["p0-critical", "p1-high", "p2-medium", "p3-low", "p4-later"], includeEmpty: true },
+            { field: "priority", op: "in", values: ["p0-critical", "p1-high", "p2-medium", "p3-low"], includeEmpty: true },
           ],
         },
       ],

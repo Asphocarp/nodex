@@ -159,8 +159,8 @@ export type {
   CodexFileApprovalDecision,
 } from "./codex-approval-response";
 
-export type Priority =
-  "p0-critical" | "p1-high" | "p2-medium" | "p3-low" | "p4-later";
+export type { Priority } from "./priority";
+import type { Priority } from "./priority";
 
 export type Estimate = "xs" | "s" | "m" | "l" | "xl";
 export type ResourceBlockKind = "text" | "file" | "folder";

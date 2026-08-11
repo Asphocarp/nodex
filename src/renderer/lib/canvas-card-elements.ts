@@ -1,4 +1,5 @@
 import type { BoardSummary, DatabasePageSummary } from "./types";
+import type { Priority } from "../../shared/priority";
 import { buildPageDeepLink } from "./page-deeplink";
 
 /** Marker stored in Excalidraw element customData to identify Nodex cards. */
@@ -18,12 +19,11 @@ interface ExcalidrawElementLike {
   [key: string]: unknown;
 }
 
-const PRIORITY_COLORS: Record<string, string> = {
+const PRIORITY_COLORS: Record<Priority, string> = {
   "p0-critical": "#ffc9c9",
   "p1-high": "#ffd8a8",
   "p2-medium": "#d0ebff",
   "p3-low": "#e9ecef",
-  "p4-later": "#f1f3f5",
 };
 const DEFAULT_CARD_COLOR = "#f8f9fa";
 

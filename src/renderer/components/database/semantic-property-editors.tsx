@@ -10,6 +10,7 @@ import {
   WORKFLOW_STATUS_LABELS,
   WORKFLOW_STATUS_ORDER,
 } from "../../../shared/workflow-status";
+import { isPriority } from "../../../shared/priority";
 import type { Estimate, Priority } from "../../../shared/types";
 import type { DatabasePropertyOption } from "../../../shared/database-kernel";
 import { cn } from "@/lib/utils";
@@ -70,18 +71,24 @@ export const presentSemanticPropertyOptions = (
   selectedId: string | null,
   registryState: DataSourcePropertyOptionRegistryState,
 ): readonly DatabasePropertyOption[] => {
-  if (registryState === "ready" || !selectedId) {
-    return orderSemanticPropertyOptions(kind, options);
+  const canonicalOptions = kind === "priority"
+    ? options.filter((option) => isPriority(option.id))
+    : options;
+  const canonicalSelectedId = kind === "priority" && !isPriority(selectedId)
+    ? null
+    : selectedId;
+  if (registryState === "ready" || !canonicalSelectedId) {
+    return orderSemanticPropertyOptions(kind, canonicalOptions);
   }
-  if (options.some((option) => option.id === selectedId)) {
-    return orderSemanticPropertyOptions(kind, options);
+  if (canonicalOptions.some((option) => option.id === canonicalSelectedId)) {
+    return orderSemanticPropertyOptions(kind, canonicalOptions);
   }
   const selectedFallback = defaultSemanticPropertyOptions(kind).find(
-    (option) => option.id === selectedId,
+    (option) => option.id === canonicalSelectedId,
   );
   return orderSemanticPropertyOptions(
     kind,
-    selectedFallback ? [...options, selectedFallback] : options,
+    selectedFallback ? [...canonicalOptions, selectedFallback] : canonicalOptions,
   );
 };
 
@@ -164,13 +171,21 @@ export function SemanticSelectPropertyEditor({
   readonly onRequestMoreOptions?: () => void;
   readonly onChange: (value: string | null) => void;
 }) {
+  const canonicalSelectedId = kind === "priority" && !isPriority(selectedId)
+    ? null
+    : selectedId;
   return (
     <PropertyOptionPicker
       label={label}
       triggerAriaLabel={triggerAriaLabel}
       mode="single"
-      options={presentSemanticPropertyOptions(kind, options, selectedId, registryState)}
-      selectedIds={selectedId ? [selectedId] : []}
+      options={presentSemanticPropertyOptions(
+        kind,
+        options,
+        canonicalSelectedId,
+        registryState,
+      )}
+      selectedIds={canonicalSelectedId ? [canonicalSelectedId] : []}
       disabled={disabled}
       pending={pending}
       loading={registryState === "idle" || registryState === "loading"}
