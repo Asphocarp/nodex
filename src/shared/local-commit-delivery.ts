@@ -189,9 +189,28 @@ const projectionImpactOf = (
 ): ProjectionDelivery["impact"] => {
   const patch = effect.patch;
   if (!patch) {
-    return effect.scope.scope.kind === "library"
-      ? { kind: "all" }
-      : { kind: "none" };
+    const scope = effect.scope.scope;
+    if (scope.kind === "page") {
+      return {
+        kind: "resources",
+        page_ids: [scope.page_id],
+        database_ids: [],
+        data_source_ids: [],
+        view_ids: [],
+        document_heads: [],
+      };
+    }
+    if (scope.kind === "database_view") {
+      return {
+        kind: "resources",
+        page_ids: [],
+        database_ids: [scope.database_id],
+        data_source_ids: [scope.data_source_id],
+        view_ids: [scope.view_id],
+        document_heads: [],
+      };
+    }
+    return { kind: "all" };
   }
   if (patch.kind === "page_changed") {
     return {

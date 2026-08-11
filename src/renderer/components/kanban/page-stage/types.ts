@@ -7,6 +7,7 @@ import type {
 } from "@/lib/types";
 import type { ReadyPageBlockDocumentDescriptor } from "@/lib/owned-block-document";
 import type { BlockDocumentSurfaceDependencies } from "@/components/block-documents/block-document-surface";
+import type { PageTitleResourceIdentity } from "@/lib/page-title-projection-context";
 import type {
   PageStagePageModel,
   PageStageMetadataMutationResult,
@@ -56,6 +57,8 @@ export interface PageStageProps {
   onClose: () => void;
   /** Stable PageTab identity whose editor model may outlive this React view. */
   editorSessionKey?: string;
+  /** Stable resource identity for renderer-local live title projection. */
+  pageTitleIdentity?: PageTitleResourceIdentity;
   /** False for an unpromoted preview whose model ends with this view. */
   retainEditorSession?: boolean;
   /** Optional route-level navigation control for standalone Page surfaces. */
@@ -68,12 +71,8 @@ export interface PageStageProps {
         readonly render: (toolbar: ReactNode) => ReactNode;
       };
   onLeavePage?: (snapshot: PageStageSessionSnapshot) => void;
-  /** Publishes the authoritative plain-text Y.Text title for surrounding chrome. */
-  onTitleChange?: (title: string) => void;
   /** Focuses the collaborative title when this Page surface first mounts. */
   autoFocusTitle?: boolean;
-  /** Signals that the mounted Y.Text title publisher is no longer authoritative. */
-  onTitleSourceDispose?: () => void;
   closeRef?: MutableRefObject<(() => Promise<void>) | null>;
   persistRef?: MutableRefObject<(() => Promise<void>) | null>;
   sessionSnapshotRef?: MutableRefObject<PageStageSessionSnapshot | null>;

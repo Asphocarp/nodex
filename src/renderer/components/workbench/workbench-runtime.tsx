@@ -109,8 +109,10 @@ import {
 import { useCodexScheduledAutomations } from "@/lib/use-codex-scheduled-automations";
 import { useKanban } from "@/lib/use-kanban";
 import {
-  createPageStageTabTitleStore,
-} from "@/lib/page-stage-tab-title-store";
+  createPageTitleProjectionStore,
+} from "@/lib/page-title-projection-store";
+import { PageTitleProjectionProvider } from "@/lib/page-title-projection-context";
+import { useLibraryNavigationInvalidation } from "@/lib/use-library-navigation";
 import { cn } from "@/lib/utils";
 import {
   type SidebarCollapsibleSectionId,
@@ -517,6 +519,9 @@ export function WorkbenchRuntime({
   commandKeymapState,
 }: WorkbenchRuntimeProps) {
   const queryClient = useQueryClient();
+  const currentLibraryId = useLibraryNavigationInvalidation()
+    ?? projects[0]?.libraryId
+    ?? null;
   const appHandle = useScopeHandle(appScope);
   const mutationAuditSessionId = useMutationAuditSessionId();
   const workbenchWindow = useWorkbenchWindowState(
@@ -814,7 +819,7 @@ export function WorkbenchRuntime({
     activePlanKeyBySession,
     panelCollapsedOverrides,
   } = panelController;
-  const [pageStageTabTitleStore] = useState(createPageStageTabTitleStore);
+  const [pageTitleStore] = useState(createPageTitleProjectionStore);
   const [panelTabPresentationRegistry] = useState(
     () => new PanelTabPresentationRegistry(),
   );
@@ -2276,7 +2281,7 @@ export function WorkbenchRuntime({
     activeRenderSession,
     activeSessionPanelModel,
     projects,
-    pageStageTabTitleStore,
+    pageTitleStore,
     panelTabPresentationRegistry,
     panelTabPresentationControllerKeysRef,
     panelGroupTabsRef,
@@ -3213,7 +3218,6 @@ export function WorkbenchRuntime({
           sessionId={projectSceneKey}
           sessionThread={null}
           canStartThreadInSession={false}
-          titleStore={pageStageTabTitleStore}
           onLeavePage={onLeavePageStage}
           onClose={() => {
             if (!projectSceneOwner) return;
@@ -3431,7 +3435,6 @@ export function WorkbenchRuntime({
     pageStageHistoryModal,
     pageStagePersistRef,
     pageStageSessionSnapshotRef,
-    pageStageTabTitleStore,
     pendingReminderOpen,
     projectSceneKey,
     projectScenePresentedPageIds,
@@ -3537,7 +3540,6 @@ export function WorkbenchRuntime({
           surfaceId={surface.id}
           isActivePanelTab={context.active}
           onClose={removeSurface}
-          onTitleChange={publishTitle}
           onOpenDatabase={(databaseId) => {
             void presentLibraryTarget(
               { kind: "database", databaseId },
@@ -3677,6 +3679,8 @@ export function WorkbenchRuntime({
     scene: activeProjectScene,
     project: activeProject,
     projects,
+    currentLibraryId,
+    pageTitleStore,
     commands: panelController.sceneDurable,
     isMac: isMacPlatform,
     commandKeymapState,
@@ -3772,6 +3776,8 @@ export function WorkbenchRuntime({
     scene: activePagesScene,
     project: null,
     projects,
+    currentLibraryId,
+    pageTitleStore,
     commands: panelController.sceneDurable,
     isMac: isMacPlatform,
     commandKeymapState,
@@ -4272,7 +4278,11 @@ export function WorkbenchRuntime({
   };
 
   return (
-    <HeaderActionProvider actions={appShellHeaderActions}>
+    <PageTitleProjectionProvider
+      currentLibraryId={currentLibraryId}
+      store={pageTitleStore}
+    >
+      <HeaderActionProvider actions={appShellHeaderActions}>
       <NodexTooltipProvider>
         <FileReferenceRouterProvider
           openWorkspaceFileTab={openWorkspaceFileTab}
@@ -4493,6 +4503,7 @@ export function WorkbenchRuntime({
           </ContentSearchProvider>
         </FileReferenceRouterProvider>
       </NodexTooltipProvider>
-    </HeaderActionProvider>
+      </HeaderActionProvider>
+    </PageTitleProjectionProvider>
   );
 }

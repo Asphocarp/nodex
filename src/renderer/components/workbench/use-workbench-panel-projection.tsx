@@ -21,9 +21,9 @@ import {
   resolveWorkspaceFileTabIcon,
 } from "@/features/workspace-files";
 import {
-  makePageStageTabTitleKey,
-  type PageStageTabTitleStore,
-} from "@/lib/page-stage-tab-title-store";
+  makePageTitleResourceKey,
+  type PageTitleProjectionStore,
+} from "@/lib/page-title-projection-store";
 import { getPanelNewTabAction } from "@/lib/workbench-panel-actions";
 import {
   terminalSessionStore,
@@ -139,7 +139,7 @@ interface WorkbenchPanelProjectionInput {
   readonly activeRenderSession: ProjectSession | null;
   readonly activeSessionPanelModel: SessionPanelRenderModel | null;
   readonly projects: Project[];
-  readonly pageStageTabTitleStore: PageStageTabTitleStore;
+  readonly pageTitleStore: PageTitleProjectionStore;
   readonly panelTabPresentationRegistry: PanelTabPresentationRegistry;
   readonly panelTabPresentationControllerKeysRef: MutableRefObject<Set<string>>;
   readonly panelGroupTabsRef: MutableRefObject<PanelGroupTabsByPanel>;
@@ -319,7 +319,7 @@ export function useWorkbenchPanelProjection({
   activeRenderSession,
   activeSessionPanelModel,
   projects,
-  pageStageTabTitleStore,
+  pageTitleStore,
   panelTabPresentationRegistry,
   panelTabPresentationControllerKeysRef,
   panelGroupTabsRef,
@@ -401,10 +401,18 @@ export function useWorkbenchPanelProjection({
               resolveTerminalTabIndex(session, tab),
             )
           : tab.title;
+      const pageStageProject = !transientPanelTab
+          && tab.kind === "page_stage"
+        ? projects.find((project) => project.id === tab.config.projectId)
+        : undefined;
       const pageStageTitleSource = !transientPanelTab
           && tab.kind === "page_stage"
-        ? pageStageTabTitleStore.createSource(
-            makePageStageTabTitleKey(session.id, tab.id),
+          && pageStageProject
+        ? pageTitleStore.createSource(
+            makePageTitleResourceKey(
+              pageStageProject.libraryId,
+              tab.config.pageId,
+            ),
             title,
           )
         : undefined;
@@ -670,7 +678,6 @@ export function useWorkbenchPanelProjection({
               activeSession={session}
               projects={projects}
               presentedPageIds={presentedPageIds}
-              pageStageTabTitleStore={pageStageTabTitleStore}
               onOpenCanvasStage={openCanvasStage}
               onOpenPageTab={openPageTab}
               onOpenPageInNewChat={openPageInNewChat}
@@ -777,7 +784,7 @@ export function useWorkbenchPanelProjection({
     openSubagentsPanelTab,
     openTurnDiffFileInSidePanel,
     openWorkspaceFileTab,
-    pageStageTabTitleStore,
+    pageTitleStore,
     panelTabPresentationRegistry,
     projects,
     recreateSideChatPanelTab,

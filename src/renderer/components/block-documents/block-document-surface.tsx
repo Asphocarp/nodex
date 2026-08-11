@@ -37,6 +37,10 @@ import type {
   OwnedBlockDocumentModel,
   ReadyPageBlockDocumentDescriptor,
 } from "@/lib/owned-block-document";
+import {
+  PageTitleProjectionPublisher,
+  type PageTitleResourceIdentity,
+} from "@/lib/page-title-projection-context";
 
 export type PrimaryPageBlockDocumentDescriptor = ReadyPageBlockDocumentDescriptor;
 
@@ -77,6 +81,8 @@ export interface BlockDocumentSurfaceDependencies {
 export interface BlockDocumentSurfaceProps {
   readonly projectId: string;
   readonly descriptor: PrimaryPageBlockDocumentDescriptor;
+  /** Stable Page identity used only for renderer-local live title projection. */
+  readonly pageTitleIdentity?: PageTitleResourceIdentity;
   /** Retained inactive tabs continue syncing content but publish no presence. */
   readonly isActive: boolean;
   readonly localAwarenessState?: BlockDocumentLocalAwarenessState;
@@ -630,10 +636,21 @@ export function BlockDocumentSurface(props: BlockDocumentSurfaceProps) {
             "Page surface resolved a non-Page Document schema",
           );
         }
-        return props.children({
+        const pageSurface = {
           ...surface,
           descriptor: props.descriptor,
-        });
+        };
+        const content = props.children(pageSurface);
+        if (!props.pageTitleIdentity) return content;
+        return (
+          <PageTitleProjectionPublisher
+            identity={props.pageTitleIdentity}
+            publisherId={surface.clientSessionId}
+            title={surface.title}
+          >
+            {content}
+          </PageTitleProjectionPublisher>
+        );
       }}
     </OwnedBlockDocumentSurface>
   );

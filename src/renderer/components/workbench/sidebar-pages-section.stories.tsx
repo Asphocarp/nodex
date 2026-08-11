@@ -60,7 +60,6 @@ type StandaloneRoot =
 const makeDataSource = (
   items: readonly StandaloneRoot[],
 ): SidebarPagesDataSource => ({
-  useInvalidation: () => undefined,
   useStandaloneRoots: () => ({
     data: {
       pages: [{

@@ -21,7 +21,6 @@ const makePage = (index: number): LibraryPageNavigationNode => ({
 const dataSource = (
   items: readonly LibraryPageNavigationNode[],
 ): SidebarPagesDataSource => ({
-  useInvalidation: () => undefined,
   useStandaloneRoots: () => ({
     data: {
       pages: [{
