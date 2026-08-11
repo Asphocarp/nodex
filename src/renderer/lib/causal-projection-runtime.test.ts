@@ -176,4 +176,37 @@ describe("CausalProjectionRuntime", () => {
       reason: "initial_subscription_gap",
     }));
   });
+
+  test("stops a failed repair loop after its owner disposes the runtime", async () => {
+    vi.useFakeTimers();
+    try {
+      const repair = vi.fn(async () => {
+        throw new Error("Core unavailable");
+      });
+      const runtime = new CausalProjectionRuntime({
+        scopeKey: scope.canonical_key,
+        schemaVersion: 1,
+        getCoordinate: () => coordinate(0, 0),
+        apply: vi.fn(),
+        readAtLeast: repair,
+      });
+
+      runtime.accept(delivery(1, { patch: false }));
+      await vi.runAllTicks();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(repair).toHaveBeenCalledOnce();
+
+      runtime.dispose();
+      await vi.advanceTimersByTimeAsync(1_000);
+
+      expect(repair).toHaveBeenCalledOnce();
+      expect(runtime.diagnostics()).toMatchObject({
+        bufferedEffects: 0,
+        repairing: false,
+        requiredRepair: null,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

@@ -4,6 +4,7 @@ import { render } from "@/test/dom";
 import { installWindowApi } from "@/test/browser-globals";
 import {
   getDatabaseRowDetail,
+  fenceDatabaseRowDetailsForProject,
   resetDatabaseRowDetailStoreForTests,
   revokeDatabaseRowDetail,
   setDatabaseRowDetail,
@@ -50,6 +51,16 @@ function deferred<Value>() {
 describe("card detail store", () => {
   beforeEach(() => {
     resetDatabaseRowDetailStoreForTests();
+  });
+
+  test("isolates opaque Project and Page identities during a Project fence", () => {
+    setDatabaseRowDetail("project:a", buildCard({ id: "page", title: "First" }));
+    setDatabaseRowDetail("project", buildCard({ id: "a:page", title: "Second" }));
+
+    fenceDatabaseRowDetailsForProject("project:a");
+
+    expect(getDatabaseRowDetail("project:a", "page")).toBe(null);
+    expect(getDatabaseRowDetail("project", "a:page")?.title).toBe("Second");
   });
 
   test("does not overwrite or emit for older single-card detail replies", async () => {

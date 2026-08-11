@@ -14,7 +14,6 @@ export const pageDetailDataDependencies = (
     pageIds: [pageId],
     databaseIds: [detail.dataSourceContext.database.databaseId],
     dataSourceIds: [detail.dataSourceContext.dataSource.dataSourceId],
-    databaseViews: {},
   };
 };
 
@@ -24,5 +23,4 @@ export const pageDetailDocumentDependencies = (
 ): ProjectionDependencies => ({
   pageIds: [pageId],
   documentIds: detail ? [detail.page.documentId] : [],
-  databaseViews: {},
 });

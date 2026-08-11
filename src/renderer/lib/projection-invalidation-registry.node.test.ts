@@ -5,6 +5,7 @@ import type {
   ProjectionScope,
   ProjectionStreamMessage,
 } from "../../shared/projection-stream";
+import { projectionScopeKey } from "../../shared/projection-stream";
 import type {
   ResourceRevocationDeliveryMessage,
   ResourceRevocationMessage,
@@ -138,6 +139,17 @@ const harness = () => {
 };
 
 describe("ProjectionInvalidationRegistry", () => {
+  test("keeps delimiter-bearing Library and Project scope identities distinct", () => {
+    expect(projectionScopeKey({
+      kind: "project",
+      libraryId: "library:a",
+      projectId: "project",
+    })).not.toBe(projectionScopeKey({
+      kind: "project",
+      libraryId: "library",
+      projectId: "a:project",
+    }));
+  });
   test("matches every impact identity dimension", () => {
     const value = impact({
       page_ids: ["page-1"],
@@ -210,7 +222,6 @@ describe("ProjectionInvalidationRegistry", () => {
       pageIds: ["page-a"],
       databaseIds: ["database-1"],
       dataSourceIds: ["source-1"],
-      databaseViews: {},
     };
 
     expect(projectionEffectMatches(dependencies, rowDelivery)).toBe(false);

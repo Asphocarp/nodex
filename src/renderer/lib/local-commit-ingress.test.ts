@@ -1,6 +1,7 @@
 import { describe, expect, test, vi } from "vitest";
 
 import type { AuthorizedDeliveryPacket } from "../../shared/local-commit-delivery";
+import type { AddressReset } from "../../shared/recipient-delivery";
 import type { ProjectionStreamMessage } from "../../shared/projection-stream";
 import type { ResourceRevocationMessage } from "../../shared/resource-revocation-stream";
 import {
@@ -195,6 +196,27 @@ const apply = (delivery: AuthorizedDeliveryPacket) => ({
   delivery,
 });
 
+const addressReset = (
+  overrides: Partial<AddressReset> = {},
+): AddressReset => ({
+  reset_id: "a".repeat(64),
+  recipient_lease_id: "b".repeat(64),
+  delivery_address: {
+    kind: "project",
+    library_id: "library-1",
+    project_id: "project-1",
+  },
+  authorization_scope: {
+    kind: "project",
+    library_id: "library-1",
+    project_id: "project-1",
+  },
+  store_epoch: "epoch-1",
+  required_commit_seq: 1,
+  reason: "ack_timeout",
+  ...overrides,
+});
+
 describe("RendererLocalCommitIngress", () => {
   test("admits exact revocation before post-state projection callbacks", async () => {
     const ingress = new RendererLocalCommitIngress();
@@ -244,6 +266,96 @@ describe("RendererLocalCommitIngress", () => {
 
     expect(projections).toEqual([expect.objectContaining({ kind: "reset" })]);
     expect(revocations).toEqual([expect.objectContaining({ kind: "reset" })]);
+  });
+
+  test("deduplicates an address reset retry by its immutable reset identity", () => {
+    const ingress = new RendererLocalCommitIngress();
+    const projection = vi.fn();
+    const revocation = vi.fn();
+    ingress.subscribeProjection(scope, projection);
+    ingress.subscribeRevocation(scope, revocation);
+
+    const reset = addressReset();
+    ingress.admitAddressReset(reset);
+    ingress.admitAddressReset(reset);
+
+    expect(projection).toHaveBeenCalledTimes(1);
+    expect(revocation).toHaveBeenCalledTimes(1);
+    expect(() => ingress.admitAddressReset(addressReset({
+      required_commit_seq: 2,
+    }))).toThrow("identity collision");
+  });
+
+  test("does not replay a conservative reset packet after it was admitted", async () => {
+    const ingress = new RendererLocalCommitIngress();
+    const projection = vi.fn();
+    ingress.subscribeProjection(scope, projection);
+    const delivery = packet({
+      visibility: [{
+        authorization_scope: {
+          kind: "project",
+          library_id: "library-1",
+          project_id: "project-1",
+        },
+        change: {
+          kind: "conservative_reset",
+          reason: "authorization_closure_exceeded",
+        },
+        roots: [],
+        delta_hash: "8".repeat(64),
+      }],
+    });
+
+    await ingress.admitPacket(delivery);
+    await expect(ingress.admitPacket(delivery)).resolves.toMatchObject({
+      kind: "duplicate",
+    });
+
+    expect(projection).toHaveBeenCalledTimes(1);
+  });
+
+  test("keeps another address packet deduplicated after a scoped reset", async () => {
+    const ingress = new RendererLocalCommitIngress();
+    const projectTwoScope = {
+      kind: "project" as const,
+      libraryId: "library-1",
+      projectId: "project-2",
+    };
+    const projectTwoListener = vi.fn();
+    ingress.subscribeProjection(projectTwoScope, projectTwoListener);
+    const projectTwoPacket = packet({
+      authorization: {
+        kind: "project",
+        library_id: "library-1",
+        project_id: "project-2",
+      },
+      projections: [{
+        ...effect(1),
+        scope: {
+          ...effect(1).scope,
+          canonical_key: "page:project-2:page-1",
+          scope: {
+            kind: "page",
+            project_id: "project-2",
+            page_id: "page-1",
+          },
+        },
+        patch: {
+          kind: "page_changed",
+          project_id: "project-2",
+          page_id: "page-1",
+        },
+      }],
+      packetHash: "7".repeat(64),
+    });
+
+    await ingress.admitPacket(projectTwoPacket);
+    ingress.admitAddressReset(addressReset());
+    await expect(ingress.admitPacket(projectTwoPacket)).resolves.toMatchObject({
+      kind: "duplicate",
+    });
+
+    expect(projectTwoListener).toHaveBeenCalledTimes(1);
   });
 
   test("publishes the origin projection before apply admission resolves", async () => {

@@ -33,7 +33,6 @@ struct ProjectionInputFingerprint {
     pre_visible_page_ids: Vec<String>,
     post_visible_page_ids: Vec<String>,
     visible_view_ids: Vec<String>,
-    can_read_relational_resource: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -43,10 +42,7 @@ struct ProjectionAudience {
 }
 
 #[derive(Clone, Debug)]
-enum CompiledViewDelta {
-    ProjectRead,
-    View(ViewDeltaTemplate),
-}
+struct CompiledViewDelta(ViewDeltaTemplate);
 
 #[derive(Clone, Debug)]
 struct ViewDeltaTemplate {
@@ -78,11 +74,7 @@ pub(crate) fn record_local_projection_delta(
     authorization_before: &[AuthorizedResourceObservation],
 ) -> Result<ProjectionAudienceCompilation, StoreError> {
     let ProjectionImpact::Resources {
-        page_ids,
-        database_ids,
-        data_source_ids,
-        view_ids,
-        ..
+        page_ids, view_ids, ..
     } = impact
     else {
         return match impact {
@@ -94,15 +86,11 @@ pub(crate) fn record_local_projection_delta(
 
     let affected_page_ids = canonical_strings(page_ids);
     let affected_view_ids = canonical_strings(view_ids);
-    let affected_database_ids = canonical_strings(database_ids);
-    let affected_data_source_ids = canonical_strings(data_source_ids);
     let audiences = compile_audiences(
         connection,
         library_id,
         &affected_page_ids,
         &affected_view_ids,
-        &affected_database_ids,
-        &affected_data_source_ids,
         authorization_before,
     )?;
     let mut grouped = BTreeMap::<ProjectionInputFingerprint, Vec<String>>::new();
@@ -182,13 +170,6 @@ pub(crate) fn record_local_projection_delta(
                     &project_id,
                     compiled,
                     &mut metrics,
-                )?;
-            }
-            if input.visible_view_ids.is_empty() && input.can_read_relational_resource {
-                local_commit::require_projection_read(
-                    connection,
-                    commit,
-                    LocalProjectionScope::Project { project_id },
                 )?;
             }
         }
@@ -418,8 +399,6 @@ fn compile_audiences(
     library_id: &str,
     affected_page_ids: &[String],
     affected_view_ids: &[String],
-    affected_database_ids: &[String],
-    affected_data_source_ids: &[String],
     authorization_before: &[AuthorizedResourceObservation],
 ) -> Result<Vec<ProjectionAudience>, StoreError> {
     let project_ids = active_project_ids(connection, library_id)?;
@@ -440,20 +419,12 @@ fn compile_audiences(
                 readable_resource_ids(connection, &context, &scope, affected_view_ids, |id| {
                     ResourceKey::View { view_id: id }
                 })?;
-            let can_read_relational_resource = project_can_read_any_relational_resource(
-                connection,
-                &context,
-                &scope,
-                affected_database_ids,
-                affected_data_source_ids,
-            )?;
             Ok(ProjectionAudience {
                 project_id: project_id.clone(),
                 input: ProjectionInputFingerprint {
                     pre_visible_page_ids: pre_visible.get(&project_id).cloned().unwrap_or_default(),
                     post_visible_page_ids,
                     visible_view_ids,
-                    can_read_relational_resource,
                 },
             })
         })
@@ -540,40 +511,6 @@ fn project_context(library_id: &str, project_id: &str) -> BoundModuleContext {
     }
 }
 
-fn project_can_read_any_relational_resource(
-    connection: &Connection,
-    context: &BoundModuleContext,
-    scope: &DeliveryAuthorizationScope,
-    database_ids: &[String],
-    data_source_ids: &[String],
-) -> Result<bool, StoreError> {
-    for database_id in database_ids {
-        if crate::infrastructure::resource_authorization::can_read(
-            connection,
-            context,
-            scope,
-            &ResourceKey::Database {
-                database_id: database_id.clone(),
-            },
-        )? {
-            return Ok(true);
-        }
-    }
-    for data_source_id in data_source_ids {
-        if crate::infrastructure::resource_authorization::can_read(
-            connection,
-            context,
-            scope,
-            &ResourceKey::DataSource {
-                data_source_id: data_source_id.clone(),
-            },
-        )? {
-            return Ok(true);
-        }
-    }
-    Ok(false)
-}
-
 fn compile_view_delta(
     connection: &Connection,
     commit: &CommitContext,
@@ -594,12 +531,16 @@ fn compile_view_delta(
     ) {
         Ok(groups) => groups,
         Err(error) if error.code == StoreErrorCode::NotFound => {
-            return Ok(CompiledViewDelta::ProjectRead);
+            return Err(StoreError::new(
+                StoreErrorCode::StoreCorrupt,
+                "A post-authorized Database View has no canonical projection",
+                false,
+            ));
         }
         Err(error) => return Err(error),
     };
     if page_ids.is_empty() {
-        return Ok(CompiledViewDelta::View(ViewDeltaTemplate {
+        return Ok(CompiledViewDelta(ViewDeltaTemplate {
             database_id: groups.database_id,
             data_source_id: groups.data_source_id,
             view_id: view_id.to_owned(),
@@ -613,7 +554,7 @@ fn compile_view_delta(
     // independently sorted View membership, so ambiguous and multi-row
     // transitions deliberately fall back to the canonical read floor.
     let [page_id] = page_ids else {
-        return Ok(CompiledViewDelta::View(ViewDeltaTemplate {
+        return Ok(CompiledViewDelta(ViewDeltaTemplate {
             database_id: groups.database_id,
             data_source_id: groups.data_source_id,
             view_id: view_id.to_owned(),
@@ -622,7 +563,7 @@ fn compile_view_delta(
         }));
     };
     let Some(row) = exact_primary_board_row_by_id(connection, library_id, view_id, page_id)? else {
-        return Ok(CompiledViewDelta::View(ViewDeltaTemplate {
+        return Ok(CompiledViewDelta(ViewDeltaTemplate {
             database_id: groups.database_id,
             data_source_id: groups.data_source_id,
             view_id: view_id.to_owned(),
@@ -647,7 +588,7 @@ fn compile_view_delta(
         .find(|group| group.group_key == row.effective_group_key)
         .map(|group| group.total_rows);
     if groups.grouped && group_total.is_none() {
-        return Ok(CompiledViewDelta::View(ViewDeltaTemplate {
+        return Ok(CompiledViewDelta(ViewDeltaTemplate {
             database_id: groups.database_id,
             data_source_id: groups.data_source_id,
             view_id: view_id.to_owned(),
@@ -659,7 +600,7 @@ fn compile_view_delta(
         row: Box::new(row),
         group_total,
     }];
-    Ok(CompiledViewDelta::View(ViewDeltaTemplate {
+    Ok(CompiledViewDelta(ViewDeltaTemplate {
         database_id: groups.database_id,
         data_source_id: groups.data_source_id,
         view_id: view_id.to_owned(),
@@ -699,15 +640,7 @@ fn record_compiled_view_delta(
     compiled: &CompiledViewDelta,
     metrics: &mut ProjectionAudienceCompilation,
 ) -> Result<(), StoreError> {
-    let CompiledViewDelta::View(template) = compiled else {
-        return local_commit::require_projection_read(
-            connection,
-            commit,
-            LocalProjectionScope::Project {
-                project_id: project_id.to_owned(),
-            },
-        );
-    };
+    let CompiledViewDelta(template) = compiled;
     let scope = LocalProjectionScope::DatabaseView {
         project_id: project_id.to_owned(),
         database_id: template.database_id.clone(),
@@ -741,9 +674,7 @@ fn record_compiled_view_delta(
 }
 
 fn compiled_view_contains_relation_preview(compiled: &CompiledViewDelta) -> bool {
-    let CompiledViewDelta::View(template) = compiled else {
-        return false;
-    };
+    let CompiledViewDelta(template) = compiled;
     template.entries.iter().any(|entry| {
         let ViewRowDelta::Upsert { row, .. } = entry;
         row.database_values
@@ -844,8 +775,6 @@ mod tests {
             "library:audiences",
             &["page:moved".to_owned()],
             &[],
-            &[],
-            &[],
             &before,
         )
         .expect("compile bounded audiences");
@@ -881,8 +810,6 @@ mod tests {
             "library:audiences",
             &["page:moved".to_owned()],
             &[],
-            &[],
-            &[],
             &before,
         )
         .expect("compile distinct audiences");
@@ -892,7 +819,7 @@ mod tests {
     #[test]
     fn audience_bound_fails_before_patch_computation() {
         let connection = audience_fixture(201);
-        let error = compile_audiences(&connection, "library:audiences", &[], &[], &[], &[], &[])
+        let error = compile_audiences(&connection, "library:audiences", &[], &[], &[])
             .expect_err("audience overflow");
         assert_eq!(error.code, StoreErrorCode::ResourceExhausted);
     }
