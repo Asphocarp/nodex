@@ -302,7 +302,7 @@ type TypedIpcHandler<Channel extends keyof IpcApi> = (
 
 const ipcPayloadLogger = getLogger({
   subsystem: "ipc",
-  component: "kanban-read-model",
+  component: "board-read-model",
 });
 const rendererDiagnosticsLogger = getLogger({
   subsystem: "renderer",
@@ -963,8 +963,10 @@ interface RegisterIpcHandlersOptions {
     | "readLibrary"
     | "applyLibrary"
     | "getDatabaseViewWindow"
+    | "getDatabaseListWindow"
     | "getDatabaseViewGroups"
     | "getLibraryDatabaseViewWindow"
+    | "getLibraryDatabaseListWindow"
     | "getLibraryDatabaseViewGroups"
     | "getDatabaseRowPage"
     | "resolveDatabaseViewReference"
@@ -2382,6 +2384,20 @@ export function registerIpcHandlers(
     return window;
   });
 
+  registerCoreReadHandle("database:list-window:get", async (_, projectId, input) => {
+    const startedAt = performance.now();
+    const window = await databaseModule.getDatabaseListWindow(projectId, input);
+    ipcPayloadLogger.info("Database List window payload served", {
+      channel: "database:list-window:get",
+      projectId,
+      rowCount: window.rows.length,
+      hasContinuation: window.nextCursor !== null,
+      approxPayloadBytes: approximateJsonPayloadBytes(window),
+      durationMs: Math.round(performance.now() - startedAt),
+    });
+    return window;
+  });
+
   registerCoreReadHandle("database:view-groups:get", async (_, projectId, input) =>
     await databaseModule.getDatabaseViewGroups(projectId, input));
 
@@ -2390,6 +2406,19 @@ export function registerIpcHandlers(
     const window = await databaseModule.getLibraryDatabaseViewWindow(input);
     ipcPayloadLogger.info("Library Database View window payload served", {
       channel: "library-database:view-window:get",
+      rowCount: window.rows.length,
+      hasContinuation: window.nextCursor !== null,
+      approxPayloadBytes: approximateJsonPayloadBytes(window),
+      durationMs: Math.round(performance.now() - startedAt),
+    });
+    return window;
+  });
+
+  registerCoreReadHandle("library-database:list-window:get", async (_, input) => {
+    const startedAt = performance.now();
+    const window = await databaseModule.getLibraryDatabaseListWindow(input);
+    ipcPayloadLogger.info("Library Database List window payload served", {
+      channel: "library-database:list-window:get",
       rowCount: window.rows.length,
       hasContinuation: window.nextCursor !== null,
       approxPayloadBytes: approximateJsonPayloadBytes(window),

@@ -10,7 +10,7 @@ import type {
   LibraryRouteTarget,
 } from "./library-module";
 
-export type WorkbenchLayoutView = "kanban" | "list" | "toggle-list" | "calendar";
+export type WorkbenchLayoutView = "board" | "list" | "toggle-list" | "calendar";
 export type WorkbenchLayoutStageId = "db" | "pages" | "threads" | "files";
 export type WorkbenchLayoutStageNavDirection = "left" | "right";
 

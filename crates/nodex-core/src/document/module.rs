@@ -5800,21 +5800,29 @@ mod tests {
                     )?;
                     let view_config = serde_json::to_string(&json!({
                         "schemaKey": "nodex.database-view",
-                        "schemaVersion": 2,
+                        "schemaVersion": 4,
                         "filter": { "kind": "group", "operator": "and", "children": [] },
-                        "sort": [{
-                            "field": { "kind": "manual" },
-                            "direction": "asc",
-                            "nulls": "last"
-                        }],
-                        "group": null,
-                        "display": { "propertyIds": [], "showTitle": true }
+                        "presentation": {
+                            "sort": [{
+                                "field": { "kind": "manual" },
+                                "direction": "asc",
+                                "nulls": "last"
+                            }],
+                            "group": null,
+                            "subgroup": null,
+                            "completion": { "range": "all", "orderByRecency": false },
+                            "hierarchy": { "showSubPages": true, "nestedSubPages": false },
+                            "layouts": {
+                                "board": { "fields": [], "showEmptyGroups": false },
+                                "list": { "fields": [], "showEmptyGroups": false }
+                            }
+                        }
                     }))
                     .map_err(|_| internal("Document test View config"))?;
                     for (view_id, rank_key) in [(VIEW_ID_A, "a"), (VIEW_ID_B, "b")] {
                         transaction.execute(
                             "INSERT INTO database_views(\
-                               id, database_block_id, data_source_id, name, kind, config_json, \
+                               id, database_block_id, data_source_id, name, default_layout, config_json, \
                                rank_key, created_at, updated_at\
                              ) VALUES (?1, ?2, ?3, 'Document test View', 'list', ?4, ?5, ?6, ?6)",
                             params![

@@ -5,12 +5,16 @@ import {
   upgradeLegacyPriority,
 } from "./priority-cutover";
 import type {
+  DatabaseViewPresentationOverride,
   DatabaseViewFilterNode,
-  DatabaseViewKind,
+  DatabaseViewLayout,
   DatabaseViewSort,
   DatabaseViewConfig,
 } from "./database-kernel";
-import type { DatabaseViewQueryResultV2 } from "./database-module-v2";
+import type {
+  DatabaseViewQueryResultV2,
+  DataSourcePageRowV2,
+} from "./database-module-v2";
 import type {
   BoardSummary,
   DatabasePageSummary,
@@ -26,8 +30,6 @@ export interface ReadDatabaseViewReferenceInput {
   /** Host Page identity used only for window-local include/exclude projection. */
   readonly hostBlockId?: string;
 }
-
-export type { DatabaseViewKind } from "./database-kernel";
 
 export type DatabaseViewJsonValue =
   | null
@@ -48,7 +50,7 @@ export interface DatabaseViewDefinition<
    */
   readonly projectId: ProjectScope;
   readonly name: string;
-  readonly kind: DatabaseViewKind;
+  readonly defaultLayout: DatabaseViewLayout;
   readonly config: Readonly<Record<string, DatabaseViewJsonValue>>;
   readonly isPrimary: boolean;
   readonly createdAt: string;
@@ -58,6 +60,7 @@ export interface DatabaseViewDefinition<
 export interface DatabaseViewPageRow {
   readonly page: DatabasePageSummary;
   readonly groupKey: string | null;
+  readonly subgroupKey: string | null;
   readonly rankKey: string;
 }
 
@@ -72,13 +75,14 @@ export interface DatabaseViewReadModel {
 }
 
 /**
- * Restricts a window read to one group of a grouped View so each board column
- * pages independently. `unassigned` addresses rows whose grouping Property
- * value is empty (null, empty string, or empty list).
+ * Restricts a window read to one stable primary/secondary group path. A null
+ * key addresses the unassigned value at that level.
  */
-export type DatabaseViewGroupScopeInput =
-  | { readonly kind: "key"; readonly key: string }
-  | { readonly kind: "unassigned" };
+export interface DatabaseViewGroupScopeInput {
+  readonly kind: "path";
+  readonly groupKey: string | null;
+  readonly subgroupKey: string | null;
+}
 
 export interface DatabaseViewWindowInput {
   readonly databaseViewId?: string;
@@ -86,6 +90,8 @@ export interface DatabaseViewWindowInput {
   readonly after?: string;
   readonly first?: number;
   readonly groupScope?: DatabaseViewGroupScopeInput;
+  /** Profile-local presentation patch, valid only with an explicit View. */
+  readonly presentationOverride?: DatabaseViewPresentationOverride | null;
   /** Do not return a projection snapshot older than this local commit. */
   readonly minimumCommitSeq?: number;
   /**
@@ -95,17 +101,83 @@ export interface DatabaseViewWindowInput {
   readonly minimumCommitCursor?: ProjectionCursor;
 }
 
+export type DatabaseListWindowInput = Omit<
+  DatabaseViewWindowInput,
+  "groupScope"
+>;
+
+export type DatabaseListProjectionRowSnapshot =
+  | {
+      readonly kind: "group";
+      readonly occurrenceKey: string;
+      readonly groupKey: string | null;
+      readonly totalOccurrenceCount: number;
+    }
+  | {
+      readonly kind: "subgroup";
+      readonly occurrenceKey: string;
+      readonly groupKey: string | null;
+      readonly subgroupKey: string | null;
+      readonly totalOccurrenceCount: number;
+    }
+  | {
+      readonly kind: "page";
+      readonly occurrenceKey: string;
+      readonly row: DataSourcePageRowV2;
+      readonly groupPath: readonly (string | null)[];
+      readonly ancestorPageIds: readonly string[];
+      readonly depth: number;
+      readonly hasChildren: boolean;
+      readonly transientKind: "none" | "ancestor" | "child";
+      readonly siblingRank: string | null;
+      readonly hierarchyRevision: number;
+    };
+
+export interface DatabaseListGroupSummarySnapshot {
+  readonly groupKey: string | null;
+  readonly subgroupKey: string | null;
+  readonly totalOccurrenceCount: number;
+}
+
+export interface DatabaseListWindowSnapshot<
+  ProjectScope extends string | null = string,
+> {
+  readonly projectId: ProjectScope;
+  readonly libraryId: string;
+  readonly databaseId: string;
+  readonly dataSourceId: string;
+  readonly viewId: string;
+  readonly storeEpoch: string;
+  readonly commitSeq: number;
+  readonly authorization: import("./authorized-read-stamp").AuthorizedReadStamp;
+  readonly projection: Omit<ProjectionCoordinate, "storeEpoch">;
+  readonly nextCursor: string | null;
+  readonly rows: readonly DatabaseListProjectionRowSnapshot[];
+  readonly groups: readonly DatabaseListGroupSummarySnapshot[];
+  readonly totalProjectionRowCount: number;
+  readonly totalOccurrenceCount: number;
+  readonly totalModelCount: number;
+  readonly windowStart: number;
+  readonly windowEnd: number;
+  readonly isComplete: boolean;
+}
+
+export type LibraryDatabaseListWindowSnapshot = DatabaseListWindowSnapshot<null>;
+
 export interface DatabaseViewGroupsInput {
   readonly databaseViewId?: string;
   readonly databaseId?: string;
+  /** Profile-local presentation patch, valid only with an explicit View. */
+  readonly presentationOverride?: DatabaseViewPresentationOverride | null;
   /** Do not return a projection snapshot older than this local commit. */
   readonly minimumCommitSeq?: number;
   readonly minimumCommitCursor?: ProjectionCursor;
 }
 
 export interface DatabaseViewGroupSummarySnapshot {
-  /** `null` counts the unassigned group (empty grouping value). */
+  /** `null` counts the unassigned value at that path level. */
   readonly groupKey: string | null;
+  readonly subgroupKey: string | null;
   readonly totalRows: number;
 }
 
@@ -127,7 +199,10 @@ export interface DatabaseViewGroupsSnapshot<
   readonly authorization: import("./authorized-read-stamp").AuthorizedReadStamp;
   readonly projection: Omit<ProjectionCoordinate, "storeEpoch">;
   readonly grouped: boolean;
+  readonly subgrouped: boolean;
   readonly totalRows: number;
+  readonly totalGroups: number;
+  readonly groupLimit: number;
   readonly truncated: boolean;
   readonly groups: readonly DatabaseViewGroupSummarySnapshot[];
 }

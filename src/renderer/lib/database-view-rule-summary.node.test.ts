@@ -1,0 +1,94 @@
+import { describe, expect, test } from "vitest";
+
+import type { DataSourcePropertyRecordV2 } from "../../shared/database-module-v2";
+import { testPropertySemantics } from "../../shared/testing/database-property-record";
+import {
+  parseDataSourceId,
+  parseDataSourcePropertyId,
+} from "../../shared/database-identities";
+import {
+  hasCustomDatabaseViewSort,
+  summarizeDatabaseViewFilter,
+} from "./database-view-rule-summary";
+
+const property = (propertyId: string, name: string): DataSourcePropertyRecordV2 => ({
+  propertyId: parseDataSourcePropertyId(propertyId),
+  dataSourceId: parseDataSourceId("source:rules"),
+  name,
+  ...testPropertySemantics("select", 2),
+  valueType: "select",
+  config: { options: [{ id: "build", name: "Build" }] },
+  rankKey: propertyId,
+  lifecycle: "active",
+  revision: 1,
+  createdAt: "2026-08-12T00:00:00.000Z",
+  updatedAt: "2026-08-12T00:00:00.000Z",
+});
+
+describe("database View rule summaries", () => {
+  test("groups nested clauses by property and resolves option names", () => {
+    expect(summarizeDatabaseViewFilter({
+      kind: "group",
+      operator: "and",
+      children: [
+        { kind: "clause", propertyId: "p_status00", operator: "equals", value: "build" },
+        {
+          kind: "group",
+          operator: "or",
+          children: [
+            { kind: "clause", propertyId: "p_priorit0", operator: "is_empty" },
+            { kind: "clause", propertyId: "p_priorit0", operator: "equals", value: "build" },
+          ],
+        },
+      ],
+    }, [property("p_status00", "Status"), property("p_priorit0", "Priority")])).toEqual([
+      { key: "p_status00", label: "Status", value: "is Build" },
+      { key: "p_priorit0", label: "Priority", value: "2 rules" },
+    ]);
+  });
+
+  test("summarizes familiar task chips by their visible option labels", () => {
+    const status = property("status", "Status");
+    const taskStatus: DataSourcePropertyRecordV2 = {
+      ...status,
+      config: {
+        options: [
+          { id: "triage", name: "Triage" },
+          { id: "plan", name: "Plan" },
+          { id: "build", name: "Build" },
+          { id: "review", name: "Review" },
+          { id: "ship", name: "Ship" },
+        ],
+      },
+    };
+    expect(summarizeDatabaseViewFilter({
+      kind: "group",
+      operator: "and",
+      children: [{
+        kind: "group",
+        operator: "or",
+        children: [
+          { kind: "clause", propertyId: "status", operator: "equals", value: "triage" },
+          { kind: "clause", propertyId: "status", operator: "equals", value: "plan" },
+        ],
+      }],
+    }, [taskStatus])).toEqual([{
+      key: "status",
+      label: "Status",
+      value: "Triage, Plan",
+    }]);
+  });
+
+  test("treats only canonical manual ordering as the default", () => {
+    expect(hasCustomDatabaseViewSort([{
+      field: { kind: "manual" },
+      direction: "asc",
+      nulls: "last",
+    }])).toBe(false);
+    expect(hasCustomDatabaseViewSort([{
+      field: { kind: "title" },
+      direction: "asc",
+      nulls: "last",
+    }])).toBe(true);
+  });
+});

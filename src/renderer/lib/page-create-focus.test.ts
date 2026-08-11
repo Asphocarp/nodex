@@ -26,10 +26,10 @@ describe("restorePageCreateFocus", () => {
       return 1;
     });
     const surface = document.createElement("div");
-    surface.dataset.kanbanSurfaceId = origin.surfaceId;
+    surface.dataset.boardSurfaceId = origin.surfaceId;
     surface.scrollTop = 240;
     const card = document.createElement("div");
-    card.dataset.kanbanUuidV7 = "page-created";
+    card.dataset.boardUuidV7 = "page-created";
     const focus = vi.spyOn(card, "focus");
     surface.append(card);
     document.body.append(surface);

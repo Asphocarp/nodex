@@ -92,7 +92,7 @@ Source-parented Page with exact Source/property coordinates. Opening a Page
 never moves it or creates/reactivates membership.
 
 `Card` is not a domain alias. It may be used only for a visual presentation
-such as `KanbanCard` or a generic request-card component.
+such as `BoardCard` or a generic request-card component.
 
 ### Document
 
@@ -225,10 +225,45 @@ An unset value is `No priority`; planning horizons such as “later” belong to
 
 ### Database View
 
-A Database View is a durable presentation belonging to one Database and
-targeting exactly one Data Source. It stores filter, sort, group, display, and
-Page-specific manual positions. Active View, search text, selection, expansion,
-and display interaction remain window-local.
+A Database View is a durable named query and default presentation belonging to
+one Database and targeting exactly one Data Source. It stores its Filter,
+default Presentation, Manual Order, and revision. Active View, search text,
+selection, and expansion remain window-local.
+
+### Layout
+
+A Layout is the Board or List display strategy for one Database View. Changing
+Layout keeps the same View identity and Filter.
+_Avoid_: View kind, Table view, toggle-list view, Calendar layout
+
+### View Preference Override
+
+A View Preference Override is a sparse Profile-local presentation preference
+for one Database View. It cannot change the View's Filter, access scope,
+lifecycle, or Manual Order.
+_Avoid_: Project view preference, personal View copy
+
+### Effective View
+
+An Effective View is the normalized result of a Database View's default
+Presentation, one View Preference Override, and its Data Source capabilities.
+Both Core projection reads and renderer Layouts consume the same result.
+
+### Filter
+
+A Filter is the durable Database View expression that determines which Source
+Pages belong to the result. Search is a separate window-local interaction.
+
+### Presentation
+
+A Presentation describes how a Database View result is sorted, grouped, and
+shown in Board or List. A default Presentation is durable; a personal change
+remains a View Preference Override until explicitly set as the View default.
+
+### Manual Order
+
+Manual Order is the shared fractional Page rank inside one Database View. It is
+independent of grouping, which is derived from Source Property values.
 
 View position identity is `(databaseViewId, pageId)`. A Page needs no position
 to qualify as a Source row; missing manual rank follows the View's explicit null
@@ -543,7 +578,7 @@ explicitly invalidate the same worker-owned read plane.
   NFM, preview, search, asset, schedule, or read-model data.
 - Say **revision** for immutable restorable Document state and **checkpoint**
   for storage/transport mechanics.
-- Say **Card** only for visual structures such as Kanban or request cards.
+- Say **Card** only for visual structures such as Board or request cards.
 
 ## Code orientation
 

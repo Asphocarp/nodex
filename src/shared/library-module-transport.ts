@@ -3,7 +3,7 @@ import {
   parseDatabaseViewId,
   parseDataSourceId,
 } from "./database-identities";
-import type { DatabaseViewKind } from "./database-kernel";
+import type { DatabaseViewLayout } from "./database-kernel";
 import {
   BLOCK_PROPERTY_MUTATION_V2_CONTRACT_VERSION,
   parseBlockPropertyMutationRequestV2,
@@ -1049,12 +1049,8 @@ export const bindLibraryModuleRead = (
   throw new TypeError("libraryModuleRead.read.mode is unsupported");
 };
 
-const parseViewKind = (value: unknown, label: string): DatabaseViewKind => {
-  if (
-    value === "kanban" ||
-    value === "list" ||
-    value === "calendar"
-  ) {
+const parseViewLayout = (value: unknown, label: string): DatabaseViewLayout => {
+  if (value === "board" || value === "list") {
     return value;
   }
   throw new TypeError(`${label} is unsupported`);
@@ -1172,7 +1168,7 @@ const parseNavigationNode = (
       "databaseId",
       "dataSourceId",
       "title",
-      "viewKind",
+      "defaultLayout",
       "isDefault",
       "revision",
     ]);
@@ -1182,7 +1178,10 @@ const parseNavigationNode = (
       databaseId: parseDatabaseId(node.databaseId),
       dataSourceId: parseDataSourceId(node.dataSourceId),
       title: string(node.title, `${label}.title`, 256),
-      viewKind: parseViewKind(node.viewKind, `${label}.viewKind`),
+      defaultLayout: parseViewLayout(
+        node.defaultLayout,
+        `${label}.defaultLayout`,
+      ),
       isDefault: boolean(node.isDefault, `${label}.isDefault`),
       revision: revision(node.revision, `${label}.revision`),
     };

@@ -977,6 +977,40 @@ export interface components {
             }[];
             readonly next_cursor?: string | null;
         };
+        readonly CollectionWindow_DatabaseListProjectionRow: {
+            readonly authority: components["schemas"]["CollectionWindowAuthority"];
+            readonly items: readonly ({
+                readonly group_key?: string | null;
+                /** @enum {string} */
+                readonly kind: "group";
+                readonly occurrence_key: string;
+                /** Format: int64 */
+                readonly total_occurrence_count: number;
+            } | {
+                readonly group_key?: string | null;
+                /** @enum {string} */
+                readonly kind: "subgroup";
+                readonly occurrence_key: string;
+                readonly subgroup_key?: string | null;
+                /** Format: int64 */
+                readonly total_occurrence_count: number;
+            } | {
+                readonly ancestor_page_ids: readonly string[];
+                /** Format: int32 */
+                readonly depth: number;
+                readonly group_path: readonly (string | null)[];
+                readonly has_children: boolean;
+                /** Format: int64 */
+                readonly hierarchy_revision: number;
+                /** @enum {string} */
+                readonly kind: "page";
+                readonly occurrence_key: string;
+                readonly sibling_rank?: string | null;
+                readonly summary: components["schemas"]["DatabaseRowSummary"];
+                readonly transient_kind: components["schemas"]["DatabaseListTransientKind"];
+            })[];
+            readonly next_cursor?: string | null;
+        };
         readonly CollectionWindow_DatabasePropertyDescriptor: {
             readonly authority: components["schemas"]["CollectionWindowAuthority"];
             readonly items: readonly {
@@ -1040,6 +1074,7 @@ export interface components {
                 readonly document_head_seq: number;
                 readonly document_id: string;
                 readonly effective_group_key?: string | null;
+                readonly effective_subgroup_key?: string | null;
                 readonly has_description: boolean;
                 readonly intrinsic_properties: {
                     readonly [key: string]: unknown;
@@ -1060,6 +1095,10 @@ export interface components {
                 readonly position_revision?: number | null;
                 readonly rank_key?: string | null;
                 readonly rich_title: unknown;
+                /** Format: int64 */
+                readonly task_hierarchy_revision: number;
+                readonly task_parent_page_id?: string | null;
+                readonly task_sibling_rank?: string | null;
                 readonly title: string;
                 readonly updated_at: string;
             }[];
@@ -1521,17 +1560,14 @@ export interface components {
         /** @enum {string} */
         readonly DatabaseEventKind: "database_changed";
         /**
-         * @description Restricts a `ViewWindow` read to a single group of a grouped View, so each
-         *     board column can page independently. `Unassigned` addresses rows whose
-         *     grouping Property value is empty (NULL, empty string, or empty list).
+         * @description Restricts a `ViewWindow` read to one stable primary/secondary group path.
+         *     A null key addresses the unassigned value at that level.
          */
         readonly DatabaseGroupScope: {
-            readonly key: string;
+            readonly group_key?: string | null;
             /** @enum {string} */
-            readonly kind: "key";
-        } | {
-            /** @enum {string} */
-            readonly kind: "unassigned";
+            readonly kind: "path";
+            readonly subgroup_key?: string | null;
         };
         readonly DatabaseIntent: {
             readonly before_property_id?: string | null;
@@ -1590,6 +1626,7 @@ export interface components {
             readonly config: unknown;
             readonly data_source_id: string;
             readonly database_id: string;
+            readonly default_layout: string;
             /** Format: int64 */
             readonly expected_revision: number;
             readonly is_default: boolean;
@@ -1597,7 +1634,6 @@ export interface components {
             readonly kind: "put_view";
             readonly name: string;
             readonly view_id: string;
-            readonly view_kind: string;
         } | {
             readonly database_id: string;
             /** Format: int64 */
@@ -1609,18 +1645,63 @@ export interface components {
             readonly before_page_id?: string | null;
             /** Format: int64 */
             readonly expected_position_revision: number;
-            readonly group_key?: string | null;
             /** @enum {string} */
             readonly kind: "position_page";
             readonly page_id: string;
             readonly view_id: string;
         } | {
             readonly before_page_id?: string | null;
-            readonly group_key?: string | null;
             /** @enum {string} */
             readonly kind: "position_pages";
             readonly pages: readonly components["schemas"]["DatabasePagePosition"][];
             readonly view_id: string;
+        } | {
+            readonly before_page_id?: string | null;
+            readonly data_source_id: string;
+            /** @enum {string} */
+            readonly kind: "set_task_parent";
+            readonly pages: readonly components["schemas"]["DatabaseTaskHierarchyPage"][];
+            readonly parent_page_id?: string | null;
+        } | {
+            readonly collapsed_group_keys: readonly string[];
+            /** Format: int64 */
+            readonly expected_revision: number;
+            /** @enum {string} */
+            readonly kind: "put_view_personal_preferences";
+            readonly presentation_override: components["schemas"]["DatabaseViewPresentationOverrideInput"];
+            readonly view_id: string;
+        };
+        readonly DatabaseListGroupSummary: {
+            readonly group_key?: string | null;
+            readonly subgroup_key?: string | null;
+            /** Format: int64 */
+            readonly total_occurrence_count: number;
+        };
+        /** @enum {string} */
+        readonly DatabaseListTransientKind: "none" | "ancestor" | "child";
+        /**
+         * @description A continuous window over the fully expanded List occurrence projection.
+         *     Model totals intentionally differ from occurrence totals when multi-value
+         *     grouping or transient hierarchy context repeats a Page.
+         */
+        readonly DatabaseListWindow: {
+            readonly data_source_id: string;
+            readonly database_id: string;
+            readonly groups: readonly components["schemas"]["DatabaseListGroupSummary"][];
+            readonly is_complete: boolean;
+            readonly projection: components["schemas"]["ProjectionSnapshotAuthority"];
+            readonly rows: components["schemas"]["CollectionWindow_DatabaseListProjectionRow"];
+            /** Format: int64 */
+            readonly total_model_count: number;
+            /** Format: int64 */
+            readonly total_occurrence_count: number;
+            /** Format: int64 */
+            readonly total_projection_row_count: number;
+            readonly view_id: string;
+            /** Format: int64 */
+            readonly window_end: number;
+            /** Format: int64 */
+            readonly window_start: number;
         };
         readonly DatabasePagePosition: {
             /** Format: int64 */
@@ -1749,7 +1830,7 @@ export interface components {
             readonly edit: components["schemas"]["DatabasePropertyValueEdit"];
         };
         /** @enum {string} */
-        readonly DatabaseReadMode: "catalog_window" | "database" | "data_source_window" | "data_source" | "property_window" | "option_window" | "view_descriptor_window" | "view" | "agent_query" | "view_window" | "view_groups" | "view_context" | "rows_by_id" | "row_detail" | "relation_target_window" | "relation_candidate_window";
+        readonly DatabaseReadMode: "catalog_window" | "database" | "data_source_window" | "data_source" | "property_window" | "option_window" | "view_descriptor_window" | "view" | "agent_query" | "view_window" | "list_window" | "view_groups" | "view_context" | "rows_by_id" | "row_detail" | "relation_target_window" | "relation_candidate_window" | "view_personal_preferences";
         readonly DatabaseReadRequest: components["schemas"]["ModuleReadRequest_DatabaseRead"];
         readonly DatabaseReadResponse: components["schemas"]["ResponseEnvelope_ModuleReadSnapshot_DatabaseReadValue"];
         readonly DatabaseRelationTargetWindow: {
@@ -1783,6 +1864,7 @@ export interface components {
             readonly document_head_seq: number;
             readonly document_id: string;
             readonly effective_group_key?: string | null;
+            readonly effective_subgroup_key?: string | null;
             readonly has_description: boolean;
             readonly intrinsic_properties: {
                 readonly [key: string]: unknown;
@@ -1803,6 +1885,10 @@ export interface components {
             readonly position_revision?: number | null;
             readonly rank_key?: string | null;
             readonly rich_title: unknown;
+            /** Format: int64 */
+            readonly task_hierarchy_revision: number;
+            readonly task_parent_page_id?: string | null;
+            readonly task_sibling_rank?: string | null;
             readonly title: string;
             readonly updated_at: string;
         };
@@ -1828,6 +1914,11 @@ export interface components {
             readonly view_id: string;
         } | {
             /** @enum {string} */
+            readonly kind: "presented_view";
+            readonly presentation_override: components["schemas"]["DatabaseViewPresentationOverrideInput"];
+            readonly view_id: string;
+        } | {
+            /** @enum {string} */
             readonly kind: "page";
             readonly page_id: string;
         } | {
@@ -1847,6 +1938,14 @@ export interface components {
             readonly query: components["schemas"]["DatabaseAgentQuery"];
             readonly view_id: string;
         };
+        readonly DatabaseTaskHierarchyPage: {
+            /**
+             * Format: int64
+             * @description Zero means the Page is currently a task root with no hierarchy edge.
+             */
+            readonly expected_hierarchy_revision: number;
+            readonly page_id: string;
+        };
         readonly DatabaseTransferTarget: {
             /** @enum {string} */
             readonly kind: "library";
@@ -1860,6 +1959,12 @@ export interface components {
             /** @enum {string} */
             readonly kind: "data_source";
         };
+        /** @enum {string} */
+        readonly DatabaseViewCompletedRangeInput: "all" | "past_month" | "past_week" | "past_day" | "none";
+        readonly DatabaseViewCompletionOverrideInput: {
+            readonly order_by_recency?: boolean | null;
+            readonly range?: null | components["schemas"]["DatabaseViewCompletedRangeInput"];
+        };
         readonly DatabaseViewContext: {
             readonly data_source: unknown;
             readonly database: unknown;
@@ -1868,6 +1973,23 @@ export interface components {
             readonly properties: readonly components["schemas"]["DatabasePropertyDescriptor"][];
             readonly rows: components["schemas"]["CollectionWindow_DatabaseViewContextRow"];
             readonly view: unknown;
+        };
+        readonly DatabaseViewFieldInput: {
+            /** @enum {string} */
+            readonly kind: "property";
+            readonly property_id: string;
+        } | {
+            readonly field: string;
+            /** @enum {string} */
+            readonly kind: "intrinsic";
+        };
+        readonly DatabaseViewGroupOverrideInput: {
+            /** @enum {string} */
+            readonly kind: "none";
+        } | {
+            /** @enum {string} */
+            readonly kind: "property";
+            readonly property_id: string;
         };
         /**
          * @description Bounded per-group totals for a View, observed from data. At most
@@ -1878,19 +2000,84 @@ export interface components {
         readonly DatabaseViewGroups: {
             readonly data_source_id: string;
             readonly database_id: string;
+            readonly group_limit: number;
             readonly grouped: boolean;
             readonly groups: readonly components["schemas"]["DatabaseViewGroupSummary"][];
             readonly projection: components["schemas"]["ProjectionSnapshotAuthority"];
+            readonly subgrouped: boolean;
+            /** Format: int64 */
+            readonly total_groups: number;
             /** Format: int64 */
             readonly total_rows: number;
             readonly truncated: boolean;
             readonly view_id: string;
         };
         readonly DatabaseViewGroupSummary: {
-            /** @description `None` counts the unassigned group (empty grouping value). */
+            /** @description `None` counts the unassigned value at that path level. */
             readonly group_key?: string | null;
+            readonly subgroup_key?: string | null;
             /** Format: int64 */
             readonly total_rows: number;
+        };
+        readonly DatabaseViewHierarchyOverrideInput: {
+            readonly nested_sub_pages?: boolean | null;
+            readonly show_sub_pages?: boolean | null;
+        };
+        readonly DatabaseViewLayoutDisplayOverrideInput: {
+            readonly fields?: readonly components["schemas"]["DatabaseViewFieldInput"][] | null;
+            readonly show_empty_groups?: boolean | null;
+        };
+        /** @enum {string} */
+        readonly DatabaseViewLayoutInput: "board" | "list";
+        readonly DatabaseViewLayoutsOverrideInput: {
+            readonly board?: null | components["schemas"]["DatabaseViewLayoutDisplayOverrideInput"];
+            readonly list?: null | components["schemas"]["DatabaseViewLayoutDisplayOverrideInput"];
+        };
+        /** @enum {string} */
+        readonly DatabaseViewNullOrderInput: "first" | "last";
+        readonly DatabaseViewPersonalPreferences: {
+            readonly collapsed_group_keys: readonly string[];
+            readonly presentation_override: components["schemas"]["DatabaseViewPresentationOverrideInput"];
+            /**
+             * Format: int64
+             * @description Zero means that this Profile has no durable preference row yet.
+             */
+            readonly revision: number;
+        };
+        /**
+         * @description A bounded Profile-local patch over a durable View presentation. Membership
+         *     filters and shared manual ranks are intentionally not overridable.
+         */
+        readonly DatabaseViewPresentationOverrideInput: {
+            readonly completion?: null | components["schemas"]["DatabaseViewCompletionOverrideInput"];
+            readonly group?: null | components["schemas"]["DatabaseViewGroupOverrideInput"];
+            readonly group_direction?: null | components["schemas"]["DatabaseViewSortDirectionInput"];
+            readonly hierarchy?: null | components["schemas"]["DatabaseViewHierarchyOverrideInput"];
+            readonly layout?: null | components["schemas"]["DatabaseViewLayoutInput"];
+            readonly layouts?: null | components["schemas"]["DatabaseViewLayoutsOverrideInput"];
+            readonly sort?: readonly components["schemas"]["DatabaseViewSortInput"][] | null;
+            readonly subgroup?: null | components["schemas"]["DatabaseViewGroupOverrideInput"];
+        };
+        /** @enum {string} */
+        readonly DatabaseViewSortDirectionInput: "asc" | "desc";
+        readonly DatabaseViewSortFieldInput: {
+            /** @enum {string} */
+            readonly kind: "manual";
+        } | {
+            /** @enum {string} */
+            readonly kind: "title";
+        } | {
+            /** @enum {string} */
+            readonly kind: "created";
+        } | {
+            /** @enum {string} */
+            readonly kind: "property";
+            readonly property_id: string;
+        };
+        readonly DatabaseViewSortInput: {
+            readonly direction: components["schemas"]["DatabaseViewSortDirectionInput"];
+            readonly field: components["schemas"]["DatabaseViewSortFieldInput"];
+            readonly nulls: components["schemas"]["DatabaseViewNullOrderInput"];
         };
         readonly DatabaseViewWindow: {
             readonly data_source_id: string;
@@ -2976,6 +3163,7 @@ export interface components {
         } | {
             readonly data_source_id: string;
             readonly database_id: string;
+            readonly default_layout: string;
             readonly is_default: boolean;
             /** @enum {string} */
             readonly kind: "view";
@@ -2983,7 +3171,6 @@ export interface components {
             readonly revision: number;
             readonly title: string;
             readonly view_id: string;
-            readonly view_kind: string;
         };
         readonly LibraryNavigationParent: {
             /** @enum {string} */
@@ -3465,7 +3652,6 @@ export interface components {
             readonly kind: "data_source";
         };
         readonly LibraryPageLifecyclePosition: {
-            readonly group_key?: string | null;
             readonly rank_key: string;
             /** Format: int64 */
             readonly revision: number;
@@ -3840,6 +4026,7 @@ export interface components {
             readonly kind: "database_row_remove";
             readonly page_id: string;
             readonly project_id: string;
+            readonly subgroup_key?: string | null;
             /** Format: int64 */
             readonly total_rows: number;
             readonly view_id: string;
@@ -4619,6 +4806,7 @@ export interface components {
                 readonly config: unknown;
                 readonly data_source_id: string;
                 readonly database_id: string;
+                readonly default_layout: string;
                 /** Format: int64 */
                 readonly expected_revision: number;
                 readonly is_default: boolean;
@@ -4626,7 +4814,6 @@ export interface components {
                 readonly kind: "put_view";
                 readonly name: string;
                 readonly view_id: string;
-                readonly view_kind: string;
             } | {
                 readonly database_id: string;
                 /** Format: int64 */
@@ -4638,17 +4825,30 @@ export interface components {
                 readonly before_page_id?: string | null;
                 /** Format: int64 */
                 readonly expected_position_revision: number;
-                readonly group_key?: string | null;
                 /** @enum {string} */
                 readonly kind: "position_page";
                 readonly page_id: string;
                 readonly view_id: string;
             } | {
                 readonly before_page_id?: string | null;
-                readonly group_key?: string | null;
                 /** @enum {string} */
                 readonly kind: "position_pages";
                 readonly pages: readonly components["schemas"]["DatabasePagePosition"][];
+                readonly view_id: string;
+            } | {
+                readonly before_page_id?: string | null;
+                readonly data_source_id: string;
+                /** @enum {string} */
+                readonly kind: "set_task_parent";
+                readonly pages: readonly components["schemas"]["DatabaseTaskHierarchyPage"][];
+                readonly parent_page_id?: string | null;
+            } | {
+                readonly collapsed_group_keys: readonly string[];
+                /** Format: int64 */
+                readonly expected_revision: number;
+                /** @enum {string} */
+                readonly kind: "put_view_personal_preferences";
+                readonly presentation_override: components["schemas"]["DatabaseViewPresentationOverrideInput"];
                 readonly view_id: string;
             })[];
             readonly operation_id: string;
@@ -6145,6 +6345,10 @@ export interface components {
                     readonly value: components["schemas"]["DatabaseViewWindow"];
                 } | {
                     /** @enum {string} */
+                    readonly kind: "list_window";
+                    readonly value: components["schemas"]["DatabaseListWindow"];
+                } | {
+                    /** @enum {string} */
                     readonly kind: "view_groups";
                     readonly value: components["schemas"]["DatabaseViewGroups"];
                 } | {
@@ -6167,6 +6371,10 @@ export interface components {
                     readonly candidates: components["schemas"]["CollectionWindow_DatabaseRelationCandidate"];
                     /** @enum {string} */
                     readonly kind: "relation_candidate_window";
+                } | {
+                    /** @enum {string} */
+                    readonly kind: "view_personal_preferences";
+                    readonly value: components["schemas"]["DatabaseViewPersonalPreferences"];
                 };
             };
             /** @enum {string} */

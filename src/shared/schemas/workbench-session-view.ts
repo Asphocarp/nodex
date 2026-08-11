@@ -10,7 +10,6 @@ import {
   WORKBENCH_SESSION_VIEW_MAX_TABS,
   WORKBENCH_SESSION_VIEW_VERSION,
 } from "../workbench-session-view";
-import { WorkbenchViewSchema } from "./workbench";
 import { WorkbenchReviewConfigSchema } from "./workbench-review";
 import { BrowserSidebarDeviceToolbarStateSchema } from "../browser/browser-schemas";
 import { primaryCanvasBlockId } from "../block-documents/canvas-document-identity";
@@ -105,7 +104,6 @@ export const WorkbenchPanelStateSchema = z.object({
 const WorkbenchDbViewTabConfigSchema = z.object({
   projectId: z.string().min(1),
   databaseViewId: z.string().min(1),
-  view: WorkbenchViewSchema,
 }).strict();
 
 const WorkbenchPageStageTabConfigSchema = z.object({
@@ -207,7 +205,10 @@ function migrateWorkbenchSessionView(value: unknown): unknown {
     return value;
   }
   const record = value as Record<string, unknown>;
-  if (record.version !== 1 && record.version !== 2) return value;
+  if (record.version === WORKBENCH_SESSION_VIEW_VERSION) return value;
+  if (record.version !== 1 && record.version !== 2 && record.version !== 3) {
+    return value;
+  }
   const tabsById = typeof record.tabsById === "object"
       && record.tabsById !== null
       && !Array.isArray(record.tabsById)
@@ -226,25 +227,30 @@ function migrateWorkbenchSessionView(value: unknown): unknown {
               && !Array.isArray(tab.config)
             ? tab.config as Record<string, unknown>
             : null;
-          if (
-            tab.kind !== "db_view"
-            || config?.view !== "canvas"
-            || typeof config.projectId !== "string"
-          ) {
+          if (tab.kind !== "db_view" || !config) {
             return [tabId, candidate];
           }
-          return [tabId, {
-            ...tab,
-            kind: "canvas_stage",
-            state: null,
-            config: {
-              projectId: config.projectId,
-              canvasBlockId: primaryCanvasBlockId(config.projectId),
-              ...(typeof tab.titleSnapshot === "string"
-                ? { titleSnapshot: tab.titleSnapshot }
-                : {}),
-            },
-          }];
+          if (
+            (record.version === 1 || record.version === 2)
+            && config.view === "canvas"
+            && typeof config.projectId === "string"
+          ) {
+            return [tabId, {
+              ...tab,
+              kind: "canvas_stage",
+              state: null,
+              config: {
+                projectId: config.projectId,
+                canvasBlockId: primaryCanvasBlockId(config.projectId),
+                ...(typeof tab.titleSnapshot === "string"
+                  ? { titleSnapshot: tab.titleSnapshot }
+                  : {}),
+              },
+            }];
+          }
+          const { view: legacyLayout, ...durableConfig } = config;
+          void legacyLayout;
+          return [tabId, { ...tab, config: durableConfig }];
         }),
       )
     : record.tabsById;

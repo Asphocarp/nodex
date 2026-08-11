@@ -3,6 +3,7 @@ import { useState } from "react";
 import type { BoardSummary, DatabasePageSummary, Project } from "@/lib/types";
 import type { DatabaseContainerDescriptor } from "../../../shared/database-module";
 import { plainTextToPortableRichText } from "../../../shared/block-documents";
+import { upgradeDatabaseViewConfigV2 } from "../../../shared/database-view-presentation";
 import type { PanelDestination } from "./panel-destination-picker-model";
 import { PanelDestinationPickerSurface } from "./panel-destination-picker";
 
@@ -100,15 +101,15 @@ const DATABASE_DESCRIPTOR_MAP = new Map<string, DatabaseContainerDescriptor>(
       databaseId,
       dataSourceId,
       name,
-      kind: "kanban" as const,
-      config: {
+      defaultLayout: "board" as const,
+      config: upgradeDatabaseViewConfigV2({
         schemaKey: "nodex.database-view" as const,
-        schemaVersion: 1 as const,
+        schemaVersion: 2 as const,
         filter: { kind: "group" as const, operator: "and" as const, children: [] },
         sort: [],
         group: null,
         display: { propertyIds: [], showTitle: true },
-      },
+      }),
       isDefault,
       revision: 1,
       rankKey: suffix,

@@ -14,22 +14,110 @@ manual Page positions. Page content remains in the Page's owned Document.
 
 ## View behavior
 
-Board, List, Table, Toggle List, and Calendar presentations execute the selected
-View's saved query. The primary unfiltered status-grouped View may use the
-specialized Kanban presentation; other Views retain their own identity and
-configuration instead of mutating the Project default.
+Database Views support Board and List layouts. Both execute the selected View's
+saved query through one runtime and preserve the durable View identity while the
+layout changes. The canonical status-grouped Board keeps its established
+Column/Card composition, whole-card drag, column controls, Page menus, and
+keyboard behavior. Board configurations that require capabilities such as
+subgroups may use the advanced renderer without replacing that canonical
+presentation. Historical Table, top-level Toggle List, and Calendar layouts
+migrate to List; inline `pageRef` and toggle-list Blocks remain editor features.
 
 Grouped Views page independently per group and show the canonical total even
 when only one window is loaded. Flat Views use one cursor window. Refresh after
 a mutation preserves the loaded span where possible, and an expired cursor
 restarts that bounded window rather than silently truncating the result.
 
-Filtering and sorting are View presentation. A manual position is optional; an
-unpositioned Page remains visible according to the View's null policy. Manual
-reorder is disabled only where a different active sort owns visible order.
-Reorder and cross-group moves compile one atomic Database mutation from stable
-Page and View identities. Detailed Board drag behavior is specified in
-[Kanban Drag and Drop Behavior](kanban-drag-and-drop-behavior.md).
+Filter is durable View query authority and search is window-local. Layout,
+sorting, grouping, subgrouping, completion policy, empty-group visibility, and
+displayed Properties resolve through a sparse Core personal preference keyed by
+durable View ID. Board and List remember separate displayed-Property sets while
+sharing the other presentation rules. Reset removes only the personal override.
+`Set default for everyone` publishes the normalized effective presentation with
+View revision compare-and-swap and clears the override only after success; a
+conflict retains the personal state. A valid legacy renderer preference migrates
+once and is removed only after Core accepts the write.
+
+Display Options derives valid group fields, finite empty groups, completion
+controls, and visible Properties from the active Source schema. List is a dense,
+full-width 40–44px task-row surface whose sections match Board groups and
+subgroups; it has no spreadsheet header, column resizers, rounded card stack, or
+inline foreign Page Document. Its controls use the shared Nodex dropdown,
+button, switch, popover, and checkbox primitives. Board and List share bounded
+group windows, selection, Page-open behavior, Property editors, and mutation
+receipts.
+
+### List projection and task hierarchy
+
+List is a virtual grid over Core-authored occurrence rows. Group headers are
+36px with a 2px first-row gap, Page rows are 44px, row surfaces are inset 8px,
+and each nested level shifts visible Page identity, Status, and title content by
+24px while preserving named-column alignment. Group, subgroup, Page, and
+transient-ancestor occurrences have stable path keys independent of Page
+identity. Collapsing hard-removes descendants without row tweening. The mounted
+View session restores a logical row anchor, continues bounded windows near the
+viewport end, keeps field widths monotonic, and hides trailing low-value fields
+before compressing the title column.
+
+A Data Source task hierarchy is independent of Page structural ownership. Each
+active row has at most one task parent in the same Data Source, sibling rank is
+scoped to that parent, cycles are forbidden, and maximum depth is ten. Removing
+a parent from the Data Source removes its hierarchy edge and promotes its direct
+child tree to task roots without moving or rewriting Page Documents. Search and
+filtering may include transient ancestors needed to explain matching descendants,
+so the same Page can have multiple visible occurrences while selection and
+mutations deduplicate by Page ID.
+
+List selection supports replace, toggle, contiguous range, all matching with
+sparse exclusions, a roving keyboard cursor, context actions, and a bulk action
+bar. Selection-state paint in a List row is immediate rather than tweened. A
+visible Status or Priority icon is also its inline editor trigger: opening it
+must not select or open the Page. The editor uses the shared searchable Property
+option picker, and choosing an option commits through the same optimistic,
+receipt-backed Property mutation path as other editors. Built-in task Properties
+keep their canonical options available when a bounded option window is not
+embedded in the current projection. Reorder, cross-group Property adoption,
+nest, un-nest, and eligible
+multi-Page drops compile from occurrence context into one atomic Database apply
+with Property, hierarchy, and position compare-and-swap. The renderer may apply
+a conservative optimistic occurrence projection and recompile once after a
+typed revision conflict; otherwise it rolls back and converges from Core. A
+successful lossless move offers a session Undo whose inverse carries the exact
+committed revisions.
+
+Primary and subgroup headers paint an opaque full-width sticky surface through
+the scrollport's top edge. The scroll container must not introduce transparent
+top padding above that sticky plane, so a scrolled Page row can never show
+through as a seam above the header.
+
+Opening a Page, changing Display Options, and switching between Board and List
+preserve the last readable Database surface instead of replacing it with an
+opening screen. Background reads update only the affected projection and hand
+over atomically. List ordering always comes from its preloaded Core occurrence
+projection; it never passes through a temporary Board-derived order. Permission
+revocation, checkpoint/reset, authorization loss, and Store replacement remain
+hard-clear boundaries.
+
+Every mounted Board or List remains subscribed to its exact durable View while
+another Page Stage or window edits Page titles and Source Properties. A
+same-renderer title edit projects into visible cards and rows immediately;
+cross-window edits converge through the cursor-fenced Project projection without
+remounting the Database surface. A projection checkpoint may fence stale
+authority and repair the loaded span, but it cannot detach later effects from a
+consumer that remains mounted.
+
+Workflow-status List groups use the canonical `Triage`, `Plan`, `Build`,
+`Review`, and `Ship` labels. Each writable status group ends with a compact
+create action that opens the standard Page composer already seeded to that
+status. Custom non-status option labels remain data-defined.
+
+A manual position is optional; an unpositioned Page remains visible according
+to the View's null policy. Board drag, Board keyboard movement, and manual List
+movement write one View-global rank. Cross-group Board movement commits the
+target grouping Property values and rank in one atomic Database mutation from
+stable Page and View identities. Manual reorder is disabled only where a
+different active sort owns visible order. Detailed behavior is specified in
+[Board Drag and Drop Behavior](board-drag-and-drop-behavior.md).
 
 ## Page creation
 
@@ -116,6 +204,6 @@ NFM specifications linked from [the index](index.md).
 
 ## Calendar and reminders
 
-Schedule, recurrence, occurrences, and reminders are Page behavior even when a
-Calendar View presents them. The complete contract is in
+Schedule, recurrence, occurrences, and reminders are Page behavior, not
+Database layouts. The complete contract is in
 [Calendar and Reminders Behavior](calendar-and-reminders-behavior.md).

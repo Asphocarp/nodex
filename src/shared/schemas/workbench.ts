@@ -7,12 +7,17 @@ import type {
   WorkbenchLayoutView,
 } from "../workbench-layout";
 
-export const WorkbenchViewSchema = z.enum([
-  "kanban",
+const CurrentWorkbenchViewSchema = z.enum([
+  "board",
   "list",
   "toggle-list",
   "calendar",
-]) satisfies z.ZodType<WorkbenchLayoutView>;
+]);
+
+export const WorkbenchViewSchema = z.preprocess(
+  (value) => value === "kanban" ? "board" : value,
+  CurrentWorkbenchViewSchema,
+) satisfies z.ZodType<WorkbenchLayoutView, unknown>;
 
 export const WorkbenchStageIdSchema = z.enum([
   "db",

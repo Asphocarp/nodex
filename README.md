@@ -54,7 +54,7 @@ Start with the [public product page](https://nodex.jyu.app), or download the lat
 ## Use Nodex from Codex or Claude Code
 
 Nodex ships a native CLI and one official `nodex` Agent Skill for working with
-Pages, rich Nested Markdown, saved database Views, and Kanban placement through
+Pages, rich Nested Markdown, saved database Views, and Board placement through
 the same local Core authority as the desktop app.
 
 After moving `Nodex.app` into `/Applications`, install the CLI from

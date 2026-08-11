@@ -2,17 +2,17 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 
 const testState = vi.hoisted(() => ({
   store: { id: "shared-board-store" },
-  deleteKanbanPage: vi.fn(),
-  moveKanbanPage: vi.fn(),
+  deleteBoardPage: vi.fn(),
+  moveBoardPage: vi.fn(),
 }));
 
-vi.mock("@/lib/kanban-store", () => ({
-  getKanbanProjectStore: vi.fn(() => testState.store),
+vi.mock("@/lib/board-store", () => ({
+  getBoardProjectStore: vi.fn(() => testState.store),
 }));
 
-vi.mock("@/lib/kanban-page-mutation-command", () => ({
-  deleteKanbanPage: testState.deleteKanbanPage,
-  moveKanbanPage: testState.moveKanbanPage,
+vi.mock("@/lib/board-page-mutation-command", () => ({
+  deleteBoardPage: testState.deleteBoardPage,
+  moveBoardPage: testState.moveBoardPage,
 }));
 
 vi.mock("@/lib/api", () => ({ invoke: vi.fn() }));
@@ -27,8 +27,8 @@ import { makeRemotePageStageHandlers } from "./workbench-remote-page-stage-handl
 
 describe("remote Page Stage placement commands", () => {
   beforeEach(() => {
-    testState.deleteKanbanPage.mockReset().mockResolvedValue(true);
-    testState.moveKanbanPage.mockReset().mockResolvedValue(true);
+    testState.deleteBoardPage.mockReset().mockResolvedValue(true);
+    testState.moveBoardPage.mockReset().mockResolvedValue(true);
   });
 
   test("delegates delete and move through the selected View store", async () => {
@@ -37,7 +37,7 @@ describe("remote Page Stage placement commands", () => {
     await handlers.onMove?.("plan", "page-1", "ship");
     await handlers.onDelete?.("ship", "page-1");
 
-    expect(testState.moveKanbanPage).toHaveBeenCalledWith(expect.objectContaining({
+    expect(testState.moveBoardPage).toHaveBeenCalledWith(expect.objectContaining({
       store: testState.store,
       projectId: "project-1",
       move: {
@@ -46,7 +46,7 @@ describe("remote Page Stage placement commands", () => {
         toStatus: "ship",
       },
     }));
-    expect(testState.deleteKanbanPage).toHaveBeenCalledWith(expect.objectContaining({
+    expect(testState.deleteBoardPage).toHaveBeenCalledWith(expect.objectContaining({
       store: testState.store,
       projectId: "project-1",
       columnId: "ship",

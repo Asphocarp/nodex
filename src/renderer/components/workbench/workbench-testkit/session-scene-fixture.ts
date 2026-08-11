@@ -29,7 +29,6 @@ function surfaceFromProjection(
           kind: "database-view",
           databaseViewId: tab.config.databaseViewId,
         },
-        view: tab.config.view,
       },
     };
   }

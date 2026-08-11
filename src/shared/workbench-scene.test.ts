@@ -110,6 +110,7 @@ function toLegacySurface(
     config: {
       ...config,
       projectId: accessContext.projectId,
+      ...(surface.kind === "db_view" ? { view: "board" as const } : {}),
     },
   } as WorkbenchSurfaceDescriptorV3;
 }
@@ -496,7 +497,7 @@ describe("WorkbenchScene", () => {
       newDraftId: `agent-draft:${canonical.primary.id}`,
     });
     const currentSnapshot = WorkbenchSceneSnapshotSchema.parse(canonical);
-    expect(currentSnapshot.version).toBe(5);
+    expect(currentSnapshot.version).toBe(6);
     expect(WorkbenchSceneSnapshotSchema.parse(legacy)).toEqual(currentSnapshot);
   });
 
@@ -555,6 +556,26 @@ describe("WorkbenchScene", () => {
     expect(WorkbenchSceneSnapshotSchema.parse(legacy)).toEqual(
       WorkbenchSceneSnapshotSchema.parse(migrated),
     );
+  });
+
+  test("removes the v5 synthetic Database layout from Scene identity", () => {
+    const current = projectScene();
+    const primary = protectedPrimary(current);
+    if (primary.kind !== "db_view") throw new Error("Expected Database primary");
+    const legacy = {
+      ...current,
+      version: 5,
+      primary: {
+        ...primary,
+        config: { ...primary.config, view: "calendar" },
+      },
+    };
+
+    const migrated = WorkbenchSceneSnapshotSchema.parse(legacy);
+
+    expect(migrated.version).toBe(6);
+    expect(migrated.primary?.config).not.toHaveProperty("view");
+    expect(WorkbenchSceneSnapshotSchema.parse(migrated)).toEqual(migrated);
   });
 
   test("new-window clone remints presentation and Browser identities", () => {

@@ -1,1 +1,1 @@
-export { HistoryPanel } from "../kanban/history-panel";
+export { HistoryPanel } from "../board/history-panel";

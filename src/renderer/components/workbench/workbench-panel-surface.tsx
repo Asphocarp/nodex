@@ -3,7 +3,7 @@ import type {
   RefObject,
 } from "react";
 import type { MotionValue } from "motion/react";
-import type { PageStageSessionSnapshot } from "@/components/kanban/page-stage/types";
+import type { PageStageSessionSnapshot } from "@/components/board/page-stage/types";
 import {
   WorkspaceFilesPanel,
   type WorkspaceFilesTab,
@@ -12,10 +12,6 @@ import { BrowserSidebarPanel } from "@/features/browser-sidebar/browser-sidebar-
 import type { BrowserSettingsDestination } from "@/features/browser-sidebar/browser-settings-pages";
 import type { BrowserSidebarOpenNewTabRequest } from "../../../shared/browser-sidebar";
 import { ConnectedReviewDiffPanel } from "@/features/local-conversation";
-import type {
-  DbViewPrefs,
-  SupportedDbView,
-} from "@/lib/db-view-prefs";
 import {
   resolveLeafIdForPanelTab,
 } from "@/lib/workbench-panel-placement";
@@ -29,8 +25,11 @@ import type {
   Project,
   WorkbenchTabProjection,
 } from "@/lib/types";
-import type { WorkbenchView } from "@/lib/use-workbench-profile-preferences";
 import type { OpenCanvasStageHandler } from "@/lib/use-workbench-panel-openers";
+import type {
+  OpenPageInNewChatInput,
+  SendPageToChatInput,
+} from "@/lib/page-chat-actions";
 import type {
   WorkbenchSurfaceUpdatePatch,
 } from "@/lib/workbench-scene-presentation";
@@ -44,10 +43,6 @@ import {
 } from "./workbench-page-stage-panel";
 import { TerminalPanel } from "./workbench-terminal-panel";
 import { projectSessionThreadLinkToSummary } from "./thread-summary-projection";
-import type {
-  OpenPageInNewChatInput,
-  SendPageToChatInput,
-} from "@/lib/page-chat-actions";
 
 export function WorkbenchTabProjectionPanel({
   tab,
@@ -55,18 +50,14 @@ export function WorkbenchTabProjectionPanel({
   windowSessionId,
   browserViewScopeId,
   projects,
-  activeView,
   activeSearchQuery,
-  activeDbViewPrefs,
   searchByProject,
-  dbViewPrefsByProject,
   presentedPageIds,
   pageStageCloseRef,
   pageStagePersistRef,
   pageStageSessionSnapshotRef,
   taskSearchOpenTick,
   setSearchQuery,
-  setDbViewPrefs,
   onLeavePageStage,
   onOpenPageTab,
   onOpenPageInNewChat,
@@ -91,14 +82,8 @@ export function WorkbenchTabProjectionPanel({
   windowSessionId: string;
   browserViewScopeId: string;
   projects: Project[];
-  activeView: WorkbenchView;
   activeSearchQuery: string;
-  activeDbViewPrefs: DbViewPrefs | null;
   searchByProject: Record<string, string>;
-  dbViewPrefsByProject: Record<
-    string,
-    Partial<Record<SupportedDbView, DbViewPrefs>>
-  >;
   presentedPageIds: ReadonlySet<string>;
   pageStageCloseRef: RefObject<(() => Promise<void>) | null>;
   pageStagePersistRef?: MutableRefObject<(() => Promise<void>) | null>;
@@ -107,15 +92,14 @@ export function WorkbenchTabProjectionPanel({
   >;
   taskSearchOpenTick: number;
   setSearchQuery: (projectId: string, value: string) => void;
-  setDbViewPrefs: (
-    projectId: string,
-    view: SupportedDbView,
-    update: (prev: DbViewPrefs) => DbViewPrefs,
-  ) => void;
   onLeavePageStage: (snapshot: PageStageSessionSnapshot) => void;
   onOpenPageTab: OpenPageTabHandler;
-  onOpenPageInNewChat?: (input: OpenPageInNewChatInput) => Promise<void> | void;
-  onSendPageToChat?: (input: SendPageToChatInput) => Promise<void> | void;
+  onOpenPageInNewChat?: (
+    input: OpenPageInNewChatInput,
+  ) => Promise<void> | void;
+  onSendPageToChat?: (
+    input: SendPageToChatInput,
+  ) => Promise<void> | void;
   onOpenCanvasStage: OpenCanvasStageHandler;
   onOpenFileTab: (input: {
     path: string;
@@ -151,22 +135,18 @@ export function WorkbenchTabProjectionPanel({
   onOpenBrowserSettings: (sectionId: BrowserSettingsDestination) => void;
   isActivePanelTab: boolean;
 }) {
-  if (tab.kind === "db_view" && "view" in tab.config) {
+  if (tab.kind === "db_view" && "databaseViewId" in tab.config) {
     return (
       <DbViewSessionTab
         sessionId={activeSession.id}
         tab={tab}
         projects={projects}
-        activeView={activeView}
         activeSearchQuery={activeSearchQuery}
-        activeDbViewPrefs={activeDbViewPrefs}
         searchByProject={searchByProject}
-        dbViewPrefsByProject={dbViewPrefsByProject}
         presentedPageIds={presentedPageIds}
         pageStageCloseRef={pageStageCloseRef}
         taskSearchOpenTick={taskSearchOpenTick}
         setSearchQuery={setSearchQuery}
-        setDbViewPrefs={setDbViewPrefs}
         onOpenPageTab={onOpenPageTab}
         onOpenPageInNewChat={onOpenPageInNewChat}
         onSendPageToChat={onSendPageToChat}
@@ -176,7 +156,6 @@ export function WorkbenchTabProjectionPanel({
           tab.panelId,
           tab.id,
         )}
-        onUpdateTab={onUpdateTab}
       />
     );
   }

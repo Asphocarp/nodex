@@ -143,13 +143,13 @@ const compilePageRunFromQuery = (input: {
     query.database.lifecycle !== "active"
     || query.dataSource.lifecycle !== "active"
     || query.view.lifecycle !== "active"
-    || query.view.kind !== "kanban"
+    || query.view.defaultLayout !== "board"
     || query.view.databaseId !== query.database.databaseId
     || query.view.dataSourceId !== query.dataSource.dataSourceId
   ) {
     return fail(
       "view_not_available",
-      "The bound Project Database has no active single-Source Kanban View",
+      "The bound Project Database has no active single-Source Board View",
     );
   }
 
@@ -168,11 +168,11 @@ const compilePageRunFromQuery = (input: {
   const statusProperty = activePropertyById(query, "status");
   if (
     !statusProperty
-    || query.view.config.group?.propertyId !== statusProperty.propertyId
+    || query.view.config.presentation.group?.propertyId !== statusProperty.propertyId
   ) {
     return fail(
       "status_property_not_found",
-      "The Kanban View is not grouped by its active status property",
+      "The Board View is not grouped by its active status property",
     );
   }
   const currentStatuses = rows.map((row) => {
@@ -261,7 +261,7 @@ const compilePageRunFromQuery = (input: {
   const positionChanged =
     crossesGroup
     || currentTargetOrder.join("\u0000") !== nextTargetOrder.join("\u0000");
-  const manualSort = query.view.config.sort.find(
+  const manualSort = query.view.config.presentation.sort.find(
     (sort) => sort.field.kind === "manual",
   );
   if (manualSort?.direction === "desc" && positionChanged) {
@@ -273,12 +273,7 @@ const compilePageRunFromQuery = (input: {
 
   const expectedPositionRevision = (
     row: DataSourcePageRowV2,
-    currentStatus: string,
-  ): number => {
-    const revision = row.position?.revision ?? 0;
-    if (!row.position || currentStatus === input.move.toStatus) return revision;
-    return revision + 1;
-  };
+  ): number => row.position?.revision ?? 0;
 
   const operations: DatabaseApplyOperationV2[] = [];
   if (values.length > 0) {
@@ -291,25 +286,17 @@ const compilePageRunFromQuery = (input: {
         kind: "position_page",
         viewId: query.view.viewId,
         pageId: rows[0].page.pageId,
-        expectedPositionRevision: expectedPositionRevision(
-          rows[0],
-          currentStatuses[0] ?? input.move.toStatus,
-        ),
-        groupKey: input.move.toStatus,
+        expectedPositionRevision: expectedPositionRevision(rows[0]),
         ...(beforePageId === undefined ? {} : { beforePageId }),
       });
     } else {
       operations.push({
         kind: "position_pages",
         viewId: query.view.viewId,
-        pages: rows.map((row, index) => ({
+        pages: rows.map((row) => ({
           pageId: row.page.pageId,
-          expectedPositionRevision: expectedPositionRevision(
-            row,
-            currentStatuses[index] ?? input.move.toStatus,
-          ),
+          expectedPositionRevision: expectedPositionRevision(row),
         })),
-        groupKey: input.move.toStatus,
         ...(beforePageId === undefined ? {} : { beforePageId }),
       });
     }

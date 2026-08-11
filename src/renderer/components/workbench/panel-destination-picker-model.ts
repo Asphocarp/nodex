@@ -6,7 +6,7 @@ import {
   createNfmMoveToSearchIndex,
   type NfmMoveToPageSearchHit,
   type NfmMoveToSearchResult,
-} from "@/components/kanban/editor/nfm-move-to-menu-search";
+} from "@/components/board/editor/nfm-move-to-menu-search";
 
 export type PanelDestinationPickerScope = "all" | "db-only" | "page-only";
 

@@ -7,6 +7,8 @@ use rusqlite::{Connection, OptionalExtension, params};
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
 pub(crate) const PRIORITY_PROPERTY_ID: &str = "priority";
+pub(crate) const STATUS_PROPERTY_ID: &str = "status";
+pub(crate) const COMPLETED_STATUS_OPTION_ID: &str = "ship";
 pub(crate) const PRIORITY_OPTIONS: [(&str, &str); 4] = [
     ("p0-critical", "P0 - Critical"),
     ("p1-high", "P1 - High"),

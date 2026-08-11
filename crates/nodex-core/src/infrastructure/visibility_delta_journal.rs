@@ -219,6 +219,26 @@ pub(crate) fn install_schema(connection: &Connection) -> Result<(), StoreError> 
     validate_trigger_inventory(connection)
 }
 
+pub(crate) fn refresh_authority_relation_triggers(
+    connection: &Connection,
+    relation_names: &[&str],
+) -> Result<(), StoreError> {
+    for relation_name in relation_names {
+        let relation = AUTHORITY_RELATIONS
+            .iter()
+            .find(|candidate| candidate.table == *relation_name)
+            .ok_or_else(|| corrupt("Authority relation trigger refresh is not inventoried"))?;
+        for operation in ["insert", "update", "delete"] {
+            connection.execute_batch(&format!(
+                "DROP TRIGGER IF EXISTS {}",
+                quote_identifier(&trigger_name(relation.table, operation))
+            ))?;
+        }
+        install_relation_triggers(connection, relation)?;
+    }
+    validate_trigger_inventory(connection)
+}
+
 pub(crate) fn is_installed(connection: &Connection) -> Result<bool, StoreError> {
     Ok(connection.query_row(
         "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = ?1)",

@@ -28,7 +28,7 @@ import { buildThreadBodyModel } from "../projection/build-thread-body-model";
 import { selectPrimaryConversationRequest } from "../conversation-request-helpers";
 import { buildCodexFileChangeMap } from "../../../../shared/codex-file-change";
 import { plainTextToPortableRichText } from "../../../../shared/block-documents";
-import { buildPageDetailStoryResult } from "@/components/kanban/page-stage/page-stage-story-page-detail";
+import { buildPageDetailStoryResult } from "@/components/board/page-stage/page-stage-story-page-detail";
 import type {
   ThreadBodySurfaceModel,
   ThreadBodyUiStateOverrides,

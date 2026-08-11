@@ -563,9 +563,6 @@ export interface ProjectPinnedOrderInput {
   orderedProjectIds: string[];
 }
 
-export type ProjectSessionDbView =
-  "kanban" | "list" | "toggle-list" | "calendar";
-
 export type WorkbenchTabKind =
   | "db_view"
   | "page_stage"
@@ -590,8 +587,6 @@ export interface WorkbenchProjectionDbViewTabConfig {
    * db_view descriptor can never silently lack its target.
    */
   databaseViewId: string;
-  /** Window presentation mode. It never participates in tab identity. */
-  view: ProjectSessionDbView;
 }
 
 export interface WorkbenchProjectionPageStageTabConfig {

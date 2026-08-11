@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
-import type { NfmMoveToSearchResult } from "@/components/kanban/editor/nfm-move-to-menu-search";
+import type { NfmMoveToSearchResult } from "@/components/board/editor/nfm-move-to-menu-search";
 import { normalizeSearchText } from "@/lib/search-text";
 import type { PageSearchResult, Project } from "@/lib/types";
 import { invoke } from "./api";

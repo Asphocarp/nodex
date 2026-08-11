@@ -10,7 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import { PageIcon, SpinnerIcon, SearchIcon } from "@/components/shared/icons";
-import { createNfmMoveToSearchIndex } from "@/components/kanban/editor/nfm-move-to-menu-search";
+import { createNfmMoveToSearchIndex } from "@/components/board/editor/nfm-move-to-menu-search";
 import {
   resolveQueryFreshAccept,
   shouldConsumeStalePickerNavigation,

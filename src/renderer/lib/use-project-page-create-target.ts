@@ -58,7 +58,7 @@ export interface UseProjectPageCreateTargetInput {
 /**
  * Registers the active Project's canonical default View as a low-priority
  * authoring target. The store subscription is owned by Workbench's existing
- * active-Project Kanban projection; this hook only projects readiness into the
+ * active-Project Board projection; this hook only projects readiness into the
  * window-scoped command capability registry.
  */
 export function useProjectPageCreateTarget({

@@ -186,7 +186,7 @@ async function readNativeContext(
             viewId: view.viewId,
             dataSourceId: view.dataSourceId,
             name: view.name,
-            kind: view.kind,
+            defaultLayout: view.defaultLayout,
             isDefault: view.isDefault,
           })),
       }]

@@ -12,7 +12,6 @@ The editable settings tab covers Nodex-supported command ids only. Editor-native
 
 | Shortcut | Action | Notes |
 |----------|--------|-------|
-| `Shift+Wheel` | Native horizontal scrolling | A mounted, gate-enabled Calendar presentation claims this gesture for day navigation where applicable |
 | `⌘/Ctrl+Alt+1`–`9` | Jump to project by index | First 9 projects in shell/sidebar order (disabled while focus is in NFM editor because `⌘/Ctrl+Alt+1`–`4` are editor heading shortcuts) |
 | `⌘/Ctrl+Shift+P` | Search commands | Opens the global command palette in root command mode; works from editable surfaces too |
 | `⌘/Ctrl+K` | Search commands and chats | Opens the global command palette in root mode; chat metadata joins at two query characters and chat history at three; works from editable surfaces too |
@@ -64,19 +63,24 @@ App-owned shortcuts run from the active renderer window after local surfaces hav
 
 Two-chord sequences use a 900 ms continuation window. The first chord is consumed only when at least one currently available command owns that prefix. A mismatch is re-evaluated as a fresh shortcut, and input/editor/local surfaces never arm a sequence.
 
-## Board and Page Actions
+## Database View and Page Actions
 
-These actions require the current Workbench tab to present a Board. Pointer activation or keyboard navigation establishes the active Page; hover remains transient visual feedback and never changes the active Page or selection. When no Page is active, the first navigation key starts at the first visible Page. `X` changes selection independently, and reactive active-Page/selection/Peek updates do not relinquish the tab's keyboard ownership. When the active Page belongs to a multi-selection, property and move actions apply to that selection in visible order. Manual placement commands are accepted only when the selected View can compile the requested move atomically; unsupported sorted, filtered, grouped, or read-only arrangements leave the key available to the local surface.
+These actions require the current Workbench tab to present a Database View. Board and List share one active Page and selection, so switching layout does not discard either state. Pointer activation or keyboard navigation establishes the active Page; hover remains transient visual feedback and never changes selection. List rows additionally use `ArrowUp`/`ArrowDown`, `Home`/`End`, `Space`, and `Enter` directly on the roving row focus target. When the active Page belongs to a multi-selection, move actions apply to that selection in visible order. Manual placement commands are accepted only when the effective View can compile the requested move atomically; sorted or read-only arrangements leave the key available to the local surface.
 
 | Shortcut | Action | Notes |
 |----------|--------|-------|
 | `J` / `K` or `↓` / `↑` | Highlight next / previous Page | Uses visible column-major order and updates an open Peek |
-| `←` / `→` | Highlight adjacent column | Preserves the nearest visible row and skips empty columns |
+| `←` / `→` | Highlight adjacent Board column | Preserves the nearest visible row and skips empty columns |
 | Tap `Space` | Toggle Peek | Opens or closes the highlighted Page preview |
 | Hold `Space` | Momentary Peek | Opens while held and closes on release; the threshold is 220 ms |
 | `Enter` | Open Page | Opens a durable Page Stage |
 | `X` | Toggle selection | Adds or removes the highlighted Page from the selection |
+| `Space` in List | Toggle selection | Toggles the Page at the List roving focus target |
+| `Shift+↑` / `Shift+↓` in List | Extend selection | Extends the contiguous occurrence range from the selection anchor |
+| `⌘/Ctrl+A` in List | Select all matching Pages | Keeps a sparse all-matching selection and loads remaining Core windows before enabling bulk drag/move |
 | `Escape` | Clear selection / close Peek | Clears selection first, then closes the Page preview |
+| `T` in List | Collapse or expand | Toggles the active parent subtree, otherwise its containing group |
+| `Alt+T` in List | Collapse or expand all | Toggles all currently available group and parent disclosure boundaries |
 | `S` | Set status | Opens the canonical status menu; moving multiple selected Pages is atomic |
 | `P` | Set priority | Opens the canonical priority menu |
 | `Shift+E` | Set estimate | Opens the canonical estimate menu |
@@ -187,10 +191,10 @@ unless a separately listed app command owns an accelerator.
 
 | Shortcut | Action | Scope |
 |----------|--------|-------|
-| `Enter` | Move from title to description | Project Kanban Page creation dialog title |
-| `⌘/Ctrl+Enter` | Create Page | Project Kanban Page creation dialog; when `Create more` is enabled, creates and resets title/body for the next Page |
-| `⌘/Ctrl+Shift+Enter` | Create Page and continue | Project Kanban Page creation dialog; retains Status, Priority, Estimate, and Tags |
-| `Escape` | Close the topmost surface | Project Kanban Page composer and its property menus; an open property menu closes first, a dirty composer offers a 10-second Restore action, and pending creation cannot be dismissed |
+| `Enter` | Move from title to description | Project Board Page creation dialog title |
+| `⌘/Ctrl+Enter` | Create Page | Project Board Page creation dialog; when `Create more` is enabled, creates and resets title/body for the next Page |
+| `⌘/Ctrl+Shift+Enter` | Create Page and continue | Project Board Page creation dialog; retains Status, Priority, Estimate, and Tags |
+| `Escape` | Close the topmost surface | Project Board Page composer and its property menus; an open property menu closes first, a dirty composer offers a 10-second Restore action, and pending creation cannot be dismissed |
 | `Enter` | Submit / confirm | Project create/rename and tag input |
 | `Escape` | Cancel / close | Project forms and card-stage tag dropdown |
 | `↑` / `↓` | Navigate suggestions | Card stage tag input |
@@ -202,5 +206,5 @@ unless a separately listed app command owns an accelerator.
 The editable command registry and accelerator helpers live in `src/shared/command-keybindings.ts`. Renderer query/mutation state uses `codex-command-keymap-state`, `set-codex-command-keybinding`, and `reset-codex-command-keybindings`; main-process persistence writes user overrides to `~/.nodex/config.toml`.
 
 Workbench navigation keyboard and mouse shortcuts are classified by `src/renderer/lib/keyboard-action-runtime.ts` and `src/renderer/lib/use-workbench-shortcuts.ts`, then routed into the shell's shared panel-action dispatcher in `src/renderer/components/workbench/workbench-shell.tsx`. Contextual surfaces register capabilities through `src/renderer/lib/contextual-keyboard-actions.ts`; the Workbench owns gesture arbitration and sequence state while the active Board owns Page state and execution. That dispatcher consumes `workbench-panel-capabilities.ts`, as do the bottom-panel toolbar, command palette, browser-runtime keyboard fallback, and typed desktop application-menu request. Electron owns its application-menu accelerator while the browser runtime owns the renderer key listener, preventing one keypress from toggling twice. Owner-scoped panel tab cycling and close-tab remain owned by `WorkbenchShell` because they depend on the active Project, Session, or Pages Scene, focused panel leaf, and the owning Session projection or durable Scene surface registry. Retired stage/sliding-window shortcuts are deliberately left unhandled so the mounted editor or application surface can claim them.
-Collaborative title/body undo is owned by the mounted Block Document surface and its local Yjs transaction origins. Editor shortcuts are in `src/renderer/components/kanban/editor/nfm-editor-extensions.ts` and `nfm-editor.tsx`; there is no Workbench- or Project-wide undo shortcut owner.
+Collaborative title/body undo is owned by the mounted Block Document surface and its local Yjs transaction origins. Editor shortcuts are in `src/renderer/components/board/editor/nfm-editor-extensions.ts` and `nfm-editor.tsx`; there is no Workbench- or Project-wide undo shortcut owner.
 Terminal panel shortcut routing is in `src/renderer/lib/use-workbench-shortcuts.ts`.

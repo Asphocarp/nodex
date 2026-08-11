@@ -16,6 +16,7 @@ import {
   compileDatabasePagesDrag,
   DatabasePageDragError,
 } from "./database-page-drag";
+import { upgradeDatabaseViewConfigV2 } from "./database-view-presentation";
 
 const timestamp = "2026-07-16T00:00:00.000Z";
 
@@ -95,8 +96,8 @@ const querySnapshot = (input: {
     databaseId: database.databaseId,
     dataSourceId: dataSource.dataSourceId,
     name: "Board",
-    kind: "kanban" as const,
-    config: {
+    defaultLayout: "board" as const,
+    config: upgradeDatabaseViewConfigV2({
       schemaKey: "nodex.database-view" as const,
       schemaVersion: 2 as const,
       filter: { kind: "group" as const, operator: "and" as const, children: [] },
@@ -113,7 +114,7 @@ const querySnapshot = (input: {
           }],
       group: { propertyId: "status" },
       display: { propertyIds: [], showTitle: true },
-    },
+    }),
     isDefault: true,
     revision: 2,
     rankKey: "a",
@@ -165,8 +166,9 @@ const querySnapshot = (input: {
         revision: revision + 10,
       },
     },
-    position: { groupKey: status, rankKey, revision: revision + 20 },
+    position: { rankKey, revision: revision + 20 },
     effectiveGroupKey: status,
+    effectiveSubgroupKey: null,
   });
   const query: DatabaseViewQueryResultV2 = {
     database,
@@ -212,7 +214,6 @@ describe("Database Page drag compiler", () => {
       viewId: "view-1",
       pageId: "page-b",
       expectedPositionRevision: 23,
-      groupKey: "build",
       beforePageId: "page-a",
     }]);
   });
@@ -254,7 +255,7 @@ describe("Database Page drag compiler", () => {
     expect(compiled.operations[1]).toMatchObject({
       kind: "position_page",
       pageId: "page-a",
-      expectedPositionRevision: 23,
+      expectedPositionRevision: 22,
     });
   });
 
@@ -278,8 +279,8 @@ describe("Database Page drag compiler", () => {
       "page-a",
     ]);
     expect(position.pages.map((page) => page.expectedPositionRevision)).toEqual([
-      24,
       23,
+      22,
     ]);
     expect(position.beforePageId).toBe("page-target");
   });

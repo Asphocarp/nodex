@@ -870,7 +870,10 @@ describe("Electron native data authority", () => {
         ]));
       const scopedWindow = await desktopDatabase.getDatabaseViewWindow(
         projectId,
-        { first: 200, groupScope: { kind: "key", key: "ship" } },
+        {
+          first: 200,
+          groupScope: { kind: "path", groupKey: "ship", subgroupKey: null },
+        },
       );
       expect(scopedWindow.rows.length).toBeGreaterThan(0);
       expect(
@@ -893,7 +896,7 @@ describe("Electron native data authority", () => {
       )).resolves.toMatchObject({
         id: copiedDataSourcePageId,
         status: "ship",
-        order: 0,
+        order: 1,
       });
       const lifecycleLibrary = createCoreLibraryModuleAdapter({
         client: runtime.clientForProject(projectId),
@@ -926,7 +929,7 @@ describe("Electron native data authority", () => {
               membership: {
                 status: "ship",
                 viewId: primaryView.viewId,
-                position: { groupKey: "ship" },
+                position: { rankKey: expect.any(String), revision: 1 },
               },
             },
           },
@@ -1142,7 +1145,7 @@ describe("Electron native data authority", () => {
               membership: {
                 membershipId: restoreEvidence.membership?.membershipId,
                 membershipRevision: 3,
-                position: { groupKey: "ship" },
+                position: { rankKey: expect.any(String) },
               },
             },
           },

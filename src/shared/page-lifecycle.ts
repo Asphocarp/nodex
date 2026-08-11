@@ -74,7 +74,7 @@ export interface CreatePageOperation {
   readonly runInEnvironmentPath: string | null;
   /** Missing appends to the Project's top-level Block order. */
   readonly beforeBlockId?: string;
-  /** Missing appends to the status group in the primary Kanban View. */
+  /** Missing appends to the status group in the primary Board View. */
   readonly beforeViewPageId?: string;
 }
 

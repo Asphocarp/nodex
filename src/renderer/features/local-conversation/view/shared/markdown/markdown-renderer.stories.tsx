@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { ReadonlyNfmBlockNotePreview } from "@/components/kanban/editor/readonly-nfm-blocknote-preview";
+import { ReadonlyNfmBlockNotePreview } from "@/components/board/editor/readonly-nfm-blocknote-preview";
 import { MarkdownRenderer } from "./markdown-renderer";
 
 const TYPESCRIPT_CODE_BLOCK = [
@@ -14,7 +14,7 @@ const TYPESCRIPT_CODE_BLOCK = [
 
 const LONG_LINE_CODE_BLOCK = [
   "```ts",
-  "const command = \"bun run typecheck && bun run lint && bun test src/renderer/features/local-conversation/view/shared/markdown/markdown-renderer.test.tsx src/renderer/components/kanban/nfm-renderer.test.tsx\";",
+  "const command = \"bun run typecheck && bun run lint && bun test src/renderer/features/local-conversation/view/shared/markdown/markdown-renderer.test.tsx src/renderer/components/board/nfm-renderer.test.tsx\";",
   "console.log(command);",
   "```",
 ].join("\n");

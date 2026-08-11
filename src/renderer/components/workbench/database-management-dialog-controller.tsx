@@ -263,7 +263,7 @@ export function DatabaseManagementDialogController({
         viewId,
         expectedRevision: 0,
         name: draft.name,
-        viewKind: draft.kind,
+        defaultLayout: draft.defaultLayout,
         config: emptyDatabaseViewConfig(),
         isDefault: false,
       }];
@@ -285,7 +285,7 @@ export function DatabaseManagementDialogController({
         viewId: parseDatabaseViewId(draft.viewId),
         expectedRevision: draft.expectedRevision,
         name: draft.name,
-        viewKind: draft.kind,
+        defaultLayout: draft.defaultLayout,
         config: draft.config,
         isDefault: view.isDefault,
         ...(draft.beforeViewId === undefined

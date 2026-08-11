@@ -10,7 +10,7 @@ import {
   PageIcon,
 } from "@/components/shared/icons";
 import { LayoutTemplate } from "@/components/shared/icons/generic-icons";
-import { CanvasBlockFrame } from "@/components/kanban/editor/canvas-block";
+import { CanvasBlockFrame } from "@/components/board/editor/canvas-block";
 import { NodexButton } from "@/components/ui/button";
 import { Button as BlockNoteButton } from "../../../third_party/blocknote/packages/shadcn/src/components/ui/button";
 

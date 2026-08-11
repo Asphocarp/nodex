@@ -1,5 +1,4 @@
 import { useId, type ComponentProps, type CSSProperties, type ReactNode } from "react";
-import { CheckmarkIcon } from "@/components/shared/icons";
 import { cn } from "@/lib/utils";
 
 export const CODEX_SETTINGS_SHELL_STYLE = {
@@ -47,6 +46,23 @@ export interface NodexCheckboxProps {
   onCheckedChange: (checked: boolean) => void;
 }
 
+function NodexCheckboxCheckIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="h-[9px] w-2.5 shrink-0"
+      viewBox="0 0 10 8"
+      fill="none"
+    >
+      <path
+        d="M3.46975 5.70757L1.88358 4.1225C1.65832 3.8974 1.29423 3.8974 1.06897 4.1225C0.843675 4.34765 0.843675 4.7116 1.06897 4.93674L3.0648 6.93117C3.29006 7.15628 3.65414 7.15628 3.8794 6.93117L8.93103 1.88306C9.15633 1.65792 9.15633 1.29397 8.93103 1.06883C8.70578 0.843736 8.34172 0.843724 8.11646 1.06879C8.11645 1.0688 8.11643 1.06882 8.11642 1.06883L3.46975 5.70757Z"
+        strokeWidth="0.2"
+        fill="currentColor"
+      />
+    </svg>
+  );
+}
+
 export function NodexCheckbox({
   ariaLabel,
   checked,
@@ -66,18 +82,17 @@ export function NodexCheckbox({
       disabled={disabled}
       onClick={() => onCheckedChange(!checked)}
       className={cn(
-        "border-token-border peer inline-flex items-center justify-center",
-        "data-[state=checked]:bg-token-checkbox-background data-[state=checked]:text-token-checkbox-foreground",
-        "data-[state=checked]:border-token-border",
-        "focus-visible:border-token-border focus-visible:ring-token-checkbox-background/50 focus-visible:ring-1",
+        "peer inline-flex items-center justify-center border-token-border bg-transparent",
+        "data-[state=checked]:border-token-foreground data-[state=checked]:bg-token-foreground data-[state=checked]:text-token-dropdown-background",
+        "focus-visible:border-token-foreground focus-visible:ring-token-foreground/30 focus-visible:ring-1",
         "aria-invalid:ring-2 aria-invalid:ring-token-error-foreground/20 aria-invalid:border-token-error-foreground",
-        "icon-2xs rounded-xs shrink-0 border shadow-sm outline-none transition-[background-color,border-color,box-shadow]",
+        "icon-2xs shrink-0 rounded-[3px] border shadow-none outline-none transition-all duration-[80ms] ease-out",
         "disabled:cursor-not-allowed",
-        !disabled && "hover:bg-token-editor-background",
+        !disabled && "data-[state=unchecked]:hover:border-token-foreground/40",
         className,
       )}
     >
-      {checked ? <CheckmarkIcon className="icon-xxs flex-shrink-0" /> : null}
+      {checked ? <NodexCheckboxCheckIcon /> : null}
     </button>
   );
 }

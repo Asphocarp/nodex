@@ -31,13 +31,17 @@ export const restorePageCreateFocus = (
 
   requestAnimationFrame(() => {
     const surface = findElementByDataset(
-      "[data-kanban-surface-id]",
-      "kanbanSurfaceId",
+      "[data-page-create-surface-id], [data-board-surface-id]",
+      "pageCreateSurfaceId",
+      origin.surfaceId,
+    ) ?? findElementByDataset(
+      "[data-board-surface-id]",
+      "boardSurfaceId",
       origin.surfaceId,
     );
     const createdCard = createdPageId
-      ? [...(surface?.querySelectorAll<HTMLElement>("[data-kanban-uuid-v7]") ?? [])]
-        .find((element) => element.dataset.kanbanUuidV7 === createdPageId) ?? null
+      ? [...(surface?.querySelectorAll<HTMLElement>("[data-board-uuid-v7]") ?? [])]
+        .find((element) => element.dataset.boardUuidV7 === createdPageId) ?? null
       : null;
     if (createdCard) {
       createdCard.focus({ preventScroll: true });

@@ -269,7 +269,7 @@ Load the narrow contract only for the branch being changed:
 | Settings navigation, catalog, search, page composition, and deep links | [Settings route](product-specs/settings-route-behavior.md) |
 | Review and Git diff presentation | [Review right panel](product-specs/review-right-panel-behavior.md) |
 | Command palette ranking and execution | [Command palette](product-specs/command-palette-behavior.md) |
-| Kanban and cross-surface drag behavior | [Kanban drag and drop](product-specs/kanban-drag-and-drop-behavior.md) |
+| Board and cross-surface drag behavior | [Board drag and drop](product-specs/board-drag-and-drop-behavior.md) |
 | NFM editor interactions | The matching `nfm-*` document in [Product specifications](product-specs/index.md) |
 
 These documents own feature behavior. Keep this file limited to conventions

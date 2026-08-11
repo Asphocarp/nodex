@@ -1,29 +1,9 @@
 import { SearchIcon } from "@/components/shared/icons";
-import { useState, type ComponentType, type ReactNode, type RefObject } from "react";
-import {
-  ArrowUpDown,
-  ListFilter,
-  SlidersHorizontal,
-  XCircle,
-} from "@/components/shared/icons/generic-icons";
+import { type ComponentType, type ReactNode, type RefObject } from "react";
+import { XCircle } from "@/components/shared/icons/generic-icons";
 import * as TabsPrimitive from "@radix-ui/react-tabs";
 import { NodexIconButton } from "@/components/ui/button";
-import {
-  getAvailableSortFields,
-  hasActiveDbViewFilters,
-  hasActiveDbViewRules,
-  hasActiveDbViewSorts,
-  viewSupportsDbViewDisplay,
-  type DbViewPrefs,
-  type SupportedDbView,
-} from "../../lib/db-view-prefs";
 import { cn } from "@/lib/utils";
-import {
-  DbViewFilterPopover,
-  DbViewDisplayPopover,
-  DbViewRulesSummaryRow,
-  DbViewSortPopover,
-} from "./db-view-toolbar-rules";
 
 export const DB_VIEW_TOOLBAR_TEST_ID = "db-view-toolbar";
 
@@ -42,14 +22,11 @@ interface DbViewToolbarProps {
   taskSearchOpen: boolean;
   searchShortcutLabel: string;
   taskSearchInputRef: RefObject<HTMLInputElement | null>;
-  rulesView: SupportedDbView | null;
-  dbViewPrefs: DbViewPrefs | null;
-  availableTags: string[];
   viewContextLabel?: ReactNode;
   managementControl?: ReactNode;
-  calendarControls?: ReactNode;
+  databaseViewControls?: ReactNode;
+  rulesSummaryRow?: ReactNode;
   showSearchControls?: boolean;
-  onUpdateDbViewPrefs: ((update: (prev: DbViewPrefs) => DbViewPrefs) => void) | null;
   onSearchQueryChange: (value: string) => void;
   onOpenTaskSearch: (selectQuery?: boolean) => void;
   onCloseTaskSearch: () => void;
@@ -79,118 +56,20 @@ export function DbViewToolbar({
   taskSearchOpen,
   searchShortcutLabel,
   taskSearchInputRef,
-  rulesView,
-  dbViewPrefs,
-  availableTags,
   viewContextLabel,
   managementControl,
-  calendarControls,
+  databaseViewControls,
+  rulesSummaryRow,
   showSearchControls = true,
-  onUpdateDbViewPrefs,
   onSearchQueryChange,
   onOpenTaskSearch,
   onCloseTaskSearch,
 }: DbViewToolbarProps) {
   const activeItem = items.find((item) => item.active) ?? items[0] ?? null;
-  const [openPanel, setOpenPanel] = useState<"filter" | "sort" | "display" | null>(null);
   if (!activeItem) return null;
 
   const hasActiveSearchQuery = activeSearchQuery.trim().length > 0;
   const showSearchField = showSearchControls && (taskSearchOpen || hasActiveSearchQuery);
-  const filterActive = rulesView && dbViewPrefs ? hasActiveDbViewFilters(rulesView, dbViewPrefs.rules) : false;
-  const sortActive = rulesView && dbViewPrefs ? hasActiveDbViewSorts(rulesView, dbViewPrefs.rules) : false;
-  const summaryVisible = Boolean(
-    rulesView
-    && dbViewPrefs
-    && dbViewPrefs.summaryExpanded
-    && hasActiveDbViewRules(rulesView, dbViewPrefs.rules),
-  );
-
-  const toggleRulePanel = (panel: "filter" | "sort" | "display") => {
-    if (!rulesView || !dbViewPrefs || !onUpdateDbViewPrefs) return;
-    setOpenPanel((current) => {
-      const nextOpen = current === panel ? null : panel;
-      if (current === panel && panel !== "display" && summaryVisible) {
-        onUpdateDbViewPrefs((prev) => ({ ...prev, summaryExpanded: false }));
-      }
-      if (current !== panel && !dbViewPrefs.summaryExpanded && hasActiveDbViewRules(rulesView, dbViewPrefs.rules)) {
-        onUpdateDbViewPrefs((prev) => ({ ...prev, summaryExpanded: true }));
-      }
-      return nextOpen;
-    });
-  };
-
-  const rulesButtons = calendarControls ? (
-    <>{calendarControls}</>
-  ) : rulesView && dbViewPrefs && onUpdateDbViewPrefs ? (
-    <>
-      <DbViewFilterPopover
-        open={openPanel === "filter"}
-        onOpenChange={(open) => setOpenPanel(open ? "filter" : null)}
-        prefs={dbViewPrefs}
-        availableTags={availableTags}
-        onChange={onUpdateDbViewPrefs}
-      >
-        <NodexIconButton
-          icon={ListFilter}
-          size="sm"
-          active={filterActive}
-          ariaLabel="Filter"
-          title="Filter"
-          onClick={() => toggleRulePanel("filter")}
-        />
-      </DbViewFilterPopover>
-      <DbViewSortPopover
-        open={openPanel === "sort"}
-        onOpenChange={(open) => setOpenPanel(open ? "sort" : null)}
-        view={rulesView}
-        prefs={dbViewPrefs}
-        availableSortFields={getAvailableSortFields(rulesView)}
-        onChange={onUpdateDbViewPrefs}
-      >
-        <NodexIconButton
-          icon={ArrowUpDown}
-          size="sm"
-          active={sortActive}
-          ariaLabel="Sort"
-          title="Sort"
-          onClick={() => toggleRulePanel("sort")}
-        />
-      </DbViewSortPopover>
-      {viewSupportsDbViewDisplay(rulesView) ? (
-        <DbViewDisplayPopover
-          open={openPanel === "display"}
-          onOpenChange={(open) => setOpenPanel(open ? "display" : null)}
-          view={rulesView}
-          prefs={dbViewPrefs}
-          onChange={onUpdateDbViewPrefs}
-        >
-          <NodexIconButton
-            icon={SlidersHorizontal}
-            size="sm"
-            active={openPanel === "display"}
-            ariaLabel="Display"
-            title="Display"
-            onClick={() => toggleRulePanel("display")}
-          />
-        </DbViewDisplayPopover>
-      ) : (
-        <NodexIconButton
-          icon={SlidersHorizontal}
-          size="sm"
-          ariaLabel="Display"
-          title="Display"
-          disabled
-        />
-      )}
-    </>
-  ) : (
-    <>
-      <NodexIconButton icon={ListFilter} ariaLabel="Filter" title="Filter" size="sm" disabled />
-      <NodexIconButton icon={ArrowUpDown} ariaLabel="Sort" title="Sort" size="sm" disabled />
-      <NodexIconButton icon={SlidersHorizontal} ariaLabel="Display" title="Display" size="sm" disabled />
-    </>
-  );
 
   return (
     <header
@@ -287,7 +166,7 @@ export function DbViewToolbar({
 
           <div className="ml-auto flex h-full items-center justify-end gap-0.5">
             {managementControl}
-            {rulesButtons}
+            {databaseViewControls}
 
             {showSearchControls ? (
               <div className="flex items-center">
@@ -352,17 +231,8 @@ export function DbViewToolbar({
             ) : null}
           </div>
         </div>
-        {rulesView && dbViewPrefs && summaryVisible ? (
-          <div className="py-2 border-t border-token-border">
-            <DbViewRulesSummaryRow
-              view={rulesView}
-              prefs={dbViewPrefs}
-              onOpenFilter={() => setOpenPanel("filter")}
-              onOpenSort={() => setOpenPanel("sort")}
-            />
-          </div>
-        ) : null}
       </div>
+      {rulesSummaryRow}
     </header>
   );
 }

@@ -13,6 +13,7 @@ use crate::database::{
     PageCopyViewPlacement, copy_relation_edges, place_copied_page_in_data_source,
     place_copied_page_in_data_source_prevalidated, resolve_page_copy_data_source_project,
     resolve_page_copy_data_source_project_prevalidated,
+    synchronize_membership_completion_timestamp,
 };
 use crate::document::{
     BlockDocumentSchema, DocumentMaterialization, PersistYjsGenesis, clone_canvas_genesis,
@@ -795,6 +796,7 @@ pub(crate) fn clone_page_for_occurrence(
             ],
         )?;
     }
+    synchronize_membership_completion_timestamp(connection, &source.8, &membership_id, input.now)?;
     copy_relation_edges(connection, &source.8, &source.7, &membership_id, input.now)?;
     if required_schedule.len() != 2 {
         return Err(corrupt(
@@ -842,7 +844,7 @@ pub(crate) fn clone_page_for_occurrence(
 
     let positions = connection
         .prepare(
-            "SELECT position.view_id, position.group_key, position.rank_key, \
+            "SELECT position.view_id, position.rank_key, \
                CASE WHEN container.default_view_id = view.id THEN 1 ELSE 0 END \
              FROM database_view_page_positions position \
              JOIN database_views view ON view.id = position.view_id AND view.lifecycle = 'active' \
@@ -853,13 +855,12 @@ pub(crate) fn clone_page_for_occurrence(
         .query_map(params![input.source_page_id, source.9, source.8], |row| {
             Ok((
                 row.get::<_, String>(0)?,
-                row.get::<_, Option<String>>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, i64>(3)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)?,
             ))
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
-    for (view_id, group_key, rank_key, primary) in positions {
+    for (view_id, rank_key, primary) in positions {
         let rank_key = if primary == 1 {
             input
                 .primary_rank_key
@@ -869,19 +870,9 @@ pub(crate) fn clone_page_for_occurrence(
         };
         connection.execute(
             "INSERT INTO database_view_page_positions( \
-               view_id, page_block_id, group_key, rank_key, revision, created_at, updated_at \
-             ) VALUES (?1, ?2, ?3, ?4, 1, ?5, ?5)",
-            params![
-                view_id,
-                input.new_page_id,
-                if primary == 1 {
-                    Some(input.status)
-                } else {
-                    group_key.as_deref()
-                },
-                rank_key,
-                input.now,
-            ],
+               view_id, page_block_id, rank_key, revision, created_at, updated_at \
+             ) VALUES (?1, ?2, ?3, 1, ?4, ?4)",
+            params![view_id, input.new_page_id, rank_key, input.now],
         )?;
     }
     refresh_page_intrinsic_projection(connection, input.new_page_id, &source.0, input.now)?;
@@ -3885,7 +3876,7 @@ mod tests {
                        block.containing_database_id, block.location_revision, \
                        block.metadata_revision, page.parent_kind, page.parent_id, \
                        page.parent_revision, membership.revision, value.value_json, \
-                       value.revision, position.group_key, position.revision, \
+                       value.revision, position.revision, \
                        projection.membership_id, projection.database_block_id, \
                        projection.view_id, projection.view_group_key, \
                        json_extract(projection.database_values_json, '$.status'), \
@@ -3920,15 +3911,14 @@ mod tests {
                             ),
                             (
                                 row.get::<_, i64>(10)?,
-                                row.get::<_, String>(11)?,
-                                row.get::<_, i64>(12)?,
+                                row.get::<_, i64>(11)?,
+                                row.get::<_, String>(12)?,
                                 row.get::<_, String>(13)?,
                                 row.get::<_, String>(14)?,
                                 row.get::<_, String>(15)?,
                                 row.get::<_, String>(16)?,
-                                row.get::<_, String>(17)?,
+                                row.get::<_, i64>(17)?,
                                 row.get::<_, i64>(18)?,
-                                row.get::<_, i64>(19)?,
                             ),
                         ))
                     },
@@ -3950,7 +3940,6 @@ mod tests {
                         ),
                         (
                             2,
-                            "ship".to_owned(),
                             1,
                             format!(
                                 "membership:{}",

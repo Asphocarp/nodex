@@ -7,6 +7,9 @@
 - Superseded in part by: ADR 0034, which replaces starter-Session
   materialization with a Project-owned Workbench Scene while retaining the
   Project default View as the only Database View authority.
+- Superseded in part by: ADR 0041, which retains the default View as the
+  Project Scene root while allowing every selected durable View to use the
+  same Board/List presentation runtime.
 
 ## Context
 

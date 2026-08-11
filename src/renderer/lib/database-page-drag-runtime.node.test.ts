@@ -14,6 +14,7 @@ import {
 } from "../../shared/database-identities";
 import { testPropertySemantics } from "../../shared/testing/database-property-record";
 import { noOpLocalCommit } from "../../shared/testing/local-commit";
+import { upgradeDatabaseViewConfigV2 } from "../../shared/database-view-presentation";
 import {
   commitDatabasePageDrag,
   DatabasePageDragMutationError,
@@ -60,8 +61,8 @@ const snapshot = (): DatabaseModuleReadSnapshotV2 => ({
         databaseId: parseDatabaseId("database-1"),
         dataSourceId: parseDataSourceId("source-1"),
         name: "Board",
-        kind: "kanban",
-        config: {
+        defaultLayout: "board",
+        config: upgradeDatabaseViewConfigV2({
           schemaKey: "nodex.database-view",
           schemaVersion: 2,
           filter: { kind: "group", operator: "and", children: [] },
@@ -72,7 +73,7 @@ const snapshot = (): DatabaseModuleReadSnapshotV2 => ({
           }],
           group: { propertyId: "status" },
           display: { propertyIds: [], showTitle: true },
-        },
+        }),
         isDefault: true,
         revision: 1,
         rankKey: "a",
@@ -125,8 +126,9 @@ const snapshot = (): DatabaseModuleReadSnapshotV2 => ({
             revision: 2,
           },
         },
-        position: { groupKey: "triage", rankKey: "a", revision: 3 },
+        position: { rankKey: "a", revision: 3 },
         effectiveGroupKey: "triage",
+        effectiveSubgroupKey: null,
       }],
     },
   },

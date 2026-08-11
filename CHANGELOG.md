@@ -7,18 +7,25 @@ All notable changes to this project will be documented in this file.
 ### Added
 
 - Added interactive MCP Apps with thread-scoped tools and resources, stable inline/right-panel/fullscreen presentation, and a Main-owned isolated Electron sandbox that denies guest permissions, popups, navigation, downloads, and unauthorized network access.
+- Added a dense, virtualized task List with Core-backed grouping, nested sub-pages, automatic windows, shared Board selection, inline Property editing, keyboard and bulk actions, atomic drag-and-drop, conflict recovery, and Undo.
 - Added Relation Properties for linking Database Pages, with secure previews, paged editing, and contains/empty filters.
 - Added Kanban Page actions to open a Page in a new focused Chat Session or send its canonical content to an existing or new chat.
 - Added an app-level Kanban Page composer with rich descriptions, schema-aware properties, exact multi-panel targeting, recoverable drafts, compact and expanded writing modes, a create-more workflow, and a configurable contextual shortcut.
 - Added a searchable keyboard shortcut reference plus Board-first navigation, Peek, selection, property editing, reordering, expanded Page creation, and sequence shortcuts for opening and navigating Pages, chats, and Settings.
 
 ### Changed
+
+- Database Views now keep one durable identity and Filter while switching between Board and List; personal display changes persist per View and can be reset or published as the View default.
+- Board and List now share effective View authority and layout-independent manual order while the canonical Status Board retains its established Column/Card UI, whole-card drag, column controls, Page menus, and keyboard behavior.
 - Replaced the Library workspace and ownership tree with a compact Pages section for standalone top-level resources; every Page, Database, and Canvas in a window now shares one restorable tablist with searchable open/new actions, breadcrumbs, and app-wide Back/Forward navigation without switching Projects.
 
 ### Removed
+
+- Removed the former Table, top-level expandable List, and Database Calendar presentations; scheduling, recurrence, reminders, and occurrence data remain available as independent domain capabilities.
 - Removed the `P4 - Later` priority tier; existing P4 assignments, saved View filters, and local UI filters migrate to `P3 - Low`.
 
 ### Fixed
+
 - Fixed Page editors and cached Page or Database View tabs re-entering loading during typing, unrelated edits, reset retries, or tab switches; Relation previews and restored Database details now refresh only from their exact matching changes.
 - Fixed parent-linked subagent tasks so they remain in parent-conversation activity without appearing as standalone Project or projectless sidebar chats; any leaked Session is retired when late parent metadata arrives.
 - Fixed Page Detail losing its entire Property surface after an optional Source Property was deleted; remaining and custom Properties now stay editable, schema changes refresh open Pages, and destructive deletion is confirmed with exact View blockers.

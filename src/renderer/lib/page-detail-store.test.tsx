@@ -11,8 +11,8 @@ import type {
   ResourceRevocationDeliveryMessage,
   ResourceRevocationMessage,
 } from "../../shared/resource-revocation-stream";
-import { buildPageDetailStoryResult } from "../components/kanban/page-stage/page-stage-story-page-detail";
-import { buildPageStageStoryPage } from "../components/kanban/page-stage/page-stage-dev-story-data";
+import { buildPageDetailStoryResult } from "../components/board/page-stage/page-stage-story-page-detail";
+import { buildPageStageStoryPage } from "../components/board/page-stage/page-stage-dev-story-data";
 import { ProjectionInvalidationProvider } from "./projection-invalidation-context";
 import { ProjectionInvalidationRegistry } from "./projection-invalidation-registry";
 

@@ -556,13 +556,13 @@ mod tests {
                             'active', 'a', \
                             '2026-07-19T03:30:00.000Z', '2026-07-19T03:30:00.000Z'); \
                          INSERT INTO database_views( \
-                           id, database_block_id, data_source_id, name, kind, config_json, \
+                           id, database_block_id, data_source_id, name, default_layout, config_json, \
                            rank_key, lifecycle, created_at, updated_at \
                          ) VALUES \
-                           ('view-1', 'database-1', 'source-1', 'Kanban', 'kanban', '{}', \
+                           ('view-1', 'database-1', 'source-1', 'Board', 'board', '{}', \
                             'a', 'active', \
                             '2026-07-19T03:30:00.000Z', '2026-07-19T03:30:00.000Z'), \
-                           ('view-2', 'database-2', 'source-2', 'Kanban', 'kanban', '{}', \
+                           ('view-2', 'database-2', 'source-2', 'Board', 'board', '{}', \
                             'a', 'deleted', \
                             '2026-07-19T03:30:00.000Z', '2026-07-19T03:30:00.000Z'); \
                          UPDATE database_containers SET default_view_id = 'view-1' \

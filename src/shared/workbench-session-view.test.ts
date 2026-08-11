@@ -65,7 +65,7 @@ describe("WorkbenchSessionView", () => {
       version: 1,
     });
 
-    expect(migrated.version).toBe(3);
+    expect(migrated.version).toBe(4);
     expect(migrated.sessionId).toBe(current.sessionId);
     expect(migrated.tabsById).toEqual(current.tabsById);
   });
@@ -93,7 +93,7 @@ describe("WorkbenchSessionView", () => {
 
     const migrated = WorkbenchSessionViewSnapshotSchema.parse(legacy);
 
-    expect(migrated.version).toBe(3);
+    expect(migrated.version).toBe(4);
     expect(migrated.tabsById[tabId]).toEqual({
       ...legacy.tabsById[tabId],
       kind: "canvas_stage",
@@ -108,6 +108,30 @@ describe("WorkbenchSessionView", () => {
     expect(
       WorkbenchSessionViewSnapshotSchema.parse(migrated),
     ).toEqual(migrated);
+  });
+
+  test("removes the v3 synthetic Database layout from tab identity", () => {
+    const current = materializedView();
+    const tabId = Object.keys(current.tabsById)[0]!;
+    const tab = current.tabsById[tabId];
+    if (tab?.kind !== "db_view") throw new Error("Expected Database tab");
+    const legacy = {
+      ...current,
+      version: 3,
+      tabsById: {
+        ...current.tabsById,
+        [tabId]: {
+          ...tab,
+          config: { ...tab.config, view: "toggle-list" },
+        },
+      },
+    };
+
+    const migrated = WorkbenchSessionViewSnapshotSchema.parse(legacy);
+
+    expect(migrated.version).toBe(4);
+    expect(migrated.tabsById[tabId]?.config).not.toHaveProperty("view");
+    expect(WorkbenchSessionViewSnapshotSchema.parse(migrated)).toEqual(migrated);
   });
 
   test("accepts exact Canvas Stage identity and rejects document authority leakage", () => {

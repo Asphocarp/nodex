@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import type { DatabaseViewConfigV2 } from "../../../shared/database-kernel";
+import type { DatabaseViewConfigV4 } from "../../../shared/database-kernel";
+import { upgradeDatabaseViewConfigV2 } from "../../../shared/database-view-presentation";
 import type { DataSourcePropertyRecordV2 } from "../../../shared/database-module-v2";
 import {
   parseDataSourceId,
@@ -39,7 +40,7 @@ const properties: readonly DataSourcePropertyRecordV2[] = [
   },
 ];
 
-const initialConfig: DatabaseViewConfigV2 = {
+const initialConfig: DatabaseViewConfigV4 = upgradeDatabaseViewConfigV2({
   schemaKey: "nodex.database-view",
   schemaVersion: 2,
   filter: {
@@ -58,7 +59,7 @@ const initialConfig: DatabaseViewConfigV2 = {
   ],
   group: { propertyId: "status" },
   display: { propertyIds: ["assignee"], showTitle: true },
-};
+});
 
 function InteractiveEditor() {
   const [config, setConfig] = useState(initialConfig);
@@ -66,7 +67,23 @@ function InteractiveEditor() {
     <div className="mx-auto mt-8 max-w-3xl rounded-xl bg-token-main-surface-primary p-3 shadow-lg ring-[0.5px] ring-token-border">
       <DatabaseViewConfigEditor
         config={config}
+        layout="list"
         properties={properties}
+        onChange={setConfig}
+      />
+    </div>
+  );
+}
+
+function InteractiveFilterEditor() {
+  const [config, setConfig] = useState(initialConfig);
+  return (
+    <div className="mx-auto mt-8 w-[600px] bg-token-main-surface-primary p-3 shadow-lg ring-[0.5px] ring-token-border">
+      <DatabaseViewConfigEditor
+        config={config}
+        layout="list"
+        properties={properties}
+        onlyFilter
         onChange={setConfig}
       />
     </div>
@@ -83,3 +100,7 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const DurableRules: Story = {};
+
+export const FilterOnly: Story = {
+  render: () => <InteractiveFilterEditor />,
+};

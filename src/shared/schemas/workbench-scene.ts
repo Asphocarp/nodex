@@ -98,7 +98,7 @@ const ContentAccessContextSchema = z.discriminatedUnion("kind", [
   }).strict(),
 ]) satisfies z.ZodType<ContentAccessContext>;
 
-const WorkbenchDbViewSurfaceConfigSchema = z.object({
+const WorkbenchDbViewSurfaceConfigFields = {
   accessContext: ContentAccessContextSchema,
   target: z.discriminatedUnion("kind", [
     z.object({ kind: z.literal("project-default") }).strict(),
@@ -111,7 +111,10 @@ const WorkbenchDbViewSurfaceConfigSchema = z.object({
       databaseViewId: idSchema,
     }).strict(),
   ]),
-  view: WorkbenchViewSchema,
+} as const;
+
+const WorkbenchDbViewSurfaceConfigSchema = z.object({
+  ...WorkbenchDbViewSurfaceConfigFields,
 }).strict();
 
 const WorkbenchPageStageSurfaceConfigSchema = z.object({
@@ -502,16 +505,59 @@ function validateWorkbenchSceneV4(
   }
 }
 
-export const WorkbenchSceneSnapshotV4InputSchema = z.object({
-  version: z.literal(4),
-  ...workbenchSceneSnapshotFieldsV4,
-  composerOverlay: WorkbenchComposerOverlayStateSchema,
-  agentDock: WorkbenchAgentDockStateSchema.nullable(),
-}).strict().superRefine(validateWorkbenchSceneV4) satisfies
+export const WorkbenchSceneSnapshotV4InputSchema = z.preprocess(
+  stripDatabaseLayoutsFromScene,
+  z.object({
+    version: z.literal(4),
+    ...workbenchSceneSnapshotFieldsV4,
+    composerOverlay: WorkbenchComposerOverlayStateSchema,
+    agentDock: WorkbenchAgentDockStateSchema.nullable(),
+  }).strict().superRefine(validateWorkbenchSceneV4),
+) satisfies
   z.ZodType<WorkbenchSceneSnapshotV4>;
 
+function stripDatabaseLayoutFromSurface(value: unknown): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  const surface = value as Record<string, unknown>;
+  if (surface.kind !== "db_view") return value;
+  const config = surface.config;
+  if (!config || typeof config !== "object" || Array.isArray(config)) return value;
+  const { view: legacyLayout, ...durableConfig } = config as Record<string, unknown>;
+  void legacyLayout;
+  return { ...surface, config: durableConfig };
+}
+
+function stripDatabaseLayoutsFromScene(value: unknown): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  const scene = value as Record<string, unknown>;
+  const surfaces = scene.panelSurfacesById;
+  const panelSurfacesById = surfaces && typeof surfaces === "object" && !Array.isArray(surfaces)
+    ? Object.fromEntries(Object.entries(surfaces).map(([surfaceId, surface]) => [
+        surfaceId,
+        stripDatabaseLayoutFromSurface(surface),
+      ]))
+    : surfaces;
+  return {
+    ...scene,
+    primary: stripDatabaseLayoutFromSurface(scene.primary),
+    panelSurfacesById,
+  };
+}
+
 function migrateWorkbenchSceneSnapshot(value: unknown): unknown {
-  const previousCurrent = WorkbenchSceneSnapshotV4InputSchema.safeParse(value);
+  const record = value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+  if (record?.version === 5) {
+    return {
+      ...stripDatabaseLayoutsFromScene(value) as Record<string, unknown>,
+      version: WORKBENCH_SCENE_VERSION,
+    };
+  }
+  const v4Candidate = record?.version === 4
+    ? stripDatabaseLayoutsFromScene(value)
+    : value;
+  const previousCurrent = WorkbenchSceneSnapshotV4InputSchema.safeParse(v4Candidate);
   if (previousCurrent.success) {
     return migrateWorkbenchSceneV4ToV5(previousCurrent.data);
   }

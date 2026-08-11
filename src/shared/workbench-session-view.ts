@@ -24,7 +24,7 @@ import {
 import type { BrowserSidebarDeviceToolbarState } from "./browser-sidebar";
 import type { WorkbenchReviewConfig } from "./workbench-review-context";
 
-export const WORKBENCH_SESSION_VIEW_VERSION = 3 as const;
+export const WORKBENCH_SESSION_VIEW_VERSION = 4 as const;
 export const WORKBENCH_SESSION_VIEW_MAX_TABS = 2_048;
 
 export type WorkbenchPanelId = "right" | "bottom";
@@ -61,7 +61,6 @@ export type WorkbenchSessionViewTabKind =
 export interface WorkbenchDbViewTabConfig {
   projectId: string;
   databaseViewId: string;
-  view: "kanban" | "list" | "toggle-list" | "calendar";
 }
 
 export interface WorkbenchPageStageTabConfig {
@@ -412,7 +411,6 @@ export function materializeInitialWorkbenchSessionView(
         config: {
           projectId: session.projectId,
           databaseViewId: session.databaseViewId,
-          view: "kanban",
         },
         stateKey: 0,
         state: null,

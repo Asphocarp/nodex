@@ -363,13 +363,13 @@ const SETTINGS_SEARCH_PANELS = {
   },
   page: {
     title: "Pages",
-    subtitle: "Kanban card and page-stage presentation.",
+    subtitle: "Board card and page-stage presentation.",
     groups: [
       {
         title: "Cards & Page Stage",
         entries: [
           entry(
-            "Kanban card properties",
+            "Board card properties",
             "Choose whether priority, estimate, tags, assignee, and run-in metadata render above the title, inline with it, or below the card body.",
             ["Top", "Inline", "Bottom"],
           ),

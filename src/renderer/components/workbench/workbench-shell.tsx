@@ -4,7 +4,6 @@ import { useProjects } from "@/lib/use-projects";
 import { useWorkbenchWindowState } from "@/lib/use-workbench-window-state";
 import {
   useWorkbenchProfilePreferences,
-  type WorkbenchView,
 } from "@/lib/use-workbench-profile-preferences";
 import {
   shouldUseRendererWorkbenchCommandFallback,
@@ -27,8 +26,8 @@ import { canvasSceneSurfaceRegistry } from "@/lib/canvas-scene-surface-runtime";
 import {
   useWindowSessionLayoutPersistence,
 } from "@/lib/use-window-session-layout-persistence";
-import type { OpenPageStageOptions } from "@/components/kanban/open-page-stage";
-import type { PageStageSessionSnapshot } from "@/components/kanban/page-stage/types";
+import type { OpenPageStageOptions } from "@/components/board/open-page-stage";
+import type { PageStageSessionSnapshot } from "@/components/board/page-stage/types";
 import type {
   Project,
   ProjectCreateInput,
@@ -117,28 +116,14 @@ export function WorkbenchShell({
     setProjectPinned,
     setPinnedProjectOrder,
   } = useProjects();
-  const dbProjectId = workbenchSceneLocation.kind === "project"
-    ? workbenchSceneLocation.projectId
-    : workbenchSceneLocation.kind === "session"
-      ? workbenchSceneLocation.projectContextId
-      : null;
-  const resolvedDbProjectId = useMemo(() => {
-    const project = findProjectById(projects, dbProjectId);
-    return project?.id ?? null;
-  }, [dbProjectId, projects]);
   const {
-    activeView,
-    activeDbViewPrefs,
-    viewsByProject,
-    dbViewPrefsByProject,
     sidebar,
     recentPageSessions,
-    setDbViewPrefs,
     setSidebarCollapsed,
     setSidebarWidth,
     setSidebarCollapsibleSectionCollapsed,
     recordRecentPageLeave,
-  } = useWorkbenchProfilePreferences(resolvedDbProjectId);
+  } = useWorkbenchProfilePreferences();
   const projectOrder = useMemo(
     () => projects.map((project) => project.id),
     [projects],
@@ -189,10 +174,6 @@ export function WorkbenchShell({
       initialLayout: initialWindowLayoutSnapshot,
       layout: currentLayout,
     });
-
-  const resolvedView: WorkbenchView = resolvedDbProjectId
-    ? viewsByProject[resolvedDbProjectId] ?? activeView
-    : activeView;
 
   useEffect(() => {
     return registerAppCloseFlushHandler(async () => {
@@ -458,9 +439,6 @@ export function WorkbenchShell({
       onLoadMoreProjects={loadMoreProjects}
       projectCatalogError={projectsError}
       onRetryProjects={refreshProjects}
-      activeView={resolvedView}
-      activeDbViewPrefs={activeDbViewPrefs}
-      dbViewPrefsByProject={dbViewPrefsByProject}
       recentPageSessions={recentPageSessions}
       sidebar={sidebar}
       pageStageCloseRef={pageStageCloseRef}
@@ -472,7 +450,6 @@ export function WorkbenchShell({
       onViewDeepLinkHandled={handleViewDeepLinkHandled}
       onOpenProjectSessionInNewWindow={handleOpenProjectSessionInNewWindow}
       openPageStage={navigateToPage}
-      setDbViewPrefs={setDbViewPrefs}
       setSidebarCollapsed={setSidebarCollapsed}
       setSidebarWidth={setSidebarWidth}
       setSidebarCollapsibleSectionCollapsed={setSidebarCollapsibleSectionCollapsed}

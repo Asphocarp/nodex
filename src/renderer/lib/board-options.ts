@@ -1,0 +1,72 @@
+import { PRIORITY_VALUES, type Priority } from "../../shared/priority";
+import {
+  TOGGLE_LIST_STATUS_LABELS,
+  TOGGLE_LIST_STATUS_ORDER,
+} from "./toggle-list/types";
+import {
+  getPriorityClassName,
+  getPriorityLabel,
+  getPriorityShortLabel,
+} from "./priority-presentation";
+
+export const ARCHIVED_CARD_OPTION_ID = "archived";
+export const ARCHIVED_CARD_OPTION_NAME = "Archived";
+export const EMPTY_PRIORITY_OPTION_VALUE = "none";
+
+export const BOARD_STATUS_OPTIONS = [
+  ...TOGGLE_LIST_STATUS_ORDER.map((id) => ({
+    id,
+    name: TOGGLE_LIST_STATUS_LABELS[id],
+  })),
+] as const;
+
+export const BOARD_STATUS_LABELS: Record<string, string> = {
+  ...TOGGLE_LIST_STATUS_LABELS,
+  [ARCHIVED_CARD_OPTION_ID]: ARCHIVED_CARD_OPTION_NAME,
+};
+
+export type BoardPriorityOption = {
+  value: Priority;
+  label: string;
+  shortLabel: string;
+  className: string;
+};
+
+export type BoardPrioritySelectOption = BoardPriorityOption | {
+  value: typeof EMPTY_PRIORITY_OPTION_VALUE;
+  label: string;
+  shortLabel: string;
+  className: string;
+};
+
+export const BOARD_PRIORITY_OPTIONS: BoardPriorityOption[] = PRIORITY_VALUES.map((value) => ({
+  value,
+  label: getPriorityLabel(value),
+  shortLabel: getPriorityShortLabel(value),
+  className: getPriorityClassName(value),
+}));
+
+export const EMPTY_BOARD_PRIORITY_OPTION: BoardPrioritySelectOption = {
+  value: EMPTY_PRIORITY_OPTION_VALUE,
+  label: "No priority",
+  shortLabel: "Empty",
+  className: "bg-(--gray-bg) text-(--foreground-tertiary)",
+};
+
+export const BOARD_PRIORITY_SELECT_OPTIONS: BoardPrioritySelectOption[] = [
+  EMPTY_BOARD_PRIORITY_OPTION,
+  ...BOARD_PRIORITY_OPTIONS,
+];
+
+export const BOARD_PRIORITY_OPTIONS_BY_VALUE = BOARD_PRIORITY_OPTIONS.reduce<Record<Priority, BoardPriorityOption>>(
+  (result, option) => {
+    result[option.value] = option;
+    return result;
+  },
+  {} as Record<Priority, BoardPriorityOption>,
+);
+
+export function resolveBoardPriorityOption(priority: Priority | null | undefined): BoardPriorityOption | null {
+  if (!priority) return null;
+  return BOARD_PRIORITY_OPTIONS_BY_VALUE[priority] ?? null;
+}

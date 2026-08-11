@@ -585,7 +585,10 @@ fn compile_view_delta(
     let group_total = groups
         .groups
         .iter()
-        .find(|group| group.group_key == row.effective_group_key)
+        .find(|group| {
+            group.group_key == row.effective_group_key
+                && group.subgroup_key == row.effective_subgroup_key
+        })
         .map(|group| group.total_rows);
     if groups.grouped && group_total.is_none() {
         return Ok(CompiledViewDelta(ViewDeltaTemplate {

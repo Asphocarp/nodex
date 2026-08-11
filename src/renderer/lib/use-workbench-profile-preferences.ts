@@ -5,25 +5,12 @@ import {
   useMemo,
   useRef,
 } from "react";
-import type {
-  WorkbenchLayoutView,
-} from "../../shared/workbench-layout";
 import {
   WorkbenchRecentPageSessionSchema,
-  WorkbenchViewSchema,
 } from "../../shared/schemas/workbench";
 import type {
   WorkbenchRecentPageSession,
 } from "./types";
-import {
-  cloneDbViewPrefs,
-  getDefaultDbViewPrefs,
-  normalizeLegacyDbViewPrefs,
-  normalizeDbViewPrefs,
-  type DbViewPrefs,
-  type SupportedDbView,
-  viewSupportsDbViewPrefs,
-} from "./db-view-prefs";
 import {
   CODEX_SIDEBAR_WIDTH_DEFAULT_PX,
   clampCodexSidebarWidth,
@@ -40,7 +27,6 @@ import {
 } from "./maitai";
 import { WORKBENCH_PERSIST_DEBOUNCE_MS } from "./timing";
 
-export type WorkbenchView = WorkbenchLayoutView;
 export type RecentPageSession = WorkbenchRecentPageSession;
 export type {
   SidebarCollapsibleSectionId,
@@ -54,10 +40,6 @@ export interface WorkbenchSidebarPreferences {
 }
 
 export interface WorkbenchProfilePreferences {
-  readonly viewsByProject: Readonly<Record<string, WorkbenchView>>;
-  readonly dbViewPrefsByProject: Readonly<
-    Record<string, Partial<Record<SupportedDbView, DbViewPrefs>>>
-  >;
   readonly sidebar: WorkbenchSidebarPreferences;
   readonly recentPageSessions: RecentPageSession[];
 }
@@ -67,12 +49,6 @@ const WORKBENCH_PROFILE_PREFERENCES_STORAGE_KEY =
 const LEGACY_WORKBENCH_PROFILE_PREFERENCES_STORAGE_KEY =
   "nodex-workbench-profile-preferences-v1";
 const MAX_RECENT_PAGE_SESSIONS = 10;
-const VALID_DB_PREF_VIEWS = new Set<SupportedDbView>([
-  "kanban",
-  "list",
-  "toggle-list",
-]);
-
 const workbenchProfilePreferencesAtom =
   scopedAtom<WorkbenchProfilePreferences | null>(
     appScope,
@@ -83,8 +59,6 @@ const workbenchProfilePreferencesAtom =
 function makeDefaultWorkbenchProfilePreferences():
   WorkbenchProfilePreferences {
   return {
-    viewsByProject: {},
-    dbViewPrefsByProject: {},
     sidebar: {
       collapsed: false,
       width: CODEX_SIDEBAR_WIDTH_DEFAULT_PX,
@@ -102,58 +76,6 @@ function readRecord(value: unknown): Record<string, unknown> | null {
   return value as Record<string, unknown>;
 }
 
-function normalizeViewMap(
-  value: unknown,
-): Record<string, WorkbenchView> {
-  const record = readRecord(value);
-  if (!record) return {};
-
-  return Object.entries(record).reduce<Record<string, WorkbenchView>>(
-    (result, [projectId, candidate]) => {
-      if (!projectId) return result;
-      if (candidate === "canvas") {
-        result[projectId] = "kanban";
-        return result;
-      }
-      const view = WorkbenchViewSchema.safeParse(candidate);
-      if (!view.success) return result;
-      result[projectId] = view.data;
-      return result;
-    },
-    {},
-  );
-}
-
-function normalizeDbViewPrefsMap(
-  value: unknown,
-  upgradeRetiredPriority = false,
-): Record<string, Partial<Record<SupportedDbView, DbViewPrefs>>> {
-  const projects = readRecord(value);
-  if (!projects) return {};
-
-  return Object.entries(projects).reduce<
-    Record<string, Partial<Record<SupportedDbView, DbViewPrefs>>>
-  >((result, [projectId, candidate]) => {
-    const views = readRecord(candidate);
-    if (!projectId || !views) return result;
-
-    const normalized = Object.entries(views).reduce<
-      Partial<Record<SupportedDbView, DbViewPrefs>>
-    >((viewResult, [view, preferences]) => {
-      if (!VALID_DB_PREF_VIEWS.has(view as SupportedDbView)) {
-        return viewResult;
-      }
-      const supportedView = view as SupportedDbView;
-      viewResult[supportedView] = upgradeRetiredPriority
-        ? normalizeLegacyDbViewPrefs(supportedView, preferences)
-        : normalizeDbViewPrefs(supportedView, preferences);
-      return viewResult;
-    }, {});
-    result[projectId] = normalized;
-    return result;
-  }, {});
-}
-
 function normalizeRecentPageSessions(
   value: unknown,
 ): RecentPageSession[] {
@@ -167,18 +89,17 @@ function normalizeRecentPageSessions(
 export function normalizeWorkbenchProfilePreferences(
   value: unknown,
 ): WorkbenchProfilePreferences {
-  return normalizeWorkbenchProfilePreferencesAtBoundary(value, false);
+  return normalizeWorkbenchProfilePreferencesAtBoundary(value);
 }
 
 export function normalizeLegacyWorkbenchProfilePreferences(
   value: unknown,
 ): WorkbenchProfilePreferences {
-  return normalizeWorkbenchProfilePreferencesAtBoundary(value, true);
+  return normalizeWorkbenchProfilePreferencesAtBoundary(value);
 }
 
 function normalizeWorkbenchProfilePreferencesAtBoundary(
   value: unknown,
-  upgradeRetiredPriority: boolean,
 ): WorkbenchProfilePreferences {
   const defaults = makeDefaultWorkbenchProfilePreferences();
   const record = readRecord(value);
@@ -186,12 +107,6 @@ function normalizeWorkbenchProfilePreferencesAtBoundary(
   const sidebar = readRecord(record.sidebar);
 
   return {
-    viewsByProject: normalizeViewMap(record.viewsByProject),
-    dbViewPrefsByProject:
-      normalizeDbViewPrefsMap(
-        record.dbViewPrefsByProject,
-        upgradeRetiredPriority,
-      ),
     sidebar: {
       collapsed:
         typeof sidebar?.collapsed === "boolean"
@@ -301,9 +216,7 @@ export function recordRecentPageLeaveInPreferences(
   }, ...recentPageSessions].slice(0, MAX_RECENT_PAGE_SESSIONS);
 }
 
-export function useWorkbenchProfilePreferences(
-  activeProjectId: string | null,
-) {
+export function useWorkbenchProfilePreferences() {
   const [storedPreferences, setStoredPreferences] = useScopedAtom(
     workbenchProfilePreferencesAtom,
   );
@@ -360,51 +273,6 @@ export function useWorkbenchProfilePreferences(
     setStoredPreferences((current) =>
       transform(current ?? initialPreferences));
   }, [initialPreferences, setStoredPreferences]);
-
-  const setView = useCallback((
-    projectId: string,
-    view: WorkbenchView,
-  ) => {
-    update((current) => {
-      if (current.viewsByProject[projectId] === view) return current;
-      return {
-        ...current,
-        viewsByProject: {
-          ...current.viewsByProject,
-          [projectId]: view,
-        },
-      };
-    });
-  }, [update]);
-
-  const setDbViewPrefs = useCallback((
-    projectId: string,
-    view: SupportedDbView,
-    transform: (current: DbViewPrefs) => DbViewPrefs,
-  ) => {
-    update((current) => {
-      const previous =
-        current.dbViewPrefsByProject[projectId]?.[view]
-        ?? getDefaultDbViewPrefs(view);
-      const next = normalizeDbViewPrefs(
-        view,
-        transform(cloneDbViewPrefs(previous)),
-      );
-      if (JSON.stringify(previous) === JSON.stringify(next)) {
-        return current;
-      }
-      return {
-        ...current,
-        dbViewPrefsByProject: {
-          ...current.dbViewPrefsByProject,
-          [projectId]: {
-            ...current.dbViewPrefsByProject[projectId],
-            [view]: next,
-          },
-        },
-      };
-    });
-  }, [update]);
 
   const setSidebarCollapsed = useCallback((collapsed: boolean) => {
     update((current) => {
@@ -483,46 +351,21 @@ export function useWorkbenchProfilePreferences(
     return selectedId;
   }, [update]);
 
-  const activeView =
-    activeProjectId
-      ? preferences.viewsByProject[activeProjectId] ?? "kanban"
-      : "kanban";
-  const activeDbViewPrefs =
-    viewSupportsDbViewPrefs(activeView)
-      ? (
-          activeProjectId
-            ? preferences.dbViewPrefsByProject[activeProjectId]?.[
-                activeView
-              ]
-            : undefined
-        ) ?? getDefaultDbViewPrefs(activeView)
-      : null;
-
   return useMemo(() => ({
-    activeView,
-    activeDbViewPrefs,
-    viewsByProject: preferences.viewsByProject,
-    dbViewPrefsByProject: preferences.dbViewPrefsByProject,
     sidebar: preferences.sidebar,
     recentPageSessions: preferences.recentPageSessions,
-    setView,
-    setDbViewPrefs,
     setSidebarCollapsed,
     setSidebarWidth,
     setSidebarCollapsibleSectionCollapsed,
     recordRecentPageLeave,
     flush,
   }), [
-    activeDbViewPrefs,
-    activeView,
     flush,
     preferences,
     recordRecentPageLeave,
-    setDbViewPrefs,
     setSidebarCollapsed,
     setSidebarCollapsibleSectionCollapsed,
     setSidebarWidth,
-    setView,
   ]);
 }
 

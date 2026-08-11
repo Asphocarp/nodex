@@ -43,13 +43,13 @@ describe("DatabaseViewReferenceSurface", () => {
         databaseBlockId: "database-1",
         projectId: "database-project",
         name: "Cycle view",
-        kind: "list",
+        defaultLayout: "list",
         config: {},
         isPrimary: false,
         createdAt: "2026-01-01T00:00:00.000Z",
         updatedAt: "2026-01-01T00:00:00.000Z",
       },
-      rows: [{ page: card, groupKey: "triage", rankKey: "a" }],
+      rows: [{ page: card, groupKey: "triage", subgroupKey: null, rankKey: "a" }],
     };
     const view = render(
       <DatabaseViewReferenceSurface
@@ -88,7 +88,7 @@ describe("DatabaseViewReferenceSurface", () => {
         databaseBlockId: "database-1",
         projectId: "database-project",
         name: "Focused work",
-        kind: "list",
+        defaultLayout: "list",
         config: {},
         isPrimary: false,
         createdAt: "2026-01-01T00:00:00.000Z",
@@ -97,6 +97,7 @@ describe("DatabaseViewReferenceSurface", () => {
       rows: cards.map((card, index) => ({
         page: card,
         groupKey: null,
+        subgroupKey: null,
         rankKey: String(index),
       })),
     };
@@ -168,7 +169,7 @@ describe("DatabaseViewReferenceSurface", () => {
         databaseBlockId: "database-1",
         projectId: "database-project",
         name: "Focus order",
-        kind: "list",
+        defaultLayout: "list",
         config: {},
         isPrimary: false,
         createdAt: "2026-01-01T00:00:00.000Z",
@@ -177,6 +178,7 @@ describe("DatabaseViewReferenceSurface", () => {
       rows: cards.map((card, index) => ({
         page: card,
         groupKey: null,
+        subgroupKey: null,
         rankKey: String(index),
       })),
     };

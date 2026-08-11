@@ -318,20 +318,14 @@ fn seed_database_rows(kernel: &SqliteStoreKernel) {
                 {
                     let mut statement = transaction.prepare(
                         "INSERT INTO database_view_page_positions(\
-                           view_id, page_block_id, group_key, rank_key, revision, created_at, \
+                           view_id, page_block_id, rank_key, revision, created_at, \
                            updated_at\
-                         ) VALUES (?1, ?2, ?3, ?4, 1, ?5, ?5)",
+                         ) VALUES (?1, ?2, ?3, 1, ?4, ?4)",
                     )?;
                     for index in 0..DATABASE_ROW_COUNT {
-                        let status = match index % 3 {
-                            0 => "triage",
-                            1 => "build",
-                            _ => "ship",
-                        };
                         statement.execute(params![
                             VIEW_ID,
                             format!("page:scale:{index:05}"),
-                            status,
                             format!("{index:020}"),
                             NOW
                         ])?;
@@ -454,7 +448,7 @@ fn assert_store_health(connection: &Connection) {
             "EXPLAIN QUERY PLAN \
              SELECT page_block_id FROM database_view_page_positions \
              WHERE view_id = ?1 \
-             ORDER BY group_key, rank_key, page_block_id LIMIT 201",
+             ORDER BY rank_key, page_block_id LIMIT 201",
         )
         .expect("prepare Database View order query plan")
         .query_map([VIEW_ID], |row| row.get::<_, String>(3))
@@ -702,7 +696,6 @@ fn read_budget_gate_large_fixture() {
                     view_id: VIEW_ID.to_owned(),
                     page_id: "page:scale:00000".to_owned(),
                     expected_position_revision: 1,
-                    group_key: Some("triage".to_owned()),
                     before_page_id: Some("page:scale:00006".to_owned()),
                 }],
             },
@@ -872,8 +865,9 @@ fn read_budget_gate_large_fixture() {
                         first: Some(200),
                     }),
                     page_ids: None,
-                    group_scope: Some(nodex_core_contracts::database::DatabaseGroupScope::Key {
-                        key: "build".to_owned(),
+                    group_scope: Some(nodex_core_contracts::database::DatabaseGroupScope::Path {
+                        group_key: Some("build".to_owned()),
+                        subgroup_key: None,
                     }),
                 },
             },

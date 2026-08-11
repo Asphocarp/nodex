@@ -15,6 +15,8 @@ pub(crate) const MAX_DATA_SOURCE_PROPERTIES: usize = 200;
 pub(crate) const MAX_DATABASE_VIEWS: usize = 200;
 
 pub(crate) use genesis::create_database_authority_records;
+#[cfg(test)]
+pub(crate) use genesis::create_legacy_v2_database_authority_records;
 pub(crate) use mutation::apply_as_collaborator as apply_intents_as_collaborator;
 pub(crate) use mutation::{
     ExistingPageTransferTarget, PageCopyDataSourceDestination, PageCopyPositionAnchor,
@@ -26,8 +28,8 @@ pub(crate) use mutation::{
     resolve_page_copy_data_source_project, resolve_page_copy_data_source_project_prevalidated,
     resolve_page_copy_data_source_source, resolve_page_transfer_data_source_destination,
     resolve_page_transfer_data_source_destination_prevalidated,
-    resolve_page_transfer_data_source_source, transfer_existing_page_for_agent_move_prevalidated,
-    transfer_existing_page_for_block_transfer,
+    resolve_page_transfer_data_source_source, synchronize_membership_completion_timestamp,
+    transfer_existing_page_for_agent_move_prevalidated, transfer_existing_page_for_block_transfer,
 };
 pub(crate) use projection_delta::{
     record_local_projection_delta, record_page_detail_projection_delta,
@@ -260,15 +262,20 @@ fn corrupt(message: &str) -> StoreError {
 #[cfg(test)]
 mod tests {
     use base64::prelude::{BASE64_URL_SAFE_NO_PAD, Engine as _};
-    use std::collections::BTreeMap;
+    use std::collections::{BTreeMap, BTreeSet};
 
     use nodex_core_contracts::agent::{AgentExecutionAuthorization, AgentTurnProvenance};
     use nodex_core_contracts::collection::CollectionWindowRequest;
     use nodex_core_contracts::database::{
-        DatabaseAgentQuery, DatabaseGroupScope, DatabaseIntent, DatabasePagePropertyAddress,
-        DatabasePropertySchema, DatabasePropertySetDelta, DatabasePropertyValueEdit,
-        DatabasePropertyValueInput, DatabasePropertyValueMutation, DatabaseReadMode,
-        DatabaseTarget, DatabaseTransferTarget,
+        DatabaseAgentQuery, DatabaseGroupScope, DatabaseIntent, DatabaseListProjectionRow,
+        DatabaseListTransientKind, DatabasePagePropertyAddress, DatabasePropertySchema,
+        DatabasePropertySetDelta, DatabasePropertyValueEdit, DatabasePropertyValueInput,
+        DatabasePropertyValueMutation, DatabaseReadMode, DatabaseTarget, DatabaseTaskHierarchyPage,
+        DatabaseTransferTarget, DatabaseViewCompletedRangeInput,
+        DatabaseViewCompletionOverrideInput, DatabaseViewGroupOverrideInput,
+        DatabaseViewLayoutDisplayOverrideInput, DatabaseViewLayoutInput,
+        DatabaseViewLayoutsOverrideInput, DatabaseViewPresentationOverrideInput,
+        DatabaseViewSortDirectionInput,
     };
     use nodex_core_contracts::library::{
         LIBRARY_CONTRACT_VERSION, LibraryIntent, LibraryWriteParent,
@@ -283,7 +290,7 @@ mod tests {
         ModuleApplyRequest, ProfileId, ProjectId, ProjectionImpact, StoreEpoch,
     };
     use rusqlite::params;
-    use serde_json::json;
+    use serde_json::{Value, json};
     use tempfile::tempdir;
 
     use crate::infrastructure::sqlite::with_immediate_transaction;
@@ -296,6 +303,36 @@ mod tests {
     const SOURCE_ID: &str = "018f1000-0000-7000-8000-000000000002";
     const VIEW_ID: &str = "018f1000-0000-7000-8000-000000000003";
     const NOW: &str = "2026-07-19T00:15:00.000Z";
+
+    fn view_config(filter: Value, group_property_id: Option<&str>, fields: &[&str]) -> Value {
+        let fields = fields
+            .iter()
+            .map(|property_id| json!({ "kind": "property", "propertyId": property_id }))
+            .collect::<Vec<_>>();
+        json!({
+            "schemaKey": "nodex.database-view",
+            "schemaVersion": 4,
+            "filter": filter,
+            "presentation": {
+                "sort": [{
+                    "field": { "kind": "manual" },
+                    "direction": "asc",
+                    "nulls": "last"
+                }],
+                "group": group_property_id.map(|property_id| json!({
+                    "propertyId": property_id
+                })),
+                "subgroup": null,
+                "groupDirection": "asc",
+                "completion": { "range": "all", "orderByRecency": false },
+                "hierarchy": { "showSubPages": true, "nestedSubPages": false },
+                "layouts": {
+                    "board": { "fields": fields, "showEmptyGroups": false },
+                    "list": { "fields": fields, "showEmptyGroups": false }
+                }
+            }
+        })
+    }
 
     fn context() -> BoundModuleContext {
         BoundModuleContext {
@@ -461,27 +498,17 @@ mod tests {
                         view_id: VIEW_ID.to_owned(),
                         expected_revision: view_revision,
                         name: "Product work".to_owned(),
-                        view_kind: "kanban".to_owned(),
-                        config: json!({
-                            "schemaKey": "nodex.database-view",
-                            "schemaVersion": 2,
-                            "filter": {
+                        default_layout: "board".to_owned(),
+                        config: view_config(
+                            json!({
                                 "kind": "clause",
                                 "propertyId": "priority",
                                 "operator": "equals",
                                 "value": "p4-later"
-                            },
-                            "sort": [{
-                                "field": { "kind": "manual" },
-                                "direction": "asc",
-                                "nulls": "last"
-                            }],
-                            "group": { "propertyId": "status" },
-                            "display": {
-                                "propertyIds": ["status", "priority", "estimate", "tags"],
-                                "showTitle": true
-                            }
-                        }),
+                            }),
+                            Some("status"),
+                            &["status", "priority", "estimate", "tags"],
+                        ),
                         is_default: true,
                         before_view_id: None,
                     }],
@@ -790,8 +817,8 @@ mod tests {
                     )?;
                     transaction.execute(
                         "INSERT INTO database_view_page_positions(\
-                           view_id, page_block_id, group_key, rank_key, revision, created_at, updated_at\
-                         ) VALUES (?1, 'page:database-row', 'triage', 'a', 1, ?2, ?2)",
+                           view_id, page_block_id, rank_key, revision, created_at, updated_at\
+                         ) VALUES (?1, 'page:database-row', 'a', 1, ?2, ?2)",
                         params![VIEW_ID, NOW],
                     )?;
                     transaction.execute(
@@ -1181,26 +1208,19 @@ mod tests {
                 )
             })
             .expect("transfer projection manifest");
-        assert!(transfer_manifest.projection_effects.iter().any(|effect| {
-            matches!(
-                &effect.patch,
-                Some(nodex_core_contracts::LocalProjectionPatch::DatabaseRowRemove {
-                    project_id,
-                    page_id,
-                    ..
-                }) if project_id == "project-1" && page_id == "page:database-row-2"
-            )
-        }));
-        assert!(transfer_manifest.projection_effects.iter().any(|effect| {
-            matches!(
-                &effect.patch,
-                Some(nodex_core_contracts::LocalProjectionPatch::DatabaseRowRemove {
-                    project_id,
-                    page_id,
-                    ..
-                }) if project_id == "project-2" && page_id == "page:database-row-2"
-            )
-        }));
+        for project_id in ["project-1", "project-2"] {
+            assert!(transfer_manifest.projection_effects.iter().any(|effect| {
+                matches!(
+                    &effect.scope.scope,
+                    LocalProjectionScope::DatabaseView {
+                        project_id: affected_project_id,
+                        view_id,
+                        ..
+                    } if affected_project_id == project_id && view_id == VIEW_ID
+                ) && effect.patch.is_none()
+                    && effect.requires_read_at_least
+            }));
+        }
         assert!(transfer_manifest.revocations.iter().any(|revocation| {
             matches!(
                 &revocation.authorization_scope,
@@ -1734,21 +1754,11 @@ mod tests {
         assert_eq!(row_window.rows.items[0].page_id, "page:database-row");
 
         const SECOND_VIEW_ID: &str = "018f1000-0000-7000-8000-000000000004";
-        let ungrouped_config = json!({
-            "schemaKey": "nodex.database-view",
-            "schemaVersion": 2,
-            "filter": { "kind": "group", "operator": "and", "children": [] },
-            "sort": [{
-                "field": { "kind": "manual" },
-                "direction": "asc",
-                "nulls": "last"
-            }],
-            "group": null,
-            "display": {
-                "propertyIds": ["status", "risk"],
-                "showTitle": true
-            }
-        });
+        let ungrouped_config = view_config(
+            json!({ "kind": "group", "operator": "and", "children": [] }),
+            None,
+            &["status", "risk"],
+        );
         let view_and_position = module
             .apply(
                 &context(),
@@ -1763,7 +1773,7 @@ mod tests {
                             view_id: SECOND_VIEW_ID.to_owned(),
                             expected_revision: 0,
                             name: "Risk list".to_owned(),
-                            view_kind: "list".to_owned(),
+                            default_layout: "list".to_owned(),
                             config: ungrouped_config.clone(),
                             is_default: true,
                             before_view_id: Some(VIEW_ID.to_owned()),
@@ -1772,7 +1782,6 @@ mod tests {
                             view_id: SECOND_VIEW_ID.to_owned(),
                             page_id: "page:database-row".to_owned(),
                             expected_position_revision: 0,
-                            group_key: None,
                             before_page_id: None,
                         },
                     ],
@@ -1784,21 +1793,11 @@ mod tests {
             view_and_position.committed.receipt.affected_view_ids,
             [SECOND_VIEW_ID]
         );
-        let grouped_config = json!({
-            "schemaKey": "nodex.database-view",
-            "schemaVersion": 2,
-            "filter": { "kind": "group", "operator": "and", "children": [] },
-            "sort": [{
-                "field": { "kind": "manual" },
-                "direction": "asc",
-                "nulls": "last"
-            }],
-            "group": { "propertyId": "risk" },
-            "display": {
-                "propertyIds": ["status", "risk"],
-                "showTitle": true
-            }
-        });
+        let grouped_config = view_config(
+            json!({ "kind": "group", "operator": "and", "children": [] }),
+            Some("risk"),
+            &["status", "risk"],
+        );
         module
             .apply(
                 &context(),
@@ -1813,7 +1812,7 @@ mod tests {
                             view_id: SECOND_VIEW_ID.to_owned(),
                             expected_revision: 1,
                             name: "Risk board".to_owned(),
-                            view_kind: "kanban".to_owned(),
+                            default_layout: "board".to_owned(),
                             config: grouped_config,
                             is_default: true,
                             before_view_id: None,
@@ -1822,7 +1821,6 @@ mod tests {
                             view_id: SECOND_VIEW_ID.to_owned(),
                             page_id: "page:database-row".to_owned(),
                             expected_position_revision: 0,
-                            group_key: Some("high".to_owned()),
                             before_page_id: None,
                         },
                     ],
@@ -1856,6 +1854,42 @@ mod tests {
             Some("high")
         );
         assert_eq!(grouped.rows.items[0].position_revision, Some(1));
+        let personally_ungrouped = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    read: DatabaseRead {
+                        target: DatabaseTarget::PresentedView {
+                            view_id: SECOND_VIEW_ID.to_owned(),
+                            presentation_override: DatabaseViewPresentationOverrideInput {
+                                layout: None,
+                                sort: None,
+                                group: Some(DatabaseViewGroupOverrideInput::None),
+                                subgroup: None,
+                                group_direction: None,
+                                completion: None,
+                                hierarchy: None,
+                                layouts: None,
+                            },
+                        },
+                        mode: DatabaseReadMode::ViewWindow,
+                        filter: None,
+                        sort: None,
+                        window: Some(Default::default()),
+                        page_ids: None,
+                        group_scope: None,
+                    },
+                },
+            )
+            .expect("query View through a personal presentation override");
+        let DatabaseReadValue::ViewWindow {
+            value: personally_ungrouped,
+        } = personally_ungrouped.value
+        else {
+            panic!("personally presented View query snapshot");
+        };
+        assert_eq!(personally_ungrouped.rows.items[0].effective_group_key, None);
         kernel
             .writer()
             .call(|connection| {
@@ -2124,7 +2158,7 @@ mod tests {
         page_id: &'static str,
         title: &'static str,
         value_json: Option<&'static str>,
-        position: Option<(&'static str, &'static str)>,
+        rank_key: Option<&'static str>,
     }
 
     fn seed_grouped_fixture(kernel: &SqliteStoreKernel, rows: Vec<GroupRowSpec>) -> DatabaseModule {
@@ -2235,13 +2269,13 @@ mod tests {
                                 params![SOURCE_ID, membership_id, value_json, NOW],
                             )?;
                         }
-                        if let Some((group_key, rank_key)) = row.position {
+                        if let Some(rank_key) = row.rank_key {
                             transaction.execute(
                                 "INSERT INTO database_view_page_positions(\
-                                   view_id, page_block_id, group_key, rank_key, revision, \
+                                   view_id, page_block_id, rank_key, revision, \
                                    created_at, updated_at\
-                                 ) VALUES (?1, ?2, ?3, ?4, 1, ?5, ?5)",
-                                params![VIEW_ID, row.page_id, group_key, rank_key, NOW],
+                                 ) VALUES (?1, ?2, ?3, 1, ?4, ?4)",
+                                params![VIEW_ID, row.page_id, rank_key, NOW],
                             )?;
                         }
                         let values_json = row
@@ -2262,6 +2296,683 @@ mod tests {
             })
             .expect("place Database rows");
         DatabaseModule::new("profile-1", "library-1", kernel)
+    }
+
+    fn read_personal_preferences(
+        module: &DatabaseModule,
+    ) -> nodex_core_contracts::database::DatabaseViewPersonalPreferences {
+        let snapshot = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    read: DatabaseRead {
+                        target: DatabaseTarget::View {
+                            view_id: VIEW_ID.to_owned(),
+                        },
+                        mode: DatabaseReadMode::ViewPersonalPreferences,
+                        filter: None,
+                        sort: None,
+                        window: None,
+                        page_ids: None,
+                        group_scope: None,
+                    },
+                },
+            )
+            .expect("read personal View preferences");
+        let DatabaseReadValue::ViewPersonalPreferences { value } = snapshot.value else {
+            panic!("View personal preferences value");
+        };
+        value
+    }
+
+    fn apply_task_parent(
+        module: &DatabaseModule,
+        operation_id: &str,
+        pages: &[(&str, i64)],
+        parent_page_id: Option<&str>,
+        before_page_id: Option<&str>,
+    ) -> Result<DatabaseApplyOutcome, CoreError> {
+        module.apply(
+            &context(),
+            ModuleApplyRequest {
+                contract_version: DATABASE_CONTRACT_VERSION,
+                operation_id: operation_id.to_owned(),
+                store_epoch: StoreEpoch("epoch-1".to_owned()),
+                intent: vec![DatabaseIntent::SetTaskParent {
+                    data_source_id: SOURCE_ID.to_owned(),
+                    pages: pages
+                        .iter()
+                        .map(
+                            |(page_id, expected_hierarchy_revision)| DatabaseTaskHierarchyPage {
+                                page_id: (*page_id).to_owned(),
+                                expected_hierarchy_revision: *expected_hierarchy_revision,
+                            },
+                        )
+                        .collect(),
+                    parent_page_id: parent_page_id.map(str::to_owned),
+                    before_page_id: before_page_id.map(str::to_owned),
+                }],
+            },
+        )
+    }
+
+    #[test]
+    fn personal_view_preferences_round_trip_reset_and_reject_stale_writes() {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        let kernel = SqliteStoreKernel::open_test(&home).expect("fresh store");
+        let module = seed_grouped_fixture(&kernel, Vec::new());
+
+        assert_eq!(read_personal_preferences(&module).revision, 0);
+        module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    operation_id: "operation:put-personal-view-preferences".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: vec![DatabaseIntent::PutViewPersonalPreferences {
+                        view_id: VIEW_ID.to_owned(),
+                        expected_revision: 0,
+                        presentation_override: DatabaseViewPresentationOverrideInput {
+                            layout: Some(DatabaseViewLayoutInput::List),
+                            ..Default::default()
+                        },
+                        collapsed_group_keys: vec!["GROUP_\"triage\"".to_owned()],
+                    }],
+                },
+            )
+            .expect("persist personal View preferences");
+        let stored = read_personal_preferences(&module);
+        assert_eq!(stored.revision, 1);
+        assert_eq!(
+            stored.presentation_override.layout,
+            Some(DatabaseViewLayoutInput::List)
+        );
+        assert_eq!(stored.collapsed_group_keys, ["GROUP_\"triage\""]);
+
+        let stale = module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    operation_id: "operation:stale-personal-view-preferences".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: vec![DatabaseIntent::PutViewPersonalPreferences {
+                        view_id: VIEW_ID.to_owned(),
+                        expected_revision: 0,
+                        presentation_override: DatabaseViewPresentationOverrideInput::default(),
+                        collapsed_group_keys: Vec::new(),
+                    }],
+                },
+            )
+            .expect_err("stale personal View preference revision");
+        assert_eq!(stale.code, CoreErrorCode::RevisionConflict);
+
+        let reset = module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    operation_id: "operation:reset-personal-view-preferences".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: vec![DatabaseIntent::PutViewPersonalPreferences {
+                        view_id: VIEW_ID.to_owned(),
+                        expected_revision: 1,
+                        presentation_override: DatabaseViewPresentationOverrideInput::default(),
+                        collapsed_group_keys: Vec::new(),
+                    }],
+                },
+            )
+            .expect("reset personal View preferences");
+        assert_eq!(
+            reset
+                .committed
+                .receipt
+                .committed_revisions
+                .get(&format!("view_preferences:profile-1:{VIEW_ID}")),
+            Some(&0),
+        );
+        let reset_value = read_personal_preferences(&module);
+        assert_eq!(reset_value.revision, 0);
+        assert_eq!(reset_value.presentation_override, Default::default());
+        assert!(reset_value.collapsed_group_keys.is_empty());
+    }
+
+    #[test]
+    fn task_hierarchy_round_trips_order_rejects_cycles_and_unparents() {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        let kernel = SqliteStoreKernel::open_test(&home).expect("fresh store");
+        let module = seed_grouped_fixture(
+            &kernel,
+            vec![
+                GroupRowSpec {
+                    page_id: "page:parent",
+                    title: "Parent",
+                    value_json: None,
+                    rank_key: Some("a"),
+                },
+                GroupRowSpec {
+                    page_id: "page:child",
+                    title: "Child",
+                    value_json: None,
+                    rank_key: Some("b"),
+                },
+                GroupRowSpec {
+                    page_id: "page:grandchild",
+                    title: "Grandchild",
+                    value_json: None,
+                    rank_key: Some("c"),
+                },
+                GroupRowSpec {
+                    page_id: "page:peer",
+                    title: "Peer",
+                    value_json: None,
+                    rank_key: Some("d"),
+                },
+            ],
+        );
+
+        apply_task_parent(
+            &module,
+            "operation:hierarchy-child",
+            &[("page:child", 0)],
+            Some("page:parent"),
+            None,
+        )
+        .expect("nest child");
+        apply_task_parent(
+            &module,
+            "operation:hierarchy-grandchild",
+            &[("page:grandchild", 0)],
+            Some("page:child"),
+            None,
+        )
+        .expect("nest grandchild");
+
+        let window = read_view_window(&module, 20, None, None).expect("read hierarchy window");
+        let child = window
+            .rows
+            .items
+            .iter()
+            .find(|row| row.page_id == "page:child")
+            .expect("child row");
+        assert_eq!(child.task_parent_page_id.as_deref(), Some("page:parent"));
+        assert_eq!(child.task_hierarchy_revision, 1);
+        assert!(child.task_sibling_rank.is_some());
+
+        let cycle = apply_task_parent(
+            &module,
+            "operation:hierarchy-cycle",
+            &[("page:parent", 0)],
+            Some("page:grandchild"),
+            None,
+        )
+        .expect_err("reject hierarchy cycle");
+        assert_eq!(cycle.code, CoreErrorCode::InvalidInput);
+
+        let stale = apply_task_parent(
+            &module,
+            "operation:hierarchy-stale",
+            &[("page:child", 0)],
+            Some("page:parent"),
+            None,
+        )
+        .expect_err("reject stale hierarchy revision");
+        assert_eq!(stale.code, CoreErrorCode::RevisionConflict);
+
+        apply_task_parent(
+            &module,
+            "operation:hierarchy-peer-before-child",
+            &[("page:peer", 0)],
+            Some("page:parent"),
+            Some("page:child"),
+        )
+        .expect("insert peer before child");
+        let ordered = kernel
+            .readers()
+            .read_default(|connection| {
+                connection
+                    .prepare(
+                        "SELECT child_page_id FROM database_task_hierarchy_edges \
+                         WHERE data_source_id = ?1 AND parent_page_id = 'page:parent' \
+                         ORDER BY sibling_rank, child_page_id",
+                    )?
+                    .query_map([SOURCE_ID], |row| row.get::<_, String>(0))?
+                    .collect::<rusqlite::Result<Vec<_>>>()
+                    .map_err(StoreError::from)
+            })
+            .expect("read sibling ordering");
+        assert_eq!(ordered, ["page:peer", "page:child"]);
+
+        let child_revision = kernel
+            .readers()
+            .read_default(|connection| {
+                connection
+                    .query_row(
+                        "SELECT revision FROM database_task_hierarchy_edges WHERE child_page_id = 'page:child'",
+                        [],
+                        |row| row.get::<_, i64>(0),
+                    )
+                    .map_err(StoreError::from)
+            })
+            .expect("read rebalanced child revision");
+        let unparented = apply_task_parent(
+            &module,
+            "operation:hierarchy-unparent-child",
+            &[("page:child", child_revision)],
+            None,
+            None,
+        )
+        .expect("unparent child");
+        assert_eq!(
+            unparented
+                .committed
+                .receipt
+                .committed_revisions
+                .get("task_hierarchy:page:child"),
+            Some(&0),
+        );
+        let window = read_view_window(&module, 20, None, None).expect("read unparented window");
+        let child = window
+            .rows
+            .items
+            .iter()
+            .find(|row| row.page_id == "page:child")
+            .expect("unparented child row");
+        assert_eq!(child.task_parent_page_id, None);
+        assert_eq!(child.task_hierarchy_revision, 0);
+    }
+
+    #[test]
+    fn task_hierarchy_enforces_the_depth_ten_boundary() {
+        const DEPTH_PAGE_IDS: [&str; 12] = [
+            "page:depth-0",
+            "page:depth-1",
+            "page:depth-2",
+            "page:depth-3",
+            "page:depth-4",
+            "page:depth-5",
+            "page:depth-6",
+            "page:depth-7",
+            "page:depth-8",
+            "page:depth-9",
+            "page:depth-10",
+            "page:depth-11",
+        ];
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        let kernel = SqliteStoreKernel::open_test(&home).expect("fresh store");
+        let rows = DEPTH_PAGE_IDS
+            .iter()
+            .map(|page_id| GroupRowSpec {
+                page_id,
+                title: page_id,
+                value_json: None,
+                rank_key: None,
+            })
+            .collect();
+        let module = seed_grouped_fixture(&kernel, rows);
+
+        for index in 1..=10 {
+            apply_task_parent(
+                &module,
+                &format!("operation:hierarchy-depth-{index}"),
+                &[(DEPTH_PAGE_IDS[index], 0)],
+                Some(DEPTH_PAGE_IDS[index - 1]),
+                None,
+            )
+            .expect("build hierarchy to the supported depth");
+        }
+        let too_deep = apply_task_parent(
+            &module,
+            "operation:hierarchy-depth-overflow",
+            &[("page:depth-11", 0)],
+            Some("page:depth-10"),
+            None,
+        )
+        .expect_err("reject hierarchy depth eleven");
+        assert_eq!(too_deep.code, CoreErrorCode::InvalidInput);
+    }
+
+    #[test]
+    fn removing_a_parent_membership_promotes_its_child_tree_to_roots() {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        let kernel = SqliteStoreKernel::open_test(&home).expect("fresh store");
+        let module = seed_grouped_fixture(
+            &kernel,
+            vec![
+                GroupRowSpec {
+                    page_id: "page:removed-parent",
+                    title: "Removed parent",
+                    value_json: None,
+                    rank_key: Some("a"),
+                },
+                GroupRowSpec {
+                    page_id: "page:promoted-child",
+                    title: "Promoted child",
+                    value_json: None,
+                    rank_key: Some("b"),
+                },
+                GroupRowSpec {
+                    page_id: "page:retained-grandchild",
+                    title: "Retained grandchild",
+                    value_json: None,
+                    rank_key: Some("c"),
+                },
+            ],
+        );
+        apply_task_parent(
+            &module,
+            "operation:removed-parent-child",
+            &[("page:promoted-child", 0)],
+            Some("page:removed-parent"),
+            None,
+        )
+        .expect("nest child");
+        apply_task_parent(
+            &module,
+            "operation:removed-parent-grandchild",
+            &[("page:retained-grandchild", 0)],
+            Some("page:promoted-child"),
+            None,
+        )
+        .expect("nest grandchild");
+
+        module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    operation_id: "operation:remove-hierarchy-parent-membership".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: vec![DatabaseIntent::TransferPage {
+                        page_id: "page:removed-parent".to_owned(),
+                        expected_parent_revision: 1,
+                        expected_active_membership_revision: 1,
+                        target: DatabaseTransferTarget::Library {
+                            library_id: "library-1".to_owned(),
+                        },
+                    }],
+                },
+            )
+            .expect("remove parent from the Data Source");
+
+        let window = read_view_window(&module, 20, None, None).expect("read promoted tree");
+        let child = window
+            .rows
+            .items
+            .iter()
+            .find(|row| row.page_id == "page:promoted-child")
+            .expect("promoted child");
+        let grandchild = window
+            .rows
+            .items
+            .iter()
+            .find(|row| row.page_id == "page:retained-grandchild")
+            .expect("retained grandchild");
+        assert_eq!(child.task_parent_page_id, None);
+        assert_eq!(child.task_hierarchy_revision, 0);
+        assert_eq!(
+            grandchild.task_parent_page_id.as_deref(),
+            Some("page:promoted-child"),
+        );
+        assert_eq!(grandchild.task_hierarchy_revision, 1);
+    }
+
+    #[test]
+    fn list_window_inserts_transient_ancestors_and_stitches_cursors() {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        let kernel = SqliteStoreKernel::open_test(&home).expect("fresh store");
+        let module = seed_grouped_fixture(
+            &kernel,
+            vec![
+                GroupRowSpec {
+                    page_id: "page:list-parent",
+                    title: "Filtered parent",
+                    value_json: Some("\"triage\""),
+                    rank_key: Some("a"),
+                },
+                GroupRowSpec {
+                    page_id: "page:list-child",
+                    title: "Matching child",
+                    value_json: Some("\"done\""),
+                    rank_key: Some("b"),
+                },
+            ],
+        );
+        apply_task_parent(
+            &module,
+            "operation:list-window-child",
+            &[("page:list-child", 0)],
+            Some("page:list-parent"),
+            None,
+        )
+        .expect("nest matching child");
+        let mut config = view_config(
+            json!({
+                "kind": "clause",
+                "propertyId": "status",
+                "operator": "equals",
+                "value": "done"
+            }),
+            None,
+            &["status", "priority", "estimate", "tags"],
+        );
+        config["presentation"]["hierarchy"] =
+            json!({ "showSubPages": true, "nestedSubPages": true });
+        module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    operation_id: "operation:list-window-view".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: vec![DatabaseIntent::PutView {
+                        database_id: DATABASE_ID.to_owned(),
+                        data_source_id: SOURCE_ID.to_owned(),
+                        view_id: VIEW_ID.to_owned(),
+                        expected_revision: 1,
+                        name: "Nested List".to_owned(),
+                        default_layout: "list".to_owned(),
+                        config,
+                        is_default: true,
+                        before_view_id: None,
+                    }],
+                },
+            )
+            .expect("enable nested filtered List");
+
+        let first = read_list_window(&module, 1, None).expect("first List window");
+        assert_eq!(first.total_model_count, 1);
+        assert_eq!(first.total_occurrence_count, 2);
+        assert_eq!((first.window_start, first.window_end), (0, 1));
+        assert!(!first.is_complete);
+        let DatabaseListProjectionRow::Page {
+            summary,
+            transient_kind,
+            depth,
+            ..
+        } = &first.rows.items[0]
+        else {
+            panic!("transient parent occurrence");
+        };
+        assert_eq!(summary.page_id, "page:list-parent");
+        assert_eq!(*transient_kind, DatabaseListTransientKind::Ancestor);
+        assert_eq!(*depth, 0);
+
+        let second = read_list_window(&module, 1, first.rows.next_cursor.clone())
+            .expect("second List window");
+        assert_eq!((second.window_start, second.window_end), (1, 2));
+        assert!(second.is_complete);
+        let DatabaseListProjectionRow::Page {
+            summary,
+            transient_kind,
+            ancestor_page_ids,
+            depth,
+            ..
+        } = &second.rows.items[0]
+        else {
+            panic!("matching child occurrence");
+        };
+        assert_eq!(summary.page_id, "page:list-child");
+        assert_eq!(*transient_kind, DatabaseListTransientKind::None);
+        assert_eq!(ancestor_page_ids, &["page:list-parent"]);
+        assert_eq!(*depth, 1);
+    }
+
+    #[test]
+    fn list_window_expands_multi_value_group_occurrences() {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        let kernel = SqliteStoreKernel::open_test(&home).expect("fresh store");
+        let module = seed_grouped_fixture(
+            &kernel,
+            vec![GroupRowSpec {
+                page_id: "page:multi-group",
+                title: "Two tags",
+                value_json: Some("\"triage\""),
+                rank_key: Some("a"),
+            }],
+        );
+        module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    operation_id: "operation:list-multi-value".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: vec![
+                        DatabaseIntent::PutOption {
+                            data_source_id: SOURCE_ID.to_owned(),
+                            property_id: "tags".to_owned(),
+                            option_id: "o_AAAAAAAA".to_owned(),
+                            name: "Alpha".to_owned(),
+                            color: None,
+                            expected_property_revision: 1,
+                        },
+                        DatabaseIntent::PutOption {
+                            data_source_id: SOURCE_ID.to_owned(),
+                            property_id: "tags".to_owned(),
+                            option_id: "o_BBBBBBBB".to_owned(),
+                            name: "Beta".to_owned(),
+                            color: None,
+                            expected_property_revision: 2,
+                        },
+                        DatabaseIntent::EditPropertyValues {
+                            edits: vec![DatabasePropertyValueMutation {
+                                address: DatabasePagePropertyAddress {
+                                    page_id: "page:multi-group".to_owned(),
+                                    data_source_id: SOURCE_ID.to_owned(),
+                                    property_id: "tags".to_owned(),
+                                },
+                                edit: DatabasePropertyValueEdit::Replace {
+                                    expected_value_revision: 0,
+                                    value: DatabasePropertyValueInput::MultiSelect {
+                                        option_ids: vec![
+                                            "o_AAAAAAAA".to_owned(),
+                                            "o_BBBBBBBB".to_owned(),
+                                        ],
+                                    },
+                                },
+                            }],
+                        },
+                        DatabaseIntent::PutView {
+                            database_id: DATABASE_ID.to_owned(),
+                            data_source_id: SOURCE_ID.to_owned(),
+                            view_id: VIEW_ID.to_owned(),
+                            expected_revision: 1,
+                            name: "Tag List".to_owned(),
+                            default_layout: "list".to_owned(),
+                            config: view_config(
+                                json!({ "kind": "group", "operator": "and", "children": [] }),
+                                Some("tags"),
+                                &["status", "priority", "estimate", "tags"],
+                            ),
+                            is_default: true,
+                            before_view_id: None,
+                        },
+                    ],
+                },
+            )
+            .expect("configure multi-value grouping");
+
+        let window = read_list_window(&module, 20, None).expect("multi-value List window");
+        assert_eq!(window.total_model_count, 1);
+        assert_eq!(window.total_occurrence_count, 2);
+        assert_eq!(window.groups.len(), 2);
+        let occurrences = window
+            .rows
+            .items
+            .iter()
+            .filter_map(|row| match row {
+                DatabaseListProjectionRow::Page {
+                    occurrence_key,
+                    summary,
+                    group_path,
+                    ..
+                } => Some((occurrence_key, summary.page_id.as_str(), group_path)),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(occurrences.len(), 2);
+        assert!(
+            occurrences
+                .iter()
+                .all(|(_, page_id, _)| *page_id == "page:multi-group")
+        );
+        assert_ne!(occurrences[0].0, occurrences[1].0);
+        assert_eq!(
+            occurrences
+                .iter()
+                .map(|(_, _, path)| path[0].as_deref())
+                .collect::<BTreeSet<_>>(),
+            BTreeSet::from([Some("o_AAAAAAAA"), Some("o_BBBBBBBB")]),
+        );
+
+        let descending = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    read: DatabaseRead {
+                        target: DatabaseTarget::PresentedView {
+                            view_id: VIEW_ID.to_owned(),
+                            presentation_override: DatabaseViewPresentationOverrideInput {
+                                group_direction: Some(DatabaseViewSortDirectionInput::Desc),
+                                ..Default::default()
+                            },
+                        },
+                        mode: DatabaseReadMode::ListWindow,
+                        filter: None,
+                        sort: None,
+                        window: Some(CollectionWindowRequest {
+                            after: None,
+                            first: Some(20),
+                        }),
+                        page_ids: None,
+                        group_scope: None,
+                    },
+                },
+            )
+            .expect("read descending group order");
+        let DatabaseReadValue::ListWindow { value: descending } = descending.value else {
+            panic!("descending List window");
+        };
+        let group_keys = descending
+            .rows
+            .items
+            .iter()
+            .filter_map(|row| match row {
+                DatabaseListProjectionRow::Group { group_key, .. } => group_key.as_deref(),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(group_keys, ["o_BBBBBBBB", "o_AAAAAAAA"]);
     }
 
     #[test]
@@ -2285,19 +2996,16 @@ mod tests {
                         view_id: SECOND_VIEW_ID.to_owned(),
                         expected_revision: 0,
                         name: "Secondary list".to_owned(),
-                        view_kind: "list".to_owned(),
-                        config: json!({
-                            "schemaKey": "nodex.database-view",
-                            "schemaVersion": 2,
-                            "filter": { "kind": "group", "operator": "and", "children": [] },
-                            "sort": [{
-                                "field": { "kind": "manual" },
-                                "direction": "asc",
-                                "nulls": "last"
-                            }],
-                            "group": null,
-                            "display": { "propertyIds": ["status"], "showTitle": true }
-                        }),
+                        default_layout: "list".to_owned(),
+                        config: view_config(
+                            json!({
+                                "kind": "group",
+                                "operator": "and",
+                                "children": []
+                            }),
+                            None,
+                            &["status"],
+                        ),
                         is_default: false,
                         before_view_id: None,
                     }],
@@ -2376,7 +3084,7 @@ mod tests {
                 page_id: "page:schedule-row",
                 title: "Scheduled row",
                 value_json: Some("\"triage\""),
-                position: Some(("triage", "a")),
+                rank_key: Some("a"),
             }],
         );
         kernel
@@ -2530,31 +3238,31 @@ mod tests {
                     page_id: "page:relation-row",
                     title: "Define Relation",
                     value_json: Some("\"backlog\""),
-                    position: None,
+                    rank_key: None,
                 },
                 GroupRowSpec {
                     page_id: "page:target-a",
                     title: "Target A",
                     value_json: None,
-                    position: None,
+                    rank_key: None,
                 },
                 GroupRowSpec {
                     page_id: "page:target-b",
                     title: "Target B",
                     value_json: None,
-                    position: None,
+                    rank_key: None,
                 },
                 GroupRowSpec {
                     page_id: "page:target-c",
                     title: "Target C",
                     value_json: None,
-                    position: None,
+                    rank_key: None,
                 },
                 GroupRowSpec {
                     page_id: "page:target-d",
                     title: "Target D",
                     value_json: None,
-                    position: None,
+                    rank_key: None,
                 },
             ],
         );
@@ -2797,7 +3505,7 @@ mod tests {
                         view_id: VIEW_ID.to_owned(),
                         expected_revision: view_revision,
                         name: "Workflow".to_owned(),
-                        view_kind: "kanban".to_owned(),
+                        default_layout: "board".to_owned(),
                         config: view_config,
                         is_default: true,
                         before_view_id: None,
@@ -3013,6 +3721,37 @@ mod tests {
         Ok(value)
     }
 
+    fn read_list_window(
+        module: &DatabaseModule,
+        first: u32,
+        after: Option<String>,
+    ) -> Result<nodex_core_contracts::database::DatabaseListWindow, CoreError> {
+        let snapshot = module.read(
+            &context(),
+            ModuleReadRequest {
+                contract_version: DATABASE_CONTRACT_VERSION,
+                read: DatabaseRead {
+                    target: DatabaseTarget::View {
+                        view_id: VIEW_ID.to_owned(),
+                    },
+                    mode: DatabaseReadMode::ListWindow,
+                    filter: None,
+                    sort: None,
+                    window: Some(CollectionWindowRequest {
+                        after,
+                        first: Some(first),
+                    }),
+                    page_ids: None,
+                    group_scope: None,
+                },
+            },
+        )?;
+        let DatabaseReadValue::ListWindow { value } = snapshot.value else {
+            panic!("List window read");
+        };
+        Ok(value)
+    }
+
     fn read_view_context(
         module: &DatabaseModule,
         view_id: &str,
@@ -3072,7 +3811,7 @@ mod tests {
                 page_id: "page:sequence-gap-row",
                 title: "Sequence gap row",
                 value_json: Some("\"triage\""),
-                position: Some(("triage", "a")),
+                rank_key: Some("a"),
             }],
         );
 
@@ -3176,13 +3915,13 @@ mod tests {
                     page_id: "page:row-a",
                     title: "First",
                     value_json: Some("\"triage\""),
-                    position: Some(("triage", "a")),
+                    rank_key: Some("a"),
                 },
                 GroupRowSpec {
                     page_id: "page:row-b",
                     title: "Second",
                     value_json: Some("\"done\""),
-                    position: Some(("done", "b")),
+                    rank_key: Some("b"),
                 },
             ],
         );
@@ -3191,7 +3930,10 @@ mod tests {
         assert_eq!(first.database["databaseId"], DATABASE_ID);
         assert_eq!(first.data_source["dataSourceId"], SOURCE_ID);
         assert_eq!(first.view["viewId"], VIEW_ID);
-        assert_eq!(first.view["config"]["group"]["propertyId"], "status");
+        assert_eq!(
+            first.view["config"]["presentation"]["group"]["propertyId"],
+            "status"
+        );
         assert!(
             first
                 .properties
@@ -3223,9 +3965,9 @@ mod tests {
             .call(|connection| {
                 connection.execute(
                     "INSERT INTO database_views(\
-                       id, database_block_id, data_source_id, name, kind, config_json, revision, \
+                       id, database_block_id, data_source_id, name, default_layout, config_json, revision, \
                        rank_key, lifecycle, created_at, updated_at\
-                     ) SELECT ?1, database_block_id, data_source_id, 'Other board', kind, \
+                     ) SELECT ?1, database_block_id, data_source_id, 'Other board', default_layout, \
                        config_json, revision, 'z', lifecycle, created_at, updated_at \
                      FROM database_views WHERE id = ?2",
                     params![OTHER_VIEW_ID, VIEW_ID],
@@ -3250,8 +3992,9 @@ mod tests {
             VIEW_ID,
             200,
             None,
-            Some(DatabaseGroupScope::Key {
-                key: "triage".to_owned(),
+            Some(DatabaseGroupScope::Path {
+                group_key: Some("triage".to_owned()),
+                subgroup_key: None,
             }),
         )
         .expect("group-scoped context");
@@ -3279,8 +4022,9 @@ mod tests {
             VIEW_ID,
             200,
             None,
-            Some(DatabaseGroupScope::Key {
-                key: "triage".to_owned(),
+            Some(DatabaseGroupScope::Path {
+                group_key: Some("triage".to_owned()),
+                subgroup_key: None,
             }),
         )
         .expect("context after position change");
@@ -3333,49 +4077,49 @@ mod tests {
                     page_id: "page:row-a",
                     title: "Positioned triage",
                     value_json: Some("\"triage\""),
-                    position: Some(("triage", "a")),
+                    rank_key: Some("a"),
                 },
                 GroupRowSpec {
                     page_id: "page:row-b",
                     title: "Valued but unpositioned",
                     value_json: Some("\"done\""),
-                    position: None,
+                    rank_key: None,
                 },
                 GroupRowSpec {
                     page_id: "page:row-c",
                     title: "Empty string value",
                     value_json: Some("\"\""),
-                    position: None,
+                    rank_key: None,
                 },
                 GroupRowSpec {
                     page_id: "page:row-d",
-                    title: "Positioned without value",
+                    title: "Ranked without a grouping value",
                     value_json: None,
-                    position: Some(("triage", "b")),
+                    rank_key: Some("b"),
                 },
                 GroupRowSpec {
                     page_id: "page:row-e",
                     title: "Null value",
                     value_json: Some("null"),
-                    position: None,
+                    rank_key: None,
                 },
                 GroupRowSpec {
                     page_id: "page:row-f",
                     title: "No value row",
                     value_json: None,
-                    position: None,
+                    rank_key: None,
                 },
                 GroupRowSpec {
                     page_id: "page:row-g",
                     title: "List value",
                     value_json: Some("[\"x\"]"),
-                    position: None,
+                    rank_key: None,
                 },
                 GroupRowSpec {
                     page_id: "page:row-h",
                     title: "Empty list value",
                     value_json: Some("[]"),
-                    position: None,
+                    rank_key: None,
                 },
             ],
         );
@@ -3423,8 +4167,8 @@ mod tests {
             vec![
                 (Some("[\"x\"]".to_owned()), 1),
                 (Some("done".to_owned()), 1),
-                (Some("triage".to_owned()), 2),
-                (None, 4),
+                (Some("triage".to_owned()), 1),
+                (None, 5),
             ],
         );
 
@@ -3435,9 +4179,15 @@ mod tests {
             .groups
             .iter()
             .filter_map(|group| group.group_key.clone())
-            .map(|key| DatabaseGroupScope::Key { key })
+            .map(|key| DatabaseGroupScope::Path {
+                group_key: Some(key),
+                subgroup_key: None,
+            })
             .collect::<Vec<_>>();
-        scopes.push(DatabaseGroupScope::Unassigned);
+        scopes.push(DatabaseGroupScope::Path {
+            group_key: None,
+            subgroup_key: None,
+        });
         for scope in &scopes {
             let mut cursor = None;
             loop {
@@ -3463,8 +4213,9 @@ mod tests {
             &module,
             200,
             None,
-            Some(DatabaseGroupScope::Key {
-                key: "triage".to_owned(),
+            Some(DatabaseGroupScope::Path {
+                group_key: Some("triage".to_owned()),
+                subgroup_key: None,
             }),
         )
         .expect("triage window");
@@ -3475,7 +4226,7 @@ mod tests {
                 .iter()
                 .map(|row| row.page_id.as_str())
                 .collect::<Vec<_>>(),
-            vec!["page:row-a", "page:row-d"],
+            vec!["page:row-a"],
         );
         assert!(
             triage
@@ -3486,22 +4237,27 @@ mod tests {
         );
 
         // A cursor minted for one scope is a different query for another scope.
-        let triage_first = read_view_window(
+        let unassigned_first = read_view_window(
             &module,
             1,
             None,
-            Some(DatabaseGroupScope::Key {
-                key: "triage".to_owned(),
+            Some(DatabaseGroupScope::Path {
+                group_key: None,
+                subgroup_key: None,
             }),
         )
-        .expect("triage first window");
-        let triage_cursor = triage_first.rows.next_cursor.expect("triage continuation");
+        .expect("unassigned first window");
+        let unassigned_cursor = unassigned_first
+            .rows
+            .next_cursor
+            .expect("unassigned continuation");
         let cross_scope = read_view_window(
             &module,
             1,
-            Some(triage_cursor),
-            Some(DatabaseGroupScope::Key {
-                key: "done".to_owned(),
+            Some(unassigned_cursor),
+            Some(DatabaseGroupScope::Path {
+                group_key: Some("triage".to_owned()),
+                subgroup_key: None,
             }),
         )
         .expect_err("cross-scope cursor must be rejected");
@@ -3522,12 +4278,456 @@ mod tests {
                         sort: None,
                         window: None,
                         page_ids: None,
-                        group_scope: Some(DatabaseGroupScope::Unassigned),
+                        group_scope: Some(DatabaseGroupScope::Path {
+                            group_key: None,
+                            subgroup_key: None,
+                        }),
                     },
                 },
             )
             .expect_err("group scope outside view_window must be rejected");
         assert_eq!(wrong_mode.code, CoreErrorCode::InvalidInput);
+    }
+
+    #[test]
+    fn workflow_status_transitions_maintain_membership_completion_time() {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        let kernel = SqliteStoreKernel::open_test(&home).expect("fresh store");
+        let module = seed_grouped_fixture(
+            &kernel,
+            vec![GroupRowSpec {
+                page_id: "page:completion-transition",
+                title: "Completion transition",
+                value_json: Some("\"triage\""),
+                rank_key: Some("a"),
+            }],
+        );
+        let write_status = |operation_id: &str, revision: i64, option_id: &str| {
+            module
+                .apply(
+                    &context(),
+                    ModuleApplyRequest {
+                        contract_version: DATABASE_CONTRACT_VERSION,
+                        operation_id: operation_id.to_owned(),
+                        store_epoch: StoreEpoch("epoch-1".to_owned()),
+                        intent: vec![DatabaseIntent::EditPropertyValues {
+                            edits: vec![DatabasePropertyValueMutation {
+                                address: DatabasePagePropertyAddress {
+                                    page_id: "page:completion-transition".to_owned(),
+                                    data_source_id: SOURCE_ID.to_owned(),
+                                    property_id: "status".to_owned(),
+                                },
+                                edit: DatabasePropertyValueEdit::Replace {
+                                    expected_value_revision: revision,
+                                    value: DatabasePropertyValueInput::Select {
+                                        option_id: option_id.to_owned(),
+                                    },
+                                },
+                            }],
+                        }],
+                    },
+                )
+                .expect("write workflow status");
+        };
+        let read_completed_at = || {
+            kernel
+                .readers()
+                .read_default(|connection| {
+                    connection
+                        .query_row(
+                            "SELECT completed_at FROM data_source_page_memberships \
+                             WHERE page_block_id = 'page:completion-transition' \
+                               AND removed_at IS NULL",
+                            [],
+                            |row| row.get::<_, Option<String>>(0),
+                        )
+                        .map_err(StoreError::from)
+                })
+                .expect("read completion timestamp")
+        };
+
+        write_status("operation:complete", 1, "ship");
+        let completed_at = read_completed_at().expect("completion timestamp");
+        assert!(completed_at.ends_with('Z'));
+        write_status("operation:repeat-complete", 2, "ship");
+        assert_eq!(read_completed_at().as_deref(), Some(completed_at.as_str()));
+        write_status("operation:reopen", 3, "build");
+        assert_eq!(read_completed_at(), None);
+    }
+
+    #[test]
+    fn completed_ranges_and_recency_share_the_effective_view_projection() {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        let kernel = SqliteStoreKernel::open_test(&home).expect("fresh store");
+        let module = seed_grouped_fixture(
+            &kernel,
+            vec![
+                GroupRowSpec {
+                    page_id: "page:active",
+                    title: "Active",
+                    value_json: Some("\"triage\""),
+                    rank_key: Some("c"),
+                },
+                GroupRowSpec {
+                    page_id: "page:recently-completed",
+                    title: "Recent",
+                    value_json: Some("\"ship\""),
+                    rank_key: Some("b"),
+                },
+                GroupRowSpec {
+                    page_id: "page:older-completed",
+                    title: "Older",
+                    value_json: Some("\"ship\""),
+                    rank_key: Some("a"),
+                },
+            ],
+        );
+        let today = chrono::Utc::now()
+            .format("%Y-%m-%dT12:00:00.000Z")
+            .to_string();
+        let older = (chrono::Utc::now() - chrono::Duration::days(2))
+            .format("%Y-%m-%dT12:00:00.000Z")
+            .to_string();
+        kernel
+            .writer()
+            .call(move |connection| {
+                connection.execute(
+                    "UPDATE data_source_page_memberships SET completed_at = ?1 \
+                     WHERE page_block_id = 'page:recently-completed'",
+                    [today],
+                )?;
+                connection.execute(
+                    "UPDATE data_source_page_memberships SET completed_at = ?1 \
+                     WHERE page_block_id = 'page:older-completed'",
+                    [older],
+                )?;
+                Ok(())
+            })
+            .expect("seed completion times");
+
+        let read_presented = |range, order_by_recency| {
+            let snapshot = module
+                .read(
+                    &context(),
+                    ModuleReadRequest {
+                        contract_version: DATABASE_CONTRACT_VERSION,
+                        read: DatabaseRead {
+                            target: DatabaseTarget::PresentedView {
+                                view_id: VIEW_ID.to_owned(),
+                                presentation_override: DatabaseViewPresentationOverrideInput {
+                                    layout: None,
+                                    sort: None,
+                                    group: Some(DatabaseViewGroupOverrideInput::None),
+                                    subgroup: None,
+                                    group_direction: None,
+                                    completion: Some(DatabaseViewCompletionOverrideInput {
+                                        range: Some(range),
+                                        order_by_recency: Some(order_by_recency),
+                                    }),
+                                    hierarchy: None,
+                                    layouts: None,
+                                },
+                            },
+                            mode: DatabaseReadMode::ViewWindow,
+                            filter: None,
+                            sort: None,
+                            window: Some(Default::default()),
+                            page_ids: None,
+                            group_scope: None,
+                        },
+                    },
+                )
+                .expect("read effective completion projection");
+            let DatabaseReadValue::ViewWindow { value } = snapshot.value else {
+                panic!("View window value");
+            };
+            value
+                .rows
+                .items
+                .into_iter()
+                .map(|row| row.page_id)
+                .collect::<Vec<_>>()
+        };
+
+        assert_eq!(
+            read_presented(DatabaseViewCompletedRangeInput::None, false),
+            vec!["page:active"]
+        );
+        assert_eq!(
+            read_presented(DatabaseViewCompletedRangeInput::PastDay, false),
+            vec!["page:recently-completed", "page:active"]
+        );
+        assert_eq!(
+            read_presented(DatabaseViewCompletedRangeInput::All, true),
+            vec![
+                "page:active",
+                "page:recently-completed",
+                "page:older-completed"
+            ]
+        );
+    }
+
+    #[test]
+    fn subgroup_paths_and_finite_empty_groups_share_one_bounded_projection() {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        let kernel = SqliteStoreKernel::open_test(&home).expect("fresh store");
+        let module = seed_grouped_fixture(
+            &kernel,
+            vec![
+                GroupRowSpec {
+                    page_id: "page:triage-high",
+                    title: "Triage high",
+                    value_json: Some("\"triage\""),
+                    rank_key: Some("a"),
+                },
+                GroupRowSpec {
+                    page_id: "page:triage-medium",
+                    title: "Triage medium",
+                    value_json: Some("\"triage\""),
+                    rank_key: Some("b"),
+                },
+                GroupRowSpec {
+                    page_id: "page:ship-high",
+                    title: "Ship high",
+                    value_json: Some("\"ship\""),
+                    rank_key: Some("c"),
+                },
+            ],
+        );
+        kernel
+            .writer()
+            .call(|connection| {
+                for (page_id, priority) in [
+                    ("page:triage-high", "p1-high"),
+                    ("page:triage-medium", "p2-medium"),
+                    ("page:ship-high", "p1-high"),
+                ] {
+                    let membership_id = format!("membership:{page_id}");
+                    connection.execute(
+                        "INSERT INTO data_source_property_values(\
+                           data_source_id, membership_id, property_id, value_type, value_json, \
+                           revision, updated_at\
+                         ) VALUES (?1, ?2, 'priority', 'select', ?3, 1, ?4)",
+                        params![
+                            SOURCE_ID,
+                            membership_id,
+                            serde_json::to_string(priority).expect("priority JSON"),
+                            NOW
+                        ],
+                    )?;
+                    connection.execute(
+                        "UPDATE page_read_model SET database_values_json = \
+                           json_set(database_values_json, '$.priority', ?1) \
+                         WHERE page_block_id = ?2",
+                        params![priority, page_id],
+                    )?;
+                }
+                Ok(())
+            })
+            .expect("seed subgroup values");
+        let presentation_override = DatabaseViewPresentationOverrideInput {
+            layout: Some(DatabaseViewLayoutInput::Board),
+            sort: None,
+            group: None,
+            subgroup: Some(DatabaseViewGroupOverrideInput::Property {
+                property_id: "priority".to_owned(),
+            }),
+            group_direction: None,
+            completion: None,
+            hierarchy: None,
+            layouts: Some(DatabaseViewLayoutsOverrideInput {
+                board: Some(DatabaseViewLayoutDisplayOverrideInput {
+                    fields: None,
+                    show_empty_groups: Some(true),
+                }),
+                list: None,
+            }),
+        };
+        let groups_snapshot = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    read: DatabaseRead {
+                        target: DatabaseTarget::PresentedView {
+                            view_id: VIEW_ID.to_owned(),
+                            presentation_override: presentation_override.clone(),
+                        },
+                        mode: DatabaseReadMode::ViewGroups,
+                        filter: None,
+                        sort: None,
+                        window: None,
+                        page_ids: None,
+                        group_scope: None,
+                    },
+                },
+            )
+            .expect("read subgroup hierarchy");
+        let DatabaseReadValue::ViewGroups { value: groups } = groups_snapshot.value else {
+            panic!("View groups value");
+        };
+        assert!(groups.grouped);
+        assert!(groups.subgrouped);
+        assert!(!groups.truncated);
+        assert_eq!(groups.group_limit, 200);
+        assert_eq!(groups.total_groups, 20);
+        assert_eq!(groups.groups.len(), 20);
+        assert_eq!(
+            groups
+                .groups
+                .iter()
+                .find(|group| {
+                    group.group_key.as_deref() == Some("triage")
+                        && group.subgroup_key.as_deref() == Some("p1-high")
+                })
+                .map(|group| group.total_rows),
+            Some(1)
+        );
+        assert_eq!(
+            groups
+                .groups
+                .iter()
+                .find(|group| {
+                    group.group_key.as_deref() == Some("build")
+                        && group.subgroup_key.as_deref() == Some("p3-low")
+                })
+                .map(|group| group.total_rows),
+            Some(0)
+        );
+
+        let scoped = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    read: DatabaseRead {
+                        target: DatabaseTarget::PresentedView {
+                            view_id: VIEW_ID.to_owned(),
+                            presentation_override: presentation_override.clone(),
+                        },
+                        mode: DatabaseReadMode::ViewWindow,
+                        filter: None,
+                        sort: None,
+                        window: Some(Default::default()),
+                        page_ids: None,
+                        group_scope: Some(DatabaseGroupScope::Path {
+                            group_key: Some("triage".to_owned()),
+                            subgroup_key: Some("p2-medium".to_owned()),
+                        }),
+                    },
+                },
+            )
+            .expect("read one subgroup path");
+        let DatabaseReadValue::ViewWindow { value: scoped } = scoped.value else {
+            panic!("View window value");
+        };
+        assert_eq!(scoped.rows.items.len(), 1);
+        assert_eq!(scoped.rows.items[0].page_id, "page:triage-medium");
+        assert_eq!(
+            scoped.rows.items[0].effective_subgroup_key.as_deref(),
+            Some("p2-medium")
+        );
+
+        kernel
+            .writer()
+            .call(|connection| {
+                let options = |prefix: &str, pinned: &[&str]| {
+                    (0..15)
+                        .map(|index| {
+                            let id = pinned
+                                .get(index)
+                                .map_or_else(|| format!("{prefix}-{index}"), |id| (*id).to_owned());
+                            json!({ "id": id, "name": format!("Option {index}") })
+                        })
+                        .collect::<Vec<_>>()
+                };
+                connection.execute(
+                    "UPDATE data_source_properties SET config_json = ?1 \
+                     WHERE data_source_id = ?2 AND id = 'status'",
+                    params![
+                        json!({ "options": options("status", &["triage", "ship"]) }).to_string(),
+                        SOURCE_ID
+                    ],
+                )?;
+                connection.execute(
+                    "UPDATE data_source_properties SET config_json = ?1 \
+                     WHERE data_source_id = ?2 AND id = 'priority'",
+                    params![
+                        json!({ "options": options("priority", &["p1-high", "p2-medium"]) })
+                            .to_string(),
+                        SOURCE_ID
+                    ],
+                )?;
+                Ok(())
+            })
+            .expect("expand finite option domains");
+        let bounded = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    read: DatabaseRead {
+                        target: DatabaseTarget::PresentedView {
+                            view_id: VIEW_ID.to_owned(),
+                            presentation_override,
+                        },
+                        mode: DatabaseReadMode::ViewGroups,
+                        filter: None,
+                        sort: None,
+                        window: None,
+                        page_ids: None,
+                        group_scope: None,
+                    },
+                },
+            )
+            .expect("read bounded empty group combinations");
+        let DatabaseReadValue::ViewGroups { value: bounded } = bounded.value else {
+            panic!("View groups value");
+        };
+        assert!(bounded.truncated);
+        assert_eq!(bounded.group_limit, 200);
+        assert_eq!(bounded.total_groups, 225);
+        assert_eq!(bounded.groups.len(), 200);
+
+        let invalid_override = DatabaseViewPresentationOverrideInput {
+            layout: None,
+            sort: None,
+            group: None,
+            subgroup: Some(DatabaseViewGroupOverrideInput::Property {
+                property_id: "deleted-property".to_owned(),
+            }),
+            group_direction: None,
+            completion: None,
+            hierarchy: None,
+            layouts: None,
+        };
+        let invalid = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    read: DatabaseRead {
+                        target: DatabaseTarget::PresentedView {
+                            view_id: VIEW_ID.to_owned(),
+                            presentation_override: invalid_override,
+                        },
+                        mode: DatabaseReadMode::ViewGroups,
+                        filter: None,
+                        sort: None,
+                        window: None,
+                        page_ids: None,
+                        group_scope: None,
+                    },
+                },
+            )
+            .expect("normalize stale subgroup property");
+        let DatabaseReadValue::ViewGroups { value: invalid } = invalid.value else {
+            panic!("View groups value");
+        };
+        assert!(!invalid.subgrouped);
     }
 
     #[test]
@@ -3541,7 +4741,7 @@ mod tests {
                 page_id: "page:row-a",
                 title: "Only row",
                 value_json: Some("\"triage\""),
-                position: Some(("triage", "a")),
+                rank_key: Some("a"),
             }],
         );
         const FLAT_VIEW_ID: &str = "018f1000-0000-7000-8000-00000000000f";
@@ -3550,10 +4750,10 @@ mod tests {
             .call(|connection| {
                 connection.execute(
                     "INSERT INTO database_views(\
-                       id, database_block_id, data_source_id, name, kind, config_json, revision, \
+                       id, database_block_id, data_source_id, name, default_layout, config_json, revision, \
                        rank_key, lifecycle, created_at, updated_at\
                      ) SELECT ?1, database_block_id, data_source_id, 'Flat', 'list', \
-                       json_set(config_json, '$.group', json('null')), 1, 'z', 'active', \
+                       json_set(config_json, '$.presentation.group', json('null')), 1, 'z', 'active', \
                        created_at, updated_at \
                      FROM database_views WHERE id = ?2",
                     params![FLAT_VIEW_ID, VIEW_ID],
@@ -3576,7 +4776,10 @@ mod tests {
                         sort: None,
                         window: Some(Default::default()),
                         page_ids: None,
-                        group_scope: Some(DatabaseGroupScope::Unassigned),
+                        group_scope: Some(DatabaseGroupScope::Path {
+                            group_key: None,
+                            subgroup_key: None,
+                        }),
                     },
                 },
             )

@@ -441,14 +441,14 @@ fn visit_scheduled_rows(
         "WITH ranked_positions AS ( \
            SELECT view.database_block_id, view.data_source_id, position.page_block_id, \
              CAST(ROW_NUMBER() OVER ( \
-               PARTITION BY view.id, position.group_key \
+               PARTITION BY view.id \
                ORDER BY position.rank_key, position.page_block_id \
              ) - 1 AS INTEGER) AS view_order \
            FROM database_views view \
            JOIN database_containers container \
              ON container.default_view_id = view.id AND container.block_id = view.database_block_id \
            JOIN database_view_page_positions position ON position.view_id = view.id \
-           WHERE view.kind = 'kanban' AND view.lifecycle = 'active' \
+           WHERE view.default_layout = 'board' AND view.lifecycle = 'active' \
          ) \
          SELECT schedule.page_block_id, schedule.project_id, schedule.lifecycle, block.lifecycle, \
            block.metadata_revision, schedule.source_metadata_revision, schedule.scheduled_start, \

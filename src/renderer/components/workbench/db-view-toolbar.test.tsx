@@ -1,9 +1,4 @@
-import {
-  CalendarIcon,
-  CanvasIcon,
-  BoardIcon,
-  DatabaseIcon,
-} from "@/components/shared/icons";
+import { CanvasIcon, BoardIcon, DatabaseIcon } from "@/components/shared/icons";
 import { describe, expect, test, vi } from "vitest";
 import { createRef } from "react";
 import { fireEvent } from "@testing-library/react";
@@ -20,7 +15,7 @@ type DbViewToolbarItem = {
 
 const ITEMS: DbViewToolbarItem[] = [
   {
-    id: "kanban",
+    id: "board",
     label: "Board",
     icon: BoardIcon,
     active: true,
@@ -28,20 +23,8 @@ const ITEMS: DbViewToolbarItem[] = [
   },
   {
     id: "list",
-    label: "Table",
+    label: "List",
     icon: DatabaseIcon,
-    onSelect: () => undefined,
-  },
-  {
-    id: "toggle-list",
-    label: "Table",
-    icon: DatabaseIcon,
-    onSelect: () => undefined,
-  },
-  {
-    id: "calendar",
-    label: "Calendar",
-    icon: CalendarIcon,
     onSelect: () => undefined,
   },
 ];
@@ -50,10 +33,6 @@ const BASE_PROPS = {
   items: ITEMS,
   searchShortcutLabel: "Ctrl+F",
   taskSearchInputRef: createRef<HTMLInputElement>(),
-  rulesView: null,
-  dbViewPrefs: null,
-  availableTags: [],
-  onUpdateDbViewPrefs: null,
   onSearchQueryChange: () => undefined,
   onOpenTaskSearch: () => undefined,
   onCloseTaskSearch: () => undefined,
@@ -85,8 +64,7 @@ describe("DbViewToolbar", () => {
     expect(getByTestId(DB_VIEW_TOOLBAR_TEST_ID).getAttribute("data-testid")).toBe(DB_VIEW_TOOLBAR_TEST_ID);
     expect(getByLabelText("Database views").getAttribute("aria-label")).toBe("Database views");
     expect(getByText("Board").textContent).toBe("Board");
-    expect(container.querySelectorAll('[aria-label="Table"]').length).toBe(2);
-    expect(getByText("Calendar").textContent).toBe("Calendar");
+    expect(getByText("List").textContent).toBe("List");
     expect(container.querySelectorAll('[data-tab-label-visible="true"]').length).toBe(1);
     expect(getByLabelText("Search").getAttribute("aria-label")).toBe("Search");
     expect(getByTestId(DB_VIEW_TOOLBAR_TEST_ID).querySelector('[aria-hidden="true"]') !== null).toBe(true);
@@ -161,108 +139,23 @@ describe("DbViewToolbar", () => {
     expect(textContent(container).includes("bugfix")).toBe(false);
   });
 
-  test("renders the active rules summary row for supported views", async () => {
+  test("renders durable Filter and Display controls supplied by the View runtime", async () => {
     const { DbViewToolbar } = await import("./db-view-toolbar");
-    const { getDefaultDbViewPrefs } = await import("../../lib/db-view-prefs");
-    const prefs = getDefaultDbViewPrefs("kanban");
-    prefs.rules.filter.any[0]!.all[0] = {
-      field: "status",
-      op: "in",
-      values: ["plan", "build"],
-    };
-
-    const { container, getByText } = render(
+    const { getByRole } = render(
       <DbViewToolbar
         {...BASE_PROPS}
         activeSearchQuery=""
         taskSearchOpen={false}
-        rulesView="kanban"
-        dbViewPrefs={prefs}
-        onUpdateDbViewPrefs={() => undefined}
+        databaseViewControls={(
+          <>
+            <button type="button">Filter View</button>
+            <button type="button">Display options</button>
+          </>
+        )}
       />,
     );
 
-    expect(getByText("Board Order").textContent).toBe("Board Order");
-    expect(textContent(container).includes("Status")).toBe(true);
-    expect(textContent(container).includes("Plan, Build")).toBe(true);
-    expect(textContent(container).includes("Ascending")).toBe(false);
-  });
-
-  test("collapses multiple active sorts into a single count chip", async () => {
-    const { DbViewToolbar } = await import("./db-view-toolbar");
-    const { getDefaultDbViewPrefs } = await import("../../lib/db-view-prefs");
-    const prefs = getDefaultDbViewPrefs("toggle-list");
-    prefs.rules.sort = [
-      { field: "priority", direction: "asc" },
-      { field: "estimate", direction: "desc" },
-    ];
-    prefs.rules.filter.any[0]!.all[1] = {
-      field: "priority",
-      op: "in",
-      values: ["p0-critical", "p1-high"],
-    };
-
-    const { container, getByText } = render(
-      <DbViewToolbar
-        {...BASE_PROPS}
-        activeSearchQuery=""
-        taskSearchOpen={false}
-        rulesView="toggle-list"
-        dbViewPrefs={prefs}
-        onUpdateDbViewPrefs={() => undefined}
-      />,
-    );
-
-    expect(getByText("2 sorts").textContent).toBe("2 sorts");
-    expect(textContent(container).includes("Priority")).toBe(true);
-    expect(textContent(container).includes("P0, P1")).toBe(true);
-    expect(textContent(container).includes("Ascending")).toBe(false);
-    expect(textContent(container).includes("Descending")).toBe(false);
-  });
-
-  test("shows empty-first sort placement in the single-sort summary label", async () => {
-    const { DbViewToolbar } = await import("./db-view-toolbar");
-    const { getDefaultDbViewPrefs } = await import("../../lib/db-view-prefs");
-    const prefs = getDefaultDbViewPrefs("toggle-list");
-    prefs.rules.sort = [{ field: "priority", direction: "asc", emptyPlacement: "first" }];
-
-    const { container } = render(
-      <DbViewToolbar
-        {...BASE_PROPS}
-        activeSearchQuery=""
-        taskSearchOpen={false}
-        rulesView="toggle-list"
-        dbViewPrefs={prefs}
-        onUpdateDbViewPrefs={() => undefined}
-      />,
-    );
-
-    expect(textContent(container).includes("Priority · Empty First")).toBe(true);
-  });
-
-  test("renders empty priority in the summary row when selected explicitly", async () => {
-    const { DbViewToolbar } = await import("./db-view-toolbar");
-    const { getDefaultDbViewPrefs } = await import("../../lib/db-view-prefs");
-    const prefs = getDefaultDbViewPrefs("toggle-list");
-    prefs.rules.filter.any[0]!.all[1] = {
-      field: "priority",
-      op: "in",
-      values: ["p0-critical"],
-      includeEmpty: true,
-    };
-
-    const { container } = render(
-      <DbViewToolbar
-        {...BASE_PROPS}
-        activeSearchQuery=""
-        taskSearchOpen={false}
-        rulesView="toggle-list"
-        dbViewPrefs={prefs}
-        onUpdateDbViewPrefs={() => undefined}
-      />,
-    );
-
-    expect(textContent(container).includes("Priority")).toBe(true);
-    expect(textContent(container).includes("P0, -")).toBe(true);
+    expect(getByRole("button", { name: "Filter View" })).toBeTruthy();
+    expect(getByRole("button", { name: "Display options" })).toBeTruthy();
   });
 });

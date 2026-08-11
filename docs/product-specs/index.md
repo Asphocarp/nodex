@@ -18,7 +18,7 @@
 | scheduled-route-behavior.md | Active | 2026-08-12 | Focused contract for Scheduled route navigation, task/template lists, drafts, previous runs, save guards, and deletion |
 | settings-route-behavior.md | Active | 2026-08-12 | Focused contract for Settings routing, canonical section catalog, local search, shared page composition, and feature deep links |
 | review-right-panel-behavior.md | Active | 2026-06-09 | Detailed Review right-panel contract for toolbar controls, diff sources, Git IPC, large-diff limits, file tree behavior, and code-comment annotations |
-| kanban-drag-and-drop-behavior.md | Active | 2026-03-17 | Detailed Kanban DnD contract covering same-column reorder, filtered/sorted behavior, editor interop, and persistence invariants |
+| board-drag-and-drop-behavior.md | Active | 2026-03-17 | Detailed Board DnD contract covering same-column reorder, filtered/sorted behavior, editor interop, and persistence invariants |
 | command-palette-behavior.md | Active | 2026-03-14 | Detailed command-palette launch, mode switching, ranking, previews, highlights, and execution behavior |
 | description-history-revisions.md | Active | 2026-03-11 | Detailed storage, migration, hydration, pruning, and disk-reclamation behavior for revision-based card description history |
 | nfm-editor-autolink-behavior.md | Active | 2026-03-10 | Detailed autolink behavior for typing and paste in the NFM editor, including settings, strict bare-domain rules, and separator-aware path protection |

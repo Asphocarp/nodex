@@ -75,6 +75,7 @@ export function AppUpdateStatusProvider({ children }: AppProvidersProps) {
   const [status, setStatus] = useState<AppUpdateStatus>(INITIAL_APP_UPDATE_STATUS);
 
   useEffect(() => {
+    if (window.__NODEX_STORYBOOK__ === true) return;
     let cancelled = false;
     let observedPush = false;
     const unsubscribe = subscribeAppUpdateStatus((nextStatus) => {

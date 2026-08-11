@@ -70,7 +70,7 @@ import type {
 } from "@/components/workbench/workbench-page-stage-panel";
 import type {
   OpenPageStageOptions,
-} from "@/components/kanban/open-page-stage";
+} from "@/components/board/open-page-stage";
 import type {
   CodexCollaborationModeKind,
   PanelId,

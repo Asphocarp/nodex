@@ -1,8 +1,9 @@
 import { describe, expect, test } from "vitest";
 import type {
   DatabaseViewFilterNode,
-  DatabaseViewConfigV2,
+  DatabaseViewConfigV4,
 } from "../../shared/database-kernel";
+import { upgradeDatabaseViewConfigV2 } from "../../shared/database-view-presentation";
 import type {
   DatabaseViewRecordV2,
   DataSourcePropertyRecordV2,
@@ -54,15 +55,15 @@ const view = (id: string): DatabaseViewRecordV2 => ({
   databaseId: parseDatabaseId("database-1"),
   dataSourceId: parseDataSourceId("source-1"),
   name: id,
-  kind: "list",
-  config: {
+  defaultLayout: "list",
+  config: upgradeDatabaseViewConfigV2({
     schemaKey: "nodex.database-view",
     schemaVersion: 2,
     filter: { kind: "group", operator: "and", children: [] },
     sort: [],
     group: null,
     display: { propertyIds: [], showTitle: true },
-  },
+  }),
   isDefault: id === "a",
   revision: 1,
   rankKey: id,
@@ -118,7 +119,7 @@ describe("durable Database View authoring", () => {
   });
 
   test("compares canonical configs and reorders sort precedence", () => {
-    const base: DatabaseViewConfigV2 = {
+    const base: DatabaseViewConfigV4 = upgradeDatabaseViewConfigV2({
       schemaKey: "nodex.database-view",
       schemaVersion: 2,
       filter: { kind: "group", operator: "and", children: [] },
@@ -128,10 +129,19 @@ describe("durable Database View authoring", () => {
       ],
       group: null,
       display: { propertyIds: [], showTitle: true },
-    };
-    const moved = moveDatabaseViewSort(base.sort, 1, "up");
+    });
+    const moved = moveDatabaseViewSort(base.presentation.sort, 1, "up");
     expect(moved[0]?.field.kind).toBe("manual");
-    expect(databaseViewConfigsEqual(base, { ...base, sort: [...base.sort] })).toBe(true);
-    expect(databaseViewConfigsEqual(base, { ...base, sort: moved })).toBe(false);
+    expect(databaseViewConfigsEqual(base, {
+      ...base,
+      presentation: {
+        ...base.presentation,
+        sort: [...base.presentation.sort],
+      },
+    })).toBe(true);
+    expect(databaseViewConfigsEqual(base, {
+      ...base,
+      presentation: { ...base.presentation, sort: moved },
+    })).toBe(false);
   });
 });

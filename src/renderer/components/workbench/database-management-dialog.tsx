@@ -1,4 +1,4 @@
-import { CalendarIcon, DatabaseIcon, PlusIcon } from "@/components/shared/icons";
+import { DatabaseIcon, PlusIcon } from "@/components/shared/icons";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   ArrowDown,
@@ -9,11 +9,11 @@ import {
   Trash2,
 } from "@/components/shared/icons/generic-icons";
 import {
-  databaseViewReferencedPropertyIds,
+  databaseViewReferencedPropertyIdsV4,
   type DatabasePropertyOption,
   type DatabasePropertyValueType,
-  type DatabaseViewConfigV2,
-  type DatabaseViewKind,
+  type DatabaseViewConfigV4,
+  type DatabaseViewLayout,
 } from "../../../shared/database-kernel";
 import type {
   DatabaseContainerDescriptorV2,
@@ -33,12 +33,9 @@ import {
   databaseViewMoveBeforeId,
   readDatabasePropertyOptions,
 } from "@/lib/database-view-authoring";
-import {
-  calendarPresentationFeature,
-  type CalendarPresentationFeature,
-} from "@/lib/calendar-presentation-feature";
 import { cn } from "@/lib/utils";
 import { DatabaseViewConfigEditor } from "./database-view-config-editor";
+import { DatabaseViewSelect } from "./database-view-select";
 import {
   DATA_SOURCE_PROPERTY_TYPE_LABELS,
   dataSourcePropertyTypeIcon,
@@ -55,13 +52,13 @@ export interface CreateDatabaseViewDraft {
   readonly databaseId: string;
   readonly dataSourceId: string;
   readonly name: string;
-  readonly kind: DatabaseViewKind;
+  readonly defaultLayout: DatabaseViewLayout;
 }
 
 export interface UpdateDatabaseViewDraft extends CreateDatabaseViewDraft {
   readonly viewId: string;
   readonly expectedRevision: number;
-  readonly config: DatabaseViewConfigV2;
+  readonly config: DatabaseViewConfigV4;
   /** Undefined preserves placement; null appends. */
   readonly beforeViewId?: string | null;
 }
@@ -78,7 +75,6 @@ export interface DatabaseManagementSurfaceProps {
   readonly selectedDatabaseId: string | null;
   readonly busy?: boolean;
   readonly error?: string | null;
-  readonly calendarPresentation?: CalendarPresentationFeature;
   readonly onSelectDatabase: (databaseId: string) => void;
   readonly onCreateProperty: (
     draft: CreateDatabasePropertyDraft,
@@ -118,44 +114,16 @@ const PROPERTY_TYPES: readonly {
   })),
 ];
 
-const VIEW_KINDS: readonly {
-  readonly value: DatabaseViewKind;
+const VIEW_LAYOUTS: readonly {
+  readonly value: DatabaseViewLayout;
   readonly label: string;
 }[] = [
   { value: "list", label: "List" },
-  { value: "kanban", label: "Board" },
-  { value: "calendar", label: "Calendar" },
+  { value: "board", label: "Board" },
 ];
 
-const authorableViewKinds = (
-  feature: CalendarPresentationFeature,
-): typeof VIEW_KINDS => {
-  if (feature.enabled) return VIEW_KINDS;
-  return VIEW_KINDS.filter((kind) => kind.value !== "calendar");
-};
-
-const editableViewKinds = (
-  feature: CalendarPresentationFeature,
-  currentKind: DatabaseViewKind,
-): readonly (typeof VIEW_KINDS[number] & { readonly disabled?: boolean })[] => {
-  const authorable = authorableViewKinds(feature);
-  if (feature.enabled || currentKind !== "calendar") return authorable;
-  return [
-    ...authorable,
-    { value: "calendar", label: "Calendar (temporarily unavailable)", disabled: true },
-  ];
-};
-
-const viewKindIcon = (kind: DatabaseViewKind) => {
-  switch (kind) {
-    case "kanban":
-      return Columns3;
-    case "calendar":
-      return CalendarIcon;
-    case "list":
-      return List;
-  }
-};
+const viewLayoutIcon = (layout: DatabaseViewLayout) =>
+  layout === "board" ? Columns3 : List;
 
 const submitTrimmed = (
   event: FormEvent<HTMLFormElement>,
@@ -192,7 +160,6 @@ export function DatabaseManagementSurface({
   selectedDatabaseId,
   busy = false,
   error = null,
-  calendarPresentation = calendarPresentationFeature,
   onSelectDatabase,
   onCreateProperty,
   onDeleteProperty,
@@ -211,14 +178,14 @@ export function DatabaseManagementSurface({
   const [relationTargetDataSourceId, setRelationTargetDataSourceId] =
     useState<string>("");
   const [viewName, setViewName] = useState("");
-  const [viewKind, setViewKind] = useState<DatabaseViewKind>("list");
+  const [viewLayout, setViewLayout] = useState<DatabaseViewLayout>("list");
   const [viewDrafts, setViewDrafts] = useState<Readonly<Record<
     string,
     {
       readonly baseRevision: number;
       readonly name: string;
-      readonly kind: DatabaseViewKind;
-      readonly config: DatabaseViewConfigV2;
+      readonly defaultLayout: DatabaseViewLayout;
+      readonly config: DatabaseViewConfigV4;
     }
   >>>({});
   const [expandedViewId, setExpandedViewId] = useState<string | null>(null);
@@ -229,10 +196,6 @@ export function DatabaseManagementSurface({
   const [pendingDeletePropertyId, setPendingDeletePropertyId] = useState<
     string | null
   >(null);
-  const availableViewKinds = authorableViewKinds(calendarPresentation);
-  const newViewKind = calendarPresentation.enabled || viewKind !== "calendar"
-    ? viewKind
-    : "list";
 
   useEffect(() => {
     if (!descriptor) return;
@@ -342,7 +305,7 @@ export function DatabaseManagementSurface({
                   const deletePending = pendingDeletePropertyId
                     === property.propertyId;
                   const blockingViews = activeViews.filter((view) =>
-                    databaseViewReferencedPropertyIds(view.config).includes(
+                    databaseViewReferencedPropertyIdsV4(view.config).includes(
                       property.propertyId,
                     ));
                   return (
@@ -497,37 +460,43 @@ export function DatabaseManagementSurface({
                     placeholder="New property"
                     className="h-8 min-w-0 flex-1 border-transparent bg-transparent text-sm focus:bg-token-input-background"
                   />
-                  <select
-                    aria-label="New property type"
+                  <DatabaseViewSelect
+                    ariaLabel="New property type"
                     value={propertyType}
+                    valueLabel={DATA_SOURCE_PROPERTY_TYPE_LABELS[propertyType]}
                     disabled={busy}
-                    onChange={(event) => setPropertyType(
-                      event.target.value as DatabasePropertyValueType,
+                    onValueChange={(value) => setPropertyType(
+                      value as DatabasePropertyValueType,
                     )}
-                    className="h-8 rounded-md border border-transparent bg-transparent px-2 text-xs text-token-text-secondary outline-none hover:bg-token-foreground/5 focus:border-token-focus-border"
-                  >
-                    {PROPERTY_TYPES.map((type) => (
-                      <option key={type.value} value={type.value}>{type.label}</option>
-                    ))}
-                  </select>
+                    options={PROPERTY_TYPES}
+                    chrome="transparent"
+                    className="h-8 min-w-28"
+                  />
                   {propertyType === "relation" ? (
-                    <select
-                      aria-label="Relation target database"
+                    <DatabaseViewSelect
+                      ariaLabel="Relation target database"
                       value={relationTargetDataSourceId || source.dataSource.dataSourceId}
+                      valueLabel={databases.flatMap((database) =>
+                        database.dataSources.map((dataSource) => ({
+                          dataSourceId: dataSource.dataSourceId,
+                          name: database.database.name,
+                        })))
+                        .find((candidate) => candidate.dataSourceId === (
+                          relationTargetDataSourceId || source.dataSource.dataSourceId
+                        ))?.name ?? "Current database"}
                       disabled={busy}
-                      onChange={(event) => setRelationTargetDataSourceId(event.target.value)}
-                      className="h-8 max-w-40 rounded-md border border-transparent bg-transparent px-2 text-xs text-token-text-secondary outline-none hover:bg-token-foreground/5 focus:border-token-focus-border"
-                    >
-                      {databases.flatMap((database) =>
+                      onValueChange={setRelationTargetDataSourceId}
+                      options={databases.flatMap((database) =>
                         database.dataSources
                           .filter((dataSource) => dataSource.lifecycle === "active")
-                          .map((dataSource) => (
-                            <option key={dataSource.dataSourceId} value={dataSource.dataSourceId}>
-                              {database.database.name}
-                            </option>
-                          ))
+                          .map((dataSource) => ({
+                            value: dataSource.dataSourceId,
+                            label: database.database.name,
+                          }))
                       )}
-                    </select>
+                      chrome="transparent"
+                      className="h-8 max-w-40"
+                    />
                   ) : null}
                   <NodexButton
                     type="submit"
@@ -554,7 +523,7 @@ export function DatabaseManagementSurface({
                   const storedDraft = viewDrafts[view.viewId];
                   const storedMatchesAuthority = storedDraft
                     ? storedDraft.name.trim() === view.name
-                      && storedDraft.kind === view.kind
+                      && storedDraft.defaultLayout === view.defaultLayout
                       && databaseViewConfigsEqual(storedDraft.config, view.config)
                     : false;
                   const draft = storedDraft && !storedMatchesAuthority
@@ -562,13 +531,13 @@ export function DatabaseManagementSurface({
                     : {
                         baseRevision: view.revision,
                         name: view.name,
-                        kind: view.kind,
+                        defaultLayout: view.defaultLayout,
                         config: view.config,
                       };
                   const stale = draft.baseRevision !== view.revision;
-                  const Icon = viewKindIcon(draft.kind);
+                  const Icon = viewLayoutIcon(draft.defaultLayout);
                   const changed = draft.name.trim() !== view.name
-                    || draft.kind !== view.kind
+                    || draft.defaultLayout !== view.defaultLayout
                     || !databaseViewConfigsEqual(draft.config, view.config);
                   const expanded = expandedViewId === view.viewId;
                   const moveUpBeforeId = databaseViewMoveBeforeId(
@@ -584,7 +553,7 @@ export function DatabaseManagementSurface({
                   const updateDraft = (
                     update: Partial<Pick<
                       typeof draft,
-                      "name" | "kind" | "config"
+                      "name" | "defaultLayout" | "config"
                     >>,
                   ) => setViewDrafts((current) => ({
                     ...current,
@@ -599,7 +568,7 @@ export function DatabaseManagementSurface({
                       viewId: view.viewId,
                       expectedRevision: draft.baseRevision,
                       name: draft.name.trim(),
-                      kind: draft.kind,
+                      defaultLayout: draft.defaultLayout,
                       config: draft.config,
                       ...(beforeViewId === undefined ? {} : { beforeViewId }),
                     });
@@ -617,25 +586,19 @@ export function DatabaseManagementSurface({
                           })}
                           className="h-8 min-w-0 flex-1 border-transparent bg-transparent text-sm focus:bg-token-input-background"
                         />
-                        <select
-                          aria-label={`View kind ${view.name}`}
-                          value={draft.kind}
+                        <DatabaseViewSelect
+                          ariaLabel={`Default layout ${view.name}`}
+                          value={draft.defaultLayout}
+                          valueLabel={VIEW_LAYOUTS.find((layout) =>
+                            layout.value === draft.defaultLayout)?.label ?? "List"}
                           disabled={busy || stale}
-                          onChange={(event) => updateDraft({
-                            kind: event.target.value as DatabaseViewKind,
+                          onValueChange={(value) => updateDraft({
+                            defaultLayout: value as DatabaseViewLayout,
                           })}
-                          className="h-8 rounded-md border border-transparent bg-transparent px-2 text-xs text-token-text-secondary outline-none hover:bg-token-foreground/5 focus:border-token-focus-border"
-                        >
-                          {editableViewKinds(calendarPresentation, draft.kind).map((kind) => (
-                            <option
-                              key={kind.value}
-                              value={kind.value}
-                              disabled={kind.disabled}
-                            >
-                              {kind.label}
-                            </option>
-                          ))}
-                        </select>
+                          options={VIEW_LAYOUTS}
+                          chrome="transparent"
+                          className="h-8 w-24"
+                        />
                         <NodexIconButton
                           icon={SlidersHorizontal}
                           size="xs"
@@ -718,6 +681,7 @@ export function DatabaseManagementSurface({
                         <div className="mb-2 bg-token-foreground/3 px-2">
                           <DatabaseViewConfigEditor
                             config={draft.config}
+                            layout={draft.defaultLayout}
                             properties={activeProperties}
                             disabled={busy || stale}
                             onChange={(config) => updateDraft({ config })}
@@ -737,7 +701,7 @@ export function DatabaseManagementSurface({
                         databaseId: descriptor.database.databaseId,
                         dataSourceId: source.dataSource.dataSourceId,
                         name,
-                        kind: newViewKind,
+                        defaultLayout: viewLayout,
                       });
                       setViewName("");
                     },
@@ -752,19 +716,19 @@ export function DatabaseManagementSurface({
                     placeholder="New View"
                     className="h-8 min-w-0 flex-1 border-transparent bg-transparent text-sm focus:bg-token-input-background"
                   />
-                  <select
-                    aria-label="New View kind"
-                    value={newViewKind}
+                  <DatabaseViewSelect
+                    ariaLabel="New View default layout"
+                    value={viewLayout}
+                    valueLabel={VIEW_LAYOUTS.find((layout) =>
+                      layout.value === viewLayout)?.label ?? "List"}
                     disabled={busy}
-                    onChange={(event) => setViewKind(
-                      event.target.value as DatabaseViewKind,
+                    onValueChange={(value) => setViewLayout(
+                      value as DatabaseViewLayout,
                     )}
-                    className="h-8 rounded-md border border-transparent bg-transparent px-2 text-xs text-token-text-secondary outline-none hover:bg-token-foreground/5 focus:border-token-focus-border"
-                  >
-                    {availableViewKinds.map((kind) => (
-                      <option key={kind.value} value={kind.value}>{kind.label}</option>
-                    ))}
-                  </select>
+                    options={VIEW_LAYOUTS}
+                    chrome="transparent"
+                    className="h-8 w-24"
+                  />
                   <NodexButton
                     type="submit"
                     size="xs"

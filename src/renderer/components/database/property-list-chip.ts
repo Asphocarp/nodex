@@ -1,0 +1,106 @@
+import { useSyncExternalStore } from "react";
+
+export const DATABASE_PROPERTY_LIST_CHIP_CLASS_NAME = [
+  "h-6 min-h-6 max-w-[290px] gap-1.5 overflow-hidden rounded-[48px] border-[0.5px]",
+  "border-[lch(84.44_0_282)] bg-[lch(97.94_0.5_282)] px-2",
+  "text-xs [font-weight:450] leading-normal text-[lch(39.176_1.25_282)]",
+  "hover:bg-[lch(95.94_0.5_282)] focus-visible:ring-1 focus-visible:ring-[lch(64_25_250)]",
+  "[&_svg]:size-3.5 [&_svg]:shrink-0",
+].join(" ");
+
+const DATABASE_PROPERTY_LIST_OPTION_COLORS: Readonly<Record<string, string>> = {
+  gray: "#A4A4A6",
+  default: "#A4A4A6",
+  brown: "#B18869",
+  orange: "#F67E49",
+  yellow: "#F8C531",
+  green: "#77D677",
+  blue: "#56ABFD",
+  purple: "#BB87FC",
+  pink: "#F84DD0",
+  red: "#D04A52",
+  teal: "#4ADAD3",
+  cyan: "#4ADAD3",
+};
+
+const DATABASE_PROPERTY_LIST_OPTION_PALETTE = [
+  "#9A48FF",
+  "#56ABFD",
+  "#4BB449",
+  "#E15F28",
+  "#F67E49",
+  "#CC05FF",
+  "#17A6A4",
+  "#9A3A63",
+  "#F84DD0",
+  "#1D8AF2",
+  "#F8C531",
+  "#BB87FC",
+  "#D04A52",
+  "#831FFF",
+  "#D09808",
+  "#B18869",
+  "#77D677",
+  "#A44907",
+  "#4ADAD3",
+  "#E166FF",
+  "#96D71E",
+] as const;
+
+const CSS_COLOR_FUNCTION_OR_HEX = /^(?:#|(?:rgb|hsl|hwb|lab|lch|oklab|oklch|color)\()/i;
+
+const stablePaletteIndex = (identity: string): number => {
+  let hash = 2_166_136_261;
+  for (const character of identity) {
+    hash ^= character.codePointAt(0) ?? 0;
+    hash = Math.imul(hash, 16_777_619);
+  }
+  return (hash >>> 0) % DATABASE_PROPERTY_LIST_OPTION_PALETTE.length;
+};
+
+export const databasePropertyListOptionDotColor = (
+  color: string | undefined,
+  identity: string,
+): string => {
+  const normalized = color?.trim();
+  if (normalized && CSS_COLOR_FUNCTION_OR_HEX.test(normalized)) return normalized;
+  if (normalized) {
+    const mapped = DATABASE_PROPERTY_LIST_OPTION_COLORS[normalized.toLocaleLowerCase()];
+    if (mapped) return mapped;
+  }
+  return DATABASE_PROPERTY_LIST_OPTION_PALETTE[stablePaletteIndex(identity)]!;
+};
+
+export const databasePropertyListInlineLabelLimit = (viewportWidth: number): number => {
+  if (viewportWidth <= 640) return 2;
+  if (viewportWidth <= 1_024) return 3;
+  if (viewportWidth >= 1_400) return 6;
+  return 4;
+};
+
+const viewportSubscribers = new Set<() => void>();
+let viewportListening = false;
+
+const notifyViewportSubscribers = () => {
+  for (const subscriber of viewportSubscribers) subscriber();
+};
+
+const subscribeToViewport = (subscriber: () => void): (() => void) => {
+  viewportSubscribers.add(subscriber);
+  if (!viewportListening) {
+    window.addEventListener("resize", notifyViewportSubscribers, { passive: true });
+    viewportListening = true;
+  }
+  return () => {
+    viewportSubscribers.delete(subscriber);
+    if (viewportSubscribers.size > 0 || !viewportListening) return;
+    window.removeEventListener("resize", notifyViewportSubscribers);
+    viewportListening = false;
+  };
+};
+
+const currentInlineLabelLimit = (): number =>
+  databasePropertyListInlineLabelLimit(window.innerWidth);
+
+export const useDatabasePropertyListInlineLabelLimit = (): number =>
+  useSyncExternalStore(subscribeToViewport, currentInlineLabelLimit, () => 4);

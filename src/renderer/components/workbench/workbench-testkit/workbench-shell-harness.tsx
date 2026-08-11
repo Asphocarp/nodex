@@ -62,14 +62,12 @@ import type {
 } from "./workbench-shell-fixtures";
 import { resetDatabaseRowDetailStoreForTests } from "@/lib/database-row-detail-store";
 import { resetPageDetailStoreForTests } from "@/lib/page-detail-store";
-import { buildPageDetailStoryResult } from "../../kanban/page-stage/page-stage-story-page-detail";
+import { resetDatabaseViewPresentationPreferencesForTests } from "@/lib/database-view-presentation-preferences";
+import { resetDatabaseListWindowStoresForTests } from "../database-list/use-database-list-window";
+import { useRetainedScrollPosition } from "@/lib/retained-scroll-position";
+import { buildPageDetailStoryResult } from "../../board/page-stage/page-stage-story-page-detail";
 import { authorizedReadStampFixture } from "../../../../shared/testing/authorized-read-stamp-fixture";
 import { terminalSessionStore } from "@/lib/terminal-session-store";
-import {
-  type DbViewPrefs,
-  type SupportedDbView,
-} from "@/lib/db-view-prefs";
-import { useRetainedScrollPosition } from "@/lib/retained-scroll-position";
 import type {
   SidebarCollapsibleSectionId,
   SidebarCollapsibleSectionsState,
@@ -502,6 +500,41 @@ vi.mock("@/lib/api", () => {
     invokeCalls.push(["database:view-window:get", projectId, input]);
     return mockInvokeImpl?.("database:view-window:get", projectId, input) ?? null;
   },
+  readDatabaseListWindow: async (projectId: string, input: unknown) => {
+    invokeCalls.push(["database:list-window:get", projectId, input]);
+    const configured = await mockInvokeImpl?.(
+      "database:list-window:get",
+      projectId,
+      input,
+    );
+    if (configured !== undefined && configured !== null) return configured;
+    const viewWindow = await mockInvokeImpl?.(
+      "database:view-window:get",
+      projectId,
+      input,
+    ) as Readonly<Record<string, unknown>> | null | undefined;
+    if (!viewWindow) return null;
+    return {
+      projectId: viewWindow.projectId,
+      libraryId: viewWindow.libraryId,
+      databaseId: viewWindow.databaseId,
+      dataSourceId: viewWindow.dataSourceId,
+      viewId: viewWindow.viewId,
+      storeEpoch: viewWindow.storeEpoch,
+      commitSeq: viewWindow.commitSeq,
+      authorization: viewWindow.authorization,
+      projection: viewWindow.projection,
+      nextCursor: null,
+      rows: [],
+      groups: [],
+      totalProjectionRowCount: 0,
+      totalOccurrenceCount: 0,
+      totalModelCount: 0,
+      windowStart: 0,
+      windowEnd: 0,
+      isComplete: true,
+    };
+  },
   readDatabaseViewGroups: async (projectId: string, input: unknown) => {
     invokeCalls.push(["database:view-groups:get", projectId, input]);
     // Ungrouped default keeps stores on the single flat-window path unless a
@@ -538,7 +571,10 @@ vi.mock("@/lib/api", () => {
         effectHash: "f".repeat(64),
       },
       grouped: false,
+      subgrouped: false,
       totalRows: 0,
+      totalGroups: 0,
+      groupLimit: 200,
       truncated: false,
       groups: [],
     };
@@ -546,6 +582,10 @@ vi.mock("@/lib/api", () => {
   readLibraryDatabaseViewWindow: async (input: unknown) => {
     invokeCalls.push(["library-database:view-window:get", input]);
     return mockInvokeImpl?.("library-database:view-window:get", input) ?? null;
+  },
+  readLibraryDatabaseListWindow: async (input: unknown) => {
+    invokeCalls.push(["library-database:list-window:get", input]);
+    return mockInvokeImpl?.("library-database:list-window:get", input) ?? null;
   },
   readLibraryDatabaseViewGroups: async (input: unknown) => {
     invokeCalls.push(["library-database:view-groups:get", input]);
@@ -557,7 +597,39 @@ vi.mock("@/lib/api", () => {
   },
   applyDatabaseModule: async (projectId: string, request: unknown) => {
     invokeCalls.push(["database-module:apply", projectId, request]);
-    return mockInvokeImpl?.("database-module:apply", projectId, request) ?? {
+    const configured = await mockInvokeImpl?.(
+      "database-module:apply",
+      projectId,
+      request,
+    );
+    if (configured !== undefined && configured !== null) return configured;
+    const preferenceOperations = (
+      request as {
+        operations?: ReadonlyArray<{
+          kind?: string;
+          viewId?: string;
+          expectedRevision?: number;
+        }>;
+      }
+    ).operations ?? [];
+    if (
+      preferenceOperations.length > 0
+      && preferenceOperations.every((operation) =>
+        operation.kind === "put_view_personal_preferences"
+      )
+    ) {
+      return {
+        ok: true,
+        value: {
+          committedRevisions: Object.fromEntries(preferenceOperations.map((operation) => [
+            `view_preferences:profile:test:${String(operation.viewId ?? "")}`,
+            (operation.expectedRevision ?? 0) + 1,
+          ])),
+        },
+        localCommit: { status: "applied" },
+      };
+    }
+    return {
       ok: false,
       error: {
         code: "unknown",
@@ -705,7 +777,10 @@ vi.mock("@/lib/api", () => {
   getWindowFocusState: async () => true,
   subscribeWindowFocusChanges: () => () => undefined,
   readDatabaseModule: async (projectId: string, request: {
-    read?: { mode?: string };
+    read?: {
+      mode?: string;
+      target?: { viewId?: string };
+    };
   }) => {
     invokeCalls.push(["database-module:read", projectId, request]);
     const configured = await mockInvokeImpl?.(
@@ -717,7 +792,28 @@ vi.mock("@/lib/api", () => {
     const projectName = projectId === "beta" ? "Beta" : "Alpha";
     const databaseId = `database:${projectId}:primary`;
     const dataSourceId = `${databaseId}:data-source:initial`;
-    const viewId = `database-view:${projectId}:primary-kanban`;
+    const viewId = `database-view:${projectId}:primary-board`;
+    if (request.read?.mode === "view_personal_preferences") {
+      return {
+        ok: true,
+        value: {
+          version: 1,
+          projectId,
+          libraryId: "library:test",
+          storeEpoch: "store-test",
+          commitSeq: 1,
+          authorization: null,
+          value: {
+            kind: "view_personal_preferences",
+            value: {
+              presentationOverride: {},
+              collapsedGroupKeys: [],
+              revision: 0,
+            },
+          },
+        },
+      };
+    }
     const descriptor = {
       database: {
         databaseId,
@@ -747,7 +843,7 @@ vi.mock("@/lib/api", () => {
         databaseId,
         dataSourceId,
         name: projectName,
-        kind: "kanban",
+        defaultLayout: "board",
         config: {
           schemaKey: "nodex.database-view",
           schemaVersion: 1,
@@ -810,25 +906,51 @@ vi.mock("@/lib/api", () => {
   };
 });
 
-vi.mock(".././main-view-host", () => ({
-  MainViewHost: (props: Record<string, unknown>) => {
-    (globalThis as { __lastMainViewHostProps?: Record<string, unknown> }).__lastMainViewHostProps = props;
+vi.mock("../database-view-surface", () => ({
+  DatabaseViewSurface: (props: Record<string, unknown>) => {
+    const model = props.model as {
+      accessContext?: { kind?: string; projectId?: string };
+      databaseViewId?: string;
+      columns?: ReadonlyArray<{
+        rows?: ReadonlyArray<{ pageId?: string; title?: string }>;
+      }>;
+    };
+    const projectId = model.accessContext?.kind === "project"
+      ? String(model.accessContext.projectId)
+      : "library";
     const [localSearch, setLocalSearch] = useState("");
-    const projectId = String(props.projectId);
     const retainedScroll = useRetainedScrollPosition<HTMLDivElement>(
-      typeof props.scrollStateKey === "string" ? props.scrollStateKey : null,
+      `database-view-test:${String(model.databaseViewId ?? "unknown")}`,
     );
+    (globalThis as {
+      __lastDatabaseViewSurfaceProps?: Record<string, unknown>;
+    }).__lastDatabaseViewSurfaceProps = {
+      ...props,
+      projectId,
+      databaseViewId: model.databaseViewId,
+      openPageStage: (
+        _projectId: string,
+        pageId: string,
+        titleSnapshot?: string,
+      ) => (props.onOpenPage as ((pageId: string, titleSnapshot: string) => void))(
+        pageId,
+        titleSnapshot ?? "Untitled",
+      ),
+    };
+    const rows = model.columns?.flatMap((column) => column.rows ?? []) ?? [];
     return createElement(
       "div",
       {
-        "data-main-view-host": "true",
-        "data-database-view-id": String(props.databaseViewId ?? ""),
+        "data-database-view-surface": "true",
+        "data-database-view-id": String(model.databaseViewId ?? ""),
       },
-      `DB:${projectId}:${String(props.view)}`,
+      `DB:${projectId}:${String(props.presentationLayout)}`,
       createElement("input", {
         "aria-label": `Mock DB search ${projectId}`,
         value: localSearch,
-        onInput: (event: { currentTarget: { value: string } }) => setLocalSearch(event.currentTarget.value),
+        onInput: (event: { currentTarget: { value: string } }) => {
+          setLocalSearch(event.currentTarget.value);
+        },
       }),
       createElement(
         "div",
@@ -840,8 +962,17 @@ vi.mock(".././main-view-host", () => ({
         },
         createElement("div", { style: { height: 400, width: 400 } }),
       ),
+      ...rows.map((row) => createElement("button", {
+        key: row.pageId,
+        type: "button",
+        onClick: () => (props.onOpenPage as ((pageId: string, title: string) => void))(
+          String(row.pageId),
+          String(row.title ?? "Untitled"),
+        ),
+      }, row.title)),
     );
   },
+  databaseViewMutationErrorMessage: (error: unknown) => String(error),
 }));
 
 vi.mock("../workbench-canvas-stage-panel", () => ({
@@ -1366,24 +1497,8 @@ vi.mock("@/features/local-conversation", () => ({
   useLocalConversationConnection: () => ({ status: "connected", retries: 0 }),
 }));
 
-vi.mock("@/lib/calendar-view-state", () => ({
-  loadCalendarViewState: () => ({
-    anchorDate: new Date("2026-06-07T00:00:00.000Z"),
-    range: { mode: "week", multiDayCount: 4, multiWeekCount: 2 },
-  }),
-  normalizeCalendarAnchorDate: (value: Date) => value,
-  shiftCalendarAnchorDateByDays: (value: Date, days: number) => {
-    const next = new Date(value);
-    next.setDate(next.getDate() + days);
-    return next;
-  },
-  resolveCalendarVisibleDays: () => [new Date("2026-06-07T00:00:00.000Z")],
-  saveCalendarViewState: () => undefined,
-  formatCalendarToolbarMonthYear: () => "June 2026",
-}));
-
-vi.mock("@/lib/use-kanban", () => ({
-  useKanban: (options?: { projectId?: string }) => {
+vi.mock("@/lib/use-board", () => ({
+  useBoard: (options?: { projectId?: string; databaseViewId?: string }) => {
     const projectId = options?.projectId ?? "alpha";
     const cards = projectId === "beta"
       ? {
@@ -1416,7 +1531,100 @@ vi.mock("@/lib/use-kanban", () => ({
           },
         ];
     const visibleCards = Array.isArray(cards) ? cards : [cards];
+    const databaseViewId = options?.databaseViewId ?? `view-${projectId}-primary`;
+    const timestamp = "2026-08-11T00:00:00.000Z";
+    const rows = visibleCards.map((card, index) => ({
+      pageId: card.id,
+      groupKey: "build",
+      subgroupKey: null,
+      title: card.title,
+      preview: "",
+      plainText: "",
+      status: card.status,
+      tags: card.tags,
+      metadataRevision: 1,
+      createdAt: new Date(timestamp),
+      rankKey: String(index + 1),
+    }));
+    const databaseView = {
+      accessContext: { kind: "project", projectId },
+      libraryId: "library-test",
+      databaseViewId,
+      databaseId: `database-${projectId}`,
+      dataSourceId: `source-${projectId}`,
+      databaseName: "Tasks",
+      dataSourceName: "Tasks",
+      viewName: "Board",
+      storeEpoch: "store-test",
+      commitSeq: 1,
+      authorization: null,
+      readOnlyReason: null,
+      columns: [{
+        id: "build",
+        groupKey: "build",
+        name: "Build",
+        scopeKey: "key:\"build\"",
+        rows,
+      }],
+      query: {
+        database: {
+          databaseId: `database-${projectId}`,
+          libraryId: "library-test",
+          name: "Tasks",
+          lifecycle: "active",
+          defaultViewId: databaseViewId,
+          accessRevision: 1,
+          metadataRevision: 1,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        },
+        dataSource: {
+          dataSourceId: `source-${projectId}`,
+          libraryId: "library-test",
+          homeDatabaseId: `database-${projectId}`,
+          name: "Tasks",
+          schemaKey: "nodex.pages",
+          schemaRevision: 1,
+          lifecycle: "active",
+          rankKey: "a",
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        },
+        view: {
+          viewId: databaseViewId,
+          databaseId: `database-${projectId}`,
+          dataSourceId: `source-${projectId}`,
+          name: "Board",
+          defaultLayout: "board",
+          config: {
+            schemaKey: "nodex.database-view",
+            schemaVersion: 4,
+            filter: { kind: "group", operator: "and", children: [] },
+            presentation: {
+              sort: [{ field: { kind: "manual" }, direction: "asc", nulls: "last" }],
+              group: null,
+              subgroup: null,
+              completion: { range: "all", orderByRecency: false },
+              hierarchy: { showSubPages: true, nestedSubPages: false },
+              layouts: {
+                board: { fields: [], showEmptyGroups: true },
+                list: { fields: [], showEmptyGroups: true },
+              },
+            },
+          },
+          isDefault: true,
+          revision: 1,
+          rankKey: "a",
+          lifecycle: "active",
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        },
+        properties: [],
+        rows: [],
+      },
+    };
     return {
+      databaseView,
       board: {
         columns: [
           {
@@ -1428,11 +1636,13 @@ vi.mock("@/lib/use-kanban", () => ({
       },
       pageIndex: new Map(visibleCards.map((card) => [card.id, card])),
       loading: false,
+      error: null,
+      groupPagination: new Map(),
+      loadMoreGroup: async () => undefined,
       refresh: async () => undefined,
       patchPage: () => undefined,
       updatePage: async () => ({ didMutate: true }),
       deletePage: async () => true,
-      movePage: async () => undefined,
       completeOccurrence: async () => undefined,
       skipOccurrence: async () => undefined,
     };
@@ -1798,7 +2008,6 @@ export function renderWorkbench({
   sidebarSyncChangedProjectIds = [],
   sidebarSyncProjectlessChanged = false,
   searchByProject = {},
-  dbViewPrefsByProject = {},
   sidebar,
   initialSelectedSessionId,
   workbenchCommandRequest = null,
@@ -1823,7 +2032,6 @@ export function renderWorkbench({
   sidebarSyncChangedProjectIds?: string[];
   sidebarSyncProjectlessChanged?: boolean;
   searchByProject?: Record<string, string>;
-  dbViewPrefsByProject?: Record<string, Partial<Record<SupportedDbView, DbViewPrefs>>>;
   sidebar?: {
     collapsed: boolean;
     width: number;
@@ -2415,14 +2623,22 @@ export function renderWorkbench({
         databaseId,
         dataSourceId,
         name: projectId === "beta" ? "Beta" : "Alpha",
-        kind: "kanban",
+        defaultLayout: "board",
         config: {
           schemaKey: "nodex.database-view",
-          schemaVersion: 2,
+          schemaVersion: 4,
           filter: { kind: "group", operator: "and", children: [] },
-          sort: [],
-          group: null,
-          display: { propertyIds: [], showTitle: true },
+          presentation: {
+            sort: [],
+            group: null,
+            subgroup: null,
+            completion: { range: "all", orderByRecency: false },
+            hierarchy: { showSubPages: true, nestedSubPages: false },
+            layouts: {
+              board: { fields: [], showEmptyGroups: true },
+              list: { fields: [], showEmptyGroups: true },
+            },
+          },
         },
         isDefault: true,
         revision: 1,
@@ -2464,6 +2680,7 @@ export function renderWorkbench({
         rows: cards.map((page, index) => ({
           page,
           groupKey: page.status,
+          subgroupKey: null,
           rankKey: String(index).padStart(8, "0"),
         })),
         board,
@@ -2472,7 +2689,7 @@ export function renderWorkbench({
           databaseBlockId: databaseId,
           projectId,
           name: queryView.name,
-          kind: queryView.kind,
+          defaultLayout: queryView.defaultLayout,
           config: queryView.config,
           isPrimary: true,
           createdAt: queryView.createdAt,
@@ -3065,14 +3282,10 @@ export function renderWorkbench({
             projectWorkbenchSceneToLegacySessionView(next),
           );
         }}
-        activeView="kanban"
-        activeDbViewPrefs={null}
-        dbViewPrefsByProject={dbViewPrefsByProject}
         sidebar={sidebarState}
         pageStageCloseRef={createRef()}
         pendingViewDeepLinkOpen={pendingViewOpen}
         onViewDeepLinkHandled={() => setPendingViewOpen(null)}
-        setDbViewPrefs={() => undefined}
         openPageStage={() => undefined}
         onLeavePageStage={() => undefined}
         onCreateProject={async () => null}
@@ -3192,6 +3405,8 @@ beforeEach(() => {
   terminalSessionStore.disposeEventSubscriptions();
   resetDatabaseRowDetailStoreForTests();
   resetPageDetailStoreForTests();
+  resetDatabaseViewPresentationPreferencesForTests();
+  resetDatabaseListWindowStoresForTests();
   __resetNodexToastStoreForTests();
   document.body.removeAttribute("style");
   installRendererApiMock();
@@ -3229,7 +3444,9 @@ beforeEach(() => {
   setWindowInnerWidthForTest(1024);
   localStorage.clear();
   sessionStorage.clear();
-  delete (globalThis as { __lastMainViewHostProps?: Record<string, unknown> }).__lastMainViewHostProps;
+  delete (globalThis as {
+    __lastDatabaseViewSurfaceProps?: Record<string, unknown>;
+  }).__lastDatabaseViewSurfaceProps;
   delete (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
   delete (globalThis as {
     __lastConnectedThreadComposerDockProps?: Record<string, unknown>;

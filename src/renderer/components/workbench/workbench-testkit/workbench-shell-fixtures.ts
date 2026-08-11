@@ -61,7 +61,7 @@ export function makeProject(id = "alpha", name = "Alpha", primarySourceRoot?: st
     id,
     libraryId: "library:test",
     databaseId: "database:test:primary",
-    defaultDatabaseViewId: `database-view:${id}:primary-kanban`,
+    defaultDatabaseViewId: `database-view:${id}:primary-board`,
     lifecycle: "active",
     bindingRevision: 1,
     name,
@@ -276,7 +276,7 @@ export function fillDbViewFixtureConfig(
   return {
     ...config,
     databaseViewId: config.databaseViewId
-      ?? `database-view:${config.projectId}:primary-kanban`,
+      ?? `database-view:${config.projectId}:primary-board`,
   };
 }
 
@@ -369,7 +369,7 @@ export function makeSession(overrides: SessionFixtureOverrides = {}): ProjectSes
       projectId,
       kind: "db_view",
       title: "DB View",
-      config: { projectId, view: "kanban" },
+      config: { projectId },
     }),
   ];
   const tabs = (rawTabs ?? defaultTabs).map((tab, index) => makeSessionTab({

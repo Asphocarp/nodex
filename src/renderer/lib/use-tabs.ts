@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import type { Project } from "./types";
 
-export type ViewTab = "kanban" | "list" | "toggle-list" | "calendar";
+export type ViewTab = "board" | "list" | "toggle-list" | "calendar";
 
 export interface Tab {
   id: string;
@@ -17,13 +17,13 @@ interface TabsState {
 
 const STORAGE_KEY = "nodex-tabs";
 const OLD_PROJECT_KEY = "nodex-project";
-const VALID_VIEW_MODES: ViewTab[] = ["kanban", "list", "toggle-list", "calendar"];
+const VALID_VIEW_MODES: ViewTab[] = ["board", "list", "toggle-list", "calendar"];
 
 function generateId(): string {
   return crypto.randomUUID();
 }
 
-function makeTab(projectId: string, viewMode: ViewTab = "kanban"): Tab {
+function makeTab(projectId: string, viewMode: ViewTab = "board"): Tab {
   return { id: generateId(), projectId, viewMode, searchQueries: {} };
 }
 
@@ -49,7 +49,7 @@ function normalizeTab(tab: {
 }): Tab {
   return {
     ...tab,
-    viewMode: isViewTab(tab.viewMode) ? tab.viewMode : "kanban",
+    viewMode: isViewTab(tab.viewMode) ? tab.viewMode : "board",
     searchQueries: normalizeSearchQueries(tab.searchQueries),
   };
 }

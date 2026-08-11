@@ -436,11 +436,11 @@ export function PageSettingsPage({
   return (
     <SettingsPageSurface
       title="Pages"
-      subtitle="Kanban card and page-stage presentation."
+      subtitle="Board card and page-stage presentation."
     >
       <SectionBlock id="cards-and-page-stage" title="Cards & Page Stage">
         <SettingRow
-          label="Kanban card properties"
+          label="Board card properties"
           description="Choose whether priority, estimate, tags, assignee, and run-in metadata render above the title, inline with it, or below the card body."
         >
           <CardPropertyPositionSettingControl />

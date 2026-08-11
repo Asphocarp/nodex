@@ -2,7 +2,8 @@ import { act, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, test } from "vitest";
 import "../../globals.css";
 import { PropertyOptionPicker } from "@/components/database/property-option-picker";
-import { NFM_EDITOR_FLOATING_UI_Z_INDEX } from "@/components/kanban/editor/nfm-blocknote-floating-ui";
+import { NFM_EDITOR_FLOATING_UI_Z_INDEX } from "@/components/board/editor/nfm-blocknote-floating-ui";
+import { Circle } from "@/components/shared/icons/generic-icons";
 import {
   NodexDropdownButtonTrigger,
   NodexDropdownChoiceMenu,
@@ -20,11 +21,7 @@ const settleFloatingSurface = async (): Promise<void> => {
 };
 
 function ProbeIcon({ testId }: { testId: string }) {
-  return (
-    <svg data-testid={testId} viewBox="0 0 16 16" className="size-3" aria-hidden="true">
-      <circle cx="8" cy="8" r="6" fill="currentColor" />
-    </svg>
-  );
+  return <Circle data-testid={testId} className="size-3 fill-current" aria-hidden="true" />;
 }
 
 afterEach(async () => {

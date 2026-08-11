@@ -11,7 +11,7 @@ import {
 import { createPageDocumentGenesis } from "../../../shared/block-documents/block-document-codec";
 import { BlockDocumentSurfaceRuntime } from "../../lib/block-document-surface-runtime";
 import type { DocumentSyncAdapter } from "../../lib/nodex-y-provider";
-import { createNfmEditorModeOptions } from "../kanban/editor/nfm-editor-source";
+import { createNfmEditorModeOptions } from "../board/editor/nfm-editor-source";
 import type { PrimaryPageBlockDocumentDescriptor } from "./block-document-surface";
 
 const LONG_CARD_SECTION = `## Working notes

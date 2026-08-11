@@ -494,12 +494,20 @@ fn group_scope(
     placement: &DataSourcePlacementArgs,
 ) -> Result<Option<DatabaseGroupScope>, CliError> {
     if placement.unassigned {
-        return Ok(Some(DatabaseGroupScope::Unassigned));
+        return Ok(Some(DatabaseGroupScope::Path {
+            group_key: None,
+            subgroup_key: None,
+        }));
     }
     placement
         .group
         .as_deref()
-        .map(|key| stable_id(key, "--group").map(|key| DatabaseGroupScope::Key { key }))
+        .map(|key| {
+            stable_id(key, "--group").map(|key| DatabaseGroupScope::Path {
+                group_key: Some(key),
+                subgroup_key: None,
+            })
+        })
         .transpose()
 }
 
@@ -630,13 +638,17 @@ mod tests {
     fn data_source_placement_uses_stable_keys_and_rejects_other_parents() {
         assert_eq!(
             group_scope(&placement(Some("@view-1"), Some("build"), false)).expect("stable group"),
-            Some(DatabaseGroupScope::Key {
-                key: "build".to_owned()
+            Some(DatabaseGroupScope::Path {
+                group_key: Some("build".to_owned()),
+                subgroup_key: None,
             })
         );
         assert_eq!(
             group_scope(&placement(Some("@view-1"), None, true)).expect("unassigned"),
-            Some(DatabaseGroupScope::Unassigned)
+            Some(DatabaseGroupScope::Path {
+                group_key: None,
+                subgroup_key: None,
+            })
         );
         assert!(reject_data_source_placement(&placement(None, None, false)).is_ok());
         let error = reject_data_source_placement(&placement(Some("@view-1"), None, false))
