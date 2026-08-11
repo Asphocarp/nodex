@@ -1,5 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
+  COMMAND_PALETTE_PAGE_FILTERS_STORAGE_KEY,
+  LEGACY_COMMAND_PALETTE_PAGE_FILTERS_STORAGE_KEY,
   areCommandPalettePageFiltersEqual,
   filterCommandPaletteItems,
   getDefaultCommandPalettePageFilters,
@@ -105,13 +107,20 @@ function makePaletteThread(overrides: Partial<CommandPaletteThread> = {}): Comma
 }
 
 const storageMap = new Map<string, string>();
+let failCurrentStorageWrite = false;
 
 const mockStorage = {
   getItem(key: string): string | null {
     return storageMap.has(key) ? storageMap.get(key) ?? null : null;
   },
   setItem(key: string, value: string): void {
+    if (failCurrentStorageWrite && key === COMMAND_PALETTE_PAGE_FILTERS_STORAGE_KEY) {
+      throw new Error("storage full");
+    }
     storageMap.set(key, value);
+  },
+  removeItem(key: string): void {
+    storageMap.delete(key);
   },
   clear(): void {
     storageMap.clear();
@@ -431,6 +440,52 @@ describe("filterCommandPaletteItems", () => {
       expect(areCommandPalettePageFiltersEqual(read, written)).toBe(true);
       expect(read.projectIds[0]).toBe("ops");
       expect(read.assignees[0]).toBe("Alex");
+    });
+  });
+
+  test("imports v1 P4 filters into the v2 storage contract as P3", () => {
+    withMockLocalStorage(() => {
+      mockStorage.clear();
+      mockStorage.setItem(
+        LEGACY_COMMAND_PALETTE_PAGE_FILTERS_STORAGE_KEY,
+        JSON.stringify({
+          ...getDefaultCommandPalettePageFilters(),
+          priorities: ["p4-later", "p3-low", "p4-later"],
+          includeEmptyPriority: false,
+        }),
+      );
+
+      const migrated = readCommandPalettePageFilters();
+
+      expect(migrated.priorities).toEqual(["p3-low"]);
+      expect(migrated.includeEmptyPriority).toBe(false);
+      expect(mockStorage.getItem(COMMAND_PALETTE_PAGE_FILTERS_STORAGE_KEY))
+        .not.toBeNull();
+      expect(mockStorage.getItem(LEGACY_COMMAND_PALETTE_PAGE_FILTERS_STORAGE_KEY))
+        .toBeNull();
+    });
+  });
+
+  test("retains v1 palette filters when the v2 write fails", () => {
+    withMockLocalStorage(() => {
+      mockStorage.clear();
+      mockStorage.setItem(
+        LEGACY_COMMAND_PALETTE_PAGE_FILTERS_STORAGE_KEY,
+        JSON.stringify({
+          ...getDefaultCommandPalettePageFilters(),
+          priorities: ["p4-later"],
+        }),
+      );
+      failCurrentStorageWrite = true;
+      try {
+        expect(readCommandPalettePageFilters().priorities).toEqual(["p3-low"]);
+      } finally {
+        failCurrentStorageWrite = false;
+      }
+      expect(mockStorage.getItem(COMMAND_PALETTE_PAGE_FILTERS_STORAGE_KEY))
+        .toBeNull();
+      expect(mockStorage.getItem(LEGACY_COMMAND_PALETTE_PAGE_FILTERS_STORAGE_KEY))
+        .not.toBeNull();
     });
   });
 

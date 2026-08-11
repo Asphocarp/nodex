@@ -1,4 +1,10 @@
 import type { Estimate, Priority } from "../../../shared/types";
+import { PRIORITY_VALUES } from "../../../shared/priority";
+import {
+  getPriorityClassName,
+  getPriorityShortLabel,
+  priorityFromShortLabel,
+} from "../priority-presentation";
 import {
   getStatusAccentColorByLabel,
   getStatusChipClassName,
@@ -13,13 +19,12 @@ const META_TOKEN_REGEX = /\[([^\]]+)\]/g;
 
 const CHIP_BASE = "inline-flex items-center h-5 px-1.5 rounded-sm text-sm leading-5 font-normal whitespace-nowrap";
 
-const PRIORITY_CHIP_CLASS_BY_TOKEN: Record<string, string> = {
-  P0: `${CHIP_BASE} bg-[var(--priority-critical-bg)] text-[var(--priority-critical-text)]`,
-  P1: `${CHIP_BASE} bg-[var(--priority-high-bg)] text-[var(--priority-high-text)]`,
-  P2: `${CHIP_BASE} bg-[var(--priority-medium-bg)] text-[var(--priority-medium-text)]`,
-  P3: `${CHIP_BASE} bg-[var(--priority-low-bg)] text-[var(--priority-low-text)]`,
-  P4: `${CHIP_BASE} bg-[var(--priority-later-bg)] text-[var(--priority-later-text)]`,
-};
+const PRIORITY_CHIP_CLASS_BY_TOKEN: Record<string, string> = Object.fromEntries(
+  PRIORITY_VALUES.map((priority) => [
+    getPriorityShortLabel(priority),
+    `${CHIP_BASE} ${getPriorityClassName(priority)}`,
+  ]),
+);
 
 const ESTIMATE_CHIP_CLASS_BY_TOKEN: Record<string, string> = {
   XS: `${CHIP_BASE} bg-[var(--blue-bg)] text-[var(--blue-text)]`,
@@ -66,14 +71,6 @@ export function classifyMetaToken(token: string): MetaChipPropertyType {
   return "tag";
 }
 
-const TOKEN_TO_PRIORITY: Record<string, Priority> = {
-  P0: "p0-critical",
-  P1: "p1-high",
-  P2: "p2-medium",
-  P3: "p3-low",
-  P4: "p4-later",
-};
-
 const TOKEN_TO_ESTIMATE: Record<string, Estimate> = {
   XS: "xs",
   S: "s",
@@ -83,7 +80,7 @@ const TOKEN_TO_ESTIMATE: Record<string, Estimate> = {
 };
 
 export function tokenToPriorityValue(token: string): Priority | undefined {
-  return TOKEN_TO_PRIORITY[token];
+  return priorityFromShortLabel(token);
 }
 
 export function tokenToEstimateValue(token: string): Estimate | undefined {

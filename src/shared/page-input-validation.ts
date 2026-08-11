@@ -1,12 +1,12 @@
 import type {
   PageInput,
   Estimate,
-  Priority,
   RecurrenceConfig,
   RecurrenceEndCondition,
   RecurrenceFrequency,
   ReminderConfig,
 } from "./types";
+import { isPriority } from "./priority";
 import {
   MAX_PAGE_ASSIGNEE_LENGTH,
   MAX_PAGE_DESCRIPTION_LENGTH,
@@ -14,14 +14,6 @@ import {
   MAX_PAGE_TAG_LENGTH,
   MAX_PAGE_TITLE_LENGTH,
 } from "./page-limits";
-
-const PRIORITY_VALUES: Priority[] = [
-  "p0-critical",
-  "p1-high",
-  "p2-medium",
-  "p3-low",
-  "p4-later",
-];
 
 const ESTIMATE_VALUES: Estimate[] = [
   "xs",
@@ -110,7 +102,7 @@ function assertOptionalPriority(value: unknown): void {
   if (typeof value !== "string") {
     throw new Error("Invalid priority value");
   }
-  if (PRIORITY_VALUES.includes(value as Priority)) return;
+  if (isPriority(value)) return;
 
   throw new Error(`Invalid priority "${value}"`);
 }

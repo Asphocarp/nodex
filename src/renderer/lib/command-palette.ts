@@ -16,6 +16,8 @@ import {
   TOGGLE_LIST_PRIORITY_ORDER,
   type ToggleListTagFilterMode,
 } from "./toggle-list/types";
+import { isPriority } from "../../shared/priority";
+import { upgradeLegacyPriority } from "../../shared/priority-cutover";
 import type {
   DatabasePageSummary,
   CodexThreadActiveFlag,
@@ -167,28 +169,40 @@ export interface CommandPalettePageFilters {
 
 const DEFAULT_PAGE_LIMIT = 12;
 const DEFAULT_THREAD_LIMIT = 8;
-const COMMAND_PALETTE_PAGE_FILTERS_STORAGE_KEY = "nodex-command-palette-page-filters-v1";
+export const COMMAND_PALETTE_PAGE_FILTERS_STORAGE_KEY =
+  "nodex-command-palette-page-filters-v2";
+export const LEGACY_COMMAND_PALETTE_PAGE_FILTERS_STORAGE_KEY =
+  "nodex-command-palette-page-filters-v1";
 const TAG_FILTER_MODES = new Set<ToggleListTagFilterMode>(["any", "all", "none"]);
 
 function dedupeArray<T>(values: T[]): T[] {
   return Array.from(new Set(values));
 }
 
-function readRawFilterStorageValue(): string | null {
+function readRawFilterStorageValue(key: string): string | null {
   if (typeof localStorage === "undefined") return null;
   try {
-    return localStorage.getItem(COMMAND_PALETTE_PAGE_FILTERS_STORAGE_KEY);
+    return localStorage.getItem(key);
   } catch {
     return null;
   }
 }
 
-function writeRawFilterStorageValue(value: string): void {
-  if (typeof localStorage === "undefined") return;
+function writeRawFilterStorageValue(value: string): boolean {
+  if (typeof localStorage === "undefined") return false;
   try {
     localStorage.setItem(COMMAND_PALETTE_PAGE_FILTERS_STORAGE_KEY, value);
+    return true;
   } catch {
-    // ignore localStorage failures
+    return false;
+  }
+}
+
+function removeLegacyRawFilterStorageValue(): void {
+  try {
+    localStorage.removeItem(LEGACY_COMMAND_PALETTE_PAGE_FILTERS_STORAGE_KEY);
+  } catch {
+    // A retained v1 value is safe and can be retried on the next load.
   }
 }
 
@@ -273,7 +287,7 @@ export function normalizeCommandPalettePageFilters(
     statuses: normalizeSelectableStrings(candidate.statuses, fallback.statuses)
       .filter((status): status is DatabasePageSummary["status"] => WORKFLOW_STATUS_ORDER.includes(status as DatabasePageSummary["status"])),
     priorities: normalizeSelectableStrings(candidate.priorities, fallback.priorities)
-      .filter((priority): priority is Priority => TOGGLE_LIST_PRIORITY_ORDER.includes(priority as Priority)),
+      .filter(isPriority),
     includeEmptyPriority:
       typeof candidate.includeEmptyPriority === "boolean"
         ? candidate.includeEmptyPriority
@@ -288,16 +302,52 @@ export function normalizeCommandPalettePageFilters(
   };
 }
 
+export function normalizeLegacyCommandPalettePageFilters(
+  value: unknown,
+  options?: Parameters<typeof normalizeCommandPalettePageFilters>[1],
+): CommandPalettePageFilters {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return normalizeCommandPalettePageFilters(value, options);
+  }
+  const candidate = value as Record<string, unknown>;
+  const priorities = Array.isArray(candidate.priorities)
+    ? candidate.priorities.flatMap((value) => {
+        const priority = upgradeLegacyPriority(value);
+        return priority ? [priority] : [];
+      })
+    : candidate.priorities;
+  return normalizeCommandPalettePageFilters({
+    ...candidate,
+    priorities,
+  }, options);
+}
+
 export function readCommandPalettePageFilters(
   options?: Parameters<typeof normalizeCommandPalettePageFilters>[1],
 ): CommandPalettePageFilters {
-  const raw = readRawFilterStorageValue();
-  if (!raw) {
-    return normalizeCommandPalettePageFilters(null, options);
-  }
-
   try {
-    return normalizeCommandPalettePageFilters(JSON.parse(raw) as unknown, options);
+    const raw = readRawFilterStorageValue(
+      COMMAND_PALETTE_PAGE_FILTERS_STORAGE_KEY,
+    );
+    if (raw) {
+      return normalizeCommandPalettePageFilters(
+        JSON.parse(raw) as unknown,
+        options,
+      );
+    }
+
+    const legacyRaw = readRawFilterStorageValue(
+      LEGACY_COMMAND_PALETTE_PAGE_FILTERS_STORAGE_KEY,
+    );
+    if (!legacyRaw) return normalizeCommandPalettePageFilters(null, options);
+    const migrated = normalizeLegacyCommandPalettePageFilters(
+      JSON.parse(legacyRaw) as unknown,
+      options,
+    );
+    if (writeRawFilterStorageValue(JSON.stringify(migrated))) {
+      removeLegacyRawFilterStorageValue();
+    }
+    return migrated;
   } catch {
     return normalizeCommandPalettePageFilters(null, options);
   }

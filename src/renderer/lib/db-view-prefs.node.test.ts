@@ -3,6 +3,7 @@ import {
   filterDbViewCards,
   getDefaultDbViewPrefs,
   hasActiveDbViewRules,
+  normalizeLegacyDbViewPrefs,
   normalizeDbViewPrefs,
   sortDbViewCards,
   type DbViewCardRecord,
@@ -87,6 +88,84 @@ describe("db view prefs", () => {
       values: ["triage", "review", "ship"],
     });
     expect(normalizeDbViewPrefs("list", normalized)).toEqual(normalized);
+  });
+
+  test("upgrades retired P4 only at the legacy preference boundary", () => {
+    const value = {
+      rules: {
+        filter: {
+          any: [{
+            all: [{
+              field: "priority",
+              op: "in",
+              values: ["p4-later", "p3-low", "p4-later"],
+              includeEmpty: false,
+            }],
+          }],
+        },
+      },
+    };
+
+    expect(normalizeLegacyDbViewPrefs("list", value).rules.filter).toEqual({
+      any: [{
+        all: [{
+          field: "priority",
+          op: "in",
+          values: ["p3-low"],
+          includeEmpty: false,
+        }],
+      }],
+    });
+    const currentBoundaryValue = {
+      rules: {
+        filter: {
+          any: [{
+            all: [{
+              field: "priority",
+              op: "in",
+              values: ["p4-later"],
+              includeEmpty: false,
+            }],
+          }],
+        },
+      },
+    };
+    expect(normalizeDbViewPrefs("list", currentBoundaryValue).rules.filter).toEqual({
+      any: [{
+        all: [{
+          field: "priority",
+          op: "in",
+          values: [],
+          includeEmpty: false,
+        }],
+      }],
+    });
+  });
+
+  test("preserves omitted v1 empty-priority semantics across the P4 cutover", () => {
+    const normalize = (values: string[]) => normalizeLegacyDbViewPrefs("list", {
+      rules: {
+        filter: {
+          any: [{
+            all: [{ field: "priority", op: "in", values }],
+          }],
+        },
+      },
+    }).rules.filter.any[0]?.all[0];
+
+    expect(normalize([
+      "p0-critical",
+      "p1-high",
+      "p2-medium",
+      "p3-low",
+    ])).toMatchObject({ includeEmpty: false });
+    expect(normalize([
+      "p0-critical",
+      "p1-high",
+      "p2-medium",
+      "p3-low",
+      "p4-later",
+    ])).toMatchObject({ includeEmpty: true });
   });
 
   test("migrates legacy toggle-list display prefs onto the generic display field", () => {

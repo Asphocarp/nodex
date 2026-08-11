@@ -110,7 +110,7 @@ independently. Apply and tailer packet coverage use separate Document-control
 and notification claims, so a failed Document delivery can be replayed without
 depending on notification delivery state.
 
-The v102-v110 cutover is durable, not a renderer-only cache change. v102 adds
+The v102-v111 cutover is durable, not a renderer-only cache change. v102 adds
 the LocalCommit ledger, effect/document impact rows, and receipt linkage; v103
 rebuilds those tables with composite `(store_epoch, commit_seq)` foreign-key
 boundaries; v104 adds canonical evidence hashing; v105 records the complete
@@ -131,6 +131,9 @@ seal rejects unconsumed or noncanonical visibility evidence. Triggers ignore
 unchanged watched values and non-authority Block types. A root born and moved
 through multiple states in one commit has an empty pre-set without schema
 replay; any pre-existing root still requires the reverse overlay.
+v111 keeps that physical inventory and performs an atomic semantic Priority migration.
+It maps live P4 registries, values, View filters, grouped positions, and Page read projections to P3, updates their owning revisions, and validates the P0–P3 postcondition before commit.
+Dormant memberships update only their value revisions, active projected Pages update metadata once, and sealed historical LocalCommit payloads remain unchanged because startup delivery begins at the migrated canonical barrier.
 Receipts persist a compact command result and commit identity rather
 than duplicating large Yjs updates; Core resolves authorized delivery from the
 ledger after commit. Projection gaps and unavailable patches remain visible to
@@ -620,7 +623,7 @@ Store v109 and later retain Relation targets only in normalized edge authority a
 - Native whole-store replacement has a bounded, mode-restricted, atomically
   fsynced journal whose paths are controlled staging/rollback directory names,
   never caller-authored paths. It is inspected under the Profile lock before
-  any SQLite connection opens. A prepared candidate must be a Rust-owned v110
+  any SQLite connection opens. A prepared candidate must be a Rust-owned v111
   Store with a regular no-symlink asset tree. An interruption before file
   movement returns the journal to `prepared`; an interruption during install
   restores DB, WAL, SHM, and assets while moving the candidate back to staging.
@@ -635,7 +638,7 @@ Store v109 and later retain Relation targets only in normalized edge authority a
 - Manual and scheduled backups enter the Core Store Administration Module and use rusqlite's online backup API. The staged DB and every asset file/directory are fsynced before receipt commit; the operation-bound directory rename is the recoverable publication phase.
 - Restore requires explicit confirmation. Its optional pre-restore safety backup is created after the same asset/writer fence is acquired and before replacement, without reopening a write window between those operations.
 - Before swap, the staged DB must pass current schema, `quick_check`, `foreign_key_check`, Block store metadata, Page-owned-Document, and primary projection/head checks. Its managed asset root may contain only flat regular files with safe names: directories/symlinks are rejected, and every exact-head `nodex://assets/*` projection must resolve to an existing file (unreferenced files may remain).
-- Cross-file DB/WAL/assets replacement is protected by one atomically written and fsynced Core store-replacement journal. Rename parents and staged/live files are fsynced. Startup recovery restores the complete rollback for every pre-commit phase; a durable `committed` phase keeps the complete installed v110 store and removes only journal-owned recovery artifacts. Both candidate and installed stores receive exact v110 physical and semantic validation.
+- Cross-file DB/WAL/assets replacement is protected by one atomically written and fsynced Core store-replacement journal. Rename parents and staged/live files are fsynced. Startup recovery restores the complete rollback for every pre-commit phase; a durable `committed` phase keeps the complete installed v111 store and removes only journal-owned recovery artifacts. Both candidate and installed stores receive exact v111 physical and semantic validation.
 - The installed DB rotates `storeEpoch` transactionally before `committed`. Core then invalidates leases/subscriptions and publishes the replacement generation; missing Host fanout cannot turn a durable restore into an apparent failure. Old-epoch IPC updates fail closed, while providers clear checkpoints/outboxes and reload through a fresh descriptor/state-vector handshake after the controlled Electron relaunch.
 
 ## Sync and Event Delivery

@@ -77,7 +77,7 @@ describe("inline view drop inference", () => {
           {
             all: [
               { field: "status", op: "in", values: ["plan"] },
-              { field: "priority", op: "in", values: ["p0-critical", "p1-high", "p2-medium", "p3-low", "p4-later"] },
+              { field: "priority", op: "in", values: ["p0-critical", "p1-high", "p2-medium", "p3-low"] },
             ],
           },
         ],

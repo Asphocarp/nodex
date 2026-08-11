@@ -395,6 +395,101 @@ mod tests {
             .expect("bind Project Database");
 
         let module = DatabaseModule::new("profile-1", "library-1", &kernel);
+        let invalid_priority_schema = module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    operation_id: "operation:reject-priority-schema".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: vec![DatabaseIntent::PutProperty {
+                        data_source_id: SOURCE_ID.to_owned(),
+                        property_id: "priority".to_owned(),
+                        expected_data_source_revision: 1,
+                        expected_property_revision: 1,
+                        name: "Priority".to_owned(),
+                        schema: DatabasePropertySchema::Text,
+                        before_property_id: None,
+                    }],
+                },
+            )
+            .expect_err("reject non-select Priority schema");
+        assert_eq!(invalid_priority_schema.code, CoreErrorCode::InvalidInput);
+
+        let retired_priority_option = module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    operation_id: "operation:reject-retired-priority-option".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: vec![DatabaseIntent::PutOption {
+                        data_source_id: SOURCE_ID.to_owned(),
+                        property_id: "priority".to_owned(),
+                        option_id: "p4-later".to_owned(),
+                        name: "P4 - Later".to_owned(),
+                        color: None,
+                        expected_property_revision: 1,
+                    }],
+                },
+            )
+            .expect_err("reject retired Priority option");
+        assert_eq!(retired_priority_option.code, CoreErrorCode::InvalidInput);
+
+        let view_revision = kernel
+            .readers()
+            .read_default(|connection| {
+                connection
+                    .query_row(
+                        "SELECT revision FROM database_views WHERE id = ?1",
+                        [VIEW_ID],
+                        |row| row.get::<_, i64>(0),
+                    )
+                    .map_err(StoreError::from)
+            })
+            .expect("read primary View revision");
+        let retired_priority_filter = module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    operation_id: "operation:reject-retired-priority-filter".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: vec![DatabaseIntent::PutView {
+                        database_id: DATABASE_ID.to_owned(),
+                        data_source_id: SOURCE_ID.to_owned(),
+                        view_id: VIEW_ID.to_owned(),
+                        expected_revision: view_revision,
+                        name: "Product work".to_owned(),
+                        view_kind: "kanban".to_owned(),
+                        config: json!({
+                            "schemaKey": "nodex.database-view",
+                            "schemaVersion": 2,
+                            "filter": {
+                                "kind": "clause",
+                                "propertyId": "priority",
+                                "operator": "equals",
+                                "value": "p4-later"
+                            },
+                            "sort": [{
+                                "field": { "kind": "manual" },
+                                "direction": "asc",
+                                "nulls": "last"
+                            }],
+                            "group": { "propertyId": "status" },
+                            "display": {
+                                "propertyIds": ["status", "priority", "estimate", "tags"],
+                                "showTitle": true
+                            }
+                        }),
+                        is_default: true,
+                        before_view_id: None,
+                    }],
+                },
+            )
+            .expect_err("reject retired Priority filter");
+        assert_eq!(retired_priority_filter.code, CoreErrorCode::InvalidInput);
+
         module
             .apply(
                 &context(),

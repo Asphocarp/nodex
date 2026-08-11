@@ -288,8 +288,6 @@
   --priority-medium-text: #655121;
   --priority-low-bg: rgba(0, 96, 38, 0.156);
   --priority-low-text: #46a171;
-  --priority-later-bg: rgba(183, 0, 78, 0.152);
-  --priority-later-text: #b577d6;
   --red-bg: #fdf6f6;
   --red-text: #e56458;
   --orange-bg: #fcf7f4;
@@ -432,8 +430,6 @@
   --priority-medium-text: #eac26b;
   --priority-low-bg: rgba(113, 255, 175, 0.339);
   --priority-low-text: #72bc8f;
-  --priority-later-bg: rgba(255, 133, 192, 0.426);
-  --priority-later-text: #bf8eda;
   --red-bg: rgba(255, 94, 87, 0.526);
   --red-text: #e97366;
   --orange-bg: rgba(255, 143, 71, 0.482);

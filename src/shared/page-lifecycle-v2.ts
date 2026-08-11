@@ -17,6 +17,7 @@ import {
   MAX_PAGE_TITLE_LENGTH,
 } from "./page-limits";
 import { isWorkflowStatus, type WorkflowStatus } from "./workflow-status";
+import { isPriority } from "./priority";
 import { isFractionalRankKey } from "./fractional-rank";
 import {
   parseLocalCommitApply,
@@ -44,13 +45,6 @@ const MAX_TIMEZONE_LENGTH = 256;
 const MAX_ACTOR_JSON_LENGTH = 1_000_000;
 const MAX_CANONICAL_REQUEST_LENGTH = 2_000_000;
 const MAX_REMINDERS = 10_000;
-const PRIORITIES = new Set<Priority>([
-  "p0-critical",
-  "p1-high",
-  "p2-medium",
-  "p3-low",
-  "p4-later",
-]);
 const ESTIMATES = new Set<Estimate>(["xs", "s", "m", "l", "xl"]);
 const RUN_TARGETS = new Set<PageRunInTarget>([
   "localProject",
@@ -728,7 +722,7 @@ const parseCreateOperationV2 = (
   if (
     operation.priority !== undefined &&
     operation.priority !== null &&
-    !PRIORITIES.has(operation.priority as Priority)
+    !isPriority(operation.priority)
   ) {
     throw new PageLifecycleV2ContractError(`${label}.priority is invalid`);
   }

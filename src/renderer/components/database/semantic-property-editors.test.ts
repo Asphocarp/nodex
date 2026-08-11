@@ -38,4 +38,17 @@ describe("semantic Property option authority", () => {
       "loading",
     )).toEqual([{ id: "review", name: "Review" }]);
   });
+
+  test("fails closed on retired or unknown Priority registry options", () => {
+    expect(presentSemanticPropertyOptions(
+      "priority",
+      [
+        { id: "p4-later", name: "P4 - Later" },
+        { id: "custom", name: "Custom" },
+        { id: "p3-low", name: "Low" },
+      ],
+      "p4-later",
+      "loading",
+    )).toEqual([{ id: "p3-low", name: "Low" }]);
+  });
 });

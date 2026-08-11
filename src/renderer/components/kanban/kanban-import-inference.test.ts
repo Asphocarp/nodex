@@ -45,7 +45,7 @@ function makeRules(partial: Partial<DbViewRules> = {}): DbViewRules {
         {
           all: [
             { field: "status", op: "in", values: ["triage", "plan", "build", "review", "ship"] },
-            { field: "priority", op: "in", values: ["p0-critical", "p1-high", "p2-medium", "p3-low", "p4-later"], includeEmpty: true },
+            { field: "priority", op: "in", values: ["p0-critical", "p1-high", "p2-medium", "p3-low"], includeEmpty: true },
           ],
         },
       ],
@@ -226,7 +226,7 @@ describe("resolveKanbanImportInference", () => {
       }),
       targetColumnId: "build",
       targetVisibleIndex: 2,
-      cards: [{ title: "Snapshot card", priority: "p4-later" } satisfies PageInput],
+      cards: [{ title: "Snapshot card", priority: "p3-low" } satisfies PageInput],
       hasSearchFilter: false,
     });
 
@@ -234,6 +234,6 @@ describe("resolveKanbanImportInference", () => {
     if (result.mode !== "column") {
       throw new Error("Expected column-only inference");
     }
-    expect(result.cards[0]?.priority).toBe("p4-later");
+    expect(result.cards[0]?.priority).toBe("p3-low");
   });
 });

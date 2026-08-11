@@ -48,6 +48,7 @@ import type {
   Estimate,
   Priority,
 } from "../../shared/types";
+import { isPriority } from "../../shared/priority";
 import {
   applyDatabaseModule,
   applyLibraryModule,
@@ -195,13 +196,6 @@ const PROJECT_EXECUTION_FIELD_NAMES = new Set<string>([
   "runInWorktreePath",
   "runInEnvironmentPath",
 ]);
-const PRIORITIES = new Set<Priority>([
-  "p0-critical",
-  "p1-high",
-  "p2-medium",
-  "p3-low",
-  "p4-later",
-]);
 const ESTIMATES = new Set<Estimate>(["xs", "s", "m", "l", "xl"]);
 const RUN_TARGETS = new Set<PageRunInTarget>([
   "localProject",
@@ -262,7 +256,7 @@ const databaseValue = (
     throw new TypeError("Page status must be a canonical status");
   }
   if (field === "priority") {
-    if (value === null || PRIORITIES.has(value as Priority)) {
+    if (value === null || isPriority(value)) {
       return value as Priority | null;
     }
     throw new TypeError("Page priority is invalid");

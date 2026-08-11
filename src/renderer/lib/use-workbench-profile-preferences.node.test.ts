@@ -1,7 +1,11 @@
 import { describe, expect, test } from "vitest";
 import {
+  legacyWorkbenchProfilePreferencesStorageKey,
+  loadWorkbenchProfilePreferencesFromStorage,
+  normalizeLegacyWorkbenchProfilePreferences,
   normalizeWorkbenchProfilePreferences,
   recordRecentPageLeaveInPreferences,
+  workbenchProfilePreferencesStorageKey,
 } from "./use-workbench-profile-preferences";
 
 describe("Workbench profile preferences", () => {
@@ -45,6 +49,97 @@ describe("Workbench profile preferences", () => {
       },
     });
     expect(preferences.recentPageSessions).toHaveLength(1);
+  });
+
+  test("migrates retired Priority filters in v1 profile preferences", () => {
+    const preferences = normalizeLegacyWorkbenchProfilePreferences({
+      dbViewPrefsByProject: {
+        "project-a": {
+          list: {
+            rules: {
+              filter: {
+                any: [{
+                  all: [{
+                    field: "priority",
+                    op: "in",
+                    values: ["p4-later", "p3-low"],
+                    includeEmpty: false,
+                  }],
+                }],
+              },
+            },
+          },
+        },
+      },
+    });
+
+    expect(
+      preferences.dbViewPrefsByProject["project-a"]?.list?.rules.filter,
+    ).toEqual({
+      any: [{
+        all: [{
+          field: "priority",
+          op: "in",
+          values: ["p3-low"],
+          includeEmpty: false,
+        }],
+      }],
+    });
+  });
+
+  test("retains v1 profile preferences when the v2 write fails", () => {
+    const values = new Map<string, string>([[
+      legacyWorkbenchProfilePreferencesStorageKey,
+      JSON.stringify({
+        dbViewPrefsByProject: {
+          "project-a": {
+            list: {
+              rules: {
+                filter: {
+                  any: [{
+                    all: [{
+                      field: "priority",
+                      op: "in",
+                      values: ["p4-later"],
+                      includeEmpty: false,
+                    }],
+                  }],
+                },
+              },
+            },
+          },
+        },
+      }),
+    ]]);
+    const storage = {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        if (key === workbenchProfilePreferencesStorageKey) {
+          throw new Error("storage full");
+        }
+        values.set(key, value);
+      },
+      removeItem: (key: string) => {
+        values.delete(key);
+      },
+    };
+
+    const loaded = loadWorkbenchProfilePreferencesFromStorage(storage);
+
+    expect(
+      loaded.dbViewPrefsByProject["project-a"]?.list?.rules.filter,
+    ).toEqual({
+      any: [{
+        all: [{
+          field: "priority",
+          op: "in",
+          values: ["p3-low"],
+          includeEmpty: false,
+        }],
+      }],
+    });
+    expect(values.has(workbenchProfilePreferencesStorageKey)).toBe(false);
+    expect(values.has(legacyWorkbenchProfilePreferencesStorageKey)).toBe(true);
   });
 
   test("preserves recent Page identity while refreshing its snapshot", () => {

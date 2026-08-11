@@ -1,4 +1,9 @@
 import { WORKFLOW_STATUS_ORDER } from "./workflow-status";
+import { PRIORITY_VALUES, type Priority } from "./priority";
+import {
+  legacyPrioritySelectionIncludesEveryAssigned,
+  upgradeLegacyPriority,
+} from "./priority-cutover";
 import type {
   DatabaseViewFilterNode,
   DatabaseViewKind,
@@ -10,7 +15,6 @@ import type {
   BoardSummary,
   DatabasePageSummary,
   Estimate,
-  Priority,
 } from "./types";
 import type { ContentAccessContext } from "./content-access-context";
 import type { ProjectionCoordinate, ProjectionCursor } from "./projection-stream";
@@ -195,13 +199,7 @@ interface ValidLegacyViewQuery {
   readonly includeHostPage: boolean;
 }
 
-const PRIORITY_ORDER: readonly Priority[] = [
-  "p0-critical",
-  "p1-high",
-  "p2-medium",
-  "p3-low",
-  "p4-later",
-];
+const PRIORITY_ORDER: readonly Priority[] = PRIORITY_VALUES;
 const ESTIMATE_ORDER: readonly Estimate[] = ["xs", "s", "m", "l", "xl"];
 const LEGACY_SORT_FIELDS: readonly LegacySortField[] = [
   "board-order",
@@ -249,20 +247,20 @@ const parseLegacyFilterClause = (value: unknown): LegacyFilterClause | null => {
     };
   }
   if (value.field === "priority" && value.op === "in") {
-    if (
-      !value.values.every((item) => PRIORITY_ORDER.includes(item as Priority))
-    ) {
-      return null;
+    const priorities: Priority[] = [];
+    for (const item of value.values) {
+      const priority = upgradeLegacyPriority(item);
+      if (!priority) return null;
+      if (!priorities.includes(priority)) priorities.push(priority);
     }
-    const values = value.values as readonly Priority[];
     return {
       field: "priority",
       op: "in",
-      values,
+      values: priorities,
       includeEmpty:
         typeof value.includeEmpty === "boolean"
           ? value.includeEmpty
-          : PRIORITY_ORDER.every((priority) => values.includes(priority)),
+          : legacyPrioritySelectionIncludesEveryAssigned(value.values),
     };
   }
   if (

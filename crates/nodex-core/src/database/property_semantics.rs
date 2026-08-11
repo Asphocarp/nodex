@@ -6,6 +6,18 @@ use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
+pub(crate) const PRIORITY_PROPERTY_ID: &str = "priority";
+pub(crate) const PRIORITY_OPTIONS: [(&str, &str); 4] = [
+    ("p0-critical", "P0 - Critical"),
+    ("p1-high", "P1 - High"),
+    ("p2-medium", "P2 - Medium"),
+    ("p3-low", "P3 - Low"),
+];
+
+pub(crate) fn is_priority_option_id(value: &str) -> bool {
+    PRIORITY_OPTIONS.iter().any(|(id, _)| *id == value)
+}
+
 pub(crate) fn value_type(schema: &DatabasePropertySchema) -> &'static str {
     match schema {
         DatabasePropertySchema::Text => "text",
