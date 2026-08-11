@@ -1,6 +1,10 @@
 # Architecture
 
-Current Rust Store authority is v110. Database contract v6 centralizes typed Property schema, capabilities, and edits. Relation definitions and Page-reference edges are normalized in `data_source_relation_properties` and `data_source_relation_edges`; each edge has a Core-authored opaque identity used as the source-owned removal capability, while JSON `null` headers retain revision/CAS leverage and reverse indexes support projection invalidation and retention. One SQL-bounded Relation projection kernel computes exact total/restricted counts and at most three visible previews without materializing the complete edge set in Rust. Main and renderer adapters map this contract mechanically: authorized Database catalogs, target-Source candidate windows, relation-value windows, and bounded summaries replace View-cache inference and per-Page hydration. Library contract v10 provides the upper transaction for Page Detail actions that combine Database-owned Source Properties with Library-owned intrinsic Properties, while preserving the lower ownership boundaries and restricting the composition to value edits over one identical Page set.
+Current Rust Store authority is v111. Database contract v6 centralizes typed Property schema, capabilities, and edits. Relation definitions and Page-reference edges are normalized in `data_source_relation_properties` and `data_source_relation_edges`; each edge has a Core-authored opaque identity used as the source-owned removal capability, while JSON `null` headers retain revision/CAS leverage and reverse indexes support projection invalidation and retention. One SQL-bounded Relation projection kernel computes exact total/restricted counts and at most three visible previews without materializing the complete edge set in Rust. Main and renderer adapters map this contract mechanically: authorized Database catalogs, target-Source candidate windows, relation-value windows, and bounded summaries replace View-cache inference and per-Page hydration. Library contract v10 provides the upper transaction for Page Detail actions that combine Database-owned Source Properties with Library-owned intrinsic Properties, while preserving the lower ownership boundaries and restricting the composition to value edits over one identical Page set.
+
+Store v111 keeps the v110 physical inventory and makes Priority a four-tier P0–P3 domain contract.
+Its atomic semantic migration maps the retired `p4-later` option, assigned values, saved filter operands, grouped positions, and current Page projections to `p3-low`, then validates that every live registry and projection is canonical.
+Only versioned migration/import boundaries recognize P4; normal writes and reads reject it, while sealed historical LocalCommit evidence remains immutable and startup begins from the migrated canonical barrier.
 
 Store v110 completes the semantic mutation model introduced by v105/v106. The existing
 `change_log`, Document update rows, and Module history form a private physical
@@ -1508,9 +1512,9 @@ Block-first migration foundation:
 1. Core accepts the exact frozen v26, both v57, v68, v82, and v83
    TypeScript inventories as historical import sources, the exact final
    TypeScript v84 inventory as its direct handoff, and exact Rust-owned v85
-   through v109 stores. Historical sources are snapshotted with their asset
+   through v110 stores. Historical sources are snapshotted with their asset
    closure, advanced only in staging by the hash-pinned migrator, reconstructed
-   through Yrs, semantically validated, and atomically published as v110 under
+   through Yrs, semantically validated, and atomically published as v111 under
    the crash-recovery journal. Direct native upgrades use the same exact-schema
    validation and durable backup boundary. v102 introduced the LocalCommit
    ledger, v103 its composite Store identity, v104 canonical physical evidence
@@ -1520,9 +1524,10 @@ Block-first migration foundation:
    resource-atomic delivery, complete Projection audiences, opaque Relation
    edge identity, and sealed DurableMutation finalization. v110 adds the
    transaction-owned visibility journal, pre/post authorization deltas, and
-   private sealed Projection descriptors. Unfrozen
+   private sealed Projection descriptors. v111 then retires P4 and migrates its
+   live semantic state to P3 without rewriting sealed LocalCommit history. Unfrozen
    same-version lineages, near-matches, ambiguous owners, and future stores
-   fail closed; a Rust-owned v110 Store is
+   fail closed; a Rust-owned v111 Store is
    validated exactly and never silently repaired.
 2. A successful Document apply tentatively reconstructs and validates a Y.Doc, derives the changed title/Block identities from before/after state, reconciles the registry/index, and writes the binary update, immutable receipt, exact-blob checksum, state vector, and new head under one immediate SQLite transaction. Receipts remain independently of update payload retention; compaction verifies and semantically reloads a full snapshot at the current head, then atomically removes only its covered payload tail. Store epoch, Document generation, update identity, `headSeq`, Yjs state vector, and exact retained-blob integrity remain separate concepts. Equivalent Y.Docs may produce different full-state wire bytes, so Store v98 removes Yjs reconstruction fingerprints and excludes full-state hashes from authority, integrity, and concurrency.
 3. Production Page Stage prepares the exact owned descriptor before rendering content. Only a ready `yjs`/`block_tree` descriptor enters the Page editor: its canonical DocumentSession completes Core state-vector sync before resolving `Y.Text("title")` / `Y.XmlFragment("body")`, then starts disposable checkpoint recovery in a separate lane. BlockNote binds directly to that fragment without projection-based initialization. The NFM parser produces a zero-or-more Block forest without editor policy. Document create/replace/patch boundaries normalize an empty forest to one registered stable-ID paragraph, while Fragment insertion rejects an empty forest and points callers to `<empty-block/>`. A first root insertion into a semantically blank Document promotes the existing seed ID through a fenced Block update, preventing the authority scaffold from appearing in canonical NFM.

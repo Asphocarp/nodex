@@ -1,16 +1,8 @@
-import type { Priority } from "../types";
+import { getPriorityShortLabel } from "../priority-presentation";
 import { EMPTY_DISPLAY_VALUE_TOKEN } from "./meta-chips";
 import type { ToggleListCard, ToggleListPropertyKey } from "./types";
 
 export const EMPTY_DISPLAY_VALUE_LABEL = `[${EMPTY_DISPLAY_VALUE_TOKEN}]`;
-
-const priorityTokens: Record<Priority, string> = {
-  "p0-critical": "P0",
-  "p1-high": "P1",
-  "p2-medium": "P2",
-  "p3-low": "P3",
-  "p4-later": "P4",
-};
 
 export interface FormatMetaOptions {
   showEmptyEstimate?: boolean;
@@ -43,7 +35,7 @@ function formatPropertyTokens(
 ): string[] {
   switch (property) {
     case "priority":
-      if (card.priority) return [`[${priorityTokens[card.priority]}]`];
+      if (card.priority) return [`[${getPriorityShortLabel(card.priority)}]`];
       return options.showEmptyPriority ? [EMPTY_DISPLAY_VALUE_LABEL] : [];
     case "estimate":
       if (card.estimate) return [`[${card.estimate.toUpperCase()}]`];

@@ -546,6 +546,8 @@ describe("PageCreateDialog", () => {
       name: "Search Priority options",
     });
     expect(prioritySearch.getAttribute("placeholder")).toBe("Change priority…");
+    expect(view.getByRole("option", { name: "P3 - Low" })).toBeTruthy();
+    expect(view.queryByRole("option", { name: "P4 - Later" })).toBeNull();
     await act(async () => {
       fireEvent.click(view.getByRole("option", { name: "P1 - High" }));
       await Promise.resolve();

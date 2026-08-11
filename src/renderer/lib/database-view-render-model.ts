@@ -24,14 +24,8 @@ import type {
 } from "../../shared/database-identities";
 import { readDatabasePropertyOptions } from "./database-view-authoring";
 import type { Estimate, Priority } from "./types";
+import { isPriority } from "../../shared/priority";
 
-const PRIORITIES = new Set<Priority>([
-  "p0-critical",
-  "p1-high",
-  "p2-medium",
-  "p3-low",
-  "p4-later",
-]);
 const ESTIMATES = new Set<Estimate>(["xs", "s", "m", "l", "xl"]);
 
 export interface DatabaseViewRenderModel {
@@ -172,8 +166,8 @@ const toRenderRow = (
     preview: row.page.preview,
     plainText: row.page.plainText,
     ...(isWorkflowStatus(statusValue) ? { status: statusValue } : {}),
-    ...(priorityValue && PRIORITIES.has(priorityValue as Priority)
-      ? { priority: priorityValue as Priority }
+    ...(isPriority(priorityValue)
+      ? { priority: priorityValue }
       : {}),
     ...(estimateValue && ESTIMATES.has(estimateValue as Estimate)
       ? { estimate: estimateValue as Estimate }

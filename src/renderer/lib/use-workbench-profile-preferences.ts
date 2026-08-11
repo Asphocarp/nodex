@@ -18,6 +18,7 @@ import type {
 import {
   cloneDbViewPrefs,
   getDefaultDbViewPrefs,
+  normalizeLegacyDbViewPrefs,
   normalizeDbViewPrefs,
   type DbViewPrefs,
   type SupportedDbView,
@@ -62,6 +63,8 @@ export interface WorkbenchProfilePreferences {
 }
 
 const WORKBENCH_PROFILE_PREFERENCES_STORAGE_KEY =
+  "nodex-workbench-profile-preferences-v2";
+const LEGACY_WORKBENCH_PROFILE_PREFERENCES_STORAGE_KEY =
   "nodex-workbench-profile-preferences-v1";
 const MAX_RECENT_PAGE_SESSIONS = 10;
 const VALID_DB_PREF_VIEWS = new Set<SupportedDbView>([
@@ -123,6 +126,7 @@ function normalizeViewMap(
 
 function normalizeDbViewPrefsMap(
   value: unknown,
+  upgradeRetiredPriority = false,
 ): Record<string, Partial<Record<SupportedDbView, DbViewPrefs>>> {
   const projects = readRecord(value);
   if (!projects) return {};
@@ -140,10 +144,9 @@ function normalizeDbViewPrefsMap(
         return viewResult;
       }
       const supportedView = view as SupportedDbView;
-      viewResult[supportedView] = normalizeDbViewPrefs(
-        supportedView,
-        preferences,
-      );
+      viewResult[supportedView] = upgradeRetiredPriority
+        ? normalizeLegacyDbViewPrefs(supportedView, preferences)
+        : normalizeDbViewPrefs(supportedView, preferences);
       return viewResult;
     }, {});
     result[projectId] = normalized;
@@ -164,6 +167,19 @@ function normalizeRecentPageSessions(
 export function normalizeWorkbenchProfilePreferences(
   value: unknown,
 ): WorkbenchProfilePreferences {
+  return normalizeWorkbenchProfilePreferencesAtBoundary(value, false);
+}
+
+export function normalizeLegacyWorkbenchProfilePreferences(
+  value: unknown,
+): WorkbenchProfilePreferences {
+  return normalizeWorkbenchProfilePreferencesAtBoundary(value, true);
+}
+
+function normalizeWorkbenchProfilePreferencesAtBoundary(
+  value: unknown,
+  upgradeRetiredPriority: boolean,
+): WorkbenchProfilePreferences {
   const defaults = makeDefaultWorkbenchProfilePreferences();
   const record = readRecord(value);
   if (!record) return defaults;
@@ -172,7 +188,10 @@ export function normalizeWorkbenchProfilePreferences(
   return {
     viewsByProject: normalizeViewMap(record.viewsByProject),
     dbViewPrefsByProject:
-      normalizeDbViewPrefsMap(record.dbViewPrefsByProject),
+      normalizeDbViewPrefsMap(
+        record.dbViewPrefsByProject,
+        upgradeRetiredPriority,
+      ),
     sidebar: {
       collapsed:
         typeof sidebar?.collapsed === "boolean"
@@ -193,29 +212,57 @@ export function normalizeWorkbenchProfilePreferences(
   };
 }
 
-function loadWorkbenchProfilePreferences():
-  WorkbenchProfilePreferences {
+type WorkbenchPreferenceStorage = Pick<
+  Storage,
+  "getItem" | "setItem" | "removeItem"
+>;
+
+export function loadWorkbenchProfilePreferencesFromStorage(
+  storage: WorkbenchPreferenceStorage,
+): WorkbenchProfilePreferences {
   try {
-    const raw = localStorage.getItem(
+    const raw = storage.getItem(
       WORKBENCH_PROFILE_PREFERENCES_STORAGE_KEY,
     );
-    if (!raw) return makeDefaultWorkbenchProfilePreferences();
-    return normalizeWorkbenchProfilePreferences(JSON.parse(raw));
+    if (raw) return normalizeWorkbenchProfilePreferences(JSON.parse(raw));
+
+    const legacyRaw = storage.getItem(
+      LEGACY_WORKBENCH_PROFILE_PREFERENCES_STORAGE_KEY,
+    );
+    if (!legacyRaw) return makeDefaultWorkbenchProfilePreferences();
+    const migrated = normalizeLegacyWorkbenchProfilePreferences(
+      JSON.parse(legacyRaw),
+    );
+    if (persistWorkbenchProfilePreferences(migrated, storage)) {
+      try {
+        storage.removeItem(LEGACY_WORKBENCH_PROFILE_PREFERENCES_STORAGE_KEY);
+      } catch {
+        // A retained v1 value is safe and can be retried on the next load.
+      }
+    }
+    return migrated;
   } catch {
     return makeDefaultWorkbenchProfilePreferences();
   }
 }
 
+function loadWorkbenchProfilePreferences(): WorkbenchProfilePreferences {
+  return loadWorkbenchProfilePreferencesFromStorage(localStorage);
+}
+
 function persistWorkbenchProfilePreferences(
   preferences: WorkbenchProfilePreferences,
-): void {
+  storage: Pick<Storage, "setItem"> = localStorage,
+): boolean {
   try {
-    localStorage.setItem(
+    storage.setItem(
       WORKBENCH_PROFILE_PREFERENCES_STORAGE_KEY,
       JSON.stringify(preferences),
     );
+    return true;
   } catch {
     // Preferences remain valid for the current renderer lifetime.
+    return false;
   }
 }
 
@@ -481,3 +528,5 @@ export function useWorkbenchProfilePreferences(
 
 export const workbenchProfilePreferencesStorageKey =
   WORKBENCH_PROFILE_PREFERENCES_STORAGE_KEY;
+export const legacyWorkbenchProfilePreferencesStorageKey =
+  LEGACY_WORKBENCH_PROFILE_PREFERENCES_STORAGE_KEY;

@@ -1,6 +1,8 @@
 import type { BoardSummary, DatabasePageSummary, WorkflowStatus, MovePageInput } from "@/lib/types";
 import type { DbViewRules, DbViewSortField } from "../../lib/db-view-prefs";
 import { DB_VIEW_SORT_FIELD_LABELS } from "../../lib/db-view-prefs";
+import { isPriority } from "../../../shared/priority";
+import { getPriorityShortLabel } from "../../lib/priority-presentation";
 import { resolveFilteredDropOrder } from "./filtered-drag-order";
 
 interface DragItemLike {
@@ -58,17 +60,11 @@ function resolveSortBucketValue(card: Pick<DatabasePageSummary, "priority" | "es
 
 function buildPreviewLabel(field: MoveFieldPatchField, value: DatabasePageSummary["priority"] | DatabasePageSummary["estimate"] | null): string {
   if (field === "priority") {
-    const label = value === null
-      ? "Empty"
-      : value === "p0-critical"
-        ? "P0"
-        : value === "p1-high"
-          ? "P1"
-          : value === "p2-medium"
-            ? "P2"
-            : value === "p3-low"
-              ? "P3"
-              : "P4";
+    if (value === null) return "Priority: Empty";
+    if (!isPriority(value)) {
+      throw new TypeError("Priority drop preview received an invalid value");
+    }
+    const label = getPriorityShortLabel(value);
     return `Priority: ${label}`;
   }
 

@@ -5,22 +5,10 @@ import { Check } from "@/components/shared/icons/generic-icons";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import type { BoardSummary, DatabasePageSummary } from "@/lib/types";
-
-const PRIORITY_LABELS: Record<string, string> = {
-  "p0-critical": "P0",
-  "p1-high": "P1",
-  "p2-medium": "P2",
-  "p3-low": "P3",
-  "p4-later": "P4",
-};
-
-const PRIORITY_CLASSES: Record<string, string> = {
-  "p0-critical": "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
-  "p1-high": "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400",
-  "p2-medium": "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
-  "p3-low": "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400",
-  "p4-later": "bg-gray-50 text-gray-500 dark:bg-gray-800/50 dark:text-gray-500",
-};
+import {
+  getPriorityClassName,
+  getPriorityShortLabel,
+} from "@/lib/priority-presentation";
 
 interface CanvasCardSidebarProps {
   board: BoardSummary | null;
@@ -126,10 +114,10 @@ export function CanvasCardSidebar({
                           <span
                             className={cn(
                               "rounded-sm px-1 text-xs font-medium",
-                              PRIORITY_CLASSES[card.priority],
+                              getPriorityClassName(card.priority),
                             )}
                           >
-                            {PRIORITY_LABELS[card.priority]}
+                            {getPriorityShortLabel(card.priority)}
                           </span>
                         ) : null}
                         <span className="truncate text-xs text-gray-400">

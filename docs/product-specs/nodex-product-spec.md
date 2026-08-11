@@ -8,7 +8,7 @@ Clearing a non-empty Relation requires explicit confirmation and uses a revision
 
 CLI `meta.yaml` represents a non-empty Relation as a read-only bounded summary containing visible `{id, name}` targets, `total_count`, `restricted_count`, and `has_more`. Restricted identities are never serialized, and a long or partially restricted Relation does not make the Page unreadable.
 
-Fresh Profiles use Store v110. Exact older native Stores are backed up and
+Fresh Profiles use Store v111. Exact older native Stores are backed up and
 atomically advanced through the v102 LocalCommit ledger, v103 composite Store
 identity, v104 canonical evidence hash, v105 Manifest/authorized packet split,
 v106 Projection scope heads, v107 exact Block child-key indexes, v108 scoped
@@ -16,7 +16,9 @@ resource-revocation evidence, and v109 resource-atomic delivery, complete
 Projection audiences, opaque Relation edge identities, and sealed mutation
 finalization, followed by v110 transaction-owned visibility journaling,
 canonical pre/post authorization deltas, and private sealed Projection
-descriptors. Drifted or
+descriptors, then v111's semantic Priority cutover from P0–P4 to P0–P3.
+The v111 upgrade maps every assigned `p4-later` value, priority-group position, and saved priority filter to `p3-low` while preserving unrelated option metadata and immutable LocalCommit history.
+Drifted or
 partially migrated inventories fail closed.
 
 ## Overview
@@ -424,7 +426,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 | `title` | string | Yes | Plain-text projection of `Y.Text("title")` (max 2,000 chars); used by search, tables, accessibility, and plain CLI output |
 | `richTitle` | portable rich text | Yes on current reads | Canonical styled/link/mention projection of the Page Document title; structured transports preserve it without loading the body |
 | `description` | string | No | Read/export projection of `Y.XmlFragment("body")` as [Nested Markdown](../references/nested-markdown-spec.md), including image/attachment/thread/date syntax (max 1,000,000 projected chars); never a collaborative write field |
-| `priority` | enum | No | Optional priority tier: p0-critical, p1-high, p2-medium, p3-low, p4-later |
+| `priority` | enum | No | Optional assigned priority tier: p0-critical, p1-high, p2-medium, p3-low; an unset value means No priority |
 | `estimate` | enum | No | xs, s, m, l, xl |
 | `tags` | string[] | No | User-facing canonical display names (default: [], max 64 tags, each max 64 chars); Page creation resolves or preallocates owner-scoped option IDs before enqueue, while low-level Data Source values carry those option IDs |
 | `dueDate` | date | No | Task deadline (YYYY-MM-DD format) |

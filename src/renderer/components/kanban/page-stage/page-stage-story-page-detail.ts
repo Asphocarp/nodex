@@ -92,7 +92,6 @@ export const buildPageDetailStoryResult = (
       { id: "p1-high", name: "High" },
       { id: "p2-medium", name: "Medium" },
       { id: "p3-low", name: "Low" },
-      { id: "p4-later", name: "Later" },
     ] }),
     property("estimate", "select", { options: [
       { id: "xs", name: "XS" },

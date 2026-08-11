@@ -575,6 +575,11 @@ fn put_property(
     validate_id(property_id, "property_id", MAX_PROPERTY_ID_LENGTH)?;
     let name = validate_name(name, "Property name")?;
     let value_type = super::property_semantics::value_type(schema);
+    if property_id == super::property_semantics::PRIORITY_PROPERTY_ID
+        && !matches!(schema, DatabasePropertySchema::Select)
+    {
+        return Err(invalid("Priority Property must use the select schema"));
+    }
     if let DatabasePropertySchema::Relation {
         target_data_source_id,
     } = schema
@@ -807,6 +812,11 @@ fn put_option(
     library_scope: bool,
 ) -> Result<(), StoreError> {
     validate_id(option_id, "option_id", MAX_PROPERTY_ID_LENGTH)?;
+    if property_id == super::property_semantics::PRIORITY_PROPERTY_ID
+        && !super::property_semantics::is_priority_option_id(option_id)
+    {
+        return Err(invalid("Priority option ID is not canonical"));
+    }
     let raw_name = name;
     let name = validate_name(raw_name, "Option name")?;
     if color.is_some_and(|value| value.is_empty() || value.len() > 128) {
@@ -3959,6 +3969,18 @@ fn validate_filter_capabilities(
         "is_not_empty" => DatabasePropertyFilterOperator::IsNotEmpty,
         _ => return Err(invalid("Database View filter operator is unsupported")),
     };
+    if property_id == super::property_semantics::PRIORITY_PROPERTY_ID
+        && matches!(
+            operator,
+            DatabasePropertyFilterOperator::Equals | DatabasePropertyFilterOperator::NotEquals
+        )
+        && !object
+            .get("value")
+            .and_then(Value::as_str)
+            .is_some_and(super::property_semantics::is_priority_option_id)
+    {
+        return Err(invalid("Priority filter references a noncanonical option"));
+    }
     let capabilities = property_capabilities
         .get(property_id)
         .ok_or_else(|| invalid("Database View filter references a missing Property"))?;
@@ -4597,6 +4619,13 @@ fn option_config(property: &PropertyRow) -> Result<OptionConfig, StoreError> {
             .map_err(|_| corrupt("Stored Property option name is invalid"))?;
         if !ids.insert(option.id.as_str()) {
             return Err(corrupt("Property option registry repeats an ID"));
+        }
+        if property.id == super::property_semantics::PRIORITY_PROPERTY_ID
+            && !super::property_semantics::is_priority_option_id(&option.id)
+        {
+            return Err(corrupt(
+                "Stored Priority option registry contains a noncanonical ID",
+            ));
         }
     }
     Ok(config)

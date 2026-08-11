@@ -1,4 +1,6 @@
 import type { DatabasePage, WorkflowStatus, Priority } from "../types";
+import { PRIORITY_VALUES } from "../../../shared/priority";
+import { getPriorityShortLabel } from "../priority-presentation";
 import type { SortEmptyPlacement } from "../sort-empty-placement";
 import {
   WORKFLOW_STATUS_LABELS,
@@ -13,13 +15,7 @@ export const TOGGLE_LIST_STATUS_LABELS: Record<ToggleListStatusId, string> = {
   ...WORKFLOW_STATUS_LABELS,
 };
 
-export const TOGGLE_LIST_PRIORITY_ORDER: Priority[] = [
-  "p0-critical",
-  "p1-high",
-  "p2-medium",
-  "p3-low",
-  "p4-later",
-];
+export const TOGGLE_LIST_PRIORITY_ORDER: readonly Priority[] = PRIORITY_VALUES;
 
 export const TOGGLE_LIST_PROPERTY_KEYS = ["priority", "estimate", "status", "tags"] as const;
 export type ToggleListPropertyKey = (typeof TOGGLE_LIST_PROPERTY_KEYS)[number];
@@ -53,13 +49,10 @@ export const TOGGLE_LIST_RANK_FIELD_LABELS: Record<ToggleListRankField, string> 
   title: "Title",
 };
 
-export const TOGGLE_LIST_PRIORITY_CHIP_LABELS: Record<Priority, string> = {
-  "p0-critical": "P0",
-  "p1-high": "P1",
-  "p2-medium": "P2",
-  "p3-low": "P3",
-  "p4-later": "P4",
-};
+export const TOGGLE_LIST_PRIORITY_CHIP_LABELS: Record<Priority, string> =
+  Object.fromEntries(
+    PRIORITY_VALUES.map((priority) => [priority, getPriorityShortLabel(priority)]),
+  ) as Record<Priority, string>;
 
 export const TOGGLE_LIST_EMPTY_PRIORITY_LABEL = "-";
 

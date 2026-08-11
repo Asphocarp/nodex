@@ -1,6 +1,7 @@
 use rusqlite::{Connection, params};
 use serde_json::{Value, json};
 
+use super::property_semantics::PRIORITY_OPTIONS;
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
 #[allow(clippy::too_many_arguments)]
@@ -113,13 +114,10 @@ fn initial_property_definitions() -> Vec<(&'static str, &'static str, &'static s
             "Priority",
             "select",
             json!({
-                "options": [
-                    { "id": "p0-critical", "name": "P0 - Critical" },
-                    { "id": "p1-high", "name": "P1 - High" },
-                    { "id": "p2-medium", "name": "P2 - Medium" },
-                    { "id": "p3-low", "name": "P3 - Low" },
-                    { "id": "p4-later", "name": "P4 - Later" }
-                ]
+                "options": PRIORITY_OPTIONS.map(|(id, name)| json!({
+                    "id": id,
+                    "name": name,
+                }))
             }),
         ),
         (

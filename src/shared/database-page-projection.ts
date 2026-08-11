@@ -31,6 +31,7 @@ import {
   WORKFLOW_STATUS_COLUMNS,
   isWorkflowStatus,
 } from "./workflow-status";
+import { isPriority } from "./priority";
 import { assertValidPageInput } from "./page-input-validation";
 import { projectCoreDatabaseQueryRow } from "./core-database-row-projection";
 
@@ -50,13 +51,6 @@ const INTRINSIC_PROPERTY_KEYS = [
   "reminders.config",
 ] as const;
 
-const PRIORITIES = new Set<Priority>([
-  "p0-critical",
-  "p1-high",
-  "p2-medium",
-  "p3-low",
-  "p4-later",
-]);
 const ESTIMATES = new Set<Estimate>(["xs", "s", "m", "l", "xl"]);
 const RUN_TARGETS = new Set<PageRunInTarget>([
   "localProject",
@@ -210,7 +204,7 @@ const readPriority = (
 ): Priority | undefined => {
   const candidate = nullableString(row, "Database Property priority", value);
   if (candidate === undefined) return undefined;
-  if (PRIORITIES.has(candidate as Priority)) return candidate as Priority;
+  if (isPriority(candidate)) return candidate;
   return fail(row.page.pageId, "has an invalid priority");
 };
 
@@ -344,7 +338,7 @@ const corePriority = (
     value,
   );
   if (candidate === undefined) return undefined;
-  if (PRIORITIES.has(candidate as Priority)) return candidate as Priority;
+  if (isPriority(candidate)) return candidate;
   return fail(row.page_id, "has an invalid priority");
 };
 

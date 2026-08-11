@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File};
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -14,6 +14,7 @@ use chrono::{DateTime, NaiveDate, NaiveDateTime, SecondsFormat, Utc};
 use rusqlite::backup::Backup;
 use rusqlite::{Connection, MAIN_DB, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
 use yrs::updates::decoder::Decode;
 #[cfg(test)]
@@ -53,6 +54,31 @@ const MAX_AUTOMATION_JITTER_SALT_BYTES: u64 = 512;
 const MAX_WRITABLE_ROOTS_PER_THREAD: usize = 128;
 const MAX_WRITABLE_ROOT_BYTES: usize = 16_384;
 const UUID_V7_UNIX_TIMESTAMP_HEX_DIGITS: usize = 12;
+const LEGACY_P4_PRIORITY_ID: &str = "p4-later";
+const LEGACY_P4_PRIORITY_NAME: &str = "P4 - Later";
+const P3_PRIORITY_ID: &str = "p3-low";
+const P3_PRIORITY_NAME: &str = "P3 - Low";
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+struct StoredPriorityOption {
+    id: String,
+    name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    color: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+struct StoredPriorityConfig {
+    options: Vec<StoredPriorityOption>,
+}
+
+#[derive(Clone, Debug)]
+struct PrioritySourceState {
+    current_ids: BTreeSet<String>,
+    had_legacy_p4: bool,
+}
 const V97_CANVAS_OWNERS_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS canvas_owners (
   block_id TEXT PRIMARY KEY REFERENCES blocks(id) ON DELETE CASCADE,
@@ -1757,6 +1783,7 @@ pub fn prepare_profile_store_with_observer(
         validate_canonical_text_timestamp_invariants(connection)?;
         validate_database_view_kind_invariants(connection)?;
         validate_database_relation_invariants(connection)?;
+        validate_database_priority_invariants(connection)?;
         return Ok(StorePreparation {
             schema_version: CORE_SCHEMA_VERSION,
             created_fresh: true,
@@ -1782,6 +1809,7 @@ pub fn prepare_profile_store_with_observer(
         validate_canonical_text_timestamp_invariants(connection)?;
         validate_database_view_kind_invariants(connection)?;
         validate_database_relation_invariants(connection)?;
+        validate_database_priority_invariants(connection)?;
         return Ok(StorePreparation {
             schema_version: CORE_SCHEMA_VERSION,
             created_fresh: false,
@@ -1836,6 +1864,7 @@ pub fn prepare_profile_store_with_observer(
     validate_canonical_text_timestamp_invariants(connection)?;
     validate_database_view_kind_invariants(connection)?;
     validate_database_relation_invariants(connection)?;
+    validate_database_priority_invariants(connection)?;
     Ok(StorePreparation {
         schema_version: CORE_SCHEMA_VERSION,
         created_fresh: false,
@@ -1892,6 +1921,7 @@ pub(crate) fn prepare_legacy_import_candidate(
     validate_canonical_text_timestamp_invariants(connection)?;
     validate_database_view_kind_invariants(connection)?;
     validate_database_relation_invariants(connection)?;
+    validate_database_priority_invariants(connection)?;
     Ok(StorePreparation {
         schema_version: CORE_SCHEMA_VERSION,
         created_fresh: false,
@@ -1945,6 +1975,7 @@ fn upgrade_owned_store(
         107 => validate_exact_v107_schema(connection)?,
         108 => validate_exact_v108_schema(connection)?,
         109 => validate_exact_v109_schema(connection)?,
+        110 => validate_exact_v110_schema(connection)?,
         _ => return Err(corrupt("Rust Core forward-migration source is unsupported")),
     }
 
@@ -1955,6 +1986,7 @@ fn upgrade_owned_store(
 
     let backup_path = create_migration_backup(connection, profile_home, source_version)?;
     let validated_yjs_documents = validate_live_yjs_documents(connection)?;
+    let migration_now = unix_time_millis()?;
     with_immediate_transaction(connection, |transaction| {
         if source_version < 86 {
             ensure_v86_execution_profile_schema(transaction)?;
@@ -2059,6 +2091,7 @@ fn upgrade_owned_store(
                 },
             )?;
         }
+        ensure_v111_priority_contract(transaction, migration_now)?;
         let updated = transaction.execute(
             "UPDATE core_store_metadata SET store_format_version = ?1 \
              WHERE id = 1 AND schema_owner = ?2 AND store_format_version = ?3",
@@ -2080,6 +2113,7 @@ fn upgrade_owned_store(
     validate_canonical_text_timestamp_invariants(connection)?;
     validate_database_view_kind_invariants(connection)?;
     validate_database_relation_invariants(connection)?;
+    validate_database_priority_invariants(connection)?;
     Ok(StorePreparation {
         schema_version: CORE_SCHEMA_VERSION,
         created_fresh: false,
@@ -2509,6 +2543,7 @@ fn publish_current_store(
         )?;
         crate::infrastructure::local_commit::upgrade_v109_manifest(transaction, &mut |_, _| {})?;
         crate::infrastructure::local_commit::upgrade_v110_manifest(transaction, &mut |_, _| {})?;
+        ensure_v111_priority_contract(transaction, now)?;
         ensure_v107_block_project_cascade_indexes(transaction)?;
         import_legacy_writable_roots(transaction, profile_home, now)?;
         import_automation_jitter_salt(transaction, profile_home, now)
@@ -2551,6 +2586,7 @@ fn create_fresh_store(
         upgrade_local_commit_artifacts(transaction, TYPESCRIPT_SCHEMA_VERSION, &mut |_, _| {})?;
         crate::infrastructure::local_commit::upgrade_v109_manifest(transaction, &mut |_, _| {})?;
         crate::infrastructure::local_commit::upgrade_v110_manifest(transaction, &mut |_, _| {})?;
+        ensure_v111_priority_contract(transaction, now)?;
         ensure_v107_block_project_cascade_indexes(transaction)?;
         import_legacy_writable_roots(transaction, profile_home, now)?;
         import_automation_jitter_salt(transaction, profile_home, now)
@@ -3292,6 +3328,693 @@ fn validate_database_relation_invariants(connection: &Connection) -> Result<(), 
     Err(corrupt(format!(
         "Relation Property authority contains {invalid} inconsistent records"
     )))
+}
+
+fn priority_migration_timestamp(now: u64) -> Result<String, StoreError> {
+    let millis = i64::try_from(now)
+        .map_err(|_| internal("Priority migration time exceeds the timestamp range"))?;
+    DateTime::<Utc>::from_timestamp_millis(millis)
+        .map(|timestamp| timestamp.to_rfc3339_opts(SecondsFormat::Millis, true))
+        .ok_or_else(|| internal("Priority migration time is invalid"))
+}
+
+fn parse_priority_config(
+    data_source_id: &str,
+    raw: &str,
+    allow_legacy_p4: bool,
+) -> Result<(StoredPriorityConfig, PrioritySourceState), StoreError> {
+    let config = serde_json::from_str::<StoredPriorityConfig>(raw).map_err(|error| {
+        corrupt(format!(
+            "Priority registry for Data Source {data_source_id} is invalid: {error}"
+        ))
+    })?;
+    let mut ids = BTreeSet::new();
+    let mut had_legacy_p4 = false;
+    for option in &config.options {
+        if option.id.is_empty() || option.name.trim().is_empty() {
+            return Err(corrupt(format!(
+                "Priority registry for Data Source {data_source_id} has an empty option identity or name"
+            )));
+        }
+        if !ids.insert(option.id.clone()) {
+            return Err(corrupt(format!(
+                "Priority registry for Data Source {data_source_id} repeats option {}",
+                option.id
+            )));
+        }
+        if crate::database::property_semantics::is_priority_option_id(&option.id) {
+            continue;
+        }
+        if allow_legacy_p4 && option.id == LEGACY_P4_PRIORITY_ID {
+            had_legacy_p4 = true;
+            continue;
+        }
+        return Err(corrupt(format!(
+            "Priority registry for Data Source {data_source_id} contains unknown option {}",
+            option.id
+        )));
+    }
+    let current_ids = ids
+        .into_iter()
+        .filter(|id| crate::database::property_semantics::is_priority_option_id(id))
+        .collect();
+    Ok((
+        config,
+        PrioritySourceState {
+            current_ids,
+            had_legacy_p4,
+        },
+    ))
+}
+
+fn migrate_v110_priority_config(
+    data_source_id: &str,
+    raw: &str,
+) -> Result<(Option<String>, PrioritySourceState), StoreError> {
+    let (config, input) = parse_priority_config(data_source_id, raw, true)?;
+    if !input.had_legacy_p4 {
+        return Ok((None, input));
+    }
+
+    let has_p3 = config
+        .options
+        .iter()
+        .any(|option| option.id == P3_PRIORITY_ID);
+    let mut options = Vec::with_capacity(config.options.len());
+    for mut option in config.options {
+        if option.id != LEGACY_P4_PRIORITY_ID {
+            options.push(option);
+            continue;
+        }
+        if has_p3 {
+            continue;
+        }
+        option.id = P3_PRIORITY_ID.to_owned();
+        if option.name == LEGACY_P4_PRIORITY_NAME {
+            option.name = P3_PRIORITY_NAME.to_owned();
+        }
+        options.push(option);
+    }
+    let migrated = StoredPriorityConfig { options };
+    let serialized = serde_json::to_string(&migrated)
+        .map_err(|_| internal("Migrated Priority registry could not be serialized"))?;
+    let (_, mut output) = parse_priority_config(data_source_id, &serialized, false)?;
+    output.had_legacy_p4 = true;
+    Ok((Some(serialized), output))
+}
+
+fn ensure_v111_priority_contract(connection: &Connection, now: u64) -> Result<(), StoreError> {
+    let updated_at = priority_migration_timestamp(now)?;
+    let properties = connection
+        .prepare(
+            "SELECT data_source_id, value_type, config_json \
+             FROM data_source_properties WHERE id = 'priority' ORDER BY data_source_id",
+        )?
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let mut sources = BTreeMap::new();
+    for (data_source_id, value_type, config_json) in properties {
+        if value_type != "select" {
+            return Err(corrupt(format!(
+                "Priority Property for Data Source {data_source_id} is not a select"
+            )));
+        }
+        let (migrated, state) = migrate_v110_priority_config(&data_source_id, &config_json)?;
+        if let Some(migrated) = migrated {
+            let property_changed = connection.execute(
+                "UPDATE data_source_properties SET config_json = ?1, \
+                   schema_revision = schema_revision + 1, updated_at = ?2 \
+                 WHERE data_source_id = ?3 AND id = 'priority' AND config_json = ?4",
+                params![migrated, updated_at, data_source_id, config_json],
+            )?;
+            if property_changed != 1 {
+                return Err(corrupt(format!(
+                    "Priority registry for Data Source {data_source_id} changed during migration"
+                )));
+            }
+            let source_changed = connection.execute(
+                "UPDATE data_sources SET schema_revision = schema_revision + 1, updated_at = ?1 \
+                 WHERE id = ?2",
+                params![updated_at, data_source_id],
+            )?;
+            if source_changed != 1 {
+                return Err(corrupt(format!(
+                    "Data Source {data_source_id} disappeared during Priority migration"
+                )));
+            }
+        }
+        sources.insert(data_source_id, state);
+    }
+
+    let mut metadata_pages = migrate_v110_priority_values(connection, &sources, &updated_at)?;
+    migrate_v110_priority_views(connection, &updated_at, &mut metadata_pages)?;
+    validate_database_priority_invariants(connection)
+}
+
+fn migrate_v110_priority_values(
+    connection: &Connection,
+    sources: &BTreeMap<String, PrioritySourceState>,
+    updated_at: &str,
+) -> Result<BTreeSet<String>, StoreError> {
+    let values = connection
+        .prepare(
+            "SELECT value.data_source_id, value.membership_id, value.value_json, \
+                    value.revision, membership.page_block_id, membership.removed_at \
+             FROM data_source_property_values value \
+             JOIN data_source_page_memberships membership \
+               ON membership.id = value.membership_id \
+               AND membership.data_source_id = value.data_source_id \
+             WHERE value.property_id = 'priority' \
+             ORDER BY value.data_source_id, value.membership_id",
+        )?
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, i64>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, Option<String>>(5)?,
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+
+    let mut metadata_pages = BTreeSet::new();
+    for (data_source_id, membership_id, raw, revision, page_id, removed_at) in values {
+        let state = sources.get(&data_source_id).ok_or_else(|| {
+            corrupt(format!(
+                "Priority value for Data Source {data_source_id} has no Priority registry"
+            ))
+        })?;
+        let value = serde_json::from_str::<Value>(&raw).map_err(|error| {
+            corrupt(format!(
+                "Priority value {data_source_id}/{membership_id} is invalid JSON: {error}"
+            ))
+        })?;
+        if value.is_null() {
+            continue;
+        }
+        let option_id = value.as_str().ok_or_else(|| {
+            corrupt(format!(
+                "Priority value {data_source_id}/{membership_id} is not a string or null"
+            ))
+        })?;
+        if option_id == LEGACY_P4_PRIORITY_ID {
+            if !state.had_legacy_p4 || !state.current_ids.contains(P3_PRIORITY_ID) {
+                return Err(corrupt(format!(
+                    "Priority value {data_source_id}/{membership_id} has no valid P4 to P3 registry mapping"
+                )));
+            }
+            let next_revision = revision
+                .checked_add(1)
+                .ok_or_else(|| corrupt("Priority value revision overflowed"))?;
+            let changed = connection.execute(
+                "UPDATE data_source_property_values SET value_json = ?1, revision = ?2, \
+                   updated_at = ?3 WHERE data_source_id = ?4 AND membership_id = ?5 \
+                   AND property_id = 'priority' AND revision = ?6",
+                params![
+                    serde_json::to_string(P3_PRIORITY_ID)
+                        .map_err(|_| internal("P3 Priority value could not be serialized"))?,
+                    next_revision,
+                    updated_at,
+                    data_source_id,
+                    membership_id,
+                    revision,
+                ],
+            )?;
+            if changed != 1 {
+                return Err(corrupt(format!(
+                    "Priority value {data_source_id}/{membership_id} changed during migration"
+                )));
+            }
+            if removed_at.is_none() {
+                migrate_v110_priority_page_projection(
+                    connection,
+                    &membership_id,
+                    &page_id,
+                    next_revision,
+                    updated_at,
+                )?;
+                metadata_pages.insert(page_id);
+            }
+            continue;
+        }
+        if !crate::database::property_semantics::is_priority_option_id(option_id)
+            || !state.current_ids.contains(option_id)
+        {
+            return Err(corrupt(format!(
+                "Priority value {data_source_id}/{membership_id} references unknown option {option_id}"
+            )));
+        }
+    }
+    Ok(metadata_pages)
+}
+
+fn migrate_v110_priority_page_projection(
+    connection: &Connection,
+    membership_id: &str,
+    page_id: &str,
+    value_revision: i64,
+    updated_at: &str,
+) -> Result<(), StoreError> {
+    let metadata_revision = bump_v111_page_metadata(connection, page_id, updated_at)?;
+    let projection = connection
+        .query_row(
+            "SELECT database_values_json, property_revisions_json \
+             FROM page_read_model WHERE page_block_id = ?1 AND membership_id = ?2",
+            params![page_id, membership_id],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+        )
+        .optional()?;
+    let Some((values_json, revisions_json)) = projection else {
+        return Ok(());
+    };
+    let mut values = serde_json::from_str::<Map<String, Value>>(&values_json)
+        .map_err(|_| corrupt(format!("Page {page_id} Database values are invalid")))?;
+    let mut revisions = serde_json::from_str::<Map<String, Value>>(&revisions_json)
+        .map_err(|_| corrupt(format!("Page {page_id} Property revisions are invalid")))?;
+    values.insert(
+        crate::database::property_semantics::PRIORITY_PROPERTY_ID.to_owned(),
+        Value::String(P3_PRIORITY_ID.to_owned()),
+    );
+    let database = revisions
+        .entry("database".to_owned())
+        .or_insert_with(|| Value::Object(Map::new()))
+        .as_object_mut()
+        .ok_or_else(|| corrupt(format!("Page {page_id} Database revisions are invalid")))?;
+    database.insert("priority".to_owned(), Value::from(value_revision));
+    let changed = connection.execute(
+        "UPDATE page_read_model SET metadata_revision = ?1, database_values_json = ?2, \
+           property_revisions_json = ?3, projection_version = projection_version + 1, \
+           updated_at = ?4 WHERE page_block_id = ?5 AND membership_id = ?6",
+        params![
+            metadata_revision,
+            serde_json::to_string(&values)
+                .map_err(|_| internal("Migrated Page Database values could not be serialized"))?,
+            serde_json::to_string(&revisions)
+                .map_err(|_| internal("Migrated Page revisions could not be serialized"))?,
+            updated_at,
+            page_id,
+            membership_id,
+        ],
+    )?;
+    if changed == 1 {
+        return Ok(());
+    }
+    Err(corrupt(format!(
+        "Page {page_id} projection changed during Priority migration"
+    )))
+}
+
+fn bump_v111_page_metadata(
+    connection: &Connection,
+    page_id: &str,
+    updated_at: &str,
+) -> Result<i64, StoreError> {
+    let revision = connection
+        .query_row(
+            "UPDATE blocks SET metadata_revision = metadata_revision + 1, updated_at = ?1 \
+             WHERE id = ?2 AND type = 'page' RETURNING metadata_revision",
+            params![updated_at, page_id],
+            |row| row.get::<_, i64>(0),
+        )
+        .optional()?
+        .ok_or_else(|| {
+            corrupt(format!(
+                "Page {page_id} disappeared during Priority migration"
+            ))
+        })?;
+    let changed = connection.execute(
+        "UPDATE pages SET metadata_revision = ?1, updated_at = ?2 WHERE block_id = ?3",
+        params![revision, updated_at, page_id],
+    )?;
+    if changed == 1 {
+        return Ok(revision);
+    }
+    Err(corrupt(format!(
+        "Page {page_id} metadata authority disappeared during Priority migration"
+    )))
+}
+
+fn migrate_priority_filter(value: &mut Value, allow_legacy_p4: bool) -> Result<bool, StoreError> {
+    let object = value
+        .as_object_mut()
+        .ok_or_else(|| corrupt("Database View filter node is not an object"))?;
+    match object.get("kind").and_then(Value::as_str) {
+        Some("group") => {
+            let children = object
+                .get_mut("children")
+                .and_then(Value::as_array_mut)
+                .ok_or_else(|| corrupt("Database View filter group children are invalid"))?;
+            let mut changed = false;
+            for child in children {
+                changed |= migrate_priority_filter(child, allow_legacy_p4)?;
+            }
+            Ok(changed)
+        }
+        Some("clause") => {
+            if object.get("propertyId").and_then(Value::as_str) != Some("priority") {
+                return Ok(false);
+            }
+            match object.get("operator").and_then(Value::as_str) {
+                Some("is_empty" | "is_not_empty") => Ok(false),
+                Some("equals" | "not_equals") => {
+                    let option_id = object
+                        .get("value")
+                        .and_then(Value::as_str)
+                        .ok_or_else(|| corrupt("Priority filter requires a string option value"))?;
+                    if crate::database::property_semantics::is_priority_option_id(option_id) {
+                        return Ok(false);
+                    }
+                    if allow_legacy_p4 && option_id == LEGACY_P4_PRIORITY_ID {
+                        object.insert("value".to_owned(), Value::String(P3_PRIORITY_ID.to_owned()));
+                        return Ok(true);
+                    }
+                    Err(corrupt(format!(
+                        "Priority filter references unknown option {option_id}"
+                    )))
+                }
+                _ => Err(corrupt("Priority filter uses an unsupported operator")),
+            }
+        }
+        _ => Err(corrupt("Database View filter kind is invalid")),
+    }
+}
+
+fn migrate_v110_priority_views(
+    connection: &Connection,
+    updated_at: &str,
+    metadata_pages: &mut BTreeSet<String>,
+) -> Result<(), StoreError> {
+    let views = connection
+        .prepare(
+            "SELECT id, database_block_id, config_json, revision \
+             FROM database_views ORDER BY id",
+        )?
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, i64>(3)?,
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    for (view_id, database_id, config_json, revision) in views {
+        let mut config = serde_json::from_str::<Value>(&config_json)
+            .map_err(|_| corrupt(format!("Database View {view_id} config is invalid")))?;
+        let groups_by_priority =
+            config.pointer("/group/propertyId").and_then(Value::as_str) == Some("priority");
+        let filter_changed = config
+            .get_mut("filter")
+            .map(|filter| migrate_priority_filter(filter, true))
+            .transpose()?
+            .unwrap_or(false);
+        if filter_changed {
+            let changed = connection.execute(
+                "UPDATE database_views SET config_json = ?1, revision = revision + 1, \
+                   updated_at = ?2 WHERE id = ?3 AND revision = ?4",
+                params![
+                    serde_json::to_string(&config)
+                        .map_err(|_| internal("Migrated Database View could not be serialized"))?,
+                    updated_at,
+                    view_id,
+                    revision,
+                ],
+            )?;
+            if changed != 1 {
+                return Err(corrupt(format!(
+                    "Database View {view_id} changed during Priority migration"
+                )));
+            }
+            let container_changed = connection.execute(
+                "UPDATE database_containers SET metadata_revision = metadata_revision + 1, \
+                   updated_at = ?1 WHERE block_id = ?2",
+                params![updated_at, database_id],
+            )?;
+            if container_changed != 1 {
+                return Err(corrupt(format!(
+                    "Database Container {database_id} disappeared during Priority migration"
+                )));
+            }
+        }
+        if groups_by_priority {
+            migrate_v110_priority_positions(connection, &view_id, updated_at, metadata_pages)?;
+            migrate_v110_priority_group_projection(connection, &view_id, updated_at)?;
+        }
+    }
+    Ok(())
+}
+
+fn migrate_v110_priority_positions(
+    connection: &Connection,
+    view_id: &str,
+    updated_at: &str,
+    metadata_pages: &mut BTreeSet<String>,
+) -> Result<(), StoreError> {
+    let positions = connection
+        .prepare(
+            "SELECT page_block_id, group_key, revision \
+             FROM database_view_page_positions WHERE view_id = ?1 ORDER BY page_block_id",
+        )?
+        .query_map([view_id], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, Option<String>>(1)?,
+                row.get::<_, i64>(2)?,
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    for (page_id, group_key, revision) in positions {
+        let Some(group_key) = group_key else {
+            continue;
+        };
+        if crate::database::property_semantics::is_priority_option_id(&group_key) {
+            continue;
+        }
+        if group_key != LEGACY_P4_PRIORITY_ID {
+            return Err(corrupt(format!(
+                "Priority-grouped View {view_id} has unknown group key {group_key}"
+            )));
+        }
+        let changed = connection.execute(
+            "UPDATE database_view_page_positions SET group_key = ?1, revision = revision + 1, \
+               updated_at = ?2 WHERE view_id = ?3 AND page_block_id = ?4 AND revision = ?5",
+            params![P3_PRIORITY_ID, updated_at, view_id, page_id, revision],
+        )?;
+        if changed != 1 {
+            return Err(corrupt(format!(
+                "Priority position {view_id}/{page_id} changed during migration"
+            )));
+        }
+        connection.execute(
+            "UPDATE page_read_model SET view_group_key = ?1, \
+               projection_version = projection_version + 1, updated_at = ?2 \
+             WHERE page_block_id = ?3 AND view_id = ?4",
+            params![P3_PRIORITY_ID, updated_at, page_id, view_id],
+        )?;
+        if metadata_pages.insert(page_id.clone()) {
+            let metadata_revision = bump_v111_page_metadata(connection, &page_id, updated_at)?;
+            connection.execute(
+                "UPDATE page_read_model SET metadata_revision = ?1, \
+                   projection_version = projection_version + 1, updated_at = ?2 \
+                 WHERE page_block_id = ?3",
+                params![metadata_revision, updated_at, page_id],
+            )?;
+        }
+    }
+    Ok(())
+}
+
+fn migrate_v110_priority_group_projection(
+    connection: &Connection,
+    view_id: &str,
+    updated_at: &str,
+) -> Result<(), StoreError> {
+    let projections = connection
+        .prepare(
+            "SELECT page_block_id, view_group_key FROM page_read_model \
+             WHERE view_id = ?1 AND view_group_key IS NOT NULL ORDER BY page_block_id",
+        )?
+        .query_map([view_id], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    for (page_id, group_key) in projections {
+        if crate::database::property_semantics::is_priority_option_id(&group_key) {
+            continue;
+        }
+        if group_key != LEGACY_P4_PRIORITY_ID {
+            return Err(corrupt(format!(
+                "Priority-grouped View {view_id} projects unknown group key {group_key}"
+            )));
+        }
+        connection.execute(
+            "UPDATE page_read_model SET view_group_key = ?1, \
+               projection_version = projection_version + 1, updated_at = ?2 \
+             WHERE page_block_id = ?3 AND view_id = ?4",
+            params![P3_PRIORITY_ID, updated_at, page_id, view_id],
+        )?;
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_database_priority_invariants(
+    connection: &Connection,
+) -> Result<(), StoreError> {
+    let properties = connection
+        .prepare(
+            "SELECT data_source_id, value_type, config_json \
+             FROM data_source_properties WHERE id = 'priority' ORDER BY data_source_id",
+        )?
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let mut sources = BTreeMap::new();
+    for (data_source_id, value_type, config_json) in properties {
+        if value_type != "select" {
+            return Err(corrupt(format!(
+                "Priority Property for Data Source {data_source_id} is not a select"
+            )));
+        }
+        let (_, state) = parse_priority_config(&data_source_id, &config_json, false)?;
+        sources.insert(data_source_id, state);
+    }
+
+    let values = connection
+        .prepare(
+            "SELECT data_source_id, membership_id, value_json \
+             FROM data_source_property_values WHERE property_id = 'priority' \
+             ORDER BY data_source_id, membership_id",
+        )?
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    for (data_source_id, membership_id, raw) in values {
+        let state = sources.get(&data_source_id).ok_or_else(|| {
+            corrupt(format!(
+                "Priority value {data_source_id}/{membership_id} has no registry"
+            ))
+        })?;
+        let value = serde_json::from_str::<Value>(&raw).map_err(|_| {
+            corrupt(format!(
+                "Priority value {data_source_id}/{membership_id} is invalid"
+            ))
+        })?;
+        if value.is_null() {
+            continue;
+        }
+        let option_id = value.as_str().ok_or_else(|| {
+            corrupt(format!(
+                "Priority value {data_source_id}/{membership_id} is not a string or null"
+            ))
+        })?;
+        if !crate::database::property_semantics::is_priority_option_id(option_id)
+            || !state.current_ids.contains(option_id)
+        {
+            return Err(corrupt(format!(
+                "Priority value {data_source_id}/{membership_id} is noncanonical"
+            )));
+        }
+    }
+
+    let projections = connection
+        .prepare("SELECT page_block_id, database_values_json FROM page_read_model ORDER BY page_block_id")?
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    for (page_id, raw) in projections {
+        let values = serde_json::from_str::<Map<String, Value>>(&raw)
+            .map_err(|_| corrupt(format!("Page {page_id} Database values are invalid")))?;
+        let Some(value) = values.get("priority") else {
+            continue;
+        };
+        if value.is_null()
+            || value
+                .as_str()
+                .is_some_and(crate::database::property_semantics::is_priority_option_id)
+        {
+            continue;
+        }
+        return Err(corrupt(format!(
+            "Page {page_id} Priority projection is noncanonical"
+        )));
+    }
+
+    let views = connection
+        .prepare("SELECT id, config_json FROM database_views ORDER BY id")?
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    for (view_id, raw) in views {
+        let mut config = serde_json::from_str::<Value>(&raw)
+            .map_err(|_| corrupt(format!("Database View {view_id} config is invalid")))?;
+        let groups_by_priority =
+            config.pointer("/group/propertyId").and_then(Value::as_str) == Some("priority");
+        let changed = config
+            .get_mut("filter")
+            .map(|filter| migrate_priority_filter(filter, false))
+            .transpose()?
+            .unwrap_or(false);
+        if changed {
+            return Err(corrupt(format!(
+                "Database View {view_id} Priority filter is noncanonical"
+            )));
+        }
+        if !groups_by_priority {
+            continue;
+        }
+        let invalid_group: Option<String> = connection
+            .query_row(
+                "SELECT group_key FROM database_view_page_positions \
+                 WHERE view_id = ?1 AND group_key IS NOT NULL \
+                   AND group_key NOT IN ('p0-critical', 'p1-high', 'p2-medium', 'p3-low') \
+                 ORDER BY page_block_id LIMIT 1",
+                [view_id.as_str()],
+                |row| row.get(0),
+            )
+            .optional()?;
+        if let Some(group_key) = invalid_group {
+            return Err(corrupt(format!(
+                "Priority-grouped View {view_id} has noncanonical group key {group_key}"
+            )));
+        }
+        let invalid_projection: Option<String> = connection
+            .query_row(
+                "SELECT view_group_key FROM page_read_model \
+                 WHERE view_id = ?1 AND view_group_key IS NOT NULL \
+                   AND view_group_key NOT IN \
+                     ('p0-critical', 'p1-high', 'p2-medium', 'p3-low') \
+                 ORDER BY page_block_id LIMIT 1",
+                [view_id.as_str()],
+                |row| row.get(0),
+            )
+            .optional()?;
+        if let Some(group_key) = invalid_projection {
+            return Err(corrupt(format!(
+                "Priority-grouped View {view_id} projects noncanonical group key {group_key}"
+            )));
+        }
+    }
+    Ok(())
 }
 
 fn migrate_v95_canvas_scene(connection: &Connection, document_id: &str) -> Result<(), StoreError> {
@@ -4503,6 +5226,10 @@ fn validate_exact_v109_schema(connection: &Connection) -> Result<(), StoreError>
     validate_exact_core_schema(connection, true, true, true, true, true, true, true, 109)
 }
 
+fn validate_exact_v110_schema(connection: &Connection) -> Result<(), StoreError> {
+    validate_exact_core_schema(connection, true, true, true, true, true, true, true, 110)
+}
+
 fn validate_exact_current_schema(connection: &Connection) -> Result<(), StoreError> {
     validate_exact_core_schema(
         connection,
@@ -4858,6 +5585,10 @@ fn corrupt(message: impl Into<String>) -> StoreError {
     StoreError::new(StoreErrorCode::StoreCorrupt, message, false)
 }
 
+fn internal(message: impl Into<String>) -> StoreError {
+    StoreError::new(StoreErrorCode::Internal, message, false)
+}
+
 fn io_error(error: std::io::Error) -> StoreError {
     StoreError::new(
         StoreErrorCode::Internal,
@@ -4898,6 +5629,246 @@ mod tests {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("tests/fixtures/yjs-yrs")
             .join(name)
+    }
+
+    fn seed_owned_v110_store_with_p4_priority(home: &Path) {
+        let kernel = SqliteStoreKernel::open(home).expect("fresh v111 Store");
+        drop(kernel);
+        let mut connection = open_writer(&home.join("nodex.db")).expect("v110 writer");
+        with_immediate_transaction(&mut connection, |transaction| {
+            crate::infrastructure::visibility_delta_journal::install_test_maintenance_context(
+                transaction,
+            )?;
+            let now = "2026-08-11T08:00:00.000Z";
+            transaction.execute(
+                "INSERT INTO profiles(id, created_at, updated_at) \
+                 VALUES ('profile:v110-priority', ?1, ?1)",
+                [now],
+            )?;
+            transaction.execute(
+                "INSERT INTO libraries(id, profile_id, created_at, updated_at) \
+                 VALUES ('library:v110-priority', 'profile:v110-priority', ?1, ?1)",
+                [now],
+            )?;
+            transaction.execute(
+                "INSERT INTO projects(id, name, created, updated, library_id) \
+                 VALUES ('project:v110-priority', 'Priority Migration', ?1, ?1, \
+                         'library:v110-priority')",
+                [now],
+            )?;
+            transaction.execute(
+                "INSERT INTO blocks(\
+                   id, project_id, type, lifecycle, location_kind, \
+                   location_revision, metadata_revision, created_at, updated_at\
+                 ) VALUES (\
+                   'database:v110-priority', 'project:v110-priority', 'database', \
+                   'active', 'space', 1, 3, ?1, ?1\
+                 )",
+                [now],
+            )?;
+            crate::database::create_database_authority_records(
+                transaction,
+                "library:v110-priority",
+                "database:v110-priority",
+                "source:v110-priority",
+                "view:v110-priority",
+                "Priority Migration",
+                now,
+            )?;
+            transaction.execute(
+                "UPDATE data_source_properties SET config_json = ?1, schema_revision = 5 \
+                 WHERE data_source_id = 'source:v110-priority' AND id = 'priority'",
+                [serde_json::to_string(&serde_json::json!({
+                    "options": [
+                        { "id": "p0-critical", "name": "P0 - Critical" },
+                        { "id": "p1-high", "name": "P1 - High" },
+                        { "id": "p2-medium", "name": "P2 - Medium" },
+                        { "id": "p3-low", "name": "Custom Low", "color": "green" },
+                        { "id": "p4-later", "name": "P4 - Later", "color": "purple" }
+                    ]
+                }))
+                .map_err(internal_json)?],
+            )?;
+            transaction.execute(
+                "UPDATE data_sources SET schema_revision = 9 \
+                 WHERE id = 'source:v110-priority'",
+                [],
+            )?;
+            transaction.execute(
+                "UPDATE database_containers SET metadata_revision = 4 \
+                 WHERE block_id = 'database:v110-priority'",
+                [],
+            )?;
+            transaction.execute(
+                "UPDATE database_views SET revision = 6, config_json = ?1 \
+                 WHERE id = 'view:v110-priority'",
+                [serde_json::to_string(&serde_json::json!({
+                    "schemaKey": "nodex.database-view",
+                    "schemaVersion": 2,
+                    "filter": {
+                        "kind": "clause",
+                        "propertyId": "priority",
+                        "operator": "equals",
+                        "value": "p4-later"
+                    },
+                    "sort": [{
+                        "field": { "kind": "manual" },
+                        "direction": "asc",
+                        "nulls": "last"
+                    }],
+                    "group": { "propertyId": "priority" },
+                    "display": {
+                        "propertyIds": ["status", "priority", "estimate", "tags"],
+                        "showTitle": true
+                    }
+                }))
+                .map_err(internal_json)?],
+            )?;
+            transaction.execute(
+                "INSERT INTO documents(\
+                   id, project_id, generation, head_seq, schema_key, schema_version, \
+                   state_vector, state_hash, readiness, authority, created_at, updated_at, \
+                   sync_engine\
+                 ) VALUES (\
+                   'document:v110-priority', 'project:v110-priority', 1, 0, \
+                   'nodex.page', 1, X'', \
+                   '0000000000000000000000000000000000000000000000000000000000000000', \
+                   'ready', 'ydoc_primary', ?1, ?1, 'canvas_scene'\
+                 )",
+                [now],
+            )?;
+            transaction.execute(
+                "INSERT INTO blocks(\
+                   id, project_id, type, lifecycle, location_kind, containing_database_id, \
+                   location_revision, metadata_revision, created_at, updated_at\
+                 ) VALUES (\
+                   'page:v110-priority', 'project:v110-priority', 'page', 'active', \
+                   'database', 'database:v110-priority', 2, 3, ?1, ?1\
+                 )",
+                [now],
+            )?;
+            transaction.execute(
+                "INSERT INTO block_documents(block_id, document_id, project_id, created_at) \
+                 VALUES (\
+                   'page:v110-priority', 'document:v110-priority', \
+                   'project:v110-priority', ?1\
+                 )",
+                [now],
+            )?;
+            transaction.execute(
+                "INSERT INTO pages(\
+                   block_id, library_id, document_id, parent_kind, parent_id, lifecycle, \
+                   parent_revision, metadata_revision, created_at, updated_at\
+                 ) VALUES (\
+                   'page:v110-priority', 'library:v110-priority', 'document:v110-priority', \
+                   'data_source', 'source:v110-priority', 'active', 2, 3, ?1, ?1\
+                 )",
+                [now],
+            )?;
+            transaction.execute(
+                "INSERT INTO data_source_page_memberships(\
+                   id, data_source_id, page_block_id, revision, created_at, removed_at\
+                 ) VALUES (\
+                   'membership:v110-priority', 'source:v110-priority', \
+                   'page:v110-priority', 2, ?1, NULL\
+                 )",
+                [now],
+            )?;
+            transaction.execute(
+                "INSERT INTO data_source_property_values(\
+                   data_source_id, membership_id, property_id, value_type, value_json, \
+                   revision, updated_at\
+                 ) VALUES (\
+                   'source:v110-priority', 'membership:v110-priority', 'priority', \
+                   'select', '\"p4-later\"', 7, ?1\
+                 )",
+                [now],
+            )?;
+            transaction.execute(
+                "INSERT INTO data_sources(\
+                   id, library_id, home_database_block_id, name, schema_key, schema_revision, \
+                   lifecycle, rank_key, created_at, updated_at\
+                 ) VALUES (\
+                   'source:v110-dormant', 'library:v110-priority', \
+                   'database:v110-priority', 'Dormant Priority', 'nodex.database', 4, \
+                   'active', 'rank:dormant', ?1, ?1\
+                 )",
+                [now],
+            )?;
+            transaction.execute(
+                "INSERT INTO data_source_properties(\
+                   data_source_id, id, name, value_type, config_json, rank_key, lifecycle, \
+                   schema_revision, created_at, updated_at\
+                 ) VALUES (\
+                   'source:v110-dormant', 'priority', 'Priority', 'select', ?1, \
+                   'rank:priority', 'active', 3, ?2, ?2\
+                 )",
+                params![
+                    serde_json::to_string(&serde_json::json!({
+                        "options": [{ "id": "p4-later", "name": "P4 - Later" }]
+                    }))
+                    .map_err(internal_json)?,
+                    now,
+                ],
+            )?;
+            transaction.execute(
+                "INSERT INTO data_source_page_memberships(\
+                   id, data_source_id, page_block_id, revision, created_at, removed_at\
+                 ) VALUES (\
+                   'membership:v110-dormant', 'source:v110-dormant', \
+                   'page:v110-priority', 5, ?1, ?1\
+                 )",
+                [now],
+            )?;
+            transaction.execute(
+                "INSERT INTO data_source_property_values(\
+                   data_source_id, membership_id, property_id, value_type, value_json, \
+                   revision, updated_at\
+                 ) VALUES (\
+                   'source:v110-dormant', 'membership:v110-dormant', 'priority', \
+                   'select', '\"p4-later\"', 11, ?1\
+                 )",
+                [now],
+            )?;
+            transaction.execute(
+                "INSERT INTO database_view_page_positions(\
+                   view_id, page_block_id, group_key, rank_key, revision, created_at, updated_at\
+                 ) VALUES (\
+                   'view:v110-priority', 'page:v110-priority', 'p4-later', \
+                   'rank:stable', 8, ?1, ?1\
+                 )",
+                [now],
+            )?;
+            transaction.execute(
+                "INSERT INTO page_read_model(\
+                   page_block_id, project_id, lifecycle, location_kind, containing_document_id, \
+                   containing_database_id, top_level_rank_key, location_revision, \
+                   metadata_revision, document_id, document_generation, document_projected_seq, \
+                   document_schema_version, document_authority, membership_id, database_block_id, \
+                   view_id, view_group_key, view_rank_key, title, description_preview, \
+                   description_length, has_description, database_values_json, \
+                   intrinsic_properties_json, property_revisions_json, projection_version, \
+                   created_at, updated_at\
+                 ) VALUES (\
+                   'page:v110-priority', 'project:v110-priority', 'active', 'database', NULL, \
+                   'database:v110-priority', NULL, 2, 3, 'document:v110-priority', 1, 0, 1, \
+                   'ydoc_primary', 'membership:v110-priority', 'database:v110-priority', \
+                   'view:v110-priority', 'p4-later', 'rank:stable', 'Migrated Page', '', 0, 0, \
+                   '{\"priority\":\"p4-later\"}', '{}', \
+                   '{\"database\":{\"priority\":7}}', 4, ?1, ?1\
+                 )",
+                [now],
+            )?;
+            transaction.execute("DELETE FROM local_commit_visibility_context", [])?;
+            transaction.execute(
+                "UPDATE core_store_metadata SET store_format_version = 110 WHERE id = 1",
+                [],
+            )?;
+            transaction.pragma_update(None, "user_version", 110)?;
+            Ok(())
+        })
+        .expect("seed v110 Priority Store");
+        validate_exact_v110_schema(&connection).expect("exact v110 Store");
     }
 
     fn seed_owned_v99_store_with_property_value(home: &Path) {
@@ -5482,6 +6453,164 @@ mod tests {
     }
 
     #[test]
+    fn v110_priority_registry_maps_only_p4_to_p3_without_losing_custom_metadata() {
+        let default_config = serde_json::json!({
+            "options": [{ "id": "p4-later", "name": "P4 - Later", "color": "gray" }]
+        });
+        let (migrated, state) = migrate_v110_priority_config(
+            "source:default",
+            &serde_json::to_string(&default_config).expect("default config"),
+        )
+        .expect("migrate default P4");
+        let migrated = serde_json::from_str::<StoredPriorityConfig>(
+            migrated.as_deref().expect("default migration output"),
+        )
+        .expect("default migrated config");
+        assert_eq!(
+            migrated.options,
+            vec![StoredPriorityOption {
+                id: P3_PRIORITY_ID.to_owned(),
+                name: P3_PRIORITY_NAME.to_owned(),
+                color: Some("gray".to_owned()),
+            }]
+        );
+        assert_eq!(
+            state.current_ids,
+            BTreeSet::from([P3_PRIORITY_ID.to_owned()])
+        );
+
+        let custom_config = serde_json::json!({
+            "options": [{ "id": "p4-later", "name": "Someday", "color": "teal" }]
+        });
+        let (migrated, _) = migrate_v110_priority_config(
+            "source:custom",
+            &serde_json::to_string(&custom_config).expect("custom config"),
+        )
+        .expect("migrate custom P4");
+        let migrated = serde_json::from_str::<StoredPriorityConfig>(
+            migrated.as_deref().expect("custom migration output"),
+        )
+        .expect("custom migrated config");
+        assert_eq!(migrated.options[0].name, "Someday");
+        assert_eq!(migrated.options[0].color.as_deref(), Some("teal"));
+
+        let current_config = serde_json::json!({
+            "options": [{ "id": "p3-low", "name": "Current" }]
+        });
+        let (migrated, state) = migrate_v110_priority_config(
+            "source:current",
+            &serde_json::to_string(&current_config).expect("current config"),
+        )
+        .expect("accept current Priority config");
+        assert!(migrated.is_none());
+        assert_eq!(
+            state.current_ids,
+            BTreeSet::from([P3_PRIORITY_ID.to_owned()])
+        );
+    }
+
+    #[test]
+    fn v110_priority_filter_migration_is_recursive_and_property_scoped() {
+        let mut filter = serde_json::json!({
+            "kind": "group",
+            "operator": "and",
+            "children": [
+                {
+                    "kind": "clause",
+                    "propertyId": "priority",
+                    "operator": "not_equals",
+                    "value": "p4-later"
+                },
+                {
+                    "kind": "clause",
+                    "propertyId": "note",
+                    "operator": "equals",
+                    "value": "p4-later"
+                }
+            ]
+        });
+
+        assert!(migrate_priority_filter(&mut filter, true).expect("migrate filter"));
+        assert_eq!(
+            filter.pointer("/children/0/value").and_then(Value::as_str),
+            Some(P3_PRIORITY_ID)
+        );
+        assert_eq!(
+            filter.pointer("/children/1/value").and_then(Value::as_str),
+            Some(LEGACY_P4_PRIORITY_ID)
+        );
+        assert!(!migrate_priority_filter(&mut filter, false).expect("validate filter"));
+    }
+
+    #[test]
+    fn v110_priority_migration_rejects_unknown_priority_and_preserves_backup() {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        seed_owned_v110_store_with_p4_priority(&home);
+        let connection = open_writer(&home.join("nodex.db")).expect("v110 writer");
+        connection
+            .execute(
+                "UPDATE data_source_property_values SET value_json = '\"p5-unknown\"' \
+                 WHERE data_source_id = 'source:v110-priority' \
+                   AND membership_id = 'membership:v110-priority' \
+                   AND property_id = 'priority'",
+                [],
+            )
+            .expect("seed unknown Priority");
+        drop(connection);
+
+        let error = open_error(&home);
+        assert_eq!(error.code, StoreErrorCode::StoreCorrupt);
+        let connection = open_writer(&home.join("nodex.db")).expect("rolled back writer");
+        assert_eq!(
+            connection
+                .query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
+                .expect("rolled back schema version"),
+            110
+        );
+        let config = connection
+            .query_row(
+                "SELECT config_json FROM data_source_properties \
+                 WHERE data_source_id = 'source:v110-priority' AND id = 'priority'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .expect("rolled back Priority config");
+        assert!(config.contains(LEGACY_P4_PRIORITY_ID));
+        let rolled_back = connection
+            .query_row(
+                "SELECT property.schema_revision, source.schema_revision, value.value_json, \
+                        value.revision \
+                 FROM data_source_properties property \
+                 JOIN data_sources source ON source.id = property.data_source_id \
+                 JOIN data_source_property_values value \
+                   ON value.data_source_id = property.data_source_id \
+                   AND value.property_id = property.id \
+                 WHERE property.data_source_id = 'source:v110-priority' \
+                   AND property.id = 'priority'",
+                [],
+                |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, i64>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, i64>(3)?,
+                    ))
+                },
+            )
+            .expect("rolled back Priority revisions");
+        assert_eq!(rolled_back, (5, 9, "\"p5-unknown\"".to_owned(), 7));
+
+        let backup_directory = prepare_migration_backup_directory(&home).expect("backup directory");
+        let backups = fs::read_dir(backup_directory)
+            .expect("migration backups")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("read migration backups");
+        assert_eq!(backups.len(), 1);
+        validate_migration_backup(&backups[0].path(), 110).expect("valid v110 backup");
+    }
+
+    #[test]
     fn fresh_profiles_publish_current_schema_and_hold_the_store_lock() {
         let directory = tempdir().expect("Profile");
         let home = directory.path().canonicalize().expect("absolute Profile");
@@ -5532,6 +6661,486 @@ mod tests {
         drop(kernel);
         let reopened = SqliteStoreKernel::open(&home).expect("reopen current store");
         assert!(!reopened.preparation().created_fresh);
+    }
+
+    #[test]
+    fn v110_store_migrates_p4_priority_to_p3_atomically() {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        seed_owned_v110_store_with_p4_priority(&home);
+
+        let upgraded = SqliteStoreKernel::open(&home).expect("upgrade v110 Priority Store");
+        assert_eq!(upgraded.preparation().schema_version, CORE_SCHEMA_VERSION);
+        assert_eq!(upgraded.preparation().migrated_from_version, Some(110));
+        let backup_path = upgraded
+            .preparation()
+            .migration_backup_path
+            .as_ref()
+            .expect("v110 migration backup");
+        let backup = open_immutable_reader(backup_path).expect("backup opens");
+        assert_eq!(
+            backup
+                .query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
+                .expect("backup schema version"),
+            110
+        );
+
+        let snapshot = upgraded
+            .readers()
+            .read_default(|connection| {
+                let config_json = connection.query_row(
+                    "SELECT config_json FROM data_source_properties \
+                     WHERE data_source_id = 'source:v110-priority' AND id = 'priority'",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )?;
+                let config = serde_json::from_str::<StoredPriorityConfig>(&config_json)
+                    .map_err(|error| corrupt(format!("test Priority config: {error}")))?;
+                assert_eq!(
+                    config
+                        .options
+                        .iter()
+                        .find(|option| option.id == P3_PRIORITY_ID)
+                        .map(|option| (option.name.as_str(), option.color.as_deref())),
+                    Some(("Custom Low", Some("green")))
+                );
+                assert!(
+                    config
+                        .options
+                        .iter()
+                        .all(|option| option.id != LEGACY_P4_PRIORITY_ID)
+                );
+
+                let value = connection.query_row(
+                    "SELECT value_json, revision FROM data_source_property_values \
+                     WHERE data_source_id = 'source:v110-priority' \
+                       AND membership_id = 'membership:v110-priority' \
+                       AND property_id = 'priority'",
+                    [],
+                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
+                )?;
+                assert_eq!(value, ("\"p3-low\"".to_owned(), 8));
+
+                let position = connection.query_row(
+                    "SELECT group_key, rank_key, revision \
+                     FROM database_view_page_positions \
+                     WHERE view_id = 'view:v110-priority' \
+                       AND page_block_id = 'page:v110-priority'",
+                    [],
+                    |row| {
+                        Ok((
+                            row.get::<_, Option<String>>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, i64>(2)?,
+                        ))
+                    },
+                )?;
+                assert_eq!(
+                    position,
+                    (Some("p3-low".to_owned()), "rank:stable".to_owned(), 9)
+                );
+
+                let projection = connection.query_row(
+                    "SELECT metadata_revision, database_values_json, property_revisions_json, \
+                            view_group_key, view_rank_key, projection_version \
+                     FROM page_read_model WHERE page_block_id = 'page:v110-priority'",
+                    [],
+                    |row| {
+                        Ok((
+                            row.get::<_, i64>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, String>(2)?,
+                            row.get::<_, Option<String>>(3)?,
+                            row.get::<_, Option<String>>(4)?,
+                            row.get::<_, i64>(5)?,
+                        ))
+                    },
+                )?;
+                assert_eq!(projection.0, 4);
+                assert_eq!(
+                    serde_json::from_str::<Value>(&projection.1)
+                        .map_err(internal_json)?["priority"],
+                    Value::String(P3_PRIORITY_ID.to_owned())
+                );
+                assert_eq!(
+                    serde_json::from_str::<Value>(&projection.2)
+                        .map_err(internal_json)?["database"]["priority"],
+                    Value::from(8)
+                );
+                assert_eq!(projection.3.as_deref(), Some(P3_PRIORITY_ID));
+                assert_eq!(projection.4.as_deref(), Some("rank:stable"));
+                assert_eq!(projection.5, 6);
+
+                let revisions = connection.query_row(
+                    "SELECT \
+                       (SELECT schema_revision FROM data_source_properties \
+                        WHERE data_source_id = 'source:v110-priority' AND id = 'priority'), \
+                       (SELECT schema_revision FROM data_sources \
+                        WHERE id = 'source:v110-priority'), \
+                       (SELECT revision FROM database_views \
+                        WHERE id = 'view:v110-priority'), \
+                       (SELECT metadata_revision FROM database_containers \
+                        WHERE block_id = 'database:v110-priority'), \
+                       (SELECT metadata_revision FROM blocks \
+                        WHERE id = 'page:v110-priority'), \
+                       (SELECT metadata_revision FROM pages \
+                        WHERE block_id = 'page:v110-priority')",
+                    [],
+                    |row| {
+                        Ok((
+                            row.get::<_, i64>(0)?,
+                            row.get::<_, i64>(1)?,
+                            row.get::<_, i64>(2)?,
+                            row.get::<_, i64>(3)?,
+                            row.get::<_, i64>(4)?,
+                            row.get::<_, i64>(5)?,
+                        ))
+                    },
+                )?;
+                assert_eq!(revisions, (6, 10, 7, 5, 4, 4));
+
+                let view_config = connection.query_row(
+                    "SELECT config_json FROM database_views \
+                     WHERE id = 'view:v110-priority'",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )?;
+                assert_eq!(
+                    serde_json::from_str::<Value>(&view_config)
+                        .map_err(internal_json)?
+                        .pointer("/filter/value")
+                        .and_then(Value::as_str),
+                    Some(P3_PRIORITY_ID)
+                );
+                validate_database_priority_invariants(connection)?;
+                Ok((value, position, projection, revisions, view_config))
+            })
+            .expect("verify migrated Priority state");
+
+        drop(upgraded);
+        let reopened = SqliteStoreKernel::open(&home).expect("reopen v111 Priority Store");
+        assert_eq!(reopened.preparation().migrated_from_version, None);
+        let reopened_snapshot = reopened
+            .readers()
+            .read_default(|connection| {
+                let value = connection.query_row(
+                    "SELECT value_json, revision FROM data_source_property_values \
+                     WHERE data_source_id = 'source:v110-priority' \
+                       AND membership_id = 'membership:v110-priority' \
+                       AND property_id = 'priority'",
+                    [],
+                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
+                )?;
+                let position = connection.query_row(
+                    "SELECT group_key, rank_key, revision \
+                     FROM database_view_page_positions \
+                     WHERE view_id = 'view:v110-priority' \
+                       AND page_block_id = 'page:v110-priority'",
+                    [],
+                    |row| {
+                        Ok((
+                            row.get::<_, Option<String>>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, i64>(2)?,
+                        ))
+                    },
+                )?;
+                let projection = connection.query_row(
+                    "SELECT metadata_revision, database_values_json, property_revisions_json, \
+                            view_group_key, view_rank_key, projection_version \
+                     FROM page_read_model WHERE page_block_id = 'page:v110-priority'",
+                    [],
+                    |row| {
+                        Ok((
+                            row.get::<_, i64>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, String>(2)?,
+                            row.get::<_, Option<String>>(3)?,
+                            row.get::<_, Option<String>>(4)?,
+                            row.get::<_, i64>(5)?,
+                        ))
+                    },
+                )?;
+                let revisions = connection.query_row(
+                    "SELECT \
+                       (SELECT schema_revision FROM data_source_properties \
+                        WHERE data_source_id = 'source:v110-priority' AND id = 'priority'), \
+                       (SELECT schema_revision FROM data_sources \
+                        WHERE id = 'source:v110-priority'), \
+                       (SELECT revision FROM database_views \
+                        WHERE id = 'view:v110-priority'), \
+                       (SELECT metadata_revision FROM database_containers \
+                        WHERE block_id = 'database:v110-priority'), \
+                       (SELECT metadata_revision FROM blocks \
+                        WHERE id = 'page:v110-priority'), \
+                       (SELECT metadata_revision FROM pages \
+                        WHERE block_id = 'page:v110-priority')",
+                    [],
+                    |row| {
+                        Ok((
+                            row.get::<_, i64>(0)?,
+                            row.get::<_, i64>(1)?,
+                            row.get::<_, i64>(2)?,
+                            row.get::<_, i64>(3)?,
+                            row.get::<_, i64>(4)?,
+                            row.get::<_, i64>(5)?,
+                        ))
+                    },
+                )?;
+                let view_config = connection.query_row(
+                    "SELECT config_json FROM database_views WHERE id = 'view:v110-priority'",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )?;
+                Ok((value, position, projection, revisions, view_config))
+            })
+            .expect("read reopened Priority state");
+        assert_eq!(reopened_snapshot, snapshot);
+    }
+
+    #[test]
+    fn v110_priority_position_only_migration_bumps_page_metadata_once() {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        seed_owned_v110_store_with_p4_priority(&home);
+        let connection = open_writer(&home.join("nodex.db")).expect("v110 writer");
+        connection
+            .execute(
+                "UPDATE data_source_property_values SET value_json = '\"p3-low\"' \
+                 WHERE data_source_id = 'source:v110-priority' \
+                   AND membership_id = 'membership:v110-priority' \
+                   AND property_id = 'priority'",
+                [],
+            )
+            .expect("seed current Priority value");
+        connection
+            .execute(
+                "UPDATE page_read_model SET database_values_json = \
+                   '{\"priority\":\"p3-low\"}' \
+                 WHERE page_block_id = 'page:v110-priority'",
+                [],
+            )
+            .expect("seed current Priority projection");
+        drop(connection);
+
+        let upgraded = SqliteStoreKernel::open(&home).expect("upgrade position-only Store");
+        upgraded
+            .readers()
+            .read_default(|connection| {
+                let value = connection.query_row(
+                    "SELECT value_json, revision FROM data_source_property_values \
+                     WHERE data_source_id = 'source:v110-priority' \
+                       AND membership_id = 'membership:v110-priority' \
+                       AND property_id = 'priority'",
+                    [],
+                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
+                )?;
+                assert_eq!(value, ("\"p3-low\"".to_owned(), 7));
+                let migrated = connection.query_row(
+                    "SELECT position.group_key, position.revision, block.metadata_revision, \
+                            page.metadata_revision, projection.metadata_revision, \
+                            projection.projection_version \
+                     FROM database_view_page_positions position \
+                     JOIN blocks block ON block.id = position.page_block_id \
+                     JOIN pages page ON page.block_id = position.page_block_id \
+                     JOIN page_read_model projection \
+                       ON projection.page_block_id = position.page_block_id \
+                     WHERE position.view_id = 'view:v110-priority' \
+                       AND position.page_block_id = 'page:v110-priority'",
+                    [],
+                    |row| {
+                        Ok((
+                            row.get::<_, Option<String>>(0)?,
+                            row.get::<_, i64>(1)?,
+                            row.get::<_, i64>(2)?,
+                            row.get::<_, i64>(3)?,
+                            row.get::<_, i64>(4)?,
+                            row.get::<_, i64>(5)?,
+                        ))
+                    },
+                )?;
+                assert_eq!(migrated, (Some(P3_PRIORITY_ID.to_owned()), 9, 4, 4, 4, 6));
+                Ok(())
+            })
+            .expect("verify position-only Priority migration");
+    }
+
+    #[test]
+    fn v110_dormant_priority_migration_updates_only_value_and_schema_revisions() {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        seed_owned_v110_store_with_p4_priority(&home);
+        let connection = open_writer(&home.join("nodex.db")).expect("v110 writer");
+        connection
+            .execute(
+                "UPDATE data_source_property_values SET value_json = '\"p3-low\"' \
+                 WHERE data_source_id = 'source:v110-priority' \
+                   AND membership_id = 'membership:v110-priority' \
+                   AND property_id = 'priority'",
+                [],
+            )
+            .expect("seed current active Priority value");
+        connection
+            .execute(
+                "UPDATE database_view_page_positions SET group_key = 'p3-low' \
+                 WHERE view_id = 'view:v110-priority' \
+                   AND page_block_id = 'page:v110-priority'",
+                [],
+            )
+            .expect("seed current active Priority position");
+        connection
+            .execute(
+                "UPDATE page_read_model SET database_values_json = \
+                   '{\"priority\":\"p3-low\"}', view_group_key = 'p3-low' \
+                 WHERE page_block_id = 'page:v110-priority'",
+                [],
+            )
+            .expect("seed current active Priority projection");
+        drop(connection);
+
+        let upgraded = SqliteStoreKernel::open(&home).expect("upgrade dormant Priority Store");
+        upgraded
+            .readers()
+            .read_default(|connection| {
+                let dormant = connection.query_row(
+                    "SELECT property.schema_revision, source.schema_revision, value.value_json, \
+                            value.revision \
+                     FROM data_source_properties property \
+                     JOIN data_sources source ON source.id = property.data_source_id \
+                     JOIN data_source_property_values value \
+                       ON value.data_source_id = property.data_source_id \
+                       AND value.property_id = property.id \
+                     WHERE property.data_source_id = 'source:v110-dormant' \
+                       AND property.id = 'priority'",
+                    [],
+                    |row| {
+                        Ok((
+                            row.get::<_, i64>(0)?,
+                            row.get::<_, i64>(1)?,
+                            row.get::<_, String>(2)?,
+                            row.get::<_, i64>(3)?,
+                        ))
+                    },
+                )?;
+                assert_eq!(dormant, (4, 5, "\"p3-low\"".to_owned(), 12));
+                let page = connection.query_row(
+                    "SELECT block.metadata_revision, page.metadata_revision, \
+                            projection.metadata_revision, projection.projection_version \
+                     FROM blocks block \
+                     JOIN pages page ON page.block_id = block.id \
+                     JOIN page_read_model projection ON projection.page_block_id = block.id \
+                     WHERE block.id = 'page:v110-priority'",
+                    [],
+                    |row| {
+                        Ok((
+                            row.get::<_, i64>(0)?,
+                            row.get::<_, i64>(1)?,
+                            row.get::<_, i64>(2)?,
+                            row.get::<_, i64>(3)?,
+                        ))
+                    },
+                )?;
+                assert_eq!(page, (3, 3, 3, 4));
+                Ok(())
+            })
+            .expect("verify dormant Priority migration");
+    }
+
+    #[test]
+    fn v110_priority_migration_repairs_stale_group_projection() {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        seed_owned_v110_store_with_p4_priority(&home);
+        let connection = open_writer(&home.join("nodex.db")).expect("v110 writer");
+        connection
+            .execute(
+                "UPDATE database_view_page_positions SET group_key = 'p3-low' \
+                 WHERE view_id = 'view:v110-priority' \
+                   AND page_block_id = 'page:v110-priority'",
+                [],
+            )
+            .expect("seed canonical position with stale projection");
+        drop(connection);
+
+        let upgraded = SqliteStoreKernel::open(&home).expect("upgrade stale projection Store");
+        upgraded
+            .readers()
+            .read_default(|connection| {
+                let migrated = connection.query_row(
+                    "SELECT position.group_key, position.revision, projection.view_group_key, \
+                            projection.projection_version \
+                     FROM database_view_page_positions position \
+                     JOIN page_read_model projection \
+                       ON projection.page_block_id = position.page_block_id \
+                     WHERE position.view_id = 'view:v110-priority' \
+                       AND position.page_block_id = 'page:v110-priority'",
+                    [],
+                    |row| {
+                        Ok((
+                            row.get::<_, Option<String>>(0)?,
+                            row.get::<_, i64>(1)?,
+                            row.get::<_, Option<String>>(2)?,
+                            row.get::<_, i64>(3)?,
+                        ))
+                    },
+                )?;
+                assert_eq!(
+                    migrated,
+                    (
+                        Some(P3_PRIORITY_ID.to_owned()),
+                        8,
+                        Some(P3_PRIORITY_ID.to_owned()),
+                        6,
+                    )
+                );
+                validate_database_priority_invariants(connection)
+            })
+            .expect("verify stale Priority projection repair");
+    }
+
+    #[test]
+    fn v110_priority_value_without_read_model_still_bumps_page_metadata() {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        seed_owned_v110_store_with_p4_priority(&home);
+        let connection = open_writer(&home.join("nodex.db")).expect("v110 writer");
+        connection
+            .execute(
+                "DELETE FROM page_read_model WHERE page_block_id = 'page:v110-priority'",
+                [],
+            )
+            .expect("remove disposable Page projection");
+        drop(connection);
+
+        let upgraded = SqliteStoreKernel::open(&home).expect("upgrade projectionless Store");
+        upgraded
+            .readers()
+            .read_default(|connection| {
+                let migrated = connection.query_row(
+                    "SELECT value.value_json, value.revision, block.metadata_revision, \
+                            page.metadata_revision \
+                     FROM data_source_property_values value \
+                     JOIN data_source_page_memberships membership \
+                       ON membership.id = value.membership_id \
+                     JOIN blocks block ON block.id = membership.page_block_id \
+                     JOIN pages page ON page.block_id = membership.page_block_id \
+                     WHERE value.data_source_id = 'source:v110-priority' \
+                       AND value.membership_id = 'membership:v110-priority' \
+                       AND value.property_id = 'priority'",
+                    [],
+                    |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, i64>(1)?,
+                            row.get::<_, i64>(2)?,
+                            row.get::<_, i64>(3)?,
+                        ))
+                    },
+                )?;
+                assert_eq!(migrated, ("\"p3-low\"".to_owned(), 8, 4, 4));
+                Ok(())
+            })
+            .expect("verify projectionless Priority migration");
     }
 
     #[test]

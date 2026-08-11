@@ -10,9 +10,10 @@ import { setCustomNativeDragPreview } from "@atlaskit/pragmatic-drag-and-drop/el
 import type { CardPropertyPosition } from "@/lib/card-property-position";
 import type { DbViewDisplayPrefs, DbViewDisplayPropertyKey } from "../../lib/db-view-prefs";
 import { resolveKanbanPriorityOption } from "../../lib/kanban-options";
+import { getPriorityShortLabel } from "../../lib/priority-presentation";
 import { EMPTY_DISPLAY_VALUE_TOKEN, getMetaChipClassName } from "../../lib/toggle-list/meta-chips";
 import { estimateStyles } from "@/lib/types";
-import type { DatabasePageSummary, Priority } from "@/lib/types";
+import type { DatabasePageSummary } from "@/lib/types";
 import type { DatabasePropertyOption } from "../../../shared/database-kernel";
 import { useCardPropertyPosition } from "./card-deps";
 import { useTheme } from "@/lib/use-theme";
@@ -110,14 +111,6 @@ interface CardBodyProps {
   ) => void;
   onChipPointerDown?: (event: React.PointerEvent<HTMLButtonElement>) => void;
 }
-
-const PRIORITY_TOKEN_BY_VALUE: Record<Priority, string> = {
-  "p0-critical": "P0",
-  "p1-high": "P1",
-  "p2-medium": "P2",
-  "p3-low": "P3",
-  "p4-later": "P4",
-};
 
 function CardPropertyBadges({
   card,
@@ -229,7 +222,7 @@ function CardPropertyBadges({
       }
       return renderEditableChip(
         "priority",
-        PRIORITY_TOKEN_BY_VALUE[card.priority],
+        getPriorityShortLabel(card.priority),
         priorityLabel,
         cn(
           "inline-flex h-4.5 items-center rounded-sm px-1.5 text-xs/snug-plus",
@@ -647,7 +640,7 @@ export function Card({
     const property = keyboardPropertyRequest.property;
     const currentToken = property === "priority"
       ? card.priority
-        ? PRIORITY_TOKEN_BY_VALUE[card.priority]
+        ? getPriorityShortLabel(card.priority)
         : EMPTY_DISPLAY_VALUE_TOKEN
       : property === "estimate"
         ? card.estimate?.toUpperCase() ?? EMPTY_DISPLAY_VALUE_TOKEN

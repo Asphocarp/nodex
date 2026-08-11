@@ -44,7 +44,6 @@ export const Priority: Story = {
       { id: "p1-high", name: "High" },
       { id: "p2-medium", name: "Medium" },
       { id: "p3-low", name: "Low" },
-      { id: "p4-later", name: "Later" },
     ],
     selectedId: "p1-high",
   },
