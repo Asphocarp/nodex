@@ -1902,6 +1902,13 @@ mod tests {
             row.database_values.get("tags"),
             Some(&serde_json::json!(["Native"]))
         );
+        assert!(create_commit.projection_effects.iter().any(|effect| {
+            matches!(
+                &effect.scope.scope,
+                LocalProjectionScope::PageDetailDataSource { data_source_id, .. }
+                    if data_source_id == SOURCE
+            )
+        }));
         let replay = module
             .apply(&persistent_context, create_request.clone())
             .expect("replay Page create");

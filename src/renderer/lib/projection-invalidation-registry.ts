@@ -1,5 +1,6 @@
 import type {
   ProjectionCursor,
+  ProjectionDelivery,
   ProjectionImpact,
   ProjectionScope,
   ProjectionStreamMessage,
@@ -11,7 +12,7 @@ import {
 } from "../../shared/projection-stream";
 import type { CausalProjectionRuntime } from "./causal-projection-runtime";
 
-export interface ProjectionDependencies {
+export interface ProjectionResourceDependencies {
   readonly pageIds?: readonly string[];
   readonly databaseIds?: readonly string[];
   readonly dataSourceIds?: readonly string[];
@@ -19,6 +20,15 @@ export interface ProjectionDependencies {
   readonly documentIds?: readonly string[];
   readonly canvasIds?: readonly string[];
   readonly aggregate?: boolean;
+}
+
+export interface ProjectionDependencies extends ProjectionResourceDependencies {
+  /**
+   * Overrides resource matching for Database View effects. Consumers that
+   * read shared Page descriptors can ignore row/View invalidations and rely
+   * on distinct Page Detail Database and Data Source structural scopes.
+   */
+  readonly databaseViews?: ProjectionResourceDependencies;
 }
 
 export type ProjectionRevocationMessage = Extract<
@@ -225,9 +235,9 @@ export class ProjectionInvalidationRegistry {
     if (cursor && cursor.storeEpoch !== message.stream.storeEpoch) return true;
     if (projectionCursorCovers(cursor, message.stream)) return false;
     if (message.kind === "checkpoint") return true;
-    return impactMatches(
+    return projectionEffectMatches(
       registration.getDependencies(),
-      message.delivery.impact,
+      message.delivery,
     );
   }
 
@@ -286,7 +296,7 @@ const intersects = (
 };
 
 export const impactMatches = (
-  dependencies: ProjectionDependencies,
+  dependencies: ProjectionResourceDependencies,
   impact: ProjectionImpact,
 ): boolean => {
   if (impact.kind === "none") return false;
@@ -301,8 +311,18 @@ export const impactMatches = (
     );
 };
 
-export const revocationMatches = (
+export const projectionEffectMatches = (
   dependencies: ProjectionDependencies,
+  delivery: ProjectionDelivery,
+): boolean => {
+  const effectDependencies = delivery.effect.scope.scope.kind === "database_view"
+    ? dependencies.databaseViews
+    : undefined;
+  return impactMatches(effectDependencies ?? dependencies, delivery.impact);
+};
+
+export const revocationMatches = (
+  dependencies: ProjectionResourceDependencies,
   revocation: ProjectionRevocationMessage["delivery"]["revocation"],
 ): boolean => {
   if (dependencies.aggregate === true) return true;

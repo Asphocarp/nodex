@@ -11,6 +11,8 @@ import type {
   ResourceRevocationDeliveryMessage,
   ResourceRevocationMessage,
 } from "../../shared/resource-revocation-stream";
+import { buildPageDetailStoryResult } from "../components/kanban/page-stage/page-stage-story-page-detail";
+import { buildPageStageStoryPage } from "../components/kanban/page-stage/page-stage-dev-story-data";
 import { ProjectionInvalidationProvider } from "./projection-invalidation-context";
 import { ProjectionInvalidationRegistry } from "./projection-invalidation-registry";
 
@@ -133,6 +135,96 @@ const pageEvent = (
     },
   },
 });
+
+const databaseViewEvent = (
+  page: PageDetail,
+  commitSeq: number,
+): ProjectionStreamMessage => {
+  if (page.dataSourceContext.kind !== "member") {
+    throw new Error("Expected member Page Detail fixture");
+  }
+  const dataSourceId = page.dataSourceContext.dataSource.dataSourceId;
+  const databaseId = page.dataSourceContext.database.databaseId;
+  const viewId = page.dataSourceContext.database.defaultViewId;
+  if (!viewId) throw new Error("Expected member Page Detail View fixture");
+  return {
+    version: 2,
+    kind: "effect",
+    scope: {
+      kind: "project",
+      libraryId: page.libraryId,
+      projectId: page.projectId,
+    },
+    stream: { storeEpoch: page.storeEpoch, commitSeq },
+    delivery: {
+      storeEpoch: page.storeEpoch,
+      commitSeq,
+      manifestHash: String(commitSeq).padStart(64, "b").slice(-64),
+      operationId: `operation-view-${commitSeq}`,
+      committedAt: "2026-08-06T00:00:00.000Z",
+      impact: {
+        kind: "resources",
+        page_ids: [page.page.pageId],
+        database_ids: [databaseId],
+        data_source_ids: [dataSourceId],
+        view_ids: [viewId],
+        document_heads: [],
+      },
+      effect: {
+        scope: {
+          schema_version: 1,
+          canonical_key: `database-view:${page.projectId}:${viewId}`,
+          scope: {
+            kind: "database_view",
+            project_id: page.projectId,
+            database_id: databaseId,
+            data_source_id: dataSourceId,
+            view_id: viewId,
+          },
+        },
+        baseRevision: commitSeq - 1,
+        resultRevision: commitSeq,
+        coveredCommitSeq: commitSeq,
+        patch: null,
+        requiresReadAtLeast: true,
+        effectHash: String(commitSeq).padStart(64, "c").slice(-64),
+      },
+    },
+  };
+};
+
+const memberDetail = (
+  pageId: string,
+  title: string,
+  commitSeq: number,
+): PageDetail => {
+  const page = buildPageStageStoryPage({
+    runInTarget: "localProject",
+    existingWorktree: false,
+  });
+  const result = buildPageDetailStoryResult(
+    "project-1",
+    {
+      ...page,
+      id: pageId,
+      title,
+      richTitle: plainTextToPortableRichText(title),
+    },
+    {
+      libraryId: "library-1",
+      storeEpoch: "epoch-1",
+      commitSeq,
+    },
+  );
+  if (!result.ok) throw new Error(result.error.message);
+  return {
+    ...result.value,
+    page: {
+      ...result.value.page,
+      documentHeadSeq: commitSeq,
+    },
+  };
+};
 
 const pageRevocation = (
   commitSeq: number,
@@ -603,6 +695,75 @@ describe("Page Detail store realtime convergence", () => {
     });
 
     expect(getPageDetail("project-1", "page-1")).toBe(null);
+  });
+
+  test("retains cached sibling Page Details after another row changes in the same Data Source", async () => {
+    const pageA = memberDetail("page-a", "Page A", 1);
+    const pageB = memberDetail("page-b", "Page B", 1);
+    const pageC = memberDetail("page-c", "Page C", 1);
+    const pageCEdited = memberDetail("page-c", "Page C edited", 2);
+    mocks.readPageDetail
+      .mockResolvedValueOnce({ ok: true, value: pageA })
+      .mockResolvedValueOnce({ ok: true, value: pageB })
+      .mockResolvedValueOnce({ ok: true, value: pageC })
+      .mockResolvedValueOnce({
+        ok: true,
+        value: pageCEdited,
+      });
+
+    const mountedA = renderHook(
+      () => usePageDetail("library-1", "project-1", "page-a"),
+      { wrapper },
+    );
+    await waitFor(() => expect(mountedA.result.current.detail?.page.title).toBe("Page A"));
+    mountedA.unmount();
+
+    const mountedB = renderHook(
+      () => usePageDetail("library-1", "project-1", "page-b"),
+      { wrapper },
+    );
+    await waitFor(() => expect(mountedB.result.current.detail?.page.title).toBe("Page B"));
+    mountedB.unmount();
+
+    const mountedC = renderHook(
+      () => usePageDetail("library-1", "project-1", "page-c"),
+      { wrapper },
+    );
+    await waitFor(() => expect(mountedC.result.current.detail?.page.title).toBe("Page C"));
+
+    await act(async () => {
+      publish(pageEvent("page-c", 2));
+      publish(databaseViewEvent(pageCEdited, 2));
+      await Promise.resolve();
+    });
+    await waitFor(() => {
+      expect(mountedC.result.current.detail?.page.title).toBe("Page C edited");
+    });
+
+    const remountedA = renderHook(
+      () => usePageDetail("library-1", "project-1", "page-a"),
+      { wrapper },
+    );
+    expect(remountedA.result.current).toMatchObject({
+      detail: { page: { title: "Page A" } },
+      loading: false,
+      error: null,
+    });
+    expect(mocks.readPageDetail).toHaveBeenCalledTimes(4);
+    remountedA.unmount();
+
+    const remountedB = renderHook(
+      () => usePageDetail("library-1", "project-1", "page-b"),
+      { wrapper },
+    );
+    expect(remountedB.result.current).toMatchObject({
+      detail: { page: { title: "Page B" } },
+      loading: false,
+      error: null,
+    });
+    expect(mocks.readPageDetail).toHaveBeenCalledTimes(4);
+    remountedB.unmount();
+    mountedC.unmount();
   });
 
   test("releases authority when an invalidated active Page is later unmounted", async () => {

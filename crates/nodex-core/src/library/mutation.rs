@@ -2724,6 +2724,20 @@ fn build_mutation_result(
         &database_projection_impact,
         authorization_before,
     )?;
+    let page_data_source_ids = effects
+        .page_lifecycle
+        .as_ref()
+        .filter(|receipt| !receipt.created_tag_option_ids.is_empty())
+        .and_then(|receipt| receipt.data_source_id.clone())
+        .into_iter()
+        .collect::<Vec<_>>();
+    crate::database::record_page_detail_projection_delta(
+        connection,
+        commit,
+        &context.library_id.0,
+        &page_data_source_ids,
+        &[],
+    )?;
     if matches!(projection_impact, ProjectionImpact::All) {
         local_commit::require_projection_read(
             connection,

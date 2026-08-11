@@ -29,7 +29,10 @@ pub(crate) use mutation::{
     resolve_page_transfer_data_source_source, transfer_existing_page_for_agent_move_prevalidated,
     transfer_existing_page_for_block_transfer,
 };
-pub(crate) use projection_delta::record_local_projection_delta;
+pub(crate) use projection_delta::{
+    record_local_projection_delta, record_page_detail_projection_delta,
+    record_page_document_projection_delta,
+};
 pub(crate) use relation::copy_relation_edges;
 pub(crate) use view_contract::is_exact_primary_board_config;
 pub(crate) use window::{default_page_move_view_id, mint_page_move_etag};
@@ -276,8 +279,8 @@ mod tests {
         ProjectWorkspaceTurnAuthoritySource,
     };
     use nodex_core_contracts::{
-        AdapterKind, CoreModuleEventPayload, LibraryId, ModuleApplyRequest, ProfileId, ProjectId,
-        ProjectionImpact, StoreEpoch,
+        AdapterKind, CoreModuleEventPayload, LibraryId, LocalProjectionPatch, LocalProjectionScope,
+        ModuleApplyRequest, ProfileId, ProjectId, ProjectionImpact, StoreEpoch,
     };
     use rusqlite::params;
     use serde_json::json;
@@ -1379,6 +1382,22 @@ mod tests {
         );
         let event = applied.event.as_ref().expect("committed Database event");
         assert_eq!(applied.committed.receipt.committed_at, event.committed_at);
+        let schema_manifest = kernel
+            .readers()
+            .read_default(|connection| {
+                crate::infrastructure::local_commit::read_manifest(
+                    connection,
+                    applied.committed.commit_seq,
+                )
+            })
+            .expect("schema CommitManifest");
+        assert!(schema_manifest.projection_effects.iter().any(|effect| {
+            matches!(
+                &effect.scope.scope,
+                LocalProjectionScope::PageDetailDataSource { data_source_id, .. }
+                    if data_source_id == SOURCE_ID
+            )
+        }));
         kernel
             .writer()
             .call(|connection| {
@@ -1670,7 +1689,6 @@ mod tests {
             view_and_position.committed.receipt.affected_view_ids,
             [SECOND_VIEW_ID]
         );
-
         let grouped_config = json!({
             "schemaKey": "nodex.database-view",
             "schemaVersion": 2,
@@ -2152,6 +2170,70 @@ mod tests {
     }
 
     #[test]
+    fn view_descriptor_changes_advance_shared_page_detail_database_authority() {
+        const SECOND_VIEW_ID: &str = "018f1000-0000-7000-8000-000000000006";
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        let kernel = SqliteStoreKernel::open_test(&home).expect("fresh store");
+        let module = seed_grouped_fixture(&kernel, Vec::new());
+
+        let changed = module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    operation_id: "operation:page-detail-view-descriptor".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: vec![DatabaseIntent::PutView {
+                        database_id: DATABASE_ID.to_owned(),
+                        data_source_id: SOURCE_ID.to_owned(),
+                        view_id: SECOND_VIEW_ID.to_owned(),
+                        expected_revision: 0,
+                        name: "Secondary list".to_owned(),
+                        view_kind: "list".to_owned(),
+                        config: json!({
+                            "schemaKey": "nodex.database-view",
+                            "schemaVersion": 2,
+                            "filter": { "kind": "group", "operator": "and", "children": [] },
+                            "sort": [{
+                                "field": { "kind": "manual" },
+                                "direction": "asc",
+                                "nulls": "last"
+                            }],
+                            "group": null,
+                            "display": { "propertyIds": ["status"], "showTitle": true }
+                        }),
+                        is_default: false,
+                        before_view_id: None,
+                    }],
+                },
+            )
+            .expect("change a shared Database View descriptor");
+        let manifest = kernel
+            .readers()
+            .read_default(|connection| {
+                crate::infrastructure::local_commit::read_manifest(
+                    connection,
+                    changed.committed.commit_seq,
+                )
+            })
+            .expect("View descriptor CommitManifest");
+        assert!(manifest.projection_effects.iter().any(|effect| {
+            matches!(
+                &effect.scope.scope,
+                LocalProjectionScope::PageDetailDatabase { database_id, .. }
+                    if database_id == DATABASE_ID
+            )
+        }));
+        assert!(!manifest.projection_effects.iter().any(|effect| {
+            matches!(
+                &effect.scope.scope,
+                LocalProjectionScope::PageDetailDataSource { .. }
+            )
+        }));
+    }
+
+    #[test]
     fn schedule_index_follows_direct_property_edits_and_schema_deletion() {
         let directory = tempdir().expect("Profile");
         let home = directory.path().canonicalize().expect("absolute Profile");
@@ -2181,7 +2263,7 @@ mod tests {
             })
             .expect("seed schedule index");
 
-        module
+        let edited = module
             .apply(
                 &context(),
                 ModuleApplyRequest {
@@ -2221,6 +2303,34 @@ mod tests {
                 },
             )
             .expect("write schedule pair through Database Property authority");
+        let edit_manifest = kernel
+            .readers()
+            .read_default(|connection| {
+                crate::infrastructure::local_commit::read_manifest(
+                    connection,
+                    edited.committed.commit_seq,
+                )
+            })
+            .expect("Property edit CommitManifest");
+        assert!(edit_manifest.projection_effects.iter().any(|effect| {
+            matches!(
+                &effect.patch,
+                Some(LocalProjectionPatch::PageChanged { page_id, .. })
+                    if page_id == "page:schedule-row"
+            )
+        }));
+        assert!(edit_manifest.projection_effects.iter().any(|effect| {
+            matches!(
+                &effect.scope.scope,
+                LocalProjectionScope::DatabaseView { .. }
+            ) && effect.patch.is_none()
+        }));
+        assert!(!edit_manifest.projection_effects.iter().any(|effect| {
+            matches!(
+                &effect.scope.scope,
+                LocalProjectionScope::PageDetailDataSource { .. }
+            )
+        }));
 
         let indexed = kernel
             .writer()

@@ -315,6 +315,30 @@ fn database_intent_kind(intent: &DatabaseIntent) -> &'static str {
     }
 }
 
+fn page_detail_dependency_ids(intents: &[DatabaseIntent]) -> (BTreeSet<String>, BTreeSet<String>) {
+    let mut data_source_ids = BTreeSet::new();
+    let mut database_ids = BTreeSet::new();
+    for intent in intents {
+        match intent {
+            DatabaseIntent::PutProperty { data_source_id, .. }
+            | DatabaseIntent::DeleteProperty { data_source_id, .. }
+            | DatabaseIntent::PutOption { data_source_id, .. }
+            | DatabaseIntent::DeleteOption { data_source_id, .. } => {
+                data_source_ids.insert(data_source_id.clone());
+            }
+            DatabaseIntent::PutView { database_id, .. }
+            | DatabaseIntent::DeleteView { database_id, .. } => {
+                database_ids.insert(database_id.clone());
+            }
+            DatabaseIntent::EditPropertyValues { .. }
+            | DatabaseIntent::TransferPage { .. }
+            | DatabaseIntent::PositionPage { .. }
+            | DatabaseIntent::PositionPages { .. } => {}
+        }
+    }
+    (data_source_ids, database_ids)
+}
+
 fn apply_intent(
     connection: &Connection,
     library_id: &str,
@@ -4932,6 +4956,17 @@ fn seal_commit(
 > {
     let connection = scope.connection();
     let store_epoch = scope.store_epoch();
+    let (page_data_source_ids, page_database_ids) = page_detail_dependency_ids(&request.intent);
+    let page_data_source_ids = effects
+        .data_source_ids
+        .intersection(&page_data_source_ids)
+        .cloned()
+        .collect::<Vec<_>>();
+    let page_database_ids = effects
+        .database_ids
+        .intersection(&page_database_ids)
+        .cloned()
+        .collect::<Vec<_>>();
     let database_ids = effects.database_ids.into_iter().collect::<Vec<_>>();
     let data_source_ids = effects.data_source_ids.into_iter().collect::<Vec<_>>();
     let page_ids = effects.page_ids.into_iter().collect::<Vec<_>>();
@@ -4983,6 +5018,13 @@ fn seal_commit(
         &context.library_id.0,
         &projection_impact,
         &authorization_before,
+    )?;
+    super::record_page_detail_projection_delta(
+        connection,
+        scope.evidence(),
+        &context.library_id.0,
+        &page_data_source_ids,
+        &page_database_ids,
     )?;
     let event_sequence = append_change_log(
         connection,

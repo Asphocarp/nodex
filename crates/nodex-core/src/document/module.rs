@@ -1631,6 +1631,11 @@ impl OwnedDocumentModule {
                                         &transaction,
                                         persisted.event_sequence,
                                     )?;
+                                    record_page_document_projection_delta(
+                                        scope,
+                                        &authority,
+                                        &event.projection_impact,
+                                    )?;
                                     let mut next_head = authority.head.clone();
                                     next_head.head_seq = persisted.head_seq;
                                     next_head.state_vector = persisted.state_vector;
@@ -1755,6 +1760,11 @@ impl OwnedDocumentModule {
                                     let event = load_committed_event_by_sequence(
                                         &transaction,
                                         persisted.event_sequence,
+                                    )?;
+                                    record_page_document_projection_delta(
+                                        scope,
+                                        &authority,
+                                        &event.projection_impact,
                                     )?;
                                     engine.commit_candidate(candidate).map_err(engine_error)?;
                                     let mut next_head = authority.head.clone();
@@ -3694,6 +3704,11 @@ impl OwnedDocumentModule {
                             &transaction,
                             persisted.event_sequence,
                         )?;
+                        record_page_document_projection_delta(
+                            scope,
+                            &authority,
+                            &event.projection_impact,
+                        )?;
                         committed_delivery = Some((
                             event,
                             persisted.head_seq,
@@ -4256,6 +4271,22 @@ fn committed_canvas_value(
 
 type OwnedDocumentWriterResult =
     crate::ModuleWriterResult<OwnedDocumentCommitValue, OwnedDocumentReceipt>;
+
+fn record_page_document_projection_delta(
+    scope: &DurableMutationScope<'_>,
+    authority: &DocumentAuthorityRow,
+    impact: &ProjectionImpact,
+) -> Result<(), StoreError> {
+    let Some(library_id) = authority.page_library_id.as_deref() else {
+        return Ok(());
+    };
+    crate::database::record_page_document_projection_delta(
+        scope.connection(),
+        scope.evidence(),
+        library_id,
+        impact,
+    )
+}
 
 fn seal_typed_receipt(
     scope: &DurableMutationScope<'_>,
@@ -5757,13 +5788,33 @@ mod tests {
                            'active', 'a', ?4, ?4)",
                         params![DATA_SOURCE_ID, LIBRARY_ID, DATABASE_ID, NOW],
                     )?;
+                    let view_config = serde_json::to_string(&json!({
+                        "schemaKey": "nodex.database-view",
+                        "schemaVersion": 2,
+                        "filter": { "kind": "group", "operator": "and", "children": [] },
+                        "sort": [{
+                            "field": { "kind": "manual" },
+                            "direction": "asc",
+                            "nulls": "last"
+                        }],
+                        "group": null,
+                        "display": { "propertyIds": [], "showTitle": true }
+                    }))
+                    .map_err(|_| internal("Document test View config"))?;
                     for (view_id, rank_key) in [(VIEW_ID_A, "a"), (VIEW_ID_B, "b")] {
                         transaction.execute(
                             "INSERT INTO database_views(\
                                id, database_block_id, data_source_id, name, kind, config_json, \
                                rank_key, created_at, updated_at\
-                             ) VALUES (?1, ?2, ?3, 'Document test View', 'list', '{}', ?4, ?5, ?5)",
-                            params![view_id, DATABASE_ID, DATA_SOURCE_ID, rank_key, NOW],
+                             ) VALUES (?1, ?2, ?3, 'Document test View', 'list', ?4, ?5, ?6, ?6)",
+                            params![
+                                view_id,
+                                DATABASE_ID,
+                                DATA_SOURCE_ID,
+                                view_config,
+                                rank_key,
+                                NOW,
+                            ],
                         )?;
                     }
                     transaction.execute(
@@ -7940,8 +7991,31 @@ mod tests {
 
     #[test]
     fn page_document_event_records_its_database_projection_impact() {
+        const GRANTED_PROJECT_ID: &str = "project:document-projection-grantee";
         let seeded = seeded_module();
         move_seeded_page_under_database(&seeded);
+        seeded
+            .kernel
+            .writer()
+            .call(|connection| {
+                with_immediate_transaction(connection, |transaction| {
+                    transaction.execute(
+                        "INSERT INTO projects(id, library_id, name, created, updated) \
+                         VALUES (?1, ?2, 'Document projection grantee', ?3, ?3)",
+                        params![GRANTED_PROJECT_ID, LIBRARY_ID, NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO project_resource_grants(\
+                           id, project_id, library_id, root_kind, root_id, access, recursive, \
+                           revision, lifecycle, created_at, updated_at\
+                         ) VALUES ('grant:document-projection', ?1, ?2, 'database', ?3, \
+                           'read', 1, 1, 'active', ?4, ?4)",
+                        params![GRANTED_PROJECT_ID, LIBRARY_ID, DATABASE_ID, NOW],
+                    )?;
+                    Ok(())
+                })
+            })
+            .expect("grant a second Project the Page Database");
         let update = title_update(
             &seeded.full_state,
             &seeded.state_vector,
@@ -7973,6 +8047,74 @@ mod tests {
                 }],
             }
         );
+        let manifest = seeded
+            .kernel
+            .readers()
+            .read_default(|connection| {
+                crate::infrastructure::local_commit::read_manifest(
+                    connection,
+                    applied.committed.commit_seq,
+                )
+            })
+            .expect("Page Document CommitManifest");
+        assert!(manifest.projection_effects.iter().any(|effect| {
+            matches!(
+                &effect.scope.scope,
+                nodex_core_contracts::LocalProjectionScope::Page {
+                    project_id,
+                    page_id,
+                } if project_id == PROJECT_ID && page_id == OWNER_BLOCK_ID
+            )
+        }));
+        assert!(manifest.projection_effects.iter().any(|effect| {
+            matches!(
+                &effect.scope.scope,
+                nodex_core_contracts::LocalProjectionScope::Page {
+                    project_id,
+                    page_id,
+                } if project_id == GRANTED_PROJECT_ID && page_id == OWNER_BLOCK_ID
+            )
+        }));
+        assert_eq!(
+            manifest
+                .projection_effects
+                .iter()
+                .filter(|effect| matches!(
+                    &effect.scope.scope,
+                    nodex_core_contracts::LocalProjectionScope::DatabaseView {
+                        project_id,
+                        ..
+                    } if project_id == PROJECT_ID
+                ))
+                .count(),
+            2,
+        );
+        assert_eq!(
+            manifest
+                .projection_effects
+                .iter()
+                .filter(|effect| matches!(
+                    &effect.scope.scope,
+                    nodex_core_contracts::LocalProjectionScope::DatabaseView {
+                        project_id,
+                        ..
+                    } if project_id == GRANTED_PROJECT_ID
+                ))
+                .count(),
+            2,
+        );
+        assert!(manifest.projection_effects.iter().all(|effect| {
+            !matches!(
+                &effect.scope.scope,
+                nodex_core_contracts::LocalProjectionScope::DatabaseView { .. }
+            ) || effect.patch.is_none()
+        }));
+        assert!(!manifest.projection_effects.iter().any(|effect| {
+            matches!(
+                &effect.scope.scope,
+                nodex_core_contracts::LocalProjectionScope::Project { .. }
+            )
+        }));
         seeded
             .kernel
             .readers()

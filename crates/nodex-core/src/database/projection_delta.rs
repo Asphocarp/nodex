@@ -6,7 +6,7 @@ use nodex_core_contracts::{
     AdapterKind, BoundModuleContext, LibraryId, LocalProjectionPatch, LocalProjectionScope,
     ProfileId, ProjectId, ProjectionImpact,
 };
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 
 use crate::infrastructure::durable_mutation::AuthorizedResourceObservation;
 use crate::infrastructure::local_commit::{self, CommitContext};
@@ -194,6 +194,193 @@ pub(crate) fn record_local_projection_delta(
         }
     }
     Ok(metrics)
+}
+
+/// Advances the exact Page and DatabaseView projection scopes affected by a
+/// Page Document edit without materializing relational View rows on the
+/// document writer's hot path.
+///
+/// Database and Data Source identities in the durable impact are routing
+/// evidence for the affected Views. An ordinary title or body edit does not
+/// change their shared descriptors, so it must not promote to a Project reset.
+pub(crate) fn record_page_document_projection_delta(
+    connection: &Connection,
+    commit: &CommitContext,
+    library_id: &str,
+    impact: &ProjectionImpact,
+) -> Result<(), StoreError> {
+    let ProjectionImpact::Resources {
+        page_ids, view_ids, ..
+    } = impact
+    else {
+        return match impact {
+            ProjectionImpact::None => Ok(()),
+            ProjectionImpact::All => {
+                record_all_projection_resets(connection, commit, library_id).map(|_| ())
+            }
+            ProjectionImpact::Resources { .. } => unreachable!(),
+        };
+    };
+    let page_ids = canonical_strings(page_ids);
+    let view_ids = canonical_strings(view_ids);
+    if page_ids.is_empty() && view_ids.is_empty() {
+        return Ok(());
+    }
+    let view_coordinates = view_ids
+        .iter()
+        .map(|view_id| {
+            let coordinates = connection
+                .query_row(
+                    "SELECT view.database_block_id, view.data_source_id
+                     FROM database_views view
+                     JOIN data_sources source ON source.id = view.data_source_id
+                     WHERE view.id = ?1 AND source.library_id = ?2
+                       AND source.lifecycle = 'active'",
+                    rusqlite::params![view_id, library_id],
+                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+                )
+                .optional()?;
+            Ok((view_id.clone(), coordinates))
+        })
+        .collect::<Result<BTreeMap<_, _>, StoreError>>()?;
+
+    for project_id in active_project_ids(connection, library_id)? {
+        let context = project_context(library_id, &project_id);
+        let scope = DeliveryAuthorizationScope::Project {
+            library_id: library_id.to_owned(),
+            project_id: project_id.clone(),
+        };
+        for page_id in readable_resource_ids(connection, &context, &scope, &page_ids, |page_id| {
+            ResourceKey::Page { page_id }
+        })? {
+            record_page_delta(connection, commit, &project_id, &page_id)?;
+        }
+        for view_id in readable_resource_ids(connection, &context, &scope, &view_ids, |view_id| {
+            ResourceKey::View { view_id }
+        })? {
+            let Some(Some((database_id, data_source_id))) = view_coordinates.get(&view_id) else {
+                continue;
+            };
+            local_commit::require_projection_read(
+                connection,
+                commit,
+                LocalProjectionScope::DatabaseView {
+                    project_id: project_id.clone(),
+                    database_id: database_id.clone(),
+                    data_source_id: data_source_id.clone(),
+                    view_id,
+                },
+            )?;
+        }
+    }
+    Ok(())
+}
+
+/// Advances shared Page Detail dependency authority without conflating it with
+/// row-local Page or DatabaseView changes.
+pub(crate) fn record_page_detail_projection_delta(
+    connection: &Connection,
+    commit: &CommitContext,
+    library_id: &str,
+    data_source_ids: &[String],
+    database_ids: &[String],
+) -> Result<(), StoreError> {
+    let data_source_ids = canonical_strings(data_source_ids);
+    let database_ids = canonical_strings(database_ids);
+    if data_source_ids.is_empty() && database_ids.is_empty() {
+        return Ok(());
+    }
+    let mut data_source_coordinates = Vec::new();
+    for data_source_id in &data_source_ids {
+        let database_id = connection
+            .query_row(
+                "SELECT home_database_block_id FROM data_sources \
+                 WHERE id = ?1 AND library_id = ?2 AND lifecycle = 'active'",
+                [data_source_id, library_id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+        if let Some(database_id) = database_id {
+            data_source_coordinates.push((data_source_id.clone(), database_id));
+        }
+    }
+    let mut page_database_ids = Vec::new();
+    for database_id in database_ids {
+        let exists = connection
+            .query_row(
+                "SELECT 1 FROM database_containers \
+                 WHERE block_id = ?1 AND library_id = ?2 AND lifecycle = 'active'",
+                [&database_id, library_id],
+                |_| Ok(()),
+            )
+            .optional()?
+            .is_some();
+        if exists {
+            page_database_ids.push(database_id);
+        }
+    }
+    for project_id in active_project_ids(connection, library_id)? {
+        let context = project_context(library_id, &project_id);
+        let scope = DeliveryAuthorizationScope::Project {
+            library_id: library_id.to_owned(),
+            project_id: project_id.clone(),
+        };
+        for (data_source_id, database_id) in &data_source_coordinates {
+            let can_read_data_source = crate::infrastructure::resource_authorization::can_read(
+                connection,
+                &context,
+                &scope,
+                &ResourceKey::DataSource {
+                    data_source_id: data_source_id.clone(),
+                },
+            )?;
+            if !can_read_data_source {
+                continue;
+            }
+            let can_read_database = crate::infrastructure::resource_authorization::can_read(
+                connection,
+                &context,
+                &scope,
+                &ResourceKey::Database {
+                    database_id: database_id.clone(),
+                },
+            )?;
+            if !can_read_database {
+                continue;
+            }
+            local_commit::require_projection_read(
+                connection,
+                commit,
+                LocalProjectionScope::PageDetailDataSource {
+                    project_id: project_id.clone(),
+                    database_id: database_id.clone(),
+                    data_source_id: data_source_id.clone(),
+                },
+            )?;
+        }
+        for database_id in &page_database_ids {
+            let can_read_database = crate::infrastructure::resource_authorization::can_read(
+                connection,
+                &context,
+                &scope,
+                &ResourceKey::Database {
+                    database_id: database_id.clone(),
+                },
+            )?;
+            if !can_read_database {
+                continue;
+            }
+            local_commit::require_projection_read(
+                connection,
+                commit,
+                LocalProjectionScope::PageDetailDatabase {
+                    project_id: project_id.clone(),
+                    database_id: database_id.clone(),
+                },
+            )?;
+        }
+    }
+    Ok(())
 }
 
 fn record_all_projection_resets(
