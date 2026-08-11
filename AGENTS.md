@@ -155,10 +155,10 @@ Treat `CHANGELOG.md` as a required deliverable only for **release-note-worthy** 
 
 ## Commit and PR Expectations
 - Keep changes scoped and atomic.
-- For ordinary commits, use `<area>: <precise imperative summary>`. Do not default to Conventional Commits or type prefixes such as `feat:`, `fix:`, `chore:`, or `refactor:`.
+- For ordinary commits, use `<area>: <precise imperative summary>`. The imperative mood applies only to the subject. Do not default to Conventional Commits or type prefixes such as `feat:`, `fix:`, `chore:`, or `refactor:`.
 - Choose `area` from stable repository terminology: a subsystem, package, component, or code region rather than a change type. If it is unclear, inspect `git log --oneline -- path/to/file`.
 - Make the summary state the concrete behavior change in imperative mood, omit a terminal period, and aim for at most 80 characters without sacrificing precision. Example: `editor: preserve selection across remote updates`.
-- For ordinary coding commits, include a body by default. Reserve subject-only messages for trivial, self-explanatory changes such as formatting, copy edits, or generated updates. Separate the subject and body with a blank line; use the body to explain the motivation, constraints, user-visible impact, or non-obvious trade-offs (focuses on the ‘why’ rather than the ‘what’).
+- Add a body when it contributes context the subject cannot: motivation, prior behavior, constraints, user impact, or non-obvious trade-offs. Write it as concise declarative prose focused on why the change matters and what results. Trivial, self-explanatory changes may use a subject only.
 - When a subject-only message is genuinely appropriate, use `git commit -m "<subject>"`. For the usual subject-and-body message, pass real line breaks:
 
   ```bash
