@@ -33,6 +33,10 @@ import {
   databaseViewMoveBeforeId,
   readDatabasePropertyOptions,
 } from "@/lib/database-view-authoring";
+import {
+  calendarPresentationFeature,
+  type CalendarPresentationFeature,
+} from "@/lib/calendar-presentation-feature";
 import { cn } from "@/lib/utils";
 import { DatabaseViewConfigEditor } from "./database-view-config-editor";
 import {
@@ -74,6 +78,7 @@ export interface DatabaseManagementSurfaceProps {
   readonly selectedDatabaseId: string | null;
   readonly busy?: boolean;
   readonly error?: string | null;
+  readonly calendarPresentation?: CalendarPresentationFeature;
   readonly onSelectDatabase: (databaseId: string) => void;
   readonly onCreateProperty: (
     draft: CreateDatabasePropertyDraft,
@@ -122,6 +127,25 @@ const VIEW_KINDS: readonly {
   { value: "calendar", label: "Calendar" },
 ];
 
+const authorableViewKinds = (
+  feature: CalendarPresentationFeature,
+): typeof VIEW_KINDS => {
+  if (feature.enabled) return VIEW_KINDS;
+  return VIEW_KINDS.filter((kind) => kind.value !== "calendar");
+};
+
+const editableViewKinds = (
+  feature: CalendarPresentationFeature,
+  currentKind: DatabaseViewKind,
+): readonly (typeof VIEW_KINDS[number] & { readonly disabled?: boolean })[] => {
+  const authorable = authorableViewKinds(feature);
+  if (feature.enabled || currentKind !== "calendar") return authorable;
+  return [
+    ...authorable,
+    { value: "calendar", label: "Calendar (temporarily unavailable)", disabled: true },
+  ];
+};
+
 const viewKindIcon = (kind: DatabaseViewKind) => {
   switch (kind) {
     case "kanban":
@@ -168,6 +192,7 @@ export function DatabaseManagementSurface({
   selectedDatabaseId,
   busy = false,
   error = null,
+  calendarPresentation = calendarPresentationFeature,
   onSelectDatabase,
   onCreateProperty,
   onDeleteProperty,
@@ -204,6 +229,10 @@ export function DatabaseManagementSurface({
   const [pendingDeletePropertyId, setPendingDeletePropertyId] = useState<
     string | null
   >(null);
+  const availableViewKinds = authorableViewKinds(calendarPresentation);
+  const newViewKind = calendarPresentation.enabled || viewKind !== "calendar"
+    ? viewKind
+    : "list";
 
   useEffect(() => {
     if (!descriptor) return;
@@ -597,8 +626,12 @@ export function DatabaseManagementSurface({
                           })}
                           className="h-8 rounded-md border border-transparent bg-transparent px-2 text-xs text-token-text-secondary outline-none hover:bg-token-foreground/5 focus:border-token-focus-border"
                         >
-                          {VIEW_KINDS.map((kind) => (
-                            <option key={kind.value} value={kind.value}>
+                          {editableViewKinds(calendarPresentation, draft.kind).map((kind) => (
+                            <option
+                              key={kind.value}
+                              value={kind.value}
+                              disabled={kind.disabled}
+                            >
                               {kind.label}
                             </option>
                           ))}
@@ -704,7 +737,7 @@ export function DatabaseManagementSurface({
                         databaseId: descriptor.database.databaseId,
                         dataSourceId: source.dataSource.dataSourceId,
                         name,
-                        kind: viewKind,
+                        kind: newViewKind,
                       });
                       setViewName("");
                     },
@@ -721,14 +754,14 @@ export function DatabaseManagementSurface({
                   />
                   <select
                     aria-label="New View kind"
-                    value={viewKind}
+                    value={newViewKind}
                     disabled={busy}
                     onChange={(event) => setViewKind(
                       event.target.value as DatabaseViewKind,
                     )}
                     className="h-8 rounded-md border border-transparent bg-transparent px-2 text-xs text-token-text-secondary outline-none hover:bg-token-foreground/5 focus:border-token-focus-border"
                   >
-                    {VIEW_KINDS.map((kind) => (
+                    {availableViewKinds.map((kind) => (
                       <option key={kind.value} value={kind.value}>{kind.label}</option>
                     ))}
                   </select>

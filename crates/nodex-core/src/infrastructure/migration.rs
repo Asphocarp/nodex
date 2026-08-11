@@ -7232,6 +7232,47 @@ mod tests {
     }
 
     #[test]
+    fn v99_upgrade_rebuilds_sealed_projection_descriptors() {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        seed_owned_v99_store_with_property_value(&home);
+        let connection = open_writer(&home.join("nodex.db")).expect("v99 writer");
+        connection
+            .execute(
+                "INSERT INTO change_log(\
+                   project_id, store_epoch, kind, operation_id, payload_json, \
+                   projection_impact_json, committed_at\
+                 ) VALUES (\
+                   'project:v99', 'epoch:v99', 'project_workspace.changed', \
+                   'v99:projection-impact', \
+                   '{\"module\":\"project_workspace\",\"kind\":\"workspace_changed\",\
+                     \"projectIds\":[\"project:v99\"],\"sessionIds\":[],\"threadIds\":[],\
+                     \"sessionSummaryScopes\":[],\"sessionDetailIds\":[]}', \
+                   '{\"kind\":\"resources\",\"page_ids\":[\"page:v99\"],\
+                     \"database_ids\":[],\"data_source_ids\":[],\"view_ids\":[],\
+                     \"document_heads\":[]}', '2026-08-04T00:00:00.000Z'\
+                 )",
+                [],
+            )
+            .expect("seed v99 LocalCommit history");
+        drop(connection);
+
+        let upgraded = SqliteStoreKernel::open(&home).expect("upgrade v99 LocalCommit history");
+        upgraded
+            .readers()
+            .read_default(|connection| {
+                let descriptor_count = connection.query_row(
+                    "SELECT count(*) FROM local_commit_sealed_projection_effects",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )?;
+                assert_eq!(descriptor_count, 1);
+                Ok(())
+            })
+            .expect("verify rebuilt sealed projection descriptors");
+    }
+
+    #[test]
     fn v88_upgrade_canonicalizes_codex_thread_creation_and_repairs_inversion() {
         let directory = tempdir().expect("Profile");
         let home = directory.path().canonicalize().expect("absolute Profile");

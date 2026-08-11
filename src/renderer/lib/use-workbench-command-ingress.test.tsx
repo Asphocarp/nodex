@@ -7,6 +7,7 @@ import {
   vi,
 } from "vitest";
 import {
+  reminderOpenToPageDeepLink,
   useWorkbenchCommandIngress,
   type WorkbenchCommandPort,
 } from "./use-workbench-command-ingress";
@@ -40,6 +41,17 @@ function makePort(): WorkbenchCommandPort {
 }
 
 describe("useWorkbenchCommandIngress", () => {
+  test("normalizes reminder notifications into the Page deep-link workflow", () => {
+    expect(reminderOpenToPageDeepLink({
+      projectId: "alpha",
+      pageId: "page-1",
+      occurrenceStart: "2026-08-11T09:00:00.000Z",
+    })).toEqual({
+      projectId: "alpha",
+      pageId: "page-1",
+    });
+  });
+
   test("reports whether the active command port accepted a command", () => {
     Object.defineProperty(window, "api", {
       configurable: true,

@@ -1901,6 +1901,11 @@ pub(crate) fn upgrade_v110_manifest(
     connection: &Connection,
     progress: &mut dyn FnMut(u64, u64),
 ) -> Result<(), StoreError> {
+    // Pre-v105 histories are resealed after the current child tables are installed,
+    // so that earlier migration stage can already have populated these derived rows.
+    // Rebuild them from the sealed projection effects while preserving the strict
+    // duplicate guard used by live commits.
+    connection.execute("DELETE FROM local_commit_sealed_projection_effects", [])?;
     let total = u64::try_from(connection.query_row(
         "SELECT count(*) FROM local_commits WHERE finalized = 1",
         [],

@@ -64,11 +64,9 @@ export function WorkbenchTabProjectionPanel({
   pageStageCloseRef,
   pageStagePersistRef,
   pageStageSessionSnapshotRef,
-  pendingReminderOpen,
   taskSearchOpenTick,
   setSearchQuery,
   setDbViewPrefs,
-  onReminderHandled,
   onLeavePageStage,
   onOpenPageTab,
   onOpenPageInNewChat,
@@ -107,11 +105,6 @@ export function WorkbenchTabProjectionPanel({
   pageStageSessionSnapshotRef?: MutableRefObject<
     PageStageSessionSnapshot | null
   >;
-  pendingReminderOpen?: {
-    projectId: string;
-    pageId: string;
-    occurrenceStart: string;
-  } | null;
   taskSearchOpenTick: number;
   setSearchQuery: (projectId: string, value: string) => void;
   setDbViewPrefs: (
@@ -119,11 +112,6 @@ export function WorkbenchTabProjectionPanel({
     view: SupportedDbView,
     update: (prev: DbViewPrefs) => DbViewPrefs,
   ) => void;
-  onReminderHandled?: (payload: {
-    projectId: string;
-    pageId: string;
-    occurrenceStart: string;
-  }) => void;
   onLeavePageStage: (snapshot: PageStageSessionSnapshot) => void;
   onOpenPageTab: OpenPageTabHandler;
   onOpenPageInNewChat?: (input: OpenPageInNewChatInput) => Promise<void> | void;
@@ -176,11 +164,9 @@ export function WorkbenchTabProjectionPanel({
         dbViewPrefsByProject={dbViewPrefsByProject}
         presentedPageIds={presentedPageIds}
         pageStageCloseRef={pageStageCloseRef}
-        pendingReminderOpen={pendingReminderOpen}
         taskSearchOpenTick={taskSearchOpenTick}
         setSearchQuery={setSearchQuery}
         setDbViewPrefs={setDbViewPrefs}
-        onReminderHandled={onReminderHandled}
         onOpenPageTab={onOpenPageTab}
         onOpenPageInNewChat={onOpenPageInNewChat}
         onSendPageToChat={onSendPageToChat}

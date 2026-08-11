@@ -12,7 +12,7 @@ The editable settings tab covers Nodex-supported command ids only. Editor-native
 
 | Shortcut | Action | Notes |
 |----------|--------|-------|
-| `Shift+Wheel` | Native horizontal scrolling | Calendar view still claims this gesture for day navigation where applicable |
+| `Shift+Wheel` | Native horizontal scrolling | A mounted, gate-enabled Calendar presentation claims this gesture for day navigation where applicable |
 | `⌘/Ctrl+Alt+1`–`9` | Jump to project by index | First 9 projects in shell/sidebar order (disabled while focus is in NFM editor because `⌘/Ctrl+Alt+1`–`4` are editor heading shortcuts) |
 | `⌘/Ctrl+Shift+P` | Search commands | Opens the global command palette in root command mode; works from editable surfaces too |
 | `⌘/Ctrl+K` | Search commands and chats | Opens the global command palette in root mode; chat metadata joins at two query characters and chat history at three; works from editable surfaces too |
