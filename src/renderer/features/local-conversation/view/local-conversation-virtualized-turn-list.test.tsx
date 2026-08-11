@@ -16,6 +16,7 @@ import type {
   VirtualizedLatestTurnRestoreState,
   VirtualizedTurnListRestoreState,
 } from "./local-conversation-turn-virtualization";
+import { LocalConversationTestQueryProvider } from "./local-conversation-test-query.test-fixtures";
 
 const originalGetBoundingClientRect = HTMLElement.prototype.getBoundingClientRect;
 const originalRequestAnimationFrame = globalThis.requestAnimationFrame;
@@ -25,7 +26,9 @@ function TooltipProvider({ children }: { readonly children: ReactNode }) {
   const [store] = useState(() => createMaitaiStore());
   return (
     <MaitaiProvider store={store}>
-      <NodexTooltipProvider>{children}</NodexTooltipProvider>
+      <LocalConversationTestQueryProvider>
+        <NodexTooltipProvider>{children}</NodexTooltipProvider>
+      </LocalConversationTestQueryProvider>
     </MaitaiProvider>
   );
 }

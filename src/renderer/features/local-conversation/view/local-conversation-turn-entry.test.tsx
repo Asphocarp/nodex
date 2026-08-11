@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, test } from "vitest";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent } from "@testing-library/react";
 import { createElement, type ReactElement } from "react";
 import { NodexTooltipProvider as TooltipProvider } from "../../../components/ui/tooltip";
@@ -12,16 +11,14 @@ import type {
   CodexConversationTurn,
 } from "../../../lib/types";
 import type { VisibleConversationTurnEntry } from "../selectors";
+import { LocalConversationTestQueryProvider } from "./local-conversation-test-query.test-fixtures";
 import { formatThreadMessageTimestamp } from "./shared/thread-message-timestamp";
 
 const renderCounts = new Map<string, number>();
-const queryClient = new QueryClient({
-  defaultOptions: { queries: { retry: false } },
-});
 
 function render(ui: ReactElement) {
   return renderDom(ui, {
-    wrapper: ({ children }) => createElement(QueryClientProvider, { client: queryClient }, children),
+    wrapper: LocalConversationTestQueryProvider,
   });
 }
 
@@ -146,7 +143,6 @@ function buildVisibleTurnEntry(
 describe("LocalConversationTurnEntry", () => {
   beforeEach(() => {
     renderCounts.clear();
-    queryClient.clear();
   });
 
   test("owns latest streaming fixed content from the same main-row projection", async () => {
@@ -888,8 +884,11 @@ describe("LocalConversationTurnEntry", () => {
     if (!(assistantAfter instanceof HTMLElement)) {
       throw new Error("expected assistant body after exploration rows");
     }
-    const activityButton = view.getByRole("button", { name: "Read files" });
-    fireEvent.click(activityButton);
+    const activityButton = view.getByRole("button", { name: "Checking the file." });
+    await act(async () => {
+      fireEvent.click(activityButton);
+      await Promise.resolve();
+    });
     await settleAsyncRender();
 
     expect(Boolean(view.container.textContent?.includes("Done"))).toBe(true);
@@ -897,7 +896,7 @@ describe("LocalConversationTurnEntry", () => {
     expect(Boolean(view.container.textContent?.includes("Final message"))).toBe(false);
   });
 
-  test("renders stopped-turn tool groups before deferred assistant actions", async () => {
+  test("renders stopped-turn tool activity before deferred assistant actions", async () => {
     const stableRequests: [] = [];
     const { LocalConversationTurnEntry } = await import("./local-conversation-turn-entry");
     const turn: CodexConversationTurn = {
@@ -948,12 +947,12 @@ describe("LocalConversationTurnEntry", () => {
     );
 
     const assistantBlock = view.container.querySelector('[data-content-search-unit-key="turn_stopped_order:assistant"]');
-    const explorationButton = view.getByRole("button", { name: "Read files" });
+    const explorationLink = view.getByRole("link", { name: "read" });
     const copyButton = view.getByLabelText("Copy");
     const actionAnchor = view.container.querySelector('[data-assistant-actions-anchor="assistant_1"]');
     if (
       !(assistantBlock instanceof HTMLElement)
-      || !(explorationButton instanceof HTMLElement)
+      || !(explorationLink instanceof HTMLElement)
       || !(copyButton instanceof HTMLElement)
       || !(actionAnchor instanceof HTMLElement)
     ) {
@@ -961,9 +960,9 @@ describe("LocalConversationTurnEntry", () => {
     }
 
     expect(assistantBlock.querySelector('[aria-label="Copy"]') === null).toBe(true);
-    expect(Boolean(assistantBlock.compareDocumentPosition(explorationButton) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
-    expect(Boolean(explorationButton.compareDocumentPosition(actionAnchor) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
-    expect(Boolean(explorationButton.compareDocumentPosition(copyButton) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
+    expect(Boolean(assistantBlock.compareDocumentPosition(explorationLink) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
+    expect(Boolean(explorationLink.compareDocumentPosition(actionAnchor) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
+    expect(Boolean(explorationLink.compareDocumentPosition(copyButton) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
     expect(Boolean(view.getByLabelText("Fork from this point"))).toBe(true);
   });
 });
