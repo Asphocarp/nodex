@@ -353,6 +353,10 @@ interface TestableCodexService {
     active: boolean,
   ) => void;
   getRendererConversationOwner: (threadId: string) => string | null;
+  handleRendererOwnerAppServerRequest: (
+    sourceClientId: string | null,
+    input: import("../../shared/types").CodexOwnerAppServerRequestInput,
+  ) => Promise<unknown>;
   handleRendererClientDisposed: (clientId: string) => void;
   publishRendererThreadStreamStateChange: (
     sourceClientId: string,
@@ -4568,6 +4572,64 @@ describe("codex-service renderer owner stream publishing", () => {
       );
       expect(requests).toEqual([]);
       await service.releaseConversationResumeBuffer(threadId);
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("renderer owner Resume sends an inherited turn/start with an empty input array", async () => {
+    const service = createService();
+    const threadId = "thread-owner-resume-interrupted";
+    const ownerClientId = "renderer-owner-resume-interrupted";
+    const requests: Array<{ method: string; params: unknown }> = [];
+    const serviceInternals = service as unknown as {
+      parseThreadRef: (id: string) => null;
+      markThreadAsActive: (id: string) => void;
+      persistThreadSnapshot: (id: string) => void;
+      setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+    };
+    const client = Reflect.get(service as object, "client") as {
+      start: () => Promise<void>;
+      request: (method: string, params: unknown) => Promise<unknown>;
+    };
+    serviceInternals.parseThreadRef = () => null;
+    serviceInternals.markThreadAsActive = () => undefined;
+    serviceInternals.persistThreadSnapshot = () => undefined;
+    serviceInternals.setConversationRecordDetail(makeThreadDetail(threadId));
+    service.setRendererConversationOwner(threadId, ownerClientId);
+    client.start = async () => undefined;
+    client.request = async (method, params) => {
+      requests.push({ method, params });
+      if (method !== "turn/start") return {};
+      return {
+        turn: {
+          id: "turn-resumed",
+          status: "in_progress",
+          transcript: [],
+        },
+      };
+    };
+
+    try {
+      await service.handleRendererOwnerAppServerRequest(ownerClientId, {
+        conversationId: threadId,
+        request: {
+          method: "turn/resume-interrupted",
+          params: {
+            threadId,
+            clientUserMessageId: "client-resume-interrupted",
+            opts: { permissionMode: "auto" },
+          },
+        },
+      });
+
+      const turnStart = requests.find((request) => request.method === "turn/start");
+      expect(turnStart?.params).toMatchObject({
+        threadId,
+        clientUserMessageId: "client-resume-interrupted",
+        input: [],
+        summary: "detailed",
+      });
     } finally {
       await service.shutdown();
     }

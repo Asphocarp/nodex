@@ -2444,6 +2444,14 @@ export type CodexOwnerAppServerRequest =
       };
     }
   | {
+      method: "turn/resume-interrupted";
+      params: {
+        threadId: string;
+        opts?: CodexTurnStartOptions;
+        clientUserMessageId: string;
+      };
+    }
+  | {
       method: "thread/session-first-turn/start";
       params: {
         threadId: string;
@@ -4308,6 +4316,11 @@ export type CodexThreadOwnerActionRequest =
   | {
       type: "steerTurn";
       input: CodexSteerTurnInput;
+    }
+  | {
+      type: "resumeInterruptedTurn";
+      threadId: string;
+      opts?: CodexTurnStartOptions;
     }
   | {
       type: "interruptTurn";

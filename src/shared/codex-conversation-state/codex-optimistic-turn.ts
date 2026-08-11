@@ -283,3 +283,29 @@ export function failCodexCanonicalOptimisticTurn(
 
   return { ...state, turns };
 }
+
+/** Resume failures remove their userless placeholder so Resume remains available. */
+export function removeCodexCanonicalOptimisticTurn(
+  state: CodexCanonicalConversationState,
+  clientUserMessageId: string,
+  options?: { readonly previousTurnModel: string | null },
+): CodexCanonicalConversationState {
+  const turnIndex = findMatchingOptimisticTurnIndex(
+    state.turns,
+    clientUserMessageId,
+  );
+  if (turnIndex < 0) return state;
+
+  return {
+    ...state,
+    turns: state.turns.filter((_, index) => index !== turnIndex),
+    ...(options && state.sidecar.previousTurnModel === null
+      ? {
+          sidecar: {
+            ...state.sidecar,
+            previousTurnModel: options.previousTurnModel,
+          },
+        }
+      : {}),
+  };
+}

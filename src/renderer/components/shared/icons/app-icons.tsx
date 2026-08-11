@@ -1103,6 +1103,20 @@ export function StopIcon({ className }: IconProps) {
   );
 }
 
+/** Filled play glyph used exclusively by the interrupted-turn Resume action. */
+export function ComposerResumeIcon({ className }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 20 20"
+      fill="currentColor"
+      className={cn("icon-xs", className)}
+      aria-hidden="true"
+    >
+      <path d="M6 14.7227V5.27693C6 4.29057 7.08894 3.6928 7.9211 4.22235L15.3428 8.94526C16.1147 9.43645 16.1147 10.5632 15.3428 11.0544L7.92109 15.7773C7.08894 16.3069 6 15.7091 6 14.7227Z" />
+    </svg>
+  );
+}
+
 export function CheckmarkIcon({ className }: IconProps) {
   return (
     <svg width="14" height="14" viewBox="0 0 17 17" className={cn("shrink-0", className)} fill="none" xmlns="http://www.w3.org/2000/svg">
