@@ -62,9 +62,9 @@ function hasClipboardPayload(payload: ClipboardPastePayload | null | undefined):
   );
 }
 
-function readNativeClipboardPayload(): ClipboardPastePayload | null {
+async function readNativeClipboardPayload(): Promise<ClipboardPastePayload | null> {
   try {
-    const payload = window.api?.readPasteClipboard?.();
+    const payload = await window.api?.readPasteClipboard?.();
     return hasClipboardPayload(payload) ? payload : null;
   } catch {
     return null;
@@ -159,7 +159,8 @@ async function runPasteCommand(
   onBeforePaste?: () => boolean,
 ): Promise<boolean> {
   if (onBeforePaste?.()) return true;
-  const payload = readNativeClipboardPayload() ?? await readBrowserClipboardPayload();
+  const payload = await readNativeClipboardPayload()
+    ?? await readBrowserClipboardPayload();
 
   if (payload && dispatchSyntheticPaste(editor, payload)) {
     return true;

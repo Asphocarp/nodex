@@ -1,7 +1,7 @@
 # NFM Editor Attachment Chip Behavior
 
 Status: Active
-Last Updated: 2026-03-11
+Last Updated: 2026-08-11
 
 This document describes the current pasted-attachment behavior inside the NFM / BlockNote editor.
 
@@ -117,6 +117,13 @@ Whitespace-only text does not trigger the prompt.
 ### 2. Native desktop file/folder paste
 
 On Electron desktop, the editor inspects the native clipboard for actual file/folder payloads before default BlockNote paste handling.
+
+Electron Main owns native clipboard and filesystem inspection. The synchronous
+paste-event request returns only bounded clipboard formats plus validated path
+metadata so the editor can decide whether to intercept the event; rich text and
+image payload capture is a separate bounded asynchronous request used only after
+the attachment flow needs it. The preload and renderer do not import Electron
+clipboard APIs or perform path metadata reads themselves.
 
 This path is for real native paste signals only.
 
@@ -372,7 +379,8 @@ For internal BlockNote copy/export:
 
 Desktop Electron:
 - supports native clipboard inspection for file/folder paste
-- supports synchronous clipboard inspection in the paste event path
+- supports bounded synchronous metadata-only inspection in the paste event path
+- transfers bounded rich clipboard payloads asynchronously
 - supports resolving saved asset paths for open/reveal actions
 
 Browser runtime:

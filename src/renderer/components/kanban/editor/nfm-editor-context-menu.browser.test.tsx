@@ -128,7 +128,7 @@ describe("nfm editor context menu", () => {
     Object.defineProperty(window, "api", {
       configurable: true,
       value: {
-        readPasteClipboard: () => ({ text: "native clipboard" }),
+        readPasteClipboard: async () => ({ text: "native clipboard" }),
       },
     });
     Object.defineProperty(navigator, "clipboard", {

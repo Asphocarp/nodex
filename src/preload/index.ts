@@ -1,6 +1,4 @@
 import { contextBridge, ipcRenderer, webUtils } from "electron";
-import * as fs from "node:fs";
-import * as path from "node:path";
 import type { AppInitializationStep } from "../shared/app-startup";
 import {
   CORE_AUTHORITY_STATUS_CHANNEL,
@@ -24,39 +22,41 @@ import {
   EXECUTE_WORKBENCH_COMMAND_HOST_CHANNEL,
   type WorkbenchCommandInvocation,
 } from "../shared/workbench-commands";
-import { inspectClipboardPasteItems, readClipboardPastePayload } from "../main/clipboard-paste-inspector";
+import { CLIPBOARD_INSPECT_PASTE_SYNC_CHANNEL } from "../shared/clipboard-paste";
+import type {
+  ClipboardPasteInspectionResult,
+  ClipboardPastePayload,
+} from "../shared/types";
 import type { CodexDesktopMessageFromView } from "../shared/remote-hosted-pip";
-import { parseAssetSource } from "../shared/assets";
+import {
+  FILE_PATH_INSPECT_SYNC_CHANNEL,
+  MANAGED_ASSET_RESOLVE_PATH_SYNC_CHANNEL,
+} from "../shared/preload-file-access";
 import {
   GIT_WORKER_MESSAGE_FOR_VIEW_CHANNEL,
   GIT_WORKER_MESSAGE_FROM_VIEW_CHANNEL,
   type GitWorkerMessageForView,
   type GitWorkerMessageFromView,
 } from "../shared/git-worker-protocol";
+import type { McpAppSandboxHostMessageChannel } from "../shared/mcp-app/mcp-app-sandbox-contract";
 
-const ASSET_PATH_PREFIX_ARG_PREFIX = "--nodex-asset-path-prefix=";
+// Sandboxed Electron preloads cannot require Rollup's local shared chunks.
+// Keep the wire literal type-checked without creating a runtime dependency on
+// the guest preload's sandbox contract bundle.
+const MCP_APP_SANDBOX_HOST_MESSAGE_CHANNEL: McpAppSandboxHostMessageChannel =
+  "nodex:mcp-app-sandbox-host-message";
 
-function getAssetPathPrefixFromArgv(argv: string[]): string | undefined {
-  const arg = argv.find((entry) => entry.startsWith(ASSET_PATH_PREFIX_ARG_PREFIX));
-  if (!arg) return undefined;
-
-  const raw = arg.slice(ASSET_PATH_PREFIX_ARG_PREFIX.length).trim();
-  if (raw.length === 0) return undefined;
-
-  try {
-    return decodeURIComponent(raw);
-  } catch {
-    return raw;
-  }
-}
-
-const assetPathPrefix = getAssetPathPrefixFromArgv(process.argv);
+ipcRenderer.on(MCP_APP_SANDBOX_HOST_MESSAGE_CHANNEL, (event, message) => {
+  const targetOrigin = window.location.origin;
+  if (targetOrigin === "null") return;
+  window.postMessage(message, targetOrigin, event.ports);
+});
 
 function resolveManagedAssetPath(source: string): string | null {
-  if (!assetPathPrefix) return null;
-  const parsed = parseAssetSource(source);
-  if (!parsed) return null;
-  return path.join(assetPathPrefix, parsed.fileName);
+  return ipcRenderer.sendSync(
+    MANAGED_ASSET_RESOLVE_PATH_SYNC_CHANNEL,
+    source,
+  ) as string | null;
 }
 
 // Multiple editor blocks (toggle-list-inline-view, pageRef) each subscribe to
@@ -183,21 +183,19 @@ contextBridge.exposeInMainWorld("api", {
     ipcRenderer.send("electron-request-microphone-permission");
   },
   resolveManagedAssetPath,
-  inspectPasteClipboard: () => inspectClipboardPasteItems(),
-  readPasteClipboard: () => readClipboardPastePayload(),
+  inspectPasteClipboard: () =>
+    ipcRenderer.sendSync(CLIPBOARD_INSPECT_PASTE_SYNC_CHANNEL) as ClipboardPasteInspectionResult,
+  readPasteClipboard: () =>
+    ipcRenderer.invoke("clipboard:read-paste") as Promise<ClipboardPastePayload>,
   getPathInfoForFile: (file: File) => {
     try {
       const absolutePath = webUtils.getPathForFile(file);
       if (!absolutePath) return null;
 
-      const stats = fs.statSync(absolutePath);
-      const kind = stats.isDirectory() ? "folder" : "file";
-      return {
-        path: absolutePath,
-        kind,
-        name: path.basename(absolutePath),
-        ...(kind === "file" ? { bytes: stats.size } : {}),
-      };
+      return ipcRenderer.sendSync(
+        FILE_PATH_INSPECT_SYNC_CHANNEL,
+        absolutePath,
+      ) as ClipboardPasteInspectionResult["items"][number] | null;
     } catch {
       return null;
     }

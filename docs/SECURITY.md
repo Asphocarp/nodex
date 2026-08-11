@@ -81,7 +81,51 @@ Nodex is local-first. Main risks are malformed local inputs, accidental data los
 
 - Boundary validation for typed Core Module and IPC requests.
 - No arbitrary SQL inspection route in IPC or the public CLI.
+- The production app renderer loads only through the privileged read-only
+  `app://-/index.html` origin and receives
+  a response-level CSP, referrer policy, and `nosniff`; development admits only
+  the exact configured Vite origin with the equivalent policy. The top-level
+  BrowserWindow is sandboxed with context isolation and no Node integration.
+  Its preload has no Node imports, and privileged IPC requires both an owned
+  top-level window and the exact app origin.
 - Electron preload bridge limits renderer access to a typed API surface.
+- MCP App HTML never executes in the app renderer and is never injected through
+  `srcDoc`. The trusted renderer deterministically derives the stable source and
+  non-persistent partition from the fixed app/server scope, installs the port
+  handshake listener, and only then assigns a random init id in the webview URL
+  hash. Main validates the exact source/partition/init tuple during
+  `will-attach-webview`, binds a 30-second pending attachment to the owner and
+  Electron Session, and consumes it at `did-attach-webview` by Session, owner,
+  and init id. When Electron has not published the guest URL yet, Main consumes
+  the first pending record for that Session and owner in attachment order.
+  MCP authority never depends on a claim IPC or Electron's internal webview
+  instance id. Main strips renderer-authored preferences and forces the fixed
+  guest preload,
+  sandboxing, context isolation, no Node, no nested webviews, and no insecure
+  content.
+  The isolated session denies every permission and download, blocks popups and
+  unexpected main-frame navigation or privileged subframe navigation, rejects
+  non-GET sandbox asset loads, strips
+  unauthorized response headers, and applies a coarse protocol/host request
+  gate. Skybridge compiles the resource metadata CSP for the inner untrusted
+  iframe. Guest-to-owner capability transfer accepts the real
+  Skybridge `{ ports, replyPort }` shape, extracts only the exact enumerated
+  MessagePort set, and forwards it through a process-wide guest registry. After
+  initialization, business RPC travels directly over MessagePorts; guest
+  preload exposes neither Electron IPC nor Node to widget JavaScript.
+- MCP App proxy authority is fixed to the owning thread and server. Tool calls
+  resolve the latest server status for every call/list operation; Codex Apps
+  remain within the origin tool's trusted connector or target while ordinary
+  MCP servers remain within their fixed server. Resource reads from Codex Apps
+  require the exact origin widget URI, subscriptions are unsupported, and file
+  parameters cannot enlarge scope. Widget follow-ups use the existing
+  owning-thread action, while external links are bounded credential-free HTTPS
+  URLs. Runtime errors expose sanitized errors without stacks.
+- Native file/folder paste inspection is Main-owned. The synchronous paste-event
+  request returns only bounded formats and absolute non-symlink path metadata;
+  rich text and image payloads use a separately bounded asynchronous request.
+  Renderer code never imports Electron clipboard access or reads arbitrary
+  filesystem metadata through the preload.
 - Built-in Browser guests are accepted only from a registered top-level app
   window whose Window Session, complete Browser route, storage identity, renderer
   instance, host generation, and mount generation all match. The partition

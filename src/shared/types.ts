@@ -15,6 +15,8 @@ import type {
   ListMcpServerStatusResponse as CodexAppServerListMcpServerStatusResponse,
   McpResourceReadParams as CodexAppServerMcpResourceReadParams,
   McpResourceReadResponse as CodexAppServerMcpResourceReadResponse,
+  McpServerToolCallParams as CodexAppServerMcpServerToolCallParams,
+  McpServerToolCallResponse as CodexAppServerMcpServerToolCallResponse,
   McpServerElicitationAction as CodexAppServerMcpServerElicitationAction,
   McpServerElicitationRequestResponse as CodexAppServerMcpServerElicitationRequestResponse,
   McpServerStatus as CodexAppServerMcpServerStatus,
@@ -2660,6 +2662,10 @@ export type ProtocolMcpToolCallError = CodexAppServerMcpToolCallError;
 export type ProtocolMcpResourceReadParams = CodexAppServerMcpResourceReadParams;
 export type ProtocolMcpResourceReadResponse =
   CodexAppServerMcpResourceReadResponse;
+export type ProtocolMcpServerToolCallParams =
+  CodexAppServerMcpServerToolCallParams;
+export type ProtocolMcpServerToolCallResponse =
+  CodexAppServerMcpServerToolCallResponse;
 export type ProtocolMcpServerStatus = CodexAppServerMcpServerStatus;
 export type ProtocolListMcpServerStatusResponse =
   CodexAppServerListMcpServerStatusResponse;

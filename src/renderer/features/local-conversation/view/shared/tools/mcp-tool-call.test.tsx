@@ -14,7 +14,10 @@ import { createTestQueryClient, TestQueryProvider } from "../../../../../test/qu
 import { queryKeys } from "../../../../../lib/query-keys";
 import { CODEX_BROWSER_USE_CHROME_LOGO_DATA_URL } from "../../../../../../shared/codex-mcp-tool-call";
 import { McpToolCall } from "./mcp-tool-call";
-import { buildMcpAppSidePanelInput } from "./mcp-tool-call-resource-utils";
+import {
+  buildMcpAppSidePanelInput,
+  resolveMcpWidgetMetadata,
+} from "./mcp-tool-call-resource-utils";
 
 function renderMcp(ui: ReactElement, client = createTestQueryClient()) {
   return render(<TestQueryProvider client={client}>{ui}</TestQueryProvider>);
@@ -702,7 +705,7 @@ describe("McpToolCall", () => {
     fireEvent.click(getByRole("button", { name: /Resolve library id/i }));
     await settleAsyncRender();
 
-    expect(Boolean(container.querySelector("iframe"))).toBe(true);
+    expect(container.querySelectorAll("webview")).toHaveLength(1);
     expect(hasExactText(container, "plaintext")).toBe(false);
     expect(Boolean(textContent(container).includes("\"hidden\": true"))).toBe(false);
   });
@@ -926,18 +929,16 @@ describe("McpToolCall", () => {
         html: "<!doctype html><html><body>Docs app</body></html>",
         mimeType: "text/html;profile=mcp-app",
         metadata: {
-          domain: null,
-          csp: null,
+          ...resolveMcpWidgetMetadata(null),
           heightHint: 420,
-          minFrameHeight: null,
-          prefersBorder: false,
-          isCollapsible: true,
         },
       },
     });
 
     expect(sidePanelInput.mcpAppId).toBe("context7:ui://context7/docs");
-    expect(sidePanelInput.capabilityId).toBe("mcp-capability:thread-1:context7:resolve-library-id:call_9L9LUlz6nkg1Jp2LA4mrAL8o");
-    expect(sidePanelInput.resource.metadata.heightHint).toBe(420);
+    expect(sidePanelInput.capabilityId).toBe(
+      "mcp-capability:thread-1:context7:resolve-library-id:call_9L9LUlz6nkg1Jp2LA4mrAL8o:ui%3A%2F%2Fcontext7%2Fdocs",
+    );
+    expect(sidePanelInput.title).toBe("Resolve Library Id - Context 7");
   });
 });

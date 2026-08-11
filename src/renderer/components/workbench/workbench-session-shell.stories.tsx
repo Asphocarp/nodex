@@ -1575,7 +1575,7 @@ function installStoryApi(
       reportInitializationReady: () => undefined,
       requestMicrophonePermission: () => undefined,
       inspectPasteClipboard: () => ({ items: [] }),
-      readPasteClipboard: () => ({}),
+      readPasteClipboard: async () => ({}),
       getPathInfoForFile: () => null,
       getPathForFile: () => "",
     } satisfies NonNullable<Window["api"]>,

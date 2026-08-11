@@ -21,7 +21,7 @@ export function McpAppSessionTab({ tab }: { tab: McpAppPanelTab }) {
       data-mcp-capability-id={tab.app.capabilityId}
     >
       <McpCapabilityViewFrame
-        resource={tab.app.resource}
+        capabilityId={tab.app.capabilityId}
         mode="side-panel"
       />
     </div>

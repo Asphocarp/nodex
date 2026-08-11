@@ -20,6 +20,7 @@ import {
 import { join, resolve } from "path";
 import { performance } from "node:perf_hooks";
 import type { AppInitializationStep } from "../shared/app-startup";
+import { APP_RENDERER_URL } from "../shared/app-renderer-policy";
 import {
   CORE_AUTHORITY_STATUS_CHANNEL,
   GET_CORE_AUTHORITY_STATUS_CHANNEL,
@@ -36,7 +37,6 @@ import {
 import { GitWorkerHost } from "./git-worker-host";
 import { registerGitWorkerIpc } from "./git-worker-ipc";
 import { dbNotifier } from "./local-store/notifier";
-import { getAssetsPathPrefix } from "./local-store/assets";
 import {
   startAutomationReminderScheduler,
 } from "./automation-reminder-scheduler";
@@ -65,6 +65,7 @@ import { BrowserSiteInfoProvider } from "./browser/browser-site-info-provider";
 import { BrowserExtensionsProvider } from "./browser/browser-extensions-provider";
 import { BrowserLocalServerPreferencesStore } from "./browser/browser-local-server-preferences";
 import { configureBrowserProfileServices } from "./browser/browser-profile-services";
+import { McpAppSandboxHost } from "./mcp-app/mcp-app-sandbox-host";
 import {
   getAppUpdateSettings,
   getBackupSettings,
@@ -237,6 +238,7 @@ import {
   type StoreAdministrationMaintenanceScheduler,
 } from "./store-administration-maintenance-scheduler";
 import { registerManagedAssetProtocol } from "./managed-asset-protocol";
+import { registerAppRendererProtocol } from "./app-renderer-protocol";
 import { InitialProjectBootstrapService } from "./initial-project-bootstrap-service";
 import {
   resolveInitialProjectProjectsDirectory,
@@ -255,6 +257,7 @@ const openWindows = new Map<number, BrowserWindow>();
 let lastFocusedWindowId: number | null = null;
 let rendererHostReadyForWindows = false;
 let disposeManagedAssetProtocol: (() => void) | null = null;
+let disposeAppRendererProtocol: (() => void) | null = null;
 let stopReminderScheduler: (() => void) | null = null;
 let runtimeReminderTick: (() => Promise<void>) | null = null;
 let databaseReady = false;
@@ -1308,15 +1311,23 @@ function createWindow(
       : {}),
     webPreferences: {
       preload: join(__dirname, "../preload/index.js"),
-      sandbox: false,
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
       webviewTag: true,
       backgroundThrottling: false,
-      additionalArguments: [
-        `--nodex-asset-path-prefix=${encodeURIComponent(getAssetsPathPrefix())}`,
-      ],
     },
   });
   composerAppshotService.observeWindow(window);
+  const mcpAppSandboxHost = new McpAppSandboxHost(window.webContents, {
+    allowLocalDevelopment: !app.isPackaged,
+    guestPreloadPath: join(
+      __dirname,
+      "../preload/mcp-app-sandbox-guest.js",
+    ),
+    logger: logger.child({ subsystem: "mcp-app-sandbox" }),
+  });
+  mcpAppSandboxHost.installForOwner();
   const pendingBrowserWebviewAttachments =
     new Map<number, BrowserAuthorizedAttachment>();
   if (!appPermissionHandlersRegistered) {
@@ -1377,6 +1388,10 @@ function createWindow(
       preload?: string;
       webpreferences?: string;
     };
+    if (mcpAppSandboxHost.handlesPartition(webviewParams.partition)) {
+      mcpAppSandboxHost.handleWillAttach(event, webPreferences, webviewParams);
+      return;
+    }
     const instanceId = parseBrowserWebviewInstanceId(
       webviewParams.instanceId,
     );
@@ -1462,6 +1477,7 @@ function createWindow(
     delete (webPreferences as typeof webPreferences & { preloadURL?: string }).preloadURL;
   });
   window.webContents.on("did-attach-webview", (_event, guestWebContents) => {
+    if (mcpAppSandboxHost.handleDidAttach(guestWebContents)) return;
     const guestWebContentsId = guestWebContents.id;
     const pendingAttachment = consumePendingBrowserWebviewAttachment(
       pendingBrowserWebviewAttachments,
@@ -1512,7 +1528,7 @@ function createWindow(
   if (process.env.ELECTRON_RENDERER_URL) {
     window.loadURL(process.env.ELECTRON_RENDERER_URL);
   } else {
-    window.loadFile(join(__dirname, "../renderer/index.html"));
+    window.loadURL(APP_RENDERER_URL);
   }
 
   const webContentsId = window.webContents.id;
@@ -2257,6 +2273,8 @@ function shutdownMainRuntime(): Promise<void> {
     );
     disposeManagedAssetProtocol?.();
     disposeManagedAssetProtocol = null;
+    disposeAppRendererProtocol?.();
+    disposeAppRendererProtocol = null;
     await settleRuntimeShutdownStep(
       "App updater",
       async () => {
@@ -2391,6 +2409,14 @@ export async function runMainAppStartup(
       logError: (message, error) => logger.warn(message, { error }),
     },
   );
+  disposeAppRendererProtocol?.();
+  disposeAppRendererProtocol = process.env.ELECTRON_RENDERER_URL
+    ? null
+    : registerAppRendererProtocol(
+        electronSession.defaultSession,
+        join(__dirname, "../renderer"),
+        (message, error) => logger.warn(message, { error }),
+      );
   const startupSecondInstancesWithoutDeepLinks = collectStartupDeepLinks(context);
 
   logger.info("Nodex main process starting", {

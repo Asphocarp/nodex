@@ -10,8 +10,10 @@ import { captureMainException } from "./observability/sentry-main";
 function requireTrustedGitWorkerSender(event: IpcMainInvokeEvent): void {
   const ownerWindow = BrowserWindow.fromWebContents(event.sender);
   if (isTrustedAppRendererIpcSender({
+    developmentOrigin: process.env.ELECTRON_RENDERER_URL ?? null,
     hasOwnerWindow: ownerWindow !== null,
     senderType: event.sender.getType(),
+    senderUrl: event.senderFrame?.url ?? "",
     isMainFrame: event.senderFrame === event.sender.mainFrame,
   })) {
     return;

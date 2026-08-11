@@ -193,9 +193,9 @@ describe("buildThreadSummaryPanelSourceModel", () => {
     expect(action?.type).toBe("mcpApp");
     expect(action?.type === "mcpApp" ? action.input.mcpAppId : "").toBe("docs:ui://docs/search.html");
     expect(action?.type === "mcpApp" ? action.input.capabilityId : "").toBe(
-      "mcp-capability:thread-1:docs:search:call-1",
+      "mcp-capability:thread-1:docs:search:call-1:ui%3A%2F%2Fdocs%2Fsearch.html",
     );
-    expect(action?.type === "mcpApp" ? action.input.resource.html : "").toBe("<main>Docs app</main>");
+    expect(action?.type === "mcpApp" ? action.input.title : "").toBe("Search - Docs");
   });
 
   test("falls back to the web search aggregate for non-reference page urls", () => {
