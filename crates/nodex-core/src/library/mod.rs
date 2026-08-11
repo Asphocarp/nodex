@@ -5026,6 +5026,31 @@ mod tests {
                 .lifecycle,
             LibraryPageLifecycleState::Deleted
         );
+        let nested_delete_manifest = kernel
+            .readers()
+            .read_default(|connection| {
+                local_commit::read_manifest(connection, nested_delete.committed.commit_seq)
+            })
+            .expect("nested Page delete CommitManifest");
+        assert!(
+            nested_delete_manifest
+                .projection_effects
+                .iter()
+                .any(|effect| {
+                    matches!(
+                        &effect.scope.scope,
+                        LocalProjectionScope::Page { page_id, .. } if page_id == ANCHOR_PAGE
+                    )
+                })
+        );
+        assert!(
+            !nested_delete_manifest
+                .projection_effects
+                .iter()
+                .any(|effect| {
+                    matches!(&effect.scope.scope, LocalProjectionScope::Project { .. })
+                })
+        );
         let host_head_after_delete = *nested_delete
             .committed
             .receipt

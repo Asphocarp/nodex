@@ -1381,6 +1381,14 @@ impl OwnedDocumentModule {
                             &operation_id,
                             &command,
                         )?;
+                        for event in &executed.events {
+                            crate::database::record_page_document_projection_delta(
+                                &transaction,
+                                scope.evidence(),
+                                &context.library_id.0,
+                                &event.projection_impact,
+                            )?;
+                        }
                         let outcome_committed_at = executed
                             .events
                             .iter()
@@ -5461,14 +5469,15 @@ mod tests {
         DocumentOwnerCommand, DocumentOwnerRevision, DocumentSemanticBlockDraft,
         DocumentSemanticCommand, DocumentVersionCursor, OwnedDocumentIntent, OwnedDocumentRead,
     };
+    use nodex_core_contracts::library::{LibraryIntent, LibraryWriteParent};
     use nodex_core_contracts::workspace::{
         PROJECT_WORKSPACE_CONTRACT_VERSION, ProjectWorkspaceIntent, ProjectWorkspaceThreadPatch,
         ProjectWorkspaceTurnAuthority, ProjectWorkspaceTurnAuthorityScope,
         ProjectWorkspaceTurnAuthoritySource,
     };
     use nodex_core_contracts::{
-        AdapterKind, LibraryId, ModuleApplyRequest, ModuleReadRequest, PageDocumentHeadImpact,
-        ProfileId, ProjectId, ProjectionImpact,
+        AdapterKind, LIBRARY_CONTRACT_VERSION, LibraryId, ModuleApplyRequest, ModuleReadRequest,
+        PageDocumentHeadImpact, ProfileId, ProjectId, ProjectionImpact,
     };
     use rusqlite::params;
     use tempfile::tempdir;
@@ -5479,6 +5488,7 @@ mod tests {
         prepare_document_operation_update,
     };
     use crate::infrastructure::sqlite::{StoreError, with_immediate_transaction};
+    use crate::library::LibraryModule;
     use crate::workspace::ProjectWorkspaceModule;
 
     use super::*;
@@ -7571,6 +7581,7 @@ mod tests {
 
     #[test]
     fn template_instantiation_copies_fresh_ids_into_an_exact_target_head() {
+        const TEMPLATE_GRANTEE_PROJECT_ID: &str = "project:template-grantee";
         let seeded = seeded_module();
         let created = seeded
             .module
@@ -7592,6 +7603,26 @@ mod tests {
             )
             .expect("create Reusable Template");
         assert_eq!(created.committed.value.head_seq, 1);
+        seeded
+            .kernel
+            .writer()
+            .call(|connection| {
+                connection.execute(
+                    "INSERT INTO projects(id, library_id, name, created, updated) \
+                     VALUES (?1, ?2, 'Template grantee', ?3, ?3)",
+                    params![TEMPLATE_GRANTEE_PROJECT_ID, LIBRARY_ID, NOW],
+                )?;
+                connection.execute(
+                    "INSERT INTO project_resource_grants(\
+                       id, project_id, library_id, root_kind, root_id, access, recursive, \
+                       revision, lifecycle, created_at, updated_at\
+                     ) VALUES ('grant:template-target', ?1, ?2, 'page', ?3, \
+                       'read', 1, 1, 'active', ?4, ?4)",
+                    params![TEMPLATE_GRANTEE_PROJECT_ID, LIBRARY_ID, OWNER_BLOCK_ID, NOW],
+                )?;
+                Ok(())
+            })
+            .expect("grant a second Project the template target Page");
         let instantiated = seeded
             .module
             .apply(
@@ -7626,6 +7657,33 @@ mod tests {
         assert_ne!(effect.created_block_ids[0], CREATED_TEMPLATE_CONTENT_ID);
         assert_eq!(instantiated.committed.value.head_seq, 2);
         assert_eq!(instantiated.events.len(), 1);
+        let manifest = seeded
+            .kernel
+            .readers()
+            .read_default(|connection| {
+                crate::infrastructure::local_commit::read_manifest(
+                    connection,
+                    instantiated.committed.commit_seq,
+                )
+            })
+            .expect("template instantiation CommitManifest");
+        for project_id in [PROJECT_ID, TEMPLATE_GRANTEE_PROJECT_ID] {
+            assert!(manifest.projection_effects.iter().any(|effect| {
+                matches!(
+                    &effect.scope.scope,
+                    nodex_core_contracts::LocalProjectionScope::Page {
+                        project_id: effect_project_id,
+                        page_id,
+                    } if effect_project_id == project_id && page_id == OWNER_BLOCK_ID
+                )
+            }));
+        }
+        assert!(!manifest.projection_effects.iter().any(|effect| {
+            matches!(
+                &effect.scope.scope,
+                nodex_core_contracts::LocalProjectionScope::Project { .. }
+            )
+        }));
 
         seeded
             .kernel
@@ -7992,13 +8050,97 @@ mod tests {
     #[test]
     fn page_document_event_records_its_database_projection_impact() {
         const GRANTED_PROJECT_ID: &str = "project:document-projection-grantee";
+        const RELATION_SOURCE_PAGE_ID: &str = "019bf52d-6870-7000-8000-000000000003";
+        const RELATION_SOURCE_DOCUMENT_ID: &str = "019bf52d-6870-7000-8000-000000000004";
+        const RELATION_SOURCE_MEMBERSHIP_ID: &str = "019bf52d-6870-7000-8000-000000000005";
         let seeded = seeded_module();
         move_seeded_page_under_database(&seeded);
+        let library = LibraryModule::new(PROFILE_ID, LIBRARY_ID, &seeded.kernel);
+        library
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "library:create-relation-source".to_owned(),
+                    store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                    intent: LibraryIntent::CreatePage {
+                        page_id: RELATION_SOURCE_PAGE_ID.to_owned(),
+                        document_id: RELATION_SOURCE_DOCUMENT_ID.to_owned(),
+                        title: "Relation source".to_owned(),
+                        parent: LibraryWriteParent::Library { before: None },
+                    },
+                },
+            )
+            .expect("create inbound Relation source Page");
         seeded
             .kernel
             .writer()
             .call(|connection| {
                 with_immediate_transaction(connection, |transaction| {
+                    transaction.execute(
+                        "DELETE FROM library_block_placements WHERE block_id = ?1",
+                        [RELATION_SOURCE_PAGE_ID],
+                    )?;
+                    transaction.execute(
+                        "DELETE FROM top_level_block_placements WHERE block_id = ?1",
+                        [RELATION_SOURCE_PAGE_ID],
+                    )?;
+                    transaction.execute(
+                        "UPDATE blocks SET location_kind = 'database', \
+                           containing_database_id = ?1, updated_at = ?2 WHERE id = ?3",
+                        params![DATABASE_ID, NOW, RELATION_SOURCE_PAGE_ID],
+                    )?;
+                    transaction.execute(
+                        "UPDATE pages SET parent_kind = 'data_source', parent_id = ?1, \
+                           parent_revision = parent_revision + 1, updated_at = ?2 \
+                         WHERE block_id = ?3",
+                        params![DATA_SOURCE_ID, NOW, RELATION_SOURCE_PAGE_ID],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO data_source_page_memberships(\
+                           id, data_source_id, page_block_id, revision, created_at, removed_at\
+                         ) VALUES (?1, ?2, ?3, 1, ?4, NULL)",
+                        params![
+                            RELATION_SOURCE_MEMBERSHIP_ID,
+                            DATA_SOURCE_ID,
+                            RELATION_SOURCE_PAGE_ID,
+                            NOW,
+                        ],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO data_source_properties(\
+                           data_source_id, id, name, value_type, config_json, rank_key, \
+                           lifecycle, schema_revision, created_at, updated_at\
+                         ) VALUES (?1, 'related', 'Related', 'relation', '{}', 'a', \
+                           'active', 1, ?2, ?2)",
+                        params![DATA_SOURCE_ID, NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO data_source_relation_properties(\
+                           data_source_id, property_id, target_data_source_id\
+                         ) VALUES (?1, 'related', ?1)",
+                        [DATA_SOURCE_ID],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO data_source_property_values(\
+                           data_source_id, membership_id, property_id, value_type, value_json, \
+                           revision, updated_at\
+                         ) VALUES (?1, ?2, 'related', 'relation', 'null', 1, ?3)",
+                        params![DATA_SOURCE_ID, RELATION_SOURCE_MEMBERSHIP_ID, NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO data_source_relation_edges(\
+                           edge_id, source_data_source_id, source_membership_id, property_id, \
+                           target_page_block_id, created_at\
+                         ) VALUES (?1, ?2, ?3, 'related', ?4, ?5)",
+                        params![
+                            "a".repeat(64),
+                            DATA_SOURCE_ID,
+                            RELATION_SOURCE_MEMBERSHIP_ID,
+                            OWNER_BLOCK_ID,
+                            NOW,
+                        ],
+                    )?;
                     transaction.execute(
                         "INSERT INTO projects(id, library_id, name, created, updated) \
                          VALUES (?1, ?2, 'Document projection grantee', ?3, ?3)",
@@ -8035,7 +8177,10 @@ mod tests {
         assert_eq!(
             applied.events[0].projection_impact,
             ProjectionImpact::Resources {
-                page_ids: vec![OWNER_BLOCK_ID.to_owned()],
+                page_ids: vec![
+                    OWNER_BLOCK_ID.to_owned(),
+                    RELATION_SOURCE_PAGE_ID.to_owned()
+                ],
                 database_ids: vec![DATABASE_ID.to_owned()],
                 data_source_ids: vec![DATA_SOURCE_ID.to_owned()],
                 view_ids: vec![VIEW_ID_A.to_owned(), VIEW_ID_B.to_owned()],
@@ -8064,6 +8209,15 @@ mod tests {
                     project_id,
                     page_id,
                 } if project_id == PROJECT_ID && page_id == OWNER_BLOCK_ID
+            )
+        }));
+        assert!(manifest.projection_effects.iter().any(|effect| {
+            matches!(
+                &effect.scope.scope,
+                nodex_core_contracts::LocalProjectionScope::Page {
+                    project_id,
+                    page_id,
+                } if project_id == PROJECT_ID && page_id == RELATION_SOURCE_PAGE_ID
             )
         }));
         assert!(manifest.projection_effects.iter().any(|effect| {

@@ -22,14 +22,7 @@ export interface ProjectionResourceDependencies {
   readonly aggregate?: boolean;
 }
 
-export interface ProjectionDependencies extends ProjectionResourceDependencies {
-  /**
-   * Overrides resource matching for Database View effects. Consumers that
-   * read shared Page descriptors can ignore row/View invalidations and rely
-   * on distinct Page Detail Database and Data Source structural scopes.
-   */
-  readonly databaseViews?: ProjectionResourceDependencies;
-}
+export type ProjectionDependencies = ProjectionResourceDependencies;
 
 export type ProjectionRevocationMessage = Extract<
   ResourceRevocationMessage,
@@ -315,10 +308,29 @@ export const projectionEffectMatches = (
   dependencies: ProjectionDependencies,
   delivery: ProjectionDelivery,
 ): boolean => {
-  const effectDependencies = delivery.effect.scope.scope.kind === "database_view"
-    ? dependencies.databaseViews
-    : undefined;
-  return impactMatches(effectDependencies ?? dependencies, delivery.impact);
+  if (dependencies.aggregate === true) return true;
+  const scope = delivery.effect.scope.scope;
+  switch (scope.kind) {
+    case "library":
+    case "project":
+      return true;
+    case "page":
+      return intersects(dependencies.pageIds, [scope.page_id])
+        || intersects(
+          dependencies.documentIds,
+          delivery.impact.kind === "resources"
+            ? delivery.impact.document_heads
+              .filter((head) => head.page_id === scope.page_id)
+              .map((head) => head.document_id)
+            : [],
+        );
+    case "database_view":
+      return intersects(dependencies.viewIds, [scope.view_id]);
+    case "page_detail_database":
+      return intersects(dependencies.databaseIds, [scope.database_id]);
+    case "page_detail_data_source":
+      return intersects(dependencies.dataSourceIds, [scope.data_source_id]);
+  }
 };
 
 export const revocationMatches = (

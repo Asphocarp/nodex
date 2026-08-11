@@ -30,7 +30,6 @@ describe("Page Detail projection dependencies", () => {
       dataSourceIds: [value.dataSourceContext.kind === "member"
         ? value.dataSourceContext.dataSource.dataSourceId
         : ""],
-      databaseViews: {},
     });
   });
 
@@ -39,7 +38,6 @@ describe("Page Detail projection dependencies", () => {
     expect(pageDetailDocumentDependencies(value, value.page.pageId)).toEqual({
       pageIds: [value.page.pageId],
       documentIds: [value.page.documentId],
-      databaseViews: {},
     });
   });
 });

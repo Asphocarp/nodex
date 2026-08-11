@@ -109,8 +109,8 @@ export type ProjectionStreamMessage =
 
 export const projectionScopeKey = (scope: ProjectionScope): string =>
   scope.kind === "library"
-    ? `library:${scope.libraryId}`
-    : `project:${scope.libraryId}:${scope.projectId}`;
+    ? JSON.stringify(["library", scope.libraryId])
+    : JSON.stringify(["project", scope.libraryId, scope.projectId]);
 
 export const projectionCursorCovers = (
   actual: ProjectionCursor | null,

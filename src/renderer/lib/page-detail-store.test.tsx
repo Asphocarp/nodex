@@ -88,6 +88,7 @@ const pageEvent = (
   pageId: string,
   headSeq: number,
   storeEpoch = "epoch-1",
+  relationalPage?: PageDetail,
 ): ProjectionStreamMessage => ({
   version: 2,
   kind: "effect",
@@ -106,9 +107,19 @@ const pageEvent = (
     impact: {
       kind: "resources",
       page_ids: [pageId],
-      database_ids: [],
-      data_source_ids: [],
-      view_ids: [],
+      // Page Document effects carry routing coordinates for every relational
+      // projection that contains the Page. Those coordinates are not shared
+      // Page Detail dependencies: the exact Page effect scope is authoritative.
+      database_ids: relationalPage?.dataSourceContext.kind === "member"
+        ? [relationalPage.dataSourceContext.database.databaseId]
+        : [],
+      data_source_ids: relationalPage?.dataSourceContext.kind === "member"
+        ? [relationalPage.dataSourceContext.dataSource.dataSourceId]
+        : [],
+      view_ids: relationalPage?.dataSourceContext.kind === "member"
+        && relationalPage.dataSourceContext.database.defaultViewId
+        ? [relationalPage.dataSourceContext.database.defaultViewId]
+        : [],
       document_heads: [{
         page_id: pageId,
         document_id: pageId === "page-1" ? "document-1" : `document:${pageId}`,
@@ -311,6 +322,26 @@ describe("Page Detail store realtime convergence", () => {
         };
       },
     });
+  });
+
+  test("isolates opaque Project and Page identities that share delimiter text", () => {
+    const first = {
+      ...detail("First", 1),
+      projectId: "project:a",
+      page: { ...detail("First", 1).page, pageId: "page" },
+    };
+    const second = {
+      ...detail("Second", 1),
+      projectId: "project",
+      page: { ...detail("Second", 1).page, pageId: "a:page" },
+    };
+
+    setPageDetail(first);
+    setPageDetail(second);
+    invalidatePageDetail(first.projectId, first.page.pageId);
+
+    expect(getPageDetail(first.projectId, first.page.pageId)).toBe(null);
+    expect(getPageDetail(second.projectId, second.page.pageId)?.page.title).toBe("Second");
   });
 
   test("bounds inactive Page Detail entries across 10k-key churn", () => {
@@ -732,7 +763,7 @@ describe("Page Detail store realtime convergence", () => {
     await waitFor(() => expect(mountedC.result.current.detail?.page.title).toBe("Page C"));
 
     await act(async () => {
-      publish(pageEvent("page-c", 2));
+      publish(pageEvent("page-c", 2, "epoch-1", pageCEdited));
       publish(databaseViewEvent(pageCEdited, 2));
       await Promise.resolve();
     });

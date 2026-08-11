@@ -59,12 +59,15 @@ export class CausalProjectionRuntime {
   #repairing = false;
   #requiredRepair: ProjectionRepairRequest | null = null;
   #initialCheckpointObserved = false;
+  #disposed = false;
+  #retryTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(input: CausalProjectionRuntimeInput) {
     this.#input = input;
   }
 
   accept(delivery: ProjectionDelivery): void {
+    if (this.#disposed) return;
     const effect = delivery.effect;
     if (
       effect.scope.canonical_key !== this.#input.scopeKey
@@ -79,6 +82,7 @@ export class CausalProjectionRuntime {
     readonly storeEpoch: string;
     readonly scannedThroughCommitSeq: number;
   }): void {
+    if (this.#disposed) return;
     if (this.#initialCheckpointObserved) return;
     this.#initialCheckpointObserved = true;
     const current = this.#input.getCoordinate();
@@ -101,6 +105,7 @@ export class CausalProjectionRuntime {
     readonly storeEpoch: string;
     readonly commitSeq: number;
   }): void {
+    if (this.#disposed) return;
     this.#buffer.clear();
     this.#initialCheckpointObserved = true;
     this.#requestRepair({
@@ -122,6 +127,15 @@ export class CausalProjectionRuntime {
       repairing: this.#repairing,
       requiredRepair: this.#requiredRepair,
     };
+  }
+
+  dispose(): void {
+    if (this.#disposed) return;
+    this.#disposed = true;
+    this.#buffer.clear();
+    this.#requiredRepair = null;
+    if (this.#retryTimer !== null) clearTimeout(this.#retryTimer);
+    this.#retryTimer = null;
   }
 
   #acceptEffect(delivery: ProjectionDelivery): void {
@@ -226,6 +240,7 @@ export class CausalProjectionRuntime {
   }
 
   #requestRepair(request: ProjectionRepairRequest): void {
+    if (this.#disposed) return;
     this.#requiredRepair = maxRepair(this.#requiredRepair, request);
     if (this.#repairing) return;
     this.#repairing = true;
@@ -234,7 +249,7 @@ export class CausalProjectionRuntime {
 
   async #drainRepairs(): Promise<void> {
     try {
-      while (this.#requiredRepair) {
+      while (!this.#disposed && this.#requiredRepair) {
         const request = this.#requiredRepair;
         this.#requiredRepair = null;
         try {
@@ -259,11 +274,12 @@ export class CausalProjectionRuntime {
       }
     } finally {
       this.#repairing = false;
-      if (this.#requiredRepair) {
+      if (!this.#disposed && this.#requiredRepair) {
         // Retry on a later task so a temporarily unavailable canonical read
         // cannot create a tight microtask loop.
-        setTimeout(() => {
-          if (this.#repairing || !this.#requiredRepair) return;
+        this.#retryTimer = setTimeout(() => {
+          this.#retryTimer = null;
+          if (this.#disposed || this.#repairing || !this.#requiredRepair) return;
           this.#repairing = true;
           void this.#drainRepairs();
         }, 100);

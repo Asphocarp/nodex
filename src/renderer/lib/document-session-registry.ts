@@ -81,6 +81,13 @@ const persistRuntime = async (
   await runtime.persist().then(() => undefined, () => undefined);
 };
 
+const isRuntimeReusable = (runtime: BlockDocumentSurfaceRuntime): boolean => {
+  const status = runtime.getStatus();
+  return !status.reloadRequired
+    && status.phase !== "closing"
+    && status.phase !== "closed";
+};
+
 /**
  * One surface's editor/selection lease over a canonical DocumentSession.
  *
@@ -245,20 +252,26 @@ export class DocumentSessionRegistry {
     readonly createRuntime: () => BlockDocumentSurfaceRuntime;
   }): EditorSurfaceLease {
     const existing = this.surfaces.get(input.key);
-    if (existing && hasSameRuntimeIdentity(existing.descriptor, input.descriptor)) {
+    if (
+      existing
+      && hasSameRuntimeIdentity(existing.descriptor, input.descriptor)
+      && isRuntimeReusable(existing.runtime)
+    ) {
       return existing;
     }
 
     const connectBarrier = existing?.dispose() ?? Promise.resolve();
     const identity = makeDocumentSessionIdentity(input.descriptor);
     const existingDocument = this.documents.get(identity);
-    const document = existingDocument && !existingDocument.closing
+    const document = existingDocument
+      && !existingDocument.closing
+      && isRuntimeReusable(existingDocument.runtime)
       ? existingDocument
       : this.createDocumentEntry({
           identity,
           descriptor: input.descriptor,
           createRuntime: input.createRuntime,
-          connectBarrier: existingDocument?.closePromise ?? Promise.resolve(),
+          connectBarrier: existingDocument?.closePromise ?? connectBarrier,
         });
     document.references += 1;
     const surface = new EditorSurfaceLease({

@@ -154,14 +154,18 @@ const documentClaim = (
 ): { readonly key: string; readonly fingerprint: string } => {
   const reference = effect.reference;
   return {
-    key: `document:${[
+    key: JSON.stringify(["document",
       reference.document_id,
       reference.generation,
       reference.base_head_seq,
       reference.result_head_seq,
       reference.effect_order,
-    ].join(":")}`,
-    fingerprint: `${reference.update_id}:${reference.update_hash}:${reference.update_byte_length}`,
+    ]),
+    fingerprint: JSON.stringify([
+      reference.update_id,
+      reference.update_hash,
+      reference.update_byte_length,
+    ]),
   };
 };
 
@@ -170,7 +174,7 @@ const projectionIntegrityClaim = (
   resultRevision: number,
   effectHash: string,
 ): { readonly key: string; readonly fingerprint: string } => ({
-  key: `projection:${scopeKey}:${resultRevision}`,
+  key: JSON.stringify(["projection", scopeKey, resultRevision]),
   fingerprint: effectHash,
 });
 
@@ -180,14 +184,23 @@ const projectionDeliveryClaim = (
   resultRevision: number,
   effectHash: string,
 ): { readonly key: string; readonly fingerprint: string } => ({
-  key: `${projectionScopeKey(scope)}:projection:${scopeKey}:${resultRevision}`,
+  key: JSON.stringify([
+    projectionScopeKey(scope),
+    "projection",
+    scopeKey,
+    resultRevision,
+  ]),
   fingerprint: effectHash,
 });
 
 const visibilityClaim = (
   delta: AuthorizedDeliveryPacket["visibility_deltas"][number],
 ): { readonly key: string; readonly fingerprint: string } => ({
-  key: `${authorizationScopeKey(delta.authorization_scope)}:visibility:${delta.delta_hash}`,
+  key: JSON.stringify([
+    authorizationScopeKey(delta.authorization_scope),
+    "visibility",
+    delta.delta_hash,
+  ]),
   fingerprint: JSON.stringify([delta.change, delta.roots]),
 });
 
@@ -195,8 +208,15 @@ const atomClaim = (
   packet: AuthorizedDeliveryPacket,
   atom: Atom,
 ): { readonly key: string; readonly fingerprint: string } => ({
-  key: `${authorizationScopeKey(packet.authorization_scope)}:atom:${atom.descriptor.atom_id}`,
-  fingerprint: `${atom.descriptor.kind}:${atom.descriptor.payload_hash}`,
+  key: JSON.stringify([
+    authorizationScopeKey(packet.authorization_scope),
+    "atom",
+    atom.descriptor.atom_id,
+  ]),
+  fingerprint: JSON.stringify([
+    atom.descriptor.kind,
+    atom.descriptor.payload_hash,
+  ]),
 });
 
 const documentResyncEvent = (
@@ -268,6 +288,7 @@ export class RendererLocalCommitIngress {
   readonly #maxRememberedCommits: number;
   readonly #maxInFlightAdmissions: number;
   readonly #remembered = new Map<string, RememberedCommit>();
+  readonly #rememberedAddressResets = new Map<string, string>();
   readonly #projectionListeners = new Map<string, Set<ProjectionListener>>();
   readonly #revocationListeners = new Map<string, Set<RevocationListener>>();
   readonly #documentListeners = new Map<string, Set<DocumentListener>>();
@@ -335,6 +356,23 @@ export class RendererLocalCommitIngress {
     ) {
       throw new TypeError("Recipient address reset is invalid");
     }
+    const fingerprint = JSON.stringify([
+      reset.recipient_lease_id,
+      authorizationScopeKey(reset.delivery_address),
+      authorizationScopeKey(reset.authorization_scope),
+      reset.store_epoch,
+      reset.required_commit_seq,
+      reset.reason,
+    ]);
+    const known = this.#rememberedAddressResets.get(reset.reset_id);
+    if (known === fingerprint) {
+      this.#touchAddressReset(reset.reset_id, fingerprint);
+      return;
+    }
+    if (known !== undefined) {
+      throw new Error(`Recipient address reset identity collision for ${reset.reset_id}`);
+    }
+    this.#touchAddressReset(reset.reset_id, fingerprint);
     this.#authorityFreshnessIndex?.admitAddressReset({
       deliveryAddress: reset.delivery_address,
       storeEpoch: reset.store_epoch,
@@ -380,10 +418,12 @@ export class RendererLocalCommitIngress {
 
   diagnostics(): {
     readonly rememberedCommits: number;
+    readonly rememberedAddressResets: number;
     readonly inFlightAdmissions: number;
   } {
     return {
       rememberedCommits: this.#remembered.size,
+      rememberedAddressResets: this.#rememberedAddressResets.size,
       inFlightAdmissions: this.#inFlightAdmissions,
     };
   }
@@ -392,7 +432,10 @@ export class RendererLocalCommitIngress {
     packet: AuthorizedDeliveryPacket,
   ): Promise<RendererLocalCommitAdmission> {
     const identity = packet.manifest.identity;
-    const commitKey = `${identity.store_epoch}:${identity.commit_seq}`;
+    const commitKey = JSON.stringify([
+      identity.store_epoch,
+      identity.commit_seq,
+    ]);
     const preparedDocuments = await Promise.all(
       packet.document_effects.map((effect) => prepareDocumentEvent(packet, effect)),
     );
@@ -537,6 +580,16 @@ export class RendererLocalCommitIngress {
     }
   }
 
+  #touchAddressReset(resetId: string, fingerprint: string): void {
+    this.#rememberedAddressResets.delete(resetId);
+    this.#rememberedAddressResets.set(resetId, fingerprint);
+    while (this.#rememberedAddressResets.size > this.#maxRememberedCommits) {
+      const oldest = this.#rememberedAddressResets.keys().next().value;
+      if (oldest === undefined) return;
+      this.#rememberedAddressResets.delete(oldest);
+    }
+  }
+
   #publishProjection(scope: ProjectionScope, message: ProjectionStreamMessage): void {
     for (const listener of this.#projectionListeners.get(projectionScopeKey(scope)) ?? []) {
       this.#deliver(() => listener(message));
@@ -562,7 +615,6 @@ export class RendererLocalCommitIngress {
   ): void {
     const scope = deliveryAddressProjectionScope(address);
     if (!scope) return;
-    this.#remembered.clear();
     this.#publishProjection(scope, {
       version: 2,
       kind: "reset",

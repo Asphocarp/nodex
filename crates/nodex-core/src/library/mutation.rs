@@ -2724,6 +2724,12 @@ fn build_mutation_result(
         &database_projection_impact,
         authorization_before,
     )?;
+    crate::database::record_page_document_projection_delta(
+        connection,
+        commit,
+        &context.library_id.0,
+        &projection_impact,
+    )?;
     let page_data_source_ids = effects
         .page_lifecycle
         .as_ref()
@@ -2731,12 +2737,30 @@ fn build_mutation_result(
         .and_then(|receipt| receipt.data_source_id.clone())
         .into_iter()
         .collect::<Vec<_>>();
+    let page_database_ids = effects
+        .affected_block_ids
+        .iter()
+        .chain(effects.affected_database_ids.iter())
+        .map(|block_id| {
+            let block_type = connection
+                .query_row("SELECT type FROM blocks WHERE id = ?1", [block_id], |row| {
+                    row.get::<_, String>(0)
+                })
+                .optional()?;
+            Ok((block_type.as_deref() == Some("database")).then(|| block_id.clone()))
+        })
+        .collect::<Result<Vec<Option<String>>, StoreError>>()?
+        .into_iter()
+        .flatten()
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
     crate::database::record_page_detail_projection_delta(
         connection,
         commit,
         &context.library_id.0,
         &page_data_source_ids,
-        &[],
+        &page_database_ids,
     )?;
     if matches!(projection_impact, ProjectionImpact::All) {
         local_commit::require_projection_read(
@@ -3306,8 +3330,9 @@ mod tests {
         LibraryRead, LibraryReadValue, LibrarySearchSnapshotScope,
     };
     use nodex_core_contracts::{
-        AdapterKind, CoreErrorCode, LibraryId, ModuleReadRequest, OWNED_DOCUMENT_CONTRACT_VERSION,
-        ProfileId, ProjectId, ResourceRevocationReason, RevokedResourceKind,
+        AdapterKind, CoreErrorCode, LibraryId, LocalProjectionScope, ModuleReadRequest,
+        OWNED_DOCUMENT_CONTRACT_VERSION, ProfileId, ProjectId, ResourceRevocationReason,
+        RevokedResourceKind,
     };
     use tempfile::tempdir;
 
@@ -4236,7 +4261,7 @@ mod tests {
                 },
             ),
         ] {
-            module
+            let changed = module
                 .apply(
                     &context(),
                     ModuleApplyRequest {
@@ -4247,6 +4272,24 @@ mod tests {
                     },
                 )
                 .expect("Database lifecycle transition");
+            if operation_id == "operation:restore-database" {
+                let manifest = kernel
+                    .readers()
+                    .read_default(|connection| {
+                        local_commit::read_manifest(connection, changed.committed.commit_seq)
+                    })
+                    .expect("restored Database CommitManifest");
+                assert!(manifest.projection_effects.iter().any(|effect| {
+                    matches!(
+                        &effect.scope.scope,
+                        LocalProjectionScope::PageDetailDatabase { database_id, .. }
+                            if database_id == "018f0000-0000-7000-8000-000000000001"
+                    )
+                }));
+                assert!(!manifest.projection_effects.iter().any(|effect| {
+                    matches!(&effect.scope.scope, LocalProjectionScope::Project { .. })
+                }));
+            }
         }
         let first_grant = module
             .apply(

@@ -2326,6 +2326,43 @@ mod tests {
                 LocalProjectionScope::PageDetailDataSource { .. }
             )
         }));
+
+        let deleted = module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    operation_id: "operation:page-detail-delete-view-descriptor".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: vec![DatabaseIntent::DeleteView {
+                        database_id: DATABASE_ID.to_owned(),
+                        view_id: SECOND_VIEW_ID.to_owned(),
+                        expected_revision: 1,
+                    }],
+                },
+            )
+            .expect("delete a shared Database View descriptor");
+        let manifest = kernel
+            .readers()
+            .read_default(|connection| {
+                crate::infrastructure::local_commit::read_manifest(
+                    connection,
+                    deleted.committed.commit_seq,
+                )
+            })
+            .expect("deleted View descriptor CommitManifest");
+        assert!(manifest.projection_effects.iter().any(|effect| {
+            matches!(
+                &effect.scope.scope,
+                LocalProjectionScope::PageDetailDatabase { database_id, .. }
+                    if database_id == DATABASE_ID
+            )
+        }));
+        assert!(
+            !manifest.projection_effects.iter().any(|effect| {
+                matches!(&effect.scope.scope, LocalProjectionScope::Project { .. })
+            })
+        );
     }
 
     #[test]

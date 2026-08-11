@@ -267,8 +267,14 @@ describe("workbench session shell / sidebar-core", () => {
 
     setInvokeCalls([]);
     await selectSidebarSession(screen.container, "Alpha Work");
+    const betaProjectRow = screen.container.querySelector(
+      '[data-app-action-sidebar-project-id="beta"]',
+    );
+    if (!(betaProjectRow instanceof HTMLElement)) {
+      throw new Error("Expected Beta project row");
+    }
     await act(async () => {
-      fireEvent.click(screen.getByText("Beta"));
+      fireEvent.click(within(betaProjectRow).getByText("Beta"));
       await Promise.resolve();
     });
     await settleAsyncRender();
