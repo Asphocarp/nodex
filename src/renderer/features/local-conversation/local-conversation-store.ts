@@ -36,7 +36,10 @@ import type {
   UserInput,
 } from "@nodex/codex-app-server-protocol/v2";
 import { parseAssetSource } from "../../../shared/assets";
-import { prepareCodexPrompt } from "../../../shared/codex-prompt-preparation";
+import {
+  createEmptyCodexPreparedPrompt,
+  prepareCodexPrompt,
+} from "../../../shared/codex-prompt-preparation";
 import { resolveCodexReasoningSummary } from "../../../shared/codex-reasoning-summary-policy";
 import type {
   CodexAccountSnapshot,
@@ -121,6 +124,7 @@ import {
   appendCodexCanonicalOptimisticTurn,
   bindCodexCanonicalOptimisticTurn,
   failCodexCanonicalOptimisticTurn,
+  removeCodexCanonicalOptimisticTurn,
 } from "../../../shared/codex-conversation-state/codex-optimistic-turn";
 import { buildCodexSteeringCompareKey } from "../../../shared/codex-conversation-state/codex-steering-compare";
 import {
@@ -696,6 +700,14 @@ interface RendererOwnerAppServerRequestClient {
       preparedPrompt: CodexPreparedPrompt;
     },
   ): Promise<TurnStartResponse | unknown>;
+  resumeInterruptedTurn(
+    conversationId: string,
+    params: {
+      threadId: string;
+      opts?: CodexTurnStartOptions;
+      clientUserMessageId: string;
+    },
+  ): Promise<TurnStartResponse | unknown>;
   startSessionFirstTurn(
     conversationId: string,
     params: {
@@ -769,6 +781,20 @@ class IpcRendererOwnerAppServerRequestClient implements RendererOwnerAppServerRe
   ): Promise<TurnStartResponse | unknown> {
     return await this.sendRequest(conversationId, {
       method: "turn/start",
+      params,
+    });
+  }
+
+  async resumeInterruptedTurn(
+    conversationId: string,
+    params: {
+      threadId: string;
+      opts?: CodexTurnStartOptions;
+      clientUserMessageId: string;
+    },
+  ): Promise<TurnStartResponse | unknown> {
+    return await this.sendRequest(conversationId, {
+      method: "turn/resume-interrupted",
       params,
     });
   }
@@ -2432,6 +2458,40 @@ function applyOwnerStartFailureToConversation(
   };
 }
 
+function removeOwnerResumePlaceholderFromConversation(
+  conversation: CodexConversationSnapshot,
+  clientUserMessageId: string,
+  previousRuntimeStatus: CodexThreadRuntimeStatus,
+  optimisticRuntimeStatus: CodexThreadRuntimeStatus | null,
+  previousTurnModel: string | null,
+): CodexConversationSnapshot | null {
+  const canonicalState = conversation.canonicalState;
+  if (!canonicalState) return null;
+  const nextCanonicalState = removeCodexCanonicalOptimisticTurn(
+    canonicalState,
+    clientUserMessageId,
+    { previousTurnModel },
+  );
+  if (nextCanonicalState === canonicalState) return null;
+
+  const shouldRestoreRuntimeStatus = optimisticRuntimeStatus !== null
+    && conversation.threadRuntimeStatus === optimisticRuntimeStatus;
+
+  return {
+    ...conversation,
+    canonicalState: nextCanonicalState,
+    ...(shouldRestoreRuntimeStatus
+      ? {
+          statusType: previousRuntimeStatus.type,
+          statusActiveFlags: previousRuntimeStatus.type === "active"
+            ? [...previousRuntimeStatus.activeFlags]
+            : [],
+          threadRuntimeStatus: previousRuntimeStatus,
+        }
+      : {}),
+  };
+}
+
 function toOwnerTurnLifecyclePayload(
   notification: OwnerTurnLifecycleNotification,
 ): OwnerTurnLifecyclePayload {
@@ -3518,6 +3578,7 @@ export class CodexAppServerManager {
     Map<string, Map<string, string>>
   >();
   private readonly resumeInFlightByThreadId = new Map<string, Promise<CodexConversationSnapshot | null>>();
+  private readonly interruptedTurnResumesInFlightByThreadId = new Map<string, Promise<unknown>>();
   private readonly olderTurnLoadsInFlightByThread = new Map<string, Promise<CodexConversationSnapshot | null>>();
   private readonly primaryConversationRequestByThread = new Map<string, CodexConversationLiveRequest | null>();
   private readonly conversationVersionById = new Map<string, number>();
@@ -3680,6 +3741,7 @@ export class CodexAppServerManager {
     this.unclaimedOwnerNotificationSequencesByConversationId.clear();
     this.outputDeltaQueue.dispose();
     this.resumeInFlightByThreadId.clear();
+    this.interruptedTurnResumesInFlightByThreadId.clear();
     this.deferredOwnerMessagesByRequestRecovery.clear();
     this.ownerHiddenLifecycleItemTypesByConversationId.clear();
     this.ownerRollbackTombstonesByConversationId.clear();
@@ -4714,6 +4776,9 @@ export class CodexAppServerManager {
       case "startTurn":
         this.assertOwnerForConversation(action.threadId);
         return await this.startTurnAsOwner(action.threadId, action.prompt, action.opts);
+      case "resumeInterruptedTurn":
+        this.assertOwnerForConversation(action.threadId);
+        return await this.resumeInterruptedTurnAsOwner(action.threadId, action.opts);
       case "steerTurn":
         this.assertOwnerForConversation(action.input.threadId);
         return await this.steerTurnAsOwner(action.input);
@@ -4839,6 +4904,90 @@ export class CodexAppServerManager {
     });
   }
 
+  async resumeInterruptedTurn(
+    threadId: string,
+    opts?: CodexTurnStartOptions,
+  ): Promise<unknown> {
+    const existing = this.interruptedTurnResumesInFlightByThreadId.get(threadId);
+    if (existing) return await existing;
+
+    const operation = this.executeConversationAction({
+      conversationId: threadId,
+      label: "resume interrupted turn",
+      action: {
+        type: "resumeInterruptedTurn",
+        threadId,
+        opts,
+      },
+      executeAsOwner: () => this.resumeInterruptedTurnAsOwner(threadId, opts),
+      waitForStreamRevision: true,
+    });
+    this.interruptedTurnResumesInFlightByThreadId.set(threadId, operation);
+    try {
+      return await operation;
+    } finally {
+      if (this.interruptedTurnResumesInFlightByThreadId.get(threadId) === operation) {
+        this.interruptedTurnResumesInFlightByThreadId.delete(threadId);
+      }
+    }
+  }
+
+  private async resumeInterruptedTurnAsOwner(
+    threadId: string,
+    opts?: CodexTurnStartOptions,
+  ): Promise<unknown> {
+    await this.ensureOwnerForConversationAction(threadId, "resume interrupted turn");
+    const conversation = this.conversationsById.get(threadId);
+    if (!conversation) {
+      this.handleOwnerReducerUnavailable(threadId);
+      throw new Error(`Canonical conversation state unavailable for '${threadId}'`);
+    }
+    if (conversation.threadGoal) {
+      throw new Error("Thread goals must be resumed from their goal controls");
+    }
+    if (
+      conversation.statusType === "active"
+      || conversation.statusActiveFlags.length > 0
+      || conversation.turns.some((turn) => turn.status === "inProgress")
+    ) {
+      throw new Error("Codex is already running");
+    }
+    if (
+      conversation.requests.length > 0
+      || (conversation.canonicalRequests?.length ?? 0) > 0
+      || conversation.pendingSteers.length > 0
+    ) {
+      throw new Error("Resolve the pending thread action before resuming Codex");
+    }
+    if (conversation.turns.at(-1)?.status !== "interrupted") {
+      throw new Error("Only the latest interrupted turn can be resumed");
+    }
+
+    const preparedPrompt = createEmptyCodexPreparedPrompt();
+    const clientUserMessageId = createOwnerClientUserMessageId();
+    const canonicalParams = buildOwnerCanonicalOptimisticParams(conversation, {
+      clientUserMessageId,
+      opts,
+      preparedPrompt,
+    });
+    if (!canonicalParams) {
+      this.handleOwnerReducerUnavailable(threadId);
+      throw new Error(`Canonical conversation state unavailable for '${threadId}'`);
+    }
+
+    return await this.executeOwnerOptimisticTurnTransaction({
+      threadId,
+      clientUserMessageId,
+      canonicalParams,
+      failureMode: "remove",
+      request: () => this.ownerAppServerRequestClient.resumeInterruptedTurn(threadId, {
+        threadId,
+        opts,
+        clientUserMessageId,
+      }),
+    });
+  }
+
   private async startTurnAsOwner(threadId: string, prompt: string, opts?: CodexTurnStartOptions): Promise<unknown> {
     await this.ensureOwnerForConversationAction(threadId, "start turn");
     return await this.startTurnAsOwnerLocalTransaction(threadId, prompt, opts);
@@ -4889,6 +5038,7 @@ export class CodexAppServerManager {
     readonly request: () => Promise<TurnStartResponse | unknown>;
     readonly onOptimisticCommitted?: () => void;
     readonly optimisticNotifyMode?: ConversationNotifyMode;
+    readonly failureMode?: "fail" | "remove";
   }): Promise<unknown> {
     const {
       threadId,
@@ -4910,6 +5060,7 @@ export class CodexAppServerManager {
       previousRuntimeStatus.type === "active"
         ? null
         : { type: "active", activeFlags: [] };
+    const previousTurnModel = conversation.canonicalState?.sidecar.previousTurnModel ?? null;
 
     const optimisticPublication = this.publishOwnerActionSnapshotMutation(
       threadId,
@@ -4945,12 +5096,20 @@ export class CodexAppServerManager {
       const failurePublication = this.publishOwnerActionSnapshotMutation(
         threadId,
         "turn start failure",
-        (conversation) => applyOwnerStartFailureToConversation(
-          conversation,
-          clientUserMessageId,
-          previousRuntimeStatus,
-          optimisticRuntimeStatus,
-        ),
+        (conversation) => input.failureMode === "remove"
+          ? removeOwnerResumePlaceholderFromConversation(
+              conversation,
+              clientUserMessageId,
+              previousRuntimeStatus,
+              optimisticRuntimeStatus,
+              previousTurnModel,
+            )
+          : applyOwnerStartFailureToConversation(
+              conversation,
+              clientUserMessageId,
+              previousRuntimeStatus,
+              optimisticRuntimeStatus,
+            ),
       );
       await Promise.all([optimisticPublication, failurePublication]);
       throw error;
@@ -6664,6 +6823,7 @@ export class CodexAppServerManager {
     this.loadedThreadSummariesByProject.clear();
     this.threadSummaryLoadsInFlightByProject.clear();
     this.resumeInFlightByThreadId.clear();
+    this.interruptedTurnResumesInFlightByThreadId.clear();
     this.conversationsById.clear();
     this.followerAcceptedReplicasByConversationId.clear();
     this.ownerHiddenLifecycleItemTypesByConversationId.clear();
@@ -10737,6 +10897,17 @@ export function useCodexAppServerControl(activeProjectId: string | null) {
     return manager.startTurn(threadId, prompt, turnOpts);
   }, [activeProjectId, manager]);
 
+  const resumeInterruptedTurn = useCallback(async (
+    threadId: string,
+    opts?: { projectId?: string },
+  ) => {
+    const resolvedProjectId = opts?.projectId ?? activeProjectId;
+    await manager.loadPermissionState(resolvedProjectId);
+    return await manager.resumeInterruptedTurn(threadId, {
+      permissionMode: manager.readPermissionMode(resolvedProjectId),
+    });
+  }, [activeProjectId, manager]);
+
   const enqueueQueuedFollowUp = useCallback(async (
     threadId: string,
     prompt: string,
@@ -10989,6 +11160,7 @@ export function useCodexAppServerControl(activeProjectId: string | null) {
     archiveThread,
     unarchiveThread,
     startTurn,
+    resumeInterruptedTurn,
     enqueueQueuedFollowUp,
     removeQueuedFollowUp,
     reorderQueuedFollowUps,

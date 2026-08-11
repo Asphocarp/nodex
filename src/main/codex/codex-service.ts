@@ -297,6 +297,7 @@ import {
   type CodexPendingWorktreeThreadResolution,
 } from "../../shared/codex-pending-worktree";
 import {
+  createEmptyCodexPreparedPrompt,
   createCodexTextUserInput as createTextUserInput,
   prepareCodexPrompt,
 } from "../../shared/codex-prompt-preparation";
@@ -18371,6 +18372,22 @@ export class CodexService extends EventEmitter {
           { stateOwner: "renderer" },
         );
         return result;
+      }
+      case "turn/resume-interrupted": {
+        const { clientUserMessageId, opts } = request.params;
+        if (typeof clientUserMessageId !== "string" || !clientUserMessageId.trim()) {
+          throw new Error("Owner turn/resume-interrupted requires a clientUserMessageId");
+        }
+        return await this.startTurn(
+          conversationId,
+          "",
+          {
+            ...(opts ?? {}),
+            clientUserMessageId,
+            preparedPrompt: createEmptyCodexPreparedPrompt(),
+          },
+          { stateOwner: "renderer" },
+        );
       }
       case "thread/session-first-turn/start":
         return await this.startRendererOwnedSessionFirstTurn(

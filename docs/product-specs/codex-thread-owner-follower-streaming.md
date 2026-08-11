@@ -137,6 +137,7 @@ Streamdown remains the markdown renderer and in-progress visual animation layer.
 Follower-originated state-changing actions route to the owner:
 
 - start turn / follow-up turn
+- resume the latest interrupted turn
 - steer active turn
 - interrupt turn
 - update thread settings
@@ -169,6 +170,8 @@ All ordinary state-changing conversation actions use one authority router: owner
 Ordinary owner mutations commit against the latest renderer document synchronously. The owner action boundary automatically materializes canonical mutations into the visible projection, so callers such as start and steer cannot update canonical input while forgetting the transcript view. The per-conversation publication cursor computes patches from its last accepted shared document, coalesces mutations that arrive while a publish is in flight, and repairs a rejected patch with a full snapshot. Action receipts may wait for the outbox to reach the required revision, but local visibility and the app-server RPC never wait for publication. Full snapshots remain explicit barriers for resume, complete-history replacement, rollback, and repair.
 
 Direct new-thread creation prepares the same input and client identity before transport and adopts the actual app-server thread as the route identity. Main may retain a dormant recovery document while the command is in flight, but it does not publish that document as a visible source-null stream or add a separate transcript-only user row after the response.
+
+Interrupted-turn Resume uses the same authority router and optimistic transaction with an explicit userless intent. The owner requires the latest canonical turn to remain `interrupted`, requires idle runtime with no thread goal, pending request, or pending steer, and coalesces concurrent Resume attempts per thread. It appends a nullable in-progress turn whose canonical params contain `input: []`, then calls the owner-scoped `turn/resume-interrupted` facade. Main translates that product-private facade request into the standard app-server `turn/start` with empty input and inherited thread settings. No user bubble is projected. If transport fails, the owner removes only that nullable placeholder and restores the prior runtime status rather than terminalizing an empty failed turn.
 
 Later app-server user-message echoes remain canonical raw turn items but never create a second initial-user bubble while the params-owned row is visible. When app-server supplies `clientId`, reconciliation requires the exact submitted `clientUserMessageId`; structural input comparison is only a compatibility fallback for echoes without a client id. If actual turn work precedes the server `userMessage`, normal local-thread projection treats the completion as a `steered` lifecycle marker even when the client id matches. Preserving a second server-owned user bubble is reserved for explicit server-message-preserving views. The same identity rule applies to incremental `item/completed` projection, full turn hydration, and pending-turn rebind.
 

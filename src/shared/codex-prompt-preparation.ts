@@ -38,6 +38,20 @@ export function createCodexTextUserInput(text: string): UserInput {
   };
 }
 
+/** A deliberate userless turn used to continue an interrupted thread. */
+export function createEmptyCodexPreparedPrompt(): PreparedCodexPrompt {
+  return {
+    promptText: "",
+    inputItems: [],
+    pendingInputItems: [],
+    fileAttachments: [],
+    addedFiles: [],
+    pastedTextAttachments: [],
+    commentAttachments: [],
+    agentConfigs: [],
+  };
+}
+
 function parsePromptAgentConfigLine(line: string): CodexPromptAgentConfigInput | null {
   const parsed = parseInlineContent(line.trim());
   if (parsed.length !== 1) return null;
