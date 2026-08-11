@@ -160,7 +160,7 @@ export function LibraryResourceActions({
         }}
       >
         <NodexDropdownFlyoutSubmenuItem
-          label="Move to…"
+          label="Move to"
           leftSlot={<MoveToIcon />}
           open={moveSubmenuOpen}
           onOpenChange={setMoveSubmenuOpen}

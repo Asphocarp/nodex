@@ -73,7 +73,7 @@ const openActions = async (): Promise<void> => {
 };
 
 const openMoveSubmenu = async () => {
-  const moveItem = await screen.findByRole("menuitem", { name: "Move to…" });
+  const moveItem = await screen.findByRole("menuitem", { name: "Move to" });
   await act(async () => {
     moveItem.focus();
     fireEvent.keyDown(moveItem, { key: "ArrowRight" });
@@ -251,7 +251,7 @@ describe("Library resource actions", () => {
     await waitFor(() => expect(screen.queryByRole("combobox", {
       name: "Move Research to",
     })).toBeNull());
-    expect(screen.queryByRole("menuitem", { name: "Move to…" })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "Move to" })).toBeNull();
     expect(screen.getByRole("button", {
       name: "Actions for Research",
     }).getAttribute("aria-expanded")).toBe("false");

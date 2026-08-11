@@ -147,7 +147,7 @@ function Story() {
         align="start"
       >
         <NodexDropdownFlyoutSubmenuItem
-          label="Move to…"
+          label="Move to"
           leftSlot={<MoveToIcon />}
           open={submenuOpen}
           onOpenChange={setSubmenuOpen}

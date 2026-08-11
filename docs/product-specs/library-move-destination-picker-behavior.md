@@ -5,14 +5,14 @@ Last updated: 2026-08-11
 
 ## Scope
 
-This specification defines `Move to…` for movable Page and Database resources in Pages.
+This specification defines `Move to` for movable Page and Database resources in Pages.
 
 The action changes exclusive Library ownership only.
 It preserves the resource ID, owned Document, Database bindings, and Project grants.
 
 ## Presentation
 
-`Move to…` opens a compact 330-pixel right-side submenu owned by the resource action menu.
+`Move to` opens a compact 330-pixel right-side submenu owned by the resource action menu.
 The submenu is portaled for collision handling but never creates a dialog, modal overlay, or second interaction layer.
 The surface starts with an autofocus search field and has no explanatory form copy, native select, confirmation footer, or second submit step.
 
