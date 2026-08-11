@@ -15,6 +15,14 @@ response against the cursor it covers. A late response below that cursor is
 discarded. Components should subscribe to the projection registry and remove
 manual “refresh until commit sequence” orchestration; Board membership,
 navigation, Page detail, and search converge through the same invalidation path.
+Registrations that consume both Page Detail and Data Source structure must use
+the registry's Database View dependency override.
+Exact Page effects refresh the changed Page, Database View effects—including
+patchless canonical-read fallbacks—refresh collection readers, Page Detail
+Database effects refresh shared Database descriptors, and Page Detail Data
+Source effects refresh shared Source schema consumers.
+Do not flatten those lanes into one resource union because a row edit would
+evict every cached Page Detail in the same Source.
 
 An optimistic journal distinguishes remote-pending entries from acknowledged
 entries whose canonical projection has not yet converged. A successful response

@@ -3865,6 +3865,17 @@ export interface components {
             readonly project_id: string;
             readonly view_id: string;
         } | {
+            readonly database_id: string;
+            /** @enum {string} */
+            readonly kind: "page_detail_database";
+            readonly project_id: string;
+        } | {
+            readonly data_source_id: string;
+            readonly database_id: string;
+            /** @enum {string} */
+            readonly kind: "page_detail_data_source";
+            readonly project_id: string;
+        } | {
             /** @enum {string} */
             readonly kind: "page";
             readonly page_id: string;

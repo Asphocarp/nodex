@@ -226,6 +226,21 @@ Renderer ingress and Main each own authorization-scoped resource deduplication
 at their boundary; Main additionally owns bounded recipient delivery/reset,
 while renderer stores own Core-derived snapshots, exact scope coordinates, and
 deterministic reducers—not speculative ownership state.
+Core projection authority distinguishes exact Page, Database View, Page Detail
+Database, and Page Detail Data Source scopes.
+Page Document commits advance exact Page and Database View scopes for every
+Project audience that can read them, without materializing relational View rows
+on the document writer's hot path.
+Database and Data Source identities carried by an ordinary title or body edit
+are routing evidence, not shared-descriptor mutations, and exact-resource
+fallback never promotes them to a Project aggregate reset.
+Row-local writes advance the changed Page plus affected Views, while Property,
+option, and View mutations advance only their matching shared descriptor scope.
+Page Detail ignores Database View effects and depends on exact Page plus Page
+Detail Database and Page Detail Data Source authority, so even a patchless View
+repair cannot evict cached sibling Page Details.
+Revocations, checkpoints, and resets retain their conservative resource
+matching and fencing semantics.
 When access is lost, Page Detail, Board, and query stores synchronously remove
 the matching cached authority for every revocation before any canonical repair.
 Authority-bearing reads return a hash-bound `AuthorizedReadStamp` from the same

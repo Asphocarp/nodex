@@ -935,7 +935,7 @@ fn workspace_commit_result(
 
 fn seal_mutation(
     scope: &DurableMutationScope<'_>,
-    _context: &BoundModuleContext,
+    context: &BoundModuleContext,
     operation_id: &str,
     effects: WorkspaceMutationEffects,
 ) -> Result<
@@ -964,6 +964,14 @@ fn seal_mutation(
             view_ids: effects.view_ids.clone(),
             document_heads: effects.document_heads.clone(),
         },
+    )?;
+    let authorization_before = scope.authorization_before()?;
+    crate::database::record_local_projection_delta(
+        connection,
+        scope.evidence(),
+        &context.library_id.0,
+        &projection_impact,
+        &authorization_before,
     )?;
     let payload_json =
         serde_json::to_string(&payload).map_err(|_| internal("Project Workspace event payload"))?;

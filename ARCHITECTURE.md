@@ -269,10 +269,17 @@ gaps, integrity conflicts, resets, and explicitly incomplete windows trigger a
 coalesced canonical `readAtLeast` repair. An authorized patchless effect keeps
 its resource dependency by deriving renderer impact from its exact Page or
 Database View scope; Project and Library scopes conservatively invalidate all
-registered reads in that authorized audience. The renderer never reconstructs
-a broader packet-level aggregate impact. Database View groups and every group
-window carry the same authority, so readers reject a mixed-revision
-composition and continuations never cross a scope revision. There is no
+registered reads in that authorized audience.
+Page-local mutations advance the exact Page scope, Database collection changes
+advance Database View scopes, and shared Page Detail descriptor changes advance
+distinct Page Detail Database or Page Detail Data Source scopes.
+Page Detail registrations therefore ignore every Database View effect,
+including patchless canonical-read fallbacks, while still refreshing for exact
+Page, Page Detail Database, or Page Detail Data Source effects.
+The renderer never reconstructs a broader packet-level aggregate impact.
+Database View groups and every group window carry the same authority, so
+readers reject a mixed-revision composition and continuations never cross a
+scope revision. There is no
 item-level pending projection state: after Core commits, the apply response is
 the initiating renderer's immediate authority and durable replay is only the
 later convergence path.

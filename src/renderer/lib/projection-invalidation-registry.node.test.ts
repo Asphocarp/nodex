@@ -13,6 +13,7 @@ import {
   impactMatches,
   type ProjectionInvalidationCause,
   ProjectionInvalidationRegistry,
+  projectionEffectMatches,
   revocationMatches,
 } from "./projection-invalidation-registry";
 
@@ -167,6 +168,105 @@ describe("ProjectionInvalidationRegistry", () => {
       ...revocation,
       resource_kind: "canvas",
       resource_id: "canvas-1",
+    })).toBe(true);
+  });
+
+  test("separates Database View effects from Page Detail structure", () => {
+    const rowDelivery: ProjectionDelivery = {
+      ...delivery(2),
+      impact: impact({
+        page_ids: ["page-c"],
+        database_ids: ["database-1"],
+        data_source_ids: ["source-1"],
+        view_ids: ["view-1"],
+      }),
+      effect: {
+        ...delivery(2).effect,
+        scope: {
+          schema_version: 1,
+          canonical_key: "scope:view-1",
+          scope: {
+            kind: "database_view",
+            project_id: "project-1",
+            database_id: "database-1",
+            data_source_id: "source-1",
+            view_id: "view-1",
+          },
+        },
+        patch: {
+          kind: "database_row_remove",
+          projectId: "project-1",
+          databaseId: "database-1",
+          dataSourceId: "source-1",
+          viewId: "view-1",
+          pageId: "page-c",
+          totalRows: 2,
+          groupKey: null,
+          groupTotal: null,
+        },
+      },
+    };
+    const dependencies = {
+      pageIds: ["page-a"],
+      databaseIds: ["database-1"],
+      dataSourceIds: ["source-1"],
+      databaseViews: {},
+    };
+
+    expect(projectionEffectMatches(dependencies, rowDelivery)).toBe(false);
+    expect(projectionEffectMatches(dependencies, {
+      ...rowDelivery,
+      effect: { ...rowDelivery.effect, patch: null },
+    })).toBe(false);
+    expect(projectionEffectMatches(dependencies, {
+      ...rowDelivery,
+      impact: impact({
+        page_ids: [],
+        database_ids: ["database-1"],
+        data_source_ids: ["source-1"],
+        view_ids: [],
+      }),
+      effect: {
+        ...rowDelivery.effect,
+        scope: {
+          schema_version: 1,
+          canonical_key: "scope:page-data-source-1",
+          scope: {
+            kind: "page_detail_data_source",
+            project_id: "project-1",
+            database_id: "database-1",
+            data_source_id: "source-1",
+          },
+        },
+        patch: null,
+      },
+    })).toBe(true);
+    expect(projectionEffectMatches(dependencies, {
+      ...rowDelivery,
+      impact: impact({
+        page_ids: [],
+        database_ids: ["database-1"],
+        data_source_ids: [],
+        view_ids: [],
+      }),
+      effect: {
+        ...rowDelivery.effect,
+        scope: {
+          schema_version: 1,
+          canonical_key: "scope:page-database-1",
+          scope: {
+            kind: "page_detail_database",
+            project_id: "project-1",
+            database_id: "database-1",
+          },
+        },
+        patch: null,
+      },
+    })).toBe(true);
+    expect(revocationMatches(dependencies, {
+      ...revocationMessage(2).delivery.revocation,
+      resource_kind: "data_source",
+      resource_id: "source-1",
     })).toBe(true);
   });
 

@@ -1200,6 +1200,14 @@ fn seal_mutation(
     });
     let projection_impact =
         expand_database_coordinates(connection, impact_for_payload(&event_payload)?)?;
+    let authorization_before = scope.authorization_before()?;
+    crate::database::record_local_projection_delta(
+        connection,
+        commit,
+        library_id,
+        &projection_impact,
+        &authorization_before,
+    )?;
     let payload_json = serde_json::to_string(&payload)
         .map_err(|_| internal("Automation event payload cannot be encoded"))?;
     let event_sequence = append_change_log(
@@ -3100,6 +3108,40 @@ mod tests {
                 "page:occurrence-mutation".to_owned()
             ]
         );
+        let manifest = harness
+            .kernel
+            .readers()
+            .read_default(|connection| {
+                crate::infrastructure::local_commit::read_manifest(
+                    connection,
+                    completed.committed.commit_seq,
+                )
+            })
+            .expect("Page occurrence CommitManifest");
+        assert!(manifest.projection_effects.iter().any(|effect| {
+            matches!(
+                &effect.scope.scope,
+                nodex_core_contracts::LocalProjectionScope::Page {
+                    project_id,
+                    page_id,
+                } if project_id == "project:default" && page_id == "page:occurrence-mutation"
+            )
+        }));
+        assert!(manifest.projection_effects.iter().any(|effect| {
+            matches!(
+                &effect.scope.scope,
+                nodex_core_contracts::LocalProjectionScope::DatabaseView {
+                    project_id,
+                    ..
+                } if project_id == "project:default"
+            )
+        }));
+        assert!(!manifest.projection_effects.iter().any(|effect| {
+            matches!(
+                &effect.scope.scope,
+                nodex_core_contracts::LocalProjectionScope::Project { .. }
+            )
+        }));
         let authority = harness
             .kernel
             .readers()
