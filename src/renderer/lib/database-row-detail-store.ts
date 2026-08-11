@@ -33,7 +33,16 @@ const entryGenerations = new Map<string, number>();
 let storeGeneration = 0;
 
 function detailKey(projectId: string, pageId: string): string {
-  return `${projectId}:${pageId}`;
+  return JSON.stringify([projectId, pageId]);
+}
+
+function keyBelongsToProject(key: string, projectId: string): boolean {
+  try {
+    const coordinate: unknown = JSON.parse(key);
+    return Array.isArray(coordinate) && coordinate[0] === projectId;
+  } catch {
+    return false;
+  }
 }
 
 function toErrorMessage(value: unknown): string {
@@ -170,14 +179,13 @@ export function revokeDatabaseRowDetail(projectId: string, pageId: string): void
 
 /** Clears a Project's row cache when a stream checkpoint proves events were missed. */
 export function fenceDatabaseRowDetailsForProject(projectId: string): void {
-  const prefix = `${projectId}:`;
   const affected = new Set<string>();
   for (const key of new Set([
     ...detailEntries.keys(),
     ...listenersByKey.keys(),
     ...inFlightSingleRequests.keys(),
   ])) {
-    if (!key.startsWith(prefix)) continue;
+    if (!keyBelongsToProject(key, projectId)) continue;
     advanceEntryGeneration(key);
     detailEntries.delete(key);
     affected.add(key);

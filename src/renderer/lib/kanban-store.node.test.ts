@@ -2693,20 +2693,123 @@ describe("kanban store", () => {
     unsubscribe();
   });
 
-  test("keeps per-project store instance across unsubscribe/resubscribe", async () => {
+  test("keeps an authorized Board warm across unsubscribe/resubscribe", async () => {
+    let readCount = 0;
     const registry = createTestRegistry({
-      readViewWindow: async () => createBoardSnapshot(),
+      readViewWindow: async () => {
+        readCount += 1;
+        return createBoardSnapshot();
+      },
       subscribeBoardChanges: () => () => {},
     });
 
     const first = registry.getStore("default");
     const unsubscribe = first.subscribe(() => {});
     await waitForMicrotasks();
+    expect(readCount).toBe(1);
+    expect(first.getSnapshot().board).not.toBe(null);
     unsubscribe();
 
     const second = registry.getStore("default");
     expect(second).toBe(first);
-    expect(second.getSnapshot().board).toBe(null);
+    expect(second.getSnapshot().board).not.toBe(null);
+    const unsubscribeAgain = second.subscribe(() => {});
+    await waitForMicrotasks();
+    expect(readCount).toBe(1);
+    expect(second.getSnapshot().loading).toBe(false);
+    unsubscribeAgain();
+  });
+
+  test("invalidates an inactive retained Board only after a matching effect", async () => {
+    const projection = createProjectionHarness();
+    let readCount = 0;
+    const registry = createTestRegistry({
+      readViewWindow: async () => {
+        readCount += 1;
+        return createBoardSnapshot(
+          createBoard(readCount === 1 ? "Warm" : "Repaired"),
+          readCount,
+          "view-focused",
+          false,
+          readCount,
+        );
+      },
+      subscribeBoardChanges: () => () => {},
+      getProjectionInvalidationRegistry: projection.getRegistry,
+    });
+    const store = registry.getStore("project-1", "view-focused");
+    const unsubscribe = store.subscribe(() => {});
+    await waitForMicrotasks();
+    unsubscribe();
+    expect(store.getSnapshot().board).not.toBe(null);
+
+    projection.publish(pageChanged(2, "card-1", "view-focused"));
+    await waitForMicrotasks();
+
+    expect(readCount).toBe(1);
+    expect(store.getSnapshot().board).toBe(null);
+    const unsubscribeAgain = store.subscribe(() => {});
+    await waitForMicrotasks();
+    expect(readCount).toBe(2);
+    expect(store.getSnapshot().pageIndex.get("card-1")?.title).toBe("Repaired");
+    unsubscribeAgain();
+  });
+
+  test("evicts the least-recent inactive Board after the retained capacity", async () => {
+    const registry = createTestRegistry({
+      readViewWindow: async (_projectId, input) => createBoardSnapshot(
+        createBoard(input.databaseViewId ?? "primary"),
+        1,
+        input.databaseViewId ?? "view-primary",
+      ),
+      subscribeBoardChanges: () => () => {},
+    });
+    let firstStore: ReturnType<typeof registry.getStore> | null = null;
+    let lastStore: ReturnType<typeof registry.getStore> | null = null;
+    for (let index = 0; index < 33; index += 1) {
+      const store = registry.getStore("project-1", `view-${index}`);
+      firstStore ??= store;
+      lastStore = store;
+      const unsubscribe = store.subscribe(() => {});
+      await waitForMicrotasks();
+      unsubscribe();
+    }
+
+    expect(firstStore?.getSnapshot().board).toBe(null);
+    expect(lastStore?.getSnapshot().board).not.toBe(null);
+    expect(registry.getStore("project-1", "view-0")).not.toBe(firstStore);
+  });
+
+  test("fences an evicted inactive Board read before its late response arrives", async () => {
+    const firstRead = createDeferred<DatabaseViewWindowSnapshot>();
+    const registry = createTestRegistry({
+      readViewWindow: async (_projectId, input) =>
+        input.databaseViewId === "view-0"
+          ? await firstRead.promise
+          : createBoardSnapshot(
+              createBoard(input.databaseViewId ?? "primary"),
+              1,
+              input.databaseViewId ?? "view-primary",
+            ),
+      subscribeBoardChanges: () => () => {},
+    });
+    const firstStore = registry.getStore("project-1", "view-0");
+    const unsubscribeFirst = firstStore.subscribe(() => {});
+    await waitForMicrotasks();
+    unsubscribeFirst();
+
+    for (let index = 1; index < 33; index += 1) {
+      const store = registry.getStore("project-1", `view-${index}`);
+      const unsubscribe = store.subscribe(() => {});
+      await waitForMicrotasks();
+      unsubscribe();
+    }
+
+    expect(firstStore.getSnapshot().board).toBe(null);
+    firstRead.resolve(createBoardSnapshot(createBoard("Late"), 1, "view-0"));
+    await waitForMicrotasks();
+    expect(firstStore.getSnapshot().board).toBe(null);
+    expect(registry.getStore("project-1", "view-0")).not.toBe(firstStore);
   });
 
   test("queues local overlay before first fetch and applies after board load", async () => {

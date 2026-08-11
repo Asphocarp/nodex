@@ -1737,10 +1737,6 @@ async function publishCoreResync(eventHead: number): Promise<void> {
   const runtime = desktopDataAuthorityRuntime;
   if (runtime) {
     localCommitCoordinator?.resetStream("event_gap");
-    localCommitAudienceBroker?.reset({
-      storeEpoch: runtime.identity.storeEpoch,
-      commitSeq: eventHead,
-    }, "stream_gap");
   }
   dbNotifier.notifyLibraryNavigationChanged({
     version: 1,

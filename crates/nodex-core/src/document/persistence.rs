@@ -9,7 +9,8 @@ use crate::infrastructure::document_repository::{DocumentHeadRow, DocumentReadRe
 use crate::infrastructure::event_log::{NewChangeLogEntry, append_change_log};
 use crate::infrastructure::local_commit::{self, CommitContext, RegisteredDocumentEffect};
 use crate::infrastructure::projection_impact::{
-    PageProjectionCoordinates, PageProjectionDatabaseCoordinates, impact_for_page_document,
+    PageProjectionCoordinates, PageProjectionDatabaseCoordinates, expand_database_coordinates,
+    impact_for_page_document,
 };
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
@@ -411,6 +412,13 @@ fn persist_yjs_commit_inner(
             next_head_seq,
         )),
     )?;
+    let projection_impact = if input.base_materialization.title != input.materialization.title
+        || input.base_materialization.rich_title != input.materialization.rich_title
+    {
+        expand_database_coordinates(connection, projection_impact)?
+    } else {
+        projection_impact
+    };
     let database_ids = page_impact
         .as_ref()
         .and_then(|impact| impact.database.as_ref())

@@ -435,7 +435,8 @@ fn database_authorization_proof(
            JOIN projects project ON project.id = block.project_id
            JOIN database_containers container ON container.block_id = block.id
            WHERE block.id = ?1 AND project.library_id = ?2
-             AND block.lifecycle = 'active'",
+             AND block.lifecycle = 'active'
+             AND container.lifecycle = 'active'",
             params![database_id, context.library_id.0],
             |row| row.get::<_, String>(0),
         )

@@ -59,7 +59,7 @@ let storeGeneration = 0;
 let accessSequence = 0;
 
 const detailKey = (projectId: string, pageId: string): string =>
-  `${projectId}:${pageId}`;
+  JSON.stringify([projectId, pageId]);
 
 const createEntry = (): PageDetailEntry => ({
   snapshot: EMPTY_DETAIL,
@@ -437,7 +437,7 @@ const retainPageDetailAuthority = (
   entry.projectionAuthority?.release();
   const release = registry.register({
     scope: { kind: "project", libraryId, projectId },
-    consumerKey: `page-detail:${projectId}:${pageId}`,
+    consumerKey: JSON.stringify(["page-detail", projectId, pageId]),
     getDependencies: () => {
       const detail = entry.snapshot.detail;
       return {

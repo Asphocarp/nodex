@@ -22,6 +22,17 @@ describe("page draft store", () => {
     expect(getPageDraftOverlay("default", "page-1")).toBe(null);
   });
 
+  test("isolates opaque Project and Page identities that contain colons", () => {
+    resetPageDraftStoreForTest();
+    setPageDraftOverlay("project:a", "page", { title: "First" });
+    setPageDraftOverlay("project", "a:page", { title: "Second" });
+
+    clearPageDraftOverlay("project:a", "page");
+
+    expect(getPageDraftOverlay("project:a", "page")).toBe(null);
+    expect(getPageDraftOverlay("project", "a:page")?.title).toBe("Second");
+  });
+
   test("merges overlays without touching unrelated fields", () => {
     const merged = mergePageDraftOverlay({
       id: "page-1",

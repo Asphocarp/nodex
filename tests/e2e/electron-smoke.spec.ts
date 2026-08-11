@@ -1869,6 +1869,152 @@ test("converges a Block transfer into the live Board Page projection", async () 
   }
 });
 
+test("keeps the Page editor mounted while its Document commits", async () => {
+  test.setTimeout(120_000);
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nx-page-edit-"));
+  const nodexHome = path.join(fixtureRoot, "profile");
+  const workspace = path.join(fixtureRoot, "workspace");
+  fs.mkdirSync(workspace, { recursive: true });
+  prepareRuntimeFixture(fixtureRoot);
+
+  let application: ElectronApplication | undefined;
+  try {
+    application = await launchApplication(fixtureRoot, nodexHome);
+    const page = await application.firstWindow();
+    await page.evaluate(() => window.api?.awaitInitialization?.());
+    const project = await createConvergenceProject(
+      page,
+      "Page edit stability",
+      workspace,
+    );
+    const fixturePage = await createConvergenceBoardPage(
+      page,
+      project,
+      "Stable editor Page",
+      "Existing body",
+    );
+
+    await page.getByRole("button", {
+      name: "Open Page edit stability",
+      exact: true,
+    }).click();
+    await page.getByRole("tab", { name: "Project Home" }).waitFor();
+    const card = page.locator(
+      `[data-kanban-uuid-v7="${fixturePage.pageId}"]`,
+    );
+    await expect(card).toBeVisible({ timeout: 15_000 });
+    await card.click();
+    await page.getByRole("tab", { name: "Stable editor Page" }).waitFor();
+
+    const surface = page.locator('[data-page-stage-surface="true"]:visible');
+    const editor = surface.locator(
+      '.nfm-editor .ProseMirror[contenteditable="true"]',
+    );
+    await expect(editor).toBeVisible({ timeout: 15_000 });
+    const detailBefore = requireIpcValue<Record<string, unknown>>(
+      await invokeIpc(
+        page,
+        "pages:detail:get",
+        project.projectId,
+        fixturePage.pageId,
+      ),
+      "Read Page detail before editing",
+    );
+    const commitSeqBefore = detailBefore.commitSeq;
+    if (typeof commitSeqBefore !== "number") {
+      throw new Error("Page detail has no commit sequence before editing");
+    }
+
+    await page.evaluate(() => {
+      const target = globalThis as typeof globalThis & {
+        __nodexPageEditStability?: {
+          readonly observer: MutationObserver;
+          editorRemovals: number;
+          skeletonAdds: number;
+          titleRemovals: number;
+        };
+      };
+      const measurement = {
+        editorRemovals: 0,
+        skeletonAdds: 0,
+        titleRemovals: 0,
+        observer: null as unknown as MutationObserver,
+      };
+      const contains = (node: Node, selector: string): boolean =>
+        node instanceof Element
+        && (node.matches(selector) || node.querySelector(selector) !== null);
+      measurement.observer = new MutationObserver((records) => {
+        for (const record of records) {
+          for (const node of record.removedNodes) {
+            if (contains(node, '[aria-label="Page title"]')) {
+              measurement.titleRemovals += 1;
+            }
+            if (contains(node, '.nfm-editor .ProseMirror[contenteditable="true"]')) {
+              measurement.editorRemovals += 1;
+            }
+          }
+          for (const node of record.addedNodes) {
+            if (contains(node, '[role="status"][aria-busy="true"]')) {
+              measurement.skeletonAdds += 1;
+            }
+          }
+        }
+      });
+      measurement.observer.observe(document.documentElement, {
+        childList: true,
+        subtree: true,
+      });
+      target.__nodexPageEditStability = measurement;
+    });
+
+    await editor.click();
+    await page.keyboard.press("End");
+    await page.keyboard.type("x");
+    await expect.poll(async () => {
+      const detail = requireIpcValue<Record<string, unknown>>(
+        await invokeIpc(
+          page,
+          "pages:detail:get",
+          project.projectId,
+          fixturePage.pageId,
+        ),
+        "Read Page detail after editing",
+      );
+      return detail.commitSeq;
+    }, { timeout: 15_000 }).toBeGreaterThan(commitSeqBefore);
+    await page.waitForTimeout(100);
+
+    const measurement = await page.evaluate(() => {
+      const target = globalThis as typeof globalThis & {
+        __nodexPageEditStability?: {
+          readonly observer: MutationObserver;
+          editorRemovals: number;
+          skeletonAdds: number;
+          titleRemovals: number;
+        };
+      };
+      const current = target.__nodexPageEditStability;
+      if (!current) throw new Error("Page edit stability measurement is missing");
+      current.observer.disconnect();
+      return {
+        editorRemovals: current.editorRemovals,
+        skeletonAdds: current.skeletonAdds,
+        titleRemovals: current.titleRemovals,
+      };
+    });
+    expect(measurement).toEqual({
+      editorRemovals: 0,
+      skeletonAdds: 0,
+      titleRemovals: 0,
+    });
+    await expect(editor).toBeVisible();
+  } finally {
+    if (application) await stopApplication(application);
+    await shutdownTemporaryCore(nodexHome);
+    fs.rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
 // This is the native source-gesture smoke. High-pressure tests below remain on
 // the direct typed transfer boundary because they test transaction convergence,
 // not the handle-to-dragover pipeline exercised here.

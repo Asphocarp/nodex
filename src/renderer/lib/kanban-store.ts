@@ -63,6 +63,7 @@ const DEFAULT_BOARD_FRESHNESS_MS = 30_000;
 const GROUP_WINDOW_FIRST = 50;
 const GROUP_WINDOW_MAX_FIRST = 200;
 const CONSISTENT_WINDOW_READ_ATTEMPTS = 4;
+const MAX_RETAINED_KANBAN_STORES = 32;
 
 export interface IndexedPage extends DatabasePageSummary {
   columnId: string;
@@ -433,7 +434,9 @@ class KanbanProjectStore {
 
   private unsubscribeBoardChanges: (() => void) | null = null;
 
-  private unsubscribeProjectionInvalidation: (() => void) | null = null;
+  private releaseActiveProjectionInvalidation: (() => void) | null = null;
+
+  private releaseRetainedProjectionInvalidation: (() => void) | null = null;
 
   private causalProjectionRuntime: CausalProjectionRuntime | null = null;
 
@@ -460,11 +463,14 @@ class KanbanProjectStore {
     private readonly projectId: string,
     private readonly databaseViewId: string | null,
     private readonly dependencies: KanbanStoreDependencies,
+    private readonly onAccess: () => void,
+    private readonly onInactive: () => void,
   ) {}
 
   getSnapshot = (): KanbanStoreSnapshot => this.snapshot;
 
   subscribe = (listener: StoreListener): (() => void) => {
+    this.onAccess();
     this.listeners.add(listener);
     if (this.listeners.size === 1) {
       this.ensureRealtimeSubscription();
@@ -475,10 +481,31 @@ class KanbanProjectStore {
       this.listeners.delete(listener);
       if (this.listeners.size > 0) return;
 
-      this.teardownRealtimeSubscription();
-      this.clearInactiveAuthority();
+      this.teardownBoardChangesSubscription();
+      this.ensureProjectionSubscription("retained");
+      this.onInactive();
     };
   };
+
+  isActive(): boolean {
+    return this.listeners.size > 0;
+  }
+
+  disposeIfInactive(): boolean {
+    if (
+      this.listeners.size > 0
+      || this.optimisticEntries.length > 0
+      || this.remoteLanes.size > 0
+    ) return false;
+    this.teardownRealtimeSubscription();
+    this.clearInactiveAuthority();
+    return true;
+  }
+
+  private disposeCausalProjectionRuntime(): void {
+    this.causalProjectionRuntime?.dispose();
+    this.causalProjectionRuntime = null;
+  }
 
   private clearInactiveAuthority(): void {
     this.authorityGeneration += 1;
@@ -491,7 +518,7 @@ class KanbanProjectStore {
     this.inFlightFetch = null;
     for (const entry of this.optimisticEntries) entry.superseded = true;
     this.optimisticEntries = [];
-    this.causalProjectionRuntime = null;
+    this.disposeCausalProjectionRuntime();
     this.requiredMinimumCommitSeq = 0;
     this.requiredMinimumStoreEpoch = null;
     this.canonicalReadGeneration = 0;
@@ -519,11 +546,13 @@ class KanbanProjectStore {
     this.remoteLanes.clear();
     for (const entry of this.optimisticEntries) entry.superseded = true;
     this.optimisticEntries = [];
-    this.causalProjectionRuntime = null;
+    this.disposeCausalProjectionRuntime();
     this.requiredMinimumCommitSeq = 0;
     this.requiredMinimumStoreEpoch = null;
-    this.unsubscribeProjectionInvalidation?.();
-    this.unsubscribeProjectionInvalidation = null;
+    this.releaseActiveProjectionInvalidation?.();
+    this.releaseRetainedProjectionInvalidation?.();
+    this.releaseActiveProjectionInvalidation = null;
+    this.releaseRetainedProjectionInvalidation = null;
     fenceDatabaseRowDetailsForProject(this.projectId);
   }
 
@@ -1768,7 +1797,7 @@ class KanbanProjectStore {
     this.groupsSnapshot = null;
     for (const entry of this.optimisticEntries) entry.superseded = true;
     this.optimisticEntries = [];
-    this.causalProjectionRuntime = null;
+    this.disposeCausalProjectionRuntime();
     this.recomputeSnapshot({
       loading: false,
       error: "Database View is unavailable",
@@ -1813,7 +1842,7 @@ class KanbanProjectStore {
     this.groupsSnapshot = null;
     for (const entry of this.optimisticEntries) entry.superseded = true;
     this.optimisticEntries = [];
-    this.causalProjectionRuntime = null;
+    this.disposeCausalProjectionRuntime();
     fenceDatabaseRowDetailsForProject(this.projectId);
     this.recomputeSnapshot({ loading: true, error: null });
   };
@@ -1827,6 +1856,14 @@ class KanbanProjectStore {
     if (!refreshed) {
       throw new Error(this.snapshot.error ?? "Board projection refresh failed");
     }
+  };
+
+  private invalidateRetainedProjection = async (
+    cause: ProjectionInvalidationCause,
+  ): Promise<void> => {
+    if (this.listeners.size > 0) return;
+    this.clearInactiveAuthority();
+    this.requireMinimumCursor(cause.stream);
   };
 
   private ensureRealtimeSubscription(): void {
@@ -1883,24 +1920,36 @@ class KanbanProjectStore {
         },
       );
     }
-    this.ensureProjectionSubscription();
+    this.ensureProjectionSubscription("active");
   }
 
-  private ensureProjectionSubscription(): void {
-    if (this.unsubscribeProjectionInvalidation) return;
+  private ensureProjectionSubscription(
+    mode: "active" | "retained" = "active",
+  ): void {
+    if (
+      mode === "active"
+        ? this.releaseActiveProjectionInvalidation
+        : this.releaseRetainedProjectionInvalidation
+    ) return;
     const authority = this.baseBoardAuthority;
     const registry = this.dependencies.getProjectionInvalidationRegistry();
-    const causalRuntime = this.ensureCausalProjectionRuntime();
-    if (!authority || !registry || !causalRuntime) return;
-    this.unsubscribeProjectionInvalidation = registry.register({
+    if (!authority || !registry) return;
+    const causalRuntime = mode === "active"
+      ? this.ensureCausalProjectionRuntime()
+      : null;
+    const release = registry.register({
       scope: {
         kind: "project",
         libraryId: authority.libraryId,
         projectId: this.projectId,
       },
-      consumerKey: `kanban:${this.projectId}:${this.databaseViewId ?? "primary"}`,
-      causalRuntime,
-      projectionEffects: "ignore",
+      consumerKey: JSON.stringify([
+        "kanban",
+        this.projectId,
+        this.databaseViewId,
+      ]),
+      ...(causalRuntime ? { causalRuntime } : {}),
+      projectionEffects: causalRuntime ? "ignore" : "match",
       getDependencies: () => {
         const current = this.baseBoardAuthority;
         return {
@@ -1921,20 +1970,44 @@ class KanbanProjectStore {
       },
       revoke: this.revokeFromProjection,
       fence: this.fenceProjectionAuthority,
-      invalidate: this.refreshFromProjection,
+      invalidate: causalRuntime
+        ? this.refreshFromProjection
+        : this.invalidateRetainedProjection,
     });
+    if (mode === "active") {
+      this.releaseActiveProjectionInvalidation = release;
+      this.releaseRetainedProjectionInvalidation?.();
+      this.releaseRetainedProjectionInvalidation = null;
+      return;
+    }
+    this.releaseRetainedProjectionInvalidation = release;
+    this.releaseActiveProjectionInvalidation?.();
+    this.releaseActiveProjectionInvalidation = null;
+    this.disposeCausalProjectionRuntime();
+  }
+
+  private teardownBoardChangesSubscription(): void {
+    this.unsubscribeBoardChanges?.();
+    this.unsubscribeBoardChanges = null;
   }
 
   private teardownRealtimeSubscription(): void {
-    this.unsubscribeBoardChanges?.();
-    this.unsubscribeProjectionInvalidation?.();
-    this.unsubscribeBoardChanges = null;
-    this.unsubscribeProjectionInvalidation = null;
+    this.teardownBoardChangesSubscription();
+    this.releaseActiveProjectionInvalidation?.();
+    this.releaseRetainedProjectionInvalidation?.();
+    this.releaseActiveProjectionInvalidation = null;
+    this.releaseRetainedProjectionInvalidation = null;
+    this.disposeCausalProjectionRuntime();
   }
 }
 
 class KanbanStoreRegistry {
-  private readonly stores = new Map<string, KanbanProjectStore>();
+  private readonly stores = new Map<string, {
+    readonly store: KanbanProjectStore;
+    lastAccess: number;
+  }>();
+
+  private accessSequence = 0;
 
   constructor(private readonly dependencies: KanbanStoreDependencies) {}
 
@@ -1944,15 +2017,42 @@ class KanbanStoreRegistry {
   ): KanbanProjectStore {
     const key = JSON.stringify([projectId, databaseViewId]);
     const existing = this.stores.get(key);
-    if (existing) return existing;
+    if (existing) {
+      this.touch(existing);
+      return existing.store;
+    }
 
     const store = new KanbanProjectStore(
       projectId,
       databaseViewId,
       this.dependencies,
+      () => {
+        const entry = this.stores.get(key);
+        if (entry) this.touch(entry);
+      },
+      () => this.pruneInactiveStores(),
     );
-    this.stores.set(key, store);
+    const entry = { store, lastAccess: 0 };
+    this.touch(entry);
+    this.stores.set(key, entry);
     return store;
+  }
+
+  private touch(entry: { lastAccess: number }): void {
+    this.accessSequence += 1;
+    entry.lastAccess = this.accessSequence;
+  }
+
+  private pruneInactiveStores(): void {
+    if (this.stores.size <= MAX_RETAINED_KANBAN_STORES) return;
+    const candidates = [...this.stores.entries()]
+      .filter(([, entry]) => !entry.store.isActive())
+      .sort(([, left], [, right]) => left.lastAccess - right.lastAccess);
+    for (const [key, entry] of candidates) {
+      if (this.stores.size <= MAX_RETAINED_KANBAN_STORES) return;
+      if (!entry.store.disposeIfInactive()) continue;
+      this.stores.delete(key);
+    }
   }
 }
 

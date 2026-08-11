@@ -35,6 +35,7 @@ function createRuntime(input: {
   readonly connect?: () => Promise<void>;
   readonly close?: () => Promise<void>;
   readonly ready?: boolean;
+  readonly status?: Partial<BlockDocumentSurfaceStatus>;
 }) {
   const runtimeDescriptor = input.descriptor ?? descriptor();
   const document = new Y.Doc({ guid: runtimeDescriptor.documentId });
@@ -71,6 +72,7 @@ function createRuntime(input: {
       pendingUpdateCount: 0,
       checkpoint: { phase: "ready", failureCount: 0 },
     },
+    ...input.status,
   };
   const runtime = {
     descriptor: runtimeDescriptor,
@@ -86,6 +88,32 @@ function createRuntime(input: {
 }
 
 describe("DocumentSessionRegistry", () => {
+  test("replaces a terminal runtime when the same surface is acquired again", async () => {
+    const registry = new DocumentSessionRegistry();
+    const terminal = createRuntime({
+      status: { reloadRequired: true },
+    });
+    const successor = createRuntime({});
+    const key = makeEditorSurfaceKey("session-1", "tab-page-1");
+    const first = registry.acquire({
+      key,
+      descriptor: descriptor(),
+      createRuntime: () => terminal.runtime,
+    });
+    const second = registry.acquire({
+      key,
+      descriptor: descriptor(),
+      createRuntime: () => successor.runtime,
+    });
+
+    expect(second).not.toBe(first);
+    expect(second.runtime).toBe(successor.runtime);
+    await second.connect();
+    expect(terminal.close).toHaveBeenCalledTimes(1);
+    expect(successor.connect).toHaveBeenCalledTimes(1);
+    await registry.dispose(key);
+  });
+
   test("shares one canonical Yjs runtime across tab groups and closes after the last view", async () => {
     const registry = new DocumentSessionRegistry();
     const runtime = createRuntime({});

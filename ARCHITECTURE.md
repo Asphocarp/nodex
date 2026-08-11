@@ -186,6 +186,10 @@ overflow, reload, or broker interruption immediately fences the address and
 actively retries a lease-bound `AddressReset` with one capped full-jitter
 timer. Reset ACK clears only the covered floor. Core—not Main—filters all packet
 content against current post-state authority.
+Renderer ingress deduplicates those retries by the Core-authored reset identity;
+an exact retry is an acknowledgement-only no-op, an identity collision fails
+closed, and resetting one address does not discard another address's packet
+claims.
 
 Every delivery packet carries a separate Core-authored address and
 authorization scope covered by its packet hash. Manifest-bound

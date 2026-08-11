@@ -8,7 +8,7 @@ type StoreListener = () => void;
 const EMPTY_PAGE_DRAFT: PageDraftOverlay = Object.freeze({});
 
 function buildDraftKey(projectId: string, pageId: string): string {
-  return `${projectId}:${pageId}`;
+  return JSON.stringify([projectId, pageId]);
 }
 
 function normalizeDraftOverlay(overlay: PageDraftOverlay): PageDraftOverlay {
