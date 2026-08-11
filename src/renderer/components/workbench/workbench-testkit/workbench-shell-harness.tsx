@@ -11,6 +11,7 @@ import {
   type ComponentProps,
   type ReactNode,
 } from "react";
+import * as Y from "yjs";
 import { act, fireEvent, waitFor, within } from "@testing-library/react";
 import {
   PAGE_DOCUMENT_SCHEMA_VERSION,
@@ -122,6 +123,10 @@ import {
 import {
   projectWorkbenchSceneToLegacySessionView,
 } from "../../../../shared/workbench-scene";
+import {
+  PageTitleProjectionPublisher,
+  type PageTitleResourceIdentity,
+} from "@/lib/page-title-projection-context";
 
 export let invokeCalls: unknown[][] = [];
 export let mockInvokeImpl: ((channel: string, ...args: unknown[]) => Promise<unknown>) | null = null;
@@ -936,16 +941,37 @@ vi.mock("@/components/block-documents/owned-block-document-boundary", () => ({
 
 vi.mock(".././workbench-page-stage", () => ({
   PageStage: (props: Record<string, unknown>) => {
-    (globalThis as { __lastPageStageProps?: Record<string, unknown> }).__lastPageStageProps = props;
     const stageModel = props.page as {
-      page?: { id?: string };
+      page?: { id?: string; title?: string };
     } | null | undefined;
     const page = stageModel?.page;
     const pageId = page?.id ?? "missing";
+    const [titleDocument] = useState(() => {
+      const document = new Y.Doc();
+      if (page?.title) document.getText("title").insert(0, page.title);
+      return document;
+    });
+    const title = titleDocument.getText("title");
+    const [publishingTitle, setPublishingTitle] = useState(true);
+    const publishTitle = (nextTitle: string) => {
+      titleDocument.transact(() => {
+        title.delete(0, title.length);
+        title.insert(0, nextTitle);
+      });
+      setPublishingTitle(true);
+    };
+    const exposedProps = {
+      ...props,
+      __publishPageTitle: publishTitle,
+      __disposePageTitlePublisher: () => setPublishingTitle(false),
+    };
+    (globalThis as {
+      __lastPageStageProps?: Record<string, unknown>;
+    }).__lastPageStageProps = exposedProps;
     const propsByPageId = ((globalThis as {
       __mockPageStagePropsByPageId?: Record<string, Record<string, unknown>>;
     }).__mockPageStagePropsByPageId ??= {});
-    propsByPageId[pageId] = props;
+    propsByPageId[pageId] = exposedProps;
     useEffect(() => {
       const state = globalThis as {
         __mockPageStageMounts?: number;
@@ -959,14 +985,15 @@ vi.mock(".././workbench-page-stage", () => ({
         [pageId]: (state.__mockPageStageMountsByPageId?.[pageId] ?? 0) + 1,
       };
       return () => {
+        titleDocument.destroy();
         state.__mockPageStageUnmounts = (state.__mockPageStageUnmounts ?? 0) + 1;
         state.__mockPageStageUnmountsByPageId = {
           ...(state.__mockPageStageUnmountsByPageId ?? {}),
           [pageId]: (state.__mockPageStageUnmountsByPageId?.[pageId] ?? 0) + 1,
         };
       };
-    }, [pageId]);
-    return createElement(
+    }, [pageId, titleDocument]);
+    const content = createElement(
       "div",
       { "data-page-stage": "true" },
       `Page:${String(pageId)}`,
@@ -1040,6 +1067,19 @@ vi.mock(".././workbench-page-stage", () => ({
         },
         "Delete",
       ),
+    );
+    const identity = props.pageTitleIdentity as
+      | PageTitleResourceIdentity
+      | undefined;
+    if (!identity || !publishingTitle) return content;
+    return (
+      <PageTitleProjectionPublisher
+        identity={identity}
+        publisherId={String(props.editorSessionKey ?? pageId)}
+        title={title}
+      >
+        {content}
+      </PageTitleProjectionPublisher>
     );
   },
 }));

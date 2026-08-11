@@ -16,7 +16,6 @@ import type {
   DbViewPrefs,
   SupportedDbView,
 } from "@/lib/db-view-prefs";
-import type { PageStageTabTitleStore } from "@/lib/page-stage-tab-title-store";
 import {
   resolveLeafIdForPanelTab,
 } from "@/lib/workbench-panel-placement";
@@ -62,7 +61,6 @@ export function WorkbenchTabProjectionPanel({
   searchByProject,
   dbViewPrefsByProject,
   presentedPageIds,
-  pageStageTabTitleStore,
   pageStageCloseRef,
   pageStagePersistRef,
   pageStageSessionSnapshotRef,
@@ -104,7 +102,6 @@ export function WorkbenchTabProjectionPanel({
     Partial<Record<SupportedDbView, DbViewPrefs>>
   >;
   presentedPageIds: ReadonlySet<string>;
-  pageStageTabTitleStore: PageStageTabTitleStore;
   pageStageCloseRef: RefObject<(() => Promise<void>) | null>;
   pageStagePersistRef?: MutableRefObject<(() => Promise<void>) | null>;
   pageStageSessionSnapshotRef?: MutableRefObject<
@@ -260,7 +257,6 @@ export function WorkbenchTabProjectionPanel({
           !activeSession.thread
           && activeSession.projectId === pageTab.config.projectId
         }
-        titleStore={pageStageTabTitleStore}
         onLeavePage={onLeavePageStage}
         onClose={() => void onCloseTab(tab.id)}
         onOpenTerminal={async () => {

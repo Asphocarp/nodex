@@ -621,8 +621,12 @@ describe("workbench session shell / pages-shell-navigation", () => {
     const pageStageProps = (globalThis as {
       __mockPageStagePropsByPageId?: Record<string, Record<string, unknown>>;
     }).__mockPageStagePropsByPageId?.["card-beta"];
-    const publishLiveTitle = pageStageProps?.onTitleChange as ((title: string) => void) | undefined;
-    const disposeLiveTitle = pageStageProps?.onTitleSourceDispose as (() => void) | undefined;
+    const publishLiveTitle = pageStageProps?.__publishPageTitle as
+      | ((title: string) => void)
+      | undefined;
+    const disposeLiveTitle = pageStageProps?.__disposePageTitlePublisher as
+      | (() => void)
+      | undefined;
     expect(typeof publishLiveTitle).toBe("function");
     expect(typeof disposeLiveTitle).toBe("function");
     if (!publishLiveTitle || !disposeLiveTitle) return;
@@ -656,7 +660,7 @@ describe("workbench session shell / pages-shell-navigation", () => {
       disposeLiveTitle();
       await Promise.resolve();
     });
-    expect(screen.getByRole("tab", { name: "Beta project, Beta Card" }) !== null).toBe(true);
+    expect(screen.getByRole("tab", { name: "Beta project, Stale Beta Card" }) !== null).toBe(true);
 
     await act(async () => {
       publishLiveTitle("   ");
@@ -668,8 +672,88 @@ describe("workbench session shell / pages-shell-navigation", () => {
       disposeLiveTitle();
       await Promise.resolve();
     });
-    expect(screen.getByRole("tab", { name: "Beta project, Beta Card" }) !== null).toBe(true);
+    expect(screen.getByRole("tab", { name: "Beta project, Stale Beta Card" }) !== null).toBe(true);
     expect(invokeCalls.some((call) => call[0] === "window-session-view:tab-update")).toBe(false);
+  });
+
+  test("projects one live Page title across every matching tab and the Pages sidebar", async () => {
+    const session = makeSession({
+      tabs: [
+        {
+          id: "page-tab:first",
+          sessionId: "session:alpha:database-view",
+          projectId: "alpha",
+          kind: "page_stage",
+          title: "Card One",
+          panelId: "right",
+          config: {
+            projectId: "alpha",
+            pageId: "card-1",
+            titleSnapshot: "Card One",
+          },
+        },
+        {
+          id: "page-tab:second",
+          sessionId: "session:alpha:database-view",
+          projectId: "alpha",
+          kind: "page_stage",
+          title: "Stale duplicate",
+          panelId: "right",
+          config: {
+            projectId: "alpha",
+            pageId: "card-1",
+            titleSnapshot: "Stale duplicate",
+          },
+        },
+      ],
+      rightLayout: makePanelLayout(
+        ["page-tab:first", "page-tab:second"],
+        "page-tab:second",
+      ),
+    });
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [session] },
+      libraryRoots: [{
+        kind: "page",
+        pageId: "card-1",
+        title: "Card One",
+        hasChildren: false,
+        parentRevision: 1,
+        metadataRevision: 1,
+        documentGeneration: 1,
+        documentHeadSeq: 1,
+        updatedAt: "2026-08-11T00:00:00.000Z",
+      }],
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const pageStageProps = (globalThis as {
+      __mockPageStagePropsByPageId?: Record<string, Record<string, unknown>>;
+    }).__mockPageStagePropsByPageId?.["card-1"];
+    const publishLiveTitle = pageStageProps?.__publishPageTitle as
+      | ((title: string) => void)
+      | undefined;
+    expect(typeof publishLiveTitle).toBe("function");
+    if (!publishLiveTitle) return;
+
+    await act(async () => {
+      publishLiveTitle("Renamed everywhere");
+      await Promise.resolve();
+    });
+
+    expect(
+      screen.container.querySelector('[data-app-shell-tab-title="page-tab:first"]')
+        ?.textContent,
+    ).toBe("Renamed everywhere");
+    expect(
+      screen.container.querySelector('[data-app-shell-tab-title="page-tab:second"]')
+        ?.textContent,
+    ).toBe("Renamed everywhere");
+    expect(
+      within(screen.getByRole("list", { name: "Pages" }))
+        .getByText("Renamed everywhere"),
+    ).not.toBeNull();
   });
 
   test("keeps same-project page-stage tabs unprefixed while preserving default title tooltips", async () => {

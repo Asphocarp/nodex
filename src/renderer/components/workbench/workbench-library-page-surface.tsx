@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useMemo } from "react";
 import { hashKey, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { PageStage } from "./workbench-page-stage";
@@ -48,7 +48,6 @@ export function WorkbenchLibraryPageSurface({
   onOpenDatabase,
   onOpenPage,
   onOpenCanvas,
-  onTitleChange,
 }: {
   readonly pageId: string;
   readonly surfaceId?: string;
@@ -63,7 +62,6 @@ export function WorkbenchLibraryPageSurface({
     canvasBlockId: string,
     titleSnapshot?: string,
   ) => void;
-  readonly onTitleChange?: (title: string) => void;
 }) {
   const queryClient = useQueryClient();
   const detailQueryKey = useMemo(
@@ -110,11 +108,6 @@ export function WorkbenchLibraryPageSurface({
     return projectPageDetailToStageModel(detail.data);
   }, [detail.data]);
 
-  useEffect(() => {
-    const title = stagePage?.page.title.trim();
-    if (!title) return;
-    onTitleChange?.(title);
-  }, [onTitleChange, stagePage?.page.title]);
   const authority = detail.data;
   const getCursor = () => {
     const currentDetail = queryClient.getQueryData<typeof authority>(detailQueryKey);
@@ -198,6 +191,7 @@ export function WorkbenchLibraryPageSurface({
     <PageStage
       contentAccessContext={libraryContentAccess}
       editorSessionKey={`library-page:${surfaceId}`}
+      pageTitleIdentity={{ libraryId: detail.data.libraryId, pageId }}
       retainEditorSession
       page={stagePage}
       autoFocusTitle={stagePage.page.title.trim() === "Untitled"}
@@ -211,7 +205,6 @@ export function WorkbenchLibraryPageSurface({
         },
         surfaceDependencies: libraryBlockDocumentSurfaceDependencies,
       }}
-      onTitleChange={onTitleChange}
       onOpenDatabase={onOpenDatabase}
       onOpenPage={onOpenPage
         ? ({ pageId: nextPageId, titleSnapshot }) => {

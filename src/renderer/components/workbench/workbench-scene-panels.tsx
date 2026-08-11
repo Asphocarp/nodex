@@ -8,6 +8,10 @@ import type {
   WorkbenchSceneDurablePanelCommands,
 } from "@/lib/use-workbench-panel-controller";
 import type { PanelId, Project } from "@/lib/types";
+import {
+  makePageTitleResourceKey,
+  type PageTitleProjectionStore,
+} from "@/lib/page-title-projection-store";
 import type { CommandKeymapState } from "../../../shared/command-keybindings";
 import {
   listWorkbenchPanelLeaves,
@@ -27,6 +31,8 @@ export interface WorkbenchScenePanelsProps {
   readonly scene: WorkbenchSceneSnapshot;
   readonly project: Project | null;
   readonly projects: Project[];
+  readonly currentLibraryId: string | null;
+  readonly pageTitleStore: PageTitleProjectionStore;
   readonly commands: WorkbenchSceneDurablePanelCommands;
   readonly isMac: boolean;
   readonly commandKeymapState?: CommandKeymapState | null;
@@ -62,6 +68,8 @@ export interface WorkbenchScenePanelsProps {
 function makePanelItems(
   scene: WorkbenchSceneSnapshot,
   project: Project | null,
+  currentLibraryId: string | null,
+  pageTitleStore: PageTitleProjectionStore,
   panelId: PanelId,
   renderSurface: WorkbenchScenePanelsProps["renderSurface"],
 ): {
@@ -83,11 +91,22 @@ function makePanelItems(
         surface,
         isProjectHomeRoot,
       );
+      const title = scene.owner.kind === "pages"
+        ? surface.titleSnapshot.trim() || presentation.title
+        : presentation.title;
+      const titleSource = surface.kind === "page_stage" && currentLibraryId
+        ? pageTitleStore.createSource(
+            makePageTitleResourceKey(
+              currentLibraryId,
+              surface.config.pageId,
+            ),
+            title,
+          )
+        : undefined;
       return {
         id: surface.id,
-        title: scene.owner.kind === "pages"
-          ? surface.titleSnapshot.trim() || presentation.title
-          : presentation.title,
+        title,
+        titleSource,
         icon: presentation.icon,
         iconElement: isProjectHomeRoot && project ? (
           <ProjectMarker
@@ -118,6 +137,8 @@ export function buildWorkbenchScenePanels({
   scene,
   project,
   projects,
+  currentLibraryId,
+  pageTitleStore,
   commands,
   isMac,
   commandKeymapState,
@@ -138,7 +159,14 @@ export function buildWorkbenchScenePanels({
   const ownerKey = makeWorkbenchSceneKey(scene.owner);
 
   const renderPanel = (panelId: PanelId) => {
-    const projection = makePanelItems(scene, project, panelId, renderSurface);
+    const projection = makePanelItems(
+      scene,
+      project,
+      currentLibraryId,
+      pageTitleStore,
+      panelId,
+      renderSurface,
+    );
     return (
       <WorkbenchPanelHost
         sessionId={ownerKey}

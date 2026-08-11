@@ -149,7 +149,6 @@ function documentAuthority() {
 
 function renderStage(
   page: PageStagePageModel = toStageModel(buildPage()),
-  titleCallbacks: Pick<PageStageProps, "onTitleChange" | "onTitleSourceDispose"> = {},
   breadcrumbProps: Pick<PageStageProps, "breadcrumb"> = {},
 ) {
   const { PageStage } = requirePageStage();
@@ -164,7 +163,6 @@ function renderStage(
         documentAuthority={documentAuthority()}
         onUpdate={async () => ({ status: "updated", didMutate: true })}
         onUpdateProperty={async () => ({ status: "updated", didMutate: true })}
-        {...titleCallbacks}
         {...breadcrumbProps}
         {...(page.databaseContext.kind === "member"
           ? {
@@ -221,25 +219,8 @@ describe("page stage", () => {
     expect(container.querySelector('[data-page-stage-heading-navigation-portal-target="true"]')).not.toBeNull();
   });
 
-  test("publishes the initial Y.Text title and disposes its live source", async () => {
-    const onTitleChange = vi.fn();
-    const onTitleSourceDispose = vi.fn();
-    const view = renderStage(toStageModel(buildPage()), {
-      onTitleChange,
-      onTitleSourceDispose,
-    });
-
-    await act(async () => {
-      await Promise.resolve();
-    });
-    expect(onTitleChange).toHaveBeenCalledWith("Live title");
-
-    view.unmount();
-    expect(onTitleSourceDispose).toHaveBeenCalledOnce();
-  });
-
   test("renders the current breadcrumb item from the live Y.Text title", async () => {
-    const view = renderStage(toStageModel(buildPage()), {}, {
+    const view = renderStage(toStageModel(buildPage()), {
       breadcrumb: {
         ancestors: [{
           projectId: "default",

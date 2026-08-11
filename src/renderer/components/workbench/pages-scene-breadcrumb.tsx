@@ -22,6 +22,7 @@ import type {
   WorkbenchSceneSnapshot,
   WorkbenchSurfaceDescriptor,
 } from "../../../shared/workbench-scene";
+import { usePresentedPageTitle } from "@/lib/page-title-projection-context";
 
 export function activePagesSceneSurface(
   scene: WorkbenchSceneSnapshot | null,
@@ -116,8 +117,14 @@ export function PagesSceneBreadcrumb({
     : root?.kind === "canvas"
       ? CanvasIcon
       : PageIcon;
-  const surfaceTitle = surface?.titleSnapshot.trim() || "Untitled";
-  const rootTitle = navigation.activeRootNode?.title.trim() || surfaceTitle;
+  const surfaceTitle = usePresentedPageTitle(
+    surface?.kind === "page_stage" ? surface.config.pageId : null,
+    surface?.titleSnapshot ?? "Untitled",
+  );
+  const rootTitle = usePresentedPageTitle(
+    root?.kind === "page" ? root.pageId : null,
+    navigation.activeRootNode?.title ?? surfaceTitle,
+  );
   const childTitle = target && root && (
       target.kind === "view"
       || !areLibraryResourceTargetsEqual(target, root)

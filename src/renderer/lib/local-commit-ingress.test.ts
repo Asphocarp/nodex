@@ -110,6 +110,39 @@ const databaseRowEffect = (
   effect_hash: "c".repeat(64),
 });
 
+type AuthorizedProjectionEffect =
+  AuthorizedDeliveryPacket["projection_effects"][number];
+
+const patchlessEffect = (
+  canonicalKey: string,
+  projectionScope: AuthorizedProjectionEffect["scope"]["scope"],
+  effectHash: string,
+): AuthorizedProjectionEffect => ({
+  scope: {
+    schema_version: 1,
+    canonical_key: canonicalKey,
+    scope: projectionScope,
+  },
+  base_revision: 0,
+  result_revision: 1,
+  covered_commit_seq: 1,
+  patch: null,
+  requires_read_at_least: true,
+  effect_hash: effectHash,
+});
+
+const patchlessPageEffect = (
+  pageId = "page-1",
+): AuthorizedProjectionEffect => patchlessEffect(
+  `page:project-1:${pageId}`,
+  {
+    kind: "page",
+    project_id: "project-1",
+    page_id: pageId,
+  },
+  "d".repeat(64),
+);
+
 const packet = (input: {
   readonly authorization?: AuthorizedDeliveryPacket["authorization_scope"];
   readonly projections?: AuthorizedDeliveryPacket["projection_effects"];
@@ -221,6 +254,87 @@ describe("RendererLocalCommitIngress", () => {
     await ingress.admitApply(apply(packet())).then(() => order.push("resolved"));
 
     expect(order).toEqual(["projection", "resolved"]);
+  });
+
+  test("preserves the Page dependency of a patchless projection effect", async () => {
+    const ingress = new RendererLocalCommitIngress();
+    const messages: ProjectionStreamMessage[] = [];
+    ingress.subscribeProjection(libraryScope, (message) => messages.push(message));
+
+    await ingress.admitPacket(packet({
+      authorization: {
+        kind: "library",
+        library_id: "library-1",
+      },
+      projections: [patchlessPageEffect("page-1")],
+    }));
+
+    expect(messages).toEqual([
+      expect.objectContaining({
+        kind: "effect",
+        delivery: expect.objectContaining({
+          impact: {
+            kind: "resources",
+            page_ids: ["page-1"],
+            database_ids: [],
+            data_source_ids: [],
+            view_ids: [],
+            document_heads: [],
+          },
+        }),
+      }),
+    ]);
+  });
+
+  test("derives safe repair impacts from every patchless aggregate scope", async () => {
+    const ingress = new RendererLocalCommitIngress();
+    const messages: ProjectionStreamMessage[] = [];
+    ingress.subscribeProjection(libraryScope, (message) => messages.push(message));
+
+    await ingress.admitPacket(packet({
+      authorization: {
+        kind: "library",
+        library_id: "library-1",
+      },
+      projections: [
+        patchlessEffect(
+          "database-view:project-1:view-1",
+          {
+            kind: "database_view",
+            project_id: "project-1",
+            database_id: "database-1",
+            data_source_id: "source-1",
+            view_id: "view-1",
+          },
+          "e".repeat(64),
+        ),
+        patchlessEffect(
+          "project:project-1",
+          { kind: "project", project_id: "project-1" },
+          "f".repeat(64),
+        ),
+        patchlessEffect(
+          "library:library-1",
+          { kind: "library", library_id: "library-1" },
+          "0".repeat(64),
+        ),
+      ],
+    }));
+
+    expect(messages.map((message) =>
+      message.kind === "effect" ? message.delivery.impact : null
+    )).toEqual([
+      {
+        kind: "resources",
+        page_ids: [],
+        database_ids: ["database-1"],
+        data_source_ids: ["source-1"],
+        view_ids: ["view-1"],
+        document_heads: [],
+      },
+      { kind: "all" },
+      { kind: "all" },
+    ]);
   });
 
   test("preserves Core order while admitting a singleton Database row", async () => {

@@ -21,6 +21,7 @@ import {
   type EditorSurfaceLease,
   type DocumentSessionRegistry,
 } from "@/lib/document-session-registry";
+import { PageTitleProjectionPublisher } from "@/lib/page-title-projection-context";
 
 interface PageEditorSessionSurfaceProps extends Omit<
   BlockDocumentSurfaceProps,
@@ -63,6 +64,7 @@ export function PageEditorSessionSurface({
   registry = documentSessionRegistry,
   projectId,
   descriptor,
+  pageTitleIdentity,
   isActive,
   localAwarenessState,
   onReload,
@@ -200,10 +202,21 @@ export function PageEditorSessionSurface({
             "Page editor session resolved a non-Page Document schema",
           );
         }
-        return children({
+        const pageSurface = {
           ...surface,
           descriptor,
-        }, session);
+        };
+        const content = children(pageSurface, session);
+        if (!pageTitleIdentity) return content;
+        return (
+          <PageTitleProjectionPublisher
+            identity={pageTitleIdentity}
+            publisherId={surface.clientSessionId}
+            title={surface.title}
+          >
+            {content}
+          </PageTitleProjectionPublisher>
+        );
       }}
     </OwnedBlockDocumentRuntimeSurface>
   );

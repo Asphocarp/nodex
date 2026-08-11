@@ -212,7 +212,7 @@ export const useLibraryResourceProjectAccess = (
   enabled,
 });
 
-export const useLibraryNavigationInvalidation = (): void => {
+export const useLibraryNavigationInvalidation = (): string | null => {
   const queryClient = useQueryClient();
   const metadata = useQuery(libraryMetadataQueryOptions());
   const retainedLibraryId = useRef<string | null>(null);
@@ -238,6 +238,7 @@ export const useLibraryNavigationInvalidation = (): void => {
       ),
     }
     : null);
+  return libraryId ?? null;
 };
 
 export const useLibraryMetadata = (enabled = true) => useQuery({

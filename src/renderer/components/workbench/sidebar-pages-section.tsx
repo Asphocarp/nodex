@@ -13,7 +13,6 @@ import type {
 } from "../../../shared/library-module";
 import {
   useInfiniteLibraryStandaloneRoots,
-  useLibraryNavigationInvalidation,
 } from "@/lib/use-library-navigation";
 import {
   CODEX_SIDEBAR_GROUP_ACTION_BUTTON_CLASS,
@@ -35,6 +34,7 @@ import {
 } from "./sidebar-library-dnd";
 import { SidebarPaginatedItems } from "./sidebar-paginated-items";
 import { cn } from "@/lib/utils";
+import { usePresentedPageTitle } from "@/lib/page-title-projection-context";
 
 type StandaloneRootsValue = Extract<
   LibraryReadValue,
@@ -52,7 +52,6 @@ interface StandaloneRootsQueryState {
 }
 
 export interface SidebarPagesDataSource {
-  readonly useInvalidation: () => void;
   readonly useStandaloneRoots: (
     input: Readonly<{
       limit?: number;
@@ -62,7 +61,6 @@ export interface SidebarPagesDataSource {
 }
 
 const DEFAULT_PAGES_DATA_SOURCE: SidebarPagesDataSource = {
-  useInvalidation: useLibraryNavigationInvalidation,
   useStandaloneRoots: (input) => useInfiniteLibraryStandaloneRoots(input),
 };
 
@@ -109,7 +107,10 @@ function SidebarPageRootRow({
 }) {
   const target = nodeTarget(node);
   const key = nodeKey(node);
-  const title = node.title.trim() || "Untitled";
+  const title = usePresentedPageTitle(
+    node.kind === "page" ? node.pageId : null,
+    node.title,
+  );
   const actionableTarget = node.kind === "canvas"
     ? null
     : target as ActionableLibraryResourceTarget;
@@ -219,7 +220,6 @@ export function SidebarPagesSection({
   readonly dataSource?: SidebarPagesDataSource;
   readonly mutationsEnabled?: boolean;
 }) {
-  dataSource.useInvalidation();
   const query = dataSource.useStandaloneRoots({
     limit: 10,
     ...(activeRoot ? { forceIncludeTarget: activeRoot } : {}),
