@@ -266,12 +266,27 @@ stream progress, never a projection version. Core compiles one exact effect per
 affected scope in the write transaction. A complete patch is reduced
 synchronously into the current renderer snapshot; missing patches, revision
 gaps, integrity conflicts, resets, and explicitly incomplete windows trigger a
-coalesced canonical `readAtLeast` repair. Database View groups and every group
+coalesced canonical `readAtLeast` repair. An authorized patchless effect keeps
+its resource dependency by deriving renderer impact from its exact Page or
+Database View scope; Project and Library scopes conservatively invalidate all
+registered reads in that authorized audience. The renderer never reconstructs
+a broader packet-level aggregate impact. Database View groups and every group
 window carry the same authority, so readers reject a mixed-revision
 composition and continuations never cross a scope revision. There is no
 item-level pending projection state: after Core commits, the apply response is
 the initiating renderer's immediate authority and durable replay is only the
 later convergence path.
+
+Page `Y.Text("title")` is also projected through a renderer-lifetime,
+resource-keyed presentation overlay while an authoritative Document surface is
+mounted. Session, Project, and Pages tab chrome, Sidebar Pages rows, and the
+Pages breadcrumb consume the same `(libraryId, pageId)` identity, so local and
+remote Yjs updates appear in every visible representation without rewriting
+Window Session or Scene descriptors per keystroke. Each Document surface owns
+an independent publisher lease, and releasing one lease cannot clear another.
+This overlay is not durable Page authority: canonical Page and Library reads
+remain the fallback and converge through LocalCommit repair, while descriptor
+title snapshots remain cold-start presentation only.
 
 Projection compilation is audience-complete rather than actor-centric. Core
 computes the union of pre-state and post-state authorized scopes for every

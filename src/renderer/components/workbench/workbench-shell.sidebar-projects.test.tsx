@@ -250,6 +250,46 @@ describe("workbench session shell / sidebar-projects", () => {
     expect(invokeCalls.some((call) => call[0] === "project-sessions:create")).toBe(false);
   });
 
+  test("Project Scene tab chrome follows the live Page resource title", async () => {
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const hostProps = (globalThis as {
+      __lastMainViewHostProps?: Record<string, unknown>;
+    }).__lastMainViewHostProps;
+    if (typeof hostProps?.openPageStage !== "function") {
+      throw new Error("Expected Project Home Database Page opener");
+    }
+    await act(async () => {
+      await (hostProps.openPageStage as (
+        projectId: string,
+        pageId: string,
+        title?: string,
+      ) => Promise<void> | void)("alpha", "card-1", "Card One");
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const pageStageProps = (globalThis as {
+      __mockPageStagePropsByPageId?: Record<string, Record<string, unknown>>;
+    }).__mockPageStagePropsByPageId?.["card-1"];
+    const publishTitle = pageStageProps?.__publishPageTitle as
+      | ((title: string) => void)
+      | undefined;
+    if (!publishTitle) throw new Error("Expected live Page title publisher");
+
+    await act(async () => {
+      publishTitle("Renamed Page");
+      await Promise.resolve();
+    });
+
+    expect(screen.queryByRole("tab", { name: "Card One" })).toBeNull();
+    expect(screen.getByRole("tab", { name: "Renamed Page" })).not.toBeNull();
+  });
+
   test("Project Scene presents non-root Database surfaces as standard DB View tabs", async () => {
     const screen = renderWorkbench({
       projects: [makeProject(), makeProject("beta", "Beta")],

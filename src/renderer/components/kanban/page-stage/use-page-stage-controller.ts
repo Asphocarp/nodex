@@ -202,7 +202,6 @@ export function usePageStageController(
     onClose,
     editorSessionKey,
     onLeavePage,
-    onTitleChange,
     closeRef,
     persistRef,
     sessionSnapshotRef,
@@ -497,8 +496,7 @@ export function usePageStageController(
 
   const handleDocumentTitleChange = useCallback((value: string) => {
     setTitle(value);
-    onTitleChange?.(value);
-  }, [onTitleChange]);
+  }, []);
 
   const handlePersist = useCallback(async () => {
     saveCurrentScrollPosition();

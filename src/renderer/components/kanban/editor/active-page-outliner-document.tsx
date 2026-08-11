@@ -353,6 +353,10 @@ export function ActivePageOutlinerDocument({
           <BlockDocumentSurface
             projectId={target.documentScopeId}
             descriptor={model.descriptor}
+            pageTitleIdentity={{
+              libraryId: target.page.libraryId,
+              pageId: target.page.pageId,
+            }}
             dependencies={surfaceDependencies}
             isActive={hostRuntime.isActiveSurface}
             onReload={controls.reload}

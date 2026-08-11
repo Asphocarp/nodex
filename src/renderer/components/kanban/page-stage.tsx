@@ -1,8 +1,6 @@
 import {
   memo,
   useCallback,
-  useEffect,
-  useEffectEvent,
   useRef,
   useState,
   useSyncExternalStore,
@@ -223,22 +221,12 @@ function PageStageContent({
 function PageStageDocumentTitle({
   title,
   onValueChange,
-  onTitleSourceDispose,
   autoFocus,
 }: {
   readonly title: Y.Text;
   readonly onValueChange: (title: string) => void;
-  readonly onTitleSourceDispose?: () => void;
   readonly autoFocus?: boolean;
 }) {
-  const disposeTitleSource = useEffectEvent(() => {
-    onTitleSourceDispose?.();
-  });
-
-  useEffect(() => () => {
-    disposeTitleSource();
-  }, [title]);
-
   return (
     <CollaborativePageTitle
       title={title}
@@ -299,7 +287,6 @@ export function PageStage(props: PageStageProps) {
         <PageStageDocumentTitle
           title={surface.title}
           onValueChange={controller.handleDocumentTitleChange}
-          onTitleSourceDispose={props.onTitleSourceDispose}
           autoFocus={props.autoFocusTitle}
         />
       }
@@ -346,6 +333,7 @@ export function PageStage(props: PageStageProps) {
   const surfaceProps = {
     projectId: props.documentScopeId,
     descriptor: props.documentAuthority.descriptor,
+    pageTitleIdentity: props.pageTitleIdentity,
     isActive: props.isActivePanelTab ?? true,
     runtimeRef: documentRuntimeRef,
     onReload: props.documentAuthority.reload,

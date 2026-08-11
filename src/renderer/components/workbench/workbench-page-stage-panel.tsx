@@ -1,7 +1,5 @@
 import {
   useCallback,
-  useEffect,
-  useLayoutEffect,
   useMemo,
   type ComponentPropsWithoutRef,
   type MutableRefObject,
@@ -28,10 +26,6 @@ import {
   type PageStageSemanticValues,
 } from "@/lib/page-stage-properties";
 import { readPageStageContentWidthPreference } from "@/lib/page-stage-layout";
-import {
-  makePageStageTabTitleKey,
-  type PageStageTabTitleStore,
-} from "@/lib/page-stage-tab-title-store";
 import { fetchPageDetail, usePageDetail } from "@/lib/page-detail-store";
 import { RIGHT_PANEL_COMPOSER_OVERLAY_SCROLL_RESERVE_STYLE } from "@/lib/right-panel-composer-overlay-reserve";
 import { projectContentAccess } from "../../../shared/content-access-context";
@@ -150,7 +144,6 @@ export function PageStageSessionTab({
   sessionId,
   sessionThread,
   canStartThreadInSession,
-  titleStore,
   onLeavePage,
   onClose,
   onOpenTerminal,
@@ -174,7 +167,6 @@ export function PageStageSessionTab({
   sessionId: string;
   sessionThread: CodexThreadSummary | null;
   canStartThreadInSession: boolean;
-  titleStore: PageStageTabTitleStore;
   onLeavePage: (snapshot: PageStageSessionSnapshot) => void;
   onClose: () => void;
   onOpenTerminal: () => Promise<void>;
@@ -193,7 +185,7 @@ export function PageStageSessionTab({
   isActivePanelTab: boolean;
 }) {
   const codexControl = useCodexAppServerControl(tab.config.projectId);
-  const titleStoreKey = makePageStageTabTitleKey(sessionId, tab.id);
+  const editorSessionKey = makeEditorSurfaceKey(sessionId, tab.id);
 
   const detailSnapshot = usePageDetail(
     project?.libraryId ?? null,
@@ -226,15 +218,6 @@ export function PageStageSessionTab({
     detailSnapshot.loading
     || (!detailSnapshot.error && !stageProjection.error)
   );
-
-  useLayoutEffect(() => {
-    if (!page) return;
-    titleStore.publishCommitted(titleStoreKey, page.page.title);
-  }, [page, titleStore, titleStoreKey]);
-
-  useEffect(() => () => {
-    titleStore.release(titleStoreKey);
-  }, [titleStore, titleStoreKey]);
 
   const ownershipPath = usePageOwnershipPathReadModel(
     projectContentAccess(project?.id ?? tab.config.projectId),
@@ -407,7 +390,10 @@ export function PageStageSessionTab({
         return (
           <PageStage
             contentAccessContext={projectContentAccess(tab.config.projectId)}
-            editorSessionKey={makeEditorSurfaceKey(sessionId, tab.id)}
+            editorSessionKey={editorSessionKey}
+            pageTitleIdentity={project
+              ? { libraryId: project.libraryId, pageId: tab.config.pageId }
+              : undefined}
             retainEditorSession={tab.preview !== true}
             documentAuthority={documentAuthority}
             page={page}
@@ -419,12 +405,6 @@ export function PageStageSessionTab({
             >}
             persistRef={persistRef}
             sessionSnapshotRef={sessionSnapshotRef}
-            onTitleChange={(title) => {
-              titleStore.publishLive(titleStoreKey, title);
-            }}
-            onTitleSourceDispose={() => {
-              titleStore.clearLive(titleStoreKey);
-            }}
             onClose={onClose}
             onLeavePage={onLeavePage}
             onUpdate={async (pageId: string, updates: Partial<PageInput>) =>

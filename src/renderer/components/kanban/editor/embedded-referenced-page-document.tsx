@@ -49,6 +49,9 @@ export function EmbeddedReferencedPageDocument({
     executionProjectId ?? "",
     projects,
   );
+  const targetLibraryId = projects.find(
+    (project) => project.id === executionProjectId,
+  )?.libraryId ?? projects[0]?.libraryId;
   const queryDependencies =
     ownedBlockDocumentQueryDependenciesForContentAccess(contentAccessContext);
   const surfaceDependencies =
@@ -81,6 +84,9 @@ export function EmbeddedReferencedPageDocument({
           <BlockDocumentSurface
             projectId={documentScopeId}
             descriptor={model.descriptor}
+            pageTitleIdentity={targetLibraryId
+              ? { libraryId: targetLibraryId, pageId: card.id }
+              : undefined}
             dependencies={surfaceDependencies}
             isActive={isActive}
             onReload={controls.reload}
