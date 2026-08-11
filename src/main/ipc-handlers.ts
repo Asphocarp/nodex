@@ -5,16 +5,22 @@ import {
   dialog,
   ipcMain,
   nativeImage,
+  shell,
+  type IpcMainEvent,
   type IpcMainInvokeEvent,
   type MenuItemConstructorOptions,
   type OpenDialogOptions,
 } from "electron";
 import { performance } from "node:perf_hooks";
 import { randomUUID } from "node:crypto";
+import { lstatSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, isAbsolute, join, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { writeImageToClipboard } from "./clipboard-image-writer";
-import { inspectClipboardPasteItems } from "./clipboard-paste-inspector";
+import {
+  inspectClipboardPasteItems,
+  readClipboardPastePayload,
+} from "./clipboard-paste-inspector";
 import { prepareComposerPickedFiles } from "./composer-picked-files";
 import { registerPersistedAtomIpc } from "./persisted-atom-ipc";
 import {
@@ -55,6 +61,12 @@ import {
   saveUploadedResource,
 } from "./local-store/assets";
 import { parseAssetSource } from "../shared/assets";
+import { CLIPBOARD_INSPECT_PASTE_SYNC_CHANNEL } from "../shared/clipboard-paste";
+import {
+  FILE_PATH_INSPECT_SYNC_CHANNEL,
+  MANAGED_ASSET_RESOLVE_PATH_SYNC_CHANNEL,
+  PRELOAD_FILE_PATH_MAX_LENGTH,
+} from "../shared/preload-file-access";
 import { parseCodexApprovalResponse } from "../shared/codex-approval-response";
 import {
   parseCodexUserInputAutoResolutionActivityInput,
@@ -380,13 +392,15 @@ function requireTrustedWorkspaceFileSender(event: IpcMainInvokeEvent): void {
 }
 
 function requireTrustedAppRendererSender(
-  event: IpcMainInvokeEvent,
+  event: IpcMainInvokeEvent | IpcMainEvent,
   capabilityName: string,
 ): void {
   const ownerWindow = BrowserWindow.fromWebContents(event.sender);
   if (isTrustedAppRendererIpcSender({
+    developmentOrigin: process.env.ELECTRON_RENDERER_URL ?? null,
     hasOwnerWindow: ownerWindow !== null,
     senderType: event.sender.getType(),
+    senderUrl: event.senderFrame?.url ?? "",
     isMainFrame: event.senderFrame === event.sender.mainFrame,
   })) {
     return;
@@ -1141,6 +1155,67 @@ export function registerIpcHandlers(
   options: RegisterIpcHandlersOptions = {},
 ): void {
   ensureBrowserGuestBridge();
+  ipcMain.removeAllListeners(CLIPBOARD_INSPECT_PASTE_SYNC_CHANNEL);
+  ipcMain.on(CLIPBOARD_INSPECT_PASTE_SYNC_CHANNEL, (event) => {
+    try {
+      requireTrustedAppRendererSender(event, "Clipboard paste inspection");
+      event.returnValue = inspectClipboardPasteItems();
+    } catch (error) {
+      captureMainException(error, {
+        tags: {
+          channel: CLIPBOARD_INSPECT_PASTE_SYNC_CHANNEL,
+          mechanism: "ipc-sync",
+        },
+        extra: {
+          senderWebContentsId: event.sender.id,
+        },
+      });
+      event.returnValue = { items: [] };
+    }
+  });
+  ipcMain.removeAllListeners(MANAGED_ASSET_RESOLVE_PATH_SYNC_CHANNEL);
+  ipcMain.on(MANAGED_ASSET_RESOLVE_PATH_SYNC_CHANNEL, (event, source: unknown) => {
+    try {
+      requireTrustedAppRendererSender(event, "Managed asset path access");
+      if (typeof source !== "string") {
+        event.returnValue = null;
+        return;
+      }
+      const parsed = parseAssetSource(source);
+      event.returnValue = parsed ? resolveAssetPath(parsed.fileName) : null;
+    } catch {
+      event.returnValue = null;
+    }
+  });
+  ipcMain.removeAllListeners(FILE_PATH_INSPECT_SYNC_CHANNEL);
+  ipcMain.on(FILE_PATH_INSPECT_SYNC_CHANNEL, (event, value: unknown) => {
+    try {
+      requireTrustedAppRendererSender(event, "Local file inspection");
+      if (
+        typeof value !== "string"
+        || value.length === 0
+        || value.length > PRELOAD_FILE_PATH_MAX_LENGTH
+        || value.includes("\0")
+        || !isAbsolute(value)
+      ) {
+        event.returnValue = null;
+        return;
+      }
+      const stats = lstatSync(value);
+      if (stats.isSymbolicLink() || (!stats.isFile() && !stats.isDirectory())) {
+        event.returnValue = null;
+        return;
+      }
+      event.returnValue = {
+        path: value,
+        kind: stats.isDirectory() ? "folder" : "file",
+        name: basename(value),
+        ...(stats.isFile() ? { bytes: stats.size } : {}),
+      };
+    } catch {
+      event.returnValue = null;
+    }
+  });
   const gitActionWorker = createGitActionWorkerPort(options.gitWorkerHost);
   interface SharedWorkspaceFileWatch {
     session: FileWatchSession;
@@ -2861,7 +2936,8 @@ export function registerIpcHandlers(
 
   registerHandle(
     "clipboard:write-image",
-    async (_, input: { source?: string }) => {
+    async (event, input: { source?: string }) => {
+      requireTrustedAppRendererSender(event, "Clipboard image writes");
       if (typeof input?.source !== "string") {
         return { ok: false, message: "Could not copy image." } as const;
       }
@@ -2870,7 +2946,10 @@ export function registerIpcHandlers(
     },
   );
 
-  registerHandle("clipboard:inspect-paste", () => inspectClipboardPasteItems());
+  registerHandle("clipboard:read-paste", (event) => {
+    requireTrustedAppRendererSender(event, "Clipboard paste reads");
+    return readClipboardPastePayload();
+  });
 
   registerHandle(
     "composer:pick-files",
@@ -4112,21 +4191,46 @@ export function registerIpcHandlers(
       codexService.terminateBackgroundTerminal(input),
   );
 
-  registerHandle("codex:mcp-resource:read", (_, params) =>
-    codexService.readMcpResource(params),
-  );
+  registerHandle("codex:mcp-resource:read", (event, params) => {
+    requireTrustedAppRendererSender(event, "MCP resource access");
+    return codexService.readMcpResource(params);
+  });
 
-  registerHandle("codex:mcp-apps:list", () =>
-    codexService.listMcpApps(),
-  );
+  registerHandle("codex:mcp-tool:call", (event, params) => {
+    requireTrustedAppRendererSender(event, "MCP tool access");
+    return codexService.callMcpServerTool(params);
+  });
 
-  registerHandle("codex:experimental-features:list", () =>
-    codexService.listExperimentalFeatures(),
-  );
+  registerHandle("mcp-app:open-external", async (event, value) => {
+    requireTrustedAppRendererSender(event, "MCP external navigation");
+    if (value.length > 8_192) throw new Error("MCP external URL is too long");
+    const url = new URL(value);
+    if (
+      url.protocol !== "https:"
+      || url.username
+      || url.password
+    ) {
+      throw new Error("MCP external navigation requires a credential-free HTTPS URL");
+    }
+    await shell.openExternal(url.toString());
+  });
+
+  registerHandle("codex:mcp-apps:list", (event) => {
+    requireTrustedAppRendererSender(event, "MCP app access");
+    return codexService.listMcpApps();
+  });
+
+  registerHandle("codex:experimental-features:list", (event) => {
+    requireTrustedAppRendererSender(event, "Experimental feature access");
+    return codexService.listExperimentalFeatures();
+  });
 
   registerHandle(
     "codex:mcp-server-statuses:list",
-    () => codexService.listMcpServerStatuses(),
+    (event) => {
+      requireTrustedAppRendererSender(event, "MCP server status access");
+      return codexService.listMcpServerStatuses();
+    },
   );
 
   registerHandle("codex:approval:respond", (

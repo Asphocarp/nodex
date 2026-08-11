@@ -62,7 +62,7 @@ declare global {
       requestMicrophonePermission?: () => void;
       resolveManagedAssetPath?: (source: string) => string | null;
       inspectPasteClipboard?: () => ClipboardPasteInspectionResult;
-      readPasteClipboard?: () => ClipboardPastePayload;
+      readPasteClipboard?: () => Promise<ClipboardPastePayload>;
       getPathInfoForFile?: (file: File) => ClipboardPasteInspectionItem | null;
       getPathForFile?: (file: File) => string;
       sendGitWorkerMessage?: (

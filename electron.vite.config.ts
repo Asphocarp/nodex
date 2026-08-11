@@ -1,13 +1,14 @@
 import { resolve } from "path";
 import { defineConfig, externalizeDepsPlugin } from "electron-vite";
 import { sentryVitePlugin } from "@sentry/vite-plugin";
-import type { Rollup } from "vite";
+import type { Plugin, Rollup } from "vite";
 import { resolveRendererManualChunk } from "./config/renderer-manual-chunks";
 import {
   createRendererVitePlugins,
   rendererViteCss,
   rendererViteResolve,
 } from "./config/renderer-vite-shared";
+import { buildTopLevelRendererCsp } from "./src/shared/app-renderer-policy";
 
 function hasSentrySourceMapUploadConfig(): boolean {
   return Boolean(
@@ -36,6 +37,34 @@ function createSentryPlugins() {
 }
 
 const sentrySourcemapSetting = shouldEmitSentrySourceMaps() ? "hidden" : false;
+
+function enforceSelfContainedSandboxedPreloads(): Plugin {
+  return {
+    name: "nodex:self-contained-sandboxed-preloads",
+    generateBundle(_outputOptions, bundle) {
+      const chunks = Object.values(bundle).filter(
+        (output): output is Rollup.OutputChunk => output.type === "chunk",
+      );
+      const emittedChunkNames = new Set(chunks.map((chunk) => chunk.fileName));
+      const internalImports = chunks.flatMap((chunk) => [
+        ...chunk.imports,
+        ...chunk.dynamicImports,
+      ]
+        .filter((dependency) => emittedChunkNames.has(dependency))
+        .map((dependency) => `${chunk.fileName} -> ${dependency}`));
+      const auxiliaryChunks = chunks
+        .filter((chunk) => !chunk.isEntry)
+        .map((chunk) => chunk.fileName);
+      const splitOutputs = [...new Set([...internalImports, ...auxiliaryChunks])];
+      if (splitOutputs.length === 0) return;
+
+      this.error(
+        "Sandboxed Electron preload entries must be self-contained; "
+        + `the sandbox preload loader cannot load emitted chunks: ${splitOutputs.join(", ")}`,
+      );
+    },
+  };
+}
 
 function isKnownYProsemirrorAwarenessTypeImportWarning(
   warning: Rollup.RollupLog,
@@ -74,13 +103,21 @@ export default defineConfig({
     },
   },
   preload: {
-    plugins: [externalizeDepsPlugin(), ...createSentryPlugins()],
+    plugins: [
+      externalizeDepsPlugin(),
+      enforceSelfContainedSandboxedPreloads(),
+      ...createSentryPlugins(),
+    ],
     build: {
       sourcemap: sentrySourcemapSetting,
       rollupOptions: {
         input: {
           "browser-guest": resolve(__dirname, "src/preload/browser-guest.ts"),
           index: resolve(__dirname, "src/preload/index.ts"),
+          "mcp-app-sandbox-guest": resolve(
+            __dirname,
+            "src/preload/mcp-app-sandbox-guest.ts",
+          ),
         },
       },
     },
@@ -88,6 +125,12 @@ export default defineConfig({
   renderer: {
     server: {
       port: 51284,
+      strictPort: true,
+      headers: {
+        "Content-Security-Policy": buildTopLevelRendererCsp({
+          mode: "development",
+        }),
+      },
     },
     root: resolve(__dirname, "src/renderer"),
     build: {

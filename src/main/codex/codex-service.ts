@@ -46,6 +46,8 @@ import type { FileChangeRequestApprovalResponse } from "@nodex/codex-app-server-
 import type { McpServerElicitationRequestResponse } from "@nodex/codex-app-server-protocol/v2/McpServerElicitationRequestResponse";
 import type { McpResourceReadParams } from "@nodex/codex-app-server-protocol/v2/McpResourceReadParams";
 import type { McpResourceReadResponse } from "@nodex/codex-app-server-protocol/v2/McpResourceReadResponse";
+import type { McpServerToolCallParams } from "@nodex/codex-app-server-protocol/v2/McpServerToolCallParams";
+import type { McpServerToolCallResponse } from "@nodex/codex-app-server-protocol/v2/McpServerToolCallResponse";
 import type { ModelListResponse } from "@nodex/codex-app-server-protocol/v2/ModelListResponse";
 import type { PermissionsRequestApprovalResponse } from "@nodex/codex-app-server-protocol/v2/PermissionsRequestApprovalResponse";
 import type { PluginInstalledResponse } from "@nodex/codex-app-server-protocol/v2/PluginInstalledResponse";
@@ -10219,6 +10221,16 @@ export class CodexService extends EventEmitter {
   async readMcpResource(params: McpResourceReadParams): Promise<McpResourceReadResponse> {
     await this.ensureClientReady();
     return this.client.request<"mcpServer/resource/read", McpResourceReadResponse>("mcpServer/resource/read", params);
+  }
+
+  async callMcpServerTool(
+    params: McpServerToolCallParams,
+  ): Promise<McpServerToolCallResponse> {
+    await this.ensureClientReady();
+    return this.client.request<"mcpServer/tool/call", McpServerToolCallResponse>(
+      "mcpServer/tool/call",
+      params,
+    );
   }
 
   async listMcpApps(): Promise<AppInfo[]> {

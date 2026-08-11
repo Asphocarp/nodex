@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, protocol } from "electron";
+import { app, BrowserWindow, dialog } from "electron";
 import { configureInstanceScopePaths } from "./instance-scope";
 import { resolveBootstrapNodexHome } from "./bootstrap-config";
 import { BootstrapRuntimeEventQueue } from "./bootstrap-events";
@@ -16,7 +16,7 @@ import {
 } from "./macos-applications-installer";
 import type { MainRuntimeController } from "./main-runtime";
 import { assertRustDataAuthorityEnvironment } from "./data-authority";
-import { MANAGED_ASSET_PROTOCOL_SCHEME } from "../shared/managed-assets";
+import { registerNodexPrivilegedSchemes } from "./privileged-schemes";
 import {
   ISOLATED_RUN_ID_ENV,
   markIsolatedRunClaimReady,
@@ -24,16 +24,6 @@ import {
   resolveIsolatedRunBootstrapAccess,
   type IsolatedRunBootstrapAccess,
 } from "./core-client/isolated-run-ownership";
-
-protocol.registerSchemesAsPrivileged([
-  {
-    scheme: MANAGED_ASSET_PROTOCOL_SCHEME,
-    privileges: {
-      secure: true,
-      standard: true,
-    },
-  },
-]);
 
 process.env.NODEX_INTERNAL_APP_PACKAGED = app.isPackaged ? "true" : "false";
 
@@ -88,6 +78,10 @@ function initializeBootstrapDiagnostics(): Promise<boolean> {
 }
 
 const mainSentryInitialization = initializeBootstrapDiagnostics();
+// Sentry registers its IPC scheme and proxies later registrations during its
+// synchronous init phase. Register Nodex schemes afterward so Chromium receives
+// one combined privilege set instead of losing secure-context privileges.
+registerNodexPrivilegedSchemes();
 
 function formatStartupError(error: unknown): string {
   if (error instanceof Error) {

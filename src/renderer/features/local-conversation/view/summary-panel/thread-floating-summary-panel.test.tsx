@@ -2955,15 +2955,15 @@ describe("ThreadFloatingSummaryPanel", () => {
       | {
           mcpAppId?: string;
           capabilityId?: string;
-          resource?: { html?: string };
+          resource?: unknown;
         }
       | undefined;
     expect(openCalls.length).toBe(1);
     expect(call?.mcpAppId).toBe("docs:ui://docs/search.html");
     expect(call?.capabilityId).toBe(
-      "mcp-capability:thread-1:docs:search:call-1",
+      "mcp-capability:thread-1:docs:search:call-1:ui%3A%2F%2Fdocs%2Fsearch.html",
     );
-    expect(call?.resource?.html).toBe("<main>Docs app</main>");
+    expect(call?.resource).toBeUndefined();
   });
 
   test("resolves MCP app source resources before opening the side panel", async () => {
@@ -3059,12 +3059,16 @@ describe("ThreadFloatingSummaryPanel", () => {
     const call = openCalls[0] as
       | {
           mcpAppId?: string;
-          resource?: { html?: string };
+          capabilityId?: string;
+          resource?: unknown;
         }
       | undefined;
     expect(openCalls.length).toBe(1);
     expect(call?.mcpAppId).toBe("docs:ui://docs/search.html");
-    expect(call?.resource?.html).toBe("<main>Fetched Docs app</main>");
+    expect(call?.capabilityId).toBe(
+      "mcp-capability:thread-1:docs:search:call-1:ui%3A%2F%2Fdocs%2Fsearch.html",
+    );
+    expect(call?.resource).toBeUndefined();
   });
 
   test("opens the summary panel plan row in the plan side panel", async () => {
