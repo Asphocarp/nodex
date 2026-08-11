@@ -13,6 +13,7 @@ import {
 import { useCommandKeymapState } from "@/lib/use-command-keymap-state";
 import { invoke } from "@/lib/api";
 import {
+  reminderOpenToPageDeepLink,
   useWorkbenchCommandIngress,
   type WorkbenchPageDeepLinkRequest,
   type WorkbenchReminderOpenRequest,
@@ -132,7 +133,6 @@ export function WorkbenchShell({
     dbViewPrefsByProject,
     sidebar,
     recentPageSessions,
-    setView: setWorkbenchView,
     setDbViewPrefs,
     setSidebarCollapsed,
     setSidebarWidth,
@@ -149,11 +149,6 @@ export function WorkbenchShell({
   const pageStagePersistRef = useRef<(() => Promise<void>) | null>(null);
   const pageStageSessionSnapshotRef = useRef<PageStageSessionSnapshot | null>(null);
 
-  const [pendingReminderOpen, setPendingReminderOpen] = useState<{
-    projectId: string;
-    pageId: string;
-    occurrenceStart: string;
-  } | null>(null);
   const [pendingDeepLinkOpen, setPendingDeepLinkOpen] = useState<{
     projectId: string;
     pageId: string;
@@ -253,23 +248,6 @@ export function WorkbenchShell({
     recordRecentPageLeave(snapshot.projectId, snapshot.pageId, snapshot.titleSnapshot);
   }, [recordRecentPageLeave]);
 
-  const handleReminderHandled = useCallback(
-    (payload: { projectId: string; pageId: string; occurrenceStart: string }) => {
-      setPendingReminderOpen((current) => {
-        if (!current) return null;
-        if (
-          current.projectId !== payload.projectId ||
-          current.pageId !== payload.pageId ||
-          current.occurrenceStart !== payload.occurrenceStart
-        ) {
-          return current;
-        }
-        return null;
-      });
-    },
-    [],
-  );
-
   const handlePageDeepLinkHandled = useCallback(
     (payload: { projectId: string; pageId: string }) => {
       setPendingDeepLinkOpen((current) => {
@@ -316,10 +294,6 @@ export function WorkbenchShell({
     navigateToProject(projectId);
   }, [navigateToProject, projectOrder]);
 
-  const navigateToDbView = useCallback((projectId: string, view: WorkbenchView) => {
-    setWorkbenchView(projectId, view);
-  }, [setWorkbenchView]);
-
   const navigateToPage = useCallback(async (
     projectId: string,
     pageId: string,
@@ -336,20 +310,19 @@ export function WorkbenchShell({
     setDbProjectState,
   ]);
 
-  const handleReminderOpen = useCallback(
-    (request: WorkbenchReminderOpenRequest) => {
-      setPendingReminderOpen(request);
-      navigateToProject(request.projectId);
-    },
-    [navigateToProject],
-  );
-
   const handlePageDeepLinkOpen = useCallback(
     (request: WorkbenchPageDeepLinkRequest) => {
       setPendingDeepLinkOpen(request);
       navigateToProject(request.projectId);
     },
     [navigateToProject],
+  );
+
+  const handleReminderOpen = useCallback(
+    (request: WorkbenchReminderOpenRequest) => {
+      handlePageDeepLinkOpen(reminderOpenToPageDeepLink(request));
+    },
+    [handlePageDeepLinkOpen],
   );
 
   const handleSessionDeepLinkOpen = useCallback(
@@ -368,14 +341,6 @@ export function WorkbenchShell({
     },
     [navigateToProject],
   );
-
-  useEffect(() => {
-    if (!pendingReminderOpen) return;
-    if (pendingReminderOpen.projectId !== resolvedDbProjectId) return;
-    if (resolvedView === "calendar") return;
-
-    navigateToDbView(resolvedDbProjectId, "calendar");
-  }, [navigateToDbView, pendingReminderOpen, resolvedDbProjectId, resolvedView]);
 
   useEffect(() => {
     if (!pendingSessionDeepLinkOpen) return;
@@ -500,11 +465,9 @@ export function WorkbenchShell({
       sidebar={sidebar}
       pageStageCloseRef={pageStageCloseRef}
       pageStagePersistRef={pageStagePersistRef}
-      pendingReminderOpen={pendingReminderOpen}
       pendingPageDeepLinkOpen={pendingDeepLinkOpen}
       pendingViewDeepLinkOpen={pendingViewDeepLinkOpen}
       pendingSessionOpen={pendingSessionDeepLinkOpen}
-      onReminderHandled={handleReminderHandled}
       onPageDeepLinkHandled={handlePageDeepLinkHandled}
       onViewDeepLinkHandled={handleViewDeepLinkHandled}
       onOpenProjectSessionInNewWindow={handleOpenProjectSessionInNewWindow}

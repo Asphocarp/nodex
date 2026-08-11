@@ -147,6 +147,9 @@ intermediate version. Verification binds the stored physical payload bytes to
 their effect digest. Historical Document effects are enriched from durable
 update receipts, so normal update-byte compaction does not erase their causal
 base/result heads or integrity evidence.
+The v110 migration rebuilds sealed Projection descriptors from each retained
+commit's canonical Projection effects after earlier manifest resealing, while
+live commit sealing continues to reject duplicate descriptor evidence.
 
 Core validates complete physical-event coverage and finalized LocalCommit
 history once while preparing the exclusive Store. Runtime stream pages use

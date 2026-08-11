@@ -406,11 +406,6 @@ export interface WorkbenchRuntimeProps {
   pageStageCloseRef: React.RefObject<(() => Promise<void>) | null>;
   pageStagePersistRef?: React.MutableRefObject<(() => Promise<void>) | null>;
   pageStageSessionSnapshotRef?: React.MutableRefObject<PageStageSessionSnapshot | null>;
-  pendingReminderOpen?: {
-    projectId: string;
-    pageId: string;
-    occurrenceStart: string;
-  } | null;
   pendingPageDeepLinkOpen?: {
     projectId: string;
     pageId: string;
@@ -443,11 +438,6 @@ export interface WorkbenchRuntimeProps {
     titleSnapshot?: string,
     options?: OpenPageStageOptions,
   ) => void;
-  onReminderHandled?: (payload: {
-    projectId: string;
-    pageId: string;
-    occurrenceStart: string;
-  }) => void;
   onOpenProjectSessionInNewWindow?: (session: ProjectSession) => Promise<void>;
   onLeavePageStage: (snapshot: PageStageSessionSnapshot) => void;
   onCreateProject: (input: ProjectCreateInput) => Promise<Project | null>;
@@ -488,7 +478,6 @@ export function WorkbenchRuntime({
   pageStageCloseRef,
   pageStagePersistRef,
   pageStageSessionSnapshotRef,
-  pendingReminderOpen,
   pendingPageDeepLinkOpen,
   pendingViewDeepLinkOpen,
   onPageDeepLinkHandled,
@@ -497,7 +486,6 @@ export function WorkbenchRuntime({
   setSearchQuery: observeSearchQueryMutation,
   setDbViewPrefs,
   openPageStage,
-  onReminderHandled,
   onOpenProjectSessionInNewWindow,
   onLeavePageStage,
   onCreateProject,
@@ -2305,12 +2293,10 @@ export function WorkbenchRuntime({
       windowSessionId,
       dbViewPrefsByProject,
       onLeavePageStage,
-      onReminderHandled,
       pageStageCloseRef,
       pageStageHistoryModal,
       pageStagePersistRef,
       pageStageSessionSnapshotRef,
-      pendingReminderOpen,
       searchByProject,
       setDbViewPrefs,
       setSearchQuery,
@@ -3120,11 +3106,9 @@ export function WorkbenchRuntime({
           dbViewPrefsByProject={dbViewPrefsByProject}
           presentedPageIds={projectScenePresentedPageIds}
           pageStageCloseRef={pageStageCloseRef}
-          pendingReminderOpen={pendingReminderOpen}
           taskSearchOpenTick={taskSearchOpenTick}
           setSearchQuery={setSearchQuery}
           setDbViewPrefs={setDbViewPrefs}
-          onReminderHandled={onReminderHandled}
           onOpenPageTab={openProjectScenePage}
           onOpenPageInNewChat={openPageInNewChat}
           onSendPageToChat={sendPageToChat}
@@ -3424,7 +3408,6 @@ export function WorkbenchRuntime({
     dbViewPrefsByProject,
     ensureBlankSessionForProject,
     onLeavePageStage,
-    onReminderHandled,
     openAttachedThreadSessionById,
     openBrowserSettings,
     openProjectSceneCanvas,
@@ -3435,7 +3418,6 @@ export function WorkbenchRuntime({
     pageStageHistoryModal,
     pageStagePersistRef,
     pageStageSessionSnapshotRef,
-    pendingReminderOpen,
     projectSceneKey,
     projectScenePresentedPageIds,
     projectSceneOwner,

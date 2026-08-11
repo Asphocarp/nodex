@@ -203,6 +203,25 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const SingleSource: Story = {};
+export const CalendarGateOff: Story = {
+  parameters: {
+    docs: {
+      description: {
+        story: "The default release state keeps an existing Calendar View manageable while removing Calendar from new View authoring.",
+      },
+    },
+  },
+};
+export const CalendarEnabled: Story = {
+  args: { calendarPresentation: { enabled: true } },
+  parameters: {
+    docs: {
+      description: {
+        story: "The explicit enabled state preserves Calendar authoring for redesign and release review.",
+      },
+    },
+  },
+};
 export const ProjectDefaultNames: Story = {
   args: {
     databases: projectDefaultDatabases,

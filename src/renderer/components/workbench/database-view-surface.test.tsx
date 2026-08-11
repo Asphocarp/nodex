@@ -244,6 +244,42 @@ describe("DatabaseViewSurface", () => {
     expect(opened[0]).toEqual(["page-focused", "Focused Page"]);
   });
 
+  test("renders a durable Calendar View through a List fallback without changing its identity", () => {
+    const calendarModel: DatabaseViewRenderModel = {
+      ...model,
+      query: {
+        ...model.query,
+        view: { ...model.query.view, kind: "calendar" },
+      },
+    };
+    const defaultScreen = render(
+      <DatabaseViewSurface
+        model={calendarModel}
+        searchQuery=""
+        onOpenPage={() => undefined}
+      />,
+    );
+    expect(defaultScreen.getByText("No date property")).toBeTruthy();
+    defaultScreen.unmount();
+
+    const opened: unknown[][] = [];
+    const fallbackScreen = render(
+      <DatabaseViewSurface
+        model={calendarModel}
+        presentationKind="list"
+        searchQuery=""
+        onOpenPage={(...args) => opened.push(args)}
+      />,
+    );
+
+    expect(fallbackScreen.queryByText("No date property")).toBeNull();
+    expect(fallbackScreen.getByText("Tasks / Focused")).toBeTruthy();
+    fireEvent.click(fallbackScreen.getByRole("button", { name: "Open Page Focused Page" }));
+    expect(opened[0]).toEqual(["page-focused", "Focused Page"]);
+    expect(calendarModel.databaseViewId).toBe(viewId);
+    expect(calendarModel.query.view.kind).toBe("calendar");
+  });
+
   test("keeps Board navigation and selection active across reactive renders", () => {
     const screen = render(
       <DatabaseViewSurface

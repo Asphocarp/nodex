@@ -71,6 +71,15 @@ export interface WorkbenchPageDeepLinkRequest {
   readonly pageId: string;
 }
 
+export function reminderOpenToPageDeepLink(
+  request: WorkbenchReminderOpenRequest,
+): WorkbenchPageDeepLinkRequest {
+  return {
+    projectId: request.projectId,
+    pageId: request.pageId,
+  };
+}
+
 export interface WorkbenchSessionDeepLinkRequest {
   readonly projectId: string | null;
   readonly sessionId: string;
