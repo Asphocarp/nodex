@@ -83,6 +83,8 @@ Use these docs as the source of truth:
 
 ## Documentation Update Rules
 Documentation maintenance is an active, required responsibility for every agent task.
+Whenever a user asks you to fix a defect or corrects your previous work, repair the immediate issue and complete a recurrence-prevention review before handoff: determine whether a fresh coding agent without the current conversation could make the same mistake, then encode any enduring constraint at the narrowest effective seam.
+Prefer executable enforcement such as types, validation, architecture, or a meaningful regression test; update the owning documentation or agent instructions under the routing rules below when executable enforcement does not make the lesson sufficiently obvious or complete, and do not add redundant prose for a one-off issue already fully protected by an executable regression boundary.
 Default to one sentence per line when documenting ordinary body prose (this is not a hard rule though).
 
 When behavior changes, update the narrowest source-of-truth doc:
