@@ -220,6 +220,21 @@ function LocalConversationFooterComponent({
           throw error;
         }
       },
+      ...(actions.onResumeInterruptedTurn
+        ? {
+            onResumeInterruptedTurn: async () => {
+              const prepared = prepareExistingThreadPlacement();
+              try {
+                await actions.onResumeInterruptedTurn?.();
+              } catch (error) {
+                if (prepared) {
+                  clearPendingLatestTurnSubmitPlacement();
+                }
+                throw error;
+              }
+            },
+          }
+        : {}),
       onEnqueueQueuedFollowUp: async (...args) => {
         const prepared = prepareExistingThreadPlacement();
         try {

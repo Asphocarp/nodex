@@ -365,6 +365,30 @@ describe("createThreadStageActions settings routing", () => {
     });
   });
 
+  test("captures the owning Session Browser before resuming an interrupted turn", async () => {
+    const events: string[] = [];
+    invokeMock.mockReset();
+    invokeMock.mockImplementation(async (_channel, command) => {
+      events.push(`capture:${command.codexSessionId}`);
+      return { ok: true };
+    });
+    const actions = createThreadStageActions(buildInput({
+      browserUseViewScopeId: "window-session-1",
+      codexControl: {
+        resumeInterruptedTurn: async (threadId: string) => {
+          events.push(`resume:${threadId}`);
+        },
+      } as unknown as ThreadActionControllerInput["codexControl"],
+    }));
+
+    await actions.onResumeInterruptedTurn?.();
+
+    expect(events).toEqual([
+      "capture:thread_1",
+      "resume:thread_1",
+    ]);
+  });
+
   test("materializes and starts a Project draft exactly once across duplicate submits", async () => {
     const events: string[] = [];
     let releaseStart: () => void = () => undefined;

@@ -67,6 +67,7 @@ import {
   GoalClearIcon,
   GoalTargetIcon,
   ComposerAddFilesIcon,
+  ComposerResumeIcon,
   ComposerPlanModeCloseIcon,
   ComposerPlanModeIcon,
   MicIcon,
@@ -1908,6 +1909,7 @@ function HydratedThreadComposer({
   const pastedTextOperationGenerationRef = useRef(new Map<string, number>());
   const pastedTextOperationCounterRef = useRef(0);
   const composerMountedRef = useRef(true);
+  const resumeInFlightRef = useRef(false);
   const { serviceTierSettings, setServiceTier } = useCodexServiceTierSettings();
   const composerThreadId = model.conversation?.threadId ?? model.threadId;
   useEffect(() => {
@@ -1998,6 +2000,12 @@ function HydratedThreadComposer({
   const hasSubmittableAttachments = hasSubmittableComposerAttachmentState(attachmentState);
   const hasPendingPastedTextAttachments = pastedTextAttachments.some(
     (attachment) => attachment.status === "pending",
+  );
+  const latestTurnStatus = model.conversation?.turns.at(-1)?.status ?? null;
+  const hasResumeInterruptedTurnCapability = Boolean(
+    actions.onResumeInterruptedTurn
+    && model.conversation
+    && !hasPendingPastedTextAttachments,
   );
   const pastedTextAttachmentsRef = useRef(pastedTextAttachments);
   pastedTextAttachmentsRef.current = pastedTextAttachments;
@@ -2649,7 +2657,10 @@ function HydratedThreadComposer({
           isThreadRunning: model.isThreadRunning,
           busyAction,
           hasDraftContent: nextPrompt.trim().length > 0 || hasSubmittableAttachments || goalModeActive,
+          hasThreadGoal: goalModeActive || Boolean(model.conversation?.threadGoal),
           isQueueingEnabled: model.isQueueingEnabled,
+          latestTurnStatus,
+          canResumeInterruptedTurn: false,
         });
         void submitPrompt({
           prompt: nextPrompt,
@@ -2669,6 +2680,9 @@ function HydratedThreadComposer({
       showDictationToast("Dictation is not available on this device");
     },
   });
+  const canResumeInterruptedTurn = hasResumeInterruptedTurnCapability
+    && !isDictating
+    && !isTranscribing;
   const startDictationRef = useRef(startDictation);
   const stopDictationRef = useRef(stopDictation);
 
@@ -2774,6 +2788,31 @@ function HydratedThreadComposer({
       setBusyAction(null);
     }
   }, [actions, model.activeTurn?.turnId, model.conversation, model.isThreadRunning, onErrorMessage]);
+
+  const handleResumeInterruptedTurn = useCallback(async () => {
+    if (
+      resumeInFlightRef.current
+      || !actions.onResumeInterruptedTurn
+      || !model.conversation
+      || model.isThreadRunning
+      || model.conversation.turns.at(-1)?.status !== "interrupted"
+      || model.conversation.threadGoal
+    ) {
+      return;
+    }
+
+    resumeInFlightRef.current = true;
+    setBusyAction("resume");
+    onErrorMessage(null);
+    try {
+      await actions.onResumeInterruptedTurn();
+    } catch (error) {
+      onErrorMessage(error instanceof Error ? error.message : "Could not resume Codex");
+    } finally {
+      resumeInFlightRef.current = false;
+      setBusyAction(null);
+    }
+  }, [actions, model.conversation, model.isThreadRunning, onErrorMessage]);
 
   const handleRemoveFileAttachment = useCallback((attachmentId: string) => {
     incrementAttachmentGeneration();
@@ -3207,8 +3246,11 @@ function HydratedThreadComposer({
       canSendPrompt: model.conversation !== null || canStartNewThread,
       isThreadRunning: model.isThreadRunning,
       busyAction,
-      hasDraftContent: prompt.trim().length > 0 || hasSubmittableAttachments || goalModeActive,
+      hasDraftContent: prompt.trim().length > 0 || hasAttachments || goalModeActive,
+      hasThreadGoal: goalModeActive || Boolean(model.conversation?.threadGoal),
       isQueueingEnabled: model.isQueueingEnabled,
+      latestTurnStatus,
+      canResumeInterruptedTurn,
     });
 
     const submitIntent = resolveComposerSubmitIntentFromKeyDown({
@@ -3240,11 +3282,13 @@ function HydratedThreadComposer({
     canStartNewThread,
     closeSlashMenu,
     goalModeActive,
-    hasSubmittableAttachments,
+    hasAttachments,
     model.composerEnterBehavior,
     model.conversation,
     model.isQueueingEnabled,
     model.isThreadRunning,
+    latestTurnStatus,
+    canResumeInterruptedTurn,
     nestedSlashCommand,
     handlePromptHistoryKeyDown,
     planModeAvailable,
@@ -3255,6 +3299,7 @@ function HydratedThreadComposer({
   ]);
 
   const hasDraftContent = prompt.trim().length > 0 || hasSubmittableAttachments || goalModeActive;
+  const hasComposerContent = prompt.trim().length > 0 || hasAttachments || goalModeActive;
   const hasFooterGoalChip = goalModeActive || Boolean(model.conversation?.threadGoal && actions.onClearThreadGoal);
   const hasMultilinePrompt = prompt.includes("\n");
   const handlePromptIntrinsicWidthChange = useCallback((widthPx: number) => {
@@ -3289,10 +3334,16 @@ function HydratedThreadComposer({
     canSendPrompt: model.conversation !== null || canStartNewThread,
     isThreadRunning: model.isThreadRunning,
     busyAction,
-    hasDraftContent,
+    hasDraftContent: hasComposerContent,
+    hasThreadGoal: goalModeActive || Boolean(model.conversation?.threadGoal),
     isQueueingEnabled: model.isQueueingEnabled,
+    latestTurnStatus,
+    canResumeInterruptedTurn,
   });
   const isSendPending = busyAction === "send" && composerActionState.action === "send";
+  const isInterruptPending = busyAction === "interrupt" && composerActionState.action === "stop";
+  const isResumePending = busyAction === "resume" && composerActionState.action === "resume";
+  const isPrimaryActionPending = isSendPending || isInterruptPending || isResumePending;
   const canRunPrimaryAction = Boolean(
     hasDraftContent &&
     !hasPendingPastedTextAttachments &&
@@ -3413,46 +3464,58 @@ function HydratedThreadComposer({
       </button>
     </NodexTooltip>
   ) : null;
-  const primaryActionControl = (
-    <NodexTooltip
-      tooltipContent={composerActionTooltip}
-      side="top"
-      tooltipBodyClassName={cn(
-        composerActionState.action === "stop" || !model.isThreadRunning
-          ? "text-center text-pretty"
-          : "max-w-none",
-      )}
-    >
-      <span className="inline-flex">
-        <button
-          type="button"
-          className={cn(
-            "focus-visible:outline-token-button-background cursor-interaction flex h-token-button-composer aspect-square items-center justify-center rounded-full bg-token-foreground p-0.5 text-token-dropdown-background transition-opacity focus-visible:outline-2",
-            (composerActionState.disabled || (composerActionState.action !== "stop" && !canRunPrimaryAction)) && !isSendPending && "opacity-50",
-            isSendPending && "cursor-wait",
-          )}
-          onClick={composerActionState.action === "stop"
-            ? () => void handleInterrupt()
+  const primaryActionButton = (
+    <span className="inline-flex">
+      <button
+        type="button"
+        className={cn(
+          "focus-visible:outline-token-button-background cursor-interaction flex h-token-button-composer aspect-square items-center justify-center rounded-full bg-token-foreground p-0.5 text-token-dropdown-background transition-opacity focus-visible:outline-2",
+          (composerActionState.disabled
+            || (composerActionState.action === "send" && !canRunPrimaryAction))
+            && !isPrimaryActionPending
+            && "opacity-50",
+          isPrimaryActionPending && "cursor-wait",
+        )}
+        onClick={composerActionState.action === "stop"
+          ? () => void handleInterrupt()
+          : composerActionState.action === "resume"
+            ? () => void handleResumeInterruptedTurn()
             : () => void submitPrompt({
                 prompt,
                 submitAction: composerActionState.primarySubmitAction,
               })}
-          disabled={composerActionState.action === "stop"
-            ? composerActionState.disabled
-            : composerActionState.disabled || !canRunPrimaryAction}
-          aria-label={composerActionState.label}
-        >
-          {isSendPending ? (
-            <SpinnerIcon className="icon-sm" />
-          ) : composerActionState.action === "stop" ? (
-            <StopIcon className="icon-xs" />
-          ) : (
-            <UpArrowIcon className="icon-sm" />
-          )}
-        </button>
-      </span>
-    </NodexTooltip>
+        disabled={composerActionState.action === "send"
+          ? composerActionState.disabled || !canRunPrimaryAction
+          : composerActionState.disabled}
+        aria-label={composerActionState.label}
+      >
+        {isPrimaryActionPending ? (
+          <SpinnerIcon className="icon-sm" />
+        ) : composerActionState.action === "stop" ? (
+          <StopIcon className="icon-xs" />
+        ) : composerActionState.action === "resume" ? (
+          <ComposerResumeIcon className="icon-xs" />
+        ) : (
+          <UpArrowIcon className="icon-sm" />
+        )}
+      </button>
+    </span>
   );
+  const primaryActionControl = composerActionState.action === "resume"
+    ? primaryActionButton
+    : (
+        <NodexTooltip
+          tooltipContent={composerActionTooltip}
+          side="top"
+          tooltipBodyClassName={cn(
+            composerActionState.action === "stop" || !model.isThreadRunning
+              ? "text-center text-pretty"
+              : "max-w-none",
+          )}
+        >
+          {primaryActionButton}
+        </NodexTooltip>
+      );
   const renderPromptEditor = (singleLine = false) => (
     <ComposerPromptEditor
       ref={promptEditorRef}
@@ -3979,7 +4042,7 @@ function HydratedThreadComposer({
 }
 
 function renderComposerActionTooltipContent(input: {
-  action: "send" | "stop";
+  action: "send" | "stop" | "resume";
   primarySubmitAction: StageThreadsComposerSubmitAction | null;
   alternateSubmitAction: StageThreadsComposerFollowUpAction | null;
   isThreadRunning: boolean;

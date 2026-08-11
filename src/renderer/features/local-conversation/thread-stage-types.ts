@@ -337,6 +337,7 @@ export interface ThreadStageActions {
   onCopyConversationMarkdown?: () => Promise<void>;
   onSteerPrompt: (input: Omit<CodexSteerTurnInput, "threadId">) => Promise<void>;
   onInterruptTurn: (turnId?: string) => Promise<void>;
+  onResumeInterruptedTurn?: () => Promise<void>;
   onRespondApproval: (
     requestId: CodexProtocolRequestId,
     response: CodexApprovalResponse,

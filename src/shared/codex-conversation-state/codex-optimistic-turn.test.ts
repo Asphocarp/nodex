@@ -9,6 +9,7 @@ import {
   appendCodexCanonicalOptimisticTurn,
   bindCodexCanonicalOptimisticTurn,
   failCodexCanonicalOptimisticTurn,
+  removeCodexCanonicalOptimisticTurn,
 } from "./codex-optimistic-turn";
 
 function buildState() {
@@ -274,6 +275,25 @@ describe("Codex optimistic turn parity", () => {
     expect(failed.turns[0]?.protocol.status).toBe("failed");
     expect(failed.turns[0]?.protocol.error?.message).toBe("Error submitting message");
     expect(failed.turns[0]?.items[0]?.type).toBe("error");
+  });
+
+  test("removes a failed userless Resume placeholder without creating an error turn", () => {
+    const base = buildState();
+    const withPendingModel = {
+      ...base,
+      sidecar: { ...base.sidecar, previousTurnModel: "gpt-before-resume" },
+    };
+    const optimistic = appendCodexCanonicalOptimisticTurn(withPendingModel, {
+      params: { ...buildParams(), input: [] },
+    });
+    const restored = removeCodexCanonicalOptimisticTurn(
+      optimistic,
+      "client-message",
+      { previousTurnModel: "gpt-before-resume" },
+    );
+
+    expect(restored.turns).toEqual([]);
+    expect(restored.sidecar.previousTurnModel).toBe("gpt-before-resume");
   });
 
   test("adds the exact model-change marker for a downgrade and consumes the pending model", () => {

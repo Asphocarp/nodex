@@ -100,7 +100,7 @@ function buildModel(overrides?: Partial<ThreadFooterModel>): ThreadFooterModel {
   };
 }
 
-function buildActions(): ThreadStageActions {
+function buildActions(overrides?: Partial<ThreadStageActions>): ThreadStageActions {
   return {
     onCollaborationModeChange: () => {},
     onModelChange: () => {},
@@ -126,6 +126,7 @@ function buildActions(): ThreadStageActions {
     onConsumeComposerIntent: () => {},
     onOpenThread: () => {},
     onCleanBackgroundTerminals: async () => {},
+    ...overrides,
   };
 }
 
@@ -200,6 +201,62 @@ function buildModelWithRenderableLatestTurn(): ThreadFooterModel {
 }
 
 describe("LocalConversationFooter", () => {
+  test("resumes an interrupted turn once without creating a tooltip action", async () => {
+    const { LocalConversationFooter } = await import("./local-conversation-footer");
+    const base = buildModel();
+    const model = buildModel({
+      conversation: base.conversation
+        ? {
+            ...base.conversation,
+            statusType: "idle",
+            statusActiveFlags: [],
+            turns: base.conversation.turns.map((turn, index, turns) =>
+              index === turns.length - 1
+                ? { ...turn, status: "interrupted" }
+                : turn
+            ),
+          }
+        : null,
+      activeTurn: null,
+      isThreadRunning: false,
+    });
+    let releaseResume: () => void = () => undefined;
+    const resumeGate = new Promise<void>((resolve) => {
+      releaseResume = resolve;
+    });
+    const onResumeInterruptedTurn = vi.fn(async () => await resumeGate);
+    const view = render(
+      <TooltipProvider>
+        <EnsureLocalConversationThreadScrollController>
+          <LocalConversationFooter
+            model={model}
+            actions={buildActions({ onResumeInterruptedTurn })}
+            errorMessage={null}
+            onErrorMessage={() => {}}
+          />
+        </EnsureLocalConversationThreadScrollController>
+      </TooltipProvider>,
+    );
+
+    const resumeButton = await view.findByLabelText("Resume");
+    expect(resumeButton.getAttribute("title")).toBeNull();
+
+    await act(async () => {
+      fireEvent.click(resumeButton);
+      await Promise.resolve();
+    });
+    expect(onResumeInterruptedTurn).toHaveBeenCalledTimes(1);
+    expect(resumeButton.hasAttribute("disabled")).toBe(true);
+
+    await act(async () => {
+      fireEvent.click(resumeButton);
+      releaseResume();
+      await resumeGate;
+    });
+    expect(onResumeInterruptedTurn).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(resumeButton.hasAttribute("disabled")).toBe(false));
+  });
+
   beforeEach(() => {
     installAsyncRequestAnimationFrame();
   });

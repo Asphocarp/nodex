@@ -205,6 +205,7 @@ vi.mock("./local-conversation-deps", () => ({
       }
       if (
         input.request?.method === "turn/start"
+        || input.request?.method === "turn/resume-interrupted"
         || input.request?.method === "thread/session-first-turn/start"
       ) {
         ownerTurnStartHandler?.();
@@ -11813,6 +11814,111 @@ describe("local-conversation-store", () => {
       expect(channels.includes("codex:turn:steer")).toBe(false);
       expect(manager.getThreadRoleForRendererClientRequest("thread-1")).toBe("owner");
     } finally {
+      resumeThreadResult = null;
+      manager.destroy();
+    }
+  });
+
+  test("interrupted Resume starts one userless turn through the renderer owner", async () => {
+    invokeCalls = [];
+    invokeRecords = [];
+    hostMessageListener = null;
+    rendererClientRequestListener = null;
+    threadListByProject = {};
+    resumeThreadResult = withCanonicalState({
+      ...buildConversation("thread-1", "project-1"),
+      statusType: "idle",
+      statusActiveFlags: [],
+      turns: [{
+        threadId: "thread-1",
+        turnId: "turn-interrupted",
+        status: "interrupted",
+        itemIds: [],
+        items: [],
+      }],
+    });
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
+
+    const manager = new CodexAppServerManager("default");
+    try {
+      await manager.requestThreadStreamResume("thread-1");
+      invokeRecords = [];
+
+      await Promise.all([
+        manager.resumeInterruptedTurn("thread-1", { permissionMode: "auto" }),
+        manager.resumeInterruptedTurn("thread-1", { permissionMode: "auto" }),
+      ]);
+
+      const resumeRequests = invokeRecords.filter((record) =>
+        record.channel === "codex:thread-owner:app-server-request"
+        && (record.args[0] as { request?: { method?: string } }).request?.method
+          === "turn/resume-interrupted"
+      );
+      const request = resumeRequests[0]?.args[0] as {
+        request?: {
+          params?: { threadId?: string; clientUserMessageId?: string };
+        };
+      } | undefined;
+      const conversation = manager.readConversation("thread-1");
+
+      expect(resumeRequests).toHaveLength(1);
+      expect(request?.request?.params?.threadId).toBe("thread-1");
+      expect(request?.request?.params?.clientUserMessageId).toBeTruthy();
+      expect(conversation?.turns.at(-1)?.status).toBe("inProgress");
+      expect(conversation?.turns.at(-1)?.items.filter(
+        (item) => item.semanticKind === "userMessage",
+      )).toHaveLength(0);
+      expect(conversation?.canonicalState?.turns.at(-1)?.sidecar.params.input).toEqual([]);
+    } finally {
+      resumeThreadResult = null;
+      manager.destroy();
+    }
+  });
+
+  test("failed interrupted Resume restores the interrupted turn for retry", async () => {
+    invokeCalls = [];
+    invokeRecords = [];
+    hostMessageListener = null;
+    rendererClientRequestListener = null;
+    threadListByProject = {};
+    resumeThreadResult = withCanonicalState({
+      ...buildConversation("thread-1", "project-1"),
+      statusType: "idle",
+      statusActiveFlags: [],
+      turns: [{
+        threadId: "thread-1",
+        turnId: "turn-interrupted",
+        status: "interrupted",
+        itemIds: [],
+        items: [],
+      }],
+    });
+    ownerTurnStartError = new Error("Resume transport failed");
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
+
+    const manager = new CodexAppServerManager("default");
+    try {
+      await manager.requestThreadStreamResume("thread-1");
+
+      await expect(manager.resumeInterruptedTurn("thread-1", {
+        permissionMode: "auto",
+      })).rejects.toThrow("Resume transport failed");
+
+      const conversation = manager.readConversation("thread-1");
+      expect(conversation?.statusType).toBe("idle");
+      expect(conversation?.turns).toHaveLength(1);
+      expect(conversation?.turns[0]?.turnId).toBe("turn-interrupted");
+      expect(conversation?.turns[0]?.status).toBe("interrupted");
+    } finally {
+      ownerTurnStartError = null;
       resumeThreadResult = null;
       manager.destroy();
     }

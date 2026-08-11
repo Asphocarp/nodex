@@ -2,7 +2,7 @@ import { ShortcutKeycaps } from "@/components/ui/shortcut-keycaps";
 import type { StageThreadsComposerFollowUpAction, StageThreadsComposerSubmitAction } from "../shared/composer-action";
 
 interface ComposerActionTooltipContentProps {
-  action: "send" | "stop";
+  action: "send" | "stop" | "resume";
   primarySubmitAction: StageThreadsComposerSubmitAction | null;
   alternateSubmitAction: StageThreadsComposerFollowUpAction | null;
   isThreadRunning: boolean;
@@ -12,6 +12,7 @@ interface ComposerActionTooltipContentProps {
 
 export function ComposerActionTooltipContent(input: ComposerActionTooltipContentProps) {
   if (input.action === "stop") return "Stop";
+  if (input.action === "resume") return "Resume";
   if (!input.isThreadRunning || input.primarySubmitAction === "send" || !input.alternateSubmitAction) {
     return "Send";
   }

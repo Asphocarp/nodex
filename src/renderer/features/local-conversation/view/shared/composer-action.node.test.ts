@@ -5,27 +5,32 @@ import {
 } from "./composer-action";
 
 describe("resolveStageThreadsComposerActionState", () => {
+  const baseInput = {
+    canSendPrompt: true,
+    isThreadRunning: false,
+    busyAction: null,
+    hasDraftContent: false,
+    hasThreadGoal: false,
+    isQueueingEnabled: false,
+    latestTurnStatus: null,
+    canResumeInterruptedTurn: true,
+  } as const;
+
   test("keeps stop only while a turn is active and the draft is empty", () => {
     const result = resolveStageThreadsComposerActionState({
-      canSendPrompt: true,
+      ...baseInput,
       isThreadRunning: true,
-      busyAction: null,
-      hasDraftContent: false,
-      isQueueingEnabled: false,
     });
 
     expect(result.action).toBe("stop");
-    expect(result.label).toBe("Stop Codex");
+    expect(result.label).toBe("Stop");
     expect(result.disabled).toBe(false);
   });
 
   test("disables stop action while an interrupt request is pending", () => {
     const result = resolveStageThreadsComposerActionState({
-      canSendPrompt: true,
-      isThreadRunning: true,
+      ...baseInput,
       busyAction: "interrupt",
-      hasDraftContent: false,
-      isQueueingEnabled: false,
     });
 
     expect(result.action).toBe("stop");
@@ -34,11 +39,9 @@ describe("resolveStageThreadsComposerActionState", () => {
 
   test("switches to steer submit while running when queue mode is off and draft exists", () => {
     const result = resolveStageThreadsComposerActionState({
-      canSendPrompt: true,
+      ...baseInput,
       isThreadRunning: true,
-      busyAction: null,
       hasDraftContent: true,
-      isQueueingEnabled: false,
     });
 
     expect(result.action).toBe("send");
@@ -50,9 +53,8 @@ describe("resolveStageThreadsComposerActionState", () => {
 
   test("switches to queue submit while running when queue mode is on and draft exists", () => {
     const result = resolveStageThreadsComposerActionState({
-      canSendPrompt: true,
+      ...baseInput,
       isThreadRunning: true,
-      busyAction: null,
       hasDraftContent: true,
       isQueueingEnabled: true,
     });
@@ -66,18 +68,11 @@ describe("resolveStageThreadsComposerActionState", () => {
 
   test("uses send action when idle and enables it only for non-empty prompts", () => {
     const disabled = resolveStageThreadsComposerActionState({
-      canSendPrompt: true,
-      isThreadRunning: false,
-      busyAction: null,
-      hasDraftContent: false,
-      isQueueingEnabled: false,
+      ...baseInput,
     });
     const enabled = resolveStageThreadsComposerActionState({
-      canSendPrompt: true,
-      isThreadRunning: false,
-      busyAction: null,
+      ...baseInput,
       hasDraftContent: true,
-      isQueueingEnabled: false,
     });
 
     expect(disabled.action).toBe("send");
@@ -91,22 +86,59 @@ describe("resolveStageThreadsComposerActionState", () => {
 
   test("allows send in new-thread mode when a target card exists", () => {
     const enabled = resolveStageThreadsComposerActionState({
-      canSendPrompt: true,
-      isThreadRunning: false,
-      busyAction: null,
+      ...baseInput,
       hasDraftContent: true,
-      isQueueingEnabled: false,
     });
     const disabled = resolveStageThreadsComposerActionState({
+      ...baseInput,
       canSendPrompt: false,
-      isThreadRunning: false,
-      busyAction: null,
       hasDraftContent: true,
-      isQueueingEnabled: false,
     });
 
     expect(enabled.disabled).toBe(false);
     expect(disabled.disabled).toBe(true);
+  });
+
+  test("offers Resume for an idle interrupted thread with an empty composer", () => {
+    const result = resolveStageThreadsComposerActionState({
+      ...baseInput,
+      latestTurnStatus: "interrupted",
+    });
+
+    expect(result).toEqual({
+      action: "resume",
+      primarySubmitAction: null,
+      alternateSubmitAction: null,
+      label: "Resume",
+      disabled: false,
+    });
+  });
+
+  test("keeps Resume pending while the optimistic empty turn becomes active", () => {
+    const result = resolveStageThreadsComposerActionState({
+      ...baseInput,
+      busyAction: "resume",
+      isThreadRunning: true,
+      latestTurnStatus: "inProgress",
+    });
+
+    expect(result.action).toBe("resume");
+    expect(result.disabled).toBe(true);
+  });
+
+  test.each([
+    { name: "a draft", hasDraftContent: true },
+    { name: "a saved thread goal", hasThreadGoal: true },
+    { name: "no resume capability", canResumeInterruptedTurn: false },
+    { name: "another submit blocker", canSendPrompt: false },
+  ])("suppresses Resume with $name", (override) => {
+    const result = resolveStageThreadsComposerActionState({
+      ...baseInput,
+      latestTurnStatus: "interrupted",
+      ...override,
+    });
+
+    expect(result.action).toBe("send");
   });
 });
 

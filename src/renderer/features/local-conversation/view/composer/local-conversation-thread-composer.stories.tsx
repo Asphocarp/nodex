@@ -44,7 +44,7 @@ interface ComposerSendButtonStoryProps {
   modelCatalog: "default" | "expanded";
   selectedModelReasoningSupport: "default" | "highOnly";
   selectedCollaborationMode: CodexCollaborationModeKind;
-  threadState: "existingThread" | "newChat";
+  threadState: "existingThread" | "interruptedThread" | "newChat";
   surfaceWidth: "normal" | "narrow";
   addContextState: "default" | "plugins";
   savedGoalState: "none" | "active";
@@ -293,12 +293,25 @@ function buildModel(args: ComposerSendButtonStoryProps): ThreadFooterModel {
       },
   };
   const footerModel = buildThreadStageStorySurfaceModels(scenario, controls, runtime).footerModel;
-  const conversation = args.savedGoalState === "active" && footerModel.conversation
+  const interruptedConversation = args.threadState === "interruptedThread" && footerModel.conversation
     ? {
         ...footerModel.conversation,
-        threadGoal: STORY_ACTIVE_THREAD_GOAL,
+        statusType: "idle" as const,
+        statusActiveFlags: [],
+        threadRuntimeStatus: { type: "idle" as const },
+        turns: footerModel.conversation.turns.map((turn, index, turns) =>
+          index === turns.length - 1
+            ? { ...turn, status: "interrupted" as const }
+            : turn
+        ),
       }
     : footerModel.conversation;
+  const conversation = args.savedGoalState === "active" && interruptedConversation
+    ? {
+        ...interruptedConversation,
+        threadGoal: STORY_ACTIVE_THREAD_GOAL,
+      }
+    : interruptedConversation;
   const selectedModelReasoningOptions = resolveStoryReasoningOptions(args, footerModel.reasoningEffortOptions);
   const selectedModelOption = {
     id: args.selectedModel,
@@ -314,6 +327,9 @@ function buildModel(args: ComposerSendButtonStoryProps): ThreadFooterModel {
   return {
     ...footerModel,
     conversation,
+    ...(args.threadState === "interruptedThread"
+      ? { activeTurn: null, isThreadRunning: false }
+      : {}),
     availableModels: resolveStoryAvailableModels({ args, footerModel, selectedModelOption }),
     selectedModel: args.selectedModel,
     selectedReasoningEffort: selectedModelReasoningOptions.some((option) => option.reasoningEffort === footerModel.selectedReasoningEffort)
@@ -523,6 +539,7 @@ function buildActions(): ThreadStageActions {
     onSendPrompt: async () => { },
     onSteerPrompt: async () => { },
     onInterruptTurn: async () => { },
+    onResumeInterruptedTurn: async () => { },
     onRespondApproval: async () => { },
     onRespondUserInput: async () => { },
     onRespondMcpElicitation: async () => { },
@@ -762,7 +779,7 @@ const meta = {
     },
     threadState: {
       control: "radio",
-      options: ["existingThread", "newChat"],
+      options: ["existingThread", "interruptedThread", "newChat"],
     },
     surfaceWidth: {
       control: "radio",
@@ -812,6 +829,15 @@ export const RunningStop: Story = {
     isQueueingEnabled: false,
     composerEnterBehavior: "enter",
     draftPrompt: "",
+  },
+};
+
+export const InterruptedResume: Story = {
+  args: {
+    isQueueingEnabled: false,
+    composerEnterBehavior: "enter",
+    draftPrompt: "",
+    threadState: "interruptedThread",
   },
 };
 

@@ -1,8 +1,8 @@
 import { resolveThreadInProgressFollowUpMode } from "@/lib/thread-composer-follow-up-mode";
 import type { ComposerEnterBehavior } from "@/lib/composer-enter-behavior";
 
-export type StageThreadsBusyAction = "send" | "interrupt" | "login" | "refresh" | "logout" | null;
-export type StageThreadsComposerAction = "send" | "stop";
+export type StageThreadsBusyAction = "send" | "interrupt" | "resume" | "login" | "refresh" | "logout" | null;
+export type StageThreadsComposerAction = "send" | "stop" | "resume";
 export type StageThreadsComposerSubmitAction = "send" | "queue" | "steer";
 export type StageThreadsComposerFollowUpAction = Exclude<StageThreadsComposerSubmitAction, "send">;
 
@@ -11,14 +11,17 @@ interface ResolveComposerActionInput {
   isThreadRunning: boolean;
   busyAction: StageThreadsBusyAction;
   hasDraftContent: boolean;
+  hasThreadGoal: boolean;
   isQueueingEnabled: boolean;
+  latestTurnStatus: "inProgress" | "completed" | "interrupted" | "failed" | null;
+  canResumeInterruptedTurn: boolean;
 }
 
 interface ResolvedComposerActionState {
   action: StageThreadsComposerAction;
   primarySubmitAction: StageThreadsComposerSubmitAction | null;
   alternateSubmitAction: StageThreadsComposerFollowUpAction | null;
-  label: "Send prompt" | "Stop Codex" | "Queue follow-up" | "Steer follow-up";
+  label: "Send prompt" | "Stop" | "Resume" | "Queue follow-up" | "Steer follow-up";
   disabled: boolean;
 }
 
@@ -44,13 +47,51 @@ interface ResolvedComposerSubmitIntent {
 export function resolveStageThreadsComposerActionState(
   input: ResolveComposerActionInput,
 ): ResolvedComposerActionState {
+  if (input.busyAction === "interrupt") {
+    return {
+      action: "stop",
+      primarySubmitAction: null,
+      alternateSubmitAction: null,
+      label: "Stop",
+      disabled: true,
+    };
+  }
+
+  if (input.busyAction === "resume") {
+    return {
+      action: "resume",
+      primarySubmitAction: null,
+      alternateSubmitAction: null,
+      label: "Resume",
+      disabled: true,
+    };
+  }
+
   if (input.isThreadRunning && !input.hasDraftContent) {
     return {
       action: "stop",
       primarySubmitAction: null,
       alternateSubmitAction: null,
-      label: "Stop Codex",
-      disabled: !input.canSendPrompt || input.busyAction === "interrupt",
+      label: "Stop",
+      disabled: !input.canSendPrompt,
+    };
+  }
+
+  if (
+    input.canResumeInterruptedTurn
+    && input.canSendPrompt
+    && !input.isThreadRunning
+    && input.latestTurnStatus === "interrupted"
+    && !input.hasThreadGoal
+    && !input.hasDraftContent
+    && input.busyAction === null
+  ) {
+    return {
+      action: "resume",
+      primarySubmitAction: null,
+      alternateSubmitAction: null,
+      label: "Resume",
+      disabled: false,
     };
   }
 
