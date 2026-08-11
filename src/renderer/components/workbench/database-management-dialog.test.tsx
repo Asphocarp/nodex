@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { fireEvent } from "@testing-library/react";
+import { fireEvent, within } from "@testing-library/react";
 import { act } from "react";
 import type {
   DatabaseContainerDescriptorV2,
@@ -149,6 +149,21 @@ const baseProps = (): DatabaseManagementSurfaceProps => ({
   onDeletePropertyOption: noop,
 });
 
+const databasesWithCalendar = (): readonly DatabaseContainerDescriptorV2[] => [{
+  ...databases[0]!,
+  views: [
+    ...databases[0]!.views,
+    {
+      ...databases[0]!.views[1]!,
+      viewId: parseDatabaseViewId("view-calendar"),
+      name: "Schedule",
+      kind: "calendar",
+      revision: 3,
+      rankKey: "c",
+    },
+  ],
+}];
+
 describe("DatabaseManagementSurface", () => {
   test("presents one Source schema and Views without Project-owned Page membership", () => {
     const screen = render(<DatabaseManagementSurface {...baseProps()} />);
@@ -226,6 +241,76 @@ describe("DatabaseManagementSurface", () => {
       expectedRevision: 2,
       name: "Focused list",
       kind: "list",
+    });
+  });
+
+  test("hides Calendar authoring while keeping existing Calendar Views manageable", async () => {
+    const updates: unknown[] = [];
+    const screen = render(
+      <DatabaseManagementSurface
+        {...baseProps()}
+        databases={databasesWithCalendar()}
+        onUpdateView={(draft) => {
+          updates.push(draft);
+        }}
+      />,
+    );
+
+    const newViewKind = screen.getByLabelText("New View kind");
+    expect(within(newViewKind).queryByRole("option", { name: "Calendar" })).toBeNull();
+    expect(within(screen.getByLabelText("View kind List")).queryByRole(
+      "option",
+      { name: "Calendar" },
+    )).toBeNull();
+
+    const calendarKind = screen.getByLabelText("View kind Schedule");
+    const unavailableOption = within(calendarKind).getByRole("option", {
+      name: "Calendar (temporarily unavailable)",
+    }) as HTMLOptionElement;
+    expect(unavailableOption.disabled).toBe(true);
+    expect((calendarKind as HTMLSelectElement).value).toBe("calendar");
+
+    fireEvent.change(calendarKind, { target: { value: "list" } });
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText("Save View Schedule"));
+      await Promise.resolve();
+    });
+
+    expect(updates[0]).toMatchObject({
+      viewId: "view-calendar",
+      kind: "list",
+      name: "Schedule",
+    });
+  });
+
+  test("restores Calendar authoring when the presentation feature is enabled", async () => {
+    const created: unknown[] = [];
+    const screen = render(
+      <DatabaseManagementSurface
+        {...baseProps()}
+        calendarPresentation={{ enabled: true }}
+        onCreateView={(draft) => {
+          created.push(draft);
+        }}
+      />,
+    );
+
+    const newViewKind = screen.getByLabelText("New View kind");
+    expect(within(newViewKind).getByRole("option", { name: "Calendar" })).toBeTruthy();
+    fireEvent.change(newViewKind, { target: { value: "calendar" } });
+    fireEvent.input(screen.getByLabelText("New View name"), {
+      target: { value: "Schedule" },
+    });
+    await act(async () => {
+      fireEvent.submit(screen.getByLabelText("New View name").closest("form")!);
+      await Promise.resolve();
+    });
+
+    expect(created[0]).toEqual({
+      databaseId,
+      dataSourceId,
+      name: "Schedule",
+      kind: "calendar",
     });
   });
 

@@ -25,20 +25,10 @@ interface MainViewHostProps {
   pageStagePageId?: string;
   presentedPageIds?: ReadonlySet<string>;
   pageStageCloseRef: React.RefObject<(() => Promise<void>) | null>;
-  pendingReminderOpen?: {
-    projectId: string;
-    pageId: string;
-    occurrenceStart: string;
-  } | null;
   calendarState: CalendarViewState;
   calendarVisibleDays: Date[];
   calendarCreateRequestId: number;
   onCalendarAnchorDateChange: (update: (anchorDate: Date) => Date) => void;
-  onReminderHandled?: (payload: {
-    projectId: string;
-    pageId: string;
-    occurrenceStart: string;
-  }) => void;
   openPageStage: (
     projectId: string,
     pageId: string,
@@ -63,12 +53,10 @@ export function MainViewHost({
   pageStagePageId,
   presentedPageIds,
   pageStageCloseRef,
-  pendingReminderOpen,
   calendarState,
   calendarVisibleDays,
   calendarCreateRequestId,
   onCalendarAnchorDateChange,
-  onReminderHandled,
   openPageStage,
   onOpenPageInNewChat,
   onSendPageToChat,
@@ -120,12 +108,10 @@ export function MainViewHost({
         openPageStage={openPageStage}
         pageStagePageId={pageStagePageId}
         pageStageCloseRef={pageStageCloseRef}
-        pendingReminderOpen={pendingReminderOpen?.projectId === projectId ? pendingReminderOpen : null}
         calendarState={calendarState}
         visibleDays={calendarVisibleDays}
         createRequestId={calendarCreateRequestId}
         onCalendarAnchorDateChange={onCalendarAnchorDateChange}
-        onReminderHandled={onReminderHandled}
         scrollStateKey={scrollStateKey}
       />
     );

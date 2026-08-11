@@ -10,6 +10,7 @@ import {
 import { ArrowDown, ArrowUp, List } from "@/components/shared/icons/generic-icons";
 import {
   stableStringifyDatabaseJson,
+  type DatabaseViewKind,
   type DatabaseJsonValue,
   type DatabasePropertyOption,
 } from "../../../shared/database-kernel";
@@ -70,6 +71,7 @@ import { PagePresenceRail } from "../kanban/page-presence-rail";
 
 interface DatabaseViewSurfaceProps {
   readonly model: DatabaseViewRenderModel;
+  readonly presentationKind?: DatabaseViewKind;
   readonly groupPagination?: ReadonlyMap<string, ColumnPaginationState>;
   readonly onLoadMoreGroup?: (scopeKey: string) => Promise<void> | void;
   readonly searchQuery: string;
@@ -412,6 +414,7 @@ const calendarSections = (
 
 export function DatabaseViewSurface({
   model,
+  presentationKind = model.query.view.kind,
   groupPagination,
   onLoadMoreGroup,
   searchQuery,
@@ -928,7 +931,7 @@ export function DatabaseViewSurface({
             ? "No matching Pages"
             : "This View has no Pages"}
         </div>
-      ) : model.query.view.kind === "kanban" ? (
+      ) : presentationKind === "kanban" ? (
         <div className="flex min-h-0 flex-1 gap-2 overflow-auto p-3">
           {columns.map((column) => (
             <section key={column.id} className="w-64 shrink-0">
@@ -948,7 +951,7 @@ export function DatabaseViewSurface({
             </section>
           ))}
         </div>
-      ) : model.query.view.kind === "calendar" ? (
+      ) : presentationKind === "calendar" ? (
         <div className="min-h-0 flex-1 overflow-auto p-3">
           <div className="mx-auto max-w-4xl space-y-3">
             {calendarSections(model, allRows).map((section) => (

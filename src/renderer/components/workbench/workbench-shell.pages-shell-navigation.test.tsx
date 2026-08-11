@@ -7,6 +7,26 @@ import { makeAttachedSession, makeBlankSession, makePanelLayout, makePanels, mak
 import { TITLEBAR_NEW_CHAT_ICON_PREFIX, executeCommandPaletteCommand, getHeaderShellSlot, getLastTerminalPanelProps, getThreadRow, installReducedMotionMatchMediaForTest, invokeCalls, moveSidebarPointer, pointerActivate, pointerDownAndSettle, renderWorkbench, startThreadForSessionCalls, setInvokeCalls } from "./workbench-testkit/workbench-shell-harness";
 
 describe("workbench session shell / pages-shell-navigation", () => {
+  test("projects restored Calendar tabs to Board while the release gate is off", async () => {
+    const session = makeSession({
+      tabs: [makeSessionTab({
+        id: "calendar-db",
+        title: "Calendar",
+        kind: "db_view",
+        config: { projectId: "alpha", view: "calendar" },
+      })],
+    });
+    const screen = renderWorkbench({ sessionsByProject: { alpha: [session] } });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const props = (globalThis as { __lastMainViewHostProps?: Record<string, unknown> })
+      .__lastMainViewHostProps;
+    expect(props?.view).toBe("kanban");
+    expect(screen.queryByRole("button", { name: "Calendar" })).toBeNull();
+    expect(screen.getByText("DB:alpha:kanban")).toBeTruthy();
+  });
+
   test("opens a Page in a fresh Session Scene without starting a Thread", async () => {
     const screen = renderWorkbench();
     await settleAsyncRender();

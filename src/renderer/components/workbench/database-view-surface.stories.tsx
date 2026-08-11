@@ -229,6 +229,12 @@ const withKind = (
 
 export const ListView: Story = { args: { model: withKind("list") } };
 export const CalendarAgenda: Story = { args: { model: withKind("calendar") } };
+export const CalendarAgendaListFallback: Story = {
+  args: {
+    model: withKind("calendar"),
+    presentationKind: "list",
+  },
+};
 
 function FullDatabaseViewTab({
   viewModel,

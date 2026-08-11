@@ -36,6 +36,12 @@ import {
   type DbViewPrefs,
   type SupportedDbView,
 } from "@/lib/db-view-prefs";
+import {
+  calendarPresentationFeature,
+  resolveDurableDatabasePresentation,
+  resolveLegacyWorkbenchPresentation,
+  type CalendarPresentationFeature,
+} from "@/lib/calendar-presentation-feature";
 import type {
   Project,
   ProjectSessionDbView,
@@ -45,6 +51,7 @@ import { useKanban } from "@/lib/use-kanban";
 import type { WorkbenchView } from "@/lib/use-workbench-profile-preferences";
 import type { WorkbenchSurfaceUpdatePatch } from "@/lib/workbench-scene-presentation";
 import type { DatabaseViewRenderModel } from "@/lib/database-view-render-model";
+import type { DatabaseViewKind } from "../../../shared/database-kernel";
 import type { ColumnPaginationState } from "@/lib/kanban-store";
 import { DatabaseManagementDialogController } from "./database-management-dialog-controller";
 import {
@@ -75,12 +82,13 @@ const DB_VIEW_TABS: Array<{
 
 const durableDatabaseToolbarItem = (
   model: DatabaseViewRenderModel,
+  presentationKind: DatabaseViewKind = model.query.view.kind,
 ): DbViewToolbarItem => {
   const item = DB_VIEW_TABS.find((candidate) =>
-    candidate.id === model.query.view.kind
+    candidate.id === presentationKind
   );
   return {
-    id: model.query.view.kind,
+    id: presentationKind,
     label: item?.label ?? model.viewName,
     icon: item?.icon ?? DatabaseIcon,
     active: true,
@@ -90,7 +98,8 @@ const durableDatabaseToolbarItem = (
 
 export function DatabaseViewTabSurface({
   model,
-  toolbarItems = [durableDatabaseToolbarItem(model)],
+  presentationKind = model.query.view.kind,
+  toolbarItems = [durableDatabaseToolbarItem(model, presentationKind)],
   destinationItems,
   groupPagination,
   onLoadMoreGroup,
@@ -109,6 +118,7 @@ export function DatabaseViewTabSurface({
   presentedPageIds,
 }: {
   readonly model: DatabaseViewRenderModel;
+  readonly presentationKind?: DatabaseViewKind;
   readonly toolbarItems?: DbViewToolbarItem[];
   readonly destinationItems?: DbViewToolbarItem[];
   readonly groupPagination?: ReadonlyMap<string, ColumnPaginationState>;
@@ -153,6 +163,7 @@ export function DatabaseViewTabSurface({
       <div className="min-h-0 flex-1 overflow-hidden">
         <DatabaseViewSurface
           model={model}
+          presentationKind={presentationKind}
           groupPagination={groupPagination}
           onLoadMoreGroup={onLoadMoreGroup}
           searchQuery={activeSearchQuery}
@@ -177,17 +188,16 @@ export function DbViewSessionTab({
   dbViewPrefsByProject,
   presentedPageIds,
   pageStageCloseRef,
-  pendingReminderOpen,
   taskSearchOpenTick,
   setSearchQuery,
   setDbViewPrefs,
-  onReminderHandled,
   onOpenPageTab,
   onOpenPageInNewChat,
   onSendPageToChat,
   onOpenCanvasStage,
   targetLeafId,
   onUpdateTab,
+  calendarPresentation = calendarPresentationFeature,
 }: {
   sessionId: string;
   tab: WorkbenchTabProjection;
@@ -202,11 +212,6 @@ export function DbViewSessionTab({
   >;
   presentedPageIds: ReadonlySet<string>;
   pageStageCloseRef: RefObject<(() => Promise<void>) | null>;
-  pendingReminderOpen?: {
-    projectId: string;
-    pageId: string;
-    occurrenceStart: string;
-  } | null;
   taskSearchOpenTick: number;
   setSearchQuery: (projectId: string, value: string) => void;
   setDbViewPrefs: (
@@ -214,11 +219,6 @@ export function DbViewSessionTab({
     view: SupportedDbView,
     update: (prev: DbViewPrefs) => DbViewPrefs,
   ) => void;
-  onReminderHandled?: (payload: {
-    projectId: string;
-    pageId: string;
-    occurrenceStart: string;
-  }) => void;
   onOpenPageTab: OpenPageTabHandler;
   onOpenPageInNewChat?: (input: OpenPageInNewChatInput) => Promise<void> | void;
   onSendPageToChat?: (input: SendPageToChatInput) => Promise<void> | void;
@@ -228,6 +228,7 @@ export function DbViewSessionTab({
     tabId: string,
     patch: WorkbenchSurfaceUpdatePatch,
   ) => WorkbenchTabProjection | null;
+  calendarPresentation?: CalendarPresentationFeature;
 }) {
   if (tab.kind !== "db_view") {
     throw new Error("Database view tabs require a db_view descriptor");
@@ -236,7 +237,13 @@ export function DbViewSessionTab({
   const projectId = config.projectId;
   const selectedDatabaseViewId = config.databaseViewId;
   const view = config.view;
-  const legacyRulesView = viewSupportsDbViewPrefs(view) ? view : null;
+  const legacyPresentation = resolveLegacyWorkbenchPresentation(
+    view,
+    calendarPresentation,
+  );
+  const legacyRulesView = viewSupportsDbViewPrefs(legacyPresentation)
+    ? legacyPresentation
+    : null;
   const legacyDbViewPrefs = legacyRulesView
     ? dbViewPrefsByProject[projectId]?.[legacyRulesView]
       ?? (
@@ -256,9 +263,15 @@ export function DbViewSessionTab({
   const selectedGeneralView = Boolean(
     databaseView && !databaseView.primaryWriteCompatible,
   );
+  const durablePresentation = databaseView
+    ? resolveDurableDatabasePresentation(
+        databaseView.query.view.kind,
+        calendarPresentation,
+      )
+    : null;
   const renderedView = selectedGeneralView && databaseView
-    ? databaseView.query.view.kind
-    : view;
+    ? durablePresentation ?? databaseView.query.view.kind
+    : legacyPresentation;
   const rulesView = selectedGeneralView ? null : legacyRulesView;
   const dbViewPrefs = selectedGeneralView ? null : legacyDbViewPrefs;
   const [calendarState, setCalendarState] = useState<CalendarViewState>(
@@ -368,6 +381,7 @@ export function DbViewSessionTab({
 
   const selectView = async (nextView: ProjectSessionDbView) => {
     if (selectedGeneralView) return;
+    if (nextView === renderedView) return;
     onUpdateTab(tab.id, {
       config: {
         projectId,
@@ -381,7 +395,9 @@ export function DbViewSessionTab({
 
   const availableToolbarItems = selectedGeneralView
     ? DB_VIEW_TABS.filter((item) => item.id === renderedView)
-    : DB_VIEW_TABS;
+    : DB_VIEW_TABS.filter((item) =>
+        calendarPresentation.enabled || item.id !== "calendar"
+      );
   const toolbarItems = availableToolbarItems.map((item) => ({
     id: item.id,
     label: item.label,
@@ -422,6 +438,7 @@ export function DbViewSessionTab({
     return (
       <DatabaseViewTabSurface
         model={databaseView}
+        presentationKind={durablePresentation ?? databaseView.query.view.kind}
         toolbarItems={toolbarItems}
         destinationItems={[{
           id: "primary-canvas",
@@ -542,18 +559,16 @@ export function DbViewSessionTab({
           projectId={projectId}
           databaseViewId={selectedDatabaseViewId}
           projects={projects}
-          view={view}
+          view={renderedView}
           searchQuery={searchQuery}
           dbViewPrefs={dbViewPrefs}
           onUpdateDbViewPrefs={updateDbViewPrefs}
           presentedPageIds={presentedPageIds}
           pageStageCloseRef={pageStageCloseRef}
-          pendingReminderOpen={pendingReminderOpen}
           calendarState={calendarState}
           calendarVisibleDays={calendarVisibleDays}
           calendarCreateRequestId={calendarCreateRequestId}
           onCalendarAnchorDateChange={handleCalendarAnchorDateChange}
-          onReminderHandled={onReminderHandled}
           scrollStateKey={scrollStateKey}
           openPageStage={(nextProjectId, pageId, titleSnapshot, options) => {
             void onOpenPageTab(nextProjectId, pageId, titleSnapshot, {

@@ -31,14 +31,6 @@ interface CalendarViewProps {
   ) => void;
   pageStagePageId: string | undefined;
   pageStageCloseRef?: React.MutableRefObject<(() => Promise<void>) | null>;
-  pendingReminderOpen?: {
-    projectId: string;
-    pageId: string;
-    occurrenceStart: string;
-  } | null;
-  onReminderHandled?: (
-    payload: { projectId: string; pageId: string; occurrenceStart: string },
-  ) => void;
   calendarState: CalendarViewState;
   visibleDays: Date[];
   createRequestId: number;
@@ -126,8 +118,6 @@ export function CalendarView({
   openPageStage,
   pageStagePageId,
   pageStageCloseRef,
-  pendingReminderOpen,
-  onReminderHandled,
   calendarState,
   visibleDays,
   createRequestId,
@@ -474,28 +464,6 @@ export function CalendarView({
       left.scheduledStart.getTime() - right.scheduledStart.getTime()
     ));
   }, [occurrenceOverlayById, scheduledPages]);
-
-  useEffect(() => {
-    if (!pendingReminderOpen) return;
-    if (pendingReminderOpen.projectId !== projectId) return;
-
-    let cancelled = false;
-    void getPage(pendingReminderOpen.pageId).then((result) => {
-      if (cancelled) return;
-      if (result) openPageStage(projectId, result.id, result.title);
-      onReminderHandled?.(pendingReminderOpen);
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    getPage,
-    onReminderHandled,
-    openPageStage,
-    pendingReminderOpen,
-    projectId,
-  ]);
 
   return (
     <div
