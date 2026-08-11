@@ -1957,6 +1957,7 @@ export function ProjectSessionSidebar({
           >
             <SidebarExpandedHeader
               productName="Nodex"
+              productStatusLabel="Beta"
               searchShortcutLabel={resolveCodexPageSearchShortcutLabel()}
               newChatShortcutLabel={resolveCodexNewChatShortcutLabel()}
               scrolledContentUnderHeader={sidebarScrollChrome.scrolledContentUnderHeader}
