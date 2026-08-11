@@ -42,8 +42,6 @@ export interface DatabaseViewRenderModel {
   readonly authorization: AuthorizedReadStamp | null;
   readonly columns: readonly DatabaseViewRenderColumn[];
   readonly query: DatabaseViewQueryResultV2;
-  /** Whether the compatibility Board presentation can faithfully render it. */
-  readonly primaryWriteCompatible: boolean;
   readonly readOnlyReason: string | null;
 }
 
@@ -53,6 +51,12 @@ export type DatabaseViewAccessContext =
 
 export interface DatabaseViewRenderRow {
   readonly pageId: string;
+  /** Database task hierarchy, distinct from structural Page ownership. */
+  readonly parentPageId?: string;
+  readonly siblingRank?: string;
+  readonly hierarchyRevision?: number;
+  readonly groupKey: string | null;
+  readonly subgroupKey: string | null;
   readonly title: string;
   readonly preview: string;
   readonly plainText: string;
@@ -76,12 +80,20 @@ export interface DatabaseViewRenderRow {
 export const UNGROUPED_SCOPE_KEY = "all";
 
 export const groupScopeKeyForColumn = (groupKey: string | null): string =>
-  groupKey === null ? "unassigned" : `key:${groupKey}`;
+  groupKey === null ? "unassigned" : `key:${JSON.stringify(groupKey)}`;
+
+export const groupScopeKeyForPath = (
+  groupKey: string | null,
+  subgroupKey: string | null,
+): string => subgroupKey === null
+  ? groupScopeKeyForColumn(groupKey)
+  : `${groupScopeKeyForColumn(groupKey)}/sub:${JSON.stringify(subgroupKey)}`;
 
 export interface DatabaseViewRenderColumn {
   readonly id: string;
+  readonly groupKey: string | null;
   readonly name: string;
-  /** Pagination scope of this column's group window in the kanban store. */
+  /** Pagination scope of this column's group window in the board store. */
   readonly scopeKey: string;
   readonly rows: readonly DatabaseViewRenderRow[];
 }
@@ -133,7 +145,7 @@ const readStringList = (
   return value.filter((item): item is string => typeof item === "string");
 };
 
-const toRenderRow = (
+export const projectDataSourcePageRowToDatabaseViewRenderRow = (
   row: DataSourcePageRowV2,
   properties: readonly DataSourcePropertyRecordV2[],
 ): DatabaseViewRenderRow => {
@@ -162,6 +174,15 @@ const toRenderRow = (
 
   return {
     pageId: row.page.pageId,
+    ...(row.taskHierarchy
+      ? {
+          parentPageId: row.taskHierarchy.parentPageId,
+          siblingRank: row.taskHierarchy.siblingRank,
+          hierarchyRevision: row.taskHierarchy.revision,
+        }
+      : {}),
+    groupKey: row.effectiveGroupKey,
+    subgroupKey: row.effectiveSubgroupKey,
     title: row.page.title || "Untitled",
     preview: row.page.preview,
     plainText: row.page.plainText,
@@ -185,9 +206,10 @@ const toRenderRow = (
 const hasStatusGroupContract = (
   query: DatabaseViewQueryResultV2,
   statusProperty: DataSourcePropertyRecordV2 | null,
+  groupPropertyId: string | null,
 ): boolean => {
   if (!statusProperty) return false;
-  if (query.view.config.group?.propertyId !== statusProperty.propertyId) {
+  if (groupPropertyId !== statusProperty.propertyId) {
     return false;
   }
   return query.rows.every((row) => {
@@ -196,36 +218,28 @@ const hasStatusGroupContract = (
   });
 };
 
-const hasDefaultBoardReadContract = (
+export const buildDatabaseViewColumns = (
   query: DatabaseViewQueryResultV2,
-): boolean => {
-  const config = query.view.config;
-  if (
-    config.filter.kind !== "group"
-    || config.filter.operator !== "and"
-    || config.filter.children.length !== 0
-  ) {
-    return false;
-  }
-  return config.sort.length === 1
-    && config.sort[0]?.field.kind === "manual"
-    && config.sort[0].direction === "asc"
-    && config.sort[0].nulls === "last";
-};
-
-const buildColumns = (
-  query: DatabaseViewQueryResultV2,
-  statusGrouped: boolean,
+  groupPropertyId: string | null,
+  showEmptyGroups = true,
 ): readonly DatabaseViewRenderColumn[] => {
+  const statusGrouped = hasStatusGroupContract(
+    query,
+    propertyById(query.properties, "status"),
+    groupPropertyId,
+  );
   const rows = query.rows.map((row) => ({
     row,
-    renderRow: toRenderRow(row, query.properties),
+    renderRow: projectDataSourcePageRowToDatabaseViewRenderRow(
+      row,
+      query.properties,
+    ),
   }));
   if (!statusGrouped) {
-    const groupPropertyId = query.view.config.group?.propertyId;
     if (!groupPropertyId) {
       return [{
         id: DEFAULT_WORKFLOW_STATUS,
+        groupKey: null,
         name: query.view.name,
         scopeKey: UNGROUPED_SCOPE_KEY,
         rows: rows.map(({ renderRow }) => renderRow),
@@ -239,6 +253,7 @@ const buildColumns = (
     if (!groupProperty) {
       return [{
         id: DEFAULT_WORKFLOW_STATUS,
+        groupKey: null,
         name: query.view.name,
         scopeKey: UNGROUPED_SCOPE_KEY,
         rows: rows.map(({ renderRow }) => renderRow),
@@ -249,7 +264,7 @@ const buildColumns = (
       options.map((option) => [option.id, option.name]),
     );
     const configuredGroupKeys = [
-      ...options.map((option) => option.id),
+      ...(showEmptyGroups ? options.map((option) => option.id) : []),
       ...rows.map(({ row }) => row.effectiveGroupKey),
     ].filter(
       (key, index, all): key is string | null => all.indexOf(key) === index,
@@ -282,6 +297,7 @@ const buildColumns = (
     };
     return groupKeys.map((groupKey) => ({
       id: groupKey ?? `empty:${groupProperty.propertyId}`,
+      groupKey,
       name: groupName(groupKey),
       scopeKey: groupScopeKeyForColumn(groupKey),
       rows: rows.flatMap(({ row, renderRow }) =>
@@ -289,8 +305,13 @@ const buildColumns = (
     }));
   }
 
-  return WORKFLOW_STATUS_COLUMNS.map((column) => ({
+  const workflowColumns = showEmptyGroups
+    ? WORKFLOW_STATUS_COLUMNS
+    : WORKFLOW_STATUS_COLUMNS.filter((column) =>
+      rows.some(({ row }) => row.effectiveGroupKey === column.id));
+  return workflowColumns.map((column) => ({
     ...column,
+    groupKey: column.id,
     scopeKey: groupScopeKeyForColumn(column.id),
     rows: rows.flatMap(({ row, renderRow }) =>
       row.effectiveGroupKey === column.id ? [renderRow] : []),
@@ -318,14 +339,7 @@ export const buildDatabaseViewRenderModel = (
   ) {
     throw new Error("Database View query has mismatched Library resource identity");
   }
-  const statusProperty = propertyById(query.properties, "status");
-  const statusGrouped = hasStatusGroupContract(query, statusProperty);
-  const primaryWriteCompatible =
-    query.database.defaultViewId === query.view.viewId
-    && query.view.isDefault
-    && query.view.kind === "kanban"
-    && statusGrouped
-    && hasDefaultBoardReadContract(query);
+  const groupPropertyId = query.view.config.presentation.group?.propertyId ?? null;
 
   return {
     accessContext: "accessContext" in snapshot
@@ -341,9 +355,8 @@ export const buildDatabaseViewRenderModel = (
     storeEpoch: snapshot.storeEpoch,
     commitSeq: snapshot.commitSeq,
     authorization: snapshot.authorization,
-    columns: buildColumns(query, statusGrouped),
+    columns: buildDatabaseViewColumns(query, groupPropertyId),
     query,
-    primaryWriteCompatible,
     readOnlyReason: null,
   };
 };

@@ -382,10 +382,13 @@ import type {
   WorkspaceFileWriteResult,
 } from "./types";
 import type {
+  DatabaseListWindowInput,
+  DatabaseListWindowSnapshot,
   DatabaseViewGroupsInput,
   DatabaseViewGroupsSnapshot,
   DatabaseViewWindowInput,
   DatabaseViewWindowSnapshot,
+  LibraryDatabaseListWindowSnapshot,
   LibraryDatabaseViewGroupsSnapshot,
   LibraryDatabaseViewWindowSnapshot,
 } from "./database-views";
@@ -906,6 +909,10 @@ export interface IpcApi {
     args: [projectId: string, input: DatabaseViewWindowInput];
     result: CoreReadResult<DatabaseViewWindowSnapshot>;
   };
+  "database:list-window:get": {
+    args: [projectId: string, input: DatabaseListWindowInput];
+    result: CoreReadResult<DatabaseListWindowSnapshot>;
+  };
   "database:view-groups:get": {
     args: [projectId: string, input: DatabaseViewGroupsInput];
     result: CoreReadResult<DatabaseViewGroupsSnapshot>;
@@ -918,6 +925,15 @@ export interface IpcApi {
       ),
     ];
     result: CoreReadResult<LibraryDatabaseViewWindowSnapshot>;
+  };
+  "library-database:list-window:get": {
+    args: [
+      input: DatabaseListWindowInput & (
+        | { readonly databaseViewId: string }
+        | { readonly databaseId: string }
+      ),
+    ];
+    result: CoreReadResult<LibraryDatabaseListWindowSnapshot>;
   };
   "library-database:view-groups:get": {
     args: [

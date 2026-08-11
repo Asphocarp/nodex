@@ -3483,7 +3483,7 @@ mod tests {
                     .query_row(
                         "SELECT page.parent_kind, page.parent_id, membership.id, \
                            membership.revision, value.value_json, value.revision, \
-                           position.group_key, position.rank_key, position.revision \
+                           json_extract(value.value_json, '$'), position.rank_key, position.revision \
                          FROM pages page \
                          JOIN data_source_page_memberships membership \
                            ON membership.page_block_id = page.block_id \
@@ -3946,10 +3946,10 @@ mod tests {
             &items[0],
             nodex_core_contracts::library::LibraryNavigationNode::View {
                 title,
-                view_kind,
+                default_layout,
                 is_default: true,
                 ..
-            } if title == "Kanban" && view_kind == "kanban"
+            } if title == "Board" && default_layout == "board"
         ));
         kernel
             .readers()
@@ -3990,7 +3990,7 @@ mod tests {
                         "018f0000-0000-7000-8000-000000000003".to_owned(),
                         1,
                         1,
-                        2,
+                        3,
                         8,
                         1,
                         1,
@@ -6448,8 +6448,9 @@ mod tests {
                 destination: LibraryPageWriteDestination::DataSource {
                     data_source_id: "018f0000-0000-7000-8000-000000000002".to_owned(),
                     view_id: Some("018f0000-0000-7000-8000-000000000003".to_owned()),
-                    group: Some(nodex_core_contracts::database::DatabaseGroupScope::Key {
-                        key: "build".to_owned(),
+                    group: Some(nodex_core_contracts::database::DatabaseGroupScope::Path {
+                        group_key: Some("build".to_owned()),
+                        subgroup_key: None,
                     }),
                     at: Some(LibraryAgentSiblingAnchor::End),
                 },
@@ -6532,8 +6533,9 @@ mod tests {
                         destination: LibraryPageWriteDestination::DataSource {
                             data_source_id: "018f0000-0000-7000-8000-000000000002".to_owned(),
                             view_id: Some("018f0000-0000-7000-8000-000000000003".to_owned()),
-                            group: Some(nodex_core_contracts::database::DatabaseGroupScope::Key {
-                                key: "triage".to_owned(),
+                            group: Some(nodex_core_contracts::database::DatabaseGroupScope::Path {
+                                group_key: Some("triage".to_owned()),
+                                subgroup_key: None,
                             }),
                             at: Some(LibraryAgentSiblingAnchor::End),
                         },

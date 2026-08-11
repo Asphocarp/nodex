@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { fireEvent, within } from "@testing-library/react";
+import { fireEvent } from "@testing-library/react";
 import { act } from "react";
 import type {
   DatabaseContainerDescriptorV2,
@@ -12,6 +12,7 @@ import {
   parseDataSourcePropertyId,
 } from "../../../shared/database-identities";
 import { testPropertySemantics } from "../../../shared/testing/database-property-record";
+import { upgradeDatabaseViewConfigV2 } from "../../../shared/database-view-presentation";
 import {
   DatabaseManagementMutationError,
   DatabaseManagementReadError,
@@ -71,8 +72,8 @@ const databases: readonly DatabaseContainerDescriptorV2[] = [{
       databaseId,
       dataSourceId,
       name: "Board",
-      kind: "kanban",
-      config: {
+      defaultLayout: "board",
+      config: upgradeDatabaseViewConfigV2({
         schemaKey: "nodex.database-view",
         schemaVersion: 2,
         filter: { kind: "group", operator: "and", children: [] },
@@ -83,7 +84,7 @@ const databases: readonly DatabaseContainerDescriptorV2[] = [{
         }],
         group: null,
         display: { propertyIds: ["tags"], showTitle: true },
-      },
+      }),
       isDefault: true,
       revision: 1,
       rankKey: "a",
@@ -96,15 +97,15 @@ const databases: readonly DatabaseContainerDescriptorV2[] = [{
       databaseId,
       dataSourceId,
       name: "List",
-      kind: "list",
-      config: {
+      defaultLayout: "list",
+      config: upgradeDatabaseViewConfigV2({
         schemaKey: "nodex.database-view",
         schemaVersion: 2,
         filter: { kind: "group", operator: "and", children: [] },
         sort: [],
         group: null,
         display: { propertyIds: [], showTitle: true },
-      },
+      }),
       isDefault: false,
       revision: 2,
       rankKey: "b",
@@ -148,21 +149,6 @@ const baseProps = (): DatabaseManagementSurfaceProps => ({
   onPutPropertyOption: noop,
   onDeletePropertyOption: noop,
 });
-
-const databasesWithCalendar = (): readonly DatabaseContainerDescriptorV2[] => [{
-  ...databases[0]!,
-  views: [
-    ...databases[0]!.views,
-    {
-      ...databases[0]!.views[1]!,
-      viewId: parseDatabaseViewId("view-calendar"),
-      name: "Schedule",
-      kind: "calendar",
-      revision: 3,
-      rankKey: "c",
-    },
-  ],
-}];
 
 describe("DatabaseManagementSurface", () => {
   test("presents one Source schema and Views without Project-owned Page membership", () => {
@@ -240,66 +226,36 @@ describe("DatabaseManagementSurface", () => {
       viewId: "view-list",
       expectedRevision: 2,
       name: "Focused list",
-      kind: "list",
+      defaultLayout: "list",
     });
   });
 
-  test("hides Calendar authoring while keeping existing Calendar Views manageable", async () => {
-    const updates: unknown[] = [];
-    const screen = render(
-      <DatabaseManagementSurface
-        {...baseProps()}
-        databases={databasesWithCalendar()}
-        onUpdateView={(draft) => {
-          updates.push(draft);
-        }}
-      />,
-    );
-
-    const newViewKind = screen.getByLabelText("New View kind");
-    expect(within(newViewKind).queryByRole("option", { name: "Calendar" })).toBeNull();
-    expect(within(screen.getByLabelText("View kind List")).queryByRole(
-      "option",
-      { name: "Calendar" },
-    )).toBeNull();
-
-    const calendarKind = screen.getByLabelText("View kind Schedule");
-    const unavailableOption = within(calendarKind).getByRole("option", {
-      name: "Calendar (temporarily unavailable)",
-    }) as HTMLOptionElement;
-    expect(unavailableOption.disabled).toBe(true);
-    expect((calendarKind as HTMLSelectElement).value).toBe("calendar");
-
-    fireEvent.change(calendarKind, { target: { value: "list" } });
-    await act(async () => {
-      fireEvent.click(screen.getByLabelText("Save View Schedule"));
-      await Promise.resolve();
-    });
-
-    expect(updates[0]).toMatchObject({
-      viewId: "view-calendar",
-      kind: "list",
-      name: "Schedule",
-    });
-  });
-
-  test("restores Calendar authoring when the presentation feature is enabled", async () => {
+  test("offers only Board and List when authoring a View", async () => {
     const created: unknown[] = [];
     const screen = render(
       <DatabaseManagementSurface
         {...baseProps()}
-        calendarPresentation={{ enabled: true }}
         onCreateView={(draft) => {
           created.push(draft);
         }}
       />,
     );
 
-    const newViewKind = screen.getByLabelText("New View kind");
-    expect(within(newViewKind).getByRole("option", { name: "Calendar" })).toBeTruthy();
-    fireEvent.change(newViewKind, { target: { value: "calendar" } });
+    await act(async () => {
+      fireEvent.pointerDown(screen.getByLabelText("New View default layout"), {
+        button: 0,
+        ctrlKey: false,
+      });
+      await Promise.resolve();
+    });
+    expect(screen.getAllByRole("menuitem").map((option) => option.textContent))
+      .toEqual(["List", "Board"]);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("menuitem", { name: "Board" }));
+      await Promise.resolve();
+    });
     fireEvent.input(screen.getByLabelText("New View name"), {
-      target: { value: "Schedule" },
+      target: { value: "Triage" },
     });
     await act(async () => {
       fireEvent.submit(screen.getByLabelText("New View name").closest("form")!);
@@ -309,8 +265,8 @@ describe("DatabaseManagementSurface", () => {
     expect(created[0]).toEqual({
       databaseId,
       dataSourceId,
-      name: "Schedule",
-      kind: "calendar",
+      name: "Triage",
+      defaultLayout: "board",
     });
   });
 
@@ -325,7 +281,13 @@ describe("DatabaseManagementSurface", () => {
             ...view,
             config: {
               ...view.config,
-              display: { ...view.config.display, propertyIds: [] },
+              presentation: {
+                ...view.config.presentation,
+                layouts: {
+                  board: { fields: [], showEmptyGroups: false },
+                  list: { fields: [], showEmptyGroups: false },
+                },
+              },
             },
           })),
         }]}

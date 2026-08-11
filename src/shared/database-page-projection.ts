@@ -757,7 +757,7 @@ export const projectDatabaseViewReference = (
         ? input.accessContext.projectId
         : null,
       name: query.view.name,
-      kind: query.view.kind,
+      defaultLayout: query.view.defaultLayout,
       config: JSON.parse(
         stableStringifyDatabaseJson(query.view.config),
       ) as Readonly<Record<string, DatabaseViewJsonValue>>,
@@ -776,6 +776,7 @@ export const projectDatabaseViewReference = (
       return {
         page,
         groupKey: row.effectiveGroupKey,
+        subgroupKey: row.effectiveSubgroupKey,
         rankKey: row.position?.rankKey ?? "ffffffffffffffffffffffffffffffff",
       };
     }),

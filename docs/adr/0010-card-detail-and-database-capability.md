@@ -55,7 +55,7 @@ Database status changes and occurrence actions remain membership-gated Database 
 
 ### Query invalidation follows Card authority, not board visibility
 
-The Card Detail renderer store is keyed by Project and Card Block ID. Freshness is derived from Block metadata/location revisions, Document generation/head sequence, and the optional membership coordinate. Absence from `useKanban().cardIndex` never means the Card is missing. Board summaries may seed or invalidate Database-row caches, but they are not the existence authority for Card Stage.
+The Card Detail renderer store is keyed by Project and Card Block ID. Freshness is derived from Block metadata/location revisions, Document generation/head sequence, and the optional membership coordinate. Absence from `useBoard().cardIndex` never means the Card is missing. Board summaries may seed or invalidate Database-row caches, but they are not the existence authority for Card Stage.
 
 ## Consequences
 

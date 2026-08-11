@@ -3,6 +3,8 @@ import {
   useId,
   useRef,
   useState,
+  type CSSProperties,
+  type ReactElement,
   type ReactNode,
 } from "react";
 import {
@@ -30,6 +32,11 @@ import {
   PROPERTY_EMPTY_VALUE_LABEL,
   PropertyEmptyValue,
 } from "./property-empty-value";
+import {
+  DATABASE_PROPERTY_LIST_CHIP_CLASS_NAME,
+  databasePropertyListOptionDotColor,
+  useDatabasePropertyListInlineLabelLimit,
+} from "./property-list-chip";
 
 export type PropertyOptionPickerMode = "single" | "multiple";
 
@@ -51,7 +58,8 @@ export interface PropertyOptionPickerProps {
   readonly loadingMore?: boolean;
   readonly registryError?: boolean;
   readonly hasMore?: boolean;
-  readonly presentation?: "compact" | "page" | "chip";
+  readonly presentation?: "compact" | "page" | "chip" | "list";
+  readonly triggerButton?: ReactElement;
   readonly triggerPrefix?: ReactNode;
   readonly searchPlaceholder?: string;
   readonly searchLeading?: ReactNode;
@@ -92,6 +100,79 @@ export function PropertyOptionToken({
 
 const dedupe = (values: readonly string[]): readonly string[] => [...new Set(values)];
 
+function PropertyListOptionDot({
+  option,
+  className,
+  style,
+}: {
+  readonly option: PresentedDataSourcePropertyOption;
+  readonly className?: string;
+  readonly style?: CSSProperties;
+}) {
+  return (
+    <span
+      aria-hidden="true"
+      className={cn("size-[9px] shrink-0 rounded-full", className)}
+      style={{
+        backgroundColor: databasePropertyListOptionDotColor(option.color, option.id),
+        ...style,
+      }}
+    />
+  );
+}
+
+function PropertyListMultipleDots({
+  options,
+}: {
+  readonly options: readonly PresentedDataSourcePropertyOption[];
+}) {
+  const visible = options.slice(0, 3);
+  return (
+    <span
+      aria-hidden="true"
+      className="relative h-[9px] shrink-0"
+      style={{ width: 9 + Math.max(0, visible.length - 1) * 4.5 }}
+    >
+      {visible.map((option, index) => (
+        <PropertyListOptionDot
+          key={option.id}
+          option={option}
+          className="absolute top-0 ring-1 ring-[lch(97.94_0.5_282)]"
+          style={{ left: index * 4.5 }}
+        />
+      ))}
+    </span>
+  );
+}
+
+function PropertyListMultipleTrigger({
+  options,
+}: {
+  readonly options: readonly PresentedDataSourcePropertyOption[];
+}) {
+  const limit = useDatabasePropertyListInlineLabelLimit();
+  const inline = options.length > limit ? options.slice(0, limit - 1) : options;
+  const hidden = options.length > limit ? options.slice(limit - 1) : [];
+  return (
+    <span className="flex h-6 min-w-0 max-w-full items-center gap-[3px] overflow-hidden">
+      {inline.map((option) => (
+        <span key={option.id} className={DATABASE_PROPERTY_LIST_CHIP_CLASS_NAME}>
+          <PropertyListOptionDot option={option} />
+          <span className="truncate">{option.name}</span>
+        </span>
+      ))}
+      {hidden.length > 0 ? (
+        <span className={DATABASE_PROPERTY_LIST_CHIP_CLASS_NAME}>
+          <PropertyListMultipleDots options={hidden} />
+          <span className="truncate">
+            +{hidden.length} {hidden.length === 1 ? "label" : "labels"}
+          </span>
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
 export function PropertyOptionPicker({
   label,
   triggerAriaLabel,
@@ -105,6 +186,7 @@ export function PropertyOptionPicker({
   registryError = false,
   hasMore = false,
   presentation = "compact",
+  triggerButton,
   triggerPrefix,
   searchPlaceholder = "Search options…",
   searchLeading = <SearchIcon className="icon-2xs shrink-0 text-token-description-foreground" />,
@@ -241,15 +323,20 @@ export function PropertyOptionPicker({
             ))}
           </span>
         );
-  const triggerContent = presentation === "chip"
-    ? (
+  const listMultipleTrigger = presentation === "list"
+    && mode === "multiple"
+    && presentedSelected.length > 0;
+  const triggerContent = listMultipleTrigger
+    ? <PropertyListMultipleTrigger options={presentedSelected} />
+    : presentation === "chip" || presentation === "list"
+      ? (
         <span className="max-w-44 truncate">
           {presentedSelected.length > 0
             ? presentedSelected.map((option) => option.name).join(", ")
             : label}
         </span>
       )
-    : regularTriggerContent;
+      : regularTriggerContent;
 
   return (
     <NodexPopover open={open} onOpenChange={(next) => {
@@ -261,30 +348,36 @@ export function PropertyOptionPicker({
       changeOpen(next);
     }}>
       <NodexPopoverTrigger asChild disabled={triggerDisabled}>
-        <button
-          type="button"
-          aria-label={triggerAriaLabel ?? `Edit ${label}`}
-          className={cn(
-            "inline-flex min-h-6 min-w-0 max-w-full items-center text-left outline-hidden",
-            "hover:bg-token-foreground/5 focus-visible:ring-2 focus-visible:ring-token-focus disabled:opacity-50",
-            presentation === "page"
-              ? "rounded-md px-1 text-sm"
-              : presentation === "chip"
-                ? cn(
-                    "h-6 gap-1 rounded-full border-[0.5px] pl-1.5 pr-2 text-xs/4 font-medium [&_svg]:size-4 [&_svg]:shrink-0",
-                    NODEX_RAISED_CONTROL_CHROME_CLASS_NAME,
-                  )
-                : "rounded-md px-1 text-[11px]",
-          )}
-        >
-          {triggerPrefix}
-          {triggerContent}
-          {presentation !== "chip" && mode === "multiple" && presentedSelected.length > 0 ? (
-            <span className="ml-1 inline-flex shrink-0 items-center gap-0.5 text-token-description-foreground">
-              <PlusIcon className="icon-2xs" />
-            </span>
-          ) : null}
-        </button>
+        {triggerButton ?? (
+          <button
+            type="button"
+            aria-label={triggerAriaLabel ?? `Edit ${label}`}
+            className={cn(
+              "inline-flex min-h-6 min-w-0 max-w-full items-center text-left outline-hidden",
+              "hover:bg-token-foreground/5 focus-visible:ring-2 focus-visible:ring-token-focus disabled:opacity-50",
+              presentation === "page"
+                ? "rounded-md px-1 text-sm"
+                : presentation === "chip"
+                  ? cn(
+                      "h-6 gap-1 rounded-full border-[0.5px] pl-1.5 pr-2 text-xs/4 font-medium [&_svg]:size-4 [&_svg]:shrink-0",
+                      NODEX_RAISED_CONTROL_CHROME_CLASS_NAME,
+                    )
+                  : presentation === "list"
+                    ? listMultipleTrigger
+                      ? "h-6 gap-[3px] overflow-hidden rounded-[48px] border-0 bg-transparent p-0 hover:bg-transparent focus-visible:ring-1 focus-visible:ring-[lch(64_25_250)]"
+                      : DATABASE_PROPERTY_LIST_CHIP_CLASS_NAME
+                  : "rounded-md px-1 text-[11px]",
+            )}
+          >
+            {listMultipleTrigger ? null : triggerPrefix}
+            {triggerContent}
+            {presentation !== "chip" && presentation !== "list" && mode === "multiple" && presentedSelected.length > 0 ? (
+              <span className="ml-1 inline-flex shrink-0 items-center gap-0.5 text-token-description-foreground">
+                <PlusIcon className="icon-2xs" />
+              </span>
+            ) : null}
+          </button>
+        )}
       </NodexPopoverTrigger>
       <NodexPopoverContent
         align="start"

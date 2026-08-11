@@ -6,7 +6,7 @@ function makeTabs(count: number): Tab[] {
   return Array.from({ length: count }, (_, i) => ({
     id: `tab-${i}`,
     projectId: `project-${i}`,
-    viewMode: "kanban" as const,
+    viewMode: "board" as const,
     searchQueries: {},
   }));
 }

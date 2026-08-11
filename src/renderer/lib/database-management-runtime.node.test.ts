@@ -16,6 +16,7 @@ import {
 } from "../../shared/database-identities";
 import { testPropertySemantics } from "../../shared/testing/database-property-record";
 import { noOpLocalCommit } from "../../shared/testing/local-commit";
+import { upgradeDatabaseViewConfigV2 } from "../../shared/database-view-presentation";
 import {
   commitDatabaseManagementOperations,
   DatabaseManagementMutationError,
@@ -59,8 +60,8 @@ const descriptor = (): DatabaseContainerDescriptorV2 => ({
     databaseId,
     dataSourceId,
     name: "Board",
-    kind: "kanban",
-    config: {
+    defaultLayout: "board",
+    config: upgradeDatabaseViewConfigV2({
       schemaKey: "nodex.database-view",
       schemaVersion: 2,
       filter: { kind: "group", operator: "and", children: [] },
@@ -71,7 +72,7 @@ const descriptor = (): DatabaseContainerDescriptorV2 => ({
       }],
       group: null,
       display: { propertyIds: [], showTitle: true },
-    },
+    }),
     isDefault: true,
     revision: 1,
     rankKey: "a",

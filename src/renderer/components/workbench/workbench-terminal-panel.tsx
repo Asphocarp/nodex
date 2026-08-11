@@ -1,1 +1,1 @@
-export { TerminalPanel } from "../kanban/terminal-panel";
+export { TerminalPanel } from "../board/terminal-panel";

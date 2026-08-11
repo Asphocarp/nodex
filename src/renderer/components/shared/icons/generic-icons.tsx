@@ -24,7 +24,6 @@ import {
   ChevronsRightLeft as LucideChevronsRightLeft,
   Circle as LucideCircle,
   CircleAlert as LucideCircleAlert,
-  CircleArrowDown as LucideCircleArrowDown,
   CircleDotIcon as LucideCircleDotIcon,
   CircleX as LucideCircleX,
   ClipboardListIcon as LucideClipboardListIcon,
@@ -116,10 +115,8 @@ import {
   TextCursorInput as LucideTextCursorInput,
   Trash2 as LucideTrash2,
   TriangleAlert as LucideTriangleAlert,
-  Type as LucideType,
   UploadCloud as LucideUploadCloud,
   UserRound as LucideUserRound,
-  Users as LucideUsers,
   Volume2 as LucideVolume2,
   WandSparkles as LucideWandSparkles,
   WifiOff as LucideWifiOff,
@@ -205,7 +202,6 @@ export const ChevronsLeftRight: LucideIconType = /* @__PURE__ */ createGenericIc
 export const ChevronsRightLeft: LucideIconType = /* @__PURE__ */ createGenericIcon(LucideChevronsRightLeft, "ChevronsRightLeft");
 export const Circle: LucideIconType = /* @__PURE__ */ createGenericIcon(LucideCircle, "Circle");
 export const CircleAlert: LucideIconType = /* @__PURE__ */ createGenericIcon(LucideCircleAlert, "CircleAlert");
-export const CircleArrowDown: LucideIconType = /* @__PURE__ */ createGenericIcon(LucideCircleArrowDown, "CircleArrowDown");
 export const CircleDotIcon: LucideIconType = /* @__PURE__ */ createGenericIcon(LucideCircleDotIcon, "CircleDotIcon");
 export const CircleX: LucideIconType = /* @__PURE__ */ createGenericIcon(LucideCircleX, "CircleX");
 export const ClipboardListIcon: LucideIconType = /* @__PURE__ */ createGenericIcon(LucideClipboardListIcon, "ClipboardListIcon");
@@ -297,10 +293,8 @@ export const Tags: LucideIconType = /* @__PURE__ */ createGenericIcon(LucideTags
 export const TextCursorInput: LucideIconType = /* @__PURE__ */ createGenericIcon(LucideTextCursorInput, "TextCursorInput");
 export const Trash2: LucideIconType = /* @__PURE__ */ createGenericIcon(LucideTrash2, "Trash2");
 export const TriangleAlert: LucideIconType = /* @__PURE__ */ createGenericIcon(LucideTriangleAlert, "TriangleAlert");
-export const Type: LucideIconType = /* @__PURE__ */ createGenericIcon(LucideType, "Type");
 export const UploadCloud: LucideIconType = /* @__PURE__ */ createGenericIcon(LucideUploadCloud, "UploadCloud");
 export const UserRound: LucideIconType = /* @__PURE__ */ createGenericIcon(LucideUserRound, "UserRound");
-export const Users: LucideIconType = /* @__PURE__ */ createGenericIcon(LucideUsers, "Users");
 export const Volume2: LucideIconType = /* @__PURE__ */ createGenericIcon(LucideVolume2, "Volume2");
 export const WandSparkles: LucideIconType = /* @__PURE__ */ createGenericIcon(LucideWandSparkles, "WandSparkles");
 export const WifiOff: LucideIconType = /* @__PURE__ */ createGenericIcon(LucideWifiOff, "WifiOff");

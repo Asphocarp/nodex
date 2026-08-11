@@ -492,7 +492,7 @@ function migrateWorkbenchSessionViewTabToSurface(
         kind: "database-view",
         databaseViewId: tab.config.databaseViewId,
       },
-      view: tab.config.view,
+      view: "board",
     },
   };
 }
@@ -834,7 +834,6 @@ function rootSurface(root: LibraryResourceTarget): WorkbenchSurfaceDescriptor {
       config: {
         accessContext: { kind: "library" },
         target: { kind: "database-default", databaseId: root.databaseId },
-        view: "kanban",
       },
     };
   }

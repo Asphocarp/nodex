@@ -1,4 +1,4 @@
-# Project database Views and Kanban
+# Project database Views and Board
 
 Use saved Views as the authority for filters, sorts, grouping, visible
 properties, row order, and pagination. Never reconstruct a View with SQL or an
@@ -21,7 +21,7 @@ and bound to the saved View snapshot.
 
 Each row can include `etags.move`. That narrow ETag binds the Page shell,
 membership, grouping value, saved View, and position authority needed for an
-atomic Kanban move.
+atomic Board move.
 
 ## Create directly in a View group
 
@@ -38,7 +38,7 @@ nodex page create --json \
 Use `--unassigned` instead of `--group` only when the user explicitly wants the
 unassigned group.
 
-## Move a Kanban card atomically
+## Move a Board card atomically
 
 Take the move ETag from the current `view query` row:
 

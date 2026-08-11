@@ -5,6 +5,7 @@ import {
   primaryCanvasBlockId,
 } from "../../shared/block-documents";
 import type { BlockPropertyMutationRequestV2 } from "../../shared/block-property-mutations-v2";
+import { upgradeDatabaseViewConfigV2 } from "../../shared/database-view-presentation";
 import {
   parseDataSourceId,
   parseDataSourceOptionId,
@@ -295,8 +296,8 @@ const lifecycleDefaultView = () => ({
     databaseId: "database:test",
     dataSourceId: "source:test",
     name: "All",
-    kind: "list",
-    config: {
+    defaultLayout: "list",
+    config: upgradeDatabaseViewConfigV2({
       schemaKey: "nodex.database-view",
       schemaVersion: 2,
       filter: { kind: "group", operator: "and", children: [] },
@@ -307,7 +308,7 @@ const lifecycleDefaultView = () => ({
       }],
       group: null,
       display: { propertyIds: ["tags"], showTitle: true },
-    },
+    }),
     isDefault: true,
     revision: 1,
     rankKey: "a",
@@ -327,7 +328,7 @@ const pageLifecyclePreflightSnapshot = () => ({
   value: {
     kind: "page_lifecycle_preflight" as const,
     value: {
-      version: 2,
+      version: 3,
       default_view: lifecycleDefaultView(),
       tags_property: lifecycleTagsProperty(),
       reserved_block_type: null,
@@ -358,7 +359,6 @@ const pageLifecyclePreflightSnapshot = () => ({
           status_value_revision: 1,
           status: "build" as const,
           position: {
-            group_key: "build",
             rank_key: "a",
             revision: 1,
           },
@@ -634,7 +634,7 @@ describe("Core Library Module Adapter", () => {
             membership: {
               membershipId: "membership:one",
               status: "build",
-              position: { groupKey: "build", rankKey: "a", revision: 1 },
+              position: { rankKey: "a", revision: 1 },
             },
           },
         },

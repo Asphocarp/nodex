@@ -12,10 +12,12 @@ import type {
 import {
   compilePageLifecycleRequestV2,
   executePageLifecycleIntentV2,
+  PAGE_LIFECYCLE_PREFLIGHT_V2_VERSION,
   PageLifecycleRuntimeErrorV2,
   type PageLifecycleOwnedBlockAuthorityV2,
   type PageLifecyclePreflightSnapshotV2,
 } from "./page-lifecycle-v2-runtime";
+import { upgradeDatabaseViewConfigV2 } from "./database-view-presentation";
 import type { DatabasePage } from "./types";
 
 const databaseId = parseDatabaseId("database-1");
@@ -60,13 +62,13 @@ const authority = (
 const preflight = (
   page: PageLifecycleOwnedBlockAuthorityV2 | null,
 ): PageLifecyclePreflightSnapshotV2 => ({
-  version: 2,
+  version: PAGE_LIFECYCLE_PREFLIGHT_V2_VERSION,
   projectId: "project-1",
   libraryId: "library-1",
   storeEpoch: "epoch-1",
   commitSeq: 21,
   value: {
-    version: 2,
+    version: PAGE_LIFECYCLE_PREFLIGHT_V2_VERSION,
     reservedBlockType: null,
     page,
     tagsProperty: {
@@ -108,15 +110,15 @@ const preflight = (
         databaseId,
         dataSourceId,
         name: "Board",
-        kind: "kanban",
-        config: {
+        defaultLayout: "board",
+        config: upgradeDatabaseViewConfigV2({
           schemaKey: "nodex.database-view",
           schemaVersion: 2,
           filter: { kind: "group", operator: "and", children: [] },
           sort: [{ field: { kind: "manual" }, direction: "asc", nulls: "last" }],
           group: null,
           display: { propertyIds: [], showTitle: true },
-        },
+        }),
         isDefault: true,
         revision: 4,
         rankKey: "m",

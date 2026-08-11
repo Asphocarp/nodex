@@ -180,7 +180,7 @@ window-local coordinator carries disposable gesture state; and one idempotent
 `BlockTransfer` commits the result. Do not combine insertion-slot feedback
 with sortable live reflow.
 
-See [Kanban drag and drop](product-specs/kanban-drag-and-drop-behavior.md) and
+See [Board drag and drop](product-specs/board-drag-and-drop-behavior.md) and
 [ADR 0008](adr/0008-surface-local-editor-interactions.md).
 
 ### 10. Collaborative durability requires exact retry seams
@@ -355,7 +355,7 @@ measurement loop is too expensive to rediscover through runtime testing alone.
 | Document/Canvas sync, semantic history, and retention | [Document sync/history](reliability/document-sync-history-and-retention.md) |
 | Whole-Store backup, restore, replacement, and maintenance | [Backup/restore](reliability/backup-restore-and-maintenance.md) |
 | Cross-feature renderer construction, state ownership, shared UI/editor primitives, and Storybook conventions | [Frontend](FRONTEND.md) |
-| Kanban and cross-surface drag behavior | [Kanban drag and drop](product-specs/kanban-drag-and-drop-behavior.md) |
+| Board and cross-surface drag behavior | [Board drag and drop](product-specs/board-drag-and-drop-behavior.md) |
 | NFM side-menu interaction | [NFM block side menu](product-specs/nfm-block-side-menu-behavior.md) |
 | Workbench ownership and navigation | [Workbench shell](product-specs/workbench-shell.md) |
 | Review/file-change UI | [Review right panel](product-specs/review-right-panel-behavior.md) |

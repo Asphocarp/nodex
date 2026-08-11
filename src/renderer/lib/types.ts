@@ -54,7 +54,6 @@ export type {
   ProjectSessionSummaryWindow,
   ProjectSessionSummaryWindowInput,
   ProjectSessionCreateInput,
-  ProjectSessionDbView,
   ProjectSessionForkInput,
   ProjectSessionForkResult,
   ProjectSessionListOptions,

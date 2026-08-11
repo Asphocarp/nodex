@@ -365,7 +365,7 @@ export const PageStagePreviewTab: Story = {
         splittable: true,
         renderPanel: () => (
           <div className="flex h-full items-center justify-center text-sm text-token-description-foreground">
-            Kanban board
+            Board
           </div>
         ),
       },

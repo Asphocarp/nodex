@@ -1,0 +1,184 @@
+import type {
+  DatabaseJsonValue,
+  DatabaseViewFilterClause,
+  DatabaseViewFilterNode,
+  DatabaseViewSort,
+} from "../../shared/database-kernel";
+import type { DataSourcePropertyRecordV2 } from "../../shared/database-module-v2";
+import { readDatabasePropertyOptions } from "./database-view-authoring";
+import {
+  createDefaultDatabaseTaskFilterGroup,
+  decodeDatabaseTaskFilter,
+  resolveDatabaseTaskFilterCapabilities,
+  type DatabaseTaskChoiceFilter,
+  type DatabaseTaskFilterProperty,
+} from "./database-view-task-filter";
+
+const FILTER_OPERATOR_LABELS = {
+  equals: "is",
+  not_equals: "is not",
+  contains: "contains",
+  not_contains: "does not contain",
+  is_empty: "is empty",
+  is_not_empty: "is not empty",
+} as const;
+
+export interface DatabaseViewRuleSummary {
+  readonly key: string;
+  readonly label: string;
+  readonly value: string;
+}
+
+const taskChoiceSummary = (
+  property: DatabaseTaskFilterProperty | null,
+  value: DatabaseTaskChoiceFilter | undefined,
+  defaultValue: DatabaseTaskChoiceFilter | undefined,
+): DatabaseViewRuleSummary | null => {
+  if (!property || !value || !defaultValue) return null;
+  const unchanged = value.includeEmpty === defaultValue.includeEmpty
+    && value.selectedOptionIds.length === defaultValue.selectedOptionIds.length
+    && value.selectedOptionIds.every((optionId) =>
+      defaultValue.selectedOptionIds.includes(optionId)
+    );
+  if (unchanged) return null;
+  const optionNames = value.selectedOptionIds.map((optionId) =>
+    property.options.find((option) => option.id === optionId)?.name ?? optionId
+  );
+  if (value.includeEmpty) optionNames.push("Empty");
+  return {
+    key: property.propertyId,
+    label: property.name,
+    value: optionNames.length > 0 ? optionNames.join(", ") : "None",
+  };
+};
+
+const summarizeTaskFilter = (
+  filter: DatabaseViewFilterNode,
+  properties: readonly DataSourcePropertyRecordV2[],
+): readonly DatabaseViewRuleSummary[] | null => {
+  const capabilities = resolveDatabaseTaskFilterCapabilities(properties);
+  const state = decodeDatabaseTaskFilter(filter, capabilities);
+  if (!state) return null;
+  if (state.groups.length > 1) {
+    return [{
+      key: "task-filter-groups",
+      label: "Filter",
+      value: `${state.groups.length} groups`,
+    }];
+  }
+  const group = state.groups[0];
+  if (!group) return [];
+  const defaults = createDefaultDatabaseTaskFilterGroup(capabilities);
+  const summaries = [
+    taskChoiceSummary(
+      capabilities.status,
+      group.status,
+      defaults.status,
+    ),
+    taskChoiceSummary(
+      capabilities.priority,
+      group.priority,
+      defaults.priority,
+    ),
+  ].filter((summary): summary is DatabaseViewRuleSummary => summary !== null);
+  if (capabilities.tags && group.tags && group.tags.selectedOptionIds.length > 0) {
+    const mode = group.tags.mode === "any"
+      ? "Any"
+      : group.tags.mode === "all" ? "All" : "None";
+    const names = group.tags.selectedOptionIds.map((optionId) =>
+      capabilities.tags?.options.find((option) => option.id === optionId)?.name
+        ?? optionId
+    );
+    summaries.push({
+      key: capabilities.tags.propertyId,
+      label: capabilities.tags.name,
+      value: `${mode}: ${names.join(", ")}`,
+    });
+  }
+  return summaries;
+};
+
+const collectClauses = (
+  node: DatabaseViewFilterNode,
+): readonly DatabaseViewFilterClause[] => {
+  if (node.kind === "clause") return [node];
+  return node.children.flatMap(collectClauses);
+};
+
+const formatValue = (
+  value: DatabaseJsonValue | undefined,
+  property: DataSourcePropertyRecordV2 | null,
+): string => {
+  if (value === undefined || value === null || value === "") return "None";
+  if (typeof value === "boolean") return value ? "Checked" : "Unchecked";
+  if (typeof value === "number") return String(value);
+  if (Array.isArray(value)) {
+    return value.map((item) => formatValue(item, property)).join(", ");
+  }
+  if (typeof value === "object") return "Configured";
+  const option = property
+    ? readDatabasePropertyOptions(property).find((candidate) => candidate.id === value)
+    : null;
+  return option?.name ?? value;
+};
+
+export const summarizeDatabaseViewFilter = (
+  filter: DatabaseViewFilterNode,
+  properties: readonly DataSourcePropertyRecordV2[],
+): readonly DatabaseViewRuleSummary[] => {
+  const taskSummaries = summarizeTaskFilter(filter, properties);
+  if (taskSummaries) return taskSummaries;
+  const propertyById = new Map<string, DataSourcePropertyRecordV2>(
+    properties.map((property) => [property.propertyId, property]),
+  );
+  const grouped = new Map<string, DatabaseViewFilterClause[]>();
+  for (const clause of collectClauses(filter)) {
+    const clauses = grouped.get(clause.propertyId) ?? [];
+    clauses.push(clause);
+    grouped.set(clause.propertyId, clauses);
+  }
+
+  return [...grouped.entries()].map(([propertyId, clauses]) => {
+    const property = propertyById.get(propertyId) ?? null;
+    if (clauses.length > 1) {
+      return {
+        key: propertyId,
+        label: property?.name ?? "Missing property",
+        value: `${clauses.length} rules`,
+      };
+    }
+    const clause = clauses[0]!;
+    const operator = FILTER_OPERATOR_LABELS[clause.operator];
+    const value = clause.operator === "is_empty" || clause.operator === "is_not_empty"
+      ? operator
+      : `${operator} ${formatValue(clause.value, property)}`;
+    return {
+      key: propertyId,
+      label: property?.name ?? "Missing property",
+      value,
+    };
+  });
+};
+
+export const databaseViewSortFieldLabel = (
+  sort: DatabaseViewSort,
+  properties: readonly DataSourcePropertyRecordV2[],
+): string => {
+  if (sort.field.kind === "manual") return "Manual order";
+  if (sort.field.kind === "title") return "Title";
+  if (sort.field.kind === "created") return "Created";
+  const propertyId = sort.field.propertyId;
+  return properties.find(
+    (property) => property.propertyId === propertyId,
+  )?.name ?? "Missing property";
+};
+
+export const hasCustomDatabaseViewSort = (
+  sorts: readonly DatabaseViewSort[],
+): boolean => {
+  if (sorts.length !== 1) return true;
+  const sort = sorts[0];
+  return sort?.field.kind !== "manual"
+    || sort.direction !== "asc"
+    || sort.nulls !== "last";
+};

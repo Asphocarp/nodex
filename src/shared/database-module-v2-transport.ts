@@ -47,10 +47,11 @@ import {
 } from "./database-module-v2";
 import { parseLocalCommitApply } from "./local-commit-delivery";
 import {
-  parseDatabaseViewConfigV2,
+  parseDatabaseViewConfigV4,
+  parseDatabaseViewPresentationOverride,
   type DatabaseJsonValue,
   type DatabasePropertyValueType,
-  type DatabaseViewKind,
+  type DatabaseViewLayout,
 } from "./database-kernel";
 import { parsePage } from "./page";
 import { MAX_PAGE_DESCRIPTION_LENGTH } from "./page-limits";
@@ -239,12 +240,8 @@ const readPropertyValueType = (
   throw new TypeError(`${label} is unsupported`);
 };
 
-const readViewKind = (value: unknown, label: string): DatabaseViewKind => {
-  if (
-    value === "kanban" ||
-    value === "list" ||
-    value === "calendar"
-  ) {
+const readViewLayout = (value: unknown, label: string): DatabaseViewLayout => {
+  if (value === "board" || value === "list") {
     return value;
   }
   throw new TypeError(`${label} is unsupported`);
@@ -668,7 +665,7 @@ const parseApplyOperation = (
         "viewId",
         "expectedRevision",
         "name",
-        "viewKind",
+        "defaultLayout",
         "config",
         "isDefault",
       ],
@@ -686,8 +683,11 @@ const parseApplyOperation = (
       viewId: readViewId(operation.viewId, `${label}.viewId`),
       expectedRevision: readRevision(operation.expectedRevision, `${label}.expectedRevision`),
       name: readString(operation.name, `${label}.name`, MAX_NAME_LENGTH),
-      viewKind: readViewKind(operation.viewKind, `${label}.viewKind`),
-      config: parseDatabaseViewConfigV2(operation.config),
+      defaultLayout: readViewLayout(
+        operation.defaultLayout,
+        `${label}.defaultLayout`,
+      ),
+      config: parseDatabaseViewConfigV4(operation.config),
       isDefault: readBoolean(operation.isDefault, `${label}.isDefault`),
       ...(beforeViewId === undefined ? {} : { beforeViewId }),
     };
@@ -717,7 +717,6 @@ const parseApplyOperation = (
         "viewId",
         "pageId",
         "expectedPositionRevision",
-        "groupKey",
       ],
       ["beforePageId"],
     );
@@ -730,9 +729,6 @@ const parseApplyOperation = (
         operation.expectedPositionRevision,
         `${label}.expectedPositionRevision`,
       ),
-      groupKey: operation.groupKey === null
-        ? null
-        : readString(operation.groupKey, `${label}.groupKey`),
       ...(beforePageId === undefined ? {} : { beforePageId }),
     };
   }
@@ -741,7 +737,7 @@ const parseApplyOperation = (
     assertExactKeys(
       operation,
       label,
-      ["kind", "viewId", "pages", "groupKey"],
+      ["kind", "viewId", "pages"],
       ["beforePageId"],
     );
     if (
@@ -776,10 +772,91 @@ const parseApplyOperation = (
       kind: "position_pages",
       viewId: readViewId(operation.viewId, `${label}.viewId`),
       pages,
-      groupKey: operation.groupKey === null
-        ? null
-        : readString(operation.groupKey, `${label}.groupKey`),
       ...(beforePageId === undefined ? {} : { beforePageId }),
+    };
+  }
+
+  if (operation.kind === "set_task_parent") {
+    assertExactKeys(
+      operation,
+      label,
+      ["kind", "dataSourceId", "pages"],
+      ["parentPageId", "beforePageId"],
+    );
+    if (
+      !Array.isArray(operation.pages) ||
+      operation.pages.length < 1 ||
+      operation.pages.length > MAX_DATABASE_MODULE_V2_BULK_ENTRIES
+    ) {
+      throw new TypeError(
+        `${label}.pages must contain between 1 and ${MAX_DATABASE_MODULE_V2_BULK_ENTRIES} entries`,
+      );
+    }
+    const pages = operation.pages.map((entry, pageIndex) => {
+      const pageLabel = `${label}.pages[${pageIndex}]`;
+      const record = readRecord(entry, pageLabel);
+      assertExactKeys(record, pageLabel, ["pageId", "expectedHierarchyRevision"]);
+      return {
+        pageId: readString(record.pageId, `${pageLabel}.pageId`),
+        expectedHierarchyRevision: readRevision(
+          record.expectedHierarchyRevision,
+          `${pageLabel}.expectedHierarchyRevision`,
+        ),
+      };
+    });
+    const pageIds = new Set(pages.map((entry) => entry.pageId));
+    if (pageIds.size !== pages.length) {
+      throw new TypeError(`${label}.pages repeats a Page identity`);
+    }
+    const parentPageId = readOptionalString(operation.parentPageId, `${label}.parentPageId`);
+    const beforePageId = readOptionalString(operation.beforePageId, `${label}.beforePageId`);
+    if (parentPageId && pageIds.has(parentPageId)) {
+      throw new TypeError(`${label}.parentPageId must be outside the moved Page set`);
+    }
+    if (beforePageId && pageIds.has(beforePageId)) {
+      throw new TypeError(`${label}.beforePageId must be outside the moved Page set`);
+    }
+    if (parentPageId === undefined && beforePageId !== undefined) {
+      throw new TypeError(`${label}.beforePageId requires parentPageId`);
+    }
+    return {
+      kind: "set_task_parent",
+      dataSourceId: readDataSourceId(operation.dataSourceId, `${label}.dataSourceId`),
+      pages,
+      ...(parentPageId === undefined ? {} : { parentPageId }),
+      ...(beforePageId === undefined ? {} : { beforePageId }),
+    };
+  }
+
+  if (operation.kind === "put_view_personal_preferences") {
+    assertExactKeys(operation, label, [
+      "kind",
+      "viewId",
+      "expectedRevision",
+      "presentationOverride",
+      "collapsedGroupKeys",
+    ]);
+    if (!Array.isArray(operation.collapsedGroupKeys)
+      || operation.collapsedGroupKeys.length > 2_000) {
+      throw new TypeError(`${label}.collapsedGroupKeys must be a bounded array`);
+    }
+    const collapsedGroupKeys = operation.collapsedGroupKeys.map((key, index) =>
+      readString(key, `${label}.collapsedGroupKeys[${index}]`, 1_024)
+    );
+    if (new Set(collapsedGroupKeys).size !== collapsedGroupKeys.length) {
+      throw new TypeError(`${label}.collapsedGroupKeys must contain unique keys`);
+    }
+    return {
+      kind: "put_view_personal_preferences",
+      viewId: readViewId(operation.viewId, `${label}.viewId`),
+      expectedRevision: readRevision(
+        operation.expectedRevision,
+        `${label}.expectedRevision`,
+      ),
+      presentationOverride: parseDatabaseViewPresentationOverride(
+        operation.presentationOverride,
+      ),
+      collapsedGroupKeys,
     };
   }
 
@@ -970,6 +1047,22 @@ export const bindDatabaseModuleReadV2 = (
   }
 
   if (target.kind === "view" && mode === "view") {
+    assertExactKeys(target, "databaseModuleReadV2.read.target", ["kind", "viewId"]);
+    assertExactKeys(read, "databaseModuleReadV2.read", ["target", "mode"]);
+    return {
+      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+      projectId,
+      read: {
+        target: {
+          kind: "view",
+          viewId: readViewId(target.viewId, "databaseModuleReadV2.viewId"),
+        },
+        mode,
+      },
+    };
+  }
+
+  if (target.kind === "view" && mode === "view_personal_preferences") {
     assertExactKeys(target, "databaseModuleReadV2.read.target", ["kind", "viewId"]);
     assertExactKeys(read, "databaseModuleReadV2.read", ["target", "mode"]);
     return {
@@ -1350,7 +1443,7 @@ const parseViewRecord = (
     "databaseId",
     "dataSourceId",
     "name",
-    "kind",
+    "defaultLayout",
     "config",
     "isDefault",
     "revision",
@@ -1364,8 +1457,11 @@ const parseViewRecord = (
     databaseId: readDatabaseId(record.databaseId, `${label}.databaseId`),
     dataSourceId: readDataSourceId(record.dataSourceId, `${label}.dataSourceId`),
     name: readString(record.name, `${label}.name`, MAX_NAME_LENGTH),
-    kind: readViewKind(record.kind, `${label}.kind`),
-    config: parseDatabaseViewConfigV2(record.config),
+    defaultLayout: readViewLayout(
+      record.defaultLayout,
+      `${label}.defaultLayout`,
+    ),
+    config: parseDatabaseViewConfigV4(record.config),
     isDefault: readBoolean(record.isDefault, `${label}.isDefault`),
     revision: readPositiveRevision(record.revision, `${label}.revision`),
     rankKey: readString(record.rankKey, `${label}.rankKey`),
@@ -1478,7 +1574,8 @@ const parsePageRow = (value: unknown, label: string): DataSourcePageRowV2 => {
     "values",
     "position",
     "effectiveGroupKey",
-  ], ["bodyNfm", "intrinsicProperties"]);
+    "effectiveSubgroupKey",
+  ], ["bodyNfm", "intrinsicProperties", "taskHierarchy"]);
   const page = parsePage(row.page);
   const membership = readRecord(row.membership, `${label}.membership`);
   assertExactKeys(membership, `${label}.membership`, [
@@ -1513,18 +1610,43 @@ const parsePageRow = (value: unknown, label: string): DataSourcePageRowV2 => {
     assertExactKeys(
       candidate,
       `${label}.position`,
-      ["groupKey", "rankKey", "revision"],
+      ["rankKey", "revision"],
       ["order"],
     );
     position = {
-      groupKey: candidate.groupKey === null
-        ? null
-        : readString(candidate.groupKey, `${label}.position.groupKey`),
       rankKey: readString(candidate.rankKey, `${label}.position.rankKey`),
       revision: readPositiveRevision(candidate.revision, `${label}.position.revision`),
       ...(candidate.order === undefined
         ? {}
         : { order: readRevision(candidate.order, `${label}.position.order`) }),
+    };
+  }
+  let taskHierarchy: DataSourcePageRowV2["taskHierarchy"];
+  if (row.taskHierarchy === undefined) {
+    taskHierarchy = undefined;
+  } else if (row.taskHierarchy === null) {
+    taskHierarchy = null;
+  } else {
+    const hierarchy = readRecord(row.taskHierarchy, `${label}.taskHierarchy`);
+    assertExactKeys(hierarchy, `${label}.taskHierarchy`, [
+      "parentPageId",
+      "siblingRank",
+      "revision",
+    ]);
+    taskHierarchy = {
+      parentPageId: readString(
+        hierarchy.parentPageId,
+        `${label}.taskHierarchy.parentPageId`,
+      ),
+      siblingRank: readString(
+        hierarchy.siblingRank,
+        `${label}.taskHierarchy.siblingRank`,
+        512,
+      ),
+      revision: readPositiveRevision(
+        hierarchy.revision,
+        `${label}.taskHierarchy.revision`,
+      ),
     };
   }
   return {
@@ -1541,10 +1663,14 @@ const parsePageRow = (value: unknown, label: string): DataSourcePageRowV2 => {
     values,
     ...(bodyNfm === undefined ? {} : { bodyNfm }),
     ...(intrinsicProperties === undefined ? {} : { intrinsicProperties }),
+    ...(taskHierarchy === undefined ? {} : { taskHierarchy }),
     position,
     effectiveGroupKey: row.effectiveGroupKey === null
       ? null
       : readString(row.effectiveGroupKey, `${label}.effectiveGroupKey`),
+    effectiveSubgroupKey: row.effectiveSubgroupKey === null
+      ? null
+      : readString(row.effectiveSubgroupKey, `${label}.effectiveSubgroupKey`),
   };
 };
 
@@ -1641,6 +1767,37 @@ const parseReadValue = (value: unknown): DatabaseReadValueV2 => {
   }
   if (result.kind === "view") {
     return { kind: "view", value: parseViewRecord(result.value, "databaseModuleReadV2.value.value") };
+  }
+  if (result.kind === "view_personal_preferences") {
+    const preferences = readRecord(
+      result.value,
+      "databaseModuleReadV2.value.value",
+    );
+    assertExactKeys(preferences, "databaseModuleReadV2.value.value", [
+      "presentationOverride",
+      "collapsedGroupKeys",
+      "revision",
+    ]);
+    if (!Array.isArray(preferences.collapsedGroupKeys)
+      || preferences.collapsedGroupKeys.length > 2_000) {
+      throw new TypeError("View collapsed group keys must be a bounded array");
+    }
+    const collapsedGroupKeys = preferences.collapsedGroupKeys.map((key, index) =>
+      readString(key, `databaseViewPreferences.collapsedGroupKeys[${index}]`, 1_024)
+    );
+    if (new Set(collapsedGroupKeys).size !== collapsedGroupKeys.length) {
+      throw new TypeError("View collapsed group keys must contain unique keys");
+    }
+    return {
+      kind: "view_personal_preferences",
+      value: {
+        presentationOverride: parseDatabaseViewPresentationOverride(
+          preferences.presentationOverride,
+        ),
+        collapsedGroupKeys,
+        revision: readRevision(preferences.revision, "databaseViewPreferences.revision"),
+      },
+    };
   }
   if (result.kind === "query") {
     return { kind: "query", value: parseViewQueryResult(result.value, "databaseModuleReadV2.value.value") };
@@ -1860,6 +2017,8 @@ const OPERATION_KINDS = new Set<DatabaseApplyOperationV2["kind"]>([
   "delete_view",
   "position_page",
   "position_pages",
+  "set_task_parent",
+  "put_view_personal_preferences",
 ]);
 
 export const parseDatabaseApplyResultV2 = (

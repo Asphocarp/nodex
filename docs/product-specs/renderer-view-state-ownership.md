@@ -31,7 +31,7 @@ Neither may mirror Query, Thread, Browser, Terminal, or editor authority.
 | `databaseSearchByProject` | Database search text per Project in one Window Session | Layout v7 | `WorkbenchWindowState` App atom |
 | `scenesByOwnerKey` | Per-window Project/Session/Pages panel trees, durable surfaces, selected leaves/surfaces, MRU, collapse, full-width, and stable sizes; Project and Session owners also have semantic primaries | Layout v7 with revisioned compare-and-swap persistence | `WorkbenchWindowState` App atom plus pure owner-scoped Scene mutation kernel |
 | Back/Forward stacks | Renderer-lifetime location and complete Scene checkpoints | Not cold-restored | `WorkbenchWindowState` history |
-| `viewsByProject`, `dbViewPrefsByProject` | Profile-level Database presentation preferences | `nodex-workbench-profile-preferences-v1` | `useWorkbenchProfilePreferences` App atom |
+| Database View presentation override | Sparse personal presentation keyed by durable View ID | Core personal preferences; a valid legacy renderer preference migrates once and is removed only after Core accepts it | Core through the `database-view-presentation-preferences` external-store Adapter |
 | Sidebar collapsed/width/disclosure | Profile presentation; pointer samples remain mounted-interaction state | Same focused preference record | `useWorkbenchProfilePreferences`; `useWorkbenchSidebarChrome` owns gesture/motion |
 | Recent Page sessions | Bounded profile convenience history | Same focused preference record | `useWorkbenchProfilePreferences` |
 | Session summary windows and selected detail | Query cache lifetime | Query invalidation/GC | `WorkbenchSessionCatalog`; never copied into a second cache |
@@ -40,7 +40,7 @@ Neither may mirror Query, Thread, Browser, Terminal, or editor authority.
 | DOM geometry and resize animation | Mounted Workbench runtime | None; only settled sizes enter Window State | `useWorkbenchChromeLayout` MotionValues plus Chrome commands |
 
 Layout v1-v6 remain decode-only Window Session inputs. Canonical writers emit
-v7 with Scene v5 and never recreate stage, sliding-window, legacy per-resource
+v7 with Scene v6 and Session View v4 and never recreate stage, sliding-window, legacy per-resource
 Scenes, pages/threads/files tab, per-Session view maps, or duplicate
 Project/Session selection fields.
 
@@ -110,7 +110,7 @@ read-only bridge only when scoped atom composition needs one.
 | `PanelTabPresentationRegistry` | Ephemeral visible-tab identity across preview replacement, promotion, reorder, and cross-leaf moves | Keep as a Workbench-lifetime renderer Module; never persist or use as semantic/drag identity |
 | Block Document/Yjs/editor runtime | Y.Doc, provider, editor, UndoManager, write fences, relocation participants | Keep deep surface Modules per ADR 0008 |
 | `block-disclosure-state.ts` | Stable occurrence disclosure preference | Keep until a persisted atom Adapter exactly preserves ADR 0009 |
-| `kanban-store.ts`, `page-detail-store.ts`, `database-row-detail-store.ts` | Main-backed read models, optimistic journals, invalidation, grant-aware caches | Keep their deep external-store/Query ownership |
+| `board-store.ts`, Database List window store, `page-detail-store.ts`, `database-row-detail-store.ts` | Main-backed read models, optimistic journals, invalidation, grant-aware caches | Keep their deep external-store/Query ownership. Board/List stores retain their last readable projection across ordinary preference, layout, and cursor refreshes and replace it atomically; revocation, reset, authorization loss, and Store-epoch replacement hard-clear it. |
 | `review-full-content-store.ts` | Key-scoped row-local Git full-content lifecycle | Keep feature Module |
 | `page-draft-store.ts` | Cross-surface Page-form overlay projected into summary Cards, with key-local subscriptions and explicit clear on Page change/unmount | Keep focused draft-projection Module; it is not Page data authority or persistent state |
 | `reference-surface-state.ts` | Renderer-wide activation budget with editing/visibility priority, recency, capacity, and eligibility disposal | Keep focused capacity Module; replacing it with values alone would lose scheduling semantics |
@@ -130,7 +130,7 @@ matches have one of these explicit lifecycles:
 | Block-reference, editor side-menu/text-action, thread-section, and mention Contexts | Nearest mounted editor/runtime capability; keep component/runtime scoped |
 | Sidebar reorder/DnD and content-search Contexts | One active interaction/search surface; keep mounted feature-local |
 | Workbench header action registry | Ordered multi-producer registry whose entries dispose on registrar unmount; keep separate from the singular Route header value |
-| Block Document surface/write-fence, disclosure, Page/detail/Database-row/Kanban stores | Collaborative runtime, write fence, persisted disclosure, Query/read model, or optimistic journal; keep deep owners |
+| Block Document surface/write-fence, disclosure, Page/detail/Database-row/Board stores | Collaborative runtime, write fence, persisted disclosure, Query/read model, or optimistic journal; keep deep owners |
 | Browser, Terminal, Review full-content/diff batching, Canvas scene/provider/outbox/presence, transport, and subscription hubs | Native/process/data runtime Modules with explicit attach, request, cancellation, close-barrier, or subscription lifecycles; keep |
 | Toast, portal host, date clock, resize/drag/visibility helpers | UI primitive or current mounted interaction lifetime; keep local/focused |
 | Plain `Map`/`Set` in projection, parsing, search, scheduling, and render-model helpers | Per-call computational data structures, not reactive owners |

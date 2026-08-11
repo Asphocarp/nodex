@@ -4,7 +4,7 @@ import {
 } from "./block-property-mutations";
 import { parseDataSourcePropertyId } from "./database-identities";
 
-export const DATABASE_MUTATION_CONTRACT_VERSION = 1 as const;
+export const DATABASE_MUTATION_CONTRACT_VERSION = 3 as const;
 export const MAX_DATABASE_MUTATION_OPERATIONS = 64;
 export const MAX_DATABASE_MUTATION_BULK_ENTRIES = 4_096;
 
@@ -27,7 +27,24 @@ export type DatabasePropertyValueType =
   | "date"
   | "datetime"
   | "relation";
-export type DatabaseViewKind = "kanban" | "list" | "calendar";
+export type DatabaseViewLayout = "board" | "list";
+
+export type DatabaseViewCompletedRange =
+  | "all"
+  | "past_month"
+  | "past_week"
+  | "past_day"
+  | "none";
+
+export type DatabaseViewField =
+  | {
+      readonly kind: "property";
+      readonly propertyId: string;
+    }
+  | {
+      readonly kind: "intrinsic";
+      readonly field: "created_at" | "updated_at";
+    };
 
 export function databaseGroupValueFromKey(
   valueType: DatabasePropertyValueType,
@@ -126,10 +143,68 @@ export interface DatabaseViewConfigV2
   readonly schemaVersion: 2;
 }
 
+export interface DatabaseViewLayoutDisplayConfig {
+  readonly fields: readonly DatabaseViewField[];
+  readonly showEmptyGroups: boolean;
+}
+
+export interface DatabaseViewPresentationConfig {
+  readonly sort: readonly DatabaseViewSort[];
+  readonly group: null | { readonly propertyId: string };
+  readonly subgroup: null | { readonly propertyId: string };
+  readonly groupDirection: DatabaseViewSort["direction"];
+  readonly completion: {
+    readonly range: DatabaseViewCompletedRange;
+    readonly orderByRecency: boolean;
+  };
+  readonly hierarchy: {
+    /** Include task children in List projections even when they do not match directly. */
+    readonly showSubPages: boolean;
+    /** Render task children below their parent instead of as flat occurrences. */
+    readonly nestedSubPages: boolean;
+  };
+  readonly layouts: {
+    readonly board: DatabaseViewLayoutDisplayConfig;
+    readonly list: DatabaseViewLayoutDisplayConfig;
+  };
+}
+
+export interface DatabaseViewConfigV4 {
+  readonly schemaKey: "nodex.database-view";
+  readonly schemaVersion: 4;
+  readonly filter: DatabaseViewFilterNode;
+  readonly presentation: DatabaseViewPresentationConfig;
+}
+
+export interface DatabaseViewPresentationOverride {
+  readonly layout?: DatabaseViewLayout;
+  readonly sort?: readonly DatabaseViewSort[];
+  readonly group?: null | { readonly propertyId: string };
+  readonly subgroup?: null | { readonly propertyId: string };
+  readonly groupDirection?: DatabaseViewSort["direction"];
+  readonly completion?: {
+    readonly range?: DatabaseViewCompletedRange;
+    readonly orderByRecency?: boolean;
+  };
+  readonly hierarchy?: {
+    readonly showSubPages?: boolean;
+    readonly nestedSubPages?: boolean;
+  };
+  readonly layouts?: {
+    readonly board?: Partial<DatabaseViewLayoutDisplayConfig>;
+    readonly list?: Partial<DatabaseViewLayoutDisplayConfig>;
+  };
+}
+
+export interface EffectiveDatabaseViewPresentation {
+  readonly layout: DatabaseViewLayout;
+  readonly presentation: DatabaseViewPresentationConfig;
+}
+
 export interface InitialDatabaseView {
   readonly viewId: string;
   readonly name: string;
-  readonly viewKind: DatabaseViewKind;
+  readonly defaultLayout: DatabaseViewLayout;
   readonly config: DatabaseViewConfig;
 }
 
@@ -194,7 +269,7 @@ export interface PutDatabaseViewOperation {
   /** Zero creates the View; a positive value updates the same identity. */
   readonly expectedRevision: number;
   readonly name: string;
-  readonly viewKind: DatabaseViewKind;
+  readonly defaultLayout: DatabaseViewLayout;
   readonly config: DatabaseViewConfig;
   readonly isPrimary: boolean;
   /** Missing appends to this Database's durable View order. */
@@ -214,8 +289,7 @@ export interface PositionDatabaseViewPageOperation {
   readonly pageId: string;
   /** Zero means that this View has no explicit position for the Page yet. */
   readonly expectedPositionRevision: number;
-  readonly groupKey: string | null;
-  /** Missing means append to the selected group. */
+  /** Missing means append to the View-global manual order. */
   readonly beforePageId?: string;
 }
 
@@ -255,8 +329,7 @@ export interface PositionDatabaseViewPagesOperation {
   readonly kind: "position_pages";
   readonly viewId: string;
   readonly pages: readonly PositionDatabaseViewPageEntry[];
-  readonly groupKey: string | null;
-  /** Missing appends the run to the selected group. */
+  /** Missing appends the run to the View-global manual order. */
   readonly beforePageId?: string;
 }
 
@@ -807,6 +880,66 @@ const parseViewFilterNode = (
   };
 };
 
+const parseViewSorts = (
+  value: unknown,
+  label: string,
+): readonly DatabaseViewSort[] => {
+  if (!Array.isArray(value)) {
+    throw new DatabaseMutationContractError(`${label} must be an array`);
+  }
+  if (value.length > 4) {
+    throw new DatabaseMutationContractError(`${label} exceeds the maximum of 4 rules`);
+  }
+  return value.map((candidate, index): DatabaseViewSort => {
+    const item = readRecord(candidate, `${label}[${index}]`);
+    assertExactKeys(item, `${label}[${index}]`, [
+      "field",
+      "direction",
+      "nulls",
+    ]);
+    if (item.direction !== "asc" && item.direction !== "desc") {
+      throw new DatabaseMutationContractError(
+        `${label}[${index}].direction is unsupported`,
+      );
+    }
+    if (item.nulls !== "first" && item.nulls !== "last") {
+      throw new DatabaseMutationContractError(
+        `${label}[${index}].nulls is unsupported`,
+      );
+    }
+    const field = readRecord(item.field, `${label}[${index}].field`);
+    if (
+      field.kind === "manual" ||
+      field.kind === "title" ||
+      field.kind === "created"
+    ) {
+      assertExactKeys(field, `${label}[${index}].field`, ["kind"]);
+      return {
+        field: { kind: field.kind },
+        direction: item.direction,
+        nulls: item.nulls,
+      };
+    }
+    if (field.kind !== "property") {
+      throw new DatabaseMutationContractError(
+        `${label}[${index}].field.kind is unsupported`,
+      );
+    }
+    assertExactKeys(field, `${label}[${index}].field`, [
+      "kind",
+      "propertyId",
+    ]);
+    return {
+      field: {
+        kind: "property",
+        propertyId: readString(field, "propertyId", `${label}[${index}].field`),
+      },
+      direction: item.direction,
+      nulls: item.nulls,
+    };
+  });
+};
+
 const parseViewConfig = (
   value: unknown,
   label: string,
@@ -843,61 +976,7 @@ const parseViewConfig = (
   const filter = parseViewFilterNode(config.filter, `${label}.filter`, 1, {
     nodeCount: 0,
   });
-  if (!Array.isArray(config.sort)) {
-    throw new DatabaseMutationContractError(`${label}.sort must be an array`);
-  }
-  const sort = config.sort.map((candidate, index): DatabaseViewSort => {
-    const item = readRecord(candidate, `${label}.sort[${index}]`);
-    assertExactKeys(item, `${label}.sort[${index}]`, [
-      "field",
-      "direction",
-      "nulls",
-    ]);
-    if (item.direction !== "asc" && item.direction !== "desc") {
-      throw new DatabaseMutationContractError(
-        `${label}.sort[${index}].direction is unsupported`,
-      );
-    }
-    if (item.nulls !== "first" && item.nulls !== "last") {
-      throw new DatabaseMutationContractError(
-        `${label}.sort[${index}].nulls is unsupported`,
-      );
-    }
-    const field = readRecord(item.field, `${label}.sort[${index}].field`);
-    if (
-      field.kind === "manual" ||
-      field.kind === "title" ||
-      field.kind === "created"
-    ) {
-      assertExactKeys(field, `${label}.sort[${index}].field`, ["kind"]);
-      return {
-        field: { kind: field.kind },
-        direction: item.direction,
-        nulls: item.nulls,
-      };
-    }
-    if (field.kind !== "property") {
-      throw new DatabaseMutationContractError(
-        `${label}.sort[${index}].field.kind is unsupported`,
-      );
-    }
-    assertExactKeys(field, `${label}.sort[${index}].field`, [
-      "kind",
-      "propertyId",
-    ]);
-    return {
-      field: {
-        kind: "property",
-        propertyId: readString(
-          field,
-          "propertyId",
-          `${label}.sort[${index}].field`,
-        ),
-      },
-      direction: item.direction,
-      nulls: item.nulls,
-    };
-  });
+  const sort = parseViewSorts(config.sort, `${label}.sort`);
   let group: DatabaseViewConfig["group"] = null;
   if (config.group !== null) {
     const candidate = readRecord(config.group, `${label}.group`);
@@ -1003,23 +1082,516 @@ export const parseDatabaseViewConfigV2 = (
   return parsed;
 };
 
+const parseViewGroup = (
+  value: unknown,
+  label: string,
+): { readonly propertyId: string } | null => {
+  if (value === null) return null;
+  const group = readRecord(value, label);
+  assertExactKeys(group, label, ["propertyId"]);
+  return { propertyId: readString(group, "propertyId", label) };
+};
+
+const parseViewLayoutDisplay = (
+  value: unknown,
+  label: string,
+): DatabaseViewLayoutDisplayConfig => {
+  const display = readRecord(value, label);
+  assertExactKeys(display, label, ["fields", "showEmptyGroups"]);
+  if (!Array.isArray(display.fields) || display.fields.length > 64) {
+    throw new DatabaseMutationContractError(
+      `${label}.fields must contain at most 64 fields`,
+    );
+  }
+  const fields = display.fields.map((candidate, index): DatabaseViewField => {
+    const field = readRecord(candidate, `${label}.fields[${index}]`);
+    if (field.kind === "property") {
+      assertExactKeys(field, `${label}.fields[${index}]`, ["kind", "propertyId"]);
+      return {
+        kind: "property",
+        propertyId: readString(
+          field,
+          "propertyId",
+          `${label}.fields[${index}]`,
+        ),
+      };
+    }
+    if (field.kind !== "intrinsic") {
+      throw new DatabaseMutationContractError(
+        `${label}.fields[${index}].kind is unsupported`,
+      );
+    }
+    assertExactKeys(field, `${label}.fields[${index}]`, ["kind", "field"]);
+    if (field.field !== "created_at" && field.field !== "updated_at") {
+      throw new DatabaseMutationContractError(
+        `${label}.fields[${index}].field is unsupported`,
+      );
+    }
+    return { kind: "intrinsic", field: field.field };
+  });
+  const identities = fields.map((field) =>
+    field.kind === "property"
+      ? `property:${field.propertyId}`
+      : `intrinsic:${field.field}`
+  );
+  if (new Set(identities).size !== identities.length) {
+    throw new DatabaseMutationContractError(`${label}.fields contains duplicates`);
+  }
+  return {
+    fields,
+    showEmptyGroups: readBoolean(display, "showEmptyGroups", label),
+  };
+};
+
+const visitViewConfigV4PropertyIds = (
+  config: DatabaseViewConfigV4,
+  visit: (propertyId: string) => void,
+): void => {
+  const visitFilter = (filter: DatabaseViewFilterNode): void => {
+    if (filter.kind === "clause") {
+      visit(filter.propertyId);
+      return;
+    }
+    filter.children.forEach(visitFilter);
+  };
+  visitFilter(config.filter);
+  for (const sort of config.presentation.sort) {
+    if (sort.field.kind === "property") visit(sort.field.propertyId);
+  }
+  if (config.presentation.group) visit(config.presentation.group.propertyId);
+  if (config.presentation.subgroup) visit(config.presentation.subgroup.propertyId);
+  for (const layout of [
+    config.presentation.layouts.board,
+    config.presentation.layouts.list,
+  ]) {
+    for (const field of layout.fields) {
+      if (field.kind === "property") visit(field.propertyId);
+    }
+  }
+};
+
+export const parseDatabaseViewConfigV4 = (
+  value: unknown,
+): DatabaseViewConfigV4 => {
+  let canonical: string;
+  try {
+    canonical = stableStringifyBlockPropertyJson(value);
+  } catch (error) {
+    throw new DatabaseMutationContractError(
+      `databaseViewConfig must be bounded canonical JSON: ${(error as Error).message}`,
+    );
+  }
+  if (canonical.length > MAX_VIEW_CONFIG_LENGTH) {
+    throw new DatabaseMutationContractError(
+      `databaseViewConfig exceeds the maximum JSON size of ${MAX_VIEW_CONFIG_LENGTH} bytes`,
+    );
+  }
+  const config = readRecord(JSON.parse(canonical) as unknown, "databaseViewConfig");
+  assertExactKeys(config, "databaseViewConfig", [
+    "schemaKey",
+    "schemaVersion",
+    "filter",
+    "presentation",
+  ]);
+  if (
+    config.schemaKey !== "nodex.database-view"
+    || config.schemaVersion !== 4
+  ) {
+    throw new DatabaseMutationContractError(
+      "databaseViewConfig must use nodex.database-view schema version 4",
+    );
+  }
+  const presentation = readRecord(
+    config.presentation,
+    "databaseViewConfig.presentation",
+  );
+  assertExactKeys(
+    presentation,
+    "databaseViewConfig.presentation",
+    [
+      "sort",
+      "group",
+      "subgroup",
+      "groupDirection",
+      "completion",
+      "hierarchy",
+      "layouts",
+    ],
+  );
+  const group = parseViewGroup(
+    presentation.group,
+    "databaseViewConfig.presentation.group",
+  );
+  const subgroup = parseViewGroup(
+    presentation.subgroup,
+    "databaseViewConfig.presentation.subgroup",
+  );
+  if (group && subgroup && group.propertyId === subgroup.propertyId) {
+    throw new DatabaseMutationContractError(
+      "databaseViewConfig group and subgroup must be different",
+    );
+  }
+  const groupDirection = presentation.groupDirection;
+  if (groupDirection !== "asc" && groupDirection !== "desc") {
+    throw new DatabaseMutationContractError(
+      "databaseViewConfig.presentation.groupDirection is unsupported",
+    );
+  }
+  const completion = readRecord(
+    presentation.completion,
+    "databaseViewConfig.presentation.completion",
+  );
+  assertExactKeys(completion, "databaseViewConfig.presentation.completion", [
+    "range",
+    "orderByRecency",
+  ]);
+  if (
+    completion.range !== "all"
+    && completion.range !== "past_month"
+    && completion.range !== "past_week"
+    && completion.range !== "past_day"
+    && completion.range !== "none"
+  ) {
+    throw new DatabaseMutationContractError(
+      "databaseViewConfig.presentation.completion.range is unsupported",
+    );
+  }
+  const hierarchy = readRecord(
+    presentation.hierarchy,
+    "databaseViewConfig.presentation.hierarchy",
+  );
+  assertExactKeys(hierarchy, "databaseViewConfig.presentation.hierarchy", [
+    "showSubPages",
+    "nestedSubPages",
+  ]);
+  const showSubPages = readBoolean(
+    hierarchy,
+    "showSubPages",
+    "databaseViewConfig.presentation.hierarchy",
+  );
+  const nestedSubPages = readBoolean(
+    hierarchy,
+    "nestedSubPages",
+    "databaseViewConfig.presentation.hierarchy",
+  );
+  if (!showSubPages && nestedSubPages) {
+    throw new DatabaseMutationContractError(
+      "databaseViewConfig nested sub-pages require visible sub-pages",
+    );
+  }
+  const layouts = readRecord(
+    presentation.layouts,
+    "databaseViewConfig.presentation.layouts",
+  );
+  assertExactKeys(layouts, "databaseViewConfig.presentation.layouts", [
+    "board",
+    "list",
+  ]);
+  const parsed: DatabaseViewConfigV4 = {
+    schemaKey: "nodex.database-view",
+    schemaVersion: 4,
+    filter: parseViewFilterNode(config.filter, "databaseViewConfig.filter", 1, {
+      nodeCount: 0,
+    }),
+    presentation: {
+      sort: parseViewSorts(
+        presentation.sort,
+        "databaseViewConfig.presentation.sort",
+      ),
+      group,
+      subgroup,
+      groupDirection,
+      completion: {
+        range: completion.range,
+        orderByRecency: readBoolean(
+          completion,
+          "orderByRecency",
+          "databaseViewConfig.presentation.completion",
+        ),
+      },
+      hierarchy: { showSubPages, nestedSubPages },
+      layouts: {
+        board: parseViewLayoutDisplay(
+          layouts.board,
+          "databaseViewConfig.presentation.layouts.board",
+        ),
+        list: parseViewLayoutDisplay(
+          layouts.list,
+          "databaseViewConfig.presentation.layouts.list",
+        ),
+      },
+    },
+  };
+  visitViewConfigV4PropertyIds(parsed, (propertyId) => {
+    parseDataSourcePropertyId(propertyId);
+  });
+  return parsed;
+};
+
+export function databaseViewReferencedPropertyIdsV4(
+  config: DatabaseViewConfigV4,
+): readonly string[] {
+  const propertyIds = new Set<string>();
+  visitViewConfigV4PropertyIds(config, (propertyId) => propertyIds.add(propertyId));
+  return [...propertyIds];
+}
+
+const parseViewLayoutDisplayOverride = (
+  value: unknown,
+  label: string,
+): Partial<DatabaseViewLayoutDisplayConfig> => {
+  const display = readRecord(value, label);
+  assertExactKeys(display, label, [], ["fields", "showEmptyGroups"]);
+  return {
+    ...(display.fields === undefined
+      ? {}
+      : { fields: parseViewLayoutDisplay({
+          fields: display.fields,
+          showEmptyGroups: false,
+        }, label).fields }),
+    ...(display.showEmptyGroups === undefined
+      ? {}
+      : {
+          showEmptyGroups: readBoolean(
+            display,
+            "showEmptyGroups",
+            label,
+          ),
+        }),
+  };
+};
+
+/** Strict boundary parser for Profile-local sparse presentation patches. */
+export const parseDatabaseViewPresentationOverride = (
+  value: unknown,
+): DatabaseViewPresentationOverride => {
+  let canonical: string;
+  try {
+    canonical = stableStringifyBlockPropertyJson(value);
+  } catch (error) {
+    throw new DatabaseMutationContractError(
+      `databaseViewPresentationOverride must be bounded canonical JSON: ${(error as Error).message}`,
+    );
+  }
+  if (canonical.length > MAX_VIEW_CONFIG_LENGTH) {
+    throw new DatabaseMutationContractError(
+      `databaseViewPresentationOverride exceeds the maximum JSON size of ${MAX_VIEW_CONFIG_LENGTH} bytes`,
+    );
+  }
+  const override = readRecord(
+    JSON.parse(canonical) as unknown,
+    "databaseViewPresentationOverride",
+  );
+  assertExactKeys(override, "databaseViewPresentationOverride", [], [
+    "layout",
+    "sort",
+    "group",
+    "subgroup",
+    "groupDirection",
+    "completion",
+    "hierarchy",
+    "layouts",
+  ]);
+  if (
+    override.layout !== undefined
+    && override.layout !== "board"
+    && override.layout !== "list"
+  ) {
+    throw new DatabaseMutationContractError(
+      "databaseViewPresentationOverride.layout is unsupported",
+    );
+  }
+  const group = override.group === undefined
+    ? undefined
+    : parseViewGroup(
+        override.group,
+        "databaseViewPresentationOverride.group",
+      );
+  const subgroup = override.subgroup === undefined
+    ? undefined
+    : parseViewGroup(
+        override.subgroup,
+        "databaseViewPresentationOverride.subgroup",
+      );
+  if (group && subgroup && group.propertyId === subgroup.propertyId) {
+    throw new DatabaseMutationContractError(
+      "databaseViewPresentationOverride group and subgroup must be different",
+    );
+  }
+  if (
+    override.groupDirection !== undefined
+    && override.groupDirection !== "asc"
+    && override.groupDirection !== "desc"
+  ) {
+    throw new DatabaseMutationContractError(
+      "databaseViewPresentationOverride.groupDirection is unsupported",
+    );
+  }
+  const completion = override.completion === undefined
+    ? undefined
+    : readRecord(
+        override.completion,
+        "databaseViewPresentationOverride.completion",
+      );
+  if (completion) {
+    assertExactKeys(
+      completion,
+      "databaseViewPresentationOverride.completion",
+      [],
+      ["range", "orderByRecency"],
+    );
+    if (
+      completion.range !== undefined
+      && completion.range !== "all"
+      && completion.range !== "past_month"
+      && completion.range !== "past_week"
+      && completion.range !== "past_day"
+      && completion.range !== "none"
+    ) {
+      throw new DatabaseMutationContractError(
+        "databaseViewPresentationOverride.completion.range is unsupported",
+      );
+    }
+  }
+  const hierarchy = override.hierarchy === undefined
+    ? undefined
+    : readRecord(
+        override.hierarchy,
+        "databaseViewPresentationOverride.hierarchy",
+      );
+  if (hierarchy) {
+    assertExactKeys(
+      hierarchy,
+      "databaseViewPresentationOverride.hierarchy",
+      [],
+      ["showSubPages", "nestedSubPages"],
+    );
+  }
+  const layouts = override.layouts === undefined
+    ? undefined
+    : readRecord(
+        override.layouts,
+        "databaseViewPresentationOverride.layouts",
+      );
+  if (layouts) {
+    assertExactKeys(
+      layouts,
+      "databaseViewPresentationOverride.layouts",
+      [],
+      ["board", "list"],
+    );
+  }
+  const parsed: DatabaseViewPresentationOverride = {
+    ...(override.layout === undefined ? {} : { layout: override.layout }),
+    ...(override.sort === undefined
+      ? {}
+      : {
+          sort: parseViewSorts(
+            override.sort,
+            "databaseViewPresentationOverride.sort",
+          ),
+        }),
+    ...(override.group === undefined ? {} : { group: group ?? null }),
+    ...(override.subgroup === undefined ? {} : { subgroup: subgroup ?? null }),
+    ...(override.groupDirection === undefined
+      ? {}
+      : { groupDirection: override.groupDirection }),
+    ...(completion
+      ? {
+          completion: {
+            ...(completion.range === undefined
+              ? {}
+              : { range: completion.range as DatabaseViewCompletedRange }),
+            ...(completion.orderByRecency === undefined
+              ? {}
+              : {
+                  orderByRecency: readBoolean(
+                    completion,
+                    "orderByRecency",
+                    "databaseViewPresentationOverride.completion",
+                  ),
+                }),
+          },
+        }
+      : {}),
+    ...(hierarchy
+      ? {
+          hierarchy: {
+            ...(hierarchy.showSubPages === undefined
+              ? {}
+              : {
+                  showSubPages: readBoolean(
+                    hierarchy,
+                    "showSubPages",
+                    "databaseViewPresentationOverride.hierarchy",
+                  ),
+                }),
+            ...(hierarchy.nestedSubPages === undefined
+              ? {}
+              : {
+                  nestedSubPages: readBoolean(
+                    hierarchy,
+                    "nestedSubPages",
+                    "databaseViewPresentationOverride.hierarchy",
+                  ),
+                }),
+          },
+        }
+      : {}),
+    ...(layouts
+      ? {
+          layouts: {
+            ...(layouts.board === undefined
+              ? {}
+              : {
+                  board: parseViewLayoutDisplayOverride(
+                    layouts.board,
+                    "databaseViewPresentationOverride.layouts.board",
+                  ),
+                }),
+            ...(layouts.list === undefined
+              ? {}
+              : {
+                  list: parseViewLayoutDisplayOverride(
+                    layouts.list,
+                    "databaseViewPresentationOverride.layouts.list",
+                  ),
+                }),
+          },
+        }
+      : {}),
+  };
+  const propertyIds = new Set<string>();
+  parsed.sort?.forEach((sort) => {
+    if (sort.field.kind === "property") propertyIds.add(sort.field.propertyId);
+  });
+  if (parsed.group) propertyIds.add(parsed.group.propertyId);
+  if (parsed.subgroup) propertyIds.add(parsed.subgroup.propertyId);
+  for (const layout of [parsed.layouts?.board, parsed.layouts?.list]) {
+    layout?.fields?.forEach((field) => {
+      if (field.kind === "property") propertyIds.add(field.propertyId);
+    });
+  }
+  propertyIds.forEach(parseDataSourcePropertyId);
+  return parsed;
+};
+
 const parseInitialView = (
   value: unknown,
   label: string,
 ): InitialDatabaseView => {
   const view = readRecord(value, label);
-  assertExactKeys(view, label, ["viewId", "name", "viewKind", "config"]);
+  assertExactKeys(view, label, ["viewId", "name", "defaultLayout", "config"]);
   if (
-    view.viewKind !== "kanban" &&
-    view.viewKind !== "list" &&
-    view.viewKind !== "calendar"
+    view.defaultLayout !== "board" &&
+    view.defaultLayout !== "list"
   ) {
-    throw new DatabaseMutationContractError(`${label}.viewKind is unsupported`);
+    throw new DatabaseMutationContractError(`${label}.defaultLayout is unsupported`);
   }
   return {
     viewId: readString(view, "viewId", label),
     name: readString(view, "name", label, MAX_NAME_LENGTH),
-    viewKind: view.viewKind,
+    defaultLayout: view.defaultLayout,
     config: parseViewConfig(
       view.config,
       `${label}.config`,
@@ -1252,19 +1824,18 @@ const parseOperation = (value: unknown): DatabaseMutationOperation => {
         "viewId",
         "expectedRevision",
         "name",
-        "viewKind",
+        "defaultLayout",
         "config",
         "isPrimary",
       ],
       ["beforeViewId"],
     );
     if (
-      operation.viewKind !== "kanban" &&
-      operation.viewKind !== "list" &&
-      operation.viewKind !== "calendar"
+      operation.defaultLayout !== "board" &&
+      operation.defaultLayout !== "list"
     ) {
       throw new DatabaseMutationContractError(
-        `${label}.viewKind is unsupported`,
+        `${label}.defaultLayout is unsupported`,
       );
     }
     return {
@@ -1273,7 +1844,7 @@ const parseOperation = (value: unknown): DatabaseMutationOperation => {
       viewId: readString(operation, "viewId", label),
       expectedRevision: readRevision(operation, "expectedRevision", label),
       name: readString(operation, "name", label, MAX_NAME_LENGTH),
-      viewKind: operation.viewKind,
+      defaultLayout: operation.defaultLayout,
       config: parseViewConfig(
         operation.config,
         `${label}.config`,
@@ -1305,7 +1876,7 @@ const parseOperation = (value: unknown): DatabaseMutationOperation => {
     assertExactKeys(
       operation,
       label,
-      ["kind", "viewId", "pageId", "expectedPositionRevision", "groupKey"],
+      ["kind", "viewId", "pageId", "expectedPositionRevision"],
       ["beforePageId"],
     );
     return {
@@ -1317,7 +1888,6 @@ const parseOperation = (value: unknown): DatabaseMutationOperation => {
         "expectedPositionRevision",
         label,
       ),
-      groupKey: readNullableString(operation, "groupKey", label),
       ...(operation.beforePageId === undefined
         ? {}
         : {
@@ -1333,7 +1903,7 @@ const parseOperation = (value: unknown): DatabaseMutationOperation => {
     assertExactKeys(
       operation,
       label,
-      ["kind", "viewId", "pages", "groupKey"],
+      ["kind", "viewId", "pages"],
       ["beforePageId"],
     );
     if (
@@ -1381,7 +1951,6 @@ const parseOperation = (value: unknown): DatabaseMutationOperation => {
       kind: "position_pages",
       viewId: readString(operation, "viewId", label),
       pages,
-      groupKey: readNullableString(operation, "groupKey", label),
       ...(beforePageId === undefined ? {} : { beforePageId }),
     };
   }

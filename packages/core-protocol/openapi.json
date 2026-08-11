@@ -3557,6 +3557,159 @@
           }
         }
       },
+      "CollectionWindow_DatabaseListProjectionRow": {
+        "type": "object",
+        "required": [
+          "items",
+          "authority"
+        ],
+        "properties": {
+          "authority": {
+            "$ref": "#/components/schemas/CollectionWindowAuthority"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "required": [
+                    "occurrence_key",
+                    "total_occurrence_count",
+                    "kind"
+                  ],
+                  "properties": {
+                    "group_key": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "group"
+                      ]
+                    },
+                    "occurrence_key": {
+                      "type": "string"
+                    },
+                    "total_occurrence_count": {
+                      "type": "integer",
+                      "format": "int64"
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "required": [
+                    "occurrence_key",
+                    "total_occurrence_count",
+                    "kind"
+                  ],
+                  "properties": {
+                    "group_key": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "subgroup"
+                      ]
+                    },
+                    "occurrence_key": {
+                      "type": "string"
+                    },
+                    "subgroup_key": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "total_occurrence_count": {
+                      "type": "integer",
+                      "format": "int64"
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "required": [
+                    "occurrence_key",
+                    "summary",
+                    "group_path",
+                    "ancestor_page_ids",
+                    "depth",
+                    "has_children",
+                    "transient_kind",
+                    "hierarchy_revision",
+                    "kind"
+                  ],
+                  "properties": {
+                    "ancestor_page_ids": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "depth": {
+                      "type": "integer",
+                      "format": "int32",
+                      "minimum": 0
+                    },
+                    "group_path": {
+                      "type": "array",
+                      "items": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "has_children": {
+                      "type": "boolean"
+                    },
+                    "hierarchy_revision": {
+                      "type": "integer",
+                      "format": "int64"
+                    },
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "page"
+                      ]
+                    },
+                    "occurrence_key": {
+                      "type": "string"
+                    },
+                    "sibling_rank": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "summary": {
+                      "$ref": "#/components/schemas/DatabaseRowSummary"
+                    },
+                    "transient_kind": {
+                      "$ref": "#/components/schemas/DatabaseListTransientKind"
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "CollectionWindow_DatabasePropertyDescriptor": {
         "type": "object",
         "required": [
@@ -3779,7 +3932,8 @@
                 "membership_revision",
                 "membership_created_at",
                 "created_at",
-                "updated_at"
+                "updated_at",
+                "task_hierarchy_revision"
               ],
               "properties": {
                 "created_at": {
@@ -3821,6 +3975,12 @@
                   "type": "string"
                 },
                 "effective_group_key": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "effective_subgroup_key": {
                   "type": [
                     "string",
                     "null"
@@ -3881,6 +4041,22 @@
                   ]
                 },
                 "rich_title": {},
+                "task_hierarchy_revision": {
+                  "type": "integer",
+                  "format": "int64"
+                },
+                "task_parent_page_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "task_sibling_rank": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "title": {
                   "type": "string"
                 },
@@ -5657,37 +5833,31 @@
           {
             "type": "object",
             "required": [
-              "key",
               "kind"
             ],
             "properties": {
-              "key": {
-                "type": "string"
+              "group_key": {
+                "type": [
+                  "string",
+                  "null"
+                ]
               },
               "kind": {
                 "type": "string",
                 "enum": [
-                  "key"
+                  "path"
                 ]
-              }
-            }
-          },
-          {
-            "type": "object",
-            "required": [
-              "kind"
-            ],
-            "properties": {
-              "kind": {
-                "type": "string",
-                "enum": [
-                  "unassigned"
+              },
+              "subgroup_key": {
+                "type": [
+                  "string",
+                  "null"
                 ]
               }
             }
           }
         ],
-        "description": "Restricts a `ViewWindow` read to a single group of a grouped View, so each\nboard column can page independently. `Unassigned` addresses rows whose\ngrouping Property value is empty (NULL, empty string, or empty list)."
+        "description": "Restricts a `ViewWindow` read to one stable primary/secondary group path.\nA null key addresses the unassigned value at that level."
       },
       "DatabaseIntent": {
         "oneOf": [
@@ -5902,7 +6072,7 @@
               "view_id",
               "expected_revision",
               "name",
-              "view_kind",
+              "default_layout",
               "config",
               "is_default",
               "kind"
@@ -5919,6 +6089,9 @@
                 "type": "string"
               },
               "database_id": {
+                "type": "string"
+              },
+              "default_layout": {
                 "type": "string"
               },
               "expected_revision": {
@@ -5938,9 +6111,6 @@
                 "type": "string"
               },
               "view_id": {
-                "type": "string"
-              },
-              "view_kind": {
                 "type": "string"
               }
             }
@@ -5991,12 +6161,6 @@
                 "type": "integer",
                 "format": "int64"
               },
-              "group_key": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
               "kind": {
                 "type": "string",
                 "enum": [
@@ -6025,12 +6189,6 @@
                   "null"
                 ]
               },
-              "group_key": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
               "kind": {
                 "type": "string",
                 "enum": [
@@ -6047,8 +6205,175 @@
                 "type": "string"
               }
             }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data_source_id",
+              "pages",
+              "kind"
+            ],
+            "properties": {
+              "before_page_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "data_source_id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "set_task_parent"
+                ]
+              },
+              "pages": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/DatabaseTaskHierarchyPage"
+                }
+              },
+              "parent_page_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "view_id",
+              "expected_revision",
+              "presentation_override",
+              "collapsed_group_keys",
+              "kind"
+            ],
+            "properties": {
+              "collapsed_group_keys": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "expected_revision": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "put_view_personal_preferences"
+                ]
+              },
+              "presentation_override": {
+                "$ref": "#/components/schemas/DatabaseViewPresentationOverrideInput"
+              },
+              "view_id": {
+                "type": "string"
+              }
+            }
           }
         ]
+      },
+      "DatabaseListGroupSummary": {
+        "type": "object",
+        "required": [
+          "total_occurrence_count"
+        ],
+        "properties": {
+          "group_key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "subgroup_key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "total_occurrence_count": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "DatabaseListTransientKind": {
+        "type": "string",
+        "enum": [
+          "none",
+          "ancestor",
+          "child"
+        ]
+      },
+      "DatabaseListWindow": {
+        "type": "object",
+        "description": "A continuous window over the fully expanded List occurrence projection.\nModel totals intentionally differ from occurrence totals when multi-value\ngrouping or transient hierarchy context repeats a Page.",
+        "required": [
+          "database_id",
+          "data_source_id",
+          "view_id",
+          "projection",
+          "rows",
+          "groups",
+          "total_projection_row_count",
+          "total_occurrence_count",
+          "total_model_count",
+          "window_start",
+          "window_end",
+          "is_complete"
+        ],
+        "properties": {
+          "data_source_id": {
+            "type": "string"
+          },
+          "database_id": {
+            "type": "string"
+          },
+          "groups": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DatabaseListGroupSummary"
+            }
+          },
+          "is_complete": {
+            "type": "boolean"
+          },
+          "projection": {
+            "$ref": "#/components/schemas/ProjectionSnapshotAuthority"
+          },
+          "rows": {
+            "$ref": "#/components/schemas/CollectionWindow_DatabaseListProjectionRow"
+          },
+          "total_model_count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "total_occurrence_count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "total_projection_row_count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "view_id": {
+            "type": "string"
+          },
+          "window_end": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "window_start": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
       },
       "DatabasePagePosition": {
         "type": "object",
@@ -6613,12 +6938,14 @@
           "view",
           "agent_query",
           "view_window",
+          "list_window",
           "view_groups",
           "view_context",
           "rows_by_id",
           "row_detail",
           "relation_target_window",
-          "relation_candidate_window"
+          "relation_candidate_window",
+          "view_personal_preferences"
         ]
       },
       "DatabaseReadRequest": {
@@ -6685,7 +7012,8 @@
           "membership_revision",
           "membership_created_at",
           "created_at",
-          "updated_at"
+          "updated_at",
+          "task_hierarchy_revision"
         ],
         "properties": {
           "created_at": {
@@ -6727,6 +7055,12 @@
             "type": "string"
           },
           "effective_group_key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "effective_subgroup_key": {
             "type": [
               "string",
               "null"
@@ -6787,6 +7121,22 @@
             ]
           },
           "rich_title": {},
+          "task_hierarchy_revision": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "task_parent_page_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "task_sibling_rank": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "title": {
             "type": "string"
           },
@@ -6904,6 +7254,28 @@
           {
             "type": "object",
             "required": [
+              "view_id",
+              "presentation_override",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "presented_view"
+                ]
+              },
+              "presentation_override": {
+                "$ref": "#/components/schemas/DatabaseViewPresentationOverrideInput"
+              },
+              "view_id": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
               "page_id",
               "kind"
             ],
@@ -6991,6 +7363,23 @@
           }
         ]
       },
+      "DatabaseTaskHierarchyPage": {
+        "type": "object",
+        "required": [
+          "page_id",
+          "expected_hierarchy_revision"
+        ],
+        "properties": {
+          "expected_hierarchy_revision": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Zero means the Page is currently a task root with no hierarchy edge."
+          },
+          "page_id": {
+            "type": "string"
+          }
+        }
+      },
       "DatabaseTransferTarget": {
         "oneOf": [
           {
@@ -7049,6 +7438,37 @@
           }
         ]
       },
+      "DatabaseViewCompletedRangeInput": {
+        "type": "string",
+        "enum": [
+          "all",
+          "past_month",
+          "past_week",
+          "past_day",
+          "none"
+        ]
+      },
+      "DatabaseViewCompletionOverrideInput": {
+        "type": "object",
+        "properties": {
+          "order_by_recency": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "range": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DatabaseViewCompletedRangeInput"
+              }
+            ]
+          }
+        }
+      },
       "DatabaseViewContext": {
         "type": "object",
         "required": [
@@ -7081,6 +7501,82 @@
           "view": {}
         }
       },
+      "DatabaseViewFieldInput": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "property_id",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "property"
+                ]
+              },
+              "property_id": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "field",
+              "kind"
+            ],
+            "properties": {
+              "field": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "intrinsic"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "DatabaseViewGroupOverrideInput": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "none"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "property_id",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "property"
+                ]
+              },
+              "property_id": {
+                "type": "string"
+              }
+            }
+          }
+        ]
+      },
       "DatabaseViewGroupSummary": {
         "type": "object",
         "required": [
@@ -7092,7 +7588,13 @@
               "string",
               "null"
             ],
-            "description": "`None` counts the unassigned group (empty grouping value)."
+            "description": "`None` counts the unassigned value at that path level."
+          },
+          "subgroup_key": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "total_rows": {
             "type": "integer",
@@ -7109,7 +7611,10 @@
           "view_id",
           "projection",
           "grouped",
+          "subgrouped",
           "total_rows",
+          "total_groups",
+          "group_limit",
           "truncated",
           "groups"
         ],
@@ -7119,6 +7624,10 @@
           },
           "database_id": {
             "type": "string"
+          },
+          "group_limit": {
+            "type": "integer",
+            "minimum": 0
           },
           "grouped": {
             "type": "boolean"
@@ -7132,6 +7641,13 @@
           "projection": {
             "$ref": "#/components/schemas/ProjectionSnapshotAuthority"
           },
+          "subgrouped": {
+            "type": "boolean"
+          },
+          "total_groups": {
+            "type": "integer",
+            "format": "int64"
+          },
           "total_rows": {
             "type": "integer",
             "format": "int64"
@@ -7141,6 +7657,281 @@
           },
           "view_id": {
             "type": "string"
+          }
+        }
+      },
+      "DatabaseViewHierarchyOverrideInput": {
+        "type": "object",
+        "properties": {
+          "nested_sub_pages": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "show_sub_pages": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        }
+      },
+      "DatabaseViewLayoutDisplayOverrideInput": {
+        "type": "object",
+        "properties": {
+          "fields": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/DatabaseViewFieldInput"
+            }
+          },
+          "show_empty_groups": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        }
+      },
+      "DatabaseViewLayoutInput": {
+        "type": "string",
+        "enum": [
+          "board",
+          "list"
+        ]
+      },
+      "DatabaseViewLayoutsOverrideInput": {
+        "type": "object",
+        "properties": {
+          "board": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DatabaseViewLayoutDisplayOverrideInput"
+              }
+            ]
+          },
+          "list": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DatabaseViewLayoutDisplayOverrideInput"
+              }
+            ]
+          }
+        }
+      },
+      "DatabaseViewNullOrderInput": {
+        "type": "string",
+        "enum": [
+          "first",
+          "last"
+        ]
+      },
+      "DatabaseViewPersonalPreferences": {
+        "type": "object",
+        "required": [
+          "presentation_override",
+          "collapsed_group_keys",
+          "revision"
+        ],
+        "properties": {
+          "collapsed_group_keys": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "presentation_override": {
+            "$ref": "#/components/schemas/DatabaseViewPresentationOverrideInput"
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Zero means that this Profile has no durable preference row yet."
+          }
+        }
+      },
+      "DatabaseViewPresentationOverrideInput": {
+        "type": "object",
+        "description": "A bounded Profile-local patch over a durable View presentation. Membership\nfilters and shared manual ranks are intentionally not overridable.",
+        "properties": {
+          "completion": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DatabaseViewCompletionOverrideInput"
+              }
+            ]
+          },
+          "group": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DatabaseViewGroupOverrideInput"
+              }
+            ]
+          },
+          "group_direction": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DatabaseViewSortDirectionInput"
+              }
+            ]
+          },
+          "hierarchy": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DatabaseViewHierarchyOverrideInput"
+              }
+            ]
+          },
+          "layout": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DatabaseViewLayoutInput"
+              }
+            ]
+          },
+          "layouts": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DatabaseViewLayoutsOverrideInput"
+              }
+            ]
+          },
+          "sort": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/DatabaseViewSortInput"
+            }
+          },
+          "subgroup": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DatabaseViewGroupOverrideInput"
+              }
+            ]
+          }
+        }
+      },
+      "DatabaseViewSortDirectionInput": {
+        "type": "string",
+        "enum": [
+          "asc",
+          "desc"
+        ]
+      },
+      "DatabaseViewSortFieldInput": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "manual"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "title"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "created"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "property_id",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "property"
+                ]
+              },
+              "property_id": {
+                "type": "string"
+              }
+            }
+          }
+        ]
+      },
+      "DatabaseViewSortInput": {
+        "type": "object",
+        "required": [
+          "field",
+          "direction",
+          "nulls"
+        ],
+        "properties": {
+          "direction": {
+            "$ref": "#/components/schemas/DatabaseViewSortDirectionInput"
+          },
+          "field": {
+            "$ref": "#/components/schemas/DatabaseViewSortFieldInput"
+          },
+          "nulls": {
+            "$ref": "#/components/schemas/DatabaseViewNullOrderInput"
           }
         }
       },
@@ -11650,7 +12441,7 @@
               "database_id",
               "data_source_id",
               "title",
-              "view_kind",
+              "default_layout",
               "is_default",
               "revision",
               "kind"
@@ -11660,6 +12451,9 @@
                 "type": "string"
               },
               "database_id": {
+                "type": "string"
+              },
+              "default_layout": {
                 "type": "string"
               },
               "is_default": {
@@ -11679,9 +12473,6 @@
                 "type": "string"
               },
               "view_id": {
-                "type": "string"
-              },
-              "view_kind": {
                 "type": "string"
               }
             }
@@ -13684,12 +14475,6 @@
           "revision"
         ],
         "properties": {
-          "group_key": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
           "rank_key": {
             "type": "string"
           },
@@ -15265,6 +16050,12 @@
               },
               "project_id": {
                 "type": "string"
+              },
+              "subgroup_key": {
+                "type": [
+                  "string",
+                  "null"
+                ]
               },
               "total_rows": {
                 "type": "integer",
@@ -18574,7 +19365,7 @@
                     "view_id",
                     "expected_revision",
                     "name",
-                    "view_kind",
+                    "default_layout",
                     "config",
                     "is_default",
                     "kind"
@@ -18591,6 +19382,9 @@
                       "type": "string"
                     },
                     "database_id": {
+                      "type": "string"
+                    },
+                    "default_layout": {
                       "type": "string"
                     },
                     "expected_revision": {
@@ -18610,9 +19404,6 @@
                       "type": "string"
                     },
                     "view_id": {
-                      "type": "string"
-                    },
-                    "view_kind": {
                       "type": "string"
                     }
                   }
@@ -18663,12 +19454,6 @@
                       "type": "integer",
                       "format": "int64"
                     },
-                    "group_key": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
                     "kind": {
                       "type": "string",
                       "enum": [
@@ -18697,12 +19482,6 @@
                         "null"
                       ]
                     },
-                    "group_key": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
                     "kind": {
                       "type": "string",
                       "enum": [
@@ -18714,6 +19493,77 @@
                       "items": {
                         "$ref": "#/components/schemas/DatabasePagePosition"
                       }
+                    },
+                    "view_id": {
+                      "type": "string"
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "required": [
+                    "data_source_id",
+                    "pages",
+                    "kind"
+                  ],
+                  "properties": {
+                    "before_page_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "data_source_id": {
+                      "type": "string"
+                    },
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "set_task_parent"
+                      ]
+                    },
+                    "pages": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/DatabaseTaskHierarchyPage"
+                      }
+                    },
+                    "parent_page_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "required": [
+                    "view_id",
+                    "expected_revision",
+                    "presentation_override",
+                    "collapsed_group_keys",
+                    "kind"
+                  ],
+                  "properties": {
+                    "collapsed_group_keys": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "expected_revision": {
+                      "type": "integer",
+                      "format": "int64"
+                    },
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "put_view_personal_preferences"
+                      ]
+                    },
+                    "presentation_override": {
+                      "$ref": "#/components/schemas/DatabaseViewPresentationOverrideInput"
                     },
                     "view_id": {
                       "type": "string"
@@ -25554,6 +26404,24 @@
                           "kind": {
                             "type": "string",
                             "enum": [
+                              "list_window"
+                            ]
+                          },
+                          "value": {
+                            "$ref": "#/components/schemas/DatabaseListWindow"
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "value",
+                          "kind"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
                               "view_groups"
                             ]
                           },
@@ -25649,6 +26517,24 @@
                             "enum": [
                               "relation_candidate_window"
                             ]
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "value",
+                          "kind"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "view_personal_preferences"
+                            ]
+                          },
+                          "value": {
+                            "$ref": "#/components/schemas/DatabaseViewPersonalPreferences"
                           }
                         }
                       }

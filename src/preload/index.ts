@@ -60,7 +60,7 @@ function resolveManagedAssetPath(source: string): string | null {
 }
 
 // Multiple editor blocks (toggle-list-inline-view, pageRef) each subscribe to
-// board-changed via useKanban, easily exceeding the default limit of 10.
+// board-changed via useBoard, easily exceeding the default limit of 10.
 ipcRenderer.setMaxListeners(50);
 
 contextBridge.exposeInMainWorld("api", {

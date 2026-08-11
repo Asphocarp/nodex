@@ -132,7 +132,7 @@ describe("buildCommandPaletteCommands", () => {
     expect(ids.includes("focus-pages-stage")).toBe(false);
     expect(ids.includes("focus-threads-stage")).toBe(false);
     expect(ids.includes("focus-diff-stage")).toBe(false);
-    expect(ids.includes("view-kanban")).toBe(false);
+    expect(ids.includes("view-board")).toBe(false);
     expect(ids.includes("view-list")).toBe(false);
     expect(ids.includes("view-toggle-list")).toBe(false);
     expect(ids.includes("view-canvas")).toBe(false);

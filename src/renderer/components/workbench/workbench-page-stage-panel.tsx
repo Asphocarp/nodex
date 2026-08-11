@@ -7,9 +7,9 @@ import {
   type RefObject,
 } from "react";
 import { OwnedBlockDocumentBoundary } from "@/components/block-documents/owned-block-document-boundary";
-import { PageStageContentSkeleton } from "@/components/kanban/page-stage/content-skeleton";
-import { PageStageToolbar } from "@/components/kanban/page-stage/toolbar";
-import type { PageStageSessionSnapshot } from "@/components/kanban/page-stage/types";
+import { PageStageContentSkeleton } from "@/components/board/page-stage/content-skeleton";
+import { PageStageToolbar } from "@/components/board/page-stage/toolbar";
+import type { PageStageSessionSnapshot } from "@/components/board/page-stage/types";
 import { NodexButton } from "@/components/ui/button";
 import { useCodexAppServerControl } from "@/features/local-conversation";
 import { usePageOwnershipPathReadModel } from "@/lib/block-reference-queries";
@@ -37,7 +37,7 @@ import type {
   Project,
   WorkbenchTabProjection,
 } from "@/lib/types";
-import { useKanban } from "@/lib/use-kanban";
+import { useBoard } from "@/lib/use-board";
 import { cn } from "@/lib/utils";
 import type { WorkbenchSessionRenderProjection } from "@/lib/workbench-session-presentation";
 import { projectWorkspaceRootOrNull } from "@/lib/workbench-workspace-context";
@@ -95,7 +95,7 @@ function PageStageDatabaseCapabilityBoundary({
   properties: PageStageSemanticValues | null;
   children: (capability: PageStageDatabaseCapability | null) => ReactNode;
 }) {
-  const kanban = useKanban({
+  const board = useBoard({
     projectId,
     databaseViewId: databaseViewId ?? undefined,
     sessionId,
@@ -105,19 +105,19 @@ function PageStageDatabaseCapabilityBoundary({
   const status = properties.status;
   return children({
     onDelete: async (pageId: string) => {
-      const deleted = await kanban.deletePage(status, pageId);
+      const deleted = await board.deletePage(status, pageId);
       if (!deleted) throw new Error(`Page ${pageId} delete did not commit`);
     },
     ...(status
       ? {
           onMove: async (pageId: string, toStatus: DatabasePage["status"]) => {
-            await kanban.movePage({ fromStatus: status, pageId, toStatus });
+            await board.movePage({ fromStatus: status, pageId, toStatus });
             await fetchPageDetail(projectId, pageId);
           },
         }
       : {}),
     onCompleteOccurrence: async (pageId, occurrenceStart) => {
-      await kanban.completeOccurrence({
+      await board.completeOccurrence({
         pageId,
         occurrenceStart,
         source: "page-detail",
@@ -125,7 +125,7 @@ function PageStageDatabaseCapabilityBoundary({
       await fetchPageDetail(projectId, pageId);
     },
     onSkipOccurrence: async (pageId, occurrenceStart) => {
-      await kanban.skipOccurrence({
+      await board.skipOccurrence({
         pageId,
         occurrenceStart,
         source: "page-detail",

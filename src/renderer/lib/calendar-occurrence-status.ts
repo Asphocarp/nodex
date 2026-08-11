@@ -1,4 +1,4 @@
-import { ARCHIVED_CARD_OPTION_ID } from "./kanban-options";
+import { ARCHIVED_CARD_OPTION_ID } from "./board-options";
 import type { PageOccurrence, WorkflowStatus } from "./types";
 import { COMPLETED_WORKFLOW_STATUS } from "../../shared/workflow-status";
 

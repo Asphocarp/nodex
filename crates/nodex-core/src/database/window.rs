@@ -1,18 +1,24 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
+use chrono::{Duration, Utc};
 use nodex_core_contracts::collection::{
     CollectionWindow, CollectionWindowAuthority, CollectionWindowRequest,
 };
 use nodex_core_contracts::database::{
-    DatabaseGroupScope, DatabaseRowDetail, DatabaseRowSummary, DatabaseRowsById,
-    DatabaseViewContextRow, DatabaseViewGroupSummary, DatabaseViewGroups, DatabaseViewWindow,
-    MAX_VIEW_GROUP_SUMMARIES,
+    DatabaseGroupScope, DatabaseListGroupSummary, DatabaseListProjectionRow,
+    DatabaseListTransientKind, DatabaseListWindow, DatabaseRowDetail, DatabaseRowSummary,
+    DatabaseRowsById, DatabaseViewCompletedRangeInput, DatabaseViewContextRow,
+    DatabaseViewFieldInput, DatabaseViewGroupOverrideInput, DatabaseViewGroupSummary,
+    DatabaseViewGroups, DatabaseViewLayoutInput, DatabaseViewNullOrderInput,
+    DatabaseViewPresentationOverrideInput, DatabaseViewSortDirectionInput,
+    DatabaseViewSortFieldInput, DatabaseViewWindow, MAX_VIEW_GROUP_SUMMARIES,
 };
 use nodex_core_contracts::events::{LocalProjectionScope, ProjectionSnapshotAuthority};
 use rusqlite::types::Value as SqlValue;
 use rusqlite::{Connection, OptionalExtension, Row, params, params_from_iter};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 
 use super::authorization::{authorize_required, project_primary_database};
 use crate::infrastructure::collection_window::{WindowCandidate, assemble, normalize_request};
@@ -26,7 +32,8 @@ const MAX_FILTER_NODES: usize = 1_024;
 const MAX_SORT_RULES: usize = 4;
 const MAX_DISPLAY_PROPERTIES: usize = 64;
 const MAX_ROWS_BY_ID: usize = 100;
-const SUMMARY_COLUMN_COUNT: usize = 24;
+const MAX_LIST_PROJECTION_MODELS: usize = 100_000;
+const SUMMARY_COLUMN_COUNT: usize = 28;
 const COMPATIBILITY_CARD_PROPERTY_IDS: [&str; 8] = [
     "status",
     "priority",
@@ -45,6 +52,9 @@ struct ResolvedView {
     view_id: String,
     revision: i64,
     exact_primary_board_config: bool,
+    task_status_capable: bool,
+    completion_cutoff: Option<String>,
+    layout: ViewLayout,
     config: ViewConfig,
 }
 
@@ -83,17 +93,77 @@ pub(super) struct ViewContextRead<'a> {
 #[serde(rename_all = "camelCase")]
 struct ViewConfig {
     filter: ViewFilter,
-    sort: Vec<ViewSort>,
-    group: Option<ViewGroup>,
-    display: ViewDisplay,
+    presentation: ViewPresentation,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct ViewDisplay {
-    property_ids: Vec<String>,
-    #[serde(rename = "showTitle")]
-    _show_title: bool,
+struct ViewPresentation {
+    sort: Vec<ViewSort>,
+    group: Option<ViewGroup>,
+    subgroup: Option<ViewGroup>,
+    #[serde(default = "default_group_direction")]
+    group_direction: SortDirection,
+    completion: ViewCompletion,
+    hierarchy: ViewHierarchy,
+    layouts: ViewLayouts,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ViewHierarchy {
+    show_sub_pages: bool,
+    nested_sub_pages: bool,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum ViewCompletedRange {
+    All,
+    PastMonth,
+    PastWeek,
+    PastDay,
+    None,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ViewCompletion {
+    range: ViewCompletedRange,
+    order_by_recency: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct ViewLayouts {
+    board: ViewLayoutDisplay,
+    list: ViewLayoutDisplay,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum ViewLayout {
+    Board,
+    List,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ViewLayoutDisplay {
+    fields: Vec<ViewField>,
+    show_empty_groups: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum ViewField {
+    Property {
+        #[serde(rename = "propertyId")]
+        property_id: String,
+    },
+    Intrinsic {
+        #[serde(rename = "field")]
+        field: String,
+    },
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -155,6 +225,10 @@ enum SortDirection {
     Desc,
 }
 
+fn default_group_direction() -> SortDirection {
+    SortDirection::Asc
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 enum NullOrder {
@@ -205,6 +279,941 @@ pub(super) fn view_window(
     )
 }
 
+pub(super) fn presented_view_window(
+    connection: &Connection,
+    library_id: &str,
+    view_id: &str,
+    presentation_override: &DatabaseViewPresentationOverrideInput,
+    read: ViewWindowRead<'_>,
+) -> Result<DatabaseViewWindow, StoreError> {
+    let mut view = resolve_view(connection, library_id, view_id)?;
+    apply_presentation_override(&mut view.config.presentation, presentation_override)?;
+    if let Some(layout) = presentation_override.layout {
+        view.layout = match layout {
+            DatabaseViewLayoutInput::Board => ViewLayout::Board,
+            DatabaseViewLayoutInput::List => ViewLayout::List,
+        };
+    }
+    refresh_effective_presentation(connection, &mut view)?;
+    view.exact_primary_board_config = false;
+    let projection = projection_snapshot_authority(
+        connection,
+        library_id,
+        read.store_epoch,
+        read.commit_head,
+        read.project_id,
+        &view,
+    )?;
+    view_window_for(
+        connection,
+        library_id,
+        read.commit_head,
+        &view,
+        read.window,
+        read.group_scope,
+        projection,
+    )
+}
+
+pub(super) fn list_window(
+    connection: &Connection,
+    library_id: &str,
+    view_id: &str,
+    read: ViewWindowRead<'_>,
+) -> Result<DatabaseListWindow, StoreError> {
+    let view = resolve_view(connection, library_id, view_id)?;
+    let projection = projection_snapshot_authority(
+        connection,
+        library_id,
+        read.store_epoch,
+        read.commit_head,
+        read.project_id,
+        &view,
+    )?;
+    list_window_for(
+        connection,
+        library_id,
+        read.commit_head,
+        &view,
+        read.window,
+        projection,
+    )
+}
+
+pub(super) fn presented_list_window(
+    connection: &Connection,
+    library_id: &str,
+    view_id: &str,
+    presentation_override: &DatabaseViewPresentationOverrideInput,
+    read: ViewWindowRead<'_>,
+) -> Result<DatabaseListWindow, StoreError> {
+    let mut view = resolve_view(connection, library_id, view_id)?;
+    apply_presentation_override(&mut view.config.presentation, presentation_override)?;
+    if let Some(layout) = presentation_override.layout {
+        view.layout = match layout {
+            DatabaseViewLayoutInput::Board => ViewLayout::Board,
+            DatabaseViewLayoutInput::List => ViewLayout::List,
+        };
+    }
+    refresh_effective_presentation(connection, &mut view)?;
+    view.exact_primary_board_config = false;
+    let projection = projection_snapshot_authority(
+        connection,
+        library_id,
+        read.store_epoch,
+        read.commit_head,
+        read.project_id,
+        &view,
+    )?;
+    list_window_for(
+        connection,
+        library_id,
+        read.commit_head,
+        &view,
+        read.window,
+        projection,
+    )
+}
+
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+struct ListGroupPath {
+    group_key: Option<String>,
+    subgroup_key: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+struct ListProjectionNode {
+    summary: DatabaseRowSummary,
+    transient_kind: DatabaseListTransientKind,
+    sort_index: usize,
+}
+
+fn complete_filtered_view_rows(
+    connection: &Connection,
+    library_id: &str,
+    commit_head: i64,
+    view: &ResolvedView,
+    projection: &ProjectionSnapshotAuthority,
+) -> Result<Vec<DatabaseRowSummary>, StoreError> {
+    let mut rows = Vec::new();
+    let mut after = None;
+    loop {
+        let window = view_window_for(
+            connection,
+            library_id,
+            commit_head,
+            view,
+            &CollectionWindowRequest {
+                after,
+                first: Some(200),
+            },
+            None,
+            projection.clone(),
+        )?;
+        if window.rows.items.len() > MAX_LIST_PROJECTION_MODELS.saturating_sub(rows.len()) {
+            return Err(invalid("Database List projection exceeds its model bound"));
+        }
+        rows.extend(window.rows.items);
+        let Some(next_cursor) = window.rows.next_cursor else {
+            break;
+        };
+        after = Some(next_cursor);
+    }
+    Ok(rows)
+}
+
+fn canonical_group_value(value: &Value) -> Option<String> {
+    match value {
+        Value::Null => None,
+        Value::String(value) => (!value.is_empty()).then(|| value.clone()),
+        Value::Bool(value) => Some(value.to_string()),
+        Value::Number(value) => Some(value.to_string()),
+        Value::Array(value) if value.is_empty() => None,
+        Value::Array(_) | Value::Object(_) => serde_json::to_string(value).ok(),
+    }
+}
+
+fn list_group_memberships(
+    summary: &DatabaseRowSummary,
+    group: Option<&ViewGroup>,
+    values: &BTreeMap<(String, String), Value>,
+) -> Vec<Option<String>> {
+    let Some(group) = group else {
+        return vec![None];
+    };
+    let Some(value) = values.get(&(summary.membership_id.clone(), group.property_id.clone()))
+    else {
+        return vec![None];
+    };
+    let Value::Array(values) = value else {
+        return vec![canonical_group_value(value)];
+    };
+    if values.is_empty() {
+        return vec![None];
+    }
+    let mut seen = BTreeSet::new();
+    let memberships = values
+        .iter()
+        .filter_map(canonical_group_value)
+        .filter(|value| seen.insert(value.clone()))
+        .map(Some)
+        .collect::<Vec<_>>();
+    if memberships.is_empty() {
+        vec![None]
+    } else {
+        memberships
+    }
+}
+
+fn list_group_paths(
+    summary: &DatabaseRowSummary,
+    presentation: &ViewPresentation,
+    values: &BTreeMap<(String, String), Value>,
+) -> Vec<ListGroupPath> {
+    let groups = list_group_memberships(summary, presentation.group.as_ref(), values);
+    let subgroups = list_group_memberships(summary, presentation.subgroup.as_ref(), values);
+    groups
+        .into_iter()
+        .flat_map(|group_key| {
+            subgroups
+                .iter()
+                .cloned()
+                .map(move |subgroup_key| ListGroupPath {
+                    group_key: group_key.clone(),
+                    subgroup_key,
+                })
+        })
+        .collect()
+}
+
+fn list_group_values(
+    connection: &Connection,
+    view: &ResolvedView,
+) -> Result<BTreeMap<(String, String), Value>, StoreError> {
+    let property_ids = [
+        view.config.presentation.group.as_ref(),
+        view.config.presentation.subgroup.as_ref(),
+    ]
+    .into_iter()
+    .flatten()
+    .map(|group| group.property_id.as_str())
+    .collect::<BTreeSet<_>>();
+    let mut values = BTreeMap::new();
+    for property_id in property_ids {
+        let rows = connection
+            .prepare(
+                "SELECT membership_id, value_json FROM data_source_property_values \
+                 WHERE data_source_id = ?1 AND property_id = ?2 ORDER BY membership_id",
+            )?
+            .query_map(params![view.data_source_id, property_id], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        for (membership_id, value_json) in rows {
+            let value = serde_json::from_str(&value_json)
+                .map_err(|_| corrupt("Database Property value is invalid"))?;
+            values.insert((membership_id, property_id.to_owned()), value);
+        }
+    }
+    Ok(values)
+}
+
+fn list_projection_key<T: Serialize>(kind: &str, value: &T) -> Result<String, StoreError> {
+    let payload = serde_json::to_vec(value)
+        .map_err(|_| invalid("Database List occurrence key cannot be encoded"))?;
+    Ok(format!("{kind}_{}", hex::encode(Sha256::digest(payload))))
+}
+
+#[derive(Clone, Debug)]
+struct ListHierarchyEdge {
+    parent_page_id: String,
+}
+
+type ListHierarchyIndexes = (
+    BTreeMap<String, ListHierarchyEdge>,
+    BTreeMap<String, Vec<(String, String)>>,
+);
+
+fn list_hierarchy_edges(
+    connection: &Connection,
+    data_source_id: &str,
+) -> Result<ListHierarchyIndexes, StoreError> {
+    let edges = connection
+        .prepare(
+            "SELECT child_page_id, parent_page_id, sibling_rank \
+             FROM database_task_hierarchy_edges WHERE data_source_id = ?1 \
+             ORDER BY parent_page_id, sibling_rank, child_page_id",
+        )?
+        .query_map([data_source_id], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let mut by_child = BTreeMap::new();
+    let mut by_parent = BTreeMap::<String, Vec<(String, String)>>::new();
+    for (child_page_id, parent_page_id, sibling_rank) in edges {
+        by_child.insert(
+            child_page_id.clone(),
+            ListHierarchyEdge {
+                parent_page_id: parent_page_id.clone(),
+            },
+        );
+        by_parent
+            .entry(parent_page_id)
+            .or_default()
+            .push((sibling_rank, child_page_id));
+    }
+    Ok((by_child, by_parent))
+}
+
+fn list_summary(
+    connection: &Connection,
+    view: &ResolvedView,
+    summaries: &mut BTreeMap<String, DatabaseRowSummary>,
+    page_id: &str,
+) -> Result<Option<DatabaseRowSummary>, StoreError> {
+    if let Some(summary) = summaries.get(page_id) {
+        return Ok(Some(summary.clone()));
+    }
+    let summary = summary_by_id(connection, view, page_id)?;
+    if let Some(summary) = &summary {
+        summaries.insert(page_id.to_owned(), summary.clone());
+    }
+    Ok(summary)
+}
+
+fn transient_priority(kind: DatabaseListTransientKind) -> u8 {
+    match kind {
+        DatabaseListTransientKind::None => 0,
+        DatabaseListTransientKind::Ancestor => 1,
+        DatabaseListTransientKind::Child => 2,
+    }
+}
+
+fn insert_list_node(
+    nodes: &mut BTreeMap<String, ListProjectionNode>,
+    summary: DatabaseRowSummary,
+    transient_kind: DatabaseListTransientKind,
+    sort_index: usize,
+) {
+    let page_id = summary.page_id.clone();
+    if let Some(existing) = nodes.get_mut(&page_id) {
+        existing.sort_index = existing.sort_index.min(sort_index);
+        if transient_priority(transient_kind) < transient_priority(existing.transient_kind) {
+            existing.transient_kind = transient_kind;
+            existing.summary = summary;
+        }
+        return;
+    }
+    nodes.insert(
+        page_id,
+        ListProjectionNode {
+            summary,
+            transient_kind,
+            sort_index,
+        },
+    );
+}
+
+fn add_list_ancestors(
+    connection: &Connection,
+    view: &ResolvedView,
+    page_id: &str,
+    sort_index: usize,
+    edges: &BTreeMap<String, ListHierarchyEdge>,
+    summaries: &mut BTreeMap<String, DatabaseRowSummary>,
+    nodes: &mut BTreeMap<String, ListProjectionNode>,
+) -> Result<(), StoreError> {
+    let mut cursor = page_id;
+    let mut visited = HashSet::new();
+    for _ in 0..10 {
+        if !visited.insert(cursor.to_owned()) {
+            return Err(corrupt("Task hierarchy contains a cycle"));
+        }
+        let Some(edge) = edges.get(cursor) else {
+            return Ok(());
+        };
+        let Some(summary) = list_summary(connection, view, summaries, &edge.parent_page_id)? else {
+            return Ok(());
+        };
+        insert_list_node(
+            nodes,
+            summary,
+            DatabaseListTransientKind::Ancestor,
+            sort_index,
+        );
+        cursor = &edge.parent_page_id;
+    }
+    if edges.contains_key(cursor) {
+        return Err(corrupt("Task hierarchy exceeds its depth bound"));
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn add_list_children(
+    connection: &Connection,
+    view: &ResolvedView,
+    page_id: &str,
+    sort_index: usize,
+    depth: usize,
+    children: &BTreeMap<String, Vec<(String, String)>>,
+    summaries: &mut BTreeMap<String, DatabaseRowSummary>,
+    nodes: &mut BTreeMap<String, ListProjectionNode>,
+    path: &mut HashSet<String>,
+) -> Result<(), StoreError> {
+    if depth >= 10 {
+        return Ok(());
+    }
+    if !path.insert(page_id.to_owned()) {
+        return Err(corrupt("Task hierarchy contains a cycle"));
+    }
+    for (_, child_page_id) in children.get(page_id).into_iter().flatten() {
+        let Some(summary) = list_summary(connection, view, summaries, child_page_id)? else {
+            continue;
+        };
+        insert_list_node(nodes, summary, DatabaseListTransientKind::Child, sort_index);
+        add_list_children(
+            connection,
+            view,
+            child_page_id,
+            sort_index,
+            depth + 1,
+            children,
+            summaries,
+            nodes,
+            path,
+        )?;
+    }
+    path.remove(page_id);
+    Ok(())
+}
+
+fn property_option_ids(
+    connection: &Connection,
+    data_source_id: &str,
+    property_id: &str,
+) -> Result<Vec<String>, StoreError> {
+    let config_json = connection
+        .query_row(
+            "SELECT config_json FROM data_source_properties \
+             WHERE data_source_id = ?1 AND id = ?2 AND lifecycle = 'active'",
+            params![data_source_id, property_id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+    let Some(config_json) = config_json else {
+        return Ok(Vec::new());
+    };
+    let config = serde_json::from_str::<Value>(&config_json)
+        .map_err(|_| corrupt("Database Property config is invalid"))?;
+    Ok(config
+        .get("options")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|option| option.get("id").and_then(Value::as_str))
+        .map(str::to_owned)
+        .collect())
+}
+
+fn configured_list_group_paths(
+    connection: &Connection,
+    view: &ResolvedView,
+) -> Result<Vec<ListGroupPath>, StoreError> {
+    if !view.config.presentation.layouts.list.show_empty_groups {
+        return Ok(Vec::new());
+    }
+    let Some(group) = &view.config.presentation.group else {
+        return Ok(Vec::new());
+    };
+    let groups = property_option_ids(connection, &view.data_source_id, &group.property_id)?;
+    if groups.is_empty() {
+        return Ok(Vec::new());
+    }
+    let subgroups = match &view.config.presentation.subgroup {
+        Some(subgroup) => {
+            property_option_ids(connection, &view.data_source_id, &subgroup.property_id)?
+        }
+        None => Vec::new(),
+    };
+    let mut paths = Vec::new();
+    for group_key in groups {
+        if subgroups.is_empty() {
+            paths.push(ListGroupPath {
+                group_key: Some(group_key),
+                subgroup_key: None,
+            });
+        } else {
+            for subgroup_key in &subgroups {
+                paths.push(ListGroupPath {
+                    group_key: Some(group_key.clone()),
+                    subgroup_key: Some(subgroup_key.clone()),
+                });
+                if paths.len() >= MAX_VIEW_GROUP_SUMMARIES {
+                    return Ok(paths);
+                }
+            }
+        }
+        if paths.len() >= MAX_VIEW_GROUP_SUMMARIES {
+            break;
+        }
+    }
+    Ok(paths)
+}
+
+fn list_node_order_key(node: &ListProjectionNode, nested_child: bool) -> (String, usize, String) {
+    (
+        if nested_child {
+            node.summary
+                .task_sibling_rank
+                .clone()
+                .unwrap_or_else(|| "~".to_owned())
+        } else {
+            String::new()
+        },
+        node.sort_index,
+        node.summary.page_id.clone(),
+    )
+}
+
+fn flatten_list_node(
+    path: &ListGroupPath,
+    page_id: &str,
+    nodes: &BTreeMap<String, ListProjectionNode>,
+    children: &BTreeMap<String, Vec<String>>,
+    ancestors: &mut Vec<String>,
+    output: &mut Vec<DatabaseListProjectionRow>,
+    visited: &mut HashSet<String>,
+) -> Result<(), StoreError> {
+    if ancestors.len() > 10 {
+        return Err(corrupt("Task hierarchy exceeds its depth bound"));
+    }
+    if !visited.insert(page_id.to_owned()) {
+        return Err(corrupt("Task hierarchy contains a cycle"));
+    }
+    let node = nodes
+        .get(page_id)
+        .ok_or_else(|| corrupt("Database List hierarchy references a missing Page"))?;
+    let group_path = vec![path.group_key.clone(), path.subgroup_key.clone()];
+    let occurrence_key =
+        list_projection_key("ITEM", &(&group_path, ancestors.as_slice(), page_id))?;
+    output.push(DatabaseListProjectionRow::Page {
+        occurrence_key,
+        summary: Box::new(node.summary.clone()),
+        group_path,
+        ancestor_page_ids: ancestors.clone(),
+        depth: u32::try_from(ancestors.len())
+            .map_err(|_| invalid("Database List hierarchy depth is invalid"))?,
+        has_children: children
+            .get(page_id)
+            .is_some_and(|child_page_ids| !child_page_ids.is_empty()),
+        transient_kind: node.transient_kind,
+        sibling_rank: node.summary.task_sibling_rank.clone(),
+        hierarchy_revision: node.summary.task_hierarchy_revision,
+    });
+    ancestors.push(page_id.to_owned());
+    for child_page_id in children.get(page_id).into_iter().flatten() {
+        flatten_list_node(
+            path,
+            child_page_id,
+            nodes,
+            children,
+            ancestors,
+            output,
+            visited,
+        )?;
+    }
+    ancestors.pop();
+    Ok(())
+}
+
+fn flatten_list_path(
+    path: &ListGroupPath,
+    nodes: &BTreeMap<String, ListProjectionNode>,
+    nested: bool,
+) -> Result<Vec<DatabaseListProjectionRow>, StoreError> {
+    if !nested {
+        let mut ordered = nodes.values().collect::<Vec<_>>();
+        ordered.sort_by_key(|node| list_node_order_key(node, false));
+        return ordered
+            .into_iter()
+            .map(|node| {
+                let group_path = vec![path.group_key.clone(), path.subgroup_key.clone()];
+                Ok(DatabaseListProjectionRow::Page {
+                    occurrence_key: list_projection_key(
+                        "ITEM",
+                        &(&group_path, &[] as &[String], &node.summary.page_id),
+                    )?,
+                    summary: Box::new(node.summary.clone()),
+                    group_path,
+                    ancestor_page_ids: Vec::new(),
+                    depth: 0,
+                    has_children: false,
+                    transient_kind: node.transient_kind,
+                    sibling_rank: node.summary.task_sibling_rank.clone(),
+                    hierarchy_revision: node.summary.task_hierarchy_revision,
+                })
+            })
+            .collect();
+    }
+
+    let mut children = BTreeMap::<String, Vec<String>>::new();
+    let mut roots = Vec::new();
+    for (page_id, node) in nodes {
+        let parent_page_id = node.summary.task_parent_page_id.as_ref();
+        if let Some(parent_page_id) = parent_page_id.filter(|parent| nodes.contains_key(*parent)) {
+            children
+                .entry(parent_page_id.clone())
+                .or_default()
+                .push(page_id.clone());
+        } else {
+            roots.push(page_id.clone());
+        }
+    }
+    roots.sort_by_key(|page_id| list_node_order_key(&nodes[page_id], false));
+    for child_ids in children.values_mut() {
+        child_ids.sort_by_key(|page_id| list_node_order_key(&nodes[page_id], true));
+    }
+    let mut output = Vec::new();
+    let mut visited = HashSet::new();
+    for root in roots {
+        flatten_list_node(
+            path,
+            &root,
+            nodes,
+            &children,
+            &mut Vec::new(),
+            &mut output,
+            &mut visited,
+        )?;
+    }
+    for page_id in nodes.keys() {
+        if visited.contains(page_id) {
+            continue;
+        }
+        flatten_list_node(
+            path,
+            page_id,
+            nodes,
+            &children,
+            &mut Vec::new(),
+            &mut output,
+            &mut visited,
+        )?;
+    }
+    Ok(output)
+}
+
+fn ordered_list_paths(
+    configured: Vec<ListGroupPath>,
+    encountered: &[ListGroupPath],
+    grouped: bool,
+    direction: SortDirection,
+) -> Vec<ListGroupPath> {
+    let mut seen = BTreeSet::new();
+    let paths = configured
+        .into_iter()
+        .chain(encountered.iter().cloned())
+        .filter(|path| seen.insert(path.clone()))
+        .collect::<Vec<_>>();
+    if !grouped || matches!(direction, SortDirection::Asc) {
+        return paths;
+    }
+    let mut group_order = Vec::<Option<String>>::new();
+    let mut paths_by_group = BTreeMap::<Option<String>, Vec<ListGroupPath>>::new();
+    for path in paths {
+        if !paths_by_group.contains_key(&path.group_key) {
+            group_order.push(path.group_key.clone());
+        }
+        paths_by_group
+            .entry(path.group_key.clone())
+            .or_default()
+            .push(path);
+    }
+    group_order.reverse();
+    group_order
+        .into_iter()
+        .flat_map(|group_key| paths_by_group.remove(&group_key).unwrap_or_default())
+        .collect()
+}
+
+fn flatten_list_projection(
+    connection: &Connection,
+    view: &ResolvedView,
+    path_nodes: &BTreeMap<ListGroupPath, BTreeMap<String, ListProjectionNode>>,
+    encountered_paths: &[ListGroupPath],
+) -> Result<
+    (
+        Vec<DatabaseListProjectionRow>,
+        Vec<DatabaseListGroupSummary>,
+        i64,
+    ),
+    StoreError,
+> {
+    let grouped = view.config.presentation.group.is_some();
+    let subgrouped = view.config.presentation.subgroup.is_some();
+    let nested = view.config.presentation.hierarchy.show_sub_pages
+        && view.config.presentation.hierarchy.nested_sub_pages;
+    let paths = ordered_list_paths(
+        configured_list_group_paths(connection, view)?,
+        encountered_paths,
+        grouped,
+        view.config.presentation.group_direction,
+    );
+    let mut rows = Vec::new();
+    let mut groups = Vec::new();
+    let mut total_occurrences = 0_i64;
+    let mut emitted_groups = BTreeSet::new();
+    for path in paths {
+        let nodes = path_nodes.get(&path).cloned().unwrap_or_default();
+        let page_rows = flatten_list_path(&path, &nodes, nested)?;
+        let path_total = i64::try_from(page_rows.len())
+            .map_err(|_| invalid("Database List occurrence total is invalid"))?;
+        total_occurrences = total_occurrences
+            .checked_add(path_total)
+            .ok_or_else(|| invalid("Database List occurrence total overflowed"))?;
+        if grouped && emitted_groups.insert(path.group_key.clone()) {
+            let group_total = path_nodes
+                .iter()
+                .filter(|(candidate, _)| candidate.group_key == path.group_key)
+                .try_fold(0_i64, |total, (candidate, candidate_nodes)| {
+                    let count = flatten_list_path(candidate, candidate_nodes, nested)?.len();
+                    total
+                        .checked_add(
+                            i64::try_from(count)
+                                .map_err(|_| invalid("Database List group total is invalid"))?,
+                        )
+                        .ok_or_else(|| invalid("Database List group total overflowed"))
+                })?;
+            rows.push(DatabaseListProjectionRow::Group {
+                occurrence_key: list_projection_key("GROUP", &path.group_key)?,
+                group_key: path.group_key.clone(),
+                total_occurrence_count: group_total,
+            });
+        }
+        if subgrouped {
+            rows.push(DatabaseListProjectionRow::Subgroup {
+                occurrence_key: list_projection_key(
+                    "SUBGROUP",
+                    &(&path.group_key, &path.subgroup_key),
+                )?,
+                group_key: path.group_key.clone(),
+                subgroup_key: path.subgroup_key.clone(),
+                total_occurrence_count: path_total,
+            });
+        }
+        groups.push(DatabaseListGroupSummary {
+            group_key: path.group_key,
+            subgroup_key: path.subgroup_key,
+            total_occurrence_count: path_total,
+        });
+        rows.extend(page_rows);
+    }
+    Ok((rows, groups, total_occurrences))
+}
+
+fn build_list_projection(
+    connection: &Connection,
+    view: &ResolvedView,
+    matched_rows: Vec<DatabaseRowSummary>,
+) -> Result<
+    (
+        Vec<DatabaseListProjectionRow>,
+        Vec<DatabaseListGroupSummary>,
+        i64,
+        i64,
+    ),
+    StoreError,
+> {
+    let (edges, children) = list_hierarchy_edges(connection, &view.data_source_id)?;
+    let group_values = list_group_values(connection, view)?;
+    let show_sub_pages = view.config.presentation.hierarchy.show_sub_pages;
+    let nested = show_sub_pages && view.config.presentation.hierarchy.nested_sub_pages;
+    let total_model_count = matched_rows
+        .iter()
+        .filter(|row| show_sub_pages || row.task_parent_page_id.is_none())
+        .map(|row| row.page_id.as_str())
+        .collect::<BTreeSet<_>>()
+        .len();
+    let mut summaries = matched_rows
+        .iter()
+        .cloned()
+        .map(|summary| (summary.page_id.clone(), summary))
+        .collect::<BTreeMap<_, _>>();
+    let mut path_nodes = BTreeMap::<ListGroupPath, BTreeMap<String, ListProjectionNode>>::new();
+    let mut encountered_paths = Vec::new();
+    let mut encountered_path_set = BTreeSet::new();
+
+    for (sort_index, summary) in matched_rows.into_iter().enumerate() {
+        if !show_sub_pages && summary.task_parent_page_id.is_some() {
+            continue;
+        }
+        for path in list_group_paths(&summary, &view.config.presentation, &group_values) {
+            if encountered_path_set.insert(path.clone()) {
+                encountered_paths.push(path.clone());
+            }
+            let nodes = path_nodes.entry(path).or_default();
+            insert_list_node(
+                nodes,
+                summary.clone(),
+                DatabaseListTransientKind::None,
+                sort_index,
+            );
+            if !nested {
+                continue;
+            }
+            add_list_ancestors(
+                connection,
+                view,
+                &summary.page_id,
+                sort_index,
+                &edges,
+                &mut summaries,
+                nodes,
+            )?;
+            add_list_children(
+                connection,
+                view,
+                &summary.page_id,
+                sort_index,
+                0,
+                &children,
+                &mut summaries,
+                nodes,
+                &mut HashSet::new(),
+            )?;
+            if nodes.len() > MAX_LIST_PROJECTION_MODELS {
+                return Err(invalid(
+                    "Database List projection exceeds its occurrence bound",
+                ));
+            }
+        }
+    }
+    if encountered_paths.is_empty() && view.config.presentation.group.is_none() {
+        encountered_paths.push(ListGroupPath {
+            group_key: None,
+            subgroup_key: None,
+        });
+    }
+    let (rows, groups, total_occurrence_count) =
+        flatten_list_projection(connection, view, &path_nodes, &encountered_paths)?;
+    Ok((
+        rows,
+        groups,
+        total_occurrence_count,
+        i64::try_from(total_model_count)
+            .map_err(|_| invalid("Database List model total is invalid"))?,
+    ))
+}
+
+fn list_window_for(
+    connection: &Connection,
+    library_id: &str,
+    commit_head: i64,
+    view: &ResolvedView,
+    request: &CollectionWindowRequest,
+    projection: ProjectionSnapshotAuthority,
+) -> Result<DatabaseListWindow, StoreError> {
+    let normalized = normalize_request(request)?;
+    let matched_rows =
+        complete_filtered_view_rows(connection, library_id, commit_head, view, &projection)?;
+    let (projection_rows, groups, total_occurrence_count, total_model_count) =
+        build_list_projection(connection, view, matched_rows)?;
+    let total_projection_row_count = i64::try_from(projection_rows.len())
+        .map_err(|_| invalid("Database List projection row total is invalid"))?;
+    let fingerprint = cursor::query_fingerprint(&(
+        "database_list_window_v1",
+        &view.view_id,
+        &view.data_source_id,
+        &view.config,
+        &view.completion_cutoff,
+        commit_head,
+    ))?;
+    let subject = CollectionCursorSubject {
+        kind: "database_list_projection",
+        library_id,
+        query_fingerprint: &fingerprint,
+    };
+    let start = normalized
+        .after
+        .map(|encoded| cursor::decode(connection, encoded, subject))
+        .transpose()?
+        .map(|(direction, coordinate)| {
+            let [KeysetValue::Integer { value: index }] = coordinate.values.as_slice() else {
+                return Err(invalid("Database List cursor is incompatible"));
+            };
+            if direction != CursorDirection::Forward || *index < 0 {
+                return Err(invalid("Database List cursor is incompatible"));
+            }
+            let index = usize::try_from(*index)
+                .map_err(|_| invalid("Database List cursor is incompatible"))?;
+            if projection_rows
+                .get(index)
+                .is_none_or(|row| row.occurrence_key() != coordinate.stable_id)
+            {
+                return Err(invalid("Database List cursor projection changed"));
+            }
+            index
+                .checked_add(1)
+                .ok_or_else(|| invalid("Database List cursor overflowed"))
+        })
+        .transpose()?
+        .unwrap_or(0);
+    let candidates = projection_rows
+        .iter()
+        .enumerate()
+        .skip(start)
+        .take(normalized.first.saturating_add(1))
+        .map(|(index, row)| WindowCandidate {
+            coordinate: KeysetCoordinate {
+                values: vec![KeysetValue::Integer {
+                    value: i64::try_from(index)
+                        .expect("bounded List projection indices fit in i64"),
+                }],
+                stable_id: row.occurrence_key().to_owned(),
+            },
+            item: row.clone(),
+        });
+    let rows = assemble(
+        candidates,
+        normalized.first,
+        CollectionWindowAuthority {
+            projection_revision: commit_head,
+        },
+        |coordinate| {
+            cursor::mint(
+                connection,
+                subject,
+                CursorDirection::Forward,
+                coordinate.clone(),
+            )
+        },
+    )?;
+    let window_end = start
+        .checked_add(rows.items.len())
+        .ok_or_else(|| invalid("Database List window boundary overflowed"))?;
+    Ok(DatabaseListWindow {
+        database_id: view.database_id.clone(),
+        data_source_id: view.data_source_id.clone(),
+        view_id: view.view_id.clone(),
+        projection,
+        is_complete: rows.next_cursor.is_none(),
+        rows,
+        groups,
+        total_projection_row_count,
+        total_occurrence_count,
+        total_model_count,
+        window_start: i64::try_from(start)
+            .map_err(|_| invalid("Database List window start is invalid"))?,
+        window_end: i64::try_from(window_end)
+            .map_err(|_| invalid("Database List window end is invalid"))?,
+    })
+}
+
 fn view_window_for(
     connection: &Connection,
     library_id: &str,
@@ -220,6 +1229,7 @@ fn view_window_for(
         &view.view_id,
         &view.data_source_id,
         &view.config,
+        &view.completion_cutoff,
         group_scope,
     ))?;
     let subject = CollectionCursorSubject {
@@ -228,9 +1238,14 @@ fn view_window_for(
         query_fingerprint: &fingerprint,
     };
     let mut parameters = Vec::new();
-    let effective_group = effective_group_expression(&view.config, &mut parameters)?;
-    let sort_components =
-        sort_components(&view.config, effective_group.as_deref(), &mut parameters)?;
+    let (effective_group, effective_subgroup) =
+        effective_group_expressions(&view.config, &mut parameters)?;
+    let sort_components = sort_components(
+        &view.config,
+        effective_group.as_deref(),
+        effective_subgroup.as_deref(),
+        &mut parameters,
+    )?;
     let cursor_coordinate = normalized
         .after
         .map(|encoded| cursor::decode(connection, encoded, subject))
@@ -249,16 +1264,25 @@ fn view_window_for(
         .transpose()?;
 
     let scope_predicate = group_scope
-        .map(|scope| group_scope_predicate(scope, effective_group.as_deref(), &mut parameters))
+        .map(|scope| {
+            group_scope_predicate(
+                scope,
+                effective_group.as_deref(),
+                effective_subgroup.as_deref(),
+                &mut parameters,
+            )
+        })
         .transpose()?
         .map(|predicate| format!("AND ({predicate}) "))
         .unwrap_or_default();
     let position_view = bind(&mut parameters, SqlValue::Text(view.view_id.clone()));
     let source = bind(&mut parameters, SqlValue::Text(view.data_source_id.clone()));
     let filter = compile_filter(&view.config.filter, &mut parameters, 1, &mut 0)?;
+    let completion = compile_completion_predicate(view, &mut parameters)?;
     let (database_values_projection, property_revisions_projection) =
         compact_value_projections(&view.config, &mut parameters)?;
     let effective_group_select = effective_group.as_deref().unwrap_or("NULL");
+    let effective_subgroup_select = effective_subgroup.as_deref().unwrap_or("NULL");
     let sort_projection = sort_components
         .iter()
         .enumerate()
@@ -299,8 +1323,10 @@ fn view_window_for(
              model.metadata_revision, model.location_revision, model.document_id, \
              model.document_generation, model.document_projected_seq, membership.id, \
              membership.revision, membership.created_at, model.created_at, model.updated_at, \
-             {effective_group_select} AS effective_group_key, position.rank_key, \
-             position.revision, NULL AS position_order, {sort_projection} \
+             {effective_group_select} AS effective_group_key, \
+             {effective_subgroup_select} AS effective_subgroup_key, position.rank_key, \
+             position.revision, NULL AS position_order, hierarchy.parent_page_id, \
+             hierarchy.sibling_rank, COALESCE(hierarchy.revision, 0), {sort_projection} \
            FROM data_source_page_memberships membership \
            JOIN page_read_model model \
              ON model.page_block_id = membership.page_block_id \
@@ -317,10 +1343,14 @@ fn view_window_for(
            LEFT JOIN database_view_page_positions position \
              ON position.view_id = {position_view} \
              AND position.page_block_id = membership.page_block_id \
+           LEFT JOIN database_task_hierarchy_edges hierarchy \
+             ON hierarchy.data_source_id = membership.data_source_id \
+             AND hierarchy.child_page_id = membership.page_block_id \
            WHERE membership.data_source_id = {source} \
              AND membership.removed_at IS NULL \
              AND model.lifecycle = 'active' \
              {scope_predicate}\
+             AND ({completion})\
              AND ({filter})\
          ) \
          SELECT * FROM candidate_rows {cursor_predicate} \
@@ -414,20 +1444,51 @@ pub(crate) fn view_groups(
     view_groups_for(connection, &view, projection)
 }
 
+pub(crate) fn presented_view_groups(
+    connection: &Connection,
+    library_id: &str,
+    view_id: &str,
+    presentation_override: &DatabaseViewPresentationOverrideInput,
+    read: ViewGroupsRead<'_>,
+) -> Result<DatabaseViewGroups, StoreError> {
+    let mut view = resolve_view(connection, library_id, view_id)?;
+    apply_presentation_override(&mut view.config.presentation, presentation_override)?;
+    if let Some(layout) = presentation_override.layout {
+        view.layout = match layout {
+            DatabaseViewLayoutInput::Board => ViewLayout::Board,
+            DatabaseViewLayoutInput::List => ViewLayout::List,
+        };
+    }
+    refresh_effective_presentation(connection, &mut view)?;
+    view.exact_primary_board_config = false;
+    let projection = projection_snapshot_authority(
+        connection,
+        library_id,
+        read.store_epoch,
+        read.commit_head,
+        read.project_id,
+        &view,
+    )?;
+    view_groups_for(connection, &view, projection)
+}
+
 fn view_groups_for(
     connection: &Connection,
     view: &ResolvedView,
     projection: ProjectionSnapshotAuthority,
 ) -> Result<DatabaseViewGroups, StoreError> {
     let mut parameters = Vec::new();
-    let effective_group = effective_group_expression(&view.config, &mut parameters)?;
+    let (effective_group, effective_subgroup) =
+        effective_group_expressions(&view.config, &mut parameters)?;
     let group_select = effective_group.as_deref().unwrap_or("NULL");
+    let subgroup_select = effective_subgroup.as_deref().unwrap_or("NULL");
     let position_view = bind(&mut parameters, SqlValue::Text(view.view_id.clone()));
     let source = bind(&mut parameters, SqlValue::Text(view.data_source_id.clone()));
     let filter = compile_filter(&view.config.filter, &mut parameters, 1, &mut 0)?;
+    let completion = compile_completion_predicate(view, &mut parameters)?;
     let candidate_cte = format!(
         "WITH candidate_rows AS (\
-           SELECT {group_select} AS group_key \
+           SELECT {group_select} AS group_key, {subgroup_select} AS subgroup_key \
            FROM data_source_page_memberships membership \
            JOIN page_read_model model \
              ON model.page_block_id = membership.page_block_id \
@@ -444,9 +1505,10 @@ fn view_groups_for(
            LEFT JOIN database_view_page_positions position \
              ON position.view_id = {position_view} \
              AND position.page_block_id = membership.page_block_id \
-           WHERE membership.data_source_id = {source} \
+             WHERE membership.data_source_id = {source} \
              AND membership.removed_at IS NULL \
              AND model.lifecycle = 'active' \
+             AND ({completion})\
              AND ({filter})\
          )"
     );
@@ -462,11 +1524,23 @@ fn view_groups_for(
             view_id: view.view_id.clone(),
             projection,
             grouped: false,
+            subgrouped: false,
             total_rows,
+            total_groups: 0,
+            group_limit: MAX_VIEW_GROUP_SUMMARIES,
             truncated: false,
             groups: Vec::new(),
         });
     }
+    let observed_total_groups = connection.query_row(
+        &format!(
+            "{candidate_cte} SELECT count(*) FROM (\
+               SELECT 1 FROM candidate_rows GROUP BY group_key, subgroup_key\
+             )"
+        ),
+        params_from_iter(parameters.iter()),
+        |row| row.get::<_, i64>(0),
+    )?;
     let limit = bind(
         &mut parameters,
         SqlValue::Integer(
@@ -476,9 +1550,10 @@ fn view_groups_for(
     );
     let sql = format!(
         "{candidate_cte} \
-         SELECT group_key, count(*) FROM candidate_rows \
-         GROUP BY group_key \
-         ORDER BY CASE WHEN group_key IS NULL THEN 1 ELSE 0 END, group_key \
+         SELECT group_key, subgroup_key, count(*) FROM candidate_rows \
+         GROUP BY group_key, subgroup_key \
+         ORDER BY CASE WHEN group_key IS NULL THEN 1 ELSE 0 END, group_key, \
+           CASE WHEN subgroup_key IS NULL THEN 1 ELSE 0 END, subgroup_key \
          LIMIT {limit}"
     );
     let mut groups = connection
@@ -486,22 +1561,145 @@ fn view_groups_for(
         .query_map(params_from_iter(parameters.iter()), |row| {
             Ok(DatabaseViewGroupSummary {
                 group_key: row.get(0)?,
-                total_rows: row.get(1)?,
+                subgroup_key: row.get(1)?,
+                total_rows: row.get(2)?,
             })
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
-    let truncated = groups.len() > MAX_VIEW_GROUP_SUMMARIES;
+    let mut total_groups = observed_total_groups;
+    let mut truncated = groups.len() > MAX_VIEW_GROUP_SUMMARIES;
     groups.truncate(MAX_VIEW_GROUP_SUMMARIES);
+    if !truncated && show_empty_groups(view) {
+        let primary = finite_group_keys(
+            connection,
+            &view.data_source_id,
+            &view.config.presentation.group,
+        )?;
+        let secondary = finite_group_keys(
+            connection,
+            &view.data_source_id,
+            &view.config.presentation.subgroup,
+        )?;
+        let secondary = match (effective_subgroup.is_some(), secondary) {
+            (true, Some(secondary)) => Some(secondary),
+            (true, None) => None,
+            (false, _) => Some(vec![None]),
+        };
+        if let (Some(primary), Some(secondary)) = (primary, secondary) {
+            let mut totals = groups
+                .into_iter()
+                .map(|group| ((group.group_key, group.subgroup_key), group.total_rows))
+                .collect::<BTreeMap<_, _>>();
+            for group_key in primary {
+                for subgroup_key in &secondary {
+                    totals
+                        .entry((group_key.clone(), subgroup_key.clone()))
+                        .or_insert(0);
+                }
+            }
+            let expanded_total = totals.len();
+            total_groups = i64::try_from(expanded_total).unwrap_or(i64::MAX);
+            groups = totals
+                .into_iter()
+                .map(
+                    |((group_key, subgroup_key), total_rows)| DatabaseViewGroupSummary {
+                        group_key,
+                        subgroup_key,
+                        total_rows,
+                    },
+                )
+                .collect();
+            groups.sort_by(compare_group_summaries);
+            truncated = expanded_total > MAX_VIEW_GROUP_SUMMARIES;
+            groups.truncate(MAX_VIEW_GROUP_SUMMARIES);
+        }
+    }
     Ok(DatabaseViewGroups {
         database_id: view.database_id.clone(),
         data_source_id: view.data_source_id.clone(),
         view_id: view.view_id.clone(),
         projection,
         grouped: true,
+        subgrouped: effective_subgroup.is_some(),
         total_rows,
+        total_groups,
+        group_limit: MAX_VIEW_GROUP_SUMMARIES,
         truncated,
         groups,
     })
+}
+
+fn show_empty_groups(view: &ResolvedView) -> bool {
+    match view.layout {
+        ViewLayout::Board => view.config.presentation.layouts.board.show_empty_groups,
+        ViewLayout::List => view.config.presentation.layouts.list.show_empty_groups,
+    }
+}
+
+fn finite_group_keys(
+    connection: &Connection,
+    data_source_id: &str,
+    group: &Option<ViewGroup>,
+) -> Result<Option<Vec<Option<String>>>, StoreError> {
+    let Some(group) = group else {
+        return Ok(None);
+    };
+    let property = connection
+        .query_row(
+            "SELECT value_type, config_json FROM data_source_properties \
+             WHERE data_source_id = ?1 AND id = ?2 AND lifecycle = 'active'",
+            params![data_source_id, group.property_id],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+        )
+        .optional()?;
+    let Some((value_type, config_json)) = property else {
+        return Ok(None);
+    };
+    if value_type == "checkbox" {
+        return Ok(Some(vec![
+            Some("false".to_owned()),
+            Some("true".to_owned()),
+        ]));
+    }
+    if value_type != "select" {
+        return Ok(None);
+    }
+    let config = serde_json::from_str::<Value>(&config_json)
+        .map_err(|_| corrupt("Property option registry is invalid"))?;
+    let Some(options) = config.get("options").and_then(Value::as_array) else {
+        return Err(corrupt("Select Property option registry is invalid"));
+    };
+    if options.len() > super::MAX_PROPERTY_OPTIONS {
+        return Err(corrupt("Select Property option registry exceeds its bound"));
+    }
+    options
+        .iter()
+        .map(|option| {
+            option
+                .get("id")
+                .and_then(Value::as_str)
+                .map(|id| Some(id.to_owned()))
+                .ok_or_else(|| corrupt("Select Property option identity is invalid"))
+        })
+        .collect::<Result<Vec<_>, _>>()
+        .map(Some)
+}
+
+fn compare_optional_group_key(left: &Option<String>, right: &Option<String>) -> std::cmp::Ordering {
+    match (left, right) {
+        (Some(left), Some(right)) => left.cmp(right),
+        (Some(_), None) => std::cmp::Ordering::Less,
+        (None, Some(_)) => std::cmp::Ordering::Greater,
+        (None, None) => std::cmp::Ordering::Equal,
+    }
+}
+
+fn compare_group_summaries(
+    left: &DatabaseViewGroupSummary,
+    right: &DatabaseViewGroupSummary,
+) -> std::cmp::Ordering {
+    compare_optional_group_key(&left.group_key, &right.group_key)
+        .then_with(|| compare_optional_group_key(&left.subgroup_key, &right.subgroup_key))
 }
 
 pub(super) fn view_context(
@@ -581,7 +1779,6 @@ struct PageMoveMembershipAuthority {
     revision: i64,
     grouping_value_json: Option<String>,
     grouping_value_revision: Option<i64>,
-    position_group_key: Option<String>,
     position_rank_key: Option<String>,
     position_revision: Option<i64>,
 }
@@ -656,7 +1853,11 @@ pub(crate) fn mint_page_move_etag(
                 data_source_id: view.data_source_id,
                 view_id: view.view_id,
                 revision: view.revision,
-                grouping_property_id: view.config.group.map(|group| group.property_id),
+                grouping_property_id: view
+                    .config
+                    .presentation
+                    .group
+                    .map(|group| group.property_id),
             })
         })
         .transpose()?;
@@ -666,7 +1867,7 @@ pub(crate) fn mint_page_move_etag(
             connection
                 .query_row(
                     "SELECT membership.id, membership.revision, value.value_json, value.revision, \
-                       position.group_key, position.rank_key, position.revision \
+                       position.rank_key, position.revision \
                      FROM data_source_page_memberships membership \
                      LEFT JOIN data_source_property_values value \
                        ON value.data_source_id = membership.data_source_id \
@@ -690,9 +1891,8 @@ pub(crate) fn mint_page_move_etag(
                             revision: row.get(1)?,
                             grouping_value_json: row.get(2)?,
                             grouping_value_revision: row.get(3)?,
-                            position_group_key: row.get(4)?,
-                            position_rank_key: row.get(5)?,
-                            position_revision: row.get(6)?,
+                            position_rank_key: row.get(4)?,
+                            position_revision: row.get(5)?,
                         })
                     },
                 )
@@ -703,16 +1903,9 @@ pub(crate) fn mint_page_move_etag(
         .flatten();
     let effective_group_key = membership.as_ref().and_then(|membership| {
         membership
-            .position_group_key
+            .grouping_value_json
             .as_deref()
-            .filter(|key| !key.is_empty())
-            .map(str::to_owned)
-            .or_else(|| {
-                membership
-                    .grouping_value_json
-                    .as_deref()
-                    .and_then(normalize_grouping_value)
-            })
+            .and_then(normalize_grouping_value)
     });
     crate::document::mint_etag(
         connection,
@@ -817,21 +2010,11 @@ pub(crate) fn exact_primary_board_row_by_id(
     let Some(rank_key) = summary.rank_key.as_deref() else {
         return Ok(None);
     };
-    if !has_exact_active_position(
-        connection,
-        &view,
-        page_id,
-        summary.effective_group_key.as_deref(),
-        rank_key,
-    )? {
+    if !has_exact_active_position(connection, &view, page_id, rank_key)? {
         return Ok(None);
     }
-    summary.position_order = Some(exact_manual_group_position_order(
-        connection,
-        &view,
-        summary.effective_group_key.as_deref(),
-        rank_key,
-        page_id,
+    summary.position_order = Some(exact_manual_position_order(
+        connection, &view, rank_key, page_id,
     )?);
     Ok(Some(summary))
 }
@@ -856,7 +2039,6 @@ fn has_exact_active_position(
     connection: &Connection,
     view: &ResolvedView,
     page_id: &str,
-    group_key: Option<&str>,
     rank_key: &str,
 ) -> Result<bool, StoreError> {
     connection
@@ -868,17 +2050,11 @@ fn has_exact_active_position(
              JOIN page_read_model model \
                ON model.page_block_id = membership.page_block_id \
                AND model.membership_id = membership.id AND model.lifecycle = 'active' \
-               AND model.view_id = ?1 AND model.view_group_key IS ?4 \
+               AND model.view_id = ?1 \
                AND model.view_rank_key = position.rank_key \
              WHERE position.view_id = ?1 AND position.page_block_id = ?3 \
-               AND position.group_key IS ?4 AND position.rank_key = ?5",
-            params![
-                view.view_id,
-                view.data_source_id,
-                page_id,
-                group_key,
-                rank_key
-            ],
+               AND position.rank_key = ?4",
+            params![view.view_id, view.data_source_id, page_id, rank_key],
             |_| Ok(()),
         )
         .optional()
@@ -886,10 +2062,9 @@ fn has_exact_active_position(
         .map_err(StoreError::from)
 }
 
-fn exact_manual_group_position_order(
+fn exact_manual_position_order(
     connection: &Connection,
     view: &ResolvedView,
-    group_key: Option<&str>,
     rank_key: &str,
     page_id: &str,
 ) -> Result<i64, StoreError> {
@@ -902,17 +2077,11 @@ fn exact_manual_group_position_order(
              JOIN page_read_model model \
                ON model.page_block_id = membership.page_block_id \
                AND model.membership_id = membership.id AND model.lifecycle = 'active' \
-               AND model.view_id = ?1 AND model.view_group_key IS peer.group_key \
+               AND model.view_id = ?1 \
                AND model.view_rank_key = peer.rank_key \
-             WHERE peer.view_id = ?1 AND peer.group_key IS ?3 \
-               AND (peer.rank_key < ?4 OR (peer.rank_key = ?4 AND peer.page_block_id < ?5))",
-            params![
-                view.view_id,
-                view.data_source_id,
-                group_key,
-                rank_key,
-                page_id
-            ],
+             WHERE peer.view_id = ?1 \
+               AND (peer.rank_key < ?3 OR (peer.rank_key = ?3 AND peer.page_block_id < ?4))",
+            params![view.view_id, view.data_source_id, rank_key, page_id],
             |row| row.get(0),
         )
         .map_err(StoreError::from)
@@ -954,8 +2123,14 @@ fn resolve_view(
     validate_identity(view_id, "Database View identity")?;
     connection
         .query_row(
-            "SELECT view.database_block_id, view.data_source_id, view.config_json, view.revision, \
-               view.lifecycle, container.lifecycle, source.lifecycle \
+            "SELECT view.database_block_id, view.data_source_id, view.config_json, \
+               view.default_layout, view.revision, view.lifecycle, container.lifecycle, \
+               source.lifecycle, \
+               EXISTS(SELECT 1 FROM data_source_properties status_property \
+                 WHERE status_property.data_source_id = view.data_source_id \
+                   AND status_property.id = 'status' \
+                   AND status_property.value_type = 'select' \
+                   AND status_property.lifecycle = 'active') \
              FROM database_views view \
              JOIN database_containers container \
                ON container.block_id = view.database_block_id \
@@ -989,10 +2164,12 @@ fn resolve_view(
                     row.get::<_, String>(0)?,
                     row.get::<_, String>(1)?,
                     config,
-                    row.get::<_, i64>(3)?,
-                    row.get::<_, String>(4)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, i64>(4)?,
                     row.get::<_, String>(5)?,
                     row.get::<_, String>(6)?,
+                    row.get::<_, String>(7)?,
+                    row.get::<_, bool>(8)?,
                     exact_primary_board_config,
                 ))
             },
@@ -1003,10 +2180,12 @@ fn resolve_view(
                 database_id,
                 data_source_id,
                 config,
+                layout,
                 revision,
                 view_lifecycle,
                 database_lifecycle,
                 source_lifecycle,
+                task_status_capable,
                 exact_primary_board_config,
             )| {
                 if view_lifecycle != "active"
@@ -1016,24 +2195,315 @@ fn resolve_view(
                     return Err(not_found("Database View is not active"));
                 }
                 validate_filter(&config.filter, 1, &mut 0)?;
-                if config.sort.len() > MAX_SORT_RULES {
+                if config.presentation.sort.len() > MAX_SORT_RULES {
                     return Err(invalid("Database View has too many sort rules"));
                 }
-                if let Some(group) = &config.group {
+                if let Some(group) = &config.presentation.group {
                     validate_property_id(&group.property_id)?;
                 }
-                Ok(ResolvedView {
+                let layout = match layout.as_str() {
+                    "board" => ViewLayout::Board,
+                    "list" => ViewLayout::List,
+                    _ => return Err(corrupt("Database View default layout is unsupported")),
+                };
+                let mut view = ResolvedView {
                     database_id,
                     data_source_id,
                     view_id: view_id.to_owned(),
                     revision,
                     exact_primary_board_config,
+                    task_status_capable,
+                    completion_cutoff: None,
+                    layout,
                     config,
-                })
+                };
+                refresh_effective_presentation(connection, &mut view)?;
+                Ok(view)
             },
         )
         .transpose()?
         .ok_or_else(|| not_found("Database View is unavailable"))
+}
+
+fn normalize_completion_capability(completion: &mut ViewCompletion, supported: bool) {
+    if supported {
+        return;
+    }
+    completion.range = ViewCompletedRange::All;
+    completion.order_by_recency = false;
+}
+
+fn completion_cutoff(completion: &ViewCompletion) -> Result<Option<String>, StoreError> {
+    let days = match completion.range {
+        ViewCompletedRange::All | ViewCompletedRange::None => return Ok(None),
+        ViewCompletedRange::PastDay => 0,
+        ViewCompletedRange::PastWeek => 6,
+        ViewCompletedRange::PastMonth => 29,
+    };
+    let date = Utc::now()
+        .date_naive()
+        .checked_sub_signed(Duration::days(days))
+        .ok_or_else(|| invalid("Database View completion boundary is invalid"))?;
+    Ok(Some(format!("{date}T00:00:00.000Z")))
+}
+
+fn refresh_effective_presentation(
+    connection: &Connection,
+    view: &mut ResolvedView,
+) -> Result<(), StoreError> {
+    let properties = connection
+        .prepare(
+            "SELECT id, value_type FROM data_source_properties \
+             WHERE data_source_id = ?1 AND lifecycle = 'active' ORDER BY id",
+        )?
+        .query_map([&view.data_source_id], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?
+        .collect::<rusqlite::Result<BTreeMap<_, _>>>()?;
+    let valid_group = |group: &ViewGroup| {
+        properties
+            .get(&group.property_id)
+            .is_some_and(|value_type| value_type != "relation")
+    };
+    if !view
+        .config
+        .presentation
+        .group
+        .as_ref()
+        .is_some_and(valid_group)
+    {
+        view.config.presentation.group = None;
+    }
+    if view.config.presentation.group.is_none()
+        || !view
+            .config
+            .presentation
+            .subgroup
+            .as_ref()
+            .is_some_and(valid_group)
+    {
+        view.config.presentation.subgroup = None;
+    }
+    if view
+        .config
+        .presentation
+        .group
+        .as_ref()
+        .is_some_and(|group| {
+            view.config
+                .presentation
+                .subgroup
+                .as_ref()
+                .is_some_and(|subgroup| subgroup.property_id == group.property_id)
+        })
+    {
+        view.config.presentation.subgroup = None;
+    }
+    view.config
+        .presentation
+        .sort
+        .retain(|rule| match &rule.field {
+            ViewSortField::Property { property_id } => properties
+                .get(property_id)
+                .is_some_and(|value_type| value_type != "relation"),
+            ViewSortField::Manual | ViewSortField::Title | ViewSortField::Created => true,
+        });
+    for layout in [
+        &mut view.config.presentation.layouts.board,
+        &mut view.config.presentation.layouts.list,
+    ] {
+        let mut seen = BTreeSet::new();
+        layout.fields.retain(|field| {
+            let key = match field {
+                ViewField::Property { property_id } if properties.contains_key(property_id) => {
+                    format!("property:{property_id}")
+                }
+                ViewField::Intrinsic { field }
+                    if matches!(field.as_str(), "created_at" | "updated_at") =>
+                {
+                    format!("intrinsic:{field}")
+                }
+                _ => return false,
+            };
+            seen.insert(key)
+        });
+    }
+    let finite = |group: &Option<ViewGroup>| {
+        group.as_ref().is_some_and(|group| {
+            properties
+                .get(&group.property_id)
+                .is_some_and(|value_type| matches!(value_type.as_str(), "select" | "checkbox"))
+        })
+    };
+    let empty_groups_supported = finite(&view.config.presentation.group)
+        && (view.config.presentation.subgroup.is_none()
+            || finite(&view.config.presentation.subgroup));
+    if !empty_groups_supported {
+        view.config.presentation.layouts.board.show_empty_groups = false;
+        view.config.presentation.layouts.list.show_empty_groups = false;
+    }
+    normalize_completion_capability(
+        &mut view.config.presentation.completion,
+        view.task_status_capable,
+    );
+    view.completion_cutoff = completion_cutoff(&view.config.presentation.completion)?;
+    Ok(())
+}
+
+fn view_group_override(
+    input: &DatabaseViewGroupOverrideInput,
+) -> Result<Option<ViewGroup>, StoreError> {
+    match input {
+        DatabaseViewGroupOverrideInput::None => Ok(None),
+        DatabaseViewGroupOverrideInput::Property { property_id } => {
+            validate_property_id(property_id)?;
+            Ok(Some(ViewGroup {
+                property_id: property_id.clone(),
+            }))
+        }
+    }
+}
+
+fn view_field_override(input: &DatabaseViewFieldInput) -> Result<ViewField, StoreError> {
+    match input {
+        DatabaseViewFieldInput::Property { property_id } => {
+            validate_property_id(property_id)?;
+            Ok(ViewField::Property {
+                property_id: property_id.clone(),
+            })
+        }
+        DatabaseViewFieldInput::Intrinsic { field }
+            if matches!(field.as_str(), "created_at" | "updated_at") =>
+        {
+            Ok(ViewField::Intrinsic {
+                field: field.clone(),
+            })
+        }
+        DatabaseViewFieldInput::Intrinsic { .. } => {
+            Err(invalid("Database View intrinsic field is unsupported"))
+        }
+    }
+}
+
+fn apply_presentation_override(
+    presentation: &mut ViewPresentation,
+    input: &DatabaseViewPresentationOverrideInput,
+) -> Result<(), StoreError> {
+    if let Some(sort) = &input.sort {
+        if sort.len() > MAX_SORT_RULES {
+            return Err(invalid(
+                "Database View presentation override has too many sort rules",
+            ));
+        }
+        presentation.sort = sort
+            .iter()
+            .map(|rule| {
+                let field = match &rule.field {
+                    DatabaseViewSortFieldInput::Manual => ViewSortField::Manual,
+                    DatabaseViewSortFieldInput::Title => ViewSortField::Title,
+                    DatabaseViewSortFieldInput::Created => ViewSortField::Created,
+                    DatabaseViewSortFieldInput::Property { property_id } => {
+                        validate_property_id(property_id)?;
+                        ViewSortField::Property {
+                            property_id: property_id.clone(),
+                        }
+                    }
+                };
+                Ok(ViewSort {
+                    field,
+                    direction: match rule.direction {
+                        DatabaseViewSortDirectionInput::Asc => SortDirection::Asc,
+                        DatabaseViewSortDirectionInput::Desc => SortDirection::Desc,
+                    },
+                    nulls: match rule.nulls {
+                        DatabaseViewNullOrderInput::First => NullOrder::First,
+                        DatabaseViewNullOrderInput::Last => NullOrder::Last,
+                    },
+                })
+            })
+            .collect::<Result<Vec<_>, StoreError>>()?;
+    }
+    if let Some(group) = &input.group {
+        presentation.group = view_group_override(group)?;
+    }
+    if let Some(subgroup) = &input.subgroup {
+        presentation.subgroup = view_group_override(subgroup)?;
+    }
+    if let Some(direction) = input.group_direction {
+        presentation.group_direction = match direction {
+            DatabaseViewSortDirectionInput::Asc => SortDirection::Asc,
+            DatabaseViewSortDirectionInput::Desc => SortDirection::Desc,
+        };
+    }
+    if presentation.group.as_ref().is_some_and(|group| {
+        presentation
+            .subgroup
+            .as_ref()
+            .is_some_and(|subgroup| subgroup.property_id == group.property_id)
+    }) {
+        return Err(invalid(
+            "Database View presentation override group and subgroup must be different",
+        ));
+    }
+    if let Some(completion) = &input.completion {
+        if let Some(range) = completion.range {
+            presentation.completion.range = match range {
+                DatabaseViewCompletedRangeInput::All => ViewCompletedRange::All,
+                DatabaseViewCompletedRangeInput::PastMonth => ViewCompletedRange::PastMonth,
+                DatabaseViewCompletedRangeInput::PastWeek => ViewCompletedRange::PastWeek,
+                DatabaseViewCompletedRangeInput::PastDay => ViewCompletedRange::PastDay,
+                DatabaseViewCompletedRangeInput::None => ViewCompletedRange::None,
+            };
+        }
+        if let Some(order_by_recency) = completion.order_by_recency {
+            presentation.completion.order_by_recency = order_by_recency;
+        }
+    }
+    if let Some(hierarchy) = &input.hierarchy {
+        if let Some(show_sub_pages) = hierarchy.show_sub_pages {
+            presentation.hierarchy.show_sub_pages = show_sub_pages;
+        }
+        if let Some(nested_sub_pages) = hierarchy.nested_sub_pages {
+            presentation.hierarchy.nested_sub_pages = nested_sub_pages;
+        }
+        if !presentation.hierarchy.show_sub_pages {
+            presentation.hierarchy.nested_sub_pages = false;
+        }
+    }
+    if let Some(layouts) = &input.layouts {
+        for (target, source) in [
+            (&mut presentation.layouts.board, layouts.board.as_ref()),
+            (&mut presentation.layouts.list, layouts.list.as_ref()),
+        ] {
+            let Some(source) = source else { continue };
+            if let Some(fields) = &source.fields {
+                if fields.len() > MAX_DISPLAY_PROPERTIES {
+                    return Err(invalid(
+                        "Database View presentation override displays too many Properties",
+                    ));
+                }
+                target.fields = fields
+                    .iter()
+                    .map(view_field_override)
+                    .collect::<Result<Vec<_>, _>>()?;
+            }
+            if let Some(show_empty_groups) = source.show_empty_groups {
+                target.show_empty_groups = show_empty_groups;
+            }
+        }
+    }
+    Ok(())
+}
+
+pub(super) fn validate_presentation_override(
+    connection: &Connection,
+    library_id: &str,
+    view_id: &str,
+    presentation_override: &DatabaseViewPresentationOverrideInput,
+) -> Result<(), StoreError> {
+    let mut view = resolve_view(connection, library_id, view_id)?;
+    apply_presentation_override(&mut view.config.presentation, presentation_override)?;
+    refresh_effective_presentation(connection, &mut view)
 }
 
 fn summary_by_id(
@@ -1042,8 +2512,10 @@ fn summary_by_id(
     page_id: &str,
 ) -> Result<Option<DatabaseRowSummary>, StoreError> {
     let mut parameters = Vec::new();
-    let effective_group = effective_group_expression(&view.config, &mut parameters)?;
+    let (effective_group, effective_subgroup) =
+        effective_group_expressions(&view.config, &mut parameters)?;
     let effective_group_select = effective_group.as_deref().unwrap_or("NULL");
+    let effective_subgroup_select = effective_subgroup.as_deref().unwrap_or("NULL");
     let view_parameter = bind(&mut parameters, SqlValue::Text(view.view_id.clone()));
     let source_parameter = bind(&mut parameters, SqlValue::Text(view.data_source_id.clone()));
     let page_parameter = bind(&mut parameters, SqlValue::Text(page_id.to_owned()));
@@ -1057,14 +2529,16 @@ fn summary_by_id(
                model.metadata_revision, model.location_revision, model.document_id, \
                model.document_generation, model.document_projected_seq, membership.id, \
                membership.revision, membership.created_at, model.created_at, model.updated_at, \
-               {effective_group_select} AS effective_group_key, position.rank_key, \
+               {effective_group_select} AS effective_group_key, \
+               {effective_subgroup_select} AS effective_subgroup_key, position.rank_key, \
                position.revision, \
                (SELECT count(*) FROM database_view_page_positions peer \
                 WHERE peer.view_id = position.view_id \
-                  AND peer.group_key IS position.group_key \
                   AND (peer.rank_key < position.rank_key \
                     OR (peer.rank_key = position.rank_key \
-                      AND peer.page_block_id < position.page_block_id))) \
+                      AND peer.page_block_id < position.page_block_id))), \
+               hierarchy.parent_page_id, hierarchy.sibling_rank, \
+               COALESCE(hierarchy.revision, 0) \
              FROM data_source_page_memberships membership \
              JOIN page_read_model model \
                ON model.page_block_id = membership.page_block_id \
@@ -1081,6 +2555,9 @@ fn summary_by_id(
              LEFT JOIN database_view_page_positions position \
                ON position.view_id = {view_parameter} \
                  AND position.page_block_id = model.page_block_id \
+             LEFT JOIN database_task_hierarchy_edges hierarchy \
+               ON hierarchy.data_source_id = membership.data_source_id \
+               AND hierarchy.child_page_id = membership.page_block_id \
              WHERE membership.data_source_id = {source_parameter} \
                AND membership.removed_at IS NULL \
                AND model.lifecycle <> 'deleted' AND model.page_block_id = {page_parameter}"
@@ -1135,9 +2612,13 @@ fn summary_from_row(row: &Row<'_>, sort_component_count: usize) -> rusqlite::Res
             created_at: row.get(18)?,
             updated_at: row.get(19)?,
             effective_group_key: row.get(20)?,
-            rank_key: row.get(21)?,
-            position_revision: row.get(22)?,
-            position_order: row.get(23)?,
+            effective_subgroup_key: row.get(21)?,
+            rank_key: row.get(22)?,
+            position_revision: row.get(23)?,
+            position_order: row.get(24)?,
+            task_parent_page_id: row.get(25)?,
+            task_sibling_rank: row.get(26)?,
+            task_hierarchy_revision: row.get(27)?,
         },
         coordinate_values,
     })
@@ -1190,17 +2671,21 @@ fn compact_value_projections(
 }
 
 fn projected_property_ids(config: &ViewConfig) -> Result<BTreeSet<String>, StoreError> {
-    let mut property_ids = config
-        .display
-        .property_ids
-        .iter()
-        .cloned()
-        .collect::<BTreeSet<_>>();
-    if let Some(group) = &config.group {
-        property_ids.insert(group.property_id.clone());
+    let mut property_ids = BTreeSet::new();
+    for layout in [
+        &config.presentation.layouts.board,
+        &config.presentation.layouts.list,
+    ] {
+        if layout.fields.len() > MAX_DISPLAY_PROPERTIES {
+            return Err(invalid("Database View displays too many Properties"));
+        }
+        property_ids.extend(layout.fields.iter().filter_map(|field| match field {
+            ViewField::Property { property_id } => Some(property_id.clone()),
+            ViewField::Intrinsic { .. } => None,
+        }));
     }
-    if property_ids.len() > MAX_DISPLAY_PROPERTIES {
-        return Err(invalid("Database View displays too many Properties"));
+    if let Some(group) = &config.presentation.group {
+        property_ids.insert(group.property_id.clone());
     }
     property_ids.extend(
         COMPATIBILITY_CARD_PROPERTY_IDS
@@ -1215,24 +2700,40 @@ fn projected_property_ids(config: &ViewConfig) -> Result<BTreeSet<String>, Store
 
 /// SQL expression for a row's effective group key, the single source of truth
 /// consumed by the summary projection, the sort order, group scoping, and
-/// group totals. An explicit board position group wins; otherwise the grouping
-/// Property value is normalized so NULL, empty strings, and empty lists all
+/// group totals. The grouping Property value is normalized so NULL, empty
+/// strings, and empty lists all
 /// mean "unassigned" (SQL NULL), while numbers, booleans, and composite values
-/// group by their canonical JSON text.
-fn effective_group_expression(
+/// group by their canonical JSON text. Manual position never owns grouping.
+fn effective_group_expressions(
     config: &ViewConfig,
     parameters: &mut Vec<SqlValue>,
-) -> Result<Option<String>, StoreError> {
-    let Some(group) = &config.group else {
-        return Ok(None);
-    };
+) -> Result<(Option<String>, Option<String>), StoreError> {
+    Ok((
+        config
+            .presentation
+            .group
+            .as_ref()
+            .map(|group| group_expression(group, parameters))
+            .transpose()?,
+        config
+            .presentation
+            .subgroup
+            .as_ref()
+            .map(|group| group_expression(group, parameters))
+            .transpose()?,
+    ))
+}
+
+fn group_expression(
+    group: &ViewGroup,
+    parameters: &mut Vec<SqlValue>,
+) -> Result<String, StoreError> {
     validate_property_id(&group.property_id)?;
     let path = bind(parameters, SqlValue::Text(json_path(&group.property_id)));
     let raw = format!("json_extract(model.database_values_json, {path})");
     let raw_type = format!("json_type(model.database_values_json, {path})");
-    Ok(Some(format!(
-        "COALESCE(NULLIF(position.group_key, ''), \
-         CASE {raw_type} \
+    Ok(format!(
+        "CASE {raw_type} \
            WHEN 'true' THEN 'true' \
            WHEN 'false' THEN 'false' \
            WHEN 'text' THEN NULLIF({raw}, '') \
@@ -1240,26 +2741,77 @@ fn effective_group_expression(
              CASE WHEN json_array_length({raw}) = 0 THEN NULL ELSE {raw} END \
            WHEN 'null' THEN NULL \
            ELSE CAST({raw} AS TEXT) \
-         END)"
-    )))
+         END"
+    ))
+}
+
+fn completed_status_expression(parameters: &mut Vec<SqlValue>) -> String {
+    let path = bind(parameters, SqlValue::Text(json_path("status")));
+    format!("json_extract(model.database_values_json, {path}) IS 'ship'")
+}
+
+fn compile_completion_predicate(
+    view: &ResolvedView,
+    parameters: &mut Vec<SqlValue>,
+) -> Result<String, StoreError> {
+    match view.config.presentation.completion.range {
+        ViewCompletedRange::All => Ok("1".to_owned()),
+        ViewCompletedRange::None => {
+            let completed = completed_status_expression(parameters);
+            Ok(format!("NOT ({completed})"))
+        }
+        ViewCompletedRange::PastMonth
+        | ViewCompletedRange::PastWeek
+        | ViewCompletedRange::PastDay => {
+            let cutoff = view
+                .completion_cutoff
+                .as_ref()
+                .ok_or_else(|| corrupt("Database View completion cutoff is unavailable"))?;
+            let cutoff = bind(parameters, SqlValue::Text(cutoff.clone()));
+            let completed = completed_status_expression(parameters);
+            Ok(format!(
+                "NOT ({completed}) OR membership.completed_at >= {cutoff}"
+            ))
+        }
+    }
 }
 
 fn group_scope_predicate(
     scope: &DatabaseGroupScope,
     effective_group: Option<&str>,
+    effective_subgroup: Option<&str>,
     parameters: &mut Vec<SqlValue>,
 ) -> Result<String, StoreError> {
     let Some(expression) = effective_group else {
         return Err(invalid("Database View has no grouping to scope"));
     };
-    match scope {
-        DatabaseGroupScope::Unassigned => Ok(format!("{expression} IS NULL")),
-        DatabaseGroupScope::Key { key } => {
+    let DatabaseGroupScope::Path {
+        group_key,
+        subgroup_key,
+    } = scope;
+    let primary = match group_key {
+        Some(key) => {
             validate_identity(key, "Database View group key")?;
             let parameter = bind(parameters, SqlValue::Text(key.clone()));
-            Ok(format!("{expression} IS {parameter}"))
+            format!("{expression} IS {parameter}")
         }
-    }
+        None => format!("{expression} IS NULL"),
+    };
+    let Some(subgroup_expression) = effective_subgroup else {
+        if subgroup_key.is_some() {
+            return Err(invalid("Database View has no subgrouping to scope"));
+        }
+        return Ok(primary);
+    };
+    let secondary = match subgroup_key {
+        Some(key) => {
+            validate_identity(key, "Database View subgroup key")?;
+            let parameter = bind(parameters, SqlValue::Text(key.clone()));
+            format!("{subgroup_expression} IS {parameter}")
+        }
+        None => format!("{subgroup_expression} IS NULL"),
+    };
+    Ok(format!("({primary}) AND ({secondary})"))
 }
 
 /// One effective-group-major total order shared by flat and group-scoped
@@ -1269,9 +2821,10 @@ fn group_scope_predicate(
 fn sort_components(
     config: &ViewConfig,
     effective_group: Option<&str>,
+    effective_subgroup: Option<&str>,
     parameters: &mut Vec<SqlValue>,
 ) -> Result<Vec<SortComponent>, StoreError> {
-    if config.sort.len() > MAX_SORT_RULES {
+    if config.presentation.sort.len() > MAX_SORT_RULES {
         return Err(invalid("Database View has too many sort rules"));
     }
     let mut components = Vec::new();
@@ -1285,19 +2838,53 @@ fn sort_components(
             direction: SortDirection::Asc,
         });
     }
-    if config.sort.is_empty() {
+    if let Some(expression) = effective_subgroup {
         components.push(SortComponent {
-            expression: "CASE WHEN position.rank_key IS NULL THEN 1 ELSE 0 END".to_owned(),
+            expression: format!("CASE WHEN {expression} IS NULL THEN 1 ELSE 0 END"),
             direction: SortDirection::Asc,
         });
         components.push(SortComponent {
-            expression: "position.rank_key".to_owned(),
+            expression: expression.to_owned(),
             direction: SortDirection::Asc,
         });
+    }
+    let completed = config
+        .presentation
+        .completion
+        .order_by_recency
+        .then(|| completed_status_expression(parameters));
+    if let Some(completed) = &completed {
+        components.push(SortComponent {
+            expression: format!("CASE WHEN {completed} THEN 1 ELSE 0 END"),
+            direction: SortDirection::Asc,
+        });
+    }
+    let active_expression = |expression: String| match &completed {
+        Some(completed) => format!("CASE WHEN {completed} THEN NULL ELSE {expression} END"),
+        None => expression,
+    };
+    if config.presentation.sort.is_empty() {
+        let rank = active_expression("position.rank_key".to_owned());
+        components.push(SortComponent {
+            expression: format!("CASE WHEN {rank} IS NULL THEN 1 ELSE 0 END"),
+            direction: SortDirection::Asc,
+        });
+        components.push(SortComponent {
+            expression: rank,
+            direction: SortDirection::Asc,
+        });
+        if let Some(completed) = &completed {
+            components.push(SortComponent {
+                expression: format!(
+                    "CASE WHEN {completed} THEN membership.completed_at ELSE NULL END"
+                ),
+                direction: SortDirection::Desc,
+            });
+        }
         return Ok(components);
     }
-    for rule in &config.sort {
-        let expression = match &rule.field {
+    for rule in &config.presentation.sort {
+        let expression = active_expression(match &rule.field {
             ViewSortField::Manual => "position.rank_key".to_owned(),
             ViewSortField::Title => "model.title".to_owned(),
             ViewSortField::Created => "model.created_at".to_owned(),
@@ -1306,7 +2893,7 @@ fn sort_components(
                 let path = bind(parameters, SqlValue::Text(json_path(property_id)));
                 format!("json_extract(model.database_values_json, {path})")
             }
-        };
+        });
         let null_rank = match rule.nulls {
             NullOrder::First => {
                 format!("CASE WHEN {expression} IS NULL THEN 0 ELSE 1 END")
@@ -1322,6 +2909,12 @@ fn sort_components(
         components.push(SortComponent {
             expression,
             direction: rule.direction,
+        });
+    }
+    if let Some(completed) = &completed {
+        components.push(SortComponent {
+            expression: format!("CASE WHEN {completed} THEN membership.completed_at ELSE NULL END"),
+            direction: SortDirection::Desc,
         });
     }
     Ok(components)

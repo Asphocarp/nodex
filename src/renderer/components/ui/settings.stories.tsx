@@ -180,3 +180,39 @@ export const CodexControls: Story = {
   },
   render: () => <CodexControlsDemo />,
 };
+
+function CheckboxStatesDemo() {
+  const [firstChecked, setFirstChecked] = useState(false);
+  const [secondChecked, setSecondChecked] = useState(true);
+
+  return (
+    <div className="flex min-h-screen items-start bg-token-main-surface-primary p-8">
+      <div className="flex w-72 flex-col gap-3 text-sm text-token-text-primary">
+        <div className="flex items-center gap-2">
+          <NodexCheckbox
+            ariaLabel="First checkbox example"
+            checked={firstChecked}
+            onCheckedChange={setFirstChecked}
+          />
+          {firstChecked ? "Checked" : "Unchecked"}
+        </div>
+        <div className="flex items-center gap-2">
+          <NodexCheckbox
+            ariaLabel="Second checkbox example"
+            checked={secondChecked}
+            onCheckedChange={setSecondChecked}
+          />
+          {secondChecked ? "Checked" : "Unchecked"}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export const CheckboxStates: Story = {
+  args: {
+    title: "Checkbox states",
+    children: null,
+  },
+  render: () => <CheckboxStatesDemo />,
+};

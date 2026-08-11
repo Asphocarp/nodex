@@ -64,7 +64,7 @@ pub(super) fn read_preflight(
     let tags_property = read_tags_property(connection, &default_view)?;
     let Some(row) = read_page_authority(connection, page_id)? else {
         return Ok(LibraryPageLifecyclePreflight {
-            version: 2,
+            version: 3,
             default_view,
             tags_property,
             reserved_block_type: None,
@@ -73,7 +73,7 @@ pub(super) fn read_preflight(
     };
     if row.block_type != "page" {
         return Ok(LibraryPageLifecyclePreflight {
-            version: 2,
+            version: 3,
             default_view,
             tags_property,
             reserved_block_type: Some(row.block_type),
@@ -83,7 +83,7 @@ pub(super) fn read_preflight(
     super::require_page_read_access(connection, library_id, project_id, page_id)?;
     let page = project_page_authority(connection, library_id, page_id, row)?;
     Ok(LibraryPageLifecyclePreflight {
-        version: 2,
+        version: 3,
         default_view,
         tags_property,
         reserved_block_type: None,
@@ -356,8 +356,7 @@ fn read_membership(
         .prepare(
             "SELECT membership.id, membership.data_source_id, membership.revision, \
                source.home_database_block_id, view.id, view.revision, property.id, \
-               value.revision, value.value_json, position.group_key, position.rank_key, \
-               position.revision \
+               value.revision, value.value_json, position.rank_key, position.revision \
              FROM data_source_page_memberships membership \
              JOIN data_sources source ON source.id = membership.data_source_id \
              JOIN database_containers container \
@@ -387,8 +386,7 @@ fn read_membership(
                 row.get::<_, i64>(7)?,
                 row.get::<_, String>(8)?,
                 row.get::<_, Option<String>>(9)?,
-                row.get::<_, Option<String>>(10)?,
-                row.get::<_, Option<i64>>(11)?,
+                row.get::<_, Option<i64>>(10)?,
             ))
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -413,18 +411,12 @@ fn read_membership(
     let status_value: Value = serde_json::from_str(&row.8)
         .map_err(|_| corrupt("Page membership status JSON is invalid"))?;
     let status = workflow_status(&status_value)?;
-    let position = match (&row.9, &row.10, row.11) {
-        (group_key, Some(rank_key), Some(revision)) => {
-            if group_key.as_deref() != Some(workflow_status_name(status)) {
-                return Err(corrupt("Page status and View position diverge"));
-            }
-            Some(LibraryPageLifecyclePosition {
-                group_key: group_key.clone(),
-                rank_key: rank_key.clone(),
-                revision: positive(revision, "View position revision")?,
-            })
-        }
-        (None, None, None) => None,
+    let position = match (&row.9, row.10) {
+        (Some(rank_key), Some(revision)) => Some(LibraryPageLifecyclePosition {
+            rank_key: rank_key.clone(),
+            revision: positive(revision, "View position revision")?,
+        }),
+        (None, None) => None,
         _ => return Err(corrupt("Page has an incomplete View position")),
     };
     Ok(Some(LibraryPageLifecycleMembership {
@@ -449,16 +441,6 @@ fn workflow_status(value: &Value) -> Result<LibraryPageWorkflowStatus, StoreErro
         Some("review") => Ok(LibraryPageWorkflowStatus::Review),
         Some("ship") => Ok(LibraryPageWorkflowStatus::Ship),
         _ => Err(corrupt("Page membership status is invalid")),
-    }
-}
-
-fn workflow_status_name(status: LibraryPageWorkflowStatus) -> &'static str {
-    match status {
-        LibraryPageWorkflowStatus::Triage => "triage",
-        LibraryPageWorkflowStatus::Plan => "plan",
-        LibraryPageWorkflowStatus::Build => "build",
-        LibraryPageWorkflowStatus::Review => "review",
-        LibraryPageWorkflowStatus::Ship => "ship",
     }
 }
 

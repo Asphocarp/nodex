@@ -180,7 +180,7 @@ describe("Nodex Agent result budgets", () => {
           viewId: "view-1",
           dataSourceId: "source-1",
           name: "Board",
-          kind: "kanban",
+          defaultLayout: "board",
         },
         rows: Array.from({ length: 13 }, (_, index) => ({
           pageId: `page-${index + 1}`,

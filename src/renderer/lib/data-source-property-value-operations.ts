@@ -26,7 +26,7 @@ const stringSet = (value: DatabaseJsonValue | undefined): ReadonlySet<string> =>
       : [],
   );
 
-const replacementValue = (
+export const databasePropertyReplacementValue = (
   property: DataSourcePropertyRecordV2,
   value: DatabaseJsonValue,
 ): DatabasePropertyValueInputV2 => {
@@ -137,7 +137,7 @@ export const buildDataSourcePropertyValueOperations = (input: {
       edit: {
         kind: "replace",
         expectedValueRevision: input.current?.revision ?? 0,
-        value: replacementValue(input.property, input.value),
+        value: databasePropertyReplacementValue(input.property, input.value),
       },
     }],
   }];

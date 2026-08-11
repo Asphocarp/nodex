@@ -622,7 +622,7 @@ describe("workbench session shell / layout-panel-actions", () => {
           id: "db-tab",
           kind: "db_view",
           title: "DB View",
-          config: { projectId: "alpha", view: "kanban" },
+          config: { projectId: "alpha" },
         },
         {
           id: "terminal-tab",
@@ -813,7 +813,7 @@ describe("workbench session shell / layout-panel-actions", () => {
           id: "db-tab",
           kind: "db_view",
           title: "DB View",
-          config: { projectId: "alpha", view: "kanban" },
+          config: { projectId: "alpha" },
         },
         {
           id: "page-stage-tab",
@@ -1889,8 +1889,7 @@ describe("workbench session shell / layout-panel-actions", () => {
     expect(JSON.stringify((createCall?.[1] as { config?: unknown } | undefined)?.config)).toBe(
       JSON.stringify({
         projectId: "alpha",
-        databaseViewId: "database-view:alpha:primary-kanban",
-        view: "kanban",
+        databaseViewId: "database-view:alpha:primary-board",
       }),
     );
   });
@@ -1920,8 +1919,7 @@ describe("workbench session shell / layout-panel-actions", () => {
     expect(JSON.stringify((createCall?.[1] as { config?: unknown } | undefined)?.config)).toBe(
       JSON.stringify({
         projectId: "alpha",
-        databaseViewId: "database-view:alpha:primary-kanban",
-        view: "kanban",
+        databaseViewId: "database-view:alpha:primary-board",
       }),
     );
   });
@@ -1958,7 +1956,6 @@ describe("workbench session shell / layout-panel-actions", () => {
       config: {
         projectId: "alpha",
         databaseViewId: "view:planning",
-        view: "kanban",
       },
     });
     const otherTab = makeSessionTab({
@@ -1968,7 +1965,6 @@ describe("workbench session shell / layout-panel-actions", () => {
       config: {
         projectId: "alpha",
         databaseViewId: "view:other",
-        view: "list",
       },
     });
     const session = makeSession({

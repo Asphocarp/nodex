@@ -65,9 +65,11 @@ fn read_subject(context: &BoundModuleContext, target: &DatabaseTarget) -> Option
         | DatabaseTarget::Property { data_source_id, .. } => Some(ResourceKey::DataSource {
             data_source_id: data_source_id.clone(),
         }),
-        DatabaseTarget::View { view_id } => Some(ResourceKey::View {
-            view_id: view_id.clone(),
-        }),
+        DatabaseTarget::View { view_id } | DatabaseTarget::PresentedView { view_id, .. } => {
+            Some(ResourceKey::View {
+                view_id: view_id.clone(),
+            })
+        }
         DatabaseTarget::Page { page_id } | DatabaseTarget::PageProperty { page_id, .. } => {
             Some(ResourceKey::Page {
                 page_id: page_id.clone(),
@@ -93,6 +95,24 @@ fn append_value_dependencies(value: &DatabaseReadValue, output: &mut Vec<Resourc
                     .iter()
                     .filter(|row| row.lifecycle == "active")
                     .map(|row| row.page_id.as_str()),
+                output,
+            );
+        }
+        DatabaseReadValue::ListWindow { value } => {
+            append_view_coordinates(
+                &value.database_id,
+                &value.data_source_id,
+                &value.view_id,
+                output,
+            );
+            append_rows(
+                value.rows.items.iter().filter_map(|row| match row {
+                    nodex_core_contracts::database::DatabaseListProjectionRow::Page {
+                        summary,
+                        ..
+                    } if summary.lifecycle == "active" => Some(summary.page_id.as_str()),
+                    _ => None,
+                }),
                 output,
             );
         }

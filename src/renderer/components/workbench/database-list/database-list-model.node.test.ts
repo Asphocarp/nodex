@@ -1,0 +1,436 @@
+import { describe, expect, test } from "vitest";
+
+import type {
+  DatabaseViewRenderColumn,
+  DatabaseViewRenderRow,
+} from "@/lib/database-view-render-model";
+import {
+  applyOptimisticDatabaseListDrop,
+  buildDatabaseListProjection,
+  captureDatabaseListScrollAnchor,
+  computeDatabaseListVirtualWindow,
+  databaseListScrollTopForOccurrence,
+  databaseListMountedActiveOccurrenceKey,
+  databaseListGroupKey,
+  databaseListParentCollapseKey,
+  emptyDatabaseListSelection,
+  moveDatabaseListActiveOccurrence,
+  isDatabaseListOccurrenceSelected,
+  selectAllDatabaseListOccurrences,
+  selectDatabaseListOccurrence,
+  selectedDatabaseListPageIds,
+  restoreDatabaseListScrollTop,
+  resolveDatabaseListAuthority,
+  syncDatabaseListSelection,
+} from "./database-list-model";
+
+const row = (
+  pageId: string,
+  input: Partial<DatabaseViewRenderRow> = {},
+): DatabaseViewRenderRow => ({
+  pageId,
+  groupKey: "build",
+  subgroupKey: null,
+  title: pageId,
+  preview: "",
+  plainText: "",
+  tags: [],
+  metadataRevision: 1,
+  createdAt: new Date("2026-08-12T00:00:00.000Z"),
+  ...input,
+});
+
+const column = (
+  rows: readonly DatabaseViewRenderRow[],
+): DatabaseViewRenderColumn => ({
+  id: "build",
+  groupKey: "build",
+  name: "Build",
+  scopeKey: "key:\"build\"",
+  rows,
+});
+
+describe("Database List projection", () => {
+  test("never substitutes Board-derived order for an authorized Core List", () => {
+    const clientRows = buildDatabaseListProjection({
+      columns: [column([row("temporary-board-order")])],
+      grouped: false,
+      subgrouped: false,
+      nested: false,
+      collapsedGroupKeys: new Set(),
+    });
+
+    expect(resolveDatabaseListAuthority({
+      coreAuthorized: true,
+      coreRows: [],
+      clientRows,
+    })).toEqual([]);
+    expect(resolveDatabaseListAuthority({
+      coreAuthorized: false,
+      coreRows: [],
+      clientRows,
+    })).toBe(clientRows);
+  });
+
+  test("uses occurrence identity and keeps a Page nested below its parent", () => {
+    const projection = buildDatabaseListProjection({
+      columns: [column([
+        row("parent"),
+        row("child", { parentPageId: "parent" }),
+        row("grandchild", { parentPageId: "child" }),
+      ])],
+      grouped: true,
+      subgrouped: false,
+      nested: true,
+      collapsedGroupKeys: new Set(),
+    });
+    const pages = projection.filter((item) => item.kind === "page");
+
+    expect(pages.map((item) => [item.pageId, item.depth])).toEqual([
+      ["parent", 0],
+      ["child", 1],
+      ["grandchild", 2],
+    ]);
+    expect(new Set(pages.map((item) => item.key)).size).toBe(3);
+  });
+
+  test("collapsing a stable group key removes its issue occurrences", () => {
+    const projection = buildDatabaseListProjection({
+      columns: [column([row("one"), row("two")])],
+      grouped: true,
+      subgrouped: false,
+      nested: false,
+      collapsedGroupKeys: new Set([databaseListGroupKey("build")]),
+    });
+
+    expect(projection).toHaveLength(1);
+    expect(projection[0]).toMatchObject({ kind: "group", collapsed: true });
+  });
+
+  test("collapsing a parent occurrence hard-removes descendants and keeps the parent", () => {
+    const expanded = buildDatabaseListProjection({
+      columns: [column([
+        row("parent"),
+        row("child", { parentPageId: "parent" }),
+        row("grandchild", { parentPageId: "child" }),
+      ])],
+      grouped: true,
+      subgrouped: false,
+      nested: true,
+      collapsedGroupKeys: new Set(),
+    });
+    const parent = expanded.find((item) =>
+      item.kind === "page" && item.pageId === "parent"
+    );
+    expect(parent).toMatchObject({ hasChildren: true, collapsed: false });
+    if (!parent || parent.kind !== "page") throw new Error("missing parent fixture");
+
+    const collapsed = buildDatabaseListProjection({
+      columns: [column([
+        row("parent"),
+        row("child", { parentPageId: "parent" }),
+        row("grandchild", { parentPageId: "child" }),
+      ])],
+      grouped: true,
+      subgrouped: false,
+      nested: true,
+      collapsedGroupKeys: new Set([databaseListParentCollapseKey(parent.key)]),
+    });
+
+    expect(collapsed.filter((item) => item.kind === "page")).toEqual([
+      expect.objectContaining({
+        pageId: "parent",
+        hasChildren: true,
+        collapsed: true,
+      }),
+    ]);
+  });
+
+  test("computes bounded windows without losing logical scroll height", () => {
+    const projection = buildDatabaseListProjection({
+      columns: [column(Array.from({ length: 200 }, (_, index) => row(`p-${index}`)))],
+      grouped: true,
+      subgrouped: false,
+      nested: false,
+      collapsedGroupKeys: new Set(),
+    });
+    const window = computeDatabaseListVirtualWindow(projection, 2_000, 500, 100);
+
+    expect(window.startIndex).toBeGreaterThan(0);
+    expect(window.endIndex).toBeLessThan(projection.length);
+    expect(window.paddingStart).toBeGreaterThan(0);
+    expect(window.paddingStart + window.paddingEnd).toBeLessThan(window.totalHeight);
+  });
+
+  test("keeps the mounted slice bounded for a 10k occurrence projection", () => {
+    const projection = buildDatabaseListProjection({
+      columns: [column(Array.from(
+        { length: 10_000 },
+        (_, index) => row(`page-${index.toString().padStart(5, "0")}`),
+      ))],
+      grouped: true,
+      subgrouped: false,
+      nested: false,
+      collapsedGroupKeys: new Set(),
+    });
+    const window = computeDatabaseListVirtualWindow(
+      projection,
+      44 * 5_000,
+      900,
+      100,
+    );
+
+    expect(window.endIndex - window.startIndex).toBeLessThan(32);
+    expect(window.totalHeight).toBe(38 + 44 * 10_000);
+  });
+
+  test("keeps one roving tab stop when the logical active row is outside the mounted window", () => {
+    const projection = buildDatabaseListProjection({
+      columns: [column(Array.from({ length: 100 }, (_, index) => row(`p-${index}`)))],
+      grouped: true,
+      subgrouped: false,
+      nested: false,
+      collapsedGroupKeys: new Set(),
+    });
+    const firstPage = projection.find((item) => item.kind === "page");
+    if (!firstPage) throw new Error("missing active row fixture");
+
+    const mountedActive = databaseListMountedActiveOccurrenceKey({
+      rows: projection,
+      startIndex: 70,
+      endIndex: 80,
+      activeOccurrenceKey: firstPage.key,
+    });
+
+    expect(mountedActive).toBe(
+      projection.slice(70, 80).find((item) => item.kind === "page")?.key,
+    );
+  });
+
+  test("restores a logical row anchor after rows are inserted above it", () => {
+    const before = buildDatabaseListProjection({
+      columns: [column([row("one"), row("two"), row("three")])],
+      grouped: true,
+      subgrouped: false,
+      nested: false,
+      collapsedGroupKeys: new Set(),
+    });
+    const anchor = captureDatabaseListScrollAnchor(before, 38 + 44 + 11);
+    expect(anchor).toMatchObject({ intraRowOffset: 11 });
+    if (!anchor) throw new Error("missing scroll anchor");
+    const after = buildDatabaseListProjection({
+      columns: [column([row("inserted"), row("one"), row("two"), row("three")])],
+      grouped: true,
+      subgrouped: false,
+      nested: false,
+      collapsedGroupKeys: new Set(),
+    });
+
+    expect(restoreDatabaseListScrollTop(after, anchor)).toBe(38 + 44 * 2 + 11);
+  });
+
+  test("scrolls a virtualized keyboard occurrence into the nearest viewport edge", () => {
+    const projection = buildDatabaseListProjection({
+      columns: [column(Array.from({ length: 100 }, (_, index) => row(`p-${index}`)))],
+      grouped: true,
+      subgrouped: false,
+      nested: false,
+      collapsedGroupKeys: new Set(),
+    });
+    const target = projection.find((item) =>
+      item.kind === "page" && item.pageId === "p-80"
+    );
+    if (!target) throw new Error("missing keyboard target fixture");
+
+    expect(databaseListScrollTopForOccurrence({
+      rows: projection,
+      occurrenceKey: target.key,
+      viewportTop: 0,
+      viewportHeight: 440,
+    })).toBe(38 + 44 * 81 - 440);
+    expect(databaseListScrollTopForOccurrence({
+      rows: projection,
+      occurrenceKey: target.key,
+      viewportTop: 38 + 44 * 78,
+      viewportHeight: 440,
+    })).toBe(38 + 44 * 78);
+  });
+
+  test("keeps a moved subtree contiguous in the optimistic drop overlay", () => {
+    const before = buildDatabaseListProjection({
+      columns: [column([
+        row("parent"),
+        row("child", { parentPageId: "parent" }),
+        row("root-b"),
+      ])],
+      grouped: true,
+      subgrouped: false,
+      nested: true,
+      collapsedGroupKeys: new Set(),
+    });
+    const parent = before.find((item) =>
+      item.kind === "page" && item.pageId === "parent"
+    );
+    if (!parent) throw new Error("missing parent fixture");
+
+    const optimistic = applyOptimisticDatabaseListDrop({
+      rows: before,
+      pageIds: new Set(["root-b"]),
+      targetOccurrenceKey: parent.key,
+      position: "nest",
+      groupKey: "build",
+      subgroupKey: null,
+    });
+
+    expect(optimistic.flatMap((item) => item.kind === "page"
+      ? [[item.pageId, item.depth, item.ancestorPageIds]]
+      : [])).toEqual([
+      ["parent", 0, []],
+      ["child", 1, ["parent"]],
+      ["root-b", 1, ["parent"]],
+    ]);
+  });
+});
+
+describe("Database List occurrence selection", () => {
+  const projection = buildDatabaseListProjection({
+    columns: [column([row("one"), row("two"), row("three")])],
+    grouped: true,
+    subgrouped: false,
+    nested: false,
+    collapsedGroupKeys: new Set(),
+  });
+  const pages = projection.filter((item) => item.kind === "page");
+
+  test("ranges skip group rows and domain mutations deduplicate Page ids", () => {
+    const first = selectDatabaseListOccurrence({
+      state: emptyDatabaseListSelection(),
+      rows: projection,
+      occurrenceKey: pages[0]!.key,
+      mode: "replace",
+    });
+    const range = selectDatabaseListOccurrence({
+      state: first,
+      rows: projection,
+      occurrenceKey: pages[2]!.key,
+      mode: "range",
+    });
+
+    expect(range.selectedOccurrenceKeys.size).toBe(3);
+    expect(selectedDatabaseListPageIds(projection, range))
+      .toEqual(new Set(["one", "two", "three"]));
+  });
+
+  test("keyboard movement keeps active state separate until range extension", () => {
+    const active = moveDatabaseListActiveOccurrence({
+      state: emptyDatabaseListSelection(),
+      rows: projection,
+      direction: 1,
+      extendSelection: false,
+    });
+    expect(active.activeOccurrenceKey).toBe(pages[0]!.key);
+    expect(active.focusedOccurrenceKey).toBe(pages[0]!.key);
+    expect(active.selectedOccurrenceKeys.size).toBe(0);
+
+    const extended = moveDatabaseListActiveOccurrence({
+      state: active,
+      rows: projection,
+      direction: 1,
+      extendSelection: true,
+    });
+    expect(extended.selectedOccurrenceKeys).toEqual(
+      new Set([pages[0]!.key, pages[1]!.key]),
+    );
+  });
+
+  test("represents select-all sparsely and tracks occurrence exclusions", () => {
+    const all = selectAllDatabaseListOccurrences(projection);
+    expect(all.selectedOccurrenceKeys.size).toBe(0);
+    expect(pages.every((item) => isDatabaseListOccurrenceSelected(all, item.key)))
+      .toBe(true);
+
+    const excluded = selectDatabaseListOccurrence({
+      state: all,
+      rows: projection,
+      occurrenceKey: pages[1]!.key,
+      mode: "toggle",
+    });
+    expect(excluded.allMatching).toBe(true);
+    expect(isDatabaseListOccurrenceSelected(excluded, pages[1]!.key)).toBe(false);
+    expect(selectedDatabaseListPageIds(projection, excluded)).toEqual(
+      new Set(["one", "three"]),
+    );
+  });
+
+  test("restores roving focus to the nearest visible occurrence after collapse", () => {
+    const previous = buildDatabaseListProjection({
+      columns: [column([
+        row("parent"),
+        row("child", { parentPageId: "parent" }),
+        row("after"),
+      ])],
+      grouped: true,
+      subgrouped: false,
+      nested: true,
+      collapsedGroupKeys: new Set(),
+    });
+    const parent = previous.find((item) => item.kind === "page" && item.pageId === "parent");
+    const child = previous.find((item) => item.kind === "page" && item.pageId === "child");
+    if (!parent || parent.kind !== "page" || !child || child.kind !== "page") {
+      throw new Error("missing hierarchy fixture");
+    }
+    const next = buildDatabaseListProjection({
+      columns: [column([
+        row("parent"),
+        row("child", { parentPageId: "parent" }),
+        row("after"),
+      ])],
+      grouped: true,
+      subgrouped: false,
+      nested: true,
+      collapsedGroupKeys: new Set([databaseListParentCollapseKey(parent.key)]),
+    });
+    const synced = syncDatabaseListSelection({
+      selectedOccurrenceKeys: new Set([child.key]),
+      allMatching: false,
+      excludedOccurrenceKeys: new Set(),
+      anchorOccurrenceKey: child.key,
+      activeOccurrenceKey: child.key,
+      focusedOccurrenceKey: child.key,
+    }, next, previous);
+
+    expect(synced.selectedOccurrenceKeys.size).toBe(0);
+    expect(synced.activeOccurrenceKey).toBe(
+      next.find((item) => item.kind === "page" && item.pageId === "after")?.key,
+    );
+  });
+
+  test("does not steal DOM focus when only the active occurrence is initialized", () => {
+    const first = pages[0]!;
+    const synced = syncDatabaseListSelection({
+      selectedOccurrenceKeys: new Set(),
+      allMatching: false,
+      excludedOccurrenceKeys: new Set(),
+      anchorOccurrenceKey: null,
+      activeOccurrenceKey: first.key,
+      focusedOccurrenceKey: null,
+    }, projection);
+
+    expect(synced.activeOccurrenceKey).toBe(first.key);
+    expect(synced.focusedOccurrenceKey).toBeNull();
+  });
+
+  test("preserves selection identity when a refreshed projection changes no keys", () => {
+    const first = pages[0]!;
+    const state = {
+      selectedOccurrenceKeys: new Set([first.key]),
+      allMatching: false,
+      excludedOccurrenceKeys: new Set<string>(),
+      anchorOccurrenceKey: first.key,
+      activeOccurrenceKey: first.key,
+      focusedOccurrenceKey: first.key,
+    };
+
+    expect(syncDatabaseListSelection(state, [...projection], projection)).toBe(state);
+  });
+});

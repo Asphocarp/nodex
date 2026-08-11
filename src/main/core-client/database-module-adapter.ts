@@ -28,6 +28,10 @@ import {
   applyResultStoreEpoch,
   rendererLocalCommitApply,
 } from "./types";
+import {
+  fromCoreDatabaseViewPresentationOverride,
+  toCoreDatabaseViewPresentationOverride,
+} from "./database-presentation-adapter";
 import type {
   CoreClientPort,
   CoreModuleError,
@@ -348,7 +352,7 @@ export const toCoreDatabaseIntent = (
         view_id: operation.viewId,
         expected_revision: operation.expectedRevision,
         name: operation.name,
-        view_kind: operation.viewKind,
+        default_layout: operation.defaultLayout,
         config: operation.config,
         is_default: operation.isDefault,
         before_view_id: operation.beforeViewId ?? null,
@@ -366,7 +370,6 @@ export const toCoreDatabaseIntent = (
         view_id: operation.viewId,
         page_id: operation.pageId,
         expected_position_revision: operation.expectedPositionRevision,
-        group_key: operation.groupKey,
         before_page_id: operation.beforePageId ?? null,
       };
     case "position_pages":
@@ -377,8 +380,28 @@ export const toCoreDatabaseIntent = (
           page_id: page.pageId,
           expected_position_revision: page.expectedPositionRevision,
         })),
-        group_key: operation.groupKey,
         before_page_id: operation.beforePageId ?? null,
+      };
+    case "set_task_parent":
+      return {
+        kind: operation.kind,
+        data_source_id: operation.dataSourceId,
+        pages: operation.pages.map((page) => ({
+          page_id: page.pageId,
+          expected_hierarchy_revision: page.expectedHierarchyRevision,
+        })),
+        parent_page_id: operation.parentPageId ?? null,
+        before_page_id: operation.beforePageId ?? null,
+      };
+    case "put_view_personal_preferences":
+      return {
+        kind: operation.kind,
+        view_id: operation.viewId,
+        expected_revision: operation.expectedRevision,
+        presentation_override: toCoreDatabaseViewPresentationOverride(
+          operation.presentationOverride,
+        ),
+        collapsed_group_keys: operation.collapsedGroupKeys,
       };
   }
 };
@@ -657,6 +680,18 @@ const hydrateCoreReadValue = async (
     return {
       kind: value.kind,
       value: await hydrateCoreDataSource(client, value.value),
+    };
+  }
+  if (value.kind === "view_personal_preferences") {
+    return {
+      kind: value.kind,
+      value: {
+        presentationOverride: fromCoreDatabaseViewPresentationOverride(
+          value.value.presentation_override,
+        ),
+        collapsedGroupKeys: value.value.collapsed_group_keys,
+        revision: value.value.revision,
+      },
     };
   }
   if (value.kind === "relation_target_window") {

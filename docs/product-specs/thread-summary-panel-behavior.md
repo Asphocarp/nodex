@@ -47,7 +47,7 @@ choice wins.
 ## Scheduled
 
 Scheduled shows the first active heartbeat Automation attached to the Chat. It
-comes from the canonical scheduled-Automation read model, never from Kanban
+comes from the canonical scheduled-Automation read model, never from Board
 schedules or transcript tool labels.
 
 The row shows the Automation name, optional schedule summary, and next-run

@@ -8,6 +8,7 @@ import {
   UpdatePageV3InputSchema,
 } from "../../shared/nodex-agent-tools/v3-write-schemas";
 import type { NodexAgentDynamicExecutionContext } from "../agent-tools/dynamic-service-core";
+import { upgradeDatabaseViewConfigV2 } from "../../shared/database-view-presentation";
 import type { DesktopDataAuthorityRuntime } from "./desktop-data-authority";
 import type { DesktopDatabaseModuleBridge } from "./desktop-database-module-bridge";
 import type { DesktopDocumentSyncPort } from "./desktop-document-sync-bridge";
@@ -103,7 +104,7 @@ describe("native desktop Nodex Agent dynamic service", () => {
               viewId: "view-native-agent",
               dataSourceId: "data-source-native-agent",
               name: "Board",
-              kind: "kanban",
+              defaultLayout: "board",
               isDefault: true,
               lifecycle: "active",
             }],
@@ -992,15 +993,15 @@ describe("native desktop Nodex Agent dynamic service", () => {
       databaseId: "database-native-agent",
       dataSourceId: "data-source-native-agent",
       name: "Tasks",
-      kind: "list",
-      config: {
+      defaultLayout: "list",
+      config: upgradeDatabaseViewConfigV2({
         schemaKey: "nodex.database-view",
         schemaVersion: 2,
         filter: { kind: "group", operator: "and", children: [] },
         sort: [],
         group: null,
         display: { propertyIds: [], showTitle: true },
-      },
+      }),
       isDefault: true,
       revision: 1,
       rankKey: "a",

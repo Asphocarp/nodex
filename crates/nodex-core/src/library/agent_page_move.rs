@@ -1398,14 +1398,12 @@ fn resolve_move_destination(
                       AND position.page_block_id = membership.page_block_id \
                      WHERE membership.data_source_id = ?2 \
                        AND membership.removed_at IS NULL AND page.lifecycle = 'active' \
-                       AND position.group_key IS ?3 \
                      ORDER BY CASE WHEN position.rank_key IS NULL THEN 1 ELSE 0 END, \
                        position.rank_key, membership.page_block_id",
                 )?
-                .query_map(
-                    params![view.view_id, data_source_id, view.group_key],
-                    |row| row.get::<_, String>(0),
-                )?
+                .query_map(params![view.view_id, data_source_id], |row| {
+                    row.get::<_, String>(0)
+                })?
                 .collect::<rusqlite::Result<Vec<_>>>()?
                 .into_iter()
                 .filter(|page_id| !moved.contains(page_id.as_str()))

@@ -21,11 +21,12 @@ import type {
   DatabaseJsonValue,
   DatabasePropertyOption,
   DatabasePropertyValueType,
-  DatabaseViewConfigV2,
-  DatabaseViewKind,
+  DatabaseViewConfigV4,
+  DatabaseViewLayout,
+  DatabaseViewPresentationOverride,
 } from "./database-kernel";
 
-export const DATABASE_MODULE_V2_CONTRACT_VERSION = 4 as const;
+export const DATABASE_MODULE_V2_CONTRACT_VERSION = 8 as const;
 export const MAX_DATABASE_MODULE_V2_OPERATIONS = 64 as const;
 export const MAX_DATABASE_MODULE_V2_BULK_ENTRIES = 100 as const;
 
@@ -95,7 +96,7 @@ export interface DatabaseViewRecordV2
   readonly viewId: DatabaseViewId;
   readonly databaseId: DatabaseId;
   readonly dataSourceId: DataSourceId;
-  readonly config: DatabaseViewConfigV2;
+  readonly config: DatabaseViewConfigV4;
 }
 
 export interface DatabaseContainerDescriptorV2 {
@@ -138,6 +139,12 @@ export interface DataSourcePageRowV2
   readonly bodyNfm?: string;
   /** Page-intrinsic properties needed by compatibility row projections. */
   readonly intrinsicProperties?: readonly PageIntrinsicPropertyValueV2[];
+  /** Task hierarchy is independent from the Page's structural owner. */
+  readonly taskHierarchy?: null | {
+    readonly parentPageId: string;
+    readonly siblingRank: string;
+    readonly revision: number;
+  };
 }
 
 export interface DatabaseViewQueryResultV2 {
@@ -195,6 +202,13 @@ export interface DatabaseRelationCandidateWindowV2 {
   readonly projectionRevision: number;
 }
 
+export interface DatabaseViewPersonalPreferencesV2 {
+  readonly presentationOverride: DatabaseViewPresentationOverride;
+  readonly collapsedGroupKeys: readonly string[];
+  /** Zero means that this Profile has no durable preference row yet. */
+  readonly revision: number;
+}
+
 export type DatabaseReadV2 = (
   | {
       readonly target: { readonly kind: "project_default" };
@@ -237,6 +251,13 @@ export type DatabaseReadV2 = (
     }
   | {
       readonly target: {
+        readonly kind: "view";
+        readonly viewId: DatabaseViewId;
+      };
+      readonly mode: "view_personal_preferences";
+    }
+  | {
+      readonly target: {
         readonly kind: "page_property";
         readonly pageId: string;
         readonly dataSourceId: DataSourceId;
@@ -270,6 +291,10 @@ export type DatabaseReadValueV2 =
     }
   | { readonly kind: "data_source"; readonly value: DataSourceDescriptorV2 }
   | { readonly kind: "view"; readonly value: DatabaseViewRecordV2 }
+  | {
+      readonly kind: "view_personal_preferences";
+      readonly value: DatabaseViewPersonalPreferencesV2;
+    }
   | { readonly kind: "query"; readonly value: DatabaseViewQueryResultV2 }
   | {
       readonly kind: "data_source_query";
@@ -444,8 +469,8 @@ export interface PutDatabaseViewOperationV2 {
   readonly viewId: DatabaseViewId;
   readonly expectedRevision: number;
   readonly name: string;
-  readonly viewKind: DatabaseViewKind;
-  readonly config: DatabaseViewConfigV2;
+  readonly defaultLayout: DatabaseViewLayout;
+  readonly config: DatabaseViewConfigV4;
   readonly isDefault: boolean;
   readonly beforeViewId?: DatabaseViewId | null;
 }
@@ -462,7 +487,6 @@ export interface PositionDatabaseViewPageOperationV2 {
   readonly viewId: DatabaseViewId;
   readonly pageId: string;
   readonly expectedPositionRevision: number;
-  readonly groupKey: string | null;
   readonly beforePageId?: string;
 }
 
@@ -473,8 +497,29 @@ export interface PositionDatabaseViewPagesOperationV2 {
     readonly pageId: string;
     readonly expectedPositionRevision: number;
   }[];
-  readonly groupKey: string | null;
   readonly beforePageId?: string;
+}
+
+export interface SetDatabaseTaskParentOperationV2 {
+  readonly kind: "set_task_parent";
+  readonly dataSourceId: DataSourceId;
+  readonly pages: readonly {
+    readonly pageId: string;
+    /** Zero means that the Page is currently a root task. */
+    readonly expectedHierarchyRevision: number;
+  }[];
+  /** Missing means promote the ordered Page run to the root level. */
+  readonly parentPageId?: string;
+  /** Missing appends the run to the target parent's child order. */
+  readonly beforePageId?: string;
+}
+
+export interface PutDatabaseViewPersonalPreferencesOperationV2 {
+  readonly kind: "put_view_personal_preferences";
+  readonly viewId: DatabaseViewId;
+  readonly expectedRevision: number;
+  readonly presentationOverride: DatabaseViewPresentationOverride;
+  readonly collapsedGroupKeys: readonly string[];
 }
 
 export type DatabaseApplyOperationV2 =
@@ -487,7 +532,9 @@ export type DatabaseApplyOperationV2 =
   | PutDatabaseViewOperationV2
   | DeleteDatabaseViewOperationV2
   | PositionDatabaseViewPageOperationV2
-  | PositionDatabaseViewPagesOperationV2;
+  | PositionDatabaseViewPagesOperationV2
+  | SetDatabaseTaskParentOperationV2
+  | PutDatabaseViewPersonalPreferencesOperationV2;
 
 export interface DatabaseApplyV2
   extends Omit<DatabaseApplyV1, "version" | "operations"> {

@@ -165,10 +165,10 @@ export function buildCommandPaletteCommands(
     command("searchChats", "Suggested", "Search chats", "Search chats by title, project, path, and content", ["search", "chat", "thread"], 1200, {
       shortcut: shortcutLabel("searchChats", "CmdOrCtrl+G"),
     }),
-    command("searchPages", "Suggested", "Search pages", "Search pages with Nodex page filters", ["search", "page", "kanban", "task"], 1190, {
+    command("searchPages", "Suggested", "Search pages", "Search pages with Nodex page filters", ["search", "page", "board", "task"], 1190, {
       shortcut: shortcutLabel("searchPages", "CmdOrCtrl+P"),
     }),
-    command(CREATE_PAGE_COMMAND_ID, "Project", "Create Page", "Create a Page in the active Project Board", ["create", "new", "page", "board", "kanban"], 1185, {
+    command(CREATE_PAGE_COMMAND_ID, "Project", "Create Page", "Create a Page in the active Project Board", ["create", "new", "page", "board", "board"], 1185, {
       shortcut: shortcutLabel(CREATE_PAGE_COMMAND_ID, "CmdOrCtrl+Shift+C"),
       disabled: context.pageCreateUnavailableReason !== null,
       disabledReason: context.pageCreateUnavailableReason ?? undefined,
@@ -248,7 +248,7 @@ export function buildCommandPaletteCommands(
       shortcut: shortcutLabel("toggleTerminal", "Ctrl+`"),
       disabled: !context.panelActionAvailability.terminal,
     }),
-    command(OPEN_DB_VIEW_TAB_COMMAND_ID, "Panels", "Open DB View tab", "Open the active project database in the right panel", ["db", "database", "view", "board", "kanban", "panel", "tab"], 860, {
+    command(OPEN_DB_VIEW_TAB_COMMAND_ID, "Panels", "Open DB View tab", "Open the active project database in the right panel", ["db", "database", "view", "board", "board", "panel", "tab"], 860, {
       disabled: !context.panelActionAvailability.db_view,
     }),
     command("newThreadInProject", "Project", "New chat in project", "Start a new chat in the active project", ["new", "chat", "project"], 830, {

@@ -5,7 +5,7 @@ use nodex_core_contracts::database::{
     DatabasePagePropertyAddress, DatabasePropertyCapabilities, DatabasePropertyFilterOperator,
     DatabasePropertySchema, DatabasePropertySetDelta, DatabasePropertyValueEdit,
     DatabasePropertyValueInput, DatabasePropertyValueMutation, DatabaseReceipt,
-    DatabaseTransferTarget,
+    DatabaseTaskHierarchyPage, DatabaseTransferTarget, DatabaseViewPresentationOverrideInput,
 };
 use nodex_core_contracts::{
     BoundModuleContext, CoreModuleEventPayload, ModuleApplyRequest, ModuleMutationReceipt,
@@ -18,7 +18,8 @@ use unicode_normalization::UnicodeNormalization;
 
 use crate::document::{read_store_epoch, sha256};
 use crate::domain::fractional_rank::{
-    FractionalRankError, FractionalRankErrorCode, RankedItem, plan as plan_fractional_rank,
+    FractionalRankError, FractionalRankErrorCode, RankedItem, evenly_spaced_rank,
+    plan as plan_fractional_rank,
 };
 use crate::domain::view_position::{
     LogicalViewPositionItem, ViewPositionPlanError, ViewSiblingRankWriteKind,
@@ -183,6 +184,7 @@ pub(crate) fn apply_in_transaction(
             for intent in &request.intent {
                 apply_intent(
                     scope.connection(),
+                    context.profile_id.0.as_str(),
                     library_id,
                     &authority,
                     intent,
@@ -251,6 +253,7 @@ pub(crate) fn apply_as_collaborator(
     for intent in intents {
         apply_intent(
             connection,
+            context.profile_id.0.as_str(),
             library_id,
             &authority,
             intent,
@@ -296,6 +299,36 @@ fn validate_request(request: &ModuleApplyRequest<Vec<DatabaseIntent>>) -> Result
                 "edit_property_values requires between 1 and {MAX_BULK_VALUES} edits"
             )));
         }
+        if let DatabaseIntent::SetTaskParent { pages, .. } = intent
+            && (pages.is_empty() || pages.len() > MAX_BULK_VALUES)
+        {
+            return Err(invalid(format!(
+                "set_task_parent requires between 1 and {MAX_BULK_VALUES} Pages"
+            )));
+        }
+        if let DatabaseIntent::PutViewPersonalPreferences {
+            collapsed_group_keys,
+            expected_revision,
+            ..
+        } = intent
+        {
+            if *expected_revision < 0 {
+                return Err(invalid(
+                    "View personal preference revision cannot be negative",
+                ));
+            }
+            if collapsed_group_keys.len() > 2_000
+                || collapsed_group_keys
+                    .iter()
+                    .any(|key| key.is_empty() || key.len() > 1_024)
+                || collapsed_group_keys.iter().collect::<HashSet<_>>().len()
+                    != collapsed_group_keys.len()
+            {
+                return Err(invalid(
+                    "View collapsed group keys violate their durable bound",
+                ));
+            }
+        }
     }
     Ok(())
 }
@@ -312,6 +345,8 @@ fn database_intent_kind(intent: &DatabaseIntent) -> &'static str {
         DatabaseIntent::DeleteView { .. } => "delete_view",
         DatabaseIntent::PositionPage { .. } => "position_page",
         DatabaseIntent::PositionPages { .. } => "position_pages",
+        DatabaseIntent::SetTaskParent { .. } => "set_task_parent",
+        DatabaseIntent::PutViewPersonalPreferences { .. } => "put_view_personal_preferences",
     }
 }
 
@@ -333,7 +368,9 @@ fn page_detail_dependency_ids(intents: &[DatabaseIntent]) -> (BTreeSet<String>, 
             DatabaseIntent::EditPropertyValues { .. }
             | DatabaseIntent::TransferPage { .. }
             | DatabaseIntent::PositionPage { .. }
-            | DatabaseIntent::PositionPages { .. } => {}
+            | DatabaseIntent::PositionPages { .. }
+            | DatabaseIntent::SetTaskParent { .. }
+            | DatabaseIntent::PutViewPersonalPreferences { .. } => {}
         }
     }
     (data_source_ids, database_ids)
@@ -341,6 +378,7 @@ fn page_detail_dependency_ids(intents: &[DatabaseIntent]) -> (BTreeSet<String>, 
 
 fn apply_intent(
     connection: &Connection,
+    profile_id: &str,
     library_id: &str,
     authority: &DatabaseMutationAuthority,
     intent: &DatabaseIntent,
@@ -459,7 +497,7 @@ fn apply_intent(
             view_id,
             expected_revision,
             name,
-            view_kind,
+            default_layout,
             config,
             is_default,
             before_view_id,
@@ -472,7 +510,7 @@ fn apply_intent(
             view_id,
             *expected_revision,
             name,
-            view_kind,
+            default_layout,
             config,
             *is_default,
             before_view_id.as_deref(),
@@ -499,7 +537,6 @@ fn apply_intent(
             view_id,
             page_id,
             expected_position_revision,
-            group_key,
             before_page_id,
         } => position_pages(
             connection,
@@ -510,7 +547,6 @@ fn apply_intent(
                 page_id: page_id.clone(),
                 expected_position_revision: *expected_position_revision,
             }],
-            group_key.as_deref(),
             before_page_id.as_deref(),
             now,
             effects,
@@ -519,7 +555,6 @@ fn apply_intent(
         DatabaseIntent::PositionPages {
             view_id,
             pages,
-            group_key,
             before_page_id,
         } => position_pages(
             connection,
@@ -527,8 +562,42 @@ fn apply_intent(
             project_id,
             view_id,
             pages,
-            group_key.as_deref(),
             before_page_id.as_deref(),
+            now,
+            effects,
+            library_scope,
+        ),
+        DatabaseIntent::SetTaskParent {
+            data_source_id,
+            pages,
+            parent_page_id,
+            before_page_id,
+        } => set_task_parent(
+            connection,
+            library_id,
+            project_id,
+            data_source_id,
+            pages,
+            parent_page_id.as_deref(),
+            before_page_id.as_deref(),
+            now,
+            effects,
+            library_scope,
+        ),
+        DatabaseIntent::PutViewPersonalPreferences {
+            view_id,
+            expected_revision,
+            presentation_override,
+            collapsed_group_keys,
+        } => put_view_personal_preferences(
+            connection,
+            profile_id,
+            library_id,
+            project_id,
+            view_id,
+            *expected_revision,
+            presentation_override,
+            collapsed_group_keys,
             now,
             effects,
             library_scope,
@@ -1215,7 +1284,14 @@ fn set_value(
             now,
         ],
     )?;
-    update_grouped_positions(
+    update_membership_completion_timestamp(
+        connection,
+        &membership,
+        &address.property_id,
+        &value,
+        now,
+    )?;
+    update_grouped_view_projections(
         connection,
         &address.data_source_id,
         &address.property_id,
@@ -1249,6 +1325,61 @@ fn set_value(
         metadata_revision,
     );
     Ok(())
+}
+
+fn update_membership_completion_timestamp(
+    connection: &Connection,
+    membership_id: &str,
+    property_id: &str,
+    value: &Value,
+    now: &str,
+) -> Result<(), StoreError> {
+    if property_id != super::property_semantics::STATUS_PROPERTY_ID {
+        return Ok(());
+    }
+    if value.as_str() == Some(super::property_semantics::COMPLETED_STATUS_OPTION_ID) {
+        connection.execute(
+            "UPDATE data_source_page_memberships \
+             SET completed_at = COALESCE(completed_at, ?1) WHERE id = ?2",
+            params![now, membership_id],
+        )?;
+        return Ok(());
+    }
+    connection.execute(
+        "UPDATE data_source_page_memberships SET completed_at = NULL WHERE id = ?1",
+        [membership_id],
+    )?;
+    Ok(())
+}
+
+pub(crate) fn synchronize_membership_completion_timestamp(
+    connection: &Connection,
+    data_source_id: &str,
+    membership_id: &str,
+    now: &str,
+) -> Result<(), StoreError> {
+    let status = connection
+        .query_row(
+            "SELECT value_json FROM data_source_property_values \
+             WHERE data_source_id = ?1 AND membership_id = ?2 AND property_id = ?3",
+            params![
+                data_source_id,
+                membership_id,
+                super::property_semantics::STATUS_PROPERTY_ID
+            ],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?
+        .map(|value| parse_json(&value, "Workflow status value"))
+        .transpose()?
+        .unwrap_or(Value::Null);
+    update_membership_completion_timestamp(
+        connection,
+        membership_id,
+        super::property_semantics::STATUS_PROPERTY_ID,
+        &status,
+        now,
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2008,6 +2139,12 @@ fn place_staged_page_in_data_source_with_access(
     {
         copy_same_source_property_values(connection, source_membership, &membership_id, now)?;
     }
+    synchronize_membership_completion_timestamp(
+        connection,
+        &destination.data_source_id,
+        &membership_id,
+        now,
+    )?;
     let parent_revision = connection
         .query_row(
             "UPDATE pages SET parent_kind = 'data_source', parent_id = ?1, \
@@ -2075,7 +2212,6 @@ fn place_staged_page_in_data_source_with_access(
                 page_id: staged_page_id.to_owned(),
                 expected_position_revision: 0,
             }],
-            placement.group_key.as_deref(),
             placement
                 .before
                 .as_ref()
@@ -2329,7 +2465,6 @@ fn transfer_existing_page_for_structural_move(
                     page_id: page_id.to_owned(),
                     expected_position_revision,
                 }],
-                view.group_key.as_deref(),
                 view.before.as_ref().map(|anchor| anchor.page_id.as_str()),
                 now,
                 &mut effects,
@@ -2509,7 +2644,6 @@ pub(crate) fn finalize_agent_moved_pages_in_data_source_prevalidated(
             requesting_project_id,
             &placement.view_id,
             &pages,
-            placement.group_key.as_deref(),
             placement
                 .before
                 .as_ref()
@@ -2780,6 +2914,12 @@ fn transfer_page(
                 data_source_id,
                 now,
                 Some(effects),
+            )?;
+            synchronize_membership_completion_timestamp(
+                connection,
+                data_source_id,
+                &membership_id,
+                now,
             )?;
             effects.revisions.insert(
                 format!("membership:{data_source_id}:{membership_id}"),
@@ -3259,19 +3399,19 @@ fn preferred_view_placement(
     data_source_id: &str,
     page_id: &str,
 ) -> Result<PreferredViewPlacement, StoreError> {
-    let view_id = connection
+    let view = connection
         .query_row(
-            "SELECT view.id FROM data_sources source \
+            "SELECT view.id, view.config_json FROM data_sources source \
              JOIN database_containers container ON container.block_id = source.home_database_block_id \
              JOIN database_views view ON view.database_block_id = container.block_id \
                AND view.data_source_id = source.id AND view.lifecycle = 'active' \
              WHERE source.id = ?1 ORDER BY CASE WHEN view.id = container.default_view_id \
                THEN 0 ELSE 1 END, view.rank_key, view.id LIMIT 1",
             [data_source_id],
-            |row| row.get::<_, String>(0),
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
         )
         .optional()?;
-    let Some(view_id) = view_id else {
+    let Some((view_id, config_json)) = view else {
         return Ok(PreferredViewPlacement {
             view_id: None,
             group_key: None,
@@ -3280,17 +3420,45 @@ fn preferred_view_placement(
     };
     let position = connection
         .query_row(
-            "SELECT group_key, rank_key FROM database_view_page_positions \
+            "SELECT rank_key FROM database_view_page_positions \
              WHERE view_id = ?1 AND page_block_id = ?2",
             params![view_id, page_id],
-            |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, String>(1)?)),
+            |row| row.get::<_, String>(0),
         )
         .optional()?;
+    let config = parse_json(&config_json, "Database View config")?;
     Ok(PreferredViewPlacement {
         view_id: Some(view_id),
-        group_key: position.as_ref().and_then(|(group, _)| group.clone()),
-        rank_key: position.map(|(_, rank)| rank),
+        group_key: derived_view_group_key(connection, data_source_id, page_id, &config)?,
+        rank_key: position,
     })
+}
+
+fn derived_view_group_key(
+    connection: &Connection,
+    data_source_id: &str,
+    page_id: &str,
+    config: &Value,
+) -> Result<Option<String>, StoreError> {
+    let Some(property_id) = view_group_property(config) else {
+        return Ok(None);
+    };
+    let value = connection
+        .query_row(
+            "SELECT value.value_json FROM data_source_page_memberships membership \
+             LEFT JOIN data_source_property_values value \
+               ON value.data_source_id = membership.data_source_id \
+               AND value.membership_id = membership.id AND value.property_id = ?3 \
+             WHERE membership.data_source_id = ?1 AND membership.page_block_id = ?2 \
+               AND membership.removed_at IS NULL",
+            params![data_source_id, page_id, property_id],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .optional()?
+        .flatten()
+        .map(|value| parse_json(&value, "Grouped Property value"))
+        .transpose()?;
+    value.as_ref().map_or(Ok(None), database_group_key)
 }
 
 fn append_top_level_placement(
@@ -3352,7 +3520,7 @@ fn put_view(
     view_id: &str,
     expected_revision: i64,
     name: &str,
-    view_kind: &str,
+    default_layout: &str,
     config: &Value,
     is_default: bool,
     before_view_id: Option<&str>,
@@ -3363,8 +3531,8 @@ fn put_view(
     validate_id(database_id, "database_id", MAX_ID_LENGTH)?;
     validate_id(view_id, "view_id", MAX_ID_LENGTH)?;
     let name = validate_name(name, "View name")?;
-    if !matches!(view_kind, "kanban" | "list" | "calendar") {
-        return Err(invalid("Database View kind is unsupported"));
+    if !matches!(default_layout, "board" | "list") {
+        return Err(invalid("Database View default layout is unsupported"));
     }
     let container = require_container(connection, library_id, database_id)?;
     if container.lifecycle != "active" {
@@ -3457,11 +3625,12 @@ fn put_view(
         .map_or(now, |view| view.created_at.as_str());
     connection.execute(
         "INSERT INTO database_views(\
-           id, database_block_id, data_source_id, name, kind, config_json, revision, \
+           id, database_block_id, data_source_id, name, default_layout, config_json, revision, \
            rank_key, lifecycle, created_at, updated_at\
          ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'active', ?9, ?10) \
          ON CONFLICT(id) DO UPDATE SET database_block_id = excluded.database_block_id, \
-           data_source_id = excluded.data_source_id, name = excluded.name, kind = excluded.kind, \
+           data_source_id = excluded.data_source_id, name = excluded.name, \
+           default_layout = excluded.default_layout, \
            config_json = excluded.config_json, revision = excluded.revision, \
            rank_key = excluded.rank_key, lifecycle = 'active', updated_at = excluded.updated_at",
         params![
@@ -3469,7 +3638,7 @@ fn put_view(
             database_id,
             data_source_id,
             name,
-            view_kind,
+            default_layout,
             encoded_config,
             revision,
             rank_key,
@@ -3581,7 +3750,6 @@ fn position_pages(
     project_id: &str,
     view_id: &str,
     pages: &[DatabasePagePosition],
-    group_key: Option<&str>,
     before_page_id: Option<&str>,
     now: &str,
     effects: &mut MutationEffects,
@@ -3619,10 +3787,9 @@ fn position_pages(
         library_scope,
     )?;
     let config = parse_json(&view.config_json, "Database View config")?;
-    let group_property_id = view_group_property(&config);
     let mut existing_revisions = std::collections::HashMap::new();
     for page in pages {
-        let membership_id = active_row_membership(connection, &view.data_source_id, &page.page_id)?;
+        active_row_membership(connection, &view.data_source_id, &page.page_id)?;
         let existing_revision = connection
             .query_row(
                 "SELECT revision FROM database_view_page_positions \
@@ -3637,28 +3804,10 @@ fn position_pages(
             existing_revision,
             "Database View position revision changed",
         )?;
-        if let Some(property_id) = group_property_id {
-            let value = connection
-                .query_row(
-                    "SELECT value_json FROM data_source_property_values \
-                     WHERE data_source_id = ?1 AND membership_id = ?2 AND property_id = ?3",
-                    params![view.data_source_id, membership_id, property_id],
-                    |row| row.get::<_, String>(0),
-                )
-                .optional()?
-                .map(|value| parse_json(&value, "Grouped Property value"))
-                .transpose()?;
-            let effective = value.as_ref().map_or(Ok(None), database_group_key)?;
-            if effective.as_deref() != group_key {
-                return Err(invalid(
-                    "View position group does not match the grouped Property value",
-                ));
-            }
-        }
         existing_revisions.insert(page.page_id.as_str(), existing_revision);
     }
 
-    let logical = read_logical_group(connection, &view, group_property_id, group_key, &page_ids)?;
+    let logical = read_logical_view(connection, &view, &page_ids)?;
     let descending = view_manual_direction(&config) == "desc";
     let moved_page_ids = pages
         .iter()
@@ -3668,22 +3817,15 @@ fn position_pages(
         .map_err(view_position_plan_error)?;
     let mut put = connection.prepare(
         "INSERT INTO database_view_page_positions(\
-           view_id, page_block_id, group_key, rank_key, revision, created_at, updated_at\
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6) \
-         ON CONFLICT(view_id, page_block_id) DO UPDATE SET group_key = excluded.group_key, \
+           view_id, page_block_id, rank_key, revision, created_at, updated_at\
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?5) \
+         ON CONFLICT(view_id, page_block_id) DO UPDATE SET \
            rank_key = excluded.rank_key, revision = excluded.revision, updated_at = excluded.updated_at",
     )?;
     for write in &rank_plan.sibling_writes {
         match write.kind {
             ViewSiblingRankWriteKind::Materialize => {
-                put.execute(params![
-                    view_id,
-                    write.page_id,
-                    group_key,
-                    write.rank_key,
-                    1,
-                    now,
-                ])?;
+                put.execute(params![view_id, write.page_id, write.rank_key, 1, now,])?;
             }
             ViewSiblingRankWriteKind::Rebalance => {
                 let updated = connection.execute(
@@ -3699,10 +3841,10 @@ fn position_pages(
             }
         }
         connection.execute(
-            "UPDATE page_read_model SET view_group_key = ?1, view_rank_key = ?2, \
-               projection_version = projection_version + 1, updated_at = ?3 \
-             WHERE page_block_id = ?4 AND view_id = ?5",
-            params![group_key, write.rank_key, now, write.page_id, view_id],
+            "UPDATE page_read_model SET view_rank_key = ?1, \
+               projection_version = projection_version + 1, updated_at = ?2 \
+             WHERE page_block_id = ?3 AND view_id = ?4",
+            params![write.rank_key, now, write.page_id, view_id],
         )?;
     }
     for page in pages {
@@ -3726,16 +3868,15 @@ fn position_pages(
         put.execute(params![
             view_id,
             page.page_id,
-            group_key,
             rank_key,
             revision,
             current.as_ref().map_or(now, |(_, created_at)| created_at),
         ])?;
         connection.execute(
-            "UPDATE page_read_model SET view_group_key = ?1, view_rank_key = ?2, \
-               projection_version = projection_version + 1, updated_at = ?3 \
-             WHERE page_block_id = ?4 AND view_id = ?5",
-            params![group_key, rank_key, now, page.page_id, view_id,],
+            "UPDATE page_read_model SET view_rank_key = ?1, \
+               projection_version = projection_version + 1, updated_at = ?2 \
+             WHERE page_block_id = ?3 AND view_id = ?4",
+            params![rank_key, now, page.page_id, view_id,],
         )?;
         effects
             .revisions
@@ -3760,6 +3901,349 @@ fn position_pages(
     Ok(())
 }
 
+#[derive(Clone, Debug)]
+struct TaskHierarchyEdge {
+    parent_page_id: String,
+    sibling_rank: String,
+    revision: i64,
+    created_at: String,
+}
+
+fn task_hierarchy_depth(
+    page_id: &str,
+    edges: &BTreeMap<String, TaskHierarchyEdge>,
+) -> Result<usize, StoreError> {
+    let mut depth = 0;
+    let mut cursor = page_id;
+    let mut visited = HashSet::new();
+    while let Some(edge) = edges.get(cursor) {
+        if !visited.insert(cursor) {
+            return Err(corrupt("Task hierarchy contains a cycle"));
+        }
+        depth += 1;
+        if depth > 10 {
+            return Err(corrupt("Task hierarchy exceeds its depth bound"));
+        }
+        cursor = &edge.parent_page_id;
+    }
+    Ok(depth)
+}
+
+fn task_subtree_height(
+    page_id: &str,
+    edges: &BTreeMap<String, TaskHierarchyEdge>,
+    path: &mut HashSet<String>,
+) -> Result<usize, StoreError> {
+    if !path.insert(page_id.to_owned()) {
+        return Err(corrupt("Task hierarchy contains a cycle"));
+    }
+    let mut height = 0;
+    for child_id in edges.iter().filter_map(|(child_id, edge)| {
+        (edge.parent_page_id == page_id).then_some(child_id.as_str())
+    }) {
+        height = height.max(1 + task_subtree_height(child_id, edges, path)?);
+    }
+    path.remove(page_id);
+    Ok(height)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn set_task_parent(
+    connection: &Connection,
+    library_id: &str,
+    project_id: &str,
+    data_source_id: &str,
+    pages: &[DatabaseTaskHierarchyPage],
+    parent_page_id: Option<&str>,
+    before_page_id: Option<&str>,
+    now: &str,
+    effects: &mut MutationEffects,
+    library_scope: bool,
+) -> Result<(), StoreError> {
+    if pages.is_empty() || pages.len() > MAX_BULK_VALUES {
+        return Err(invalid("Task hierarchy Page run is invalid"));
+    }
+    let page_ids = pages
+        .iter()
+        .map(|page| page.page_id.as_str())
+        .collect::<HashSet<_>>();
+    if page_ids.len() != pages.len() {
+        return Err(invalid("Task hierarchy Page IDs must be unique"));
+    }
+    if parent_page_id.is_some_and(|page_id| page_ids.contains(page_id)) {
+        return Err(invalid("A task cannot be its own parent"));
+    }
+    if before_page_id.is_some_and(|page_id| page_ids.contains(page_id)) {
+        return Err(invalid(
+            "Task hierarchy anchor must be outside the moved Page set",
+        ));
+    }
+    if parent_page_id.is_none() && before_page_id.is_some() {
+        return Err(invalid(
+            "Root task ordering must use the View position operation",
+        ));
+    }
+
+    let source = require_source(connection, library_id, data_source_id)?;
+    authorize_write(
+        connection,
+        project_id,
+        &source.database_id,
+        DatabaseWriteAction::Write,
+        library_scope,
+    )?;
+    for page in pages {
+        active_row_membership(connection, data_source_id, &page.page_id)?;
+    }
+    if let Some(parent_page_id) = parent_page_id {
+        active_row_membership(connection, data_source_id, parent_page_id)?;
+    }
+    if let Some(before_page_id) = before_page_id {
+        active_row_membership(connection, data_source_id, before_page_id)?;
+    }
+
+    let edges = connection
+        .prepare(
+            "SELECT child_page_id, parent_page_id, sibling_rank, revision, created_at \
+             FROM database_task_hierarchy_edges WHERE data_source_id = ?1 \
+             ORDER BY parent_page_id, sibling_rank, child_page_id",
+        )?
+        .query_map([data_source_id], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                TaskHierarchyEdge {
+                    parent_page_id: row.get(1)?,
+                    sibling_rank: row.get(2)?,
+                    revision: row.get(3)?,
+                    created_at: row.get(4)?,
+                },
+            ))
+        })?
+        .collect::<rusqlite::Result<BTreeMap<_, _>>>()?;
+    for page in pages {
+        let revision = edges.get(&page.page_id).map_or(0, |edge| edge.revision);
+        require_revision(
+            page.expected_hierarchy_revision,
+            revision,
+            "Task hierarchy revision changed",
+        )?;
+        let mut cursor = edges
+            .get(&page.page_id)
+            .map(|edge| edge.parent_page_id.as_str());
+        while let Some(ancestor) = cursor {
+            if page_ids.contains(ancestor) {
+                return Err(invalid(
+                    "A task selection cannot also contain one of its ancestors",
+                ));
+            }
+            cursor = edges.get(ancestor).map(|edge| edge.parent_page_id.as_str());
+        }
+    }
+
+    if let Some(parent_page_id) = parent_page_id {
+        let mut cursor = Some(parent_page_id);
+        let mut visited = HashSet::new();
+        while let Some(ancestor) = cursor {
+            if !visited.insert(ancestor) {
+                return Err(corrupt("Task hierarchy contains a cycle"));
+            }
+            if page_ids.contains(ancestor) {
+                return Err(invalid("Task hierarchy mutation would create a cycle"));
+            }
+            cursor = edges.get(ancestor).map(|edge| edge.parent_page_id.as_str());
+        }
+        let parent_depth = task_hierarchy_depth(parent_page_id, &edges)?;
+        for page in pages {
+            let subtree_height = task_subtree_height(&page.page_id, &edges, &mut HashSet::new())?;
+            if parent_depth + 1 + subtree_height > 10 {
+                return Err(invalid("Task hierarchy cannot exceed depth 10"));
+            }
+        }
+    }
+
+    if parent_page_id.is_none() {
+        for page in pages {
+            connection.execute(
+                "DELETE FROM database_task_hierarchy_edges \
+                 WHERE data_source_id = ?1 AND child_page_id = ?2",
+                params![data_source_id, page.page_id],
+            )?;
+            effects.page_ids.insert(page.page_id.clone());
+            effects
+                .revisions
+                .insert(format!("task_hierarchy:{}", page.page_id), 0);
+        }
+        effects.database_ids.insert(source.database_id);
+        effects.data_source_ids.insert(source.id);
+        return Ok(());
+    }
+
+    let Some(parent_page_id) = parent_page_id else {
+        return Err(internal("Task hierarchy parent guard was bypassed"));
+    };
+    let mut siblings = edges
+        .iter()
+        .filter_map(|(child_id, edge)| {
+            (edge.parent_page_id == parent_page_id && !page_ids.contains(child_id.as_str()))
+                .then_some((edge.sibling_rank.clone(), child_id.clone()))
+        })
+        .collect::<Vec<_>>();
+    siblings.sort();
+    let mut sibling_ids = siblings
+        .into_iter()
+        .map(|(_, page_id)| page_id)
+        .collect::<Vec<_>>();
+    let insert_at = match before_page_id {
+        Some(before_page_id) => sibling_ids
+            .iter()
+            .position(|page_id| page_id == before_page_id)
+            .ok_or_else(|| invalid("Task hierarchy anchor is not a target sibling"))?,
+        None => sibling_ids.len(),
+    };
+    sibling_ids.splice(
+        insert_at..insert_at,
+        pages.iter().map(|page| page.page_id.clone()),
+    );
+    let total = sibling_ids.len();
+    let mut put = connection.prepare(
+        "INSERT INTO database_task_hierarchy_edges(\
+           data_source_id, child_page_id, parent_page_id, sibling_rank, revision, \
+           created_at, updated_at\
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7) \
+         ON CONFLICT(child_page_id) DO UPDATE SET \
+           data_source_id = excluded.data_source_id, \
+           parent_page_id = excluded.parent_page_id, \
+           sibling_rank = excluded.sibling_rank, revision = excluded.revision, \
+           updated_at = excluded.updated_at",
+    )?;
+    for (index, page_id) in sibling_ids.iter().enumerate() {
+        let rank = evenly_spaced_rank(index, total);
+        let existing = edges.get(page_id);
+        let moved = page_ids.contains(page_id.as_str());
+        if !moved && existing.is_some_and(|edge| edge.sibling_rank == rank) {
+            continue;
+        }
+        let revision = existing.map_or(1, |edge| edge.revision + 1);
+        put.execute(params![
+            data_source_id,
+            page_id,
+            parent_page_id,
+            rank,
+            revision,
+            existing.map_or(now, |edge| edge.created_at.as_str()),
+            now,
+        ])?;
+        effects.page_ids.insert(page_id.clone());
+        effects
+            .revisions
+            .insert(format!("task_hierarchy:{page_id}"), revision);
+    }
+    effects.database_ids.insert(source.database_id);
+    effects.data_source_ids.insert(source.id);
+    Ok(())
+}
+
+fn presentation_override_is_empty(presentation: &DatabaseViewPresentationOverrideInput) -> bool {
+    presentation.layout.is_none()
+        && presentation.sort.is_none()
+        && presentation.group.is_none()
+        && presentation.subgroup.is_none()
+        && presentation.completion.is_none()
+        && presentation.hierarchy.is_none()
+        && presentation.layouts.is_none()
+}
+
+#[allow(clippy::too_many_arguments)]
+fn put_view_personal_preferences(
+    connection: &Connection,
+    profile_id: &str,
+    library_id: &str,
+    project_id: &str,
+    view_id: &str,
+    expected_revision: i64,
+    presentation_override: &DatabaseViewPresentationOverrideInput,
+    collapsed_group_keys: &[String],
+    now: &str,
+    effects: &mut MutationEffects,
+    library_scope: bool,
+) -> Result<(), StoreError> {
+    let view = view_row(connection, view_id)?
+        .filter(|view| view.lifecycle == "active")
+        .ok_or_else(|| not_found("Active Database View is unavailable"))?;
+    let source = require_source(connection, library_id, &view.data_source_id)?;
+    if source.database_id != view.database_id {
+        return Err(corrupt("Database View source authority is inconsistent"));
+    }
+    authorize_write(
+        connection,
+        project_id,
+        &view.database_id,
+        DatabaseWriteAction::Write,
+        library_scope,
+    )?;
+    super::window::validate_presentation_override(
+        connection,
+        library_id,
+        view_id,
+        presentation_override,
+    )?;
+    let current_revision = connection
+        .query_row(
+            "SELECT revision FROM database_view_personal_preferences \
+             WHERE profile_id = ?1 AND view_id = ?2",
+            params![profile_id, view_id],
+            |row| row.get::<_, i64>(0),
+        )
+        .optional()?
+        .unwrap_or(0);
+    require_revision(
+        expected_revision,
+        current_revision,
+        "Database View personal preferences changed",
+    )?;
+    if presentation_override_is_empty(presentation_override) && collapsed_group_keys.is_empty() {
+        connection.execute(
+            "DELETE FROM database_view_personal_preferences \
+             WHERE profile_id = ?1 AND view_id = ?2",
+            params![profile_id, view_id],
+        )?;
+        effects
+            .revisions
+            .insert(format!("view_preferences:{profile_id}:{view_id}"), 0);
+    } else {
+        let presentation_json = serde_json::to_string(presentation_override)
+            .map_err(|_| internal("View personal presentation could not be serialized"))?;
+        let collapsed_json = serde_json::to_string(collapsed_group_keys)
+            .map_err(|_| internal("View collapsed groups could not be serialized"))?;
+        let revision = current_revision + 1;
+        connection.execute(
+            "INSERT INTO database_view_personal_preferences(\
+               profile_id, view_id, presentation_override_json, \
+               collapsed_group_keys_json, revision, created_at, updated_at\
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6) \
+             ON CONFLICT(profile_id, view_id) DO UPDATE SET \
+               presentation_override_json = excluded.presentation_override_json, \
+               collapsed_group_keys_json = excluded.collapsed_group_keys_json, \
+               revision = excluded.revision, updated_at = excluded.updated_at",
+            params![
+                profile_id,
+                view_id,
+                presentation_json,
+                collapsed_json,
+                revision,
+                now,
+            ],
+        )?;
+        effects
+            .revisions
+            .insert(format!("view_preferences:{profile_id}:{view_id}"), revision);
+    }
+    effects.database_ids.insert(view.database_id);
+    effects.data_source_ids.insert(view.data_source_id);
+    effects.view_ids.insert(view.id);
+    Ok(())
+}
+
 fn validate_view_config(
     connection: &Connection,
     library_id: &str,
@@ -3771,19 +4255,12 @@ fn validate_view_config(
     let object = config
         .as_object()
         .ok_or_else(|| invalid("Database View config must be an object"))?;
-    let expected = [
-        "schemaKey",
-        "schemaVersion",
-        "filter",
-        "sort",
-        "group",
-        "display",
-    ];
+    let expected = ["schemaKey", "schemaVersion", "filter", "presentation"];
     if object.len() != expected.len() || expected.iter().any(|key| !object.contains_key(*key)) {
         return Err(invalid("Database View config has unsupported fields"));
     }
     if object.get("schemaKey").and_then(Value::as_str) != Some("nodex.database-view")
-        || object.get("schemaVersion").and_then(Value::as_i64) != Some(2)
+        || object.get("schemaVersion").and_then(Value::as_i64) != Some(4)
     {
         return Err(invalid("Database View config schema is unsupported"));
     }
@@ -3794,7 +4271,27 @@ fn validate_view_config(
         0,
         &mut 0,
     )?;
-    let sort = object
+    let presentation = object
+        .get("presentation")
+        .and_then(Value::as_object)
+        .ok_or_else(|| invalid("Database View presentation is invalid"))?;
+    let presentation_fields = [
+        "sort",
+        "group",
+        "subgroup",
+        "groupDirection",
+        "completion",
+        "hierarchy",
+        "layouts",
+    ];
+    if presentation.len() != presentation_fields.len()
+        || presentation_fields
+            .iter()
+            .any(|key| !presentation.contains_key(*key))
+    {
+        return Err(invalid("Database View presentation has unsupported fields"));
+    }
+    let sort = presentation
         .get("sort")
         .and_then(Value::as_array)
         .ok_or_else(|| invalid("Database View sort must be an array"))?;
@@ -3804,33 +4301,102 @@ fn validate_view_config(
     for item in sort {
         validate_view_sort(item)?;
     }
-    match object.get("group") {
-        Some(Value::Null) => {}
-        Some(group)
-            if group.as_object().is_some_and(|group| {
-                group.len() == 1 && group.get("propertyId").and_then(Value::as_str).is_some()
-            }) => {}
-        _ => return Err(invalid("Database View group is invalid")),
+    for key in ["group", "subgroup"] {
+        match presentation.get(key) {
+            Some(Value::Null) => {}
+            Some(group)
+                if group.as_object().is_some_and(|group| {
+                    group.len() == 1 && group.get("propertyId").and_then(Value::as_str).is_some()
+                }) => {}
+            _ => return Err(invalid("Database View grouping is invalid")),
+        }
     }
-    let display = object
-        .get("display")
+    if view_group_property(config).is_some()
+        && view_group_property(config) == view_subgroup_property(config)
+    {
+        return Err(invalid(
+            "Database View group and subgroup must be different",
+        ));
+    }
+    if !matches!(
+        presentation.get("groupDirection").and_then(Value::as_str),
+        Some("asc" | "desc")
+    ) {
+        return Err(invalid("Database View group direction is invalid"));
+    }
+    let completion = presentation
+        .get("completion")
         .and_then(Value::as_object)
-        .ok_or_else(|| invalid("Database View display is invalid"))?;
-    if display.len() != 2
-        || display.get("showTitle").and_then(Value::as_bool).is_none()
-        || !display
-            .get("propertyIds")
-            .and_then(Value::as_array)
-            .is_some_and(|values| values.iter().all(Value::is_string))
+        .ok_or_else(|| invalid("Database View completion policy is invalid"))?;
+    if completion.len() != 2
+        || !matches!(
+            completion.get("range").and_then(Value::as_str),
+            Some("all" | "past_month" | "past_week" | "past_day" | "none")
+        )
+        || completion
+            .get("orderByRecency")
+            .and_then(Value::as_bool)
+            .is_none()
     {
-        return Err(invalid("Database View display is invalid"));
+        return Err(invalid("Database View completion policy is invalid"));
     }
-    if display
-        .get("propertyIds")
-        .and_then(Value::as_array)
-        .is_some_and(|values| values.len() > MAX_VIEW_DISPLAY_PROPERTIES)
-    {
-        return Err(invalid("Database View display exceeds its Property bound"));
+    let hierarchy = presentation
+        .get("hierarchy")
+        .and_then(Value::as_object)
+        .ok_or_else(|| invalid("Database View hierarchy policy is invalid"))?;
+    let show_sub_pages = hierarchy
+        .get("showSubPages")
+        .and_then(Value::as_bool)
+        .ok_or_else(|| invalid("Database View hierarchy policy is invalid"))?;
+    let nested_sub_pages = hierarchy
+        .get("nestedSubPages")
+        .and_then(Value::as_bool)
+        .ok_or_else(|| invalid("Database View hierarchy policy is invalid"))?;
+    if hierarchy.len() != 2 || (!show_sub_pages && nested_sub_pages) {
+        return Err(invalid("Database View hierarchy policy is invalid"));
+    }
+    let layouts = presentation
+        .get("layouts")
+        .and_then(Value::as_object)
+        .ok_or_else(|| invalid("Database View layouts are invalid"))?;
+    if layouts.len() != 2 || !layouts.contains_key("board") || !layouts.contains_key("list") {
+        return Err(invalid("Database View layouts have unsupported fields"));
+    }
+    for layout_name in ["board", "list"] {
+        let layout = layouts
+            .get(layout_name)
+            .and_then(Value::as_object)
+            .ok_or_else(|| invalid("Database View layout display is invalid"))?;
+        let fields = layout
+            .get("fields")
+            .and_then(Value::as_array)
+            .ok_or_else(|| invalid("Database View layout fields are invalid"))?;
+        if layout.len() != 2
+            || layout
+                .get("showEmptyGroups")
+                .and_then(Value::as_bool)
+                .is_none()
+            || fields.len() > MAX_VIEW_DISPLAY_PROPERTIES
+        {
+            return Err(invalid("Database View layout display is invalid"));
+        }
+        for field in fields {
+            let field = field
+                .as_object()
+                .ok_or_else(|| invalid("Database View layout field is invalid"))?;
+            match field.get("kind").and_then(Value::as_str) {
+                Some("property")
+                    if field.len() == 2
+                        && field.get("propertyId").and_then(Value::as_str).is_some() => {}
+                Some("intrinsic")
+                    if field.len() == 2
+                        && matches!(
+                            field.get("field").and_then(Value::as_str),
+                            Some("created_at" | "updated_at")
+                        ) => {}
+                _ => return Err(invalid("Database View layout field is invalid")),
+            }
+        }
     }
     let property_ids = collect_view_property_ids(config)?;
     let property_records = connection
@@ -3883,15 +4449,19 @@ fn validate_view_property_capabilities(
     property_capabilities: &BTreeMap<String, DatabasePropertyCapabilities>,
     library_scope: bool,
 ) -> Result<(), StoreError> {
-    if view_group_property(config).is_some_and(|property_id| {
-        property_capabilities
-            .get(property_id)
-            .is_some_and(|capabilities| !capabilities.groupable)
-    }) {
+    if [view_group_property(config), view_subgroup_property(config)]
+        .into_iter()
+        .flatten()
+        .any(|property_id| {
+            property_capabilities
+                .get(property_id)
+                .is_some_and(|capabilities| !capabilities.groupable)
+        })
+    {
         return Err(invalid("Property cannot group a Database View"));
     }
     let sort = config
-        .get("sort")
+        .pointer("/presentation/sort")
         .and_then(Value::as_array)
         .ok_or_else(|| invalid("Database View sort must be an array"))?;
     for rule in sort {
@@ -4108,22 +4678,27 @@ fn validate_view_sort(value: &Value) -> Result<(), StoreError> {
 
 fn collect_view_property_ids(config: &Value) -> Result<HashSet<String>, StoreError> {
     let mut property_ids = HashSet::new();
-    if let Some(property_id) = view_group_property(config) {
+    for property_id in [view_group_property(config), view_subgroup_property(config)]
+        .into_iter()
+        .flatten()
+    {
         property_ids.insert(property_id.to_owned());
     }
-    let display = config
-        .pointer("/display/propertyIds")
-        .and_then(Value::as_array)
-        .ok_or_else(|| invalid("Database View display Property IDs are invalid"))?;
-    for property_id in display {
-        property_ids.insert(
-            property_id
-                .as_str()
-                .ok_or_else(|| invalid("Database View display Property ID is invalid"))?
-                .to_owned(),
-        );
+    for layout_name in ["board", "list"] {
+        let fields = config
+            .pointer(&format!("/presentation/layouts/{layout_name}/fields"))
+            .and_then(Value::as_array)
+            .ok_or_else(|| invalid("Database View layout fields are invalid"))?;
+        for field in fields {
+            if let Some(property_id) = field.get("propertyId").and_then(Value::as_str) {
+                property_ids.insert(property_id.to_owned());
+            }
+        }
     }
-    if let Some(sort) = config.get("sort").and_then(Value::as_array) {
+    if let Some(sort) = config
+        .pointer("/presentation/sort")
+        .and_then(Value::as_array)
+    {
         for item in sort {
             if let Some(property_id) = item.pointer("/field/propertyId").and_then(Value::as_str) {
                 property_ids.insert(property_id.to_owned());
@@ -4167,12 +4742,20 @@ fn collect_filter_property_ids(
 }
 
 fn view_group_property(config: &Value) -> Option<&str> {
-    config.pointer("/group/propertyId").and_then(Value::as_str)
+    config
+        .pointer("/presentation/group/propertyId")
+        .and_then(Value::as_str)
+}
+
+fn view_subgroup_property(config: &Value) -> Option<&str> {
+    config
+        .pointer("/presentation/subgroup/propertyId")
+        .and_then(Value::as_str)
 }
 
 fn view_manual_direction(config: &Value) -> &str {
     config
-        .get("sort")
+        .pointer("/presentation/sort")
         .and_then(Value::as_array)
         .and_then(|sort| {
             sort.iter()
@@ -4183,11 +4766,9 @@ fn view_manual_direction(config: &Value) -> &str {
         .unwrap_or("asc")
 }
 
-fn read_logical_group(
+fn read_logical_view(
     connection: &Connection,
     view: &ViewRow,
-    group_property_id: Option<&str>,
-    group_key: Option<&str>,
     excluded_page_ids: &HashSet<&str>,
 ) -> Result<Vec<LogicalViewPositionItem>, StoreError> {
     let rows = connection
@@ -4212,25 +4793,9 @@ fn read_logical_group(
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     let mut result = Vec::new();
-    for (membership_id, page_id, rank_key) in rows {
+    for (_membership_id, page_id, rank_key) in rows {
         if excluded_page_ids.contains(page_id.as_str()) {
             continue;
-        }
-        if let Some(property_id) = group_property_id {
-            let value = connection
-                .query_row(
-                    "SELECT value_json FROM data_source_property_values \
-                     WHERE data_source_id = ?1 AND membership_id = ?2 AND property_id = ?3",
-                    params![view.data_source_id, membership_id, property_id],
-                    |row| row.get::<_, String>(0),
-                )
-                .optional()?
-                .map(|value| parse_json(&value, "Grouped Property value"))
-                .transpose()?;
-            let effective = value.as_ref().map_or(Ok(None), database_group_key)?;
-            if effective.as_deref() != group_key {
-                continue;
-            }
         }
         result.push(LogicalViewPositionItem { page_id, rank_key });
     }
@@ -4337,11 +4902,17 @@ fn refresh_default_view_projection(
 ) -> Result<(), StoreError> {
     let default_view = connection
         .query_row(
-            "SELECT view.id, view.data_source_id FROM database_containers container \
+            "SELECT view.id, view.data_source_id, view.config_json FROM database_containers container \
              JOIN database_views view ON view.id = container.default_view_id \
              WHERE container.block_id = ?1 AND view.lifecycle = 'active'",
             [database_id],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            },
         )
         .optional()?;
     let projections = connection
@@ -4359,14 +4930,14 @@ fn refresh_default_view_projection(
     for (page_id, data_source_id) in projections {
         let uses_default = default_view
             .as_ref()
-            .is_some_and(|(_, source_id)| data_source_id.as_deref() == Some(source_id));
+            .is_some_and(|(_, source_id, _)| data_source_id.as_deref() == Some(source_id));
         let position = if uses_default {
             connection
                 .query_row(
-                    "SELECT group_key, rank_key FROM database_view_page_positions \
+                    "SELECT rank_key FROM database_view_page_positions \
                      WHERE view_id = ?1 AND page_block_id = ?2",
-                    params![default_view.as_ref().map(|(id, _)| id), page_id],
-                    |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, String>(1)?)),
+                    params![default_view.as_ref().map(|(id, _, _)| id), page_id],
+                    |row| row.get::<_, String>(0),
                 )
                 .optional()?
         } else {
@@ -4378,12 +4949,22 @@ fn refresh_default_view_projection(
              WHERE page_block_id = ?5",
             params![
                 uses_default
-                    .then(|| default_view.as_ref().map(|(id, _)| id))
+                    .then(|| default_view.as_ref().map(|(id, _, _)| id))
                     .flatten(),
-                position
-                    .as_ref()
-                    .and_then(|(group_key, _)| group_key.as_deref()),
-                position.as_ref().map(|(_, rank_key)| rank_key),
+                if uses_default {
+                    let (_, source_id, config_json) = default_view.as_ref().ok_or_else(|| {
+                        corrupt("Default Database View projection is unavailable")
+                    })?;
+                    derived_view_group_key(
+                        connection,
+                        source_id,
+                        &page_id,
+                        &parse_json(config_json, "Database View config")?,
+                    )?
+                } else {
+                    None
+                },
+                position,
                 now,
                 page_id,
             ],
@@ -4724,7 +5305,7 @@ pub(crate) fn normalize_value(property: &PropertyRow, value: &Value) -> Result<V
 }
 
 #[allow(clippy::too_many_arguments)]
-fn update_grouped_positions(
+fn update_grouped_view_projections(
     connection: &Connection,
     data_source_id: &str,
     property_id: &str,
@@ -4744,22 +5325,14 @@ fn update_grouped_positions(
         .collect::<rusqlite::Result<Vec<_>>>()?;
     for (view_id, config) in views {
         let config = parse_json(&config, "Database View config")?;
-        if config.pointer("/group/propertyId").and_then(Value::as_str) != Some(property_id) {
+        if config
+            .pointer("/presentation/group/propertyId")
+            .and_then(Value::as_str)
+            != Some(property_id)
+        {
             continue;
         }
         let group_key = database_group_key(value)?;
-        let revision = connection
-            .query_row(
-                "UPDATE database_view_page_positions SET group_key = ?1, \
-                   revision = revision + 1, updated_at = ?2 \
-                 WHERE view_id = ?3 AND page_block_id = ?4 RETURNING revision",
-                params![group_key, now, view_id, page_id],
-                |row| row.get::<_, i64>(0),
-            )
-            .optional()?;
-        let Some(revision) = revision else {
-            continue;
-        };
         connection.execute(
             "UPDATE page_read_model SET view_group_key = ?1, \
                projection_version = projection_version + 1, updated_at = ?2 \
@@ -4767,9 +5340,6 @@ fn update_grouped_positions(
             params![group_key, now, page_id, view_id],
         )?;
         effects.view_ids.insert(view_id.clone());
-        effects
-            .revisions
-            .insert(format!("position:{view_id}:{page_id}"), revision);
     }
     Ok(())
 }
@@ -5503,16 +6073,24 @@ mod tests {
     fn view_property_references_ignore_filter_values() {
         let property_ids = collect_view_property_ids(&json!({
             "schemaKey": "nodex.database-view",
-            "schemaVersion": 2,
+            "schemaVersion": 4,
             "filter": {
                 "kind": "clause",
                 "propertyId": "status",
                 "operator": "equals",
                 "value": "due_date"
             },
-            "sort": [],
-            "group": null,
-            "display": { "propertyIds": [], "showTitle": true }
+            "presentation": {
+                "sort": [],
+                "group": null,
+                "subgroup": null,
+                "completion": { "range": "all", "orderByRecency": false },
+                "hierarchy": { "showSubPages": true, "nestedSubPages": false },
+                "layouts": {
+                    "board": { "fields": [], "showEmptyGroups": false },
+                    "list": { "fields": [], "showEmptyGroups": false }
+                }
+            }
         }))
         .expect("valid View config");
 

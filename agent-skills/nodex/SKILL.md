@@ -1,6 +1,6 @@
 ---
 name: nodex
-description: Use the Nodex CLI to discover and edit Nodex Pages and Nested Markdown rich-editor content, inspect Project context, query saved database Views or Kanban boards, move cards atomically, and open Nodex resources. Trigger only when the user wants to read, change, organize, or open content in Nodex.
+description: Use the Nodex CLI to discover and edit Nodex Pages and Nested Markdown rich-editor content, inspect Project context, query saved database Views or Boards, move cards atomically, and open Nodex resources. Trigger only when the user wants to read, change, organize, or open content in Nodex.
 ---
 
 # Nodex
@@ -29,7 +29,7 @@ Do not guess an older interface or substitute direct storage access. See
 
 - Discover, read, edit, create, move, duplicate, or delete a Page: read
   [page-editor.md](references/page-editor.md).
-- Query a saved View or organize a Kanban board: read
+- Query a saved View or organize a Board: read
   [project-database-views.md](references/project-database-views.md).
 - Author or replace rich-editor content: also read
   [nested-markdown.md](references/nested-markdown.md).

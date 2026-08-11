@@ -12,6 +12,7 @@ import type {
 } from "../../../shared/database-views";
 import { TestQueryProvider } from "../../test/query";
 import { AUTHORIZED_READ_STAMP_EXAMPLE } from "../../../shared/testing/authorized-read-stamp-example";
+import { upgradeDatabaseViewConfigV2 } from "../../../shared/database-view-presentation";
 import { WorkbenchDatabaseViewSurface } from "./workbench-database-view-surface";
 
 const api = vi.hoisted(() => ({
@@ -24,8 +25,13 @@ const api = vi.hoisted(() => ({
 const presenter = vi.hoisted(() => ({
   props: null as Record<string, unknown> | null,
 }));
+const classicBoardAdapter = vi.hoisted(() => ({ enabled: false }));
 
 vi.mock("../../lib/api", () => api);
+vi.mock("@/components/board/board", () => ({ Board: () => null }));
+vi.mock("@/lib/classic-board-adapter", () => ({
+  classicBoardPreferences: () => classicBoardAdapter.enabled ? {} : null,
+}));
 vi.mock("./workbench-db-view-panel", () => ({
   DatabaseViewTabSurface: (props: Record<string, unknown>) => {
     presenter.props = props;
@@ -77,7 +83,7 @@ const makeWindow = <ProjectScope extends string | null>(
     databaseBlockId: databaseId,
     projectId,
     name: "Board",
-    kind: "kanban",
+    defaultLayout: "board",
     config: {},
     isPrimary: true,
     createdAt: timestamp,
@@ -112,15 +118,15 @@ const makeWindow = <ProjectScope extends string | null>(
       databaseId,
       dataSourceId,
       name: "Board",
-      kind: "kanban",
-      config: {
+      defaultLayout: "board",
+      config: upgradeDatabaseViewConfigV2({
         schemaKey: "nodex.database-view",
         schemaVersion: 2,
         filter: { kind: "group", operator: "and", children: [] },
         sort: [],
         group: null,
         display: { propertyIds: [], showTitle: true },
-      },
+      }),
       isDefault: true,
       revision: 1,
       rankKey: "a",
@@ -152,7 +158,10 @@ const makeGroups = <ProjectScope extends string | null>(
     effectHash: "a".repeat(64),
   },
   grouped: false,
+  subgrouped: false,
   totalRows: 0,
+  totalGroups: 0,
+  groupLimit: 200,
   truncated: false,
   groups: [],
 });
@@ -160,6 +169,7 @@ const makeGroups = <ProjectScope extends string | null>(
 beforeEach(() => {
   vi.clearAllMocks();
   presenter.props = null;
+  classicBoardAdapter.enabled = false;
   api.readLibraryDatabaseViewGroups.mockResolvedValue(makeGroups(null));
   api.readLibraryDatabaseViewWindow.mockResolvedValue(makeWindow(null));
   api.readDatabaseViewGroups.mockResolvedValue(makeGroups("project-alpha"));
@@ -167,6 +177,21 @@ beforeEach(() => {
 });
 
 describe("WorkbenchDatabaseViewSurface", () => {
+  test("adapts a canonical Project Board into the established presenter", async () => {
+    classicBoardAdapter.enabled = true;
+    render(
+      <TestQueryProvider>
+        <WorkbenchDatabaseViewSurface
+          accessContext={{ kind: "project", projectId: "project-alpha" }}
+          target={{ kind: "database-view", databaseViewId: viewId }}
+          onOpenPage={() => undefined}
+        />
+      </TestQueryProvider>,
+    );
+
+    await waitFor(() => expect(presenter.props?.boardSurface).toBeTruthy());
+  });
+
   test("uses Library reads and the shared Database View presenter", async () => {
     const onOpenPage = vi.fn();
     const onPresentationChange = vi.fn();

@@ -40,6 +40,7 @@ export type ProjectionPatch =
       readonly row: DatabasePageSummary;
       readonly sourceRow: components["schemas"]["DatabaseRowSummary"];
       readonly effectiveGroupKey: string | null;
+      readonly effectiveSubgroupKey: string | null;
       readonly rankKey: string | null;
       readonly totalRows: number;
       readonly groupTotal: number | null;
@@ -53,6 +54,7 @@ export type ProjectionPatch =
       readonly pageId: string;
       readonly totalRows: number;
       readonly groupKey: string | null;
+      readonly subgroupKey: string | null;
       readonly groupTotal: number | null;
     }
   | {

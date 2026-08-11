@@ -14,7 +14,7 @@ use chrono::{DateTime, NaiveDate, NaiveDateTime, SecondsFormat, Utc};
 use rusqlite::backup::Backup;
 use rusqlite::{Connection, MAIN_DB, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value};
+use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 use yrs::updates::decoder::Decode;
 #[cfg(test)]
@@ -29,6 +29,7 @@ use crate::document::{
     derive_canvas_element, has_pending_dependencies, load_v94_canvas_scene,
     materialize_decoded_document, read_document_authority, rebuild_legacy_import_projections,
 };
+use crate::domain::fractional_rank::evenly_spaced_rank;
 use crate::domain::project_appearance::{
     legacy_project_appearance, project_marker_color_literal, project_marker_icon_literal,
 };
@@ -79,6 +80,20 @@ struct PrioritySourceState {
     current_ids: BTreeSet<String>,
     had_legacy_p4: bool,
 }
+
+#[derive(Clone, Debug)]
+struct LegacyDatabaseViewRow {
+    id: String,
+    database_id: String,
+    data_source_id: String,
+    name: String,
+    kind: String,
+    config_json: String,
+    revision: i64,
+    rank_key: String,
+    lifecycle: String,
+    created_at: String,
+}
 const V97_CANVAS_OWNERS_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS canvas_owners (
   block_id TEXT PRIMARY KEY REFERENCES blocks(id) ON DELETE CASCADE,
@@ -109,6 +124,272 @@ WHEN NOT EXISTS (
 )
 BEGIN
   SELECT RAISE(ABORT, 'Canvas owner metadata requires a Canvas Document owner');
+END;
+"#;
+
+const V112_DATABASE_VIEW_SCHEMA_SQL: &str = r#"
+CREATE TABLE database_views_v112 (
+  id TEXT PRIMARY KEY,
+  database_block_id TEXT NOT NULL,
+  data_source_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  default_layout TEXT NOT NULL,
+  config_json TEXT NOT NULL DEFAULT '{}',
+  revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
+  rank_key TEXT NOT NULL,
+  lifecycle TEXT NOT NULL DEFAULT 'active',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY (database_block_id)
+    REFERENCES database_containers(block_id) ON DELETE CASCADE,
+  FOREIGN KEY (data_source_id, database_block_id)
+    REFERENCES data_sources(id, home_database_block_id)
+    ON UPDATE CASCADE ON DELETE CASCADE,
+  CHECK (default_layout IN ('board', 'list')),
+  CHECK (lifecycle IN ('active', 'deleted')),
+  CHECK (json_valid(config_json) AND json_type(config_json) = 'object')
+) WITHOUT ROWID, STRICT;
+
+CREATE TABLE database_view_page_positions_v112 (
+  view_id TEXT NOT NULL,
+  page_block_id TEXT NOT NULL REFERENCES blocks(id) ON DELETE CASCADE,
+  group_key TEXT,
+  rank_key TEXT NOT NULL,
+  revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (view_id, page_block_id),
+  FOREIGN KEY (view_id) REFERENCES database_views_v112(id) ON DELETE CASCADE
+) WITHOUT ROWID, STRICT;
+
+CREATE TABLE page_read_model_v112 (
+  page_block_id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  lifecycle TEXT NOT NULL,
+  location_kind TEXT NOT NULL,
+  containing_document_id TEXT,
+  containing_database_id TEXT,
+  top_level_rank_key TEXT,
+  location_revision INTEGER NOT NULL CHECK (location_revision >= 1),
+  metadata_revision INTEGER NOT NULL CHECK (metadata_revision >= 1),
+  document_id TEXT NOT NULL UNIQUE,
+  document_generation INTEGER NOT NULL CHECK (document_generation >= 1),
+  document_projected_seq INTEGER NOT NULL CHECK (document_projected_seq >= 0),
+  document_schema_version INTEGER NOT NULL CHECK (document_schema_version >= 1),
+  document_authority TEXT NOT NULL,
+  membership_id TEXT,
+  database_block_id TEXT,
+  view_id TEXT,
+  view_group_key TEXT,
+  view_rank_key TEXT,
+  title TEXT NOT NULL,
+  description_preview TEXT NOT NULL,
+  description_length INTEGER NOT NULL CHECK (description_length >= 0),
+  has_description INTEGER NOT NULL CHECK (has_description IN (0, 1)),
+  database_values_json TEXT NOT NULL DEFAULT '{}',
+  intrinsic_properties_json TEXT NOT NULL DEFAULT '{}',
+  property_revisions_json TEXT NOT NULL DEFAULT '{}',
+  projection_version INTEGER NOT NULL DEFAULT 1 CHECK (projection_version >= 1),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY (page_block_id, project_id)
+    REFERENCES blocks(id, project_id) ON UPDATE CASCADE ON DELETE CASCADE,
+  FOREIGN KEY (document_id, project_id)
+    REFERENCES documents(id, project_id) ON UPDATE CASCADE ON DELETE CASCADE,
+  FOREIGN KEY (containing_document_id)
+    REFERENCES documents(id) ON UPDATE CASCADE ON DELETE RESTRICT,
+  FOREIGN KEY (containing_database_id)
+    REFERENCES database_containers(block_id) ON DELETE RESTRICT,
+  FOREIGN KEY (membership_id)
+    REFERENCES data_source_page_memberships(id) ON UPDATE CASCADE ON DELETE CASCADE,
+  FOREIGN KEY (database_block_id)
+    REFERENCES database_containers(block_id) ON DELETE RESTRICT,
+  FOREIGN KEY (view_id)
+    REFERENCES database_views_v112(id) ON UPDATE CASCADE ON DELETE CASCADE,
+  CHECK (lifecycle IN ('active', 'archived', 'deleted')),
+  CHECK (location_kind IN ('space', 'document', 'database')),
+  CHECK (
+    (location_kind = 'space'
+      AND containing_document_id IS NULL
+      AND containing_database_id IS NULL)
+    OR (location_kind = 'document'
+      AND containing_document_id IS NOT NULL
+      AND containing_database_id IS NULL)
+    OR (location_kind = 'database'
+      AND containing_document_id IS NULL
+      AND containing_database_id IS NOT NULL)
+  ),
+  CHECK (document_authority IN ('legacy_shadow', 'ydoc_primary')),
+  CHECK (
+    (membership_id IS NULL AND database_block_id IS NULL)
+    OR (membership_id IS NOT NULL AND database_block_id IS NOT NULL)
+  ),
+  CHECK (view_id IS NULL OR membership_id IS NOT NULL),
+  CHECK (json_valid(database_values_json) AND json_type(database_values_json) = 'object'),
+  CHECK (json_valid(intrinsic_properties_json) AND json_type(intrinsic_properties_json) = 'object'),
+  CHECK (json_valid(property_revisions_json) AND json_type(property_revisions_json) = 'object'),
+  CHECK (length(created_at) > 0 AND length(updated_at) > 0)
+) WITHOUT ROWID, STRICT;
+"#;
+
+const V112_DATABASE_VIEW_INDEXES_AND_TRIGGERS_SQL: &str = r#"
+CREATE INDEX idx_database_views_database_order
+  ON database_views(database_block_id, lifecycle, rank_key, id);
+CREATE INDEX idx_database_views_source
+  ON database_views(data_source_id, lifecycle, id);
+CREATE INDEX idx_database_view_page_positions_order
+  ON database_view_page_positions(view_id, group_key, rank_key, page_block_id);
+CREATE INDEX idx_page_read_model_project_lifecycle
+  ON page_read_model(project_id, lifecycle, page_block_id);
+CREATE INDEX idx_page_read_model_view_order
+  ON page_read_model(view_id, view_group_key, view_rank_key, page_block_id)
+  WHERE view_id IS NOT NULL;
+CREATE INDEX idx_page_read_model_document_freshness
+  ON page_read_model(document_id, document_generation, document_projected_seq);
+
+CREATE TRIGGER database_containers_default_view_is_owned_insert
+BEFORE INSERT ON database_containers
+WHEN NEW.default_view_id IS NOT NULL
+  AND NOT EXISTS (
+    SELECT 1 FROM database_views view
+    WHERE view.id = NEW.default_view_id
+      AND view.database_block_id = NEW.block_id
+      AND view.lifecycle = 'active'
+  )
+BEGIN
+  SELECT RAISE(ABORT, 'Database default View must be active and owned by its Container');
+END;
+
+CREATE TRIGGER database_containers_default_view_is_owned_update
+BEFORE UPDATE OF default_view_id, block_id ON database_containers
+WHEN NEW.default_view_id IS NOT NULL
+  AND NOT EXISTS (
+    SELECT 1 FROM database_views view
+    WHERE view.id = NEW.default_view_id
+      AND view.database_block_id = NEW.block_id
+      AND view.lifecycle = 'active'
+  )
+BEGIN
+  SELECT RAISE(ABORT, 'Database default View must be active and owned by its Container');
+END;
+
+CREATE TRIGGER database_views_preserve_container_default_update
+BEFORE UPDATE OF database_block_id, lifecycle ON database_views
+WHEN EXISTS (
+  SELECT 1 FROM database_containers container
+  WHERE container.default_view_id = OLD.id
+    AND (NEW.database_block_id <> container.block_id OR NEW.lifecycle <> 'active')
+)
+BEGIN
+  SELECT RAISE(ABORT, 'A Database default View must remain active and owned');
+END;
+
+CREATE TRIGGER database_views_preserve_container_default_delete
+BEFORE DELETE ON database_views
+WHEN EXISTS (
+  SELECT 1 FROM database_containers container
+  WHERE container.default_view_id = OLD.id
+)
+BEGIN
+  SELECT RAISE(ABORT, 'A Database default View cannot be deleted');
+END;
+
+CREATE TRIGGER database_view_page_positions_require_active_membership_insert
+BEFORE INSERT ON database_view_page_positions
+WHEN NOT EXISTS (
+  SELECT 1
+  FROM database_views view
+  INNER JOIN data_source_page_memberships membership
+    ON membership.data_source_id = view.data_source_id
+   AND membership.page_block_id = NEW.page_block_id
+   AND membership.removed_at IS NULL
+  WHERE view.id = NEW.view_id
+)
+BEGIN
+  SELECT RAISE(ABORT, 'Database View position requires active Source membership');
+END;
+
+CREATE TRIGGER database_view_page_positions_require_active_membership_update
+BEFORE UPDATE OF view_id, page_block_id ON database_view_page_positions
+WHEN NOT EXISTS (
+  SELECT 1
+  FROM database_views view
+  INNER JOIN data_source_page_memberships membership
+    ON membership.data_source_id = view.data_source_id
+   AND membership.page_block_id = NEW.page_block_id
+   AND membership.removed_at IS NULL
+  WHERE view.id = NEW.view_id
+)
+BEGIN
+  SELECT RAISE(ABORT, 'Database View position requires active Source membership');
+END;
+
+CREATE TRIGGER page_read_model_validate_insert
+BEFORE INSERT ON page_read_model
+WHEN NOT EXISTS (
+  SELECT 1 FROM blocks page
+  WHERE page.id = NEW.page_block_id
+    AND page.project_id = NEW.project_id
+    AND page.type = 'page'
+) OR (
+  NEW.membership_id IS NOT NULL
+  AND NOT EXISTS (
+    SELECT 1
+    FROM data_source_page_memberships membership
+    INNER JOIN data_sources source ON source.id = membership.data_source_id
+    WHERE membership.id = NEW.membership_id
+      AND membership.page_block_id = NEW.page_block_id
+      AND membership.removed_at IS NULL
+      AND source.home_database_block_id = NEW.database_block_id
+  )
+) OR (
+  NEW.view_id IS NOT NULL
+  AND NOT EXISTS (
+    SELECT 1
+    FROM database_views view
+    INNER JOIN data_source_page_memberships membership
+      ON membership.id = NEW.membership_id
+     AND membership.data_source_id = view.data_source_id
+    WHERE view.id = NEW.view_id
+      AND view.database_block_id = NEW.database_block_id
+  )
+)
+BEGIN
+  SELECT RAISE(ABORT, 'Page read model source coordinates are invalid or stale');
+END;
+
+CREATE TRIGGER page_read_model_validate_update
+BEFORE UPDATE ON page_read_model
+WHEN NOT EXISTS (
+  SELECT 1 FROM blocks page
+  WHERE page.id = NEW.page_block_id
+    AND page.project_id = NEW.project_id
+    AND page.type = 'page'
+) OR (
+  NEW.membership_id IS NOT NULL
+  AND NOT EXISTS (
+    SELECT 1
+    FROM data_source_page_memberships membership
+    INNER JOIN data_sources source ON source.id = membership.data_source_id
+    WHERE membership.id = NEW.membership_id
+      AND membership.page_block_id = NEW.page_block_id
+      AND membership.removed_at IS NULL
+      AND source.home_database_block_id = NEW.database_block_id
+  )
+) OR (
+  NEW.view_id IS NOT NULL
+  AND NOT EXISTS (
+    SELECT 1
+    FROM database_views view
+    INNER JOIN data_source_page_memberships membership
+      ON membership.id = NEW.membership_id
+     AND membership.data_source_id = view.data_source_id
+    WHERE view.id = NEW.view_id
+      AND view.database_block_id = NEW.database_block_id
+  )
+)
+BEGIN
+  SELECT RAISE(ABORT, 'Page read model source coordinates are invalid or stale');
 END;
 "#;
 const V85_SCHEMA_SQL: &str = r#"
@@ -1781,7 +2062,8 @@ pub fn prepare_profile_store_with_observer(
         validate_store(connection)?;
         validate_codex_thread_timestamp_invariants(connection)?;
         validate_canonical_text_timestamp_invariants(connection)?;
-        validate_database_view_kind_invariants(connection)?;
+        validate_database_view_layout_invariants(connection)?;
+        validate_database_view_global_rank_invariants(connection)?;
         validate_database_relation_invariants(connection)?;
         validate_database_priority_invariants(connection)?;
         return Ok(StorePreparation {
@@ -1807,7 +2089,8 @@ pub fn prepare_profile_store_with_observer(
         validate_store(connection)?;
         validate_codex_thread_timestamp_invariants(connection)?;
         validate_canonical_text_timestamp_invariants(connection)?;
-        validate_database_view_kind_invariants(connection)?;
+        validate_database_view_layout_invariants(connection)?;
+        validate_database_view_global_rank_invariants(connection)?;
         validate_database_relation_invariants(connection)?;
         validate_database_priority_invariants(connection)?;
         return Ok(StorePreparation {
@@ -1862,7 +2145,8 @@ pub fn prepare_profile_store_with_observer(
     validate_core_metadata(connection, CORE_SCHEMA_VERSION)?;
     validate_codex_thread_timestamp_invariants(connection)?;
     validate_canonical_text_timestamp_invariants(connection)?;
-    validate_database_view_kind_invariants(connection)?;
+    validate_database_view_layout_invariants(connection)?;
+    validate_database_view_global_rank_invariants(connection)?;
     validate_database_relation_invariants(connection)?;
     validate_database_priority_invariants(connection)?;
     Ok(StorePreparation {
@@ -1919,7 +2203,8 @@ pub(crate) fn prepare_legacy_import_candidate(
     validate_exact_current_schema(connection)?;
     validate_codex_thread_timestamp_invariants(connection)?;
     validate_canonical_text_timestamp_invariants(connection)?;
-    validate_database_view_kind_invariants(connection)?;
+    validate_database_view_layout_invariants(connection)?;
+    validate_database_view_global_rank_invariants(connection)?;
     validate_database_relation_invariants(connection)?;
     validate_database_priority_invariants(connection)?;
     Ok(StorePreparation {
@@ -1975,7 +2260,8 @@ fn upgrade_owned_store(
         107 => validate_exact_v107_schema(connection)?,
         108 => validate_exact_v108_schema(connection)?,
         109 => validate_exact_v109_schema(connection)?,
-        110 => validate_exact_v110_schema(connection)?,
+        110 | 111 => validate_exact_v110_schema(connection)?,
+        112 | 113 => validate_exact_v113_schema(connection)?,
         _ => return Err(corrupt("Rust Core forward-migration source is unsupported")),
     }
 
@@ -2092,6 +2378,9 @@ fn upgrade_owned_store(
             )?;
         }
         ensure_v111_priority_contract(transaction, migration_now)?;
+        ensure_v112_database_view_contract(transaction, migration_now)?;
+        ensure_v113_view_global_rank(transaction)?;
+        ensure_v114_database_list_authority(transaction)?;
         let updated = transaction.execute(
             "UPDATE core_store_metadata SET store_format_version = ?1 \
              WHERE id = 1 AND schema_owner = ?2 AND store_format_version = ?3",
@@ -2111,7 +2400,8 @@ fn upgrade_owned_store(
     validate_exact_current_schema(connection)?;
     validate_codex_thread_timestamp_invariants(connection)?;
     validate_canonical_text_timestamp_invariants(connection)?;
-    validate_database_view_kind_invariants(connection)?;
+    validate_database_view_layout_invariants(connection)?;
+    validate_database_view_global_rank_invariants(connection)?;
     validate_database_relation_invariants(connection)?;
     validate_database_priority_invariants(connection)?;
     Ok(StorePreparation {
@@ -2544,6 +2834,9 @@ fn publish_current_store(
         crate::infrastructure::local_commit::upgrade_v109_manifest(transaction, &mut |_, _| {})?;
         crate::infrastructure::local_commit::upgrade_v110_manifest(transaction, &mut |_, _| {})?;
         ensure_v111_priority_contract(transaction, now)?;
+        ensure_v112_database_view_contract(transaction, now)?;
+        ensure_v113_view_global_rank(transaction)?;
+        ensure_v114_database_list_authority(transaction)?;
         ensure_v107_block_project_cascade_indexes(transaction)?;
         import_legacy_writable_roots(transaction, profile_home, now)?;
         import_automation_jitter_salt(transaction, profile_home, now)
@@ -2587,6 +2880,9 @@ fn create_fresh_store(
         crate::infrastructure::local_commit::upgrade_v109_manifest(transaction, &mut |_, _| {})?;
         crate::infrastructure::local_commit::upgrade_v110_manifest(transaction, &mut |_, _| {})?;
         ensure_v111_priority_contract(transaction, now)?;
+        ensure_v112_database_view_contract(transaction, now)?;
+        ensure_v113_view_global_rank(transaction)?;
+        ensure_v114_database_list_authority(transaction)?;
         ensure_v107_block_project_cascade_indexes(transaction)?;
         import_legacy_writable_roots(transaction, profile_home, now)?;
         import_automation_jitter_salt(transaction, profile_home, now)
@@ -3228,10 +3524,26 @@ fn ensure_v98_yjs_integrity_schema(connection: &Connection) -> Result<(), StoreE
     Ok(())
 }
 
-fn validate_database_view_kind_invariants(connection: &Connection) -> Result<(), StoreError> {
+fn validate_database_view_layout_version(
+    connection: &Connection,
+    schema_version: i64,
+) -> Result<(), StoreError> {
     let unsupported: i64 = connection.query_row(
-        "SELECT count(*) FROM database_views \
-         WHERE kind NOT IN ('kanban', 'list', 'calendar')",
+        &format!(
+            "SELECT count(*) FROM database_views \
+         WHERE default_layout NOT IN ('board', 'list') \
+            OR json_extract(config_json, '$.schemaKey') <> 'nodex.database-view' \
+            OR json_extract(config_json, '$.schemaVersion') <> {schema_version} \
+            OR COALESCE(json_extract(config_json, '$.presentation.groupDirection'), '') \
+                 NOT IN ('asc', 'desc') \
+            OR COALESCE(json_type(config_json, '$.presentation.hierarchy'), '') <> 'object' \
+            OR (COALESCE(json_type(config_json, '$.presentation.hierarchy.showSubPages'), '') \
+                  NOT IN ('true', 'false')) \
+            OR (COALESCE(json_type(config_json, '$.presentation.hierarchy.nestedSubPages'), '') \
+                  NOT IN ('true', 'false')) \
+            OR (json_extract(config_json, '$.presentation.hierarchy.showSubPages') = 0 \
+               AND json_extract(config_json, '$.presentation.hierarchy.nestedSubPages') = 1)"
+        ),
         [],
         |row| row.get(0),
     )?;
@@ -3239,8 +3551,449 @@ fn validate_database_view_kind_invariants(connection: &Connection) -> Result<(),
         return Ok(());
     }
     Err(corrupt(
-        "Database View authority contains a retired presentation kind",
+        "Database View authority contains a retired layout or config schema",
     ))
+}
+
+fn validate_database_view_layout_v3_invariants(connection: &Connection) -> Result<(), StoreError> {
+    let unsupported: i64 = connection.query_row(
+        "SELECT count(*) FROM database_views \
+         WHERE default_layout NOT IN ('board', 'list') \
+            OR json_extract(config_json, '$.schemaKey') <> 'nodex.database-view' \
+            OR json_extract(config_json, '$.schemaVersion') <> 3",
+        [],
+        |row| row.get(0),
+    )?;
+    if unsupported == 0 {
+        return Ok(());
+    }
+    Err(corrupt(
+        "Database View authority contains a retired layout or v3 config schema",
+    ))
+}
+
+fn validate_database_view_layout_invariants(connection: &Connection) -> Result<(), StoreError> {
+    validate_database_view_layout_version(connection, 4)
+}
+
+fn database_view_config_v3(raw: &str, view_id: &str) -> Result<String, StoreError> {
+    let config = serde_json::from_str::<Value>(raw).map_err(|error| {
+        corrupt(format!(
+            "Database View {view_id} config is invalid: {error}"
+        ))
+    })?;
+    if config.get("schemaKey").and_then(Value::as_str) != Some("nodex.database-view") {
+        return Err(corrupt(format!(
+            "Database View {view_id} config schema key is unsupported"
+        )));
+    }
+    if config.get("schemaVersion").and_then(Value::as_i64) == Some(3) {
+        return serde_json::to_string(&config)
+            .map_err(|_| internal("Database View v3 config could not be serialized"));
+    }
+    if config.get("schemaVersion").and_then(Value::as_i64) != Some(2) {
+        return Err(corrupt(format!(
+            "Database View {view_id} config schema version is unsupported"
+        )));
+    }
+    let filter = config
+        .get("filter")
+        .cloned()
+        .ok_or_else(|| corrupt(format!("Database View {view_id} filter is missing")))?;
+    let sort = config
+        .get("sort")
+        .and_then(Value::as_array)
+        .cloned()
+        .ok_or_else(|| corrupt(format!("Database View {view_id} sort is invalid")))?;
+    let group = config
+        .get("group")
+        .cloned()
+        .ok_or_else(|| corrupt(format!("Database View {view_id} group is missing")))?;
+    let property_ids = config
+        .pointer("/display/propertyIds")
+        .and_then(Value::as_array)
+        .ok_or_else(|| corrupt(format!("Database View {view_id} display is invalid")))?;
+    if !property_ids.iter().all(Value::is_string) {
+        return Err(corrupt(format!(
+            "Database View {view_id} display Property IDs are invalid"
+        )));
+    }
+    let fields = property_ids
+        .iter()
+        .filter_map(Value::as_str)
+        .map(|property_id| json!({ "kind": "property", "propertyId": property_id }))
+        .collect::<Vec<_>>();
+    serde_json::to_string(&json!({
+        "schemaKey": "nodex.database-view",
+        "schemaVersion": 3,
+        "filter": filter,
+        "presentation": {
+            "sort": sort,
+            "group": group,
+            "subgroup": null,
+            "completion": { "range": "all", "orderByRecency": false },
+            "layouts": {
+                "board": { "fields": fields, "showEmptyGroups": false },
+                "list": { "fields": fields, "showEmptyGroups": false }
+            }
+        }
+    }))
+    .map_err(|_| internal("Migrated Database View config could not be serialized"))
+}
+
+fn table_has_column(
+    connection: &Connection,
+    table_name: &str,
+    column_name: &str,
+) -> Result<bool, StoreError> {
+    let count = connection.query_row(
+        "SELECT count(*) FROM pragma_table_info(?1) WHERE name = ?2",
+        params![table_name, column_name],
+        |row| row.get::<_, i64>(0),
+    )?;
+    Ok(count == 1)
+}
+
+fn ensure_v112_database_view_contract(connection: &Connection, now: u64) -> Result<(), StoreError> {
+    if !table_has_column(connection, "data_source_page_memberships", "completed_at")? {
+        connection.execute(
+            "ALTER TABLE data_source_page_memberships ADD COLUMN completed_at TEXT",
+            [],
+        )?;
+    }
+    if table_has_column(connection, "database_views", "default_layout")? {
+        return validate_database_view_layout_v3_invariants(connection);
+    }
+    if !table_has_column(connection, "database_views", "kind")? {
+        return Err(corrupt(
+            "Database View authority has neither kind nor default_layout",
+        ));
+    }
+
+    let migration_timestamp = priority_migration_timestamp(now)?;
+    let views = connection
+        .prepare(
+            "SELECT id, database_block_id, data_source_id, name, kind, config_json, \
+                    revision, rank_key, lifecycle, created_at \
+             FROM database_views ORDER BY id",
+        )?
+        .query_map([], |row| {
+            Ok(LegacyDatabaseViewRow {
+                id: row.get(0)?,
+                database_id: row.get(1)?,
+                data_source_id: row.get(2)?,
+                name: row.get(3)?,
+                kind: row.get(4)?,
+                config_json: row.get(5)?,
+                revision: row.get(6)?,
+                rank_key: row.get(7)?,
+                lifecycle: row.get(8)?,
+                created_at: row.get(9)?,
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+
+    connection.pragma_update(None, "defer_foreign_keys", true)?;
+    connection.execute_batch(V112_DATABASE_VIEW_SCHEMA_SQL)?;
+    for view in views {
+        let default_layout = match view.kind.as_str() {
+            "kanban" => "board",
+            "list" | "calendar" | "canvas" => "list",
+            _ => {
+                return Err(corrupt(format!(
+                    "Database View {} uses unsupported kind {}",
+                    view.id, view.kind
+                )));
+            }
+        };
+        let config_json = database_view_config_v3(&view.config_json, &view.id)?;
+        connection.execute(
+            "INSERT INTO database_views_v112( \
+               id, database_block_id, data_source_id, name, default_layout, config_json, \
+               revision, rank_key, lifecycle, created_at, updated_at \
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            params![
+                view.id,
+                view.database_id,
+                view.data_source_id,
+                view.name,
+                default_layout,
+                config_json,
+                view.revision + 1,
+                view.rank_key,
+                view.lifecycle,
+                view.created_at,
+                migration_timestamp,
+            ],
+        )?;
+    }
+    connection.execute_batch(
+        "INSERT INTO database_view_page_positions_v112( \
+           view_id, page_block_id, group_key, rank_key, revision, created_at, updated_at \
+         ) SELECT view_id, page_block_id, group_key, rank_key, revision, created_at, updated_at \
+           FROM database_view_page_positions; \
+         INSERT INTO page_read_model_v112( \
+           page_block_id, project_id, lifecycle, location_kind, containing_document_id, \
+           containing_database_id, top_level_rank_key, location_revision, metadata_revision, \
+           document_id, document_generation, document_projected_seq, document_schema_version, \
+           document_authority, membership_id, database_block_id, view_id, view_group_key, \
+           view_rank_key, title, description_preview, description_length, has_description, \
+           database_values_json, intrinsic_properties_json, property_revisions_json, \
+           projection_version, created_at, updated_at \
+         ) SELECT \
+           page_block_id, project_id, lifecycle, location_kind, containing_document_id, \
+           containing_database_id, top_level_rank_key, location_revision, metadata_revision, \
+           document_id, document_generation, document_projected_seq, document_schema_version, \
+           document_authority, membership_id, database_block_id, view_id, view_group_key, \
+           view_rank_key, title, description_preview, description_length, has_description, \
+           database_values_json, intrinsic_properties_json, property_revisions_json, \
+           projection_version, created_at, updated_at \
+           FROM page_read_model; \
+         DROP TRIGGER database_containers_default_view_is_owned_insert; \
+         DROP TRIGGER database_containers_default_view_is_owned_update; \
+         DROP TABLE page_read_model; \
+         DROP TABLE database_view_page_positions; \
+         DROP TABLE database_views; \
+         ALTER TABLE database_views_v112 RENAME TO database_views; \
+         ALTER TABLE database_view_page_positions_v112 RENAME TO database_view_page_positions; \
+         ALTER TABLE page_read_model_v112 RENAME TO page_read_model;",
+    )?;
+    connection.execute_batch(V112_DATABASE_VIEW_INDEXES_AND_TRIGGERS_SQL)?;
+    crate::infrastructure::visibility_delta_journal::refresh_authority_relation_triggers(
+        connection,
+        &["database_views", "data_source_page_memberships"],
+    )?;
+    connection.execute(
+        "UPDATE data_source_page_memberships AS membership \
+         SET completed_at = ?1 \
+         WHERE membership.removed_at IS NULL \
+           AND membership.completed_at IS NULL \
+           AND EXISTS ( \
+             SELECT 1 FROM data_source_property_values value \
+             WHERE value.membership_id = membership.id \
+               AND value.data_source_id = membership.data_source_id \
+               AND value.property_id = 'status' \
+               AND value.value_type = 'select' \
+               AND json_extract(value.value_json, '$') = 'ship' \
+           )",
+        [migration_timestamp],
+    )?;
+    let foreign_key_violation = connection
+        .prepare("PRAGMA foreign_key_check")?
+        .query_row([], |_| Ok(()))
+        .optional()?;
+    if foreign_key_violation.is_some() {
+        return Err(corrupt(
+            "v112 Database View migration produced a foreign-key violation",
+        ));
+    }
+    validate_database_view_layout_v3_invariants(connection)
+}
+
+fn ensure_v113_view_global_rank(connection: &Connection) -> Result<(), StoreError> {
+    if !table_has_column(connection, "database_view_page_positions", "group_key")? {
+        return validate_database_view_global_rank_invariants(connection);
+    }
+    let ordered_positions = connection
+        .prepare(
+            "SELECT view_id, page_block_id \
+             FROM database_view_page_positions \
+             ORDER BY view_id, CASE WHEN group_key IS NULL THEN 1 ELSE 0 END, \
+               group_key, rank_key, page_block_id",
+        )?
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let mut positions_by_view = BTreeMap::<String, Vec<String>>::new();
+    for (view_id, page_id) in ordered_positions {
+        positions_by_view.entry(view_id).or_default().push(page_id);
+    }
+    let mut update_rank = connection.prepare(
+        "UPDATE database_view_page_positions SET rank_key = ?1 \
+         WHERE view_id = ?2 AND page_block_id = ?3",
+    )?;
+    for (view_id, page_ids) in positions_by_view {
+        let total = page_ids.len();
+        for (index, page_id) in page_ids.into_iter().enumerate() {
+            update_rank.execute(params![evenly_spaced_rank(index, total), view_id, page_id])?;
+        }
+    }
+    drop(update_rank);
+    connection.execute_batch(
+        "DROP INDEX idx_database_view_page_positions_order; \
+         ALTER TABLE database_view_page_positions DROP COLUMN group_key; \
+         CREATE INDEX idx_database_view_page_positions_order \
+           ON database_view_page_positions(view_id, rank_key, page_block_id);",
+    )?;
+    validate_database_view_global_rank_invariants(connection)
+}
+
+fn ensure_v114_database_list_authority(connection: &Connection) -> Result<(), StoreError> {
+    let views = connection
+        .prepare("SELECT id, config_json FROM database_views ORDER BY id")?
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let mut update =
+        connection.prepare("UPDATE database_views SET config_json = ?1 WHERE id = ?2")?;
+    for (view_id, raw) in views {
+        let mut config = serde_json::from_str::<Value>(&raw).map_err(|error| {
+            corrupt(format!(
+                "Database View {view_id} config is invalid: {error}"
+            ))
+        })?;
+        let version = config.get("schemaVersion").and_then(Value::as_i64);
+        if !matches!(version, Some(3 | 4)) {
+            return Err(corrupt(format!(
+                "Database View {view_id} cannot migrate to presentation v4"
+            )));
+        }
+        let object = config
+            .as_object_mut()
+            .ok_or_else(|| corrupt(format!("Database View {view_id} config is invalid")))?;
+        let mut changed = false;
+        if version == Some(3) {
+            object.insert("schemaVersion".to_owned(), json!(4));
+            changed = true;
+        }
+        let presentation = object
+            .get_mut("presentation")
+            .and_then(Value::as_object_mut)
+            .ok_or_else(|| corrupt(format!("Database View {view_id} presentation is invalid")))?;
+        if !presentation.contains_key("hierarchy") {
+            presentation.insert(
+                "hierarchy".to_owned(),
+                json!({ "showSubPages": true, "nestedSubPages": false }),
+            );
+            changed = true;
+        }
+        if !presentation.contains_key("groupDirection") {
+            presentation.insert("groupDirection".to_owned(), json!("asc"));
+            changed = true;
+        }
+        if !changed {
+            continue;
+        }
+        let serialized = serde_json::to_string(&config)
+            .map_err(|_| internal("Database View v4 config could not be serialized"))?;
+        update.execute(params![serialized, view_id])?;
+    }
+    drop(update);
+    connection.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS database_task_hierarchy_edges (
+          data_source_id TEXT NOT NULL REFERENCES data_sources(id) ON DELETE CASCADE,
+          child_page_id TEXT PRIMARY KEY REFERENCES blocks(id) ON DELETE CASCADE,
+          parent_page_id TEXT NOT NULL REFERENCES blocks(id) ON DELETE CASCADE,
+          sibling_rank TEXT NOT NULL,
+          revision INTEGER NOT NULL CHECK (revision >= 1),
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          CHECK (child_page_id <> parent_page_id),
+          CHECK (length(sibling_rank) BETWEEN 1 AND 512)
+        ) WITHOUT ROWID, STRICT;
+
+        CREATE INDEX IF NOT EXISTS idx_database_task_hierarchy_parent_order
+          ON database_task_hierarchy_edges(
+            data_source_id, parent_page_id, sibling_rank, child_page_id
+          );
+
+        CREATE TABLE IF NOT EXISTS database_view_personal_preferences (
+          profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+          view_id TEXT NOT NULL REFERENCES database_views(id) ON DELETE CASCADE,
+          presentation_override_json TEXT NOT NULL,
+          collapsed_group_keys_json TEXT NOT NULL,
+          revision INTEGER NOT NULL CHECK (revision >= 1),
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          PRIMARY KEY (profile_id, view_id),
+          CHECK (
+            json_valid(presentation_override_json)
+            AND json_type(presentation_override_json) = 'object'
+          ),
+          CHECK (
+            json_valid(collapsed_group_keys_json)
+            AND json_type(collapsed_group_keys_json) = 'array'
+          )
+        ) WITHOUT ROWID, STRICT;
+
+        CREATE TRIGGER IF NOT EXISTS database_task_hierarchy_require_memberships_insert
+        BEFORE INSERT ON database_task_hierarchy_edges
+        WHEN NOT EXISTS (
+          SELECT 1 FROM data_source_page_memberships membership
+          WHERE membership.data_source_id = NEW.data_source_id
+            AND membership.page_block_id = NEW.child_page_id
+            AND membership.removed_at IS NULL
+        ) OR NOT EXISTS (
+          SELECT 1 FROM data_source_page_memberships membership
+          WHERE membership.data_source_id = NEW.data_source_id
+            AND membership.page_block_id = NEW.parent_page_id
+            AND membership.removed_at IS NULL
+        )
+        BEGIN
+          SELECT RAISE(ABORT, 'Task hierarchy requires same-source active memberships');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS database_task_hierarchy_require_memberships_update
+        BEFORE UPDATE OF data_source_id, child_page_id, parent_page_id
+        ON database_task_hierarchy_edges
+        WHEN NOT EXISTS (
+          SELECT 1 FROM data_source_page_memberships membership
+          WHERE membership.data_source_id = NEW.data_source_id
+            AND membership.page_block_id = NEW.child_page_id
+            AND membership.removed_at IS NULL
+        ) OR NOT EXISTS (
+          SELECT 1 FROM data_source_page_memberships membership
+          WHERE membership.data_source_id = NEW.data_source_id
+            AND membership.page_block_id = NEW.parent_page_id
+            AND membership.removed_at IS NULL
+        )
+        BEGIN
+          SELECT RAISE(ABORT, 'Task hierarchy requires same-source active memberships');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS database_task_hierarchy_remove_inactive_membership
+        AFTER UPDATE OF removed_at ON data_source_page_memberships
+        WHEN OLD.removed_at IS NULL AND NEW.removed_at IS NOT NULL
+        BEGIN
+          DELETE FROM database_task_hierarchy_edges
+          WHERE data_source_id = NEW.data_source_id
+            AND (
+              child_page_id = NEW.page_block_id
+              OR parent_page_id = NEW.page_block_id
+            );
+        END;
+        "#,
+    )?;
+    validate_database_view_layout_invariants(connection)
+}
+
+fn validate_database_view_global_rank_invariants(
+    connection: &Connection,
+) -> Result<(), StoreError> {
+    if table_has_column(connection, "database_view_page_positions", "group_key")? {
+        return Err(corrupt(
+            "Database View manual positions still contain group authority",
+        ));
+    }
+    let index_sql = connection
+        .query_row(
+            "SELECT sql FROM sqlite_schema \
+             WHERE type = 'index' AND name = 'idx_database_view_page_positions_order'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+    if !index_sql.is_some_and(|sql| {
+        sql.contains("view_id, rank_key, page_block_id") && !sql.contains("group_key")
+    }) {
+        return Err(corrupt(
+            "Database View manual position index is not View-global",
+        ));
+    }
+    Ok(())
 }
 
 fn validate_database_relation_invariants(connection: &Connection) -> Result<(), StoreError> {
@@ -5230,6 +5983,10 @@ fn validate_exact_v110_schema(connection: &Connection) -> Result<(), StoreError>
     validate_exact_core_schema(connection, true, true, true, true, true, true, true, 110)
 }
 
+fn validate_exact_v113_schema(connection: &Connection) -> Result<(), StoreError> {
+    validate_exact_core_schema(connection, true, true, true, true, true, true, true, 113)
+}
+
 fn validate_exact_current_schema(connection: &Connection) -> Result<(), StoreError> {
     validate_exact_core_schema(
         connection,
@@ -5382,6 +6139,13 @@ fn build_expected_core_schema_inventory(
     if schema_version >= 110 {
         ensure_v110_visibility_delta_journal_schema(&expected)?;
     }
+    if schema_version >= 112 {
+        ensure_v112_database_view_contract(&expected, 0)?;
+        ensure_v113_view_global_rank(&expected)?;
+    }
+    if schema_version >= 114 {
+        ensure_v114_database_list_authority(&expected)?;
+    }
 
     read_schema_inventory(&expected)
 }
@@ -5500,6 +6264,13 @@ pub fn expected_store_schema_fingerprint(version: i64) -> Result<String, StoreEr
     }
     if version >= 110 {
         ensure_v110_visibility_delta_journal_schema(&expected)?;
+    }
+    if version >= 112 {
+        ensure_v112_database_view_contract(&expected, 0)?;
+        ensure_v113_view_global_rank(&expected)?;
+    }
+    if version >= 114 {
+        ensure_v114_database_list_authority(&expected)?;
     }
     read_schema_inventory(&expected).map(|inventory| schema_inventory_fingerprint(&inventory))
 }
@@ -5632,10 +6403,10 @@ mod tests {
     }
 
     fn seed_owned_v110_store_with_p4_priority(home: &Path) {
-        let kernel = SqliteStoreKernel::open(home).expect("fresh v111 Store");
-        drop(kernel);
+        seed_owned_v109_store(home);
         let mut connection = open_writer(&home.join("nodex.db")).expect("v110 writer");
         with_immediate_transaction(&mut connection, |transaction| {
+            ensure_v110_visibility_delta_journal_schema(transaction)?;
             crate::infrastructure::visibility_delta_journal::install_test_maintenance_context(
                 transaction,
             )?;
@@ -5666,7 +6437,7 @@ mod tests {
                  )",
                 [now],
             )?;
-            crate::database::create_database_authority_records(
+            crate::database::create_legacy_v2_database_authority_records(
                 transaction,
                 "library:v110-priority",
                 "database:v110-priority",
@@ -5869,6 +6640,52 @@ mod tests {
         })
         .expect("seed v110 Priority Store");
         validate_exact_v110_schema(&connection).expect("exact v110 Store");
+    }
+
+    fn seed_owned_v111_database_view_store(home: &Path) {
+        seed_owned_v110_store_with_p4_priority(home);
+        let mut connection = open_writer(&home.join("nodex.db")).expect("v111 writer");
+        with_immediate_transaction(&mut connection, |transaction| {
+            crate::infrastructure::visibility_delta_journal::install_test_maintenance_context(
+                transaction,
+            )?;
+            ensure_v111_priority_contract(transaction, 1_765_000_000_000)?;
+            transaction.execute_batch(
+                "INSERT INTO database_views( \
+                   id, database_block_id, data_source_id, name, kind, config_json, revision, \
+                   rank_key, lifecycle, created_at, updated_at \
+                 ) SELECT \
+                   'view:v111-list', database_block_id, data_source_id, 'List', 'list', \
+                   config_json, 3, 'rank:list', 'active', created_at, updated_at \
+                 FROM database_views WHERE id = 'view:v110-priority'; \
+                 INSERT INTO database_views( \
+                   id, database_block_id, data_source_id, name, kind, config_json, revision, \
+                   rank_key, lifecycle, created_at, updated_at \
+                 ) SELECT \
+                   'view:v111-calendar', database_block_id, data_source_id, 'Calendar', 'calendar', \
+                   config_json, 4, 'rank:calendar', 'active', created_at, updated_at \
+                 FROM database_views WHERE id = 'view:v110-priority';",
+            )?;
+            transaction.execute(
+                "INSERT INTO data_source_property_values( \
+                   data_source_id, membership_id, property_id, value_type, value_json, \
+                   revision, updated_at \
+                 ) VALUES ( \
+                   'source:v110-priority', 'membership:v110-priority', 'status', \
+                   'select', '\"ship\"', 1, '2026-08-11T09:00:00.000Z' \
+                 )",
+                [],
+            )?;
+            transaction.execute("DELETE FROM local_commit_visibility_context", [])?;
+            transaction.execute(
+                "UPDATE core_store_metadata SET store_format_version = 111 WHERE id = 1",
+                [],
+            )?;
+            transaction.pragma_update(None, "user_version", 111)?;
+            Ok(())
+        })
+        .expect("seed v111 Database View Store");
+        validate_exact_v110_schema(&connection).expect("exact v111 physical Store");
     }
 
     fn seed_owned_v99_store_with_property_value(home: &Path) {
@@ -6404,13 +7221,14 @@ mod tests {
                 [legacy],
             )?;
             transaction.execute(
-                "INSERT INTO database_views(
+                r#"INSERT INTO database_views(
                    id, database_block_id, data_source_id, name, kind, config_json,
                    rank_key, lifecycle, created_at, updated_at
                  ) VALUES (
                    'view:timestamp', 'database:timestamp', 'source:timestamp', 'Canvas', 'canvas',
-                   '{}', 'a', 'active', ?1, ?1
-                 )",
+                   '{"schemaKey":"nodex.database-view","schemaVersion":2,"filter":{"kind":"group","operator":"and","children":[]},"sort":[],"group":null,"display":{"propertyIds":[],"showTitle":true}}',
+                   'a', 'active', ?1, ?1
+                 )"#,
                 [legacy],
             )?;
             transaction.execute(
@@ -6664,6 +7482,117 @@ mod tests {
     }
 
     #[test]
+    fn v111_database_views_migrate_to_v113_view_contract_once() {
+        fn snapshot(
+            connection: &Connection,
+        ) -> Result<(Value, Option<String>, i64, i64, String), StoreError> {
+            let views = connection.query_row(
+                "SELECT json_group_array(json(view_record)) FROM ( \
+                   SELECT json_object( \
+                     'id', id, \
+                     'layout', default_layout, \
+                     'schema', json_extract(config_json, '$.schemaVersion'), \
+                     'boardFields', json_array_length( \
+                       json_extract(config_json, '$.presentation.layouts.board.fields') \
+                     ), \
+                     'listFields', json_array_length( \
+                       json_extract(config_json, '$.presentation.layouts.list.fields') \
+                     ), \
+                     'revision', revision \
+                   ) AS view_record \
+                   FROM database_views ORDER BY id \
+                 )",
+                [],
+                |row| row.get::<_, String>(0),
+            )?;
+            let completed_at = connection.query_row(
+                "SELECT completed_at FROM data_source_page_memberships \
+                 WHERE id = 'membership:v110-priority'",
+                [],
+                |row| row.get::<_, Option<String>>(0),
+            )?;
+            let retired_kind_columns = connection.query_row(
+                "SELECT count(*) FROM pragma_table_info('database_views') WHERE name = 'kind'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )?;
+            let retired_position_group_columns = connection.query_row(
+                "SELECT count(*) FROM pragma_table_info('database_view_page_positions') \
+                 WHERE name = 'group_key'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )?;
+            let stable_rank = connection.query_row(
+                "SELECT rank_key FROM database_view_page_positions \
+                 WHERE view_id = 'view:v110-priority' \
+                   AND page_block_id = 'page:v110-priority'",
+                [],
+                |row| row.get::<_, String>(0),
+            )?;
+            Ok((
+                serde_json::from_str(&views).map_err(internal_json)?,
+                completed_at,
+                retired_kind_columns,
+                retired_position_group_columns,
+                stable_rank,
+            ))
+        }
+
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        seed_owned_v111_database_view_store(&home);
+
+        let upgraded = SqliteStoreKernel::open(&home).expect("upgrade v111 Database Views");
+        assert_eq!(upgraded.preparation().migrated_from_version, Some(111));
+        let first = upgraded
+            .readers()
+            .read_default(snapshot)
+            .expect("read migrated Database View contract");
+        assert_eq!(
+            first.0,
+            json!([
+                {
+                    "id": "view:v110-priority",
+                    "layout": "board",
+                    "schema": 3,
+                    "boardFields": 4,
+                    "listFields": 4,
+                    "revision": 8
+                },
+                {
+                    "id": "view:v111-calendar",
+                    "layout": "list",
+                    "schema": 3,
+                    "boardFields": 4,
+                    "listFields": 4,
+                    "revision": 5
+                },
+                {
+                    "id": "view:v111-list",
+                    "layout": "list",
+                    "schema": 3,
+                    "boardFields": 4,
+                    "listFields": 4,
+                    "revision": 4
+                }
+            ])
+        );
+        assert!(first.1.as_deref().is_some_and(|value| value.ends_with('Z')));
+        assert_eq!(first.2, 0);
+        assert_eq!(first.3, 0);
+        assert_eq!(first.4, "7fffffffffffffffffffffffffffffff");
+
+        drop(upgraded);
+        let reopened = SqliteStoreKernel::open(&home).expect("reopen v113 Database Views");
+        assert_eq!(reopened.preparation().migrated_from_version, None);
+        let second = reopened
+            .readers()
+            .read_default(snapshot)
+            .expect("read idempotent Database View contract");
+        assert_eq!(second, first);
+    }
+
+    #[test]
     fn v110_store_migrates_p4_priority_to_p3_atomically() {
         let directory = tempdir().expect("Profile");
         let home = directory.path().canonicalize().expect("absolute Profile");
@@ -6722,23 +7651,16 @@ mod tests {
                 assert_eq!(value, ("\"p3-low\"".to_owned(), 8));
 
                 let position = connection.query_row(
-                    "SELECT group_key, rank_key, revision \
+                    "SELECT rank_key, revision \
                      FROM database_view_page_positions \
                      WHERE view_id = 'view:v110-priority' \
                        AND page_block_id = 'page:v110-priority'",
                     [],
                     |row| {
-                        Ok((
-                            row.get::<_, Option<String>>(0)?,
-                            row.get::<_, String>(1)?,
-                            row.get::<_, i64>(2)?,
-                        ))
+                        Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
                     },
                 )?;
-                assert_eq!(
-                    position,
-                    (Some("p3-low".to_owned()), "rank:stable".to_owned(), 9)
-                );
+                assert_eq!(position, (evenly_spaced_rank(0, 1), 9));
 
                 let projection = connection.query_row(
                     "SELECT metadata_revision, database_values_json, property_revisions_json, \
@@ -6797,7 +7719,7 @@ mod tests {
                         ))
                     },
                 )?;
-                assert_eq!(revisions, (6, 10, 7, 5, 4, 4));
+                assert_eq!(revisions, (6, 10, 8, 5, 4, 4));
 
                 let view_config = connection.query_row(
                     "SELECT config_json FROM database_views \
@@ -6818,7 +7740,7 @@ mod tests {
             .expect("verify migrated Priority state");
 
         drop(upgraded);
-        let reopened = SqliteStoreKernel::open(&home).expect("reopen v111 Priority Store");
+        let reopened = SqliteStoreKernel::open(&home).expect("reopen v113 Priority Store");
         assert_eq!(reopened.preparation().migrated_from_version, None);
         let reopened_snapshot = reopened
             .readers()
@@ -6832,18 +7754,12 @@ mod tests {
                     |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
                 )?;
                 let position = connection.query_row(
-                    "SELECT group_key, rank_key, revision \
+                    "SELECT rank_key, revision \
                      FROM database_view_page_positions \
                      WHERE view_id = 'view:v110-priority' \
                        AND page_block_id = 'page:v110-priority'",
                     [],
-                    |row| {
-                        Ok((
-                            row.get::<_, Option<String>>(0)?,
-                            row.get::<_, String>(1)?,
-                            row.get::<_, i64>(2)?,
-                        ))
-                    },
+                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
                 )?;
                 let projection = connection.query_row(
                     "SELECT metadata_revision, database_values_json, property_revisions_json, \
@@ -6937,7 +7853,7 @@ mod tests {
                 )?;
                 assert_eq!(value, ("\"p3-low\"".to_owned(), 7));
                 let migrated = connection.query_row(
-                    "SELECT position.group_key, position.revision, block.metadata_revision, \
+                    "SELECT position.revision, block.metadata_revision, \
                             page.metadata_revision, projection.metadata_revision, \
                             projection.projection_version \
                      FROM database_view_page_positions position \
@@ -6950,16 +7866,15 @@ mod tests {
                     [],
                     |row| {
                         Ok((
-                            row.get::<_, Option<String>>(0)?,
+                            row.get::<_, i64>(0)?,
                             row.get::<_, i64>(1)?,
                             row.get::<_, i64>(2)?,
                             row.get::<_, i64>(3)?,
                             row.get::<_, i64>(4)?,
-                            row.get::<_, i64>(5)?,
                         ))
                     },
                 )?;
-                assert_eq!(migrated, (Some(P3_PRIORITY_ID.to_owned()), 9, 4, 4, 4, 6));
+                assert_eq!(migrated, (9, 4, 4, 4, 6));
                 Ok(())
             })
             .expect("verify position-only Priority migration");
@@ -7067,7 +7982,7 @@ mod tests {
             .readers()
             .read_default(|connection| {
                 let migrated = connection.query_row(
-                    "SELECT position.group_key, position.revision, projection.view_group_key, \
+                    "SELECT position.revision, projection.view_group_key, \
                             projection.projection_version \
                      FROM database_view_page_positions position \
                      JOIN page_read_model projection \
@@ -7077,22 +7992,13 @@ mod tests {
                     [],
                     |row| {
                         Ok((
-                            row.get::<_, Option<String>>(0)?,
-                            row.get::<_, i64>(1)?,
-                            row.get::<_, Option<String>>(2)?,
-                            row.get::<_, i64>(3)?,
+                            row.get::<_, i64>(0)?,
+                            row.get::<_, Option<String>>(1)?,
+                            row.get::<_, i64>(2)?,
                         ))
                     },
                 )?;
-                assert_eq!(
-                    migrated,
-                    (
-                        Some(P3_PRIORITY_ID.to_owned()),
-                        8,
-                        Some(P3_PRIORITY_ID.to_owned()),
-                        6,
-                    )
-                );
+                assert_eq!(migrated, (8, Some(P3_PRIORITY_ID.to_owned()), 6));
                 validate_database_priority_invariants(connection)
             })
             .expect("verify stale Priority projection repair");
@@ -7600,13 +8506,14 @@ mod tests {
                 [canonical],
             )?;
             transaction.execute(
-                "INSERT INTO database_views(
+                r#"INSERT INTO database_views(
                    id, database_block_id, data_source_id, name, kind, config_json,
                    rank_key, lifecycle, created_at, updated_at
                  ) VALUES (
                    'view:starter', 'database:starter', 'source:starter', 'Kanban', 'kanban',
-                   '{}', 'a', 'active', ?1, ?1
-                 )",
+                   '{"schemaKey":"nodex.database-view","schemaVersion":2,"filter":{"kind":"group","operator":"and","children":[]},"sort":[],"group":null,"display":{"propertyIds":[],"showTitle":true}}',
+                   'a', 'active', ?1, ?1
+                 )"#,
                 [canonical],
             )?;
             transaction.execute(
@@ -8335,13 +9242,16 @@ mod tests {
                         ])
                     },
                 )?;
-                assert_eq!(
-                    timestamps,
-                    ["2026-02-06T20:37:07.873Z"; 6].map(str::to_owned)
-                );
+                let canonical = "2026-02-06T20:37:07.873Z";
+                for index in [0, 1, 2, 4, 5] {
+                    assert_eq!(timestamps[index], canonical);
+                }
+                assert!(timestamps[3].ends_with('Z'));
+                assert_ne!(timestamps[3], canonical);
                 assert_eq!(
                     connection.query_row(
-                        "SELECT kind FROM database_views WHERE id = 'view:timestamp'",
+                        "SELECT default_layout FROM database_views
+                         WHERE id = 'view:timestamp'",
                         [],
                         |row| row.get::<_, String>(0),
                     )?,

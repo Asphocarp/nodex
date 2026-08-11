@@ -72,7 +72,7 @@ import type {
 } from "@/components/workbench/panel-destination-picker-model";
 import type {
   OpenPageStageOptions,
-} from "@/components/kanban/open-page-stage";
+} from "@/components/board/open-page-stage";
 import type {
   CommandKeymapState,
 } from "../../shared/command-keybindings";
@@ -357,7 +357,7 @@ export function useWorkbenchPanelCommandRouter({
       targetLeafId: leafId,
       kind: "db_view",
       title: "DB View",
-      config: { projectId, databaseViewId, view: "kanban" },
+      config: { projectId, databaseViewId },
     });
     await ensureActivePanelOpenWithoutRefresh(panelId);
   }, [activeSession, createSessionViewTab, ensureActivePanelOpenWithoutRefresh, setActivePanelTab]);
@@ -480,7 +480,7 @@ export function useWorkbenchPanelCommandRouter({
       ...(targetLeafId ? { targetLeafId } : {}),
       kind: "db_view",
       title: "DB View",
-      config: { projectId, databaseViewId, view: "kanban" },
+      config: { projectId, databaseViewId },
     });
     await ensureActivePanelOpenWithoutRefresh(targetPanelId);
     return true;

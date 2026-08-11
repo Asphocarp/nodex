@@ -1,16 +1,20 @@
-import { CalendarIcon } from "@/components/shared/icons";
 import {
   useDeferredValue,
+  useCallback,
   useEffect,
   useId,
   useMemo,
   useRef,
   useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type DragEvent as ReactDragEvent,
 } from "react";
-import { ArrowDown, ArrowUp, List } from "@/components/shared/icons/generic-icons";
+import { ArrowDown, ArrowUp, GripVertical } from "@/components/shared/icons/generic-icons";
 import {
   stableStringifyDatabaseJson,
-  type DatabaseViewKind,
+  type DatabaseViewLayout,
+  type DatabaseViewPresentationConfig,
+  type EffectiveDatabaseViewPresentation,
   type DatabaseJsonValue,
   type DatabasePropertyOption,
 } from "../../../shared/database-kernel";
@@ -18,7 +22,7 @@ import type {
   DataSourcePageRowV2,
   DataSourcePropertyRecordV2,
 } from "../../../shared/database-module-v2";
-import type { ColumnPaginationState } from "@/lib/kanban-store";
+import type { ColumnPaginationState } from "@/lib/board-store";
 import { NodexIconButton } from "@/components/ui/button";
 import { matchesSearchTokens, tokenizeSearchQuery } from "@/lib/page-search";
 import {
@@ -29,14 +33,15 @@ import {
   commitDatabaseViewOperations,
   DatabaseViewMutationError,
 } from "@/lib/database-view-row-mutations";
-import type {
-  DatabaseViewRenderColumn,
-  DatabaseViewRenderModel,
-  DatabaseViewRenderRow,
+import {
+  buildDatabaseViewColumns,
+  groupScopeKeyForPath,
+  type DatabaseViewRenderColumn,
+  type DatabaseViewRenderModel,
+  type DatabaseViewRenderRow,
 } from "@/lib/database-view-render-model";
 import { readDatabasePropertyOptions } from "@/lib/database-view-authoring";
 import { normalizeSearchText } from "@/lib/search-text";
-import { dataSourceCalendarDateKey } from "@/lib/data-source-property-date";
 import { cn } from "@/lib/utils";
 import { parseDataSourcePropertyId } from "../../../shared/database-identities";
 import {
@@ -64,14 +69,50 @@ import {
   findBoardKeyboardLocation,
   resolveBoardKeyboardNavigation,
   type BoardKeyboardDirection,
-} from "../kanban/board-keyboard-navigation";
-import { compileDatabasePagesDragFromQuery } from "../../../shared/database-page-drag";
-import { isWorkflowStatus } from "../../../shared/workflow-status";
-import { PagePresenceRail } from "../kanban/page-presence-rail";
+} from "../board/board-keyboard-navigation";
+import { PagePresenceRail } from "../board/page-presence-rail";
+import { buildDatabaseViewBoardDropOperations } from "@/lib/database-view-drag-operations";
+import {
+  buildBlockToDataSourceTransferIntent,
+  containsCanvasBlockDrag,
+  containsDatabaseBlockDrag,
+  endLocalBlockDragSession,
+  hasDragType,
+  NODEX_BLOCK_TRANSFER_DRAG_MIME,
+  resolveLocalBlockDragDropSession,
+  shouldHandleNativeCrossSurfaceDrag,
+} from "../board/cross-surface-drag";
+import { transferBlocks } from "@/lib/api";
+import { resolveBlockDocumentMutationBarrier } from "@/lib/block-document-mutation-registry";
+import { toast } from "@/components/ui/toast";
+import { computeNativeDropIndexFromSurface } from "../board/native-drop-index";
+import { DatabaseList } from "./database-list/database-list";
+
+const DATABASE_VIEW_PAGE_DRAG_MIME =
+  "application/vnd.nodex.database-view-pages.v1+json";
+
+const readDraggedPageIds = (dataTransfer: DataTransfer): readonly string[] => {
+  const serialized = dataTransfer.getData(DATABASE_VIEW_PAGE_DRAG_MIME);
+  if (!serialized) return [];
+  try {
+    const value = JSON.parse(serialized) as { pageIds?: unknown };
+    if (!Array.isArray(value.pageIds)) return [];
+    const pageIds = value.pageIds.filter(
+      (pageId): pageId is string => typeof pageId === "string" && pageId.length > 0,
+    );
+    return pageIds.length === value.pageIds.length
+      && new Set(pageIds).size === pageIds.length
+      ? pageIds
+      : [];
+  } catch {
+    return [];
+  }
+};
 
 interface DatabaseViewSurfaceProps {
   readonly model: DatabaseViewRenderModel;
-  readonly presentationKind?: DatabaseViewKind;
+  readonly presentationLayout?: DatabaseViewLayout;
+  readonly effectivePresentation?: EffectiveDatabaseViewPresentation;
   readonly groupPagination?: ReadonlyMap<string, ColumnPaginationState>;
   readonly onLoadMoreGroup?: (scopeKey: string) => Promise<void> | void;
   readonly searchQuery: string;
@@ -87,6 +128,10 @@ interface DatabaseViewSurfaceProps {
     readonly presentationId: string;
   };
   readonly presentedPageIds?: ReadonlySet<string>;
+  readonly initialSelectedPageIds?: ReadonlySet<string>;
+  readonly onSelectedPageIdsChange?: (pageIds: ReadonlySet<string>) => void;
+  readonly pageCreateSurfaceId?: string;
+  readonly onRequestCreatePage?: (groupKey: string) => void;
 }
 
 const rowByPageId = (
@@ -114,12 +159,20 @@ const searchablePropertyValues = (
 
 const displayedProperties = (
   model: DatabaseViewRenderModel,
+  layout: DatabaseViewLayout,
+  presentation: DatabaseViewPresentationConfig,
 ): readonly DataSourcePropertyRecordV2[] => {
-  const visible = new Set(model.query.view.config.display.propertyIds);
-  return model.query.properties.filter(
-    (property) =>
-      property.lifecycle === "active"
-      && visible.has(property.propertyId),
+  const propertyById = new Map<string, DataSourcePropertyRecordV2>(
+    model.query.properties
+      .filter((property) => property.lifecycle === "active")
+      .map((property) => [property.propertyId, property]),
+  );
+  return presentation.layouts[layout].fields.flatMap(
+    (field) => {
+      if (field.kind !== "property") return [];
+      const property = propertyById.get(field.propertyId);
+      return property ? [property] : [];
+    },
   );
 };
 
@@ -148,10 +201,10 @@ export const databaseViewMutationErrorMessage = (
     : "Couldn’t save this property. Try again.";
 };
 
-function DurablePageSurface({
+function BoardPageCardSurface({
   model,
   row,
-  compact,
+  presentation,
   pendingMutationKeys,
   mutationErrors,
   canMoveUp,
@@ -176,10 +229,15 @@ function DurablePageSurface({
   presented,
   selected,
   onHighlight,
+  draggable,
+  dragging,
+  onDragStartPage,
+  onDragEndPage,
+  onDropBefore,
 }: {
   readonly model: DatabaseViewRenderModel;
   readonly row: DatabaseViewRenderRow;
-  readonly compact: boolean;
+  readonly presentation: DatabaseViewPresentationConfig;
   readonly pendingMutationKeys: ReadonlyMap<string, number>;
   readonly mutationErrors: ReadonlyMap<string, string>;
   readonly canMoveUp: boolean;
@@ -236,43 +294,137 @@ function DurablePageSurface({
   readonly presented: boolean;
   readonly selected: boolean;
   readonly onHighlight: (pageId: string) => void;
+  readonly draggable: boolean;
+  readonly dragging: boolean;
+  readonly onDragStartPage: (
+    row: DatabaseViewRenderRow,
+    event: ReactDragEvent<HTMLButtonElement>,
+  ) => void;
+  readonly onDragEndPage: () => void;
+  readonly onDropBefore: (
+    row: DatabaseViewRenderRow,
+    event: ReactDragEvent<HTMLElement>,
+  ) => void;
 }) {
   const authority = rowByPageId(model, row.pageId);
   if (!authority) return null;
-  const properties = displayedProperties(model);
-  const showTitle = model.query.view.config.display.showTitle;
+  const trailingProperties = displayedProperties(model, "board", presentation);
   const movePending = pendingMutationKeys.has(`page:${row.pageId}`);
+  const title = row.title || "Untitled";
+  const renderPropertyEditor = (property: DataSourcePropertyRecordV2) => {
+    const current = authority.values[property.propertyId];
+    const propertyError = mutationErrors.get(
+      `value:${row.pageId}:${property.propertyId}`,
+    );
+    return (
+      <div
+        key={property.propertyId}
+        data-database-view-property-id={property.propertyId}
+        className="min-w-0 shrink-0"
+      >
+        <DataSourcePropertyValueEditor
+          property={property}
+          value={current?.value}
+          revision={current?.revision ?? 0}
+          disabled={false}
+          pending={
+            pendingMutationKeys.has(`value:${row.pageId}:${property.propertyId}`)
+            || pendingMutationKeys.has(`property:${property.propertyId}`)
+          }
+          options={optionRegistries[property.propertyId]
+            ?? readDatabasePropertyOptions(property)}
+          optionRegistryState={optionRegistryStates[property.propertyId] ?? "ready"}
+          optionRegistryHasMore={optionRegistryHasMore[property.propertyId] ?? false}
+          optionRegistryLoadingMore={
+            optionRegistryLoadingMore[property.propertyId] ?? false
+          }
+          onRequestOptions={() => onRequestOptions(property)}
+          onRequestMoreOptions={() => onRequestMoreOptions(property)}
+          relationCandidates={model.query.rows.map((candidate) => ({
+            pageId: candidate.page.pageId,
+            title: candidate.page.title,
+          }))}
+          onChange={(value) =>
+            onSetValue(row.pageId, property.propertyId, value)}
+          onCreateOption={(option) =>
+            onCreateOption(row.pageId, property, option)}
+          onPatchOptions={(delta) =>
+            onPatchOptions(row.pageId, property, delta)}
+          onPatchRelation={(delta) =>
+            onPatchRelation(row.pageId, property.propertyId, delta)}
+          onLoadRelationTargets={(after) =>
+            onLoadRelationTargets(row.pageId, property.propertyId, after)}
+          onSearchRelationCandidates={(query, after) =>
+            onSearchRelationCandidates(property, query, after)}
+          onLoadRelationTargetDescriptor={() =>
+            onLoadRelationTargetDescriptor(property)}
+          onOpenRelationPage={(pageId, relationTitle) =>
+            onOpenPage(pageId, relationTitle)}
+          onRelationValueStale={onRelationValueStale}
+        />
+        {propertyError ? (
+          <PropertyEditorFeedback message={propertyError} />
+        ) : null}
+      </div>
+    );
+  };
   return (
     <article
       data-database-view-page-id={row.pageId}
+      data-board-uuid-v7={row.pageId}
       data-database-view-page-presented={presented ? "true" : undefined}
       tabIndex={highlighted ? 0 : -1}
       aria-selected={selected}
       onPointerDown={() => onHighlight(row.pageId)}
       onFocus={() => onHighlight(row.pageId)}
+      onDragOver={draggable
+        ? (event) => {
+            const internal = event.dataTransfer.types.includes(
+              DATABASE_VIEW_PAGE_DRAG_MIME,
+            );
+            const blocks = shouldHandleNativeCrossSurfaceDrag(event.dataTransfer)
+              && hasDragType(event.dataTransfer, NODEX_BLOCK_TRANSFER_DRAG_MIME);
+            if (!internal && !blocks) return;
+            event.preventDefault();
+            event.stopPropagation();
+            event.dataTransfer.dropEffect = event.altKey && blocks ? "copy" : "move";
+          }
+        : undefined}
+      onDrop={draggable
+        ? (event) => onDropBefore(row, event)
+        : undefined}
       className={cn(
-        "group/card relative min-w-0 overflow-hidden rounded-lg bg-token-foreground/5 outline-none",
-        "hover:bg-token-foreground/8",
+        "group/card relative min-w-0 overflow-hidden rounded-lg bg-token-foreground/5 px-2.5 py-2 outline-none hover:bg-token-foreground/8",
         (highlighted || selected) && "ring-1 ring-inset",
         highlighted && !selected
           && "ring-[color-mix(in_srgb,var(--accent-blue)_50%,transparent)]",
         selected
           && "bg-[color-mix(in_srgb,var(--accent-blue)_7%,transparent)] ring-[color-mix(in_srgb,var(--accent-blue)_72%,transparent)]",
-        compact ? "px-2.5 py-2" : "px-2 py-1.5",
+        dragging && "opacity-45",
       )}
     >
       {presented ? <PagePresenceRail /> : null}
-      <div className="flex min-h-6 items-center gap-1">
+      <div className="flex min-h-6 min-w-0 items-center gap-1">
+        {draggable ? (
+          <button
+            type="button"
+            draggable="true"
+            aria-label={`Drag ${title}`}
+            className="-ml-1 flex size-5 shrink-0 cursor-grab items-center justify-center rounded text-token-description-foreground opacity-0 outline-none hover:bg-token-foreground/7 hover:text-token-text-primary focus-visible:opacity-100 group-hover/card:opacity-100 active:cursor-grabbing"
+            onPointerDown={(event) => event.stopPropagation()}
+            onDragStart={(event) => onDragStartPage(row, event)}
+            onDragEnd={onDragEndPage}
+          >
+            <GripVertical className="size-3.5" />
+          </button>
+        ) : null}
         <button
           type="button"
-          aria-label={`Open Page ${row.title}`}
-          className={cn(
-            "min-w-0 flex-1 text-left text-sm text-token-text-primary outline-none",
-            showTitle ? "truncate" : "text-token-description-foreground",
-          )}
+          aria-label={`Open Page ${title}`}
+          className="min-w-0 flex-1 truncate text-left text-sm text-token-text-primary outline-none"
           onClick={() => onOpenPage(row.pageId, row.title)}
         >
-          {showTitle ? row.title || "Untitled" : "Open Page"}
+          {title}
         </button>
         {databaseViewSupportsManualReorder(model) ? (
           <div className="flex shrink-0 opacity-0 group-hover/card:opacity-100 focus-within:opacity-100">
@@ -293,60 +445,9 @@ function DurablePageSurface({
           </div>
         ) : null}
       </div>
-      {properties.length > 0 ? (
-        <div className={cn("mt-1.5 flex min-w-0 flex-wrap gap-x-2 gap-y-1", compact && "flex-col items-start")}>
-          {properties.map((property) => {
-            const current = authority.values[property.propertyId];
-            const propertyError = mutationErrors.get(
-              `value:${row.pageId}:${property.propertyId}`,
-            );
-            return (
-              <div key={property.propertyId} className="min-w-0">
-                <DataSourcePropertyValueEditor
-                  property={property}
-                  value={current?.value}
-                  revision={current?.revision ?? 0}
-                  disabled={false}
-                  pending={
-                    pendingMutationKeys.has(`value:${row.pageId}:${property.propertyId}`)
-                    || pendingMutationKeys.has(`property:${property.propertyId}`)
-                  }
-                  options={optionRegistries[property.propertyId]
-                    ?? readDatabasePropertyOptions(property)}
-                  optionRegistryState={optionRegistryStates[property.propertyId] ?? "ready"}
-                  optionRegistryHasMore={optionRegistryHasMore[property.propertyId] ?? false}
-                  optionRegistryLoadingMore={
-                    optionRegistryLoadingMore[property.propertyId] ?? false
-                  }
-                  onRequestOptions={() => onRequestOptions(property)}
-                  onRequestMoreOptions={() => onRequestMoreOptions(property)}
-                  relationCandidates={model.query.rows.map((candidate) => ({
-                    pageId: candidate.page.pageId,
-                    title: candidate.page.title,
-                  }))}
-                  onChange={(value) =>
-                    onSetValue(row.pageId, property.propertyId, value)}
-                  onCreateOption={(option) =>
-                    onCreateOption(row.pageId, property, option)}
-                  onPatchOptions={(delta) =>
-                    onPatchOptions(row.pageId, property, delta)}
-                  onPatchRelation={(delta) =>
-                    onPatchRelation(row.pageId, property.propertyId, delta)}
-                  onLoadRelationTargets={(after) =>
-                    onLoadRelationTargets(row.pageId, property.propertyId, after)}
-                  onSearchRelationCandidates={(query, after) =>
-                    onSearchRelationCandidates(property, query, after)}
-                  onLoadRelationTargetDescriptor={() =>
-                    onLoadRelationTargetDescriptor(property)}
-                  onOpenRelationPage={(pageId, title) => onOpenPage(pageId, title)}
-                  onRelationValueStale={onRelationValueStale}
-                />
-                {propertyError ? (
-                  <PropertyEditorFeedback message={propertyError} />
-                ) : null}
-              </div>
-            );
-          })}
+      {trailingProperties.length > 0 ? (
+        <div className="mt-1.5 flex min-w-0 flex-col items-start gap-x-2 gap-y-1">
+          {trailingProperties.map(renderPropertyEditor)}
         </div>
       ) : null}
       {mutationErrors.get(`page:${row.pageId}`) ? (
@@ -359,71 +460,68 @@ function DurablePageSurface({
   );
 }
 
-const calendarProperty = (
-  model: DatabaseViewRenderModel,
-): DataSourcePropertyRecordV2 | null => {
-  const visible = displayedProperties(model).find(
-    (property) => property.valueType === "date" || property.valueType === "datetime",
+export function DatabaseViewSurface(props: DatabaseViewSurfaceProps) {
+  const { onSelectedPageIdsChange } = props;
+  const [selectedPageIds, setSelectedPageIds] = useState<ReadonlySet<string>>(
+    () => new Set(props.initialSelectedPageIds),
   );
-  if (visible) return visible;
-  return model.query.properties.find(
-    (property) =>
-      property.lifecycle === "active" &&
-      (property.valueType === "date" || property.valueType === "datetime"),
-  ) ?? null;
-};
-
-const calendarDateKey = (
-  model: DatabaseViewRenderModel,
-  row: DatabaseViewRenderRow,
-  property: DataSourcePropertyRecordV2 | null,
-): string | null => {
-  if (!property) return null;
-  const value = rowByPageId(model, row.pageId)
-    ?.values[property.propertyId]?.value;
-  return dataSourceCalendarDateKey(
-    value,
-    property.valueType === "datetime" ? "datetime" : "date",
-  );
-};
-
-const calendarSections = (
-  model: DatabaseViewRenderModel,
-  rows: readonly DatabaseViewRenderRow[],
-): readonly { readonly id: string; readonly label: string; readonly rows: readonly DatabaseViewRenderRow[] }[] => {
-  const property = calendarProperty(model);
-  const grouped = new Map<string | null, DatabaseViewRenderRow[]>();
-  for (const row of rows) {
-    const key = calendarDateKey(model, row, property);
-    const current = grouped.get(key) ?? [];
-    current.push(row);
-    grouped.set(key, current);
+  const handleSelectedPageIdsChange = useCallback((next: ReadonlySet<string>): void => {
+    setSelectedPageIds((current) => {
+      if (
+        current.size === next.size
+        && [...current].every((pageId) => next.has(pageId))
+      ) {
+        return current;
+      }
+      return new Set(next);
+    });
+    onSelectedPageIdsChange?.(next);
+  }, [onSelectedPageIdsChange]);
+  const activeLayout = props.effectivePresentation?.layout
+    ?? props.presentationLayout
+    ?? props.model.query.view.defaultLayout;
+  if (activeLayout === "list") {
+    return (
+      <DatabaseList
+        model={props.model}
+        effectivePresentation={props.effectivePresentation}
+        groupPagination={props.groupPagination}
+        onLoadMoreGroup={props.onLoadMoreGroup}
+        searchQuery={props.searchQuery}
+        onOpenPage={props.onOpenPage}
+        onCommitted={props.onCommitted}
+        commitOperations={props.commitOperations}
+        presentedPageIds={props.presentedPageIds}
+        initialSelectedPageIds={selectedPageIds}
+        onSelectedPageIdsChange={handleSelectedPageIdsChange}
+        pageCreateSurfaceId={props.pageCreateSurfaceId}
+        onRequestCreatePage={props.onRequestCreatePage}
+      />
+    );
   }
-  return [...grouped]
-    .sort(([left], [right]) => {
-      if (left === null) return 1;
-      if (right === null) return -1;
-      return left.localeCompare(right);
-    })
-    .map(([key, sectionRows]) => ({
-      id: key ?? "undated",
-      label: key ?? (property ? `No ${property.name}` : "No date property"),
-      rows: sectionRows,
-    }));
-};
+  return (
+    <BoardDatabaseViewSurface
+      {...props}
+      initialSelectedPageIds={selectedPageIds}
+      onSelectedPageIdsChange={handleSelectedPageIdsChange}
+    />
+  );
+}
 
-export function DatabaseViewSurface({
+function BoardDatabaseViewSurface({
   model,
-  presentationKind = model.query.view.kind,
+  presentationLayout = model.query.view.defaultLayout,
+  effectivePresentation,
   groupPagination,
   onLoadMoreGroup,
   searchQuery,
-  showViewLabel = true,
   onOpenPage,
   onCommitted,
   commitOperations = commitDatabaseViewOperations,
   keyboardSurface,
   presentedPageIds,
+  initialSelectedPageIds,
+  onSelectedPageIdsChange,
 }: DatabaseViewSurfaceProps) {
   const [pendingMutationKeys, setPendingMutationKeys] = useState<ReadonlyMap<
     string,
@@ -434,6 +532,9 @@ export function DatabaseViewSurface({
   );
   const [highlightedPageId, setHighlightedPageId] = useState<string | null>(null);
   const [selectedPageIds, setSelectedPageIds] = useState<ReadonlySet<string>>(
+    () => new Set(initialSelectedPageIds),
+  );
+  const [draggingPageIds, setDraggingPageIds] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
   const keyboardSurfaceFallbackId = useId();
@@ -455,12 +556,23 @@ export function DatabaseViewSurface({
     requestMoreOptions,
   } = propertyOptionRegistries;
   const deferredSearchQuery = useDeferredValue(searchQuery);
+
+  useEffect(() => {
+    onSelectedPageIdsChange?.(selectedPageIds);
+  }, [onSelectedPageIdsChange, selectedPageIds]);
+  const activeLayout = effectivePresentation?.layout ?? presentationLayout;
+  const presentation = effectivePresentation?.presentation
+    ?? model.query.view.config.presentation;
   const searchTokens = useMemo(
     () => tokenizeSearchQuery(deferredSearchQuery),
     [deferredSearchQuery],
   );
   const columns = useMemo(
-    () => model.columns.map((column): DatabaseViewRenderColumn => ({
+    () => buildDatabaseViewColumns(
+      model.query,
+      presentation.group?.propertyId ?? null,
+      presentation.layouts[activeLayout ?? "list"].showEmptyGroups,
+    ).map((column): DatabaseViewRenderColumn => ({
       ...column,
       rows: searchTokens.length === 0
         ? column.rows
@@ -472,8 +584,67 @@ export function DatabaseViewSurface({
               searchTokens,
             )),
     })),
-    [model, searchTokens],
+    [activeLayout, model, presentation, searchTokens],
   );
+  const subgroupsByColumn = useMemo(() => {
+    const subgroupPropertyId = presentation.subgroup?.propertyId;
+    if (!subgroupPropertyId) {
+      return new Map(columns.map((column) => [column.id, [{
+        key: null,
+        name: null,
+        scopeKey: column.scopeKey,
+        rows: column.rows,
+      }]] as const));
+    }
+    const property = model.query.properties.find((candidate) =>
+      candidate.lifecycle === "active"
+      && candidate.propertyId === subgroupPropertyId);
+    if (!property) return new Map<string, readonly {
+      readonly key: string | null;
+      readonly name: string | null;
+      readonly scopeKey: string;
+      readonly rows: readonly DatabaseViewRenderRow[];
+    }[]>();
+    const options = readDatabasePropertyOptions(property);
+    const optionNames = new Map(options.map((option) => [option.id, option.name]));
+    const showEmpty = presentation.layouts[activeLayout ?? "list"].showEmptyGroups;
+    const finiteKeys = showEmpty
+      ? property.valueType === "checkbox"
+        ? ["false", "true"]
+        : property.valueType === "select"
+          ? options.map((option) => option.id)
+          : []
+      : [];
+    return new Map(columns.map((column) => {
+      const keys = [
+        ...finiteKeys,
+        ...column.rows.map((row) => row.subgroupKey),
+      ].filter((key, index, all) => all.indexOf(key) === index);
+      const normalizedKeys = keys.length > 0 ? keys : [null];
+      return [column.id, normalizedKeys.map((key) => ({
+        key,
+        name: key === null
+          ? `No ${property.name}`
+          : optionNames.get(key)
+            ?? (key === "true" ? "Checked" : key === "false" ? "Unchecked" : key),
+        scopeKey: groupScopeKeyForPath(column.groupKey, key),
+        rows: column.rows.filter((row) => row.subgroupKey === key),
+      }))] as const;
+    }));
+  }, [activeLayout, columns, model.query.properties, presentation]);
+  const boardSubgroups = useMemo(() => {
+    const entries = columns.flatMap((column) =>
+      subgroupsByColumn.get(column.id) ?? []
+    );
+    const unique = new Map<string, { key: string | null; name: string | null }>();
+    for (const entry of entries) {
+      const identity = entry.key === null ? "null" : `key:${entry.key}`;
+      if (!unique.has(identity)) {
+        unique.set(identity, { key: entry.key, name: entry.name });
+      }
+    }
+    return [...unique.values()];
+  }, [columns, subgroupsByColumn]);
   const allRows = useMemo(
     () => columns.flatMap((column) => column.rows),
     [columns],
@@ -500,17 +671,8 @@ export function DatabaseViewSurface({
       return next.size === current.size ? current : next;
     });
   }, [visiblePageIds]);
-  const continuableScopes = [...(groupPagination?.values() ?? [])]
-    .filter((state) => state.hasMore);
-  const anyContinuationLoading = continuableScopes
-    .some((state) => state.loadingMore);
   const failedContinuations = [...(groupPagination?.values() ?? [])]
     .filter((state) => state.error !== null);
-  const loadMoreEverywhere = () => {
-    for (const state of continuableScopes) {
-      void onLoadMoreGroup?.(state.scopeKey);
-    }
-  };
   const groupShowMore = (scopeKey: string) => {
     const state = groupPagination?.get(scopeKey);
     if (!state?.hasMore || !onLoadMoreGroup) return null;
@@ -639,6 +801,150 @@ export function DatabaseViewSurface({
   const activeRow = highlightedPageId
     ? allRows.find((row) => row.pageId === highlightedPageId) ?? null
     : null;
+  const togglePageSelection = (pageId: string): void => {
+    setSelectedPageIds((current) => {
+      const next = new Set(current);
+      if (next.has(pageId)) next.delete(pageId);
+      else next.add(pageId);
+      return next;
+    });
+  };
+  const startPageDrag = (
+    row: DatabaseViewRenderRow,
+    event: ReactDragEvent<HTMLButtonElement>,
+  ): void => {
+    const pageIds = selectedPageIds.has(row.pageId)
+      ? allRows.flatMap((candidate) =>
+          selectedPageIds.has(candidate.pageId) ? [candidate.pageId] : []
+        )
+      : [row.pageId];
+    event.dataTransfer.setData(
+      DATABASE_VIEW_PAGE_DRAG_MIME,
+      JSON.stringify({ pageIds }),
+    );
+    event.dataTransfer.effectAllowed = "move";
+    setDraggingPageIds(new Set(pageIds));
+    highlightPage(row.pageId);
+  };
+  const endPageDrag = (): void => {
+    setDraggingPageIds(new Set());
+  };
+  const dropPages = (
+    event: ReactDragEvent<HTMLElement>,
+    target: {
+      readonly groupKey: string | null;
+      readonly subgroupKey: string | null;
+      readonly beforePageId?: string;
+    },
+  ): void => {
+    const pageIds = readDraggedPageIds(event.dataTransfer);
+    if (pageIds.length === 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const operations = buildDatabaseViewBoardDropOperations({
+      model,
+      pageIds,
+      target,
+    });
+    endPageDrag();
+    if (operations.length === 0) return;
+    void commit(
+      operations,
+      pageIds.map((pageId) => `page:${pageId}`),
+    );
+  };
+  const dropBlocks = async (
+    event: ReactDragEvent<HTMLElement>,
+    target: {
+      readonly groupKey: string | null;
+      readonly subgroupKey: string | null;
+      readonly beforePageId?: string;
+    },
+  ): Promise<void> => {
+    const session = resolveLocalBlockDragDropSession(event.dataTransfer);
+    if (!session) return;
+    event.preventDefault();
+    event.stopPropagation();
+    endLocalBlockDragSession({ sessionId: session.sessionId });
+    if (model.accessContext.kind !== "project") {
+      toast.info("Blocks can only move into a Project Database View.");
+      return;
+    }
+    if (
+      session.payload.projectId !== model.accessContext.projectId
+      || session.payload.storeEpoch !== model.storeEpoch
+    ) {
+      toast.danger("Block transfer belongs to another Project or store generation.");
+      return;
+    }
+    if (containsCanvasBlockDrag(session.payload)) {
+      toast.info("Canvas can only move between Page Documents, not into a Board.");
+      return;
+    }
+    if (containsDatabaseBlockDrag(session.payload)) {
+      toast.info("Database blocks can only move through a typed Database action.");
+      return;
+    }
+    if (
+      !presentation.group
+      || presentation.subgroup
+      || target.groupKey === null
+      || target.subgroupKey !== null
+    ) {
+      toast.info("Block transfer requires a Board grouped by one assigned property.");
+      return;
+    }
+    const sourceBarrier = resolveBlockDocumentMutationBarrier(
+      session.payload.sourceSurfaceId,
+    );
+    const sourceHead = await sourceBarrier?.flushAndFence();
+    if (sourceHead && sourceHead.storeEpoch !== model.storeEpoch) {
+      toast.danger("The dragged Document belongs to another store generation.");
+      return;
+    }
+    const result = await transferBlocks(
+      model.accessContext.projectId,
+      buildBlockToDataSourceTransferIntent({
+        operationId: crypto.randomUUID(),
+        projectId: model.accessContext.projectId,
+        storeEpoch: model.storeEpoch,
+        payload: session.payload,
+        dataSourceId: model.dataSourceId,
+        viewId: model.databaseViewId,
+        groupKey: target.groupKey,
+        ...(target.beforePageId ? { beforePageId: target.beforePageId } : {}),
+        altKey: event.altKey,
+        ...(sourceHead
+          ? {
+              causalDependencies: [{
+                documentId: sourceHead.documentId,
+                generation: sourceHead.generation,
+                expectedHeadSeq: sourceHead.expectedHeadSeq,
+              }],
+            }
+          : {}),
+      }),
+    );
+    if (!result.ok) {
+      toast.danger(result.error.message);
+      return;
+    }
+    await onCommitted?.();
+  };
+  const dropOnBoardTarget = (
+    event: ReactDragEvent<HTMLElement>,
+    target: {
+      readonly groupKey: string | null;
+      readonly subgroupKey: string | null;
+      readonly beforePageId?: string;
+    },
+  ): void => {
+    if (event.dataTransfer.types.includes(DATABASE_VIEW_PAGE_DRAG_MIME)) {
+      dropPages(event, target);
+      return;
+    }
+    void dropBlocks(event, target);
+  };
   const actionPageIds = resolveBoardKeyboardActionPageIds(
     keyboardBoard,
     highlightedPageId,
@@ -660,33 +966,35 @@ export function DatabaseViewSurface({
     const active = findBoardKeyboardLocation(keyboardBoard, highlightedPageId);
     if (!active || actionPageIds.length === 0) return null;
     const offset = commandId === "boardMoveRight" ? 1 : -1;
-    const destinationColumn = keyboardBoard.columns[active.columnIndex + offset];
-    if (!destinationColumn || !isWorkflowStatus(destinationColumn.id)) return null;
-    const sourceStatuses = actionPageIds.map((pageId) =>
-      model.query.rows.find((row) => row.page.pageId === pageId)?.effectiveGroupKey
-    );
-    if (sourceStatuses.some((status) => !isWorkflowStatus(status))) return null;
-    const sharedSource = sourceStatuses.every((status) => status === sourceStatuses[0])
-      ? sourceStatuses[0]
-      : undefined;
+    const destinationColumn = columns[active.columnIndex + offset];
+    const activeRenderRow = allRows.find((row) => row.pageId === active.pageId);
+    if (!destinationColumn || !activeRenderRow) return null;
+    const sourceColumn = columns[active.columnIndex];
+    const sourceSubgroupIndex = sourceColumn?.rows
+      .filter((row) => row.subgroupKey === activeRenderRow.subgroupKey)
+      .findIndex((row) => row.pageId === active.pageId) ?? -1;
+    if (sourceSubgroupIndex < 0) return null;
     const selected = new Set(actionPageIds);
-    const remainingDestinationPageIds = destinationColumn.cards.flatMap((card) =>
-      selected.has(card.id) ? [] : [card.id]
+    const remainingDestinationPageIds = destinationColumn.rows.flatMap((row) =>
+      row.subgroupKey === activeRenderRow.subgroupKey && !selected.has(row.pageId)
+        ? [row.pageId]
+        : []
     );
-    const newOrder = Math.min(active.cardIndex, remainingDestinationPageIds.length);
-    try {
-      return compileDatabasePagesDragFromQuery({
-        query: model.query,
-        move: {
-          pageIds: [...actionPageIds],
-          ...(isWorkflowStatus(sharedSource) ? { fromStatus: sharedSource } : {}),
-          toStatus: destinationColumn.id,
-          newOrder,
-        },
-      }).operations;
-    } catch {
-      return null;
-    }
+    const newOrder = Math.min(
+      sourceSubgroupIndex,
+      remainingDestinationPageIds.length,
+    );
+    const beforePageId = remainingDestinationPageIds[newOrder];
+    const operations = buildDatabaseViewBoardDropOperations({
+      model,
+      pageIds: actionPageIds,
+      target: {
+        groupKey: destinationColumn.groupKey,
+        subgroupKey: activeRenderRow.subgroupKey,
+        ...(beforePageId ? { beforePageId } : {}),
+      },
+    });
+    return operations.length > 0 ? operations : null;
   };
   const canMoveHighlightedPage = (commandId: CommandId): boolean => {
     if (model.readOnlyReason) return false;
@@ -711,13 +1019,14 @@ export function DatabaseViewSurface({
     surfaceId,
     presentationId,
     canExecute: (commandId) => {
-      if (model.query.view.kind !== "kanban") return false;
       if (
         commandId === "boardFocusNext"
         || commandId === "boardFocusPrevious"
-        || commandId === "boardFocusLeft"
-        || commandId === "boardFocusRight"
       ) return allRows.length > 0;
+      if (
+        commandId === "boardFocusLeft"
+        || commandId === "boardFocusRight"
+      ) return activeLayout === "board" && allRows.length > 0;
       if (commandId === "boardClearSelection") {
         return selectedPageIds.size > 0;
       }
@@ -744,12 +1053,7 @@ export function DatabaseViewSurface({
         return true;
       }
       if (commandId === "boardToggleSelection" && activeRow) {
-        setSelectedPageIds((current) => {
-          const next = new Set(current);
-          if (next.has(activeRow.pageId)) next.delete(activeRow.pageId);
-          else next.add(activeRow.pageId);
-          return next;
-        });
+        togglePageSelection(activeRow.pageId);
         return true;
       }
       if (commandId === "boardMoveLeft" || commandId === "boardMoveRight") {
@@ -858,6 +1162,7 @@ export function DatabaseViewSurface({
   const pageProps = (row: DatabaseViewRenderRow) => ({
     model,
     row,
+    presentation,
     pendingMutationKeys,
     mutationErrors,
     canMoveUp: canMoveDatabaseViewPage({
@@ -894,7 +1199,50 @@ export function DatabaseViewSurface({
     presented: presentedPageIds?.has(row.pageId) ?? false,
     selected: selectedPageIds.has(row.pageId),
     onHighlight: highlightPage,
+    draggable: activeLayout === "board" && model.readOnlyReason === null,
+    dragging: draggingPageIds.has(row.pageId),
+    onDragStartPage: startPageDrag,
+    onDragEndPage: endPageDrag,
+    onDropBefore: (targetRow: DatabaseViewRenderRow, event: ReactDragEvent<HTMLElement>) => {
+      dropOnBoardTarget(event, {
+        groupKey: targetRow.groupKey,
+        subgroupKey: targetRow.subgroupKey,
+        beforePageId: targetRow.pageId,
+      });
+    },
   } as const);
+
+  const handleListKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (activeLayout !== "list") return;
+    const target = event.target as HTMLElement;
+    const row = target.closest<HTMLElement>("[data-database-view-page-id]");
+    if (!row || target !== row) return;
+    const pageId = row.dataset.databaseViewPageId;
+    if (!pageId) return;
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      const index = allRows.findIndex((candidate) => candidate.pageId === pageId);
+      const offset = event.key === "ArrowDown" ? 1 : -1;
+      const next = allRows[index + offset];
+      if (next) highlightPage(next.pageId, true);
+      return;
+    }
+    if (event.key === "Home" || event.key === "End") {
+      event.preventDefault();
+      const next = event.key === "Home" ? allRows[0] : allRows.at(-1);
+      if (next) highlightPage(next.pageId, true);
+      return;
+    }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      const active = allRows.find((candidate) => candidate.pageId === pageId);
+      if (active) onOpenPage(active.pageId, active.title);
+      return;
+    }
+    if (event.key !== " ") return;
+    event.preventDefault();
+    togglePageSelection(pageId);
+  };
 
   return (
     <div
@@ -903,6 +1251,7 @@ export function DatabaseViewSurface({
       data-database-view-id={model.databaseViewId}
       onFocusCapture={() => markContextualKeyboardActionTargetActive(surfaceId)}
       onPointerDownCapture={() => markContextualKeyboardActionTargetActive(surfaceId)}
+      onKeyDown={handleListKeyDown}
     >
       {failedContinuations.length > 0 && onLoadMoreGroup ? (
         <div
@@ -931,80 +1280,100 @@ export function DatabaseViewSurface({
             ? "No matching Pages"
             : "This View has no Pages"}
         </div>
-      ) : presentationKind === "kanban" ? (
-        <div className="flex min-h-0 flex-1 gap-2 overflow-auto p-3">
-          {columns.map((column) => (
-            <section key={column.id} className="w-64 shrink-0">
-              <div className="mb-1.5 flex h-7 items-center gap-2 px-1 text-xs text-token-text-secondary">
-                <span className="min-w-0 flex-1 truncate font-medium text-token-text-primary">{column.name}</span>
-                <span>
-                  {groupPagination?.get(column.scopeKey)?.totalRows
-                    ?? column.rows.length}
-                </span>
-              </div>
-              <div className="flex flex-col gap-1">
-                {column.rows.map((row) => (
-                  <DurablePageSurface key={row.pageId} compact {...pageProps(row)} />
-                ))}
-                {groupShowMore(column.scopeKey)}
-              </div>
-            </section>
-          ))}
-        </div>
-      ) : presentationKind === "calendar" ? (
+      ) : (
         <div className="min-h-0 flex-1 overflow-auto p-3">
-          <div className="mx-auto max-w-4xl space-y-3">
-            {calendarSections(model, allRows).map((section) => (
-              <section key={section.id}>
-                <div className="mb-1 flex h-7 items-center gap-2 px-2 text-xs text-token-description-foreground">
-                  <CalendarIcon className="size-3.5" />
-                  <span className="min-w-0 flex-1 font-medium text-token-text-primary">{section.label}</span>
-                  <span>{section.rows.length}</span>
+          <div className="min-w-max">
+            <div className="flex gap-2">
+              {columns.map((column) => (
+                <div
+                  key={column.id}
+                  className="flex h-7 w-64 shrink-0 items-center gap-2 px-1 text-xs text-token-text-secondary"
+                >
+                  <span className="min-w-0 flex-1 truncate font-medium text-token-text-primary">
+                    {column.name}
+                  </span>
+                  <span className="tabular-nums">
+                    {(subgroupsByColumn.get(column.id) ?? []).reduce(
+                      (total, subgroup) =>
+                        total + (groupPagination?.get(subgroup.scopeKey)?.totalRows
+                          ?? subgroup.rows.length),
+                      0,
+                    )}
+                  </span>
                 </div>
-                <div className="space-y-1">
-                  {section.rows.map((row) => (
-                    <DurablePageSurface key={row.pageId} compact={false} {...pageProps(row)} />
-                  ))}
+              ))}
+            </div>
+            {boardSubgroups.map((subgroupIdentity) => (
+              <section
+                key={subgroupIdentity.key === null
+                  ? "subgroup:null"
+                  : `subgroup:${subgroupIdentity.key}`}
+                className="mt-1"
+              >
+                {subgroupIdentity.name ? (
+                  <div className="sticky left-0 z-10 flex h-7 w-64 items-center px-1 text-[11px] font-medium text-token-description-foreground">
+                    {subgroupIdentity.name}
+                  </div>
+                ) : null}
+                <div className="flex items-stretch gap-2">
+                  {columns.map((column) => {
+                    const subgroup = (subgroupsByColumn.get(column.id) ?? [])
+                      .find((candidate) => candidate.key === subgroupIdentity.key);
+                    const rows = subgroup?.rows ?? [];
+                    return (
+                      <div
+                        key={`${column.id}:${subgroupIdentity.key ?? "null"}`}
+                        data-app-action-board-column-id={column.groupKey ?? "unassigned"}
+                        data-database-view-subgroup-key={subgroupIdentity.key ?? "unassigned"}
+                        className={cn(
+                          "flex min-h-14 w-64 shrink-0 flex-col gap-1 rounded-lg p-0.5 transition-colors",
+                          draggingPageIds.size > 0 && "bg-token-foreground/[0.025]",
+                        )}
+                        onDragOver={(event) => {
+                          const internal = event.dataTransfer.types.includes(
+                            DATABASE_VIEW_PAGE_DRAG_MIME,
+                          );
+                          const blocks = shouldHandleNativeCrossSurfaceDrag(event.dataTransfer)
+                            && hasDragType(
+                              event.dataTransfer,
+                              NODEX_BLOCK_TRANSFER_DRAG_MIME,
+                            );
+                          if (!internal && !blocks) return;
+                          event.preventDefault();
+                          event.dataTransfer.dropEffect = event.altKey && blocks
+                            ? "copy"
+                            : "move";
+                        }}
+                        onDrop={(event) => {
+                          const internalPageIds = readDraggedPageIds(event.dataTransfer);
+                          const ignoredPageIds = new Set(internalPageIds);
+                          const index = computeNativeDropIndexFromSurface(
+                            event.currentTarget,
+                            event.clientY,
+                            { ignoredPageIds },
+                          );
+                          const remainingRows = rows.filter(
+                            (row) => !ignoredPageIds.has(row.pageId),
+                          );
+                          dropOnBoardTarget(event, {
+                            groupKey: column.groupKey,
+                            subgroupKey: subgroupIdentity.key,
+                            ...(remainingRows[index]
+                              ? { beforePageId: remainingRows[index].pageId }
+                              : {}),
+                          });
+                        }}
+                      >
+                        {rows.map((row) => (
+                          <BoardPageCardSurface key={row.pageId} {...pageProps(row)} />
+                        ))}
+                        {subgroup ? groupShowMore(subgroup.scopeKey) : null}
+                      </div>
+                    );
+                  })}
                 </div>
               </section>
             ))}
-            {continuableScopes.length > 0 && onLoadMoreGroup ? (
-              <button
-                type="button"
-                disabled={anyContinuationLoading}
-                onClick={loadMoreEverywhere}
-                className="w-full rounded-md px-2 py-1.5 text-left text-xs text-token-text-secondary hover:bg-token-foreground/5 disabled:opacity-50"
-              >
-                {anyContinuationLoading ? "Loading…" : "Show more"}
-              </button>
-            ) : null}
-          </div>
-        </div>
-      ) : (
-        <div className="min-h-0 flex-1 overflow-auto p-3">
-          <div className="mx-auto max-w-4xl">
-            {showViewLabel ? (
-              <div className="mb-1 flex h-7 items-center gap-2 px-2 text-xs text-token-description-foreground">
-                <List className="size-3.5" />
-                <span className="min-w-0 flex-1 truncate">{model.databaseName} / {model.viewName}</span>
-                <span>{allRows.length}</span>
-              </div>
-            ) : null}
-            <div className="space-y-1">
-              {allRows.map((row) => (
-                <DurablePageSurface key={row.pageId} compact={false} {...pageProps(row)} />
-              ))}
-              {continuableScopes.length > 0 && onLoadMoreGroup ? (
-                <button
-                  type="button"
-                  disabled={anyContinuationLoading}
-                  onClick={loadMoreEverywhere}
-                  className="w-full rounded-md px-2 py-1.5 text-left text-xs text-token-text-secondary hover:bg-token-foreground/5 disabled:opacity-50"
-                >
-                  {anyContinuationLoading ? "Loading…" : "Show more"}
-                </button>
-              ) : null}
-            </div>
           </div>
         </div>
       )}

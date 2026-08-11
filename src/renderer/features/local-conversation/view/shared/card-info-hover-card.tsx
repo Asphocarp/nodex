@@ -2,9 +2,9 @@ import type { ReactNode } from "react";
 import * as HoverCardPrimitive from "@radix-ui/react-hover-card";
 import { StatusChip } from "@/lib/status-chip";
 import {
-  KANBAN_STATUS_LABELS,
-  resolveKanbanPriorityOption,
-} from "../../../../lib/kanban-options";
+  BOARD_STATUS_LABELS,
+  resolveBoardPriorityOption,
+} from "../../../../lib/board-options";
 import { cn } from "../../../../lib/utils";
 import type { DatabasePage } from "../../../../lib/types";
 
@@ -17,7 +17,7 @@ const ESTIMATE_LABEL: Record<string, string> = {
 };
 
 function formatColumnName(columnId: string): string {
-  return KANBAN_STATUS_LABELS[columnId] ?? columnId.replace(/_/g, " ").replace(/^\w/, (char) => char.toUpperCase());
+  return BOARD_STATUS_LABELS[columnId] ?? columnId.replace(/_/g, " ").replace(/^\w/, (char) => char.toUpperCase());
 }
 
 export function CardInfoHoverCard({
@@ -31,7 +31,7 @@ export function CardInfoHoverCard({
 }) {
   if (!card) return <>{children}</>;
 
-  const priorityOption = resolveKanbanPriorityOption(card.priority);
+  const priorityOption = resolveBoardPriorityOption(card.priority);
   const priorityLabel = priorityOption?.label.replace(" - ", " ") ?? null;
   const descriptionPreview = card.description?.trim()
     ? card.description.slice(0, 140) + (card.description.length > 140 ? "..." : "")

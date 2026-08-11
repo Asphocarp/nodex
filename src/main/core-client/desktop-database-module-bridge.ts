@@ -1,12 +1,13 @@
+import type { DatabasePage } from "../../shared/types";
 import type {
-  DatabasePage,
-} from "../../shared/types";
-import type {
+  DatabaseListWindowInput,
+  DatabaseListWindowSnapshot,
   DatabaseViewGroupsInput,
   DatabaseViewGroupsSnapshot,
   DatabaseViewReadModel,
   DatabaseViewWindowInput,
   DatabaseViewWindowSnapshot,
+  LibraryDatabaseListWindowSnapshot,
   LibraryDatabaseViewGroupsSnapshot,
   LibraryDatabaseViewWindowSnapshot,
   ReadDatabaseViewReferenceInput,
@@ -50,6 +51,7 @@ import type {
 import type {
   CoreAuthorizedDeliveryAtom,
   CoreEventEnvelope,
+  DatabaseRead,
 } from "./types";
 import {
   createCoreDatabaseModuleAdapter,
@@ -63,6 +65,8 @@ import {
   projectCoreDatabaseViewBoard,
   projectCoreDatabaseViewQuery,
 } from "../../shared/database-page-projection";
+import { projectCoreDatabaseQueryRow } from "../../shared/core-database-row-projection";
+import { toCoreDatabaseViewPresentationOverride } from "./database-presentation-adapter";
 
 export interface DesktopDatabaseModuleBridgeInput {
   readonly authority: Promise<DesktopDataAuthorityRuntime>;
@@ -88,6 +92,10 @@ export interface DesktopDatabaseModuleBridge {
     projectId: string,
     input: DatabaseViewWindowInput,
   ): Promise<DatabaseViewWindowSnapshot>;
+  getDatabaseListWindow(
+    projectId: string,
+    input: DatabaseListWindowInput,
+  ): Promise<DatabaseListWindowSnapshot>;
   getDatabaseViewGroups(
     projectId: string,
     input: DatabaseViewGroupsInput,
@@ -98,6 +106,12 @@ export interface DesktopDatabaseModuleBridge {
       | { readonly databaseId: string }
     ),
   ): Promise<LibraryDatabaseViewWindowSnapshot>;
+  getLibraryDatabaseListWindow(
+    input: DatabaseListWindowInput & (
+      | { readonly databaseViewId: string }
+      | { readonly databaseId: string }
+    ),
+  ): Promise<LibraryDatabaseListWindowSnapshot>;
   getLibraryDatabaseViewGroups(
     input: DatabaseViewGroupsInput & (
       | { readonly databaseViewId: string }
@@ -120,13 +134,37 @@ type DescriptorReadResult =
   | LibraryDatabaseModuleReadResultV2;
 
 const minimumCommitSeqForEpoch = (
-  input: DatabaseViewWindowInput | DatabaseViewGroupsInput,
+  input: DatabaseViewWindowInput | DatabaseViewGroupsInput | DatabaseListWindowInput,
   currentStoreEpoch: string,
 ): number => {
   const cursor = input.minimumCommitCursor;
   if (!cursor) return input.minimumCommitSeq ?? 0;
   if (cursor.storeEpoch !== currentStoreEpoch) return 0;
   return Math.max(input.minimumCommitSeq ?? 0, cursor.commitSeq);
+};
+
+const coreViewTarget = (
+  input: DatabaseViewWindowInput | DatabaseViewGroupsInput | DatabaseListWindowInput,
+): DatabaseRead["target"] => {
+  if (input.presentationOverride && !input.databaseViewId) {
+    throw new Error("A Database View presentation override requires an explicit View");
+  }
+  if (input.databaseViewId && input.presentationOverride) {
+    return {
+      kind: "presented_view",
+      view_id: input.databaseViewId,
+      presentation_override: toCoreDatabaseViewPresentationOverride(
+        input.presentationOverride,
+      ),
+    };
+  }
+  if (input.databaseViewId) {
+    return { kind: "view", view_id: input.databaseViewId };
+  }
+  if (input.databaseId) {
+    return { kind: "database", database_id: input.databaseId };
+  }
+  return { kind: "project_default" };
 };
 
 const readBoundedDatabaseViewWindow = async <
@@ -146,11 +184,7 @@ const readBoundedDatabaseViewWindow = async <
     input.currentStoreEpoch,
   );
   const snapshot = await input.readCore({
-    target: input.windowInput.databaseViewId
-      ? { kind: "view", view_id: input.windowInput.databaseViewId }
-      : input.windowInput.databaseId
-      ? { kind: "database", database_id: input.windowInput.databaseId }
-      : { kind: "project_default" },
+    target: coreViewTarget(input.windowInput),
     mode: "view_window",
     filter: null,
     sort: null,
@@ -160,7 +194,13 @@ const readBoundedDatabaseViewWindow = async <
       first: input.windowInput.first ?? 50,
     },
     ...(input.windowInput.groupScope
-      ? { group_scope: input.windowInput.groupScope }
+      ? {
+          group_scope: {
+            kind: "path" as const,
+            group_key: input.windowInput.groupScope.groupKey,
+            subgroup_key: input.windowInput.groupScope.subgroupKey,
+          },
+        }
       : {}),
   }, minimumCommitSeq);
   if (snapshot.value.kind !== "view_window") {
@@ -225,6 +265,7 @@ const readBoundedDatabaseViewWindow = async <
   const rows = summaries.map((page, index) => ({
     page,
     groupKey: value.rows.items[index]?.effective_group_key ?? null,
+    subgroupKey: value.rows.items[index]?.effective_subgroup_key ?? null,
     rankKey:
       value.rows.items[index]?.rank_key
       ?? "ffffffffffffffffffffffffffffffff",
@@ -261,7 +302,7 @@ const readBoundedDatabaseViewWindow = async <
       databaseBlockId: descriptor.databaseId,
       projectId: input.projectId,
       name: descriptor.name,
-      kind: descriptor.kind,
+      defaultLayout: descriptor.defaultLayout,
       config: JSON.parse(
         stableStringifyDatabaseJson(descriptor.config),
       ) as Readonly<Record<string, DatabaseJsonValue>>,
@@ -269,6 +310,124 @@ const readBoundedDatabaseViewWindow = async <
       createdAt: descriptor.createdAt,
       updatedAt: descriptor.updatedAt,
     },
+  };
+};
+
+const readBoundedDatabaseListWindow = async <
+  ProjectScope extends string | null,
+>(input: {
+  readonly projectId: ProjectScope;
+  readonly libraryId: string;
+  readonly currentStoreEpoch: string;
+  readonly windowInput: DatabaseListWindowInput;
+  readonly readCore: CoreDatabaseModuleAdapter["readCore"];
+  readonly readDescriptor: (
+    read: DatabaseReadV2,
+  ) => Promise<DescriptorReadResult>;
+}): Promise<DatabaseListWindowSnapshot<ProjectScope>> => {
+  const minimumCommitSeq = minimumCommitSeqForEpoch(
+    input.windowInput,
+    input.currentStoreEpoch,
+  );
+  const snapshot = await input.readCore({
+    target: coreViewTarget(input.windowInput),
+    mode: "list_window",
+    filter: null,
+    sort: null,
+    page_ids: null,
+    window: {
+      after: input.windowInput.after ?? null,
+      first: input.windowInput.first ?? 200,
+    },
+  }, minimumCommitSeq);
+  if (snapshot.value.kind !== "list_window") {
+    throw new Error("Database Core returned a non-List View snapshot");
+  }
+  if (!snapshot.authorization) {
+    throw new Error("Database List read omitted canonical authorization");
+  }
+  const value = snapshot.value.value;
+  const sourceResult = await input.readDescriptor({
+    target: {
+      kind: "data_source",
+      dataSourceId: parseDataSourceId(value.data_source_id),
+    },
+    mode: "data_source",
+    minimumCommitSeq,
+  });
+  if (!sourceResult.ok) {
+    throw new Error(
+      `Data Source descriptor read failed (${sourceResult.error.code}): ${sourceResult.error.message}`,
+    );
+  }
+  if (sourceResult.value.value.kind !== "data_source") {
+    throw new Error("Database Core returned a non-Data Source descriptor");
+  }
+  const properties = sourceResult.value.value.value.properties;
+  const dataSourceId = parseDataSourceId(value.data_source_id);
+  return {
+    projectId: input.projectId,
+    libraryId: input.libraryId,
+    databaseId: value.database_id,
+    dataSourceId: value.data_source_id,
+    viewId: value.view_id,
+    storeEpoch: snapshot.store_epoch,
+    commitSeq: snapshot.commit_head,
+    authorization: snapshot.authorization,
+    projection: {
+      scopeKey: value.projection.scope.canonical_key,
+      schemaVersion: value.projection.scope.schema_version,
+      revision: value.projection.revision,
+      coveredCommitSeq: value.projection.covered_commit_seq,
+      effectHash: value.projection.effect_hash ?? null,
+    },
+    nextCursor: value.rows.next_cursor ?? null,
+    rows: value.rows.items.map((row) => {
+      if (row.kind === "group") {
+        return {
+          kind: row.kind,
+          occurrenceKey: row.occurrence_key,
+          groupKey: row.group_key ?? null,
+          totalOccurrenceCount: row.total_occurrence_count,
+        };
+      }
+      if (row.kind === "subgroup") {
+        return {
+          kind: row.kind,
+          occurrenceKey: row.occurrence_key,
+          groupKey: row.group_key ?? null,
+          subgroupKey: row.subgroup_key ?? null,
+          totalOccurrenceCount: row.total_occurrence_count,
+        };
+      }
+      return {
+        kind: row.kind,
+        occurrenceKey: row.occurrence_key,
+        row: projectCoreDatabaseQueryRow(row.summary, {
+          libraryId: input.libraryId,
+          dataSourceId,
+          properties,
+        }),
+        groupPath: row.group_path.map((key) => key ?? null),
+        ancestorPageIds: row.ancestor_page_ids,
+        depth: row.depth,
+        hasChildren: row.has_children,
+        transientKind: row.transient_kind,
+        siblingRank: row.sibling_rank ?? null,
+        hierarchyRevision: row.hierarchy_revision,
+      };
+    }),
+    groups: value.groups.map((group) => ({
+      groupKey: group.group_key ?? null,
+      subgroupKey: group.subgroup_key ?? null,
+      totalOccurrenceCount: group.total_occurrence_count,
+    })),
+    totalProjectionRowCount: value.total_projection_row_count,
+    totalOccurrenceCount: value.total_occurrence_count,
+    totalModelCount: value.total_model_count,
+    windowStart: value.window_start,
+    windowEnd: value.window_end,
+    isComplete: value.is_complete,
   };
 };
 
@@ -286,11 +445,7 @@ const readBoundedDatabaseViewGroups = async <
     input.currentStoreEpoch,
   );
   const snapshot = await input.readCore({
-    target: input.groupsInput.databaseViewId
-      ? { kind: "view", view_id: input.groupsInput.databaseViewId }
-      : input.groupsInput.databaseId
-      ? { kind: "database", database_id: input.groupsInput.databaseId }
-      : { kind: "project_default" },
+    target: coreViewTarget(input.groupsInput),
     mode: "view_groups",
     filter: null,
     sort: null,
@@ -321,10 +476,14 @@ const readBoundedDatabaseViewGroups = async <
       effectHash: value.projection.effect_hash ?? null,
     },
     grouped: value.grouped,
+    subgrouped: value.subgrouped,
     totalRows: value.total_rows,
+    totalGroups: value.total_groups,
+    groupLimit: value.group_limit,
     truncated: value.truncated,
     groups: value.groups.map((group) => ({
       groupKey: group.group_key ?? null,
+      subgroupKey: group.subgroup_key ?? null,
       totalRows: group.total_rows,
     })),
   };
@@ -404,6 +563,22 @@ export const createDesktopDatabaseModuleBridge = (
         }),
       });
     },
+    getDatabaseListWindow: async (projectId, windowInput) => {
+      const runtime = await input.authority;
+      const adapter = coreAdapterFor(runtime, projectId);
+      return await readBoundedDatabaseListWindow({
+        projectId,
+        libraryId: runtime.identity.libraryId,
+        currentStoreEpoch: runtime.identity.storeEpoch,
+        windowInput,
+        readCore: adapter.readCore,
+        readDescriptor: async (read) => await adapter.read({
+          version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+          projectId,
+          read,
+        }),
+      });
+    },
     getDatabaseViewGroups: async (projectId, groupsInput) => {
       const runtime = await input.authority;
       const adapter = coreAdapterFor(runtime, projectId);
@@ -419,6 +594,21 @@ export const createDesktopDatabaseModuleBridge = (
       const runtime = await input.authority;
       const adapter = libraryAdapterFor(runtime);
       return await readBoundedDatabaseViewWindow({
+        projectId: null,
+        libraryId: runtime.identity.libraryId,
+        currentStoreEpoch: runtime.identity.storeEpoch,
+        windowInput,
+        readCore: adapter.readCore,
+        readDescriptor: async (read) => await adapter.read({
+          version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+          read: read as LibraryDatabaseReadV2,
+        }),
+      });
+    },
+    getLibraryDatabaseListWindow: async (windowInput) => {
+      const runtime = await input.authority;
+      const adapter = libraryAdapterFor(runtime);
+      return await readBoundedDatabaseListWindow({
         projectId: null,
         libraryId: runtime.identity.libraryId,
         currentStoreEpoch: runtime.identity.storeEpoch,

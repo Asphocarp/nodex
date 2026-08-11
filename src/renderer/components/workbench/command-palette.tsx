@@ -10,7 +10,7 @@ import type {
   CommandPaletteCommand,
   CommandPaletteThread,
 } from "@/lib/command-palette";
-import { getKanbanProjectStore } from "@/lib/kanban-store";
+import { getBoardProjectStore } from "@/lib/board-store";
 import type { Project } from "@/lib/types";
 import { useCommandPalettePageSearchIndex } from "@/lib/use-command-palette-page-search-index";
 import { useCommandPaletteThreadItems } from "@/lib/command-palette-chat-search";
@@ -57,7 +57,7 @@ function useCommandPalettePages(
     () => projects.flatMap((project) => project.defaultDatabaseViewId
       ? [{
           project,
-          store: getKanbanProjectStore(project.id, project.defaultDatabaseViewId),
+          store: getBoardProjectStore(project.id, project.defaultDatabaseViewId),
         }]
       : []),
     [projects],

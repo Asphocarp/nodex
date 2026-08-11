@@ -1,9 +1,9 @@
 import type { ReactNode } from "react";
 import { StatusChip } from "@/lib/status-chip";
 import {
-  KANBAN_PRIORITY_OPTIONS,
-  KANBAN_PRIORITY_OPTIONS_BY_VALUE,
-} from "@/lib/kanban-options";
+  BOARD_PRIORITY_OPTIONS,
+  BOARD_PRIORITY_OPTIONS_BY_VALUE,
+} from "@/lib/board-options";
 import { estimateStyles } from "@/lib/types";
 import {
   isWorkflowStatus,
@@ -26,7 +26,7 @@ const SEMANTIC_OPTION_ORDERS: Readonly<Record<
   readonly string[]
 >> = {
   status: WORKFLOW_STATUS_ORDER,
-  priority: KANBAN_PRIORITY_OPTIONS.map((option) => option.value),
+  priority: BOARD_PRIORITY_OPTIONS.map((option) => option.value),
   estimate: ["xs", "s", "m", "l", "xl"],
 };
 
@@ -54,7 +54,7 @@ const defaultSemanticPropertyOptions = (
     return WORKFLOW_STATUS_ORDER.map((id) => ({ id, name: WORKFLOW_STATUS_LABELS[id] }));
   }
   if (kind === "priority") {
-    return KANBAN_PRIORITY_OPTIONS.map((option) => ({
+    return BOARD_PRIORITY_OPTIONS.map((option) => ({
       id: option.value,
       name: option.label,
     }));
@@ -100,7 +100,7 @@ const semanticOption = (
     return <StatusChip statusId={option.id} label={option.name} />;
   }
   if (kind === "priority") {
-    const visual = KANBAN_PRIORITY_OPTIONS_BY_VALUE[option.id as Priority];
+    const visual = BOARD_PRIORITY_OPTIONS_BY_VALUE[option.id as Priority];
     if (visual) {
       return (
         <span className={cn(
@@ -159,7 +159,7 @@ export function SemanticSelectPropertyEditor({
   readonly disabled: boolean;
   readonly pending?: boolean;
   readonly registryState?: DataSourcePropertyOptionRegistryState;
-  readonly presentation: "compact" | "page" | "chip";
+  readonly presentation: "compact" | "page" | "chip" | "list";
   readonly searchPlaceholder?: string;
   readonly searchLeading?: ReactNode;
   readonly contentClassName?: string;

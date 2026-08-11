@@ -27,6 +27,7 @@ import {
   resizeWorkbenchSessionViewBranch,
   splitWorkbenchSessionViewLeaf,
   updateWorkbenchSessionViewTab,
+  WORKBENCH_SESSION_VIEW_VERSION,
   type WorkbenchPanelId,
   type WorkbenchPanelSize,
   type WorkbenchPanelState,
@@ -48,7 +49,7 @@ import {
   type WorkbenchPanelSplitSide,
 } from "./workbench-panel-layout";
 
-export const WORKBENCH_SCENE_VERSION = 5 as const;
+export const WORKBENCH_SCENE_VERSION = 6 as const;
 export const WORKBENCH_SCENE_MAX_PANEL_SURFACES = 2_048;
 
 export type WorkbenchSceneOwner =
@@ -118,9 +119,8 @@ export interface WorkbenchDbViewSurfaceConfig {
       }
     | {
         readonly kind: "database-view";
-        readonly databaseViewId: string;
+      readonly databaseViewId: string;
       };
-  readonly view: "kanban" | "list" | "toggle-list" | "calendar";
 }
 
 export interface WorkbenchPageStageSurfaceConfig {
@@ -237,7 +237,7 @@ type WorkbenchLegacyResourceSurfaceDescriptor =
               readonly kind: "database-view";
               readonly databaseViewId: string;
             };
-        readonly view: WorkbenchDbViewSurfaceConfig["view"];
+        readonly view: "board" | "list" | "toggle-list" | "calendar";
       };
     })
   | (Omit<
@@ -394,7 +394,7 @@ function toLegacyPanelView(
       }
     : scene.panelSurfacesById;
   return {
-    version: 3,
+    version: WORKBENCH_SESSION_VIEW_VERSION,
     sessionId: makeWorkbenchSceneKey(scene.owner),
     tabsById: tabsById as Record<
       string,
@@ -654,7 +654,6 @@ function toLegacyPanelTab(
             );
           })(),
       databaseViewId: surface.config.target.databaseViewId,
-      view: surface.config.view,
     },
   };
 }
@@ -675,7 +674,6 @@ export function workbenchSurfaceFromLegacySessionTab(
         kind: "database-view",
         databaseViewId: tab.config.databaseViewId,
       },
-      view: tab.config.view,
     },
   };
 }
@@ -739,7 +737,6 @@ function ownerRootPrimary(
       config: {
         accessContext: { kind: "project", projectId: owner.projectId },
         target: { kind: "project-default" },
-        view: "kanban",
       },
       stateKey: 0,
       state: null,
@@ -861,6 +858,17 @@ function migrateWorkbenchSurfaceV3ToV4(
     && surface.kind !== "canvas_stage"
   ) {
     return surface;
+  }
+  if (surface.kind === "db_view") {
+    const { projectId, view: legacyLayout, ...config } = surface.config;
+    void legacyLayout;
+    return {
+      ...surface,
+      config: {
+        ...config,
+        accessContext: { kind: "project", projectId },
+      },
+    };
   }
   const { projectId, ...config } = surface.config;
   return {

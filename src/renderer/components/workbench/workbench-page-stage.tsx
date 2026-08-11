@@ -1,1 +1,1 @@
-export { PageStage } from "../kanban/page-stage";
+export { PageStage } from "../board/page-stage";

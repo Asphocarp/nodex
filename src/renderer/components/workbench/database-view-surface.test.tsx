@@ -14,6 +14,7 @@ import {
   parseDataSourcePropertyId,
 } from "../../../shared/database-identities";
 import { testPropertySemantics } from "../../../shared/testing/database-property-record";
+import { upgradeDatabaseViewConfigV2 } from "../../../shared/database-view-presentation";
 import { render } from "../../test/dom";
 import {
   databaseViewMutationErrorMessage,
@@ -22,6 +23,11 @@ import {
 import { DatabaseViewTabSurface } from "./workbench-db-view-panel";
 import { handleWorkbenchShortcut } from "@/lib/use-workbench-shortcuts";
 import { resetContextualKeyboardActionRegistryForTests } from "@/lib/contextual-keyboard-actions";
+import { PageTitleProjectionProvider } from "@/lib/page-title-projection-context";
+import {
+  createPageTitleProjectionStore,
+  makePageTitleResourceKey,
+} from "@/lib/page-title-projection-store";
 
 const optionRuntime = vi.hoisted(() => ({ read: vi.fn() }));
 vi.mock("@/lib/database-property-options-runtime", async (importOriginal) => ({
@@ -34,6 +40,8 @@ const dataSourceId = parseDataSourceId("source-1");
 const databaseId = parseDatabaseId("database-1");
 const viewId = parseDatabaseViewId("view-focused");
 const tagsPropertyId = parseDataSourcePropertyId("tags");
+const statusPropertyId = parseDataSourcePropertyId("status");
+const priorityPropertyId = parseDataSourcePropertyId("priority");
 
 const model: DatabaseViewRenderModel = {
   libraryId: "library-1",
@@ -47,7 +55,6 @@ const model: DatabaseViewRenderModel = {
   storeEpoch: "epoch-1",
   commitSeq: 2,
   authorization: null,
-  primaryWriteCompatible: false,
   readOnlyReason: null,
   query: {
     database: {
@@ -78,15 +85,15 @@ const model: DatabaseViewRenderModel = {
       databaseId,
       dataSourceId,
       name: "Focused",
-      kind: "list",
-      config: {
+      defaultLayout: "list",
+      config: upgradeDatabaseViewConfigV2({
         schemaKey: "nodex.database-view",
         schemaVersion: 2,
         filter: { kind: "group", operator: "and", children: [] },
         sort: [{ field: { kind: "manual" }, direction: "asc", nulls: "last" }],
         group: null,
         display: { propertyIds: [tagsPropertyId], showTitle: true },
-      },
+      }),
       isDefault: false,
       revision: 1,
       rankKey: "a",
@@ -144,16 +151,20 @@ const model: DatabaseViewRenderModel = {
           revision: 1,
         },
       },
-      position: { groupKey: null, rankKey: "a", revision: 1 },
+      position: { rankKey: "a", revision: 1 },
       effectiveGroupKey: null,
+      effectiveSubgroupKey: null,
     }],
   },
   columns: [{
     id: "build",
+    groupKey: "build",
     scopeKey: "key:build",
     name: "In Progress",
     rows: [{
       pageId: "page-focused",
+      groupKey: "build",
+      subgroupKey: null,
       status: "build",
       title: "Focused Page",
       preview: "",
@@ -181,13 +192,13 @@ const boardModel = (): DatabaseViewRenderModel => {
       title: "Next Page",
       richTitle: plainTextToPortableRichText("Next Page"),
     },
-    position: { groupKey: null, rankKey: "b", revision: 2 },
+    position: { rankKey: "b", revision: 2 },
   };
   return {
     ...model,
     query: {
       ...model.query,
-      view: { ...model.query.view, kind: "kanban" },
+      view: { ...model.query.view, defaultLayout: "board" },
       rows: [firstAuthority, secondAuthority],
     },
     columns: [{
@@ -198,6 +209,195 @@ const boardModel = (): DatabaseViewRenderModel => {
         title: "Next Page",
       }],
     }],
+  };
+};
+
+const listModel = (): DatabaseViewRenderModel => {
+  const next = boardModel();
+  return {
+    ...next,
+    query: {
+      ...next.query,
+      view: { ...next.query.view, defaultLayout: "list" },
+    },
+    columns: [{
+      id: "all",
+      groupKey: null,
+      scopeKey: "all",
+      name: "Focused",
+      rows: next.columns.flatMap((column) => column.rows),
+    }],
+  };
+};
+
+const nestedListModel = (): DatabaseViewRenderModel => {
+  const next = listModel();
+  const [parentAuthority, childAuthority] = next.query.rows;
+  const [parentRow, childRow] = next.columns[0]?.rows ?? [];
+  if (!parentAuthority || !childAuthority || !parentRow || !childRow) return next;
+  return {
+    ...next,
+    query: {
+      ...next.query,
+      view: {
+        ...next.query.view,
+        config: {
+          ...next.query.view.config,
+          presentation: {
+            ...next.query.view.config.presentation,
+            hierarchy: { showSubPages: true, nestedSubPages: true },
+          },
+        },
+      },
+      rows: [
+        parentAuthority,
+        {
+          ...childAuthority,
+          taskHierarchy: {
+            parentPageId: parentAuthority.page.pageId,
+            siblingRank: "a",
+            revision: 1,
+          },
+        },
+      ],
+    },
+    columns: [{
+      ...next.columns[0]!,
+      rows: [parentRow, {
+        ...childRow,
+        parentPageId: parentRow.pageId,
+      }],
+    }],
+  };
+};
+
+const groupedListModel = (): DatabaseViewRenderModel => {
+  const next = boardModel();
+  const statusProperty = {
+    propertyId: statusPropertyId,
+    dataSourceId,
+    name: "Status",
+    ...testPropertySemantics("select", 1),
+    valueType: "select" as const,
+    config: { options: [{ id: "build", name: "build" }] },
+    rankKey: "0",
+    lifecycle: "active" as const,
+    revision: 1,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
+  return {
+    ...next,
+    query: {
+      ...next.query,
+      view: {
+        ...next.query.view,
+        defaultLayout: "list",
+        config: {
+          ...next.query.view.config,
+          presentation: {
+            ...next.query.view.config.presentation,
+            group: { propertyId: statusPropertyId },
+          },
+        },
+      },
+      properties: [statusProperty, ...next.query.properties],
+      rows: next.query.rows.map((row) => ({
+        ...row,
+        values: {
+          ...row.values,
+          [statusPropertyId]: {
+            propertyId: statusPropertyId,
+            valueType: "select" as const,
+            value: "build",
+            revision: 1,
+          },
+        },
+        effectiveGroupKey: "build",
+      })),
+    },
+  };
+};
+
+const editableSemanticListModel = (): DatabaseViewRenderModel => {
+  const next = listModel();
+  const statusProperty = {
+    propertyId: statusPropertyId,
+    dataSourceId,
+    name: "Status",
+    ...testPropertySemantics("select", 5),
+    valueType: "select" as const,
+    config: {},
+    rankKey: "0",
+    lifecycle: "active" as const,
+    revision: 1,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
+  const priorityProperty = {
+    propertyId: priorityPropertyId,
+    dataSourceId,
+    name: "Priority",
+    ...testPropertySemantics("select", 4),
+    valueType: "select" as const,
+    config: {},
+    rankKey: "1",
+    lifecycle: "active" as const,
+    revision: 1,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
+  return {
+    ...next,
+    query: {
+      ...next.query,
+      view: {
+        ...next.query.view,
+        config: {
+          ...next.query.view.config,
+          presentation: {
+            ...next.query.view.config.presentation,
+            layouts: {
+              ...next.query.view.config.presentation.layouts,
+              list: {
+                ...next.query.view.config.presentation.layouts.list,
+                fields: [
+                  { kind: "property", propertyId: priorityPropertyId },
+                  { kind: "property", propertyId: statusPropertyId },
+                ],
+              },
+            },
+          },
+        },
+      },
+      properties: [statusProperty, priorityProperty, ...next.query.properties],
+      rows: next.query.rows.map((row) => ({
+        ...row,
+        values: {
+          ...row.values,
+          [statusPropertyId]: {
+            propertyId: statusPropertyId,
+            valueType: "select" as const,
+            value: "build",
+            revision: 1,
+          },
+          [priorityPropertyId]: {
+            propertyId: priorityPropertyId,
+            valueType: "select" as const,
+            value: "p1-high",
+            revision: 1,
+          },
+        },
+      })),
+    },
+    columns: next.columns.map((column) => ({
+      ...column,
+      rows: column.rows.map((row) => ({
+        ...row,
+        status: "build",
+        priority: "p1-high",
+      })),
+    })),
   };
 };
 
@@ -244,40 +444,73 @@ describe("DatabaseViewSurface", () => {
     expect(opened[0]).toEqual(["page-focused", "Focused Page"]);
   });
 
-  test("renders a durable Calendar View through a List fallback without changing its identity", () => {
-    const calendarModel: DatabaseViewRenderModel = {
+  test("projects an open Page editor title into the List row immediately", async () => {
+    const titleStore = createPageTitleProjectionStore();
+    const screen = render(
+      <PageTitleProjectionProvider
+        currentLibraryId="library-1"
+        store={titleStore}
+      >
+        <DatabaseViewSurface
+          model={model}
+          searchQuery=""
+          onOpenPage={() => undefined}
+        />
+      </PageTitleProjectionProvider>,
+    );
+
+    await act(async () => {
+      titleStore.publishLive(
+        makePageTitleResourceKey("library-1", "page-focused"),
+        "page-stage",
+        "Live editor title",
+      );
+      await Promise.resolve();
+    });
+
+    expect(screen.getByRole("button", {
+      name: "Open Page Live editor title",
+    })).toBeTruthy();
+    expect(screen.queryByRole("button", {
+      name: "Open Page Focused Page",
+    })).toBeNull();
+  });
+
+  test("switches one durable View between Board and List without changing identity", () => {
+    const boardDefaultModel: DatabaseViewRenderModel = {
       ...model,
       query: {
         ...model.query,
-        view: { ...model.query.view, kind: "calendar" },
+        view: { ...model.query.view, defaultLayout: "board" },
       },
     };
     const defaultScreen = render(
       <DatabaseViewSurface
-        model={calendarModel}
+        model={boardDefaultModel}
         searchQuery=""
         onOpenPage={() => undefined}
       />,
     );
-    expect(defaultScreen.getByText("No date property")).toBeTruthy();
+    expect(defaultScreen.getByRole("article")).toBeTruthy();
     defaultScreen.unmount();
 
     const opened: unknown[][] = [];
     const fallbackScreen = render(
       <DatabaseViewSurface
-        model={calendarModel}
-        presentationKind="list"
+        model={boardDefaultModel}
+        presentationLayout="list"
         searchQuery=""
         onOpenPage={(...args) => opened.push(args)}
       />,
     );
 
-    expect(fallbackScreen.queryByText("No date property")).toBeNull();
-    expect(fallbackScreen.getByText("Tasks / Focused")).toBeTruthy();
+    expect(fallbackScreen.container.querySelector(
+      '[data-database-view-id="view-focused"]',
+    )).toBeTruthy();
     fireEvent.click(fallbackScreen.getByRole("button", { name: "Open Page Focused Page" }));
     expect(opened[0]).toEqual(["page-focused", "Focused Page"]);
-    expect(calendarModel.databaseViewId).toBe(viewId);
-    expect(calendarModel.query.view.kind).toBe("calendar");
+    expect(boardDefaultModel.databaseViewId).toBe(viewId);
+    expect(boardDefaultModel.query.view.defaultLayout).toBe("board");
   });
 
   test("keeps Board navigation and selection active across reactive renders", () => {
@@ -309,6 +542,73 @@ describe("DatabaseViewSurface", () => {
     expect(screen.getAllByRole("article")[1]?.tabIndex).toBe(0);
   });
 
+  test("preserves the active selection when the same View switches layout", () => {
+    const screen = render(
+      <DatabaseViewSurface
+        model={boardModel()}
+        presentationLayout="board"
+        searchQuery=""
+        keyboardSurface={{ surfaceId: "layout", presentationId: "same-view" }}
+        onOpenPage={() => undefined}
+      />,
+    );
+    const actions = { projectOrder: [], switchToProjectIndex: () => undefined };
+
+    act(() => {
+      handleWorkbenchShortcut(
+        shortcutEvent("j", { code: "KeyJ" }),
+        actions,
+        true,
+      );
+    });
+    act(() => {
+      handleWorkbenchShortcut(
+        shortcutEvent("x", { code: "KeyX" }),
+        actions,
+        true,
+      );
+    });
+    expect(screen.getAllByRole("article")[0]?.getAttribute("aria-selected"))
+      .toBe("true");
+
+    screen.rerender(
+      <DatabaseViewSurface
+        model={boardModel()}
+        presentationLayout="list"
+        searchQuery=""
+        keyboardSurface={{ surfaceId: "layout", presentationId: "same-view" }}
+        onOpenPage={() => undefined}
+      />,
+    );
+
+    expect(screen.container.querySelectorAll<HTMLElement>("[data-list-row=true]")[0]
+      ?.getAttribute("aria-selected"))
+      .toBe("true");
+    expect(screen.container.querySelectorAll<HTMLElement>("[data-list-row=true]")[0]
+      ?.tabIndex).toBe(0);
+  });
+
+  test("hydrates a selection handed off by another View presenter", () => {
+    const onSelectedPageIdsChange = vi.fn();
+    const screen = render(
+      <DatabaseViewSurface
+        model={boardModel()}
+        presentationLayout="list"
+        searchQuery=""
+        initialSelectedPageIds={new Set(["page-focused"])}
+        onSelectedPageIdsChange={onSelectedPageIdsChange}
+        onOpenPage={() => undefined}
+      />,
+    );
+
+    expect(screen.container.querySelectorAll<HTMLElement>("[data-list-row=true]")[0]
+      ?.getAttribute("aria-selected"))
+      .toBe("true");
+    expect(onSelectedPageIdsChange).toHaveBeenCalledWith(
+      new Set(["page-focused"]),
+    );
+  });
+
   test("keeps Board hover transient until pointer activation", () => {
     const screen = render(
       <DatabaseViewSurface
@@ -327,6 +627,109 @@ describe("DatabaseViewSurface", () => {
     fireEvent.pointerDown(first);
     expect(first.tabIndex).toBe(0);
     expect(first.getAttribute("aria-selected")).toBe("false");
+  });
+
+  test("navigates, selects, and opens dense List rows from the row focus target", async () => {
+    const onOpenPage = vi.fn();
+    const screen = render(
+      <DatabaseViewSurface
+        model={listModel()}
+        presentationLayout="list"
+        searchQuery=""
+        onOpenPage={onOpenPage}
+      />,
+    );
+    const [first, second] = screen.container.querySelectorAll<HTMLElement>(
+      "[data-list-row=true]",
+    );
+    if (!first || !second) throw new Error("Expected two List rows");
+
+    await act(async () => {
+      fireEvent.focus(first);
+      fireEvent.keyDown(first, { key: "ArrowDown" });
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(document.activeElement).toBe(second));
+    expect(second.tabIndex).toBe(0);
+
+    await act(async () => {
+      fireEvent.keyDown(second, { key: " " });
+      await Promise.resolve();
+    });
+    expect(second.getAttribute("aria-selected")).toBe("true");
+
+    await act(async () => {
+      fireEvent.keyDown(second, { key: "Home" });
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(document.activeElement).toBe(first));
+
+    await act(async () => {
+      fireEvent.keyDown(first, { key: "End" });
+      await Promise.resolve();
+      fireEvent.keyDown(second, { key: "Enter" });
+      await Promise.resolve();
+    });
+    expect(onOpenPage).toHaveBeenCalledWith("page-next", "Next Page");
+  });
+
+  test("opens the searchable List row action surface from the row context trigger", async () => {
+    const screen = render(
+      <DatabaseViewSurface
+        model={listModel()}
+        presentationLayout="list"
+        searchQuery=""
+        onOpenPage={() => undefined}
+      />,
+    );
+    const row = screen.container.querySelector<HTMLElement>(
+      '[data-database-view-page-id="page-focused"]',
+    );
+    if (!row) throw new Error("Expected a List row context target");
+
+    await act(async () => {
+      fireEvent.contextMenu(row, { clientX: 240, clientY: 120 });
+      await Promise.resolve();
+    });
+
+    expect(await screen.findByRole("textbox", { name: "Search Page actions" }))
+      .toBe(document.activeElement);
+    expect(screen.getByRole("menuitem", { name: "Open page" })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: "Add to selection" })).toBeTruthy();
+  });
+
+  test("keeps admitted List rows visible when a continuation fails and retries it", async () => {
+    const onLoadMoreGroup = vi.fn();
+    const screen = render(
+      <DatabaseViewSurface
+        model={listModel()}
+        presentationLayout="list"
+        searchQuery=""
+        groupPagination={new Map([[
+          "all",
+          {
+            scopeKey: "all",
+            loadedRows: 2,
+            totalRows: 8,
+            hasMore: true,
+            loadingMore: false,
+            error: "Couldn’t load the next List window.",
+          },
+        ]])}
+        onLoadMoreGroup={onLoadMoreGroup}
+        onOpenPage={() => undefined}
+      />,
+    );
+
+    expect(screen.getAllByRole("row")).toHaveLength(2);
+    expect(screen.getByRole("alert").textContent).toContain(
+      "Couldn’t load the next List window.",
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+      await Promise.resolve();
+    });
+    expect(onLoadMoreGroup).toHaveBeenCalledWith("all");
   });
 
   test("projects Page presence independently from Board selection", () => {
@@ -434,6 +837,90 @@ describe("DatabaseViewSurface", () => {
     });
   });
 
+  test("edits List priority and status icons when semantic options are not embedded", async () => {
+    const opened = vi.fn();
+    const commitOperations = vi.fn<typeof commitDatabaseViewOperations>(
+      async () => null,
+    );
+    const screen = render(
+      <DatabaseViewSurface
+        model={editableSemanticListModel()}
+        presentationLayout="list"
+        searchQuery=""
+        onOpenPage={opened}
+        commitOperations={commitOperations}
+      />,
+    );
+
+    const priorityTrigger = screen.getByRole("button", {
+      name: "Change priority for Focused Page",
+    }) as HTMLButtonElement;
+    const statusTrigger = screen.getByRole("button", {
+      name: "Change status for Focused Page",
+    }) as HTMLButtonElement;
+    expect(priorityTrigger.disabled).toBe(false);
+    expect(statusTrigger.disabled).toBe(false);
+
+    await act(async () => {
+      fireEvent.click(priorityTrigger);
+      await Promise.resolve();
+    });
+    const prioritySearch = await screen.findByRole("combobox", {
+      name: "Search Priority options",
+    });
+    await act(async () => {
+      fireEvent.change(prioritySearch, { target: { value: "medium" } });
+      await Promise.resolve();
+    });
+    const mediumPriority = await screen.findByRole("option", { name: /P2 - Medium/u });
+    await act(async () => {
+      fireEvent.click(mediumPriority);
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(commitOperations).toHaveBeenCalledTimes(1));
+    expect(commitOperations.mock.calls[0]?.[0].operations[0]).toMatchObject({
+      kind: "edit_property_values",
+      edits: [{
+        pageId: "page-focused",
+        propertyId: priorityPropertyId,
+        edit: {
+          kind: "replace",
+          value: { kind: "select", optionId: "p2-medium" },
+        },
+      }],
+    });
+
+    await act(async () => {
+      fireEvent.click(statusTrigger);
+      await Promise.resolve();
+    });
+    const statusSearch = await screen.findByRole("combobox", {
+      name: "Search Status options",
+    });
+    await act(async () => {
+      fireEvent.change(statusSearch, { target: { value: "review" } });
+      await Promise.resolve();
+    });
+    const reviewStatus = await screen.findByRole("option", { name: /Review/u });
+    await act(async () => {
+      fireEvent.click(reviewStatus);
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(commitOperations).toHaveBeenCalledTimes(2));
+    expect(commitOperations.mock.calls[1]?.[0].operations[0]).toMatchObject({
+      kind: "edit_property_values",
+      edits: [{
+        pageId: "page-focused",
+        propertyId: statusPropertyId,
+        edit: {
+          kind: "replace",
+          value: { kind: "select", optionId: "review" },
+        },
+      }],
+    });
+    expect(opened).not.toHaveBeenCalled();
+  });
+
   test("keeps a successful option registry usable when a sibling registry fails", async () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const brokenPropertyId = parseDataSourcePropertyId("p_0123abcd");
@@ -445,9 +932,17 @@ describe("DatabaseViewSurface", () => {
           ...model.query.view,
           config: {
             ...model.query.view.config,
-            display: {
-              ...model.query.view.config.display,
-              propertyIds: [tagsPropertyId, brokenPropertyId],
+            presentation: {
+              ...model.query.view.config.presentation,
+              layouts: {
+                ...model.query.view.config.presentation.layouts,
+                list: {
+                  ...model.query.view.config.presentation.layouts.list,
+                  fields: [tagsPropertyId, brokenPropertyId].map(
+                    (propertyId) => ({ kind: "property" as const, propertyId }),
+                  ),
+                },
+              },
             },
           },
         },
@@ -464,6 +959,18 @@ describe("DatabaseViewSurface", () => {
             rankKey: "b",
           },
         ],
+        rows: model.query.rows.map((row) => ({
+          ...row,
+          values: {
+            ...row.values,
+            [brokenPropertyId]: {
+              propertyId: brokenPropertyId,
+              valueType: "select",
+              value: "o_BROKEN00",
+              revision: 1,
+            },
+          },
+        })),
       },
     };
     optionRuntime.read.mockImplementation(async (_context, property) => {
@@ -561,9 +1068,17 @@ describe("DatabaseViewSurface", () => {
           ...model.query.view,
           config: {
             ...model.query.view.config,
-            display: {
-              ...model.query.view.config.display,
-              propertyIds: [tagsPropertyId, flagPropertyId],
+            presentation: {
+              ...model.query.view.config.presentation,
+              layouts: {
+                ...model.query.view.config.presentation.layouts,
+                list: {
+                  ...model.query.view.config.presentation.layouts.list,
+                  fields: [tagsPropertyId, flagPropertyId].map(
+                    (propertyId) => ({ kind: "property" as const, propertyId }),
+                  ),
+                },
+              },
             },
           },
         },
@@ -587,7 +1102,7 @@ describe("DatabaseViewSurface", () => {
             [flagPropertyId]: {
               propertyId: flagPropertyId,
               valueType: "checkbox",
-              value: false,
+              value: true,
               revision: 1,
             },
           },
@@ -706,7 +1221,53 @@ function DatabaseViewTabHarness() {
   );
 }
 
+function NestedDatabaseListHarness({
+  onSelectedPageIdsChange,
+}: {
+  readonly onSelectedPageIdsChange: (pageIds: ReadonlySet<string>) => void;
+}) {
+  const [collapsedKeys, setCollapsedKeys] = useState<readonly string[]>([]);
+  return (
+    <DatabaseViewTabSurface
+      model={nestedListModel()}
+      presentationLayout="list"
+      activeSearchQuery=""
+      taskSearchOpen={false}
+      searchShortcutLabel="Ctrl+F"
+      taskSearchInputRef={{ current: null }}
+      onSearchQueryChange={() => undefined}
+      onOpenTaskSearch={() => undefined}
+      onCloseTaskSearch={() => undefined}
+      onOpenPage={() => undefined}
+      collapsedGroupKeys={collapsedKeys}
+      onCollapsedGroupKeysChange={setCollapsedKeys}
+      onSelectedPageIdsChange={onSelectedPageIdsChange}
+    />
+  );
+}
+
 describe("DatabaseViewTabSurface", () => {
+  test("keeps the established Board presenter for canonical Board layouts", () => {
+    const screen = render(
+      <DatabaseViewTabSurface
+        model={model}
+        presentationLayout="board"
+        activeSearchQuery=""
+        taskSearchOpen={false}
+        searchShortcutLabel="Ctrl+F"
+        taskSearchInputRef={{ current: null }}
+        boardSurface={<div>Established Board presenter</div>}
+        onSearchQueryChange={() => undefined}
+        onOpenTaskSearch={() => undefined}
+        onCloseTaskSearch={() => undefined}
+        onOpenPage={() => undefined}
+      />,
+    );
+
+    expect(screen.getByText("Established Board presenter")).toBeTruthy();
+    expect(screen.queryByRole("article")).toBeNull();
+  });
+
   test("uses the DB View tab toolbar to search the shared Database surface", async () => {
     const screen = render(<DatabaseViewTabHarness />);
 
@@ -722,5 +1283,66 @@ describe("DatabaseViewTabSurface", () => {
     });
 
     expect(screen.getByText("No matching Pages")).toBeTruthy();
+  });
+
+  test("uses the independent List grid for hierarchy collapse and keyboard range selection", async () => {
+    const selectedSnapshots: ReadonlySet<string>[] = [];
+    const screen = render(
+      <NestedDatabaseListHarness
+        onSelectedPageIdsChange={(pageIds) => selectedSnapshots.push(pageIds)}
+      />,
+    );
+    const grid = screen.getByRole("grid", { name: "Focused List" });
+    expect(screen.getByRole("button", { name: "Open Page Next Page" })).toBeTruthy();
+
+    await act(async () => {
+      fireEvent.keyDown(grid, { key: "ArrowDown" });
+      fireEvent.keyDown(grid, { key: " " });
+      fireEvent.keyDown(grid, { key: "ArrowDown", shiftKey: true });
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(selectedSnapshots.at(-1)).toEqual(
+      new Set(["page-focused", "page-next"]),
+    ));
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", {
+        name: "Collapse sub-pages of Focused Page",
+      }));
+      await Promise.resolve();
+    });
+    expect(screen.queryByRole("button", { name: "Open Page Next Page" })).toBeNull();
+    expect(screen.getByRole("button", {
+      name: "Expand sub-pages of Focused Page",
+    })).toBeTruthy();
+    expect(screen.queryByRole("article")).toBeNull();
+  });
+
+  test("uses canonical status group labels and routes header creation to that status", () => {
+    const onRequestCreatePage = vi.fn();
+    const screen = render(
+      <DatabaseViewTabSurface
+        model={groupedListModel()}
+        presentationLayout="list"
+        activeSearchQuery=""
+        taskSearchOpen={false}
+        searchShortcutLabel="Ctrl+F"
+        taskSearchInputRef={{ current: null }}
+        pageCreateSurfaceId="surface-list"
+        onRequestCreatePage={onRequestCreatePage}
+        onSearchQueryChange={() => undefined}
+        onOpenTaskSearch={() => undefined}
+        onCloseTaskSearch={() => undefined}
+        onOpenPage={() => undefined}
+      />,
+    );
+
+    expect(screen.getByText("Build")).toBeTruthy();
+    expect(screen.queryByText("build")).toBeNull();
+    expect(screen.container.querySelector(
+      '[data-page-create-surface-id="surface-list"]',
+    )).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Create new Page" }));
+    expect(onRequestCreatePage).toHaveBeenCalledWith("build");
   });
 });

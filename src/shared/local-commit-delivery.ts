@@ -155,6 +155,7 @@ const mapPatch = (
       pageId: patch.page_id,
       totalRows: patch.total_rows,
       groupKey: patch.group_key ?? null,
+      subgroupKey: patch.subgroup_key ?? null,
       groupTotal: patch.group_total ?? null,
     };
   }
@@ -168,6 +169,7 @@ const mapPatch = (
     row,
     sourceRow: patch.row,
     effectiveGroupKey: patch.row.effective_group_key ?? null,
+    effectiveSubgroupKey: patch.row.effective_subgroup_key ?? null,
     rankKey: patch.row.rank_key ?? null,
     totalRows: patch.total_rows,
     groupTotal: patch.group_total ?? null,

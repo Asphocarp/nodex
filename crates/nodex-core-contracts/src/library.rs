@@ -13,7 +13,7 @@ use crate::document::DocumentHeadRevision;
 use crate::workspace::{ProjectAppearance, ProjectLifecycle};
 use crate::{ApplyResponse, ModuleMutationReceipt, ModuleName, VersionedModuleContract};
 
-pub const LIBRARY_CONTRACT_VERSION: u32 = 11;
+pub const LIBRARY_CONTRACT_VERSION: u32 = 15;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -636,7 +636,7 @@ pub enum LibraryNavigationNode {
         database_id: String,
         data_source_id: String,
         title: String,
-        view_kind: String,
+        default_layout: String,
         is_default: bool,
         revision: i64,
     },
@@ -796,7 +796,6 @@ pub struct LibraryPageLifecycleDocument {
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 pub struct LibraryPageLifecyclePosition {
-    pub group_key: Option<String>,
     pub rank_key: String,
     pub revision: i64,
 }

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { CalendarIcon, ClockIcon } from "@/components/shared/icons";
 import {
   NodexPopover,
@@ -15,6 +15,19 @@ import {
 } from "@/lib/data-source-property-date";
 import { cn } from "@/lib/utils";
 import { PropertyEmptyValue } from "./property-empty-value";
+import { DATABASE_PROPERTY_LIST_CHIP_CLASS_NAME } from "./property-list-chip";
+
+const formatListDate = (date: Date): string => {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const candidate = new Date(date);
+  candidate.setHours(0, 0, 0, 0);
+  const dayOffset = Math.round((candidate.getTime() - today.getTime()) / 86_400_000);
+  if (dayOffset === 0) return "Today";
+  if (dayOffset === 1) return "Tomorrow";
+  if (dayOffset === -1) return "Yesterday";
+  return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(date);
+};
 
 export function DatePropertyEditor({
   label,
@@ -23,6 +36,7 @@ export function DatePropertyEditor({
   revision,
   disabled,
   presentation,
+  triggerIcon,
   onChange,
 }: {
   readonly label: string;
@@ -30,7 +44,8 @@ export function DatePropertyEditor({
   readonly value: string | null;
   readonly revision: number;
   readonly disabled: boolean;
-  readonly presentation: "compact" | "page";
+  readonly presentation: "compact" | "page" | "list";
+  readonly triggerIcon?: ReactNode;
   readonly onChange: (value: string | null) => void;
 }) {
   const committed = mode === "date"
@@ -96,7 +111,9 @@ export function DatePropertyEditor({
 
   const selected = parseIsoDateToLocalDate(dateInput);
   const display = selected
-    ? new Intl.DateTimeFormat(undefined, {
+    ? presentation === "list"
+      ? formatListDate(mode === "datetime" && value ? new Date(value) : selected)
+      : new Intl.DateTimeFormat(undefined, {
         year: "numeric",
         month: "short",
         day: "numeric",
@@ -131,11 +148,15 @@ export function DatePropertyEditor({
           className={cn(
             "inline-flex min-h-6 min-w-0 items-center gap-1.5 rounded-md px-1 text-left outline-hidden",
             "text-token-text-secondary hover:bg-token-foreground/5 focus-visible:ring-2 focus-visible:ring-token-focus disabled:opacity-50",
-            presentation === "page" ? "text-sm" : "text-[11px]",
+            presentation === "page"
+              ? "text-sm"
+              : presentation === "list"
+                ? DATABASE_PROPERTY_LIST_CHIP_CLASS_NAME
+                : "text-[11px]",
           )}
         >
           {selected ? (
-            <CalendarIcon className="icon-2xs shrink-0 text-token-description-foreground" />
+            triggerIcon ?? <CalendarIcon className="icon-2xs shrink-0 text-token-description-foreground" />
           ) : null}
           {display ? <span className="truncate">{display}</span> : <PropertyEmptyValue />}
         </button>

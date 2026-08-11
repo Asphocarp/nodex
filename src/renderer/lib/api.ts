@@ -10,10 +10,13 @@ import {
   type CoreReadResult,
 } from "../../shared/core-read-result";
 import type {
+  DatabaseListWindowInput,
+  DatabaseListWindowSnapshot,
   DatabaseViewGroupsInput,
   DatabaseViewGroupsSnapshot,
   DatabaseViewWindowInput,
   DatabaseViewWindowSnapshot,
+  LibraryDatabaseListWindowSnapshot,
   LibraryDatabaseViewGroupsSnapshot,
   LibraryDatabaseViewWindowSnapshot,
 } from "../../shared/database-views";
@@ -400,6 +403,13 @@ export function readDatabaseViewWindow(
   return invokeCoreRead("database:view-window:get", projectId, input);
 }
 
+export function readDatabaseListWindow(
+  projectId: string,
+  input: DatabaseListWindowInput,
+): Promise<DatabaseListWindowSnapshot> {
+  return invokeCoreRead("database:list-window:get", projectId, input);
+}
+
 export function readDatabaseViewGroups(
   projectId: string,
   input: DatabaseViewGroupsInput,
@@ -414,6 +424,15 @@ export function readLibraryDatabaseViewWindow(
   ),
 ): Promise<LibraryDatabaseViewWindowSnapshot> {
   return invokeCoreRead("library-database:view-window:get", input);
+}
+
+export function readLibraryDatabaseListWindow(
+  input: DatabaseListWindowInput & (
+    | { readonly databaseViewId: string }
+    | { readonly databaseId: string }
+  ),
+): Promise<LibraryDatabaseListWindowSnapshot> {
+  return invokeCoreRead("library-database:list-window:get", input);
 }
 
 export function readLibraryDatabaseViewGroups(

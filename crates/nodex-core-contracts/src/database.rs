@@ -9,7 +9,7 @@ use crate::collection::{CollectionWindow, CollectionWindowRequest};
 use crate::events::ProjectionSnapshotAuthority;
 use crate::{ModuleMutationReceipt, ModuleName, VersionedModuleContract};
 
-pub const DATABASE_CONTRACT_VERSION: u32 = 6;
+pub const DATABASE_CONTRACT_VERSION: u32 = 10;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -83,6 +83,10 @@ pub enum DatabaseTarget {
     View {
         view_id: String,
     },
+    PresentedView {
+        view_id: String,
+        presentation_override: DatabaseViewPresentationOverrideInput,
+    },
     Page {
         page_id: String,
     },
@@ -103,6 +107,105 @@ pub enum DatabaseTarget {
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
+pub enum DatabaseViewLayoutInput {
+    Board,
+    List,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum DatabaseViewSortFieldInput {
+    Manual,
+    Title,
+    Created,
+    Property { property_id: String },
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DatabaseViewSortDirectionInput {
+    Asc,
+    Desc,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DatabaseViewNullOrderInput {
+    First,
+    Last,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct DatabaseViewSortInput {
+    pub field: DatabaseViewSortFieldInput,
+    pub direction: DatabaseViewSortDirectionInput,
+    pub nulls: DatabaseViewNullOrderInput,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum DatabaseViewGroupOverrideInput {
+    None,
+    Property { property_id: String },
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DatabaseViewCompletedRangeInput {
+    All,
+    PastMonth,
+    PastWeek,
+    PastDay,
+    None,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct DatabaseViewCompletionOverrideInput {
+    pub range: Option<DatabaseViewCompletedRangeInput>,
+    pub order_by_recency: Option<bool>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct DatabaseViewHierarchyOverrideInput {
+    pub show_sub_pages: Option<bool>,
+    pub nested_sub_pages: Option<bool>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum DatabaseViewFieldInput {
+    Property { property_id: String },
+    Intrinsic { field: String },
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct DatabaseViewLayoutDisplayOverrideInput {
+    pub fields: Option<Vec<DatabaseViewFieldInput>>,
+    pub show_empty_groups: Option<bool>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct DatabaseViewLayoutsOverrideInput {
+    pub board: Option<DatabaseViewLayoutDisplayOverrideInput>,
+    pub list: Option<DatabaseViewLayoutDisplayOverrideInput>,
+}
+
+/// A bounded Profile-local patch over a durable View presentation. Membership
+/// filters and shared manual ranks are intentionally not overridable.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct DatabaseViewPresentationOverrideInput {
+    pub layout: Option<DatabaseViewLayoutInput>,
+    pub sort: Option<Vec<DatabaseViewSortInput>>,
+    pub group: Option<DatabaseViewGroupOverrideInput>,
+    pub subgroup: Option<DatabaseViewGroupOverrideInput>,
+    pub group_direction: Option<DatabaseViewSortDirectionInput>,
+    pub completion: Option<DatabaseViewCompletionOverrideInput>,
+    pub hierarchy: Option<DatabaseViewHierarchyOverrideInput>,
+    pub layouts: Option<DatabaseViewLayoutsOverrideInput>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
 pub enum DatabaseReadMode {
     CatalogWindow,
     Database,
@@ -114,22 +217,25 @@ pub enum DatabaseReadMode {
     View,
     AgentQuery,
     ViewWindow,
+    ListWindow,
     ViewGroups,
     ViewContext,
     RowsById,
     RowDetail,
     RelationTargetWindow,
     RelationCandidateWindow,
+    ViewPersonalPreferences,
 }
 
-/// Restricts a `ViewWindow` read to a single group of a grouped View, so each
-/// board column can page independently. `Unassigned` addresses rows whose
-/// grouping Property value is empty (NULL, empty string, or empty list).
+/// Restricts a `ViewWindow` read to one stable primary/secondary group path.
+/// A null key addresses the unassigned value at that level.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum DatabaseGroupScope {
-    Key { key: String },
-    Unassigned,
+    Path {
+        group_key: Option<String>,
+        subgroup_key: Option<String>,
+    },
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
@@ -183,6 +289,9 @@ pub enum DatabaseReadValue {
     ViewWindow {
         value: DatabaseViewWindow,
     },
+    ListWindow {
+        value: DatabaseListWindow,
+    },
     ViewGroups {
         value: DatabaseViewGroups,
     },
@@ -201,6 +310,17 @@ pub enum DatabaseReadValue {
     RelationCandidateWindow {
         candidates: CollectionWindow<DatabaseRelationCandidate>,
     },
+    ViewPersonalPreferences {
+        value: DatabaseViewPersonalPreferences,
+    },
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct DatabaseViewPersonalPreferences {
+    pub presentation_override: DatabaseViewPresentationOverrideInput,
+    pub collapsed_group_keys: Vec<String>,
+    /// Zero means that this Profile has no durable preference row yet.
+    pub revision: i64,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -249,6 +369,77 @@ pub struct DatabaseViewWindow {
     pub rows: CollectionWindow<DatabaseRowSummary>,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DatabaseListTransientKind {
+    None,
+    Ancestor,
+    Child,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum DatabaseListProjectionRow {
+    Group {
+        occurrence_key: String,
+        group_key: Option<String>,
+        total_occurrence_count: i64,
+    },
+    Subgroup {
+        occurrence_key: String,
+        group_key: Option<String>,
+        subgroup_key: Option<String>,
+        total_occurrence_count: i64,
+    },
+    Page {
+        occurrence_key: String,
+        summary: Box<DatabaseRowSummary>,
+        group_path: Vec<Option<String>>,
+        ancestor_page_ids: Vec<String>,
+        depth: u32,
+        has_children: bool,
+        transient_kind: DatabaseListTransientKind,
+        sibling_rank: Option<String>,
+        hierarchy_revision: i64,
+    },
+}
+
+impl DatabaseListProjectionRow {
+    pub fn occurrence_key(&self) -> &str {
+        match self {
+            Self::Group { occurrence_key, .. }
+            | Self::Subgroup { occurrence_key, .. }
+            | Self::Page { occurrence_key, .. } => occurrence_key,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct DatabaseListGroupSummary {
+    pub group_key: Option<String>,
+    pub subgroup_key: Option<String>,
+    pub total_occurrence_count: i64,
+}
+
+/// A continuous window over the fully expanded List occurrence projection.
+/// Model totals intentionally differ from occurrence totals when multi-value
+/// grouping or transient hierarchy context repeats a Page.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct DatabaseListWindow {
+    pub database_id: String,
+    pub data_source_id: String,
+    pub view_id: String,
+    pub projection: ProjectionSnapshotAuthority,
+    pub rows: CollectionWindow<DatabaseListProjectionRow>,
+    pub groups: Vec<DatabaseListGroupSummary>,
+    pub total_projection_row_count: i64,
+    pub total_occurrence_count: i64,
+    pub total_model_count: i64,
+    pub window_start: i64,
+    pub window_end: i64,
+    pub is_complete: bool,
+}
+
 /// Bounded per-group totals for a View, observed from data. At most
 /// `MAX_VIEW_GROUP_SUMMARIES` groups are returned; `truncated` reports when the
 /// grouping cardinality exceeded that bound. `grouped: false` means the View
@@ -260,15 +451,19 @@ pub struct DatabaseViewGroups {
     pub view_id: String,
     pub projection: ProjectionSnapshotAuthority,
     pub grouped: bool,
+    pub subgrouped: bool,
     pub total_rows: i64,
+    pub total_groups: i64,
+    pub group_limit: usize,
     pub truncated: bool,
     pub groups: Vec<DatabaseViewGroupSummary>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 pub struct DatabaseViewGroupSummary {
-    /// `None` counts the unassigned group (empty grouping value).
+    /// `None` counts the unassigned value at that path level.
     pub group_key: Option<String>,
+    pub subgroup_key: Option<String>,
     pub total_rows: i64,
 }
 
@@ -325,9 +520,13 @@ pub struct DatabaseRowSummary {
     pub created_at: String,
     pub updated_at: String,
     pub effective_group_key: Option<String>,
+    pub effective_subgroup_key: Option<String>,
     pub rank_key: Option<String>,
     pub position_revision: Option<i64>,
     pub position_order: Option<i64>,
+    pub task_parent_page_id: Option<String>,
+    pub task_sibling_rank: Option<String>,
+    pub task_hierarchy_revision: i64,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
@@ -377,7 +576,7 @@ pub enum DatabaseIntent {
         view_id: String,
         expected_revision: i64,
         name: String,
-        view_kind: String,
+        default_layout: String,
         config: Value,
         is_default: bool,
         before_view_id: Option<String>,
@@ -391,14 +590,24 @@ pub enum DatabaseIntent {
         view_id: String,
         page_id: String,
         expected_position_revision: i64,
-        group_key: Option<String>,
         before_page_id: Option<String>,
     },
     PositionPages {
         view_id: String,
         pages: Vec<DatabasePagePosition>,
-        group_key: Option<String>,
         before_page_id: Option<String>,
+    },
+    SetTaskParent {
+        data_source_id: String,
+        pages: Vec<DatabaseTaskHierarchyPage>,
+        parent_page_id: Option<String>,
+        before_page_id: Option<String>,
+    },
+    PutViewPersonalPreferences {
+        view_id: String,
+        expected_revision: i64,
+        presentation_override: DatabaseViewPresentationOverrideInput,
+        collapsed_group_keys: Vec<String>,
     },
 }
 
@@ -460,6 +669,13 @@ pub struct DatabasePropertyValueMutation {
 pub struct DatabasePagePosition {
     pub page_id: String,
     pub expected_position_revision: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct DatabaseTaskHierarchyPage {
+    pub page_id: String,
+    /// Zero means the Page is currently a task root with no hierarchy edge.
+    pub expected_hierarchy_revision: i64,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]

@@ -4,7 +4,7 @@ import {
   useEffect,
 } from "react";
 
-import { CanvasDocumentState } from "@/components/kanban/canvas-document-state";
+import { CanvasDocumentState } from "@/components/board/canvas-document-state";
 import { makeCanvasSceneSurfaceKey } from "@/lib/canvas-scene-surface-runtime";
 import { makeCanvasViewportPreferenceScope } from "@/lib/canvas-presentation-preference";
 import { canvasDocumentSessionRegistry } from "@/lib/canvas-document-session";

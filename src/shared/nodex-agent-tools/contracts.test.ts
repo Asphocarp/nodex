@@ -276,7 +276,7 @@ describe("Nodex Agent tool contracts", () => {
             config: {},
           }],
         },
-        view: { viewId: "view-1", name: "Board", kind: "kanban" },
+        view: { viewId: "view-1", name: "Board", defaultLayout: "board" },
         rows: Array.from({ length: 13 }, (_, index) => ({
           blockId: `block-${index + 1}`,
           title: `Task ${index + 1}`,

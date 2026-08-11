@@ -2,14 +2,14 @@ import type {
   DatabaseJsonValue,
   DatabasePropertyValueType,
   DatabaseViewFilterNode,
-  DatabaseViewConfig,
-  DatabaseViewKind,
+  DatabaseViewConfigV4,
+  DatabaseViewLayout,
   DatabaseViewSort,
 } from "./database-kernel";
 import type { AuthorizedReadStamp } from "./authorized-read-stamp";
 import type { Page } from "./page";
 
-export const DATABASE_MODULE_CONTRACT_VERSION = 1 as const;
+export const DATABASE_MODULE_CONTRACT_VERSION = 3 as const;
 export const MAX_DATABASE_MODULE_BULK_ENTRIES = 100 as const;
 
 export interface DatabaseContainerRecord {
@@ -56,8 +56,8 @@ export interface DatabaseViewRecord {
   readonly databaseId: string;
   readonly dataSourceId: string;
   readonly name: string;
-  readonly kind: DatabaseViewKind;
-  readonly config: DatabaseViewConfig;
+  readonly defaultLayout: DatabaseViewLayout;
+  readonly config: DatabaseViewConfigV4;
   readonly isDefault: boolean;
   readonly revision: number;
   readonly rankKey: string;
@@ -94,11 +94,11 @@ export interface DataSourcePageRow {
   };
   readonly values: Readonly<Record<string, DataSourcePageValue>>;
   readonly position: null | {
-    readonly groupKey: string | null;
     readonly rankKey: string;
     readonly revision: number;
   };
   readonly effectiveGroupKey: string | null;
+  readonly effectiveSubgroupKey: string | null;
 }
 
 export interface DatabaseViewQueryResult {
@@ -267,8 +267,8 @@ export interface PutDatabaseViewOperationV2 {
   readonly viewId: string;
   readonly expectedRevision: number;
   readonly name: string;
-  readonly viewKind: DatabaseViewKind;
-  readonly config: DatabaseViewConfig;
+  readonly defaultLayout: DatabaseViewLayout;
+  readonly config: DatabaseViewConfigV4;
   readonly isDefault: boolean;
   /** Undefined preserves an update's rank; null explicitly appends. */
   readonly beforeViewId?: string | null;
@@ -286,7 +286,6 @@ export interface PositionDatabaseViewPageOperation {
   readonly viewId: string;
   readonly pageId: string;
   readonly expectedPositionRevision: number;
-  readonly groupKey: string | null;
   readonly beforePageId?: string;
 }
 
@@ -298,7 +297,6 @@ export interface PositionDatabaseViewPagesOperation {
     readonly pageId: string;
     readonly expectedPositionRevision: number;
   }[];
-  readonly groupKey: string | null;
   /** The anchor must be outside the moved Page set. */
   readonly beforePageId?: string;
 }

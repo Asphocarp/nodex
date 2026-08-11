@@ -343,6 +343,50 @@ async function dragBlockToBoardWithMouse({
   }
 }
 
+async function dragListRowWithMouse({
+  page,
+  sourceRow,
+  targetRow,
+  position,
+}: {
+  page: Page;
+  sourceRow: Locator;
+  targetRow: Locator;
+  position: "before" | "after" | "nest";
+}): Promise<void> {
+  await sourceRow.scrollIntoViewIfNeeded();
+  await sourceRow.hover();
+  await expect(sourceRow).toHaveAttribute("draggable", "true");
+  const dragSurface = sourceRow.locator('[data-list-grid-column="identifier"]');
+  const handleBox = await dragSurface.boundingBox();
+  if (!handleBox) throw new Error("List row drag surface has no layout box");
+  const sourcePoint = {
+    x: handleBox.x + handleBox.width / 2,
+    y: handleBox.y + handleBox.height / 2,
+  };
+  const targetBox = await targetRow.boundingBox();
+  if (!targetBox) throw new Error("List target row has no layout box");
+  const targetRatio = position === "before" ? 0.14 : position === "after" ? 0.86 : 0.5;
+  const targetPoint = {
+    x: targetBox.x + Math.min(targetBox.width - 24, Math.max(80, targetBox.width * 0.45)),
+    y: targetBox.y + targetBox.height * targetRatio,
+  };
+
+  await page.mouse.move(sourcePoint.x, sourcePoint.y);
+  await page.mouse.down();
+  let mouseReleased = false;
+  try {
+    await page.mouse.move(sourcePoint.x + 12, sourcePoint.y, { steps: 4 });
+    await page.mouse.move(targetPoint.x, targetPoint.y, { steps: 24 });
+    await page.mouse.move(targetPoint.x + 1, targetPoint.y);
+    await page.mouse.move(targetPoint.x + 2, targetPoint.y);
+    await page.mouse.up();
+    mouseReleased = true;
+  } finally {
+    if (!mouseReleased) await page.mouse.up().catch(() => undefined);
+  }
+}
+
 interface ConvergenceDatabase {
   dataSourceId: string;
   viewId: string;
@@ -1687,7 +1731,7 @@ test("creates one stable Board Page through the app modal @create-modal-smoke", 
     }).click();
     await page.getByRole("tab", { name: "Project Home" }).waitFor();
     const triageColumn = page.locator(
-      '[data-kanban-column-root][data-kanban-column-id="triage"]',
+      '[data-board-column-root][data-board-column-id="triage"]',
     );
     await expect(triageColumn).toBeVisible({ timeout: 15_000 });
 
@@ -1712,7 +1756,7 @@ test("creates one stable Board Page through the app modal @create-modal-smoke", 
       const sample = () => {
         if (!state.__createModalFrameObserverActive) return;
         const count = [...document.querySelectorAll(
-          '[data-kanban-column-root][data-kanban-column-id="triage"] [data-kanban-uuid-v7]',
+          '[data-board-column-root][data-board-column-id="triage"] [data-board-uuid-v7]',
         )].filter((card) => card.textContent?.includes("Modal-created Page")).length;
         if (count > 0 || state.__createModalFrameCounts?.length) {
           state.__createModalFrameCounts?.push(count);
@@ -1724,7 +1768,7 @@ test("creates one stable Board Page through the app modal @create-modal-smoke", 
 
     await dialog.getByRole("button", { name: "Create page", exact: true }).click();
     await expect(dialog).toHaveCount(0);
-    const createdCard = triageColumn.locator("[data-kanban-uuid-v7]").filter({
+    const createdCard = triageColumn.locator("[data-board-uuid-v7]").filter({
       hasText: "Modal-created Page",
     });
     await expect(createdCard).toHaveCount(1, { timeout: 15_000 });
@@ -1793,7 +1837,7 @@ test("converges a Block transfer into the live Board Page projection", async () 
     }).click();
     await page.getByRole("tab", { name: "Project Home" }).waitFor();
     await expect(page.locator(
-      '[data-kanban-column-root][data-kanban-column-id="triage"]',
+      '[data-board-column-root][data-board-column-id="triage"]',
     )).toBeVisible({
       timeout: 10_000,
     });
@@ -1859,7 +1903,7 @@ test("converges a Block transfer into the live Board Page projection", async () 
       },
     });
 
-    const card = page.locator(`[data-kanban-uuid-v7="${resultPageId}"]`);
+    const card = page.locator(`[data-board-uuid-v7="${resultPageId}"]`);
     await expect(card).toBeVisible({ timeout: 5_000 });
     await expect(card).toContainText("Dragged source");
   } finally {
@@ -1900,7 +1944,7 @@ test("keeps the Page editor mounted while its Document commits", async () => {
     }).click();
     await page.getByRole("tab", { name: "Project Home" }).waitFor();
     const card = page.locator(
-      `[data-kanban-uuid-v7="${fixturePage.pageId}"]`,
+      `[data-board-uuid-v7="${fixturePage.pageId}"]`,
     );
     await expect(card).toBeVisible({ timeout: 15_000 });
     await card.click();
@@ -2076,15 +2120,15 @@ test("moves a Block into a Board with native DnD @dnd-smoke", async () => {
     }).click();
     await page.getByRole("tab", { name: "Project Home" }).waitFor();
     const triageColumn = page.locator(
-      '[data-kanban-column-root][data-kanban-column-id="triage"]',
+      '[data-board-column-root][data-board-column-id="triage"]',
     );
     await expect(triageColumn).toBeVisible({ timeout: 15_000 });
-    await expect(triageColumn.locator("[data-kanban-uuid-v7]")).toHaveCount(3, {
+    await expect(triageColumn.locator("[data-board-uuid-v7]")).toHaveCount(3, {
       timeout: 15_000,
     });
 
     const sourceCard = triageColumn.locator(
-      `[data-kanban-uuid-v7="${source.pageId}"]`,
+      `[data-board-uuid-v7="${source.pageId}"]`,
     );
     await expect(sourceCard).toBeVisible();
     // Opening the fixture Page is setup for the gesture under test. Dispatch
@@ -2116,7 +2160,7 @@ test("moves a Block into a Board with native DnD @dnd-smoke", async () => {
       targetColumn: triageColumn,
     });
 
-    await expect(triageColumn.locator("[data-kanban-uuid-v7]")).toHaveCount(4, {
+    await expect(triageColumn.locator("[data-board-uuid-v7]")).toHaveCount(4, {
       timeout: 15_000,
     });
     await expect.poll(
@@ -2124,7 +2168,7 @@ test("moves a Block into a Board with native DnD @dnd-smoke", async () => {
       { timeout: 15_000 },
     ).toBe(4);
     const promotedCards = triageColumn.locator(
-      `[data-kanban-uuid-v7]:not([data-kanban-uuid-v7="${source.pageId}"])`,
+      `[data-board-uuid-v7]:not([data-board-uuid-v7="${source.pageId}"])`,
     ).filter({ hasText: "DnD smoke title" });
     await expect(promotedCards).toHaveCount(1, { timeout: 15_000 });
     await expect(promotedCards).toBeVisible();
@@ -2137,7 +2181,7 @@ test("moves a Block into a Board with native DnD @dnd-smoke", async () => {
     })).toHaveCount(1);
 
     const promotedPageId = requireString(
-      await promotedCards.getAttribute("data-kanban-uuid-v7"),
+      await promotedCards.getAttribute("data-board-uuid-v7"),
       "Native DnD promoted Page id",
     );
     const detail = requireIpcValue<Record<string, unknown>>(
@@ -2162,6 +2206,120 @@ test("moves a Block into a Board with native DnD @dnd-smoke", async () => {
     });
     await expect(page.locator('[data-slot="toast-item"] [role="alert"]'))
       .toHaveCount(0);
+  } finally {
+    if (application) await stopApplication(application);
+    await shutdownTemporaryCore(nodexHome);
+    fs.rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test("reorders the Core-backed List with native DnD @list-dnd-smoke", async () => {
+  test.setTimeout(120_000);
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nx-list-dnd-smoke-"));
+  const nodexHome = path.join(fixtureRoot, "profile");
+  const workspace = path.join(fixtureRoot, "workspace");
+  fs.mkdirSync(workspace, { recursive: true });
+  prepareRuntimeFixture(fixtureRoot);
+
+  let application: ElectronApplication | undefined;
+  try {
+    application = await launchApplication(fixtureRoot, nodexHome);
+    const page = await application.firstWindow();
+    await page.evaluate(() => window.api?.awaitInitialization?.());
+
+    const project = await createConvergenceProject(
+      page,
+      "Native List DnD smoke",
+      workspace,
+    );
+    const firstFixture = await createConvergenceBoardPage(
+      page,
+      project,
+      "List fixture one",
+      "First List Page",
+    );
+    const secondFixture = await createConvergenceBoardPage(
+      page,
+      project,
+      "List fixture two",
+      "Second List Page",
+    );
+    const thirdFixture = await createConvergenceBoardPage(
+      page,
+      project,
+      "List fixture three",
+      "Third List Page",
+    );
+
+    await page.getByRole("button", {
+      name: "Open Native List DnD smoke",
+      exact: true,
+    }).click();
+    const board = page.locator("[data-board-root]");
+    await expect(board).toBeVisible({ timeout: 15_000 });
+    await page.getByRole("tablist", { name: "Database views" })
+      .getByRole("tab", { name: "List", exact: true })
+      .click();
+
+    const grid = page.getByRole("grid", { name: /List$/ });
+    await expect(grid).toBeVisible({ timeout: 15_000 });
+    const rows = grid.locator(
+      '[data-list-row="true"][data-database-view-page-id]',
+    );
+    for (const fixture of [firstFixture, secondFixture, thirdFixture]) {
+      await expect(grid.locator(
+        `[data-list-row="true"][data-database-view-page-id="${fixture.pageId}"]`,
+      )).toHaveCount(1, { timeout: 15_000 });
+    }
+    const initialOrder = await rows.evaluateAll((elements) => elements.map((element) =>
+      element.getAttribute("data-database-view-page-id") ?? ""
+    ));
+    expect(initialOrder).toEqual(expect.arrayContaining([
+      firstFixture.pageId,
+      secondFixture.pageId,
+      thirdFixture.pageId,
+    ]));
+    const targetPageId = firstFixture.pageId;
+    const sourcePageId = thirdFixture.pageId;
+    const sourceRow = grid.locator(
+      `[data-list-row="true"][data-database-view-page-id="${sourcePageId}"]`,
+    );
+    const targetRow = grid.locator(
+      `[data-list-row="true"][data-database-view-page-id="${targetPageId}"]`,
+    );
+
+    await dragListRowWithMouse({
+      page,
+      sourceRow,
+      targetRow,
+      position: "before",
+    });
+
+    await expect.poll(async () => await rows.evaluateAll((elements) => elements.map((element) =>
+      element.getAttribute("data-database-view-page-id") ?? ""
+    )), { timeout: 15_000 }).toEqual([
+      sourcePageId,
+      ...initialOrder.filter((pageId) => pageId !== sourcePageId),
+    ]);
+    await expect.poll(async () => {
+      const result = requireIpcValue<{
+        readonly rows: readonly {
+          readonly kind: string;
+          readonly row?: { readonly page?: { readonly pageId?: string } };
+        }[];
+      }>(await invokeIpc(
+        page,
+        "database:list-window:get",
+        project.projectId,
+        { databaseViewId: project.defaultDatabaseViewId, first: 50 },
+      ), "Read reordered List window");
+      return result.rows.flatMap((row) =>
+        row.kind === "page" && row.row?.page?.pageId ? [row.row.page.pageId] : []
+      );
+    }, { timeout: 15_000 }).toEqual([
+      sourcePageId,
+      ...initialOrder.filter((pageId) => pageId !== sourcePageId),
+    ]);
   } finally {
     if (application) await stopApplication(application);
     await shutdownTemporaryCore(nodexHome);
@@ -2246,7 +2404,7 @@ test("keeps Page ready and idle CPU bounded with 14k LocalCommit history", async
     }).click();
     await page.getByRole("tab", { name: "Project Home" }).waitFor();
     await expect.poll(
-      async () => await page.locator("[data-kanban-uuid-v7]").count(),
+      async () => await page.locator("[data-board-uuid-v7]").count(),
       { timeout: 15_000 },
     ).toBe(PAGE_READY_ROUNDS);
 
@@ -2257,7 +2415,7 @@ test("keeps Page ready and idle CPU bounded with 14k LocalCommit history", async
     }> = [];
     for (const [round, fixturePage] of fixturePages.entries()) {
       const card = page.locator(
-        `[data-kanban-uuid-v7="${fixturePage.pageId}"]`,
+        `[data-board-uuid-v7="${fixturePage.pageId}"]`,
       );
       await expect(card).toBeVisible({ timeout: 15_000 });
       await page.evaluate((loadingLabel) => {
@@ -2568,15 +2726,15 @@ test("converges a high-pressure Page promotion across tab groups and WebContents
     }).click();
     await page.getByRole("tab", { name: "Project Home" }).waitFor();
     const triageColumn = page.locator(
-      '[data-kanban-column-root][data-kanban-column-id="triage"]',
+      '[data-board-column-root][data-board-column-id="triage"]',
     );
     await expect(triageColumn).toBeVisible({ timeout: 15_000 });
     await expect.poll(
-      async () => await page.locator("[data-kanban-uuid-v7]").count(),
+      async () => await page.locator("[data-board-uuid-v7]").count(),
       { timeout: 15_000 },
     ).toBe(HIGH_PRESSURE_BOARD_PAGE_COUNT);
 
-    const sourceCard = page.locator(`[data-kanban-uuid-v7="${source.pageId}"]`);
+    const sourceCard = page.locator(`[data-board-uuid-v7="${source.pageId}"]`);
     await expect(sourceCard).toBeVisible({ timeout: 15_000 });
     await sourceCard.click();
     await page.getByRole("tab", { name: "Cross-tab source" }).waitFor();
@@ -2608,15 +2766,15 @@ test("converges a high-pressure Page promotion across tab groups and WebContents
     expect(new Set(webContentsIds).size).toBeGreaterThanOrEqual(2);
 
     const audienceTriageColumn = audiencePage.locator(
-      '[data-kanban-column-root][data-kanban-column-id="triage"]',
+      '[data-board-column-root][data-board-column-id="triage"]',
     );
     await expect(audienceTriageColumn).toBeVisible({ timeout: 15_000 });
     await expect.poll(
-      async () => await audiencePage.locator("[data-kanban-uuid-v7]").count(),
+      async () => await audiencePage.locator("[data-board-uuid-v7]").count(),
       { timeout: 15_000 },
     ).toBe(HIGH_PRESSURE_BOARD_PAGE_COUNT);
     const audienceSourceCard = audiencePage.locator(
-      `[data-kanban-uuid-v7="${source.pageId}"]`,
+      `[data-board-uuid-v7="${source.pageId}"]`,
     );
     await expect(audienceSourceCard).toBeVisible({ timeout: 15_000 });
     await audienceSourceCard.locator('[data-card-context-menu-trigger="true"]')
@@ -2874,11 +3032,11 @@ test("converges a high-pressure Page promotion across tab groups and WebContents
         viewId: database.viewId,
       }),
     ]));
-    const transferredCard = page.locator('[data-kanban-uuid-v7]').filter({
+    const transferredCard = page.locator('[data-board-uuid-v7]').filter({
       hasText: "title-A-cross-tab",
     }).first();
     const audienceTransferredCard = audiencePage
-      .locator('[data-kanban-uuid-v7]')
+      .locator('[data-board-uuid-v7]')
       .filter({ hasText: "title-A-cross-tab" })
       .first();
     const [cardVisibleAt, sourceRemovedAt, audienceCardVisibleAt, audienceSourceRemovedAt] =
@@ -3046,10 +3204,10 @@ test("measures high-pressure nested Block transfer into a populated Board", asyn
     }).click();
     await page.getByRole("tab", { name: "Project Home" }).waitFor();
     const boardColumn = page.locator(
-      '[data-kanban-column-root][data-kanban-column-id="triage"]',
+      '[data-board-column-root][data-board-column-id="triage"]',
     );
     await expect(boardColumn).toBeVisible({ timeout: 15_000 });
-    const initialBoardCards = page.locator("[data-kanban-uuid-v7]");
+    const initialBoardCards = page.locator("[data-board-uuid-v7]");
     await expect.poll(
       async () => await initialBoardCards.count(),
       { timeout: 15_000 },
@@ -3182,7 +3340,7 @@ test("measures high-pressure nested Block transfer into a populated Board", asyn
       expect(evidence.resultPageId).toBe(resultPageId);
       expect(evidence.bodyRootBlockIds).toHaveLength(HIGH_PRESSURE_CHILD_BLOCK_COUNT);
 
-      const card = page.locator(`[data-kanban-uuid-v7="${resultPageId}"]`);
+      const card = page.locator(`[data-board-uuid-v7="${resultPageId}"]`);
       const sourceObservation = invokeIpc(
         page,
         "pages:detail:get",
@@ -3309,7 +3467,7 @@ test("measures high-pressure nested Block transfer into a populated Board", asyn
       initialBoardPageCount: HIGH_PRESSURE_BOARD_PAGE_COUNT,
       finalBoardPageCount: HIGH_PRESSURE_BOARD_PAGE_COUNT + HIGH_PRESSURE_ROUNDS,
       initialRenderedBoardCardCount: HIGH_PRESSURE_BOARD_PAGE_COUNT,
-      finalRenderedBoardCardCount: await page.locator("[data-kanban-uuid-v7]").count(),
+      finalRenderedBoardCardCount: await page.locator("[data-board-uuid-v7]").count(),
       initialDomNodes,
       ...rendererMetrics,
       peakWorkingSetBytes,

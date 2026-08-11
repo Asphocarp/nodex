@@ -1,5 +1,5 @@
 import { toast } from "@/components/ui/toast";
-import { PageCreateDialog } from "@/components/kanban/page-create-dialog";
+import { PageCreateDialog } from "@/components/board/page-create-dialog";
 import type { ScopeHandle } from "./maitai";
 import {
   isModalOpen,

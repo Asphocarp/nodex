@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useEffect, useRef, useState } from "react";
 import type { DatabaseViewRenderModel } from "@/lib/database-view-render-model";
+import type { DataSourcePropertyRecordV2 } from "../../../shared/database-module-v2";
 import { plainTextToPortableRichText } from "../../../shared/block-documents";
 import {
   parseDatabaseId,
@@ -9,8 +10,10 @@ import {
   parseDataSourcePropertyId,
 } from "../../../shared/database-identities";
 import { testPropertySemantics } from "../../../shared/testing/database-property-record";
+import { upgradeDatabaseViewConfigV2 } from "../../../shared/database-view-presentation";
 import { DatabaseViewSurface } from "./database-view-surface";
 import { DatabaseViewTabSurface } from "./workbench-db-view-panel";
+import { DatabaseViewGroupLimitNotice } from "./workbench-database-view-surface";
 import { executeContextualKeyboardAction } from "@/lib/contextual-keyboard-actions";
 
 const timestamp = "2026-07-12T00:00:00.000Z";
@@ -20,6 +23,10 @@ const dataSourceId = parseDataSourceId("data-source:nodex:primary");
 const viewId = parseDatabaseViewId("database-view:nodex:focused");
 const statusPropertyId = parseDataSourcePropertyId("status");
 const tagsPropertyId = parseDataSourcePropertyId("tags");
+const priorityPropertyId = parseDataSourcePropertyId("priority");
+const estimatePropertyId = parseDataSourcePropertyId("estimate");
+const dueDatePropertyId = parseDataSourcePropertyId("due_date");
+const assigneePropertyId = parseDataSourcePropertyId("assignee");
 
 const model: DatabaseViewRenderModel = {
   libraryId,
@@ -33,7 +40,6 @@ const model: DatabaseViewRenderModel = {
   storeEpoch: "story",
   commitSeq: 1,
   authorization: null,
-  primaryWriteCompatible: false,
   readOnlyReason: null,
   query: {
     database: {
@@ -64,15 +70,15 @@ const model: DatabaseViewRenderModel = {
       databaseId,
       dataSourceId,
       name: "Focused work",
-      kind: "kanban",
-      config: {
+      defaultLayout: "board",
+      config: upgradeDatabaseViewConfigV2({
         schemaKey: "nodex.database-view",
         schemaVersion: 2,
         filter: { kind: "group", operator: "and", children: [] },
         sort: [{ field: { kind: "manual" }, direction: "asc", nulls: "last" }],
         group: { propertyId: statusPropertyId },
         display: { propertyIds: [tagsPropertyId], showTitle: true },
-      },
+      }),
       isDefault: false,
       revision: 1,
       rankKey: "a",
@@ -87,7 +93,15 @@ const model: DatabaseViewRenderModel = {
         name: "Status",
         ...testPropertySemantics("select", 2),
         valueType: "select",
-        config: { options: [{ id: "build", name: "Build" }, { id: "ship", name: "Ship" }] },
+        config: {
+          options: [
+            { id: "triage", name: "Triage" },
+            { id: "plan", name: "Plan" },
+            { id: "build", name: "Build" },
+            { id: "review", name: "Review" },
+            { id: "ship", name: "Ship" },
+          ],
+        },
         rankKey: "a",
         lifecycle: "active",
         revision: 1,
@@ -136,17 +150,21 @@ const model: DatabaseViewRenderModel = {
         [statusPropertyId]: { propertyId: statusPropertyId, valueType: "select", value: "build", revision: 1 },
         [tagsPropertyId]: { propertyId: tagsPropertyId, valueType: "multi_select", value: ["o_AAAAAAAA"], revision: 1 },
       },
-      position: { groupKey: "build", rankKey: "a", revision: 1 },
+      position: { rankKey: "a", revision: 1 },
       effectiveGroupKey: "build",
+      effectiveSubgroupKey: null,
     }],
   },
   columns: [
     {
       id: "build",
+      groupKey: "build",
       scopeKey: "key:build",
       name: "Build",
       rows: [{
         pageId: "page-1",
+        groupKey: "build",
+        subgroupKey: null,
         status: "build",
         title: "Unify Database View rendering",
         preview: "",
@@ -156,7 +174,7 @@ const model: DatabaseViewRenderModel = {
         createdAt: new Date(timestamp),
       }],
     },
-    { id: "ship", name: "Ship", scopeKey: "key:ship", rows: [] },
+    { id: "ship", groupKey: "ship", name: "Ship", scopeKey: "key:ship", rows: [] },
   ],
 };
 
@@ -169,6 +187,7 @@ const meta = {
     searchQuery: "",
     onOpenPage: () => undefined,
     commitOperations: async () => null,
+    onSelectedPageIdsChange: () => undefined,
   },
   decorators: [(Story) => <div className="h-[640px]"><Story /></div>],
 } satisfies Meta<typeof DatabaseViewSurface>;
@@ -187,7 +206,10 @@ export const PresentedPage: Story = {
 function KeyboardSelectedBoard() {
   useEffect(() => {
     executeContextualKeyboardAction("boardFocusNext");
-    executeContextualKeyboardAction("boardToggleSelection");
+    const frame = requestAnimationFrame(() => {
+      executeContextualKeyboardAction("boardToggleSelection");
+    });
+    return () => cancelAnimationFrame(frame);
   }, []);
   return (
     <DatabaseViewSurface
@@ -207,35 +229,652 @@ export const KeyboardHighlightedSelection: Story = {
   render: () => <KeyboardSelectedBoard />,
 };
 
-const withKind = (
-  kind: "list" | "calendar",
+function SelectionPreservingLayoutSwitch() {
+  const [layout, setLayout] = useState<"board" | "list">("board");
+  useEffect(() => {
+    executeContextualKeyboardAction("boardFocusNext");
+    const frame = requestAnimationFrame(() => {
+      executeContextualKeyboardAction("boardToggleSelection");
+    });
+    return () => cancelAnimationFrame(frame);
+  }, []);
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="flex h-10 shrink-0 items-center gap-1 border-b-[0.5px] border-token-border/50 px-3">
+        {(["board", "list"] as const).map((candidate) => (
+          <button
+            key={candidate}
+            type="button"
+            aria-pressed={layout === candidate}
+            className="rounded-md px-2 py-1 text-xs capitalize aria-pressed:bg-token-foreground/7"
+            onClick={() => setLayout(candidate)}
+          >
+            {candidate}
+          </button>
+        ))}
+        <span className="ml-2 text-xs text-token-description-foreground">
+          The active selection survives layout changes.
+        </span>
+      </div>
+      <div className="min-h-0 flex-1">
+        <DatabaseViewSurface
+          model={model}
+          presentationLayout={layout}
+          searchQuery=""
+          keyboardSurface={{
+            surfaceId: "story-layout-switch",
+            presentationId: "story-same-view",
+          }}
+          onOpenPage={() => undefined}
+          commitOperations={async () => null}
+        />
+      </div>
+    </div>
+  );
+}
+
+export const BoardListSelectionContinuity: Story = {
+  render: () => <SelectionPreservingLayoutSwitch />,
+};
+
+const withLayout = (
+  defaultLayout: "board" | "list",
 ): DatabaseViewRenderModel => ({
   ...model,
   query: {
     ...model.query,
     view: {
       ...model.query.view,
-      kind,
-      config: { ...model.query.view.config, group: null },
+      defaultLayout,
+      config: {
+        ...model.query.view.config,
+        presentation: {
+          ...model.query.view.config.presentation,
+          group: null,
+        },
+      },
     },
   },
   columns: [{
     id: "all",
+    groupKey: null,
     scopeKey: "all",
     name: "Focused work",
     rows: model.columns.flatMap((column) => column.rows),
   }],
 });
 
-export const ListView: Story = { args: { model: withKind("list") } };
-export const CalendarAgenda: Story = { args: { model: withKind("calendar") } };
-export const CalendarAgendaListFallback: Story = {
+const withNestedList = (): DatabaseViewRenderModel => {
+  const base = withLayout("list");
+  const authority = base.query.rows[0];
+  const renderRow = base.columns[0]?.rows[0];
+  if (!authority || !renderRow) return base;
+  const pageSpecs = [
+    { id: "page-1", title: "Unify Database View rendering", parentId: null },
+    { id: "page-2", title: "Define the List occurrence projection", parentId: "page-1" },
+    { id: "page-3", title: "Verify nested keyboard navigation", parentId: "page-2" },
+    { id: "page-4", title: "Polish responsive property columns", parentId: null },
+    { id: "page-5", title: "Exercise a deliberately long task title without disturbing adjacent metadata", parentId: null },
+  ] as const;
+  const authorities = pageSpecs.map((page, index) => ({
+    ...authority,
+    membership: {
+      ...authority.membership,
+      membershipId: `membership-${index + 1}`,
+    },
+    page: {
+      ...authority.page,
+      pageId: page.id,
+      documentId: `document-${index + 1}`,
+      title: page.title,
+      richTitle: plainTextToPortableRichText(page.title),
+    },
+    position: { rankKey: String.fromCharCode(97 + index), revision: 1 },
+    ...(page.parentId ? {
+      taskHierarchy: {
+        parentPageId: page.parentId,
+        siblingRank: String.fromCharCode(97 + index),
+        revision: 1,
+      },
+    } : {}),
+  }));
+  return {
+    ...base,
+    query: {
+      ...base.query,
+      view: {
+        ...base.query.view,
+        config: {
+          ...base.query.view.config,
+          presentation: {
+            ...base.query.view.config.presentation,
+            hierarchy: { showSubPages: true, nestedSubPages: true },
+            layouts: {
+              ...base.query.view.config.presentation.layouts,
+              list: {
+                fields: [
+                  { kind: "property", propertyId: tagsPropertyId },
+                  { kind: "intrinsic", field: "updated_at" },
+                ],
+                showEmptyGroups: false,
+              },
+            },
+          },
+        },
+      },
+      rows: authorities,
+    },
+    columns: [{
+      ...base.columns[0]!,
+      rows: pageSpecs.map((page, index) => ({
+        ...renderRow,
+        pageId: page.id,
+        title: page.title,
+        parentPageId: page.parentId ?? undefined,
+        createdAt: new Date(Date.parse(timestamp) + index * 86_400_000),
+      })),
+    }],
+  };
+};
+
+export const ListView: Story = { args: { model: withLayout("list") } };
+export const GroupedList: Story = {
   args: {
-    model: withKind("calendar"),
-    presentationKind: "list",
+    model,
+    presentationLayout: "list",
+    pageCreateSurfaceId: "story-grouped-list",
+    onRequestCreatePage: () => undefined,
   },
 };
 
+const withEmptyListGroups = (): DatabaseViewRenderModel => ({
+  ...model,
+  query: {
+    ...model.query,
+    view: {
+      ...model.query.view,
+      defaultLayout: "list",
+      config: {
+        ...model.query.view.config,
+        presentation: {
+          ...model.query.view.config.presentation,
+          layouts: {
+            ...model.query.view.config.presentation.layouts,
+            list: {
+              ...model.query.view.config.presentation.layouts.list,
+              showEmptyGroups: true,
+            },
+          },
+        },
+      },
+    },
+  },
+});
+
+export const EmptyGroupedList: Story = {
+  args: {
+    model: withEmptyListGroups(),
+    presentationLayout: "list",
+    pageCreateSurfaceId: "story-empty-grouped-list",
+    onRequestCreatePage: () => undefined,
+  },
+};
+
+export const SelectedList: Story = {
+  args: {
+    model: withNestedList(),
+    initialSelectedPageIds: new Set(["page-2", "page-3"]),
+  },
+};
+
+const withListFieldStress = (): DatabaseViewRenderModel => {
+  const base = withNestedList();
+  const labelOptions = [
+    { id: "o_AAAAAAAA", name: "Page first", color: "#BB87FC" },
+    { id: "o_BBBBBBBB", name: "Renderer", color: "#56ABFD" },
+    { id: "o_CCCCCCCC", name: "Core", color: "#77D677" },
+    { id: "o_DDDDDDDD", name: "Accessibility", color: "#F8C531" },
+    { id: "o_EEEEEEEE", name: "Performance", color: "#F67E49" },
+  ] as const;
+  const priorityOptions = [
+    { id: "p0-critical", name: "Critical" },
+    { id: "p1-high", name: "High" },
+    { id: "p2-medium", name: "Medium" },
+    { id: "p3-low", name: "Low" },
+  ] as const;
+  const estimateOptions = [
+    { id: "xs", name: "XS" },
+    { id: "s", name: "S" },
+    { id: "m", name: "M" },
+    { id: "l", name: "L" },
+    { id: "xl", name: "XL" },
+  ];
+  const extraProperties: DataSourcePropertyRecordV2[] = [
+    {
+      propertyId: priorityPropertyId,
+      dataSourceId,
+      name: "Priority",
+      ...testPropertySemantics("select", priorityOptions.length),
+      valueType: "select" as const,
+      config: { options: [...priorityOptions] },
+      rankKey: "c",
+      lifecycle: "active" as const,
+      revision: 1,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    },
+    {
+      propertyId: estimatePropertyId,
+      dataSourceId,
+      name: "Estimate",
+      ...testPropertySemantics("select", estimateOptions.length),
+      valueType: "select" as const,
+      config: { options: [...estimateOptions] },
+      rankKey: "d",
+      lifecycle: "active" as const,
+      revision: 1,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    },
+    {
+      propertyId: dueDatePropertyId,
+      dataSourceId,
+      name: "Due date",
+      ...testPropertySemantics("date"),
+      valueType: "date" as const,
+      config: {},
+      rankKey: "e",
+      lifecycle: "active" as const,
+      revision: 1,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    },
+    {
+      propertyId: assigneePropertyId,
+      dataSourceId,
+      name: "Assignee",
+      ...testPropertySemantics("text"),
+      valueType: "text" as const,
+      config: {},
+      rankKey: "f",
+      lifecycle: "active" as const,
+      revision: 1,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    },
+  ];
+  return {
+    ...base,
+    query: {
+      ...base.query,
+      view: {
+        ...base.query.view,
+        config: {
+          ...base.query.view.config,
+          presentation: {
+            ...base.query.view.config.presentation,
+            group: { propertyId: statusPropertyId },
+            layouts: {
+              ...base.query.view.config.presentation.layouts,
+              list: {
+                ...base.query.view.config.presentation.layouts.list,
+                fields: [
+                  { kind: "property", propertyId: priorityPropertyId },
+                  { kind: "property", propertyId: statusPropertyId },
+                  { kind: "property", propertyId: tagsPropertyId },
+                  { kind: "property", propertyId: estimatePropertyId },
+                  { kind: "property", propertyId: dueDatePropertyId },
+                  { kind: "property", propertyId: assigneePropertyId },
+                  { kind: "intrinsic", field: "updated_at" },
+                ],
+              },
+            },
+          },
+        },
+      },
+      properties: [
+        ...base.query.properties.map((property) =>
+          property.propertyId === tagsPropertyId
+            ? { ...property, config: { options: labelOptions } }
+            : property
+        ),
+        ...extraProperties,
+      ],
+      rows: base.query.rows.map((row, index) => {
+        if (index === 3) {
+          const values = { ...row.values };
+          delete values[tagsPropertyId];
+          return { ...row, values };
+        }
+        const priority = priorityOptions[index % priorityOptions.length]!.id;
+        const estimate = estimateOptions[index % estimateOptions.length]!.id;
+        return {
+          ...row,
+          values: {
+            ...row.values,
+            [priorityPropertyId]: {
+              propertyId: priorityPropertyId,
+              valueType: "select" as const,
+              value: priority,
+              revision: 2,
+            },
+            [tagsPropertyId]: {
+              propertyId: tagsPropertyId,
+              valueType: "multi_select" as const,
+              value: index === 1
+                ? labelOptions.map((option) => option.id)
+                : [labelOptions[index % labelOptions.length]!.id],
+              revision: 2,
+            },
+            [estimatePropertyId]: {
+              propertyId: estimatePropertyId,
+              valueType: "select" as const,
+              value: estimate,
+              revision: 2,
+            },
+            [dueDatePropertyId]: {
+              propertyId: dueDatePropertyId,
+              valueType: "date" as const,
+              value: `2026-08-${String(12 + index).padStart(2, "0")}`,
+              revision: 2,
+            },
+            [assigneePropertyId]: {
+              propertyId: assigneePropertyId,
+              valueType: "text" as const,
+              value: index % 2 === 0 ? "Aster" : "Mina",
+              revision: 2,
+            },
+          },
+        };
+      }),
+    },
+    columns: base.columns.map((column) => ({
+      ...column,
+      rows: column.rows.map((row, index) => ({
+        ...row,
+        priority: index === 3
+          ? undefined
+          : priorityOptions[index % priorityOptions.length]!.id,
+      })),
+    })),
+  };
+};
+
+export const ListPropertyDensity: Story = {
+  args: { model: withListFieldStress() },
+};
+
+const withLargeListFixture = (count: number): DatabaseViewRenderModel => {
+  const base = withLayout("list");
+  const authority = base.query.rows[0];
+  const renderRow = base.columns[0]?.rows[0];
+  if (!authority || !renderRow) return base;
+  const pageIds = Array.from({ length: count }, (_, index) => `large-page-${index + 1}`);
+  return {
+    ...base,
+    query: {
+      ...base.query,
+      rows: pageIds.map((pageId, index) => {
+        const title = `Large fixture Page ${String(index + 1).padStart(5, "0")}`;
+        return {
+          ...authority,
+          membership: {
+            ...authority.membership,
+            membershipId: `large-membership-${index + 1}`,
+          },
+          page: {
+            ...authority.page,
+            pageId,
+            documentId: `large-document-${index + 1}`,
+            title,
+            richTitle: plainTextToPortableRichText(title),
+          },
+          position: {
+            rankKey: String(index + 1).padStart(8, "0"),
+            revision: 1,
+          },
+        };
+      }),
+    },
+    columns: [{
+      id: "all",
+      groupKey: null,
+      scopeKey: "all",
+      name: "Focused work",
+      rows: pageIds.map((pageId, index) => ({
+        ...renderRow,
+        pageId,
+        title: `Large fixture Page ${String(index + 1).padStart(5, "0")}`,
+        createdAt: new Date(Date.parse(timestamp) + index * 1_000),
+      })),
+    }],
+  };
+};
+
+const tenThousandListModel = withLargeListFixture(10_000);
+
+export const TenThousandList: Story = {
+  render: () => (
+    <DatabaseViewSurface
+      model={tenThousandListModel}
+      searchQuery=""
+      onOpenPage={() => undefined}
+      commitOperations={async () => null}
+    />
+  ),
+};
+
+function ListWithOpenContextMenu() {
+  const hostRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    let secondFrame = 0;
+    const firstFrame = requestAnimationFrame(() => {
+      secondFrame = requestAnimationFrame(() => {
+        const row = hostRef.current?.querySelector<HTMLElement>(
+          "[data-database-view-page-id]",
+        );
+        row?.dispatchEvent(new MouseEvent("contextmenu", {
+          bubbles: true,
+          button: 2,
+          clientX: 420,
+          clientY: 190,
+        }));
+      });
+    });
+    return () => {
+      cancelAnimationFrame(firstFrame);
+      cancelAnimationFrame(secondFrame);
+    };
+  }, []);
+  return (
+    <div ref={hostRef} className="h-full">
+      <DatabaseViewSurface
+        model={withNestedList()}
+        searchQuery=""
+        onOpenPage={() => undefined}
+        commitOperations={async () => null}
+      />
+    </div>
+  );
+}
+
+export const ListContextMenu: Story = {
+  render: () => <ListWithOpenContextMenu />,
+};
+
+const withEmptyList = (): DatabaseViewRenderModel => {
+  const base = withLayout("list");
+  return {
+    ...base,
+    query: { ...base.query, rows: [] },
+    columns: [{
+      id: "all",
+      groupKey: null,
+      scopeKey: "all",
+      name: "Focused work",
+      rows: [],
+    }],
+  };
+};
+
+export const EmptyList: Story = {
+  args: { model: withEmptyList() },
+};
+
+export const RetainedListBackgroundRefresh: Story = {
+  args: {
+    model: withNestedList(),
+    groupPagination: new Map([[
+      "all",
+      {
+        scopeKey: "all",
+        loadedRows: 5,
+        totalRows: 28,
+        hasMore: true,
+        loadingMore: true,
+        error: null,
+      },
+    ]]),
+  },
+  parameters: {
+    docs: {
+      description: {
+        story: "The admitted List rows remain readable while a background window continues loading.",
+      },
+    },
+  },
+};
+
+export const FailedListWindow: Story = {
+  args: {
+    model: withNestedList(),
+    groupPagination: new Map([[
+      "all",
+      {
+        scopeKey: "all",
+        loadedRows: 5,
+        totalRows: 28,
+        hasMore: true,
+        loadingMore: false,
+        error: "Couldn’t load the next List window.",
+      },
+    ]]),
+    onLoadMoreGroup: () => undefined,
+  },
+};
+
+const withSubgroups = (layout: "board" | "list"): DatabaseViewRenderModel => {
+  const first = model.query.rows[0];
+  if (!first) return model;
+  const second = {
+    ...first,
+    membership: { ...first.membership, membershipId: "membership-2" },
+    page: {
+      ...first.page,
+      pageId: "page-2",
+      documentId: "document-2",
+      title: "Polish keyboard focus recovery",
+      richTitle: plainTextToPortableRichText("Polish keyboard focus recovery"),
+    },
+    values: {
+      ...first.values,
+      [priorityPropertyId]: {
+        propertyId: priorityPropertyId,
+        valueType: "select" as const,
+        value: "p3-low",
+        revision: 1,
+      },
+    },
+    position: { rankKey: "b", revision: 1 },
+    effectiveSubgroupKey: "p3-low",
+  };
+  const firstWithPriority = {
+    ...first,
+    values: {
+      ...first.values,
+      [priorityPropertyId]: {
+        propertyId: priorityPropertyId,
+        valueType: "select" as const,
+        value: "p0-critical",
+        revision: 1,
+      },
+    },
+    effectiveSubgroupKey: "p0-critical",
+  };
+  return {
+    ...model,
+    query: {
+      ...model.query,
+      view: {
+        ...model.query.view,
+        defaultLayout: layout,
+        config: {
+          ...model.query.view.config,
+          presentation: {
+            ...model.query.view.config.presentation,
+            subgroup: { propertyId: priorityPropertyId },
+          },
+        },
+      },
+      properties: [
+        ...model.query.properties,
+        {
+          propertyId: priorityPropertyId,
+          dataSourceId,
+          name: "Priority",
+          ...testPropertySemantics("select", 3),
+          valueType: "select" as const,
+          config: {
+            options: [
+              { id: "p0-critical", name: "Critical" },
+              { id: "p1-high", name: "High" },
+              { id: "p2-medium", name: "Medium" },
+              { id: "p3-low", name: "Low" },
+            ],
+          },
+          rankKey: "c",
+          lifecycle: "active" as const,
+          revision: 1,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        },
+      ],
+      rows: [firstWithPriority, second],
+    },
+  };
+};
+
+export const SubgroupedBoard: Story = {
+  args: { model: withSubgroups("board") },
+};
+
+export const SubgroupedList: Story = {
+  args: { model: withSubgroups("list") },
+};
+
+export const GroupCombinationLimit: Story = {
+  render: () => (
+    <div className="pt-1">
+      <DatabaseViewGroupLimitNotice totalGroups={225} groupLimit={200} />
+      <div className="mt-2 h-[560px]">
+        <DatabaseViewSurface
+          model={withLayout("list")}
+          searchQuery=""
+          onOpenPage={() => undefined}
+          commitOperations={async () => null}
+        />
+      </div>
+    </div>
+  ),
+};
+export const NarrowList: Story = {
+  args: { model: withLayout("list") },
+  decorators: [(Story) => (
+    <div className="h-[640px] w-[520px] border-r-[0.5px] border-token-border/50">
+      <Story />
+    </div>
+  )],
+};
 function FullDatabaseViewTab({
   viewModel,
 }: {
@@ -261,4 +900,16 @@ function FullDatabaseViewTab({
 
 export const FullTabSurface: Story = {
   render: (args) => <FullDatabaseViewTab viewModel={args.model} />,
+};
+
+export const FullNestedList: Story = {
+  render: () => <FullDatabaseViewTab viewModel={withNestedList()} />,
+};
+
+export const FullNestedListNarrow: Story = {
+  render: () => (
+    <div className="h-full w-[680px] border-r-[0.5px] border-token-border/50">
+      <FullDatabaseViewTab viewModel={withNestedList()} />
+    </div>
+  ),
 };

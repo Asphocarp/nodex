@@ -1717,7 +1717,7 @@ fn view_node_window(
         i64::try_from(limit.saturating_add(1)).map_err(|_| invalid("Library limit overflowed"))?;
     let nodes = connection
         .prepare(
-            "SELECT id, database_block_id, data_source_id, name, kind, revision, rank_key \
+            "SELECT id, database_block_id, data_source_id, name, default_layout, revision, rank_key \
              FROM database_views WHERE database_block_id = ?1 AND lifecycle = 'active' \
                AND (?2 IS NULL OR rank_key > ?2 OR (rank_key = ?2 AND id > ?3)) \
              ORDER BY rank_key, id LIMIT ?4",
@@ -1733,7 +1733,7 @@ fn view_node_window(
                         database_id: row.get(1)?,
                         data_source_id: row.get(2)?,
                         title: row.get(3)?,
-                        view_kind: row.get(4)?,
+                        default_layout: row.get(4)?,
                         revision: row.get(5)?,
                     },
                     sort_key: row.get(6)?,
@@ -1815,7 +1815,7 @@ fn view_node(
     connection
         .query_row(
             "SELECT view.id, view.database_block_id, view.data_source_id, view.name, \
-               view.kind, view.revision, view.id = container.default_view_id \
+               view.default_layout, view.revision, view.id = container.default_view_id \
              FROM database_views view \
              INNER JOIN database_containers container \
                ON container.block_id = view.database_block_id \
@@ -1829,7 +1829,7 @@ fn view_node(
                     database_id: row.get(1)?,
                     data_source_id: row.get(2)?,
                     title: row.get(3)?,
-                    view_kind: row.get(4)?,
+                    default_layout: row.get(4)?,
                     revision: row.get(5)?,
                     is_default: row.get::<_, i64>(6)? == 1,
                 })

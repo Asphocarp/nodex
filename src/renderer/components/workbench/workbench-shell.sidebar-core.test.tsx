@@ -2,7 +2,7 @@ import "./workbench-testkit/workbench-shell-harness";
 import { describe, test, expect } from "vitest";
 import { settleAsyncRender, textContent } from "../../test/dom";
 import { act, fireEvent, waitFor, within } from "@testing-library/react";
-import { getKanbanProjectStore } from "@/lib/kanban-store";
+import { getBoardProjectStore } from "@/lib/board-store";
 import { LOCAL_ENVIRONMENT_SELECTIONS_STORAGE_KEY } from "./local-environment-selection";
 import { type CodexSidebarThreadItem } from "@/lib/types";
 import { __getNodexToastSnapshotForTests } from "@/components/ui/toast";
@@ -19,7 +19,7 @@ describe("workbench session shell / sidebar-core", () => {
     const text = textContent(screen.container);
     expect(text.includes("Alpha")).toBe(true);
     expect(text.includes("Database View")).toBe(true);
-    expect(text.includes("DB:alpha:kanban")).toBe(true);
+    expect(text.includes("DB:alpha:board")).toBe(true);
     expect(invokeCalls.some((call) => call[0] === "project-sessions:list" && call[1] === "alpha")).toBe(false);
     expect(invokeCalls.some((call) => call[0] === "workspace:tasks:list" && call[1] === "alpha")).toBe(true);
     expect(invokeCalls.some((call) => call[0] === "project-sessions:get" && call[1] === "session:alpha:database-view")).toBe(true);
@@ -132,7 +132,7 @@ describe("workbench session shell / sidebar-core", () => {
     await settleAsyncRender();
 
     await selectSidebarSession(screen.container, "Database View");
-    expect(textContent(screen.container).includes("DB:alpha:kanban"))
+    expect(textContent(screen.container).includes("DB:alpha:board"))
       .toBe(true);
     const backButton = screen.getByRole("button", { name: "Back" });
     const forwardButton = screen.getByRole("button", { name: "Forward" });
@@ -153,7 +153,7 @@ describe("workbench session shell / sidebar-core", () => {
       await Promise.resolve();
     });
     await settleAsyncRender();
-    expect(textContent(screen.container).includes("DB:alpha:kanban"))
+    expect(textContent(screen.container).includes("DB:alpha:board"))
       .toBe(true);
   });
 
@@ -201,7 +201,7 @@ describe("workbench session shell / sidebar-core", () => {
           projectId: "alpha",
           kind: "db_view",
           title: "DB View",
-          config: { projectId: "alpha", view: "list" },
+          config: { projectId: "alpha" },
         },
       ],
       rightLayout: makePanelLayout(["session:alpha:work:db"], "session:alpha:work:db"),
@@ -229,23 +229,23 @@ describe("workbench session shell / sidebar-core", () => {
     });
     await waitFor(() => {
       expect(
-        getKanbanProjectStore(
+        getBoardProjectStore(
           "alpha",
-          "database-view:alpha:primary-kanban",
+          "database-view:alpha:primary-board",
         ).getSnapshot().loading,
       ).toBe(false);
     });
     expect(
-      getKanbanProjectStore(
+      getBoardProjectStore(
         "alpha",
-        "database-view:alpha:primary-kanban",
+        "database-view:alpha:primary-board",
       ).getSnapshot().error,
     ).toBe(null);
     await waitFor(() => {
       expect(
-        getKanbanProjectStore(
+        getBoardProjectStore(
           "alpha",
-          "database-view:alpha:primary-kanban",
+          "database-view:alpha:primary-board",
         ).getSnapshot().databaseView?.databaseViewId,
       ).toBe("view:alpha");
     });

@@ -573,7 +573,7 @@ describe("workbench session shell / panel-commands", () => {
           kind: "db_view",
           title: "DB View",
           panelId: "right",
-          config: { projectId: "alpha", view: "kanban" },
+          config: { projectId: "alpha" },
         },
         {
           id: "browser-tab",
@@ -1161,7 +1161,7 @@ describe("workbench session shell / panel-commands", () => {
       kind: "db_view",
       title: "First",
       order: 0,
-      config: { projectId: "alpha", view: "kanban" },
+      config: { projectId: "alpha" },
     });
     const secondTab = makeSessionTab({
       id: "session:alpha:database-view:second",
@@ -1233,7 +1233,7 @@ describe("workbench session shell / panel-commands", () => {
       kind: "db_view",
       title: "First",
       order: 0,
-      config: { projectId: "alpha", view: "kanban" },
+      config: { projectId: "alpha" },
     });
     const secondTab = makeSessionTab({
       id: "session:alpha:database-view:second-split-close",
@@ -1310,7 +1310,7 @@ describe("workbench session shell / panel-commands", () => {
       kind: "db_view",
       title: "First",
       order: 0,
-      config: { projectId: "alpha", view: "kanban" },
+      config: { projectId: "alpha" },
     });
     const secondTab = makeSessionTab({
       id: "session:alpha:database-view:second-direct",
@@ -1373,7 +1373,7 @@ describe("workbench session shell / panel-commands", () => {
       kind: "db_view",
       title: "First",
       order: 0,
-      config: { projectId: "alpha", view: "kanban" },
+      config: { projectId: "alpha" },
     });
     const secondTab = makeSessionTab({
       id: "session:alpha:database-view:second-middle",

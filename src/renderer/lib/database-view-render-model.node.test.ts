@@ -12,6 +12,7 @@ import {
   parseDataSourcePropertyId,
 } from "../../shared/database-identities";
 import { testPropertySemantics } from "../../shared/testing/database-property-record";
+import { upgradeDatabaseViewConfigV2 } from "../../shared/database-view-presentation";
 import { buildDatabaseViewRenderModel } from "./database-view-render-model";
 
 const timestamp = "2026-07-12T00:00:00.000Z";
@@ -58,8 +59,8 @@ const makeSnapshot = (input: {
     databaseId,
     dataSourceId,
     name: input.primary === false ? "Focused work" : "Primary board",
-    kind: "kanban" as const,
-    config: {
+    defaultLayout: "board" as const,
+    config: upgradeDatabaseViewConfigV2({
       schemaKey: "nodex.database-view" as const,
       schemaVersion: 2 as const,
       filter: { kind: "group" as const, operator: "and" as const, children: [] },
@@ -72,7 +73,7 @@ const makeSnapshot = (input: {
         ? null
         : { propertyId: statusPropertyId },
       display: { propertyIds: [statusPropertyId, tagsPropertyId], showTitle: true },
-    },
+    }),
     isDefault: input.primary !== false,
     revision: 3,
     rankKey: "a",
@@ -152,8 +153,9 @@ const makeSnapshot = (input: {
           revision: 1,
         },
       },
-      position: { groupKey: "build", rankKey: "a", revision: 2 },
+      position: { rankKey: "a", revision: 2 },
       effectiveGroupKey: input.groupedByStatus === false ? null : "build",
+      effectiveSubgroupKey: null,
     }],
   };
   return {
@@ -168,11 +170,11 @@ const makeSnapshot = (input: {
 };
 
 describe("Database View render model", () => {
-  test("projects the default single-Source View into the compatibility Board surface", () => {
+  test("projects the default single-Source View through the shared runtime", () => {
     const model = buildDatabaseViewRenderModel(makeSnapshot());
     expect(model.databaseViewId).toBe(viewId);
     expect(model.dataSourceId).toBe(dataSourceId);
-    expect(model.primaryWriteCompatible).toBe(true);
+    expect(model.readOnlyReason).toBe(null);
     expect(model.columns[2]?.rows[0]?.title).toBe("Canonical Page");
     expect(model.columns[2]?.rows[0]?.tags).toEqual(["sync", "page-first"]);
   });
@@ -184,7 +186,6 @@ describe("Database View render model", () => {
       title: "Only in focused view",
     }));
     expect(model.databaseViewId).toBe("view-focused");
-    expect(model.primaryWriteCompatible).toBe(false);
     expect(model.readOnlyReason).toBe(null);
     expect(model.columns[2]?.rows[0]?.title).toBe("Only in focused view");
   });
@@ -222,7 +223,10 @@ describe("Database View render model", () => {
             ...query.view,
             config: {
               ...query.view.config,
-              group: { propertyId: workflowPropertyId },
+              presentation: {
+                ...query.view.config.presentation,
+                group: { propertyId: workflowPropertyId },
+              },
             },
           },
           rows: query.rows.map((row) => ({
@@ -241,13 +245,13 @@ describe("Database View render model", () => {
         },
       },
     });
-    expect(model.primaryWriteCompatible).toBe(false);
+    expect(model.readOnlyReason).toBe(null);
     expect(model.columns[0]?.id).toBe(doingOptionId);
     expect(model.columns[0]?.name).toBe("Doing");
     expect(model.columns[0]?.rows[0]?.pageId).toBe("page-1");
   });
 
-  test("does not route a filtered default View through the unfiltered Board adapter", () => {
+  test("preserves a filtered default View in the shared runtime", () => {
     const snapshot = makeSnapshot();
     if (snapshot.value.kind !== "query") throw new Error("Missing query fixture");
     const query = snapshot.value.value;
@@ -270,7 +274,7 @@ describe("Database View render model", () => {
         value: { ...query, view: filteredView },
       },
     });
-    expect(model.primaryWriteCompatible).toBe(false);
+    expect(model.query.view.config.filter).toEqual(filteredView.config.filter);
   });
 
   test("rejects resources from a different Library", () => {

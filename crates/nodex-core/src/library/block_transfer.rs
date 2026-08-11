@@ -2107,13 +2107,14 @@ fn apply_page_ownership_transfer(
                 .map(|etag| (page_id.clone(), etag))
             })
             .collect::<Result<BTreeMap<_, _>, _>>()?;
-        let target_view_id = match &prepared.target {
+        let target_view = match &prepared.target {
             PreparedPageOwnershipTarget::DataSource { destination, .. } => {
-                destination.view.as_ref().map(|view| view.view_id.as_str())
+                destination.view.as_ref()
             }
             PreparedPageOwnershipTarget::Library { .. }
             | PreparedPageOwnershipTarget::Document { .. } => None,
         };
+        let target_view_id = target_view.map(|view| view.view_id.as_str());
         let move_etags = if agent_authority.is_none() {
             result_block_ids
                 .iter()
@@ -2132,22 +2133,21 @@ fn apply_page_ownership_transfer(
         } else {
             BTreeMap::new()
         };
-        let page_view_placements = target_view_id
-            .map(|view_id| {
+        let page_view_placements = target_view
+            .map(|view| {
                 result_block_ids
                     .iter()
                     .map(|page_id| {
                         connection
                             .query_row(
-                                "SELECT group_key, revision \
-                             FROM database_view_page_positions \
-                             WHERE view_id = ?1 AND page_block_id = ?2",
-                                params![view_id, page_id],
+                                "SELECT revision FROM database_view_page_positions \
+                                 WHERE view_id = ?1 AND page_block_id = ?2",
+                                params![view.view_id, page_id],
                                 |row| {
                                     Ok(LibraryPageViewPlacementResult {
-                                        view_id: view_id.to_owned(),
-                                        group_key: row.get(0)?,
-                                        position_revision: row.get(1)?,
+                                        view_id: view.view_id.clone(),
+                                        group_key: view.group_key.clone(),
+                                        position_revision: row.get(0)?,
                                     })
                                 },
                             )

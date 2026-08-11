@@ -15,6 +15,7 @@ import {
 } from "../../shared/database-identities";
 import { testPropertySemantics } from "../../shared/testing/database-property-record";
 import { noOpLocalCommit } from "../../shared/testing/local-commit";
+import { upgradeDatabaseViewConfigV2 } from "../../shared/database-view-presentation";
 import type { DatabaseViewRenderModel } from "./database-view-render-model";
 import {
   buildDatabaseViewMoveOperations,
@@ -70,15 +71,15 @@ const model = (): DatabaseViewRenderModel => {
     databaseId,
     dataSourceId,
     name: "All",
-    kind: "list" as const,
-    config: {
+    defaultLayout: "list" as const,
+    config: upgradeDatabaseViewConfigV2({
       schemaKey: "nodex.database-view" as const,
       schemaVersion: 2 as const,
       filter: { kind: "group" as const, operator: "and" as const, children: [] },
       sort: [{ field: { kind: "manual" as const }, direction: "asc" as const, nulls: "last" as const }],
       group: null,
       display: { propertyIds: [scorePropertyId, tagsPropertyId], showTitle: true },
-    },
+    }),
     isDefault: false,
     revision: 1,
     rankKey: "a",
@@ -142,8 +143,9 @@ const model = (): DatabaseViewRenderModel => {
         : {},
       position: index === 2
         ? null
-        : { groupKey: null, rankKey: String(index), revision: index + 1 },
+        : { rankKey: String(index), revision: index + 1 },
       effectiveGroupKey: null,
+      effectiveSubgroupKey: null,
     }),
   );
   return {
@@ -161,10 +163,13 @@ const model = (): DatabaseViewRenderModel => {
     query: { database, dataSource, view, properties, rows },
     columns: [{
       id: "all",
+      groupKey: null,
       scopeKey: "all",
       name: "All",
       rows: rows.map((row) => ({
         pageId: row.page.pageId,
+        groupKey: null,
+        subgroupKey: null,
         title: row.page.title,
         preview: "",
         plainText: "",
@@ -173,7 +178,6 @@ const model = (): DatabaseViewRenderModel => {
         createdAt: new Date(timestamp),
       })),
     }],
-    primaryWriteCompatible: false,
     readOnlyReason: null,
   };
 };
@@ -234,7 +238,6 @@ describe("selected Database View Page mutations", () => {
         { pageId: "page-a", expectedPositionRevision: 1 },
         { pageId: "page-c", expectedPositionRevision: 0 },
       ],
-      groupKey: null,
     });
   });
 

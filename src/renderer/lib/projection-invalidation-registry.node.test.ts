@@ -214,6 +214,7 @@ describe("ProjectionInvalidationRegistry", () => {
           pageId: "page-c",
           totalRows: 2,
           groupKey: null,
+          subgroupKey: null,
           groupTotal: null,
         },
       },
