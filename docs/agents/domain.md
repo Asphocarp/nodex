@@ -6,7 +6,7 @@ How the engineering skills should consume Nodex's domain documentation when expl
 
 - **`CONTEXT.md`** at the repo root, or **`CONTEXT-MAP.md`** if it exists — it points at one `CONTEXT.md` per context. Read each one relevant to the topic.
 - **`docs/adr/`** — read ADRs that touch the area about to change.
-- **`ARCHITECTURE.md`** — read the system ownership and dependency flow before changing a Module or Interface.
+- **`ARCHITECTURE.md`** — read the system ownership and dependency flow before changing a Module or Interface, then follow its links to the relevant narrow source of truth.
 
 If any of these files do not exist, proceed silently. Do not treat their absence as a blocker; producer workflows create domain documents lazily when terminology or decisions become stable.
 

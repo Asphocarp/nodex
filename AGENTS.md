@@ -12,9 +12,8 @@
 ## Agent skills
 
 ### Domain docs
-
-Nodex uses a single-context layout with one root `CONTEXT.md` and system-wide ADRs under `docs/adr/`. See `docs/agents/domain.md`.
-
+Nodex uses a single-context layout with one root `CONTEXT.md` and system-wide ADRs under `docs/adr/`.
+See `docs/agents/domain.md`.
 
 ## Project Overview
 Nodex is a local-first, block-based agent orchestrator.
@@ -35,8 +34,7 @@ It ships as an Electron desktop app plus a CLI/HTTP API backed by SQLite.
 ## Runtime and Tooling
 - Package manager: pnpm
 - Development runtime: Node 24.15.0
-- Native addon: `node-pty` is rebuilt for Electron by `postinstall`; host Node
-  and Electron have different ABIs even when they report the same Node version.
+- Native addon: `node-pty` is rebuilt for Electron by `postinstall`; host Node and Electron have different ABIs even when they report the same Node version.
 - Test runner: Vitest; Playwright for Chromium and Electron E2E
 - Language: TypeScript (`strict` mode)
 - Desktop shell: Electron + electron-vite
@@ -55,6 +53,7 @@ It ships as an Electron desktop app plus a CLI/HTTP API backed by SQLite.
 - Keep renderer transport-agnostic by going through `src/renderer/lib/api.ts`.
 - Preserve project scoping for stateful UI and server operations.
 
+
 ## Architectural Preference
 - Default to the long-term, architecturally clean solution over the smallest incremental patch, even when that requires broad refactors, internal API changes, schema migrations, or breaking changes inside this repository.
 - This project has no real users or real data yet. Do not preserve legacy behavior, compatibility layers, duplicate paths, or awkward abstractions merely to reduce diff size.
@@ -64,11 +63,11 @@ It ships as an Electron desktop app plus a CLI/HTTP API backed by SQLite.
 - If a long-term fix is too large for one safe change, implement a clean vertical slice and document the remaining migration path instead of landing a temporary workaround.
 
 ## Architecture
-Read `ARCHITECTURE.md` first for system boundaries and dependency flow.
+Read `ARCHITECTURE.md` first for system boundaries and dependency flow, then follow its links to the narrow source of truth for the subsystem being changed.
 
 ## Documentation Map
 Use these docs as the source of truth:
-- System codemap and invariants: `ARCHITECTURE.md`
+- System ownership, dependency directions, critical cross-runtime flows, and system-wide invariants: `ARCHITECTURE.md`
 - Execution-plan format and requirements: `docs/PLANS.md`
 - Frontend conventions and editor patterns: `docs/FRONTEND.md`
 - UI design guidance for agent-built surfaces: `.agents/skills/general-design-guidelines/SKILL.md`
@@ -85,15 +84,16 @@ Use these docs as the source of truth:
 Documentation maintenance is an active, required responsibility for every agent task.
 Whenever a user asks you to fix a defect or corrects your previous work, repair the immediate issue and complete a recurrence-prevention review before handoff: determine whether a fresh coding agent without the current conversation could make the same mistake, then encode any enduring constraint at the narrowest effective seam.
 Prefer executable enforcement such as types, validation, architecture, or a meaningful regression test; update the owning documentation or agent instructions under the routing rules below when executable enforcement does not make the lesson sufficiently obvious or complete, and do not add redundant prose for a one-off issue already fully protected by an executable regression boundary.
-Default to one sentence per line when documenting ordinary body prose (this is not a hard rule though).
-
 When behavior changes, update the narrowest source-of-truth doc:
 - User-visible behavior/API contract changes: `docs/product-specs/nodex-product-spec.md`
-- Architecture boundary changes: `ARCHITECTURE.md`
+- State-ownership, dependency-direction, system-boundary/deep-Module, system-wide-invariant, or critical cross-runtime-flow changes: `ARCHITECTURE.md`
 - New reusable UI design guidance for agents: `.agents/skills/general-design-guidelines/SKILL.md`
 - New cross-cutting, non-obvious, high-cost learning that cannot be enforced at a narrower seam: `docs/ENGINEERING_LEARNINGS.md`
 - New subsystem caveat or regression: update the owning product spec/runbook, behavioral test, Adapter comment, or other narrow source of truth instead of appending an incident entry to `docs/ENGINEERING_LEARNINGS.md`
 - New reliability/security expectation: `docs/RELIABILITY.md` or `docs/SECURITY.md`
+
+Do not add implementation chronology, schema/version inventories, individual file behavior, UI interaction detail, failure runbooks, or feature acceptance rules to `ARCHITECTURE.md`.
+Replace stale architectural statements and link to the narrow owner instead of appending another description of the same contract.
 
 Treat `CHANGELOG.md` as a required deliverable only for **release-note-worthy** user-visible changes:
 - Keep an `Unreleased` section at the top.
@@ -112,6 +112,7 @@ Treat `CHANGELOG.md` as a required deliverable only for **release-note-worthy** 
 - Use one bullet per user-visible change.
 - Prefer impact-oriented wording, not implementation wording.
 
+
 ## Testing Expectations
 - Use a two-tier validation strategy: run targeted checks while iterating, then run risk-appropriate handoff checks once after the final edit set is stable.
 - Match targeted test commands to their runtime:
@@ -120,9 +121,7 @@ Treat `CHANGELOG.md` as a required deliverable only for **release-note-worthy** 
   - Renderer/jsdom tests: `pnpm exec vitest run --config vitest.renderer.config.ts <path-to-test>`
   - Main/store tests: `pnpm test:main <path-to-test>`
   - Electron integration tests: `pnpm test:integration <path-to-test>`
-- Never invoke `vitest.main.config.ts` or `vitest.integration.config.ts` directly
-  with host Node. Those suites must use the repository scripts so
-  Electron-built native addons load under Electron's ABI.
+- Never invoke `vitest.main.config.ts` or `vitest.integration.config.ts` directly with host Node. Those suites must use the repository scripts so Electron-built native addons load under Electron's ABI.
 - Match checks to the changed surface while iterating:
   - Pure helpers/domain logic: run the related unit test file.
   - Renderer workflow changes: run the related renderer test(s) plus `pnpm run typecheck` when types or props changed.
@@ -148,41 +147,27 @@ Treat `CHANGELOG.md` as a required deliverable only for **release-note-worthy** 
 - In the handoff, list the checks that ran and briefly explain any intentionally skipped broader check when its omission might otherwise be surprising.
 
 ### Electron HTML5 DnD E2E
-
 - The internal Block → Board native smoke must use the shared realistic `page.mouse` helper in `tests/e2e/electron-smoke.spec.ts` and a real `button[draggable="true"]` handle.
 - Do not replace it with `locator.drop`, synthetic `dragstart`, direct `blocks:transfer`, or CDP `Input.dispatchDragEvent`; those exercise different boundaries.
 - Do not use one-jump `dragTo` or invent another mouse path. Reuse the helper, which waits for the hover-only handle, crosses the activation threshold, moves in steps, and moves again inside the target to produce `dragover`.
 - If `dragstart` is missing, inspect the Playwright trace for handle remount, hit target, draggable state, activation distance, and overlays before changing frameworks or adding `Input.setInterceptDrags`.
 - Keep high-pressure and performance coverage on the direct typed transfer boundary; those are convergence tests, not native DnD gesture tests.
 
+
 ## Commit and PR Expectations
 - Keep changes scoped and atomic.
-- For ordinary commits, use `<area>: <precise imperative summary>`. The imperative mood applies only to the subject. Do not default to Conventional Commits or type prefixes such as `feat:`, `fix:`, `chore:`, or `refactor:`.
-- Choose `area` from stable repository terminology: a subsystem, package, component, or code region rather than a change type. If it is unclear, inspect `git log --oneline -- path/to/file`.
-- Make the summary state the concrete behavior change in imperative mood, omit a terminal period, and aim for at most 80 characters without sacrificing precision. Example: `editor: preserve selection across remote updates`.
-- Add a body when it contributes context the subject cannot: motivation, prior behavior, constraints, user impact, or non-obvious trade-offs. Write it as concise declarative prose focused on why the change matters and what results. Trivial, self-explanatory changes may use a subject only.
-- When a subject-only message is genuinely appropriate, use `git commit -m "<subject>"`. For the usual subject-and-body message, pass real line breaks:
-
-  ```bash
-  git commit -F - <<'EOF'
-  <subject>
-
-  <body paragraph; one sentence per line>
-
-  <next body paragraph>
-  EOF
-  ```
-
-  Never encode line breaks as literal `\n`; Git records them as text.
-- Place issue references and other trailers after the body, following existing repository conventions.
-- Merge, revert, release, and generated commits may follow their tool or established repository format.
+- Use Conventional Commits: `<type>(<scope>): <description>`, omitting the scope when it adds no value. Common types include `feat`, `fix`, `refactor`, `docs`, `test`, `chore`, `build`, `ci`, and `perf`.
+- Write a concise, imperative, human-readable subject that explains why the change matters. Prefer the user, product, reliability, or performance outcome over the implementation mechanism.
+  - Bad: `perf(server): negotiate permessage-deflate on the websocket`
+  - Good: `perf(server): cut websocket frame size by 70%+ with gzipping`
+- Add a commit body only when it provides useful motivation, constraints, impact, or trade-offs. Open commit bodies and PR descriptions with a simple explanation of the problem based on the user's original request, then briefly explain the solution. Lead with user impact; include implementation details afterward only when they clarify important constraints or trade-offs.
+- Bad: `Removed implicit workspace carry-over from every "new thread" entry point (cmd+n / cmd+shift+o, sidebar v1/v2 buttons, command palette). New threads inherit only the project from context; branch, worktree, and env mode always come from the configured defaults. Deleted buildContextualThreadOptions, startNewThreadInProjectFromContext, and the v1 sidebar's seed-context machinery.`
+- Good: `My "new thread" default was ignored when starting new threads on existing worktrees. Super unintuitive. Now your preferences always apply.`
 - Update related docs in the same change when contracts or workflows change.
 - Include commands run and validation outcomes in your PR notes.
 
 ## Frontend tasks
-
 When doing frontend design tasks, avoid generic, overbuilt layouts.
-
 **Use these hard rules:**
 - Prioritize an elegant, information-dense layout with minimal logical/visual redundancy and shallow nesting.
 - One composition: The first viewport must read as one composition, not a dashboard (unless it's a dashboard).
