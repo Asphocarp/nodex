@@ -33,6 +33,7 @@ import {
   buildMcpAppSidePanelInput,
   isMcpAppHtmlTooLarge,
   resolveMcpAppFrameHeight,
+  buildMcpAppCapabilityId,
   resolveMcpAppResourceUri,
   resolveMcpAppResourceScopeUri,
   resolveMcpExpandedSuccessDisplay,
@@ -363,6 +364,7 @@ function McpResultBody({
   resource,
   resourceLoading,
   resourceError,
+  mcpServerStatuses,
   rawDialogOpen,
   onRawDialogOpenChange,
   onOpenMcpAppSidePanel,
@@ -374,6 +376,7 @@ function McpResultBody({
   resource: McpRenderableResource | null;
   resourceLoading: boolean;
   resourceError: string | null;
+  mcpServerStatuses: ProtocolListMcpServerStatusResponse;
   rawDialogOpen: boolean;
   onRawDialogOpenChange: (open: boolean) => void;
   onOpenMcpAppSidePanel?: ThreadStageActions["onOpenMcpAppSidePanel"];
@@ -416,6 +419,25 @@ function McpResultBody({
     () => budgetMcpContentBlocks(displayContent),
     [displayContent],
   );
+  const capabilityId = useMemo(() => (
+    resource
+      ? buildMcpAppCapabilityId({
+          callId: payload.callId,
+          resourceUri: resource.uri,
+          server: payload.invocation.server,
+          threadId,
+          tool: payload.invocation.tool,
+        })
+      : null
+  ), [payload.callId, payload.invocation.server, payload.invocation.tool, resource, threadId]);
+  const runtimeConfig = useMemo(() => ({
+    currentToolName: payload.invocation.tool,
+    server: payload.invocation.server,
+    statuses: mcpServerStatuses,
+    threadId,
+    toolInput: payload.invocation.arguments,
+    toolResult: successResult?.raw ?? null,
+  }), [mcpServerStatuses, payload.invocation, successResult, threadId]);
 
   const appBody = isMcpAppLoading ? (
     <McpAppLoadingPlaceholder resource={resource} />
@@ -423,8 +445,12 @@ function McpResultBody({
     <ToolErrorDetail error={mcpAppError} showLabel={false} />
   ) : resource && isMcpAppHtmlTooLarge(resource) ? (
     <McpAppTooLargeError />
-  ) : resource ? (
-    <McpCapabilityViewFrame resource={resource} />
+  ) : resource && capabilityId ? (
+    <McpCapabilityViewFrame
+      capabilityId={capabilityId}
+      resource={resource}
+      runtimeConfig={runtimeConfig}
+    />
   ) : null;
 
   return (
@@ -643,6 +669,7 @@ export function McpToolCall({
                 resource={renderableResource}
                 resourceLoading={resourceLoading}
                 resourceError={resourceError}
+                mcpServerStatuses={mcpServerStatuses}
                 rawDialogOpen={isRawDialogOpen}
                 onRawDialogOpenChange={setIsRawDialogOpen}
                 onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}

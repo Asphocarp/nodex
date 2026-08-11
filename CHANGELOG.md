@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- Added interactive MCP Apps with thread-scoped tools and resources, stable inline/right-panel/fullscreen presentation, and a Main-owned isolated Electron sandbox that denies guest permissions, popups, navigation, downloads, and unauthorized network access.
 - Added Relation Properties for linking Database Pages, with secure previews, paged editing, and contains/empty filters.
 - Added Kanban Page actions to open a Page in a new focused Chat Session or send its canonical content to an existing or new chat.
 - Added an app-level Kanban Page composer with rich descriptions, schema-aware properties, exact multi-panel targeting, recoverable drafts, compact and expanded writing modes, a create-more workflow, and a configurable contextual shortcut.

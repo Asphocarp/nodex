@@ -10,28 +10,27 @@ import {
 } from "../../../../../shared/codex-mcp-tool-call";
 import type { ThreadMcpAppSidePanelInput } from "../../thread-stage-types";
 import { formatMcpServerName } from "./mcp-tool-call-labels";
+import {
+  MCP_APP_HTML_MAX_BYTES,
+  getMcpAppHtmlByteSize,
+  isMcpAppHtmlTooLarge,
+  resolveMcpAppFrameHeight,
+  resolveMcpRenderableResource,
+  resolveMcpWidgetMetadata,
+  type McpRenderableResource,
+  type McpWidgetCsp,
+  type McpWidgetMetadata,
+} from "../../../../../shared/mcp-app/mcp-app-resource-contract";
 
-export interface McpWidgetCsp {
-  connectDomains?: string[];
-  resourceDomains?: string[];
-}
-
-export interface McpWidgetMetadata {
-  domain: string | null;
-  csp: McpWidgetCsp | null;
-  heightHint: number | null;
-  minFrameHeight: number | null;
-  prefersBorder: boolean;
-  isCollapsible: boolean;
-}
-
-export interface McpRenderableResource {
-  uri: string;
-  mode: "html";
-  html: string;
-  mimeType: string | null;
-  metadata: McpWidgetMetadata;
-}
+export {
+  MCP_APP_HTML_MAX_BYTES,
+  getMcpAppHtmlByteSize,
+  isMcpAppHtmlTooLarge,
+  resolveMcpAppFrameHeight,
+  resolveMcpRenderableResource,
+  resolveMcpWidgetMetadata,
+};
+export type { McpRenderableResource, McpWidgetCsp, McpWidgetMetadata };
 
 export function buildMcpAppSidePanelInput(input: {
   threadId: string;
@@ -44,102 +43,40 @@ export function buildMcpAppSidePanelInput(input: {
 
   return {
     mcpAppId: `${server}:${input.resource.uri}`,
-    capabilityId: `mcp-capability:${input.threadId}:${server}:${tool}:${input.payload.callId}`,
+    capabilityId: buildMcpAppCapabilityId({
+      threadId: input.threadId,
+      server,
+      tool,
+      callId: input.payload.callId,
+      resourceUri: input.resource.uri,
+    }),
     title,
     threadId: input.threadId,
     server,
     tool,
-    resource: input.resource,
   };
 }
 
-export const MCP_APP_HTML_MAX_BYTES = 10_000_000;
-const HTML_MIME_TYPES = new Set(["text/html", "text/html;profile=mcp-app"]);
-const DIL_MIME_TYPES = new Set(["text/x-dil;profile=mcp-app"]);
+export function buildMcpAppCapabilityId(input: {
+  callId: string;
+  resourceUri: string;
+  server: string;
+  threadId: string;
+  tool: string;
+}): string {
+  return [
+    "mcp-capability",
+    input.threadId,
+    input.server,
+    input.tool,
+    input.callId,
+    input.resourceUri,
+  ].map(encodeURIComponent).join(":");
+}
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (typeof value !== "object" || value === null) return null;
   return value as Record<string, unknown>;
-}
-
-function getNestedValue(record: Record<string, unknown>, key: string): unknown {
-  if (Object.prototype.hasOwnProperty.call(record, key)) return record[key];
-  if (!key.includes(".")) return undefined;
-
-  return key.split(".").reduce<unknown>((acc, part) => {
-    const nested = asRecord(acc);
-    return nested ? nested[part] : undefined;
-  }, record);
-}
-
-function readStringMeta(meta: unknown, keys: readonly string[]): string | null {
-  const record = asRecord(meta);
-  if (!record) return null;
-
-  for (const key of keys) {
-    const value = getNestedValue(record, key);
-    if (typeof value !== "string") continue;
-    const trimmed = value.trim();
-    if (trimmed) return trimmed;
-  }
-
-  return null;
-}
-
-function readNumberMeta(meta: unknown, keys: readonly string[]): number | null {
-  const record = asRecord(meta);
-  if (!record) return null;
-
-  for (const key of keys) {
-    const value = getNestedValue(record, key);
-    if (typeof value === "number" && Number.isFinite(value)) return value;
-  }
-
-  return null;
-}
-
-function readBooleanMeta(meta: unknown, keys: readonly string[]): boolean | null {
-  const record = asRecord(meta);
-  if (!record) return null;
-
-  for (const key of keys) {
-    const value = getNestedValue(record, key);
-    if (typeof value === "boolean") return value;
-  }
-
-  return null;
-}
-
-function normalizeStringArray(value: unknown): string[] | undefined {
-  if (!Array.isArray(value)) return undefined;
-  const normalized = value.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0);
-  return normalized.length > 0 ? normalized : undefined;
-}
-
-function readCspMeta(meta: unknown): McpWidgetCsp | null {
-  const record = asRecord(meta);
-  if (!record) return null;
-  const csp = asRecord(record["openai/widgetCSP"])
-    ?? asRecord(record["ui.csp"])
-    ?? asRecord(record.ui ? asRecord(record.ui)?.csp : null);
-  if (!csp) return null;
-
-  const connectDomains = normalizeStringArray(csp.connect_domains ?? csp.connectDomains);
-  const resourceDomains = normalizeStringArray(csp.resource_domains ?? csp.resourceDomains);
-  if (!connectDomains && !resourceDomains) return null;
-
-  return { connectDomains, resourceDomains };
-}
-
-export function resolveMcpWidgetMetadata(meta: unknown): McpWidgetMetadata {
-  return {
-    domain: readStringMeta(meta, ["openai/widgetDomain", "ui.domain", "ui/widgetDomain"]),
-    csp: readCspMeta(meta),
-    heightHint: readNumberMeta(meta, ["openai/widgetHeightHint", "ui.heightHint", "ui/widgetHeightHint"]),
-    minFrameHeight: readNumberMeta(meta, ["openai/widgetMinFrameHeight", "ui.minFrameHeight", "ui/widgetMinFrameHeight"]),
-    prefersBorder: readBooleanMeta(meta, ["openai/widgetPrefersBorder", "ui.prefersBorder", "ui/widgetPrefersBorder"]) ?? false,
-    isCollapsible: !(readBooleanMeta(meta, ["openai/widgetShowCodexWidgetInline", "ui.showCodexWidgetInline", "ui/widgetShowCodexWidgetInline"]) ?? false),
-  };
 }
 
 export function resolveMcpResourceUriFromMeta(meta: unknown): string | null {
@@ -166,53 +103,6 @@ export function resolveMcpAppResourceUri(input: {
   return resolveMcpAppResourceScopeUri(input)
     ?? input.payload.mcpAppResourceUri
     ?? null;
-}
-
-function normalizeMimeType(value: string | undefined): string {
-  return value?.trim().toLowerCase() ?? "";
-}
-
-function decodeResourceContent(content: ProtocolMcpResourceReadResponse["contents"][number]): string {
-  if ("text" in content) return content.text;
-  if (!("blob" in content)) return "";
-
-  try {
-    return atob(content.blob);
-  } catch {
-    return "";
-  }
-}
-
-export function resolveMcpRenderableResource(
-  resourceUri: string,
-  response: ProtocolMcpResourceReadResponse | null,
-): McpRenderableResource | null {
-  const contents = response?.contents ?? [];
-  const orderedContents = [
-    ...contents.filter((entry) => entry.uri === resourceUri),
-    ...contents.filter((entry) => entry.uri !== resourceUri),
-  ];
-
-  for (const content of orderedContents) {
-    const mimeType = normalizeMimeType(content.mimeType);
-    const html = decodeResourceContent(content);
-    if (!html.trim()) continue;
-
-    if (HTML_MIME_TYPES.has(mimeType)) {
-      const htmlResource = {
-        uri: content.uri,
-        mode: "html" as const,
-        html,
-        mimeType: content.mimeType ?? null,
-        metadata: resolveMcpWidgetMetadata(content._meta),
-      };
-      return htmlResource;
-    }
-
-    if (!DIL_MIME_TYPES.has(mimeType)) continue;
-  }
-
-  return null;
 }
 
 function getEmbeddedResourceContents(
@@ -344,26 +234,4 @@ export function shouldShowMcpStructuredContent(input: {
   hasResourceScope: boolean;
 }): boolean {
   return Boolean(input.structuredContentJson) && !(input.hasMcpAppBranch && input.hasResourceScope);
-}
-
-export function getMcpAppHtmlByteSize(html: string): number {
-  if (typeof Blob === "function") {
-    return new Blob([html]).size;
-  }
-
-  if (typeof TextEncoder === "function") {
-    return new TextEncoder().encode(html).byteLength;
-  }
-
-  return html.length;
-}
-
-export function isMcpAppHtmlTooLarge(resource: McpRenderableResource): boolean {
-  return getMcpAppHtmlByteSize(resource.html) > MCP_APP_HTML_MAX_BYTES;
-}
-
-export function resolveMcpAppFrameHeight(metadata?: McpWidgetMetadata | null): number {
-  const preferredHeight = metadata?.heightHint ?? 240;
-  const minHeight = metadata?.minFrameHeight ?? 200;
-  return Math.min(Math.max(preferredHeight, minHeight), 720);
 }

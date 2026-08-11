@@ -17,6 +17,11 @@ import {
 } from "./local-conversation-thread-scroll-controller";
 import { HookFeedbackSettingsNavigationProvider } from "./hook-feedback-settings-navigation";
 import { ConversationImageAssetProvider } from "./conversation-image-asset-context";
+import { McpAppFollowUpProvider } from "../../../lib/mcp-app/mcp-app-follow-up-context";
+import {
+  buildMcpAppFollowUpPrompt,
+  type McpAppFollowUpMessage,
+} from "../../../lib/mcp-app/mcp-app-follow-up";
 import {
   EMPTY_LOCAL_CONVERSATION_THREAD_RESTORE_SNAPSHOT,
   localConversationThreadRestoreSnapshotFamily,
@@ -62,6 +67,12 @@ function LocalConversationThreadBodyLayout({
   readonly initialRestoreSnapshot: LocalConversationThreadRestoreSnapshot;
   readonly onRestoreSnapshotChange: (update: RestoreSnapshotUpdate) => void;
 }) {
+  const handleMcpAppFollowUp = useCallback(
+    async (message: McpAppFollowUpMessage) =>
+      actions.onSendPrompt(buildMcpAppFollowUpPrompt(message)),
+    [actions],
+  );
+
   return (
     <LocalConversationThreadScrollLayout
       contentX={contentShiftX}
@@ -70,36 +81,38 @@ function LocalConversationThreadBodyLayout({
     >
       {transcriptVisible ? (
         <div data-local-conversation-transcript="true" className="contents">
-          <LocalConversationThreadBodyOwner
-            body={model.body}
-            projectId={model.projectId}
-            threadId={model.threadId}
-            isSideChat={model.isSideChat}
-            cwd={model.cwd}
-            turns={model.turns}
-            turnPagination={model.turnPagination ?? null}
-            requests={model.requests}
-            canonicalRequests={model.canonicalRequests ?? []}
-            resumeState={model.resumeState}
-            capabilityFlags={model.capabilityFlags}
-            statusType={model.statusType}
-            parentTurns={model.parentTurns}
-            childMemberships={model.childMemberships}
-            backgroundAgentRows={model.backgroundAgentRows ?? []}
-            projectWorkspacePath={model.projectWorkspacePath}
-            projectlessOutputDirectory={model.projectlessOutputDirectory}
-            searchOpenTick={model.searchOpenTick}
-            threadStartProgress={model.threadStartProgress}
-            actions={actions}
-            isWorktreeThread={isWorktreeThread}
-            onForkFromTurnIntoWorktree={onForkFromTurnIntoWorktree}
-            planSidePanelState={planSidePanelState}
-            onErrorMessage={onErrorMessage}
-            initialUiState={initialUiState}
-            initialRestoreSnapshot={initialRestoreSnapshot}
-            onRestoreSnapshotChange={onRestoreSnapshotChange}
-            turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
-          />
+          <McpAppFollowUpProvider onSend={handleMcpAppFollowUp}>
+            <LocalConversationThreadBodyOwner
+              body={model.body}
+              projectId={model.projectId}
+              threadId={model.threadId}
+              isSideChat={model.isSideChat}
+              cwd={model.cwd}
+              turns={model.turns}
+              turnPagination={model.turnPagination ?? null}
+              requests={model.requests}
+              canonicalRequests={model.canonicalRequests ?? []}
+              resumeState={model.resumeState}
+              capabilityFlags={model.capabilityFlags}
+              statusType={model.statusType}
+              parentTurns={model.parentTurns}
+              childMemberships={model.childMemberships}
+              backgroundAgentRows={model.backgroundAgentRows ?? []}
+              projectWorkspacePath={model.projectWorkspacePath}
+              projectlessOutputDirectory={model.projectlessOutputDirectory}
+              searchOpenTick={model.searchOpenTick}
+              threadStartProgress={model.threadStartProgress}
+              actions={actions}
+              isWorktreeThread={isWorktreeThread}
+              onForkFromTurnIntoWorktree={onForkFromTurnIntoWorktree}
+              planSidePanelState={planSidePanelState}
+              onErrorMessage={onErrorMessage}
+              initialUiState={initialUiState}
+              initialRestoreSnapshot={initialRestoreSnapshot}
+              onRestoreSnapshotChange={onRestoreSnapshotChange}
+              turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
+            />
+          </McpAppFollowUpProvider>
         </div>
       ) : null}
     </LocalConversationThreadScrollLayout>

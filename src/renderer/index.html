@@ -6,16 +6,7 @@
     <title>Nodex</title>
   </head>
   <body>
-    <script>
-      (function () {
-        var t = localStorage.getItem("nodex-theme");
-        var dark =
-          t === "dark" ||
-          (t !== "light" &&
-            window.matchMedia("(prefers-color-scheme: dark)").matches);
-        if (dark) document.documentElement.classList.add("dark");
-      })();
-    </script>
+    <script type="module" src="./theme-bootstrap.ts"></script>
     <div id="root"></div>
     <script type="module" src="./main.tsx"></script>
   </body>

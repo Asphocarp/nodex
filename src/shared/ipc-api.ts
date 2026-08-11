@@ -289,6 +289,8 @@ import type {
   ProtocolExperimentalFeature,
   ProtocolMcpResourceReadParams,
   ProtocolMcpResourceReadResponse,
+  ProtocolMcpServerToolCallParams,
+  ProtocolMcpServerToolCallResponse,
   ProtocolListMcpServerStatusResponse,
   CodexTurnStartOptions,
   CodexTurnSummary,
@@ -300,7 +302,7 @@ import type {
   UpdateCodexDeveloperInstructionSettingsInput,
   UpdateCodexGitSettingsInput,
   PageOccurrence,
-  ClipboardPasteInspectionResult,
+  ClipboardPastePayload,
   PageOccurrenceActionInput,
   PageOccurrenceCompleteInput,
   PageOccurrenceMutationResult,
@@ -1129,9 +1131,9 @@ export interface IpcApi {
     args: [input: { source: string }];
     result: ClipboardWriteImageResult;
   };
-  "clipboard:inspect-paste": {
+  "clipboard:read-paste": {
     args: [];
-    result: ClipboardPasteInspectionResult;
+    result: ClipboardPastePayload;
   };
   "composer:pick-files": {
     args: [input: { imagesOnly: boolean; title: string }];
@@ -1965,6 +1967,14 @@ export interface IpcApi {
   "codex:mcp-resource:read": {
     args: [params: ProtocolMcpResourceReadParams];
     result: ProtocolMcpResourceReadResponse;
+  };
+  "codex:mcp-tool:call": {
+    args: [params: ProtocolMcpServerToolCallParams];
+    result: ProtocolMcpServerToolCallResponse;
+  };
+  "mcp-app:open-external": {
+    args: [url: string];
+    result: void;
   };
   "codex:mcp-apps:list": {
     args: [];

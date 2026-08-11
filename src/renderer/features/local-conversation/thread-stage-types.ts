@@ -2,6 +2,10 @@ import type { ReactNode } from "react";
 import type { ThreadGoal, FeedbackUploadParams } from "@nodex/codex-app-server-protocol/v2";
 import type { ThreadMemoryMode } from "@nodex/codex-app-server-protocol";
 import type {
+  McpWidgetCsp,
+  McpWidgetMetadata,
+} from "../../../shared/mcp-app/mcp-app-resource-contract";
+import type {
   DatabasePage,
   PageRunInTarget,
   CodexAccountSnapshot,
@@ -425,19 +429,8 @@ export interface ThreadRequestResponseContext {
   conversationId?: string | null;
 }
 
-export interface ThreadMcpWidgetCspModel {
-  connectDomains?: string[];
-  resourceDomains?: string[];
-}
-
-export interface ThreadMcpWidgetMetadataModel {
-  domain: string | null;
-  csp: ThreadMcpWidgetCspModel | null;
-  heightHint: number | null;
-  minFrameHeight: number | null;
-  prefersBorder: boolean;
-  isCollapsible: boolean;
-}
+export type ThreadMcpWidgetCspModel = McpWidgetCsp;
+export type ThreadMcpWidgetMetadataModel = McpWidgetMetadata;
 
 export interface ThreadMcpAppSidePanelInput {
   mcpAppId: string;
@@ -446,13 +439,6 @@ export interface ThreadMcpAppSidePanelInput {
   threadId: string;
   server: string;
   tool: string;
-  resource: {
-    uri: string;
-    mode: "html";
-    html: string;
-    mimeType: string | null;
-    metadata: ThreadMcpWidgetMetadataModel;
-  };
 }
 
 export interface ThreadUserMessageActionsModel {

@@ -129,7 +129,9 @@ describe("mcp-tool-call-resource-utils", () => {
     expect(metadata.minFrameHeight).toBe(360);
     expect(metadata.prefersBorder).toBe(true);
     expect(metadata.isCollapsible).toBe(false);
-    expect(metadata.csp?.connectDomains?.join(",") ?? "").toBe("https://api.example.com");
+    expect(metadata.csp?.connectDomains?.join(",") ?? "").toBe(
+      "https://api.example.com,https://cdn.example.com",
+    );
     expect(metadata.csp?.resourceDomains?.join(",") ?? "").toBe("https://cdn.example.com");
   });
 
