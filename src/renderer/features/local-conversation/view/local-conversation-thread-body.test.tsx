@@ -13,6 +13,7 @@ import type {
 } from "../../../lib/types";
 import type { ThreadBodySurfaceModel, ThreadStageActions } from "../thread-stage-types";
 import { buildThreadBodyModel } from "../projection/build-thread-body-model";
+import { LocalConversationTestQueryProvider } from "./local-conversation-test-query.test-fixtures";
 
 let idleCallbacks: IdleRequestCallback[] = [];
 const originalOffsetWidthDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetWidth");
@@ -24,7 +25,9 @@ function TooltipProvider({ children }: { readonly children: ReactNode }) {
   const [store] = useState(() => createMaitaiStore());
   return (
     <MaitaiProvider store={store}>
-      <NodexTooltipProvider>{children}</NodexTooltipProvider>
+      <LocalConversationTestQueryProvider>
+        <NodexTooltipProvider>{children}</NodexTooltipProvider>
+      </LocalConversationTestQueryProvider>
     </MaitaiProvider>
   );
 }
@@ -602,11 +605,9 @@ describe("LocalConversationThreadBody", () => {
     await settleAsyncRender();
 
     await act(async () => {
-      fireEvent.click(view.getByRole("button", { name: "Created task" }));
+      fireEvent.click(view.getByRole("button", { name: "Open task" }));
       await Promise.resolve();
     });
-    await settleAsyncRender();
-    fireEvent.click(view.getByRole("button", { name: "Open task" }));
 
     expect(openedThreads.join(",")).toBe("thread-created");
   });
