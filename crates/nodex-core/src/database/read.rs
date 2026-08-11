@@ -7,7 +7,7 @@ use nodex_core_contracts::collection::{
 };
 use nodex_core_contracts::database::{
     DatabasePropertyDescriptor, DatabaseRead, DatabaseReadMode, DatabaseReadValue, DatabaseTarget,
-    DatabaseViewContext,
+    DatabaseViewContext, DatabaseViewPersonalPreferences,
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::{Map, Value, json};
@@ -211,6 +211,37 @@ pub(crate) fn read_at_commit_head(
                 )?,
             })
         }
+        (DatabaseTarget::ProjectDefault, DatabaseReadMode::ListWindow) => {
+            let database_id =
+                primary_database_id.ok_or_else(|| not_found("Project has no primary Database"))?;
+            let project_id = project_id
+                .ok_or_else(|| invalid("Library Database reads require a concrete target"))?;
+            authorize_required(
+                connection,
+                Some(project_id),
+                Some(&database_id),
+                &database_id,
+            )?;
+            let view_id = default_view_for_database(connection, &database_id)?;
+            validate_view_filter_access_by_id(connection, library_id, Some(project_id), &view_id)?;
+            Ok(DatabaseReadValue::ListWindow {
+                value: super::window::list_window(
+                    connection,
+                    library_id,
+                    &view_id,
+                    super::window::ViewWindowRead {
+                        commit_head,
+                        project_id: Some(project_id),
+                        store_epoch: &store_epoch,
+                        window: request
+                            .window
+                            .as_ref()
+                            .unwrap_or(&CollectionWindowRequest::default()),
+                        group_scope: None,
+                    },
+                )?,
+            })
+        }
         (DatabaseTarget::ProjectDefault, DatabaseReadMode::RowsById) => {
             let database_id =
                 primary_database_id.ok_or_else(|| not_found("Project has no primary Database"))?;
@@ -301,6 +332,33 @@ pub(crate) fn read_at_commit_head(
                             .as_ref()
                             .unwrap_or(&CollectionWindowRequest::default()),
                         group_scope: request.group_scope.as_ref(),
+                    },
+                )?,
+            })
+        }
+        (DatabaseTarget::Database { database_id }, DatabaseReadMode::ListWindow) => {
+            authorize_required(
+                connection,
+                project_id,
+                primary_database_id.as_deref(),
+                database_id,
+            )?;
+            let view_id = default_view_for_database(connection, database_id)?;
+            validate_view_filter_access_by_id(connection, library_id, project_id, &view_id)?;
+            Ok(DatabaseReadValue::ListWindow {
+                value: super::window::list_window(
+                    connection,
+                    library_id,
+                    &view_id,
+                    super::window::ViewWindowRead {
+                        commit_head,
+                        project_id,
+                        store_epoch: &store_epoch,
+                        window: request
+                            .window
+                            .as_ref()
+                            .unwrap_or(&CollectionWindowRequest::default()),
+                        group_scope: None,
                     },
                 )?,
             })
@@ -444,6 +502,22 @@ pub(crate) fn read_at_commit_head(
                 value: view_record(connection, library_id, project_id, view_id)?,
             })
         }
+        (DatabaseTarget::View { view_id }, DatabaseReadMode::ViewPersonalPreferences) => {
+            let database_id = database_for_view(connection, library_id, view_id)?;
+            authorize_required(
+                connection,
+                project_id,
+                primary_database_id.as_deref(),
+                &database_id,
+            )?;
+            Ok(DatabaseReadValue::ViewPersonalPreferences {
+                value: view_personal_preferences(
+                    connection,
+                    context.profile_id.0.as_str(),
+                    view_id,
+                )?,
+            })
+        }
         (DatabaseTarget::View { view_id }, DatabaseReadMode::ViewWindow) => {
             let database_id = database_for_view(connection, library_id, view_id)?;
             authorize_required(
@@ -467,6 +541,101 @@ pub(crate) fn read_at_commit_head(
                             .as_ref()
                             .unwrap_or(&CollectionWindowRequest::default()),
                         group_scope: request.group_scope.as_ref(),
+                    },
+                )?,
+            })
+        }
+        (DatabaseTarget::View { view_id }, DatabaseReadMode::ListWindow) => {
+            let database_id = database_for_view(connection, library_id, view_id)?;
+            authorize_required(
+                connection,
+                project_id,
+                primary_database_id.as_deref(),
+                &database_id,
+            )?;
+            validate_view_filter_access_by_id(connection, library_id, project_id, view_id)?;
+            Ok(DatabaseReadValue::ListWindow {
+                value: super::window::list_window(
+                    connection,
+                    library_id,
+                    view_id,
+                    super::window::ViewWindowRead {
+                        commit_head,
+                        project_id,
+                        store_epoch: &store_epoch,
+                        window: request
+                            .window
+                            .as_ref()
+                            .unwrap_or(&CollectionWindowRequest::default()),
+                        group_scope: None,
+                    },
+                )?,
+            })
+        }
+        (
+            DatabaseTarget::PresentedView {
+                view_id,
+                presentation_override,
+            },
+            DatabaseReadMode::ViewWindow,
+        ) => {
+            let database_id = database_for_view(connection, library_id, view_id)?;
+            authorize_required(
+                connection,
+                project_id,
+                primary_database_id.as_deref(),
+                &database_id,
+            )?;
+            validate_view_filter_access_by_id(connection, library_id, project_id, view_id)?;
+            Ok(DatabaseReadValue::ViewWindow {
+                value: super::window::presented_view_window(
+                    connection,
+                    library_id,
+                    view_id,
+                    presentation_override,
+                    super::window::ViewWindowRead {
+                        commit_head,
+                        project_id,
+                        store_epoch: &store_epoch,
+                        window: request
+                            .window
+                            .as_ref()
+                            .unwrap_or(&CollectionWindowRequest::default()),
+                        group_scope: request.group_scope.as_ref(),
+                    },
+                )?,
+            })
+        }
+        (
+            DatabaseTarget::PresentedView {
+                view_id,
+                presentation_override,
+            },
+            DatabaseReadMode::ListWindow,
+        ) => {
+            let database_id = database_for_view(connection, library_id, view_id)?;
+            authorize_required(
+                connection,
+                project_id,
+                primary_database_id.as_deref(),
+                &database_id,
+            )?;
+            validate_view_filter_access_by_id(connection, library_id, project_id, view_id)?;
+            Ok(DatabaseReadValue::ListWindow {
+                value: super::window::presented_list_window(
+                    connection,
+                    library_id,
+                    view_id,
+                    presentation_override,
+                    super::window::ViewWindowRead {
+                        commit_head,
+                        project_id,
+                        store_epoch: &store_epoch,
+                        window: request
+                            .window
+                            .as_ref()
+                            .unwrap_or(&CollectionWindowRequest::default()),
+                        group_scope: None,
                     },
                 )?,
             })
@@ -689,6 +858,35 @@ pub(crate) fn read_at_commit_head(
             })
         }
         (
+            DatabaseTarget::PresentedView {
+                view_id,
+                presentation_override,
+            },
+            DatabaseReadMode::ViewGroups,
+        ) => {
+            let database_id = database_for_view(connection, library_id, view_id)?;
+            authorize_required(
+                connection,
+                project_id,
+                primary_database_id.as_deref(),
+                &database_id,
+            )?;
+            validate_view_filter_access_by_id(connection, library_id, project_id, view_id)?;
+            Ok(DatabaseReadValue::ViewGroups {
+                value: super::window::presented_view_groups(
+                    connection,
+                    library_id,
+                    view_id,
+                    presentation_override,
+                    super::window::ViewGroupsRead {
+                        commit_head,
+                        project_id,
+                        store_epoch: &store_epoch,
+                    },
+                )?,
+            })
+        }
+        (
             DatabaseTarget::PageProperty {
                 page_id,
                 data_source_id,
@@ -727,6 +925,54 @@ pub(crate) fn read_at_commit_head(
     Ok(value)
 }
 
+fn view_personal_preferences(
+    connection: &Connection,
+    profile_id: &str,
+    view_id: &str,
+) -> Result<DatabaseViewPersonalPreferences, StoreError> {
+    let stored = connection
+        .query_row(
+            "SELECT presentation_override_json, collapsed_group_keys_json, revision \
+             FROM database_view_personal_preferences \
+             WHERE profile_id = ?1 AND view_id = ?2",
+            params![profile_id, view_id],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?,
+                ))
+            },
+        )
+        .optional()?;
+    let Some((presentation_json, collapsed_json, revision)) = stored else {
+        return Ok(DatabaseViewPersonalPreferences {
+            presentation_override: Default::default(),
+            collapsed_group_keys: Vec::new(),
+            revision: 0,
+        });
+    };
+    let presentation_override = serde_json::from_str(&presentation_json)
+        .map_err(|_| corrupt("Database View personal presentation override is invalid"))?;
+    let collapsed_group_keys = serde_json::from_str::<Vec<String>>(&collapsed_json)
+        .map_err(|_| corrupt("Database View collapsed group keys are invalid"))?;
+    if collapsed_group_keys.len() > 2_000
+        || collapsed_group_keys
+            .iter()
+            .any(|key| key.is_empty() || key.len() > 1_024)
+        || collapsed_group_keys.iter().collect::<BTreeSet<_>>().len() != collapsed_group_keys.len()
+    {
+        return Err(corrupt(
+            "Database View collapsed group keys violate their durable bound",
+        ));
+    }
+    Ok(DatabaseViewPersonalPreferences {
+        presentation_override,
+        collapsed_group_keys,
+        revision,
+    })
+}
+
 fn hydrate_relation_previews(
     connection: &Connection,
     library_id: &str,
@@ -741,6 +987,27 @@ fn hydrate_relation_previews(
                 project_id,
                 &value.data_source_id,
                 &mut value.rows.items,
+            )
+        }
+        DatabaseReadValue::ListWindow { value } => {
+            let mut summaries = value
+                .rows
+                .items
+                .iter_mut()
+                .filter_map(|row| match row {
+                    nodex_core_contracts::database::DatabaseListProjectionRow::Page {
+                        summary,
+                        ..
+                    } => Some(summary.as_mut()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            hydrate_summary_refs(
+                connection,
+                library_id,
+                project_id,
+                &value.data_source_id,
+                &mut summaries,
             )
         }
         DatabaseReadValue::ViewContext { value } => {
@@ -1562,7 +1829,7 @@ fn view_record(
 ) -> Result<Value, StoreError> {
     let view = connection
         .query_row(
-            "SELECT view.id, view.database_block_id, view.data_source_id, view.name, view.kind, \
+            "SELECT view.id, view.database_block_id, view.data_source_id, view.name, view.default_layout, \
                view.config_json, view.revision, view.rank_key, view.lifecycle, view.created_at, \
                view.updated_at, container.default_view_id \
              FROM database_views view JOIN database_containers container \
@@ -1577,7 +1844,7 @@ fn view_record(
                     "databaseId": row.get::<_, String>(1)?,
                     "dataSourceId": row.get::<_, String>(2)?,
                     "name": row.get::<_, String>(3)?,
-                    "kind": row.get::<_, String>(4)?,
+                    "defaultLayout": row.get::<_, String>(4)?,
                     "config": config,
                     "isDefault": default_view_id.as_deref() == Some(id.as_str()),
                     "revision": row.get::<_, i64>(6)?,

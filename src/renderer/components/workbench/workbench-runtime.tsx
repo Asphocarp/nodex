@@ -81,7 +81,7 @@ import {
   ProjectAgentDockLeadingRow,
   ProjectAgentDockUnavailableOverlay,
 } from "./project-agent-dock";
-import type { OpenPageStageOptions } from "@/components/kanban/open-page-stage";
+import type { OpenPageStageOptions } from "@/components/board/open-page-stage";
 import { NodexTooltip, NodexTooltipProvider } from "@/components/ui/tooltip";
 import { toast } from "@/components/ui/toast";
 import { appScope, useScopeHandle } from "@/lib/maitai";
@@ -107,7 +107,7 @@ import {
   subscribeCodexPendingWorktreeWarnings,
 } from "@/lib/api";
 import { useCodexScheduledAutomations } from "@/lib/use-codex-scheduled-automations";
-import { useKanban } from "@/lib/use-kanban";
+import { useBoard } from "@/lib/use-board";
 import {
   createPageTitleProjectionStore,
 } from "@/lib/page-title-projection-store";
@@ -263,14 +263,9 @@ import type {
 type ProjectSession = WorkbenchSessionRenderProjection;
 
 import {
-  type DbViewPrefs,
-  type SupportedDbView,
-} from "@/lib/db-view-prefs";
-import {
   type RecentPageSession,
-  type WorkbenchView,
 } from "@/lib/use-workbench-profile-preferences";
-import type { PageStageSessionSnapshot } from "@/components/kanban/page-stage/types";
+import type { PageStageSessionSnapshot } from "@/components/board/page-stage/types";
 import {
   CODEX_SIDEBAR_FLOATING_HEADER_CLASS,
   getCodexSidebarFloatingOuterClassName,
@@ -395,9 +390,6 @@ export interface WorkbenchRuntimeProps {
     previous: WorkbenchSceneSnapshot,
     next: WorkbenchSceneSnapshot,
   ) => void;
-  activeView: WorkbenchView;
-  activeDbViewPrefs: DbViewPrefs | null;
-  dbViewPrefsByProject: Record<string, Partial<Record<SupportedDbView, DbViewPrefs>>>;
   sidebar?: {
     collapsed: boolean;
     width: number;
@@ -427,11 +419,6 @@ export interface WorkbenchRuntimeProps {
     sessionId: string;
   } | null;
   setSearchQuery?: (projectId: string, value: string) => void;
-  setDbViewPrefs: (
-    projectId: string,
-    view: SupportedDbView,
-    update: (prev: DbViewPrefs) => DbViewPrefs,
-  ) => void;
   openPageStage: (
     projectId: string,
     pageId: string,
@@ -470,9 +457,6 @@ export function WorkbenchRuntime({
   projectCatalogError = null,
   onRetryProjects,
   onSceneMutation,
-  activeView,
-  activeDbViewPrefs,
-  dbViewPrefsByProject,
   recentPageSessions = [],
   sidebar,
   pageStageCloseRef,
@@ -484,7 +468,6 @@ export function WorkbenchRuntime({
   onViewDeepLinkHandled,
   pendingSessionOpen,
   setSearchQuery: observeSearchQueryMutation,
-  setDbViewPrefs,
   openPageStage,
   onOpenProjectSessionInNewWindow,
   onLeavePageStage,
@@ -1322,7 +1305,7 @@ export function WorkbenchRuntime({
   const processManagerConversationsById = useConversationSubset(processManagerThreadIds);
   const workbenchCodexControl = useCodexAppServerControl(activeProject?.id ?? activeProjectId);
   const codexAppServerRegistry = useCodexAppServerRegistry();
-  const activeProjectKanban = useKanban({
+  const activeProjectBoard = useBoard({
     projectId: activeProject?.id ?? activeProjectId ?? "",
     databaseViewId: activeProject?.defaultDatabaseViewId ?? undefined,
     enabled: Boolean(activeProject?.id && activeProject.defaultDatabaseViewId),
@@ -1331,9 +1314,9 @@ export function WorkbenchRuntime({
   useProjectPageCreateTarget({
     appHandle,
     project: activeProject,
-    board: activeProjectKanban.board,
-    databaseView: activeProjectKanban.databaseView,
-    error: activeProjectKanban.error,
+    board: activeProjectBoard.board,
+    databaseView: activeProjectBoard.databaseView,
+    error: activeProjectBoard.error,
     clientSessionId: mutationAuditSessionId,
   });
   const [pageStageHistoryModal, setPageStageHistoryModal] = useState<PageStageHistoryModalContext | null>(null);
@@ -1729,7 +1712,6 @@ export function WorkbenchRuntime({
         config: {
           accessContext: { kind: "project", projectId },
           target: { kind: "database-view", databaseViewId },
-          view: activeView,
         },
       },
       target: { panelId: "right" },
@@ -1737,7 +1719,7 @@ export function WorkbenchRuntime({
       navigation: "select-owner",
     });
     return result.status === "presented";
-  }, [activeView, sceneNavigator]);
+  }, [sceneNavigator]);
 
   const presentLibraryTarget = useCallback(async (
     target: LibraryRouteTarget,
@@ -1782,7 +1764,6 @@ export function WorkbenchRuntime({
                     kind: "database-default",
                     databaseId: target.databaseId,
                   },
-                  view: activeView,
                 },
                 titleSnapshot: options.titleSnapshot,
               }
@@ -1794,7 +1775,6 @@ export function WorkbenchRuntime({
                     kind: "database-view",
                     databaseViewId: target.viewId,
                   },
-                  view: activeView,
                 },
                 titleSnapshot: options.titleSnapshot,
               };
@@ -1823,7 +1803,7 @@ export function WorkbenchRuntime({
       );
       return false;
     }
-  }, [activeView, sceneNavigator]);
+  }, [sceneNavigator]);
   const openResourceTarget = useCallback(async (target: LibraryResourceTarget) => {
     await presentLibraryTarget(target);
   }, [presentLibraryTarget]);
@@ -2154,8 +2134,6 @@ export function WorkbenchRuntime({
   });
   const {
     ensureBlankSessionForProject,
-    openPageInNewChat,
-    sendPageToChat,
     startNewChatInProject,
     startNewChatWithPrompt,
     openScheduledAutomationChatCreate,
@@ -2285,20 +2263,16 @@ export function WorkbenchRuntime({
     panelCommands,
     controller: panelController,
     surface: {
-      activeDbViewPrefs,
       activeSearchQuery,
-      activeView,
       browserViewScopeId: windowSessionId,
       onOpenBrowserSettings: openBrowserSettings,
       windowSessionId,
-      dbViewPrefsByProject,
       onLeavePageStage,
       pageStageCloseRef,
       pageStageHistoryModal,
       pageStagePersistRef,
       pageStageSessionSnapshotRef,
       searchByProject,
-      setDbViewPrefs,
       setSearchQuery,
       taskSearchOpenTick,
     },
@@ -3091,7 +3065,6 @@ export function WorkbenchRuntime({
             ? surface.config.accessContext.projectId
             : activeProject.id,
           databaseViewId,
-          view: surface.config.view,
         },
       };
       return (
@@ -3099,49 +3072,17 @@ export function WorkbenchRuntime({
           sessionId={`${windowSessionId}:${projectSceneKey}:${surface.id}`}
           tab={tab}
           projects={projects}
-          activeView={activeView}
           activeSearchQuery={activeSearchQuery}
-          activeDbViewPrefs={activeDbViewPrefs}
           searchByProject={searchByProject}
-          dbViewPrefsByProject={dbViewPrefsByProject}
           presentedPageIds={projectScenePresentedPageIds}
-          pageStageCloseRef={pageStageCloseRef}
           taskSearchOpenTick={taskSearchOpenTick}
           setSearchQuery={setSearchQuery}
-          setDbViewPrefs={setDbViewPrefs}
           onOpenPageTab={openProjectScenePage}
-          onOpenPageInNewChat={openPageInNewChat}
-          onSendPageToChat={sendPageToChat}
+          onOpenPageInNewChat={sessionCommands.openPageInNewChat}
+          onSendPageToChat={sessionCommands.sendPageToChat}
           onOpenCanvasStage={openProjectSceneCanvas}
           targetLeafId={leafId}
-          onUpdateTab={(surfaceId, patch) => {
-            if (!projectSceneOwner) return null;
-            const nextView = patch.config && "view" in patch.config
-              ? patch.config.view
-              : surface.config.view;
-            panelControllerRef.current.sceneDurable?.updateSurface(
-              projectSceneOwner,
-              surfaceId,
-              {
-                ...(patch.title === undefined
-                  ? {}
-                  : { titleSnapshot: patch.title }),
-                ...(patch.stateKey === undefined
-                  ? {}
-                  : { stateKey: patch.stateKey }),
-                ...(!("state" in patch) ? {} : { state: patch.state }),
-                config: {
-                  ...surface.config,
-                  view: nextView,
-                },
-              },
-            );
-            return {
-              ...tab,
-              ...(patch.title === undefined ? {} : { title: patch.title }),
-              config: { ...tab.config, view: nextView },
-            };
-          }}
+          pageStageCloseRef={pageStageCloseRef}
         />
       );
     }
@@ -3399,13 +3340,10 @@ export function WorkbenchRuntime({
 
     return null;
   }, [
-    activeDbViewPrefs,
     activeProject,
     activeProjectScene,
     activeSearchQuery,
-    activeView,
     bottomPanelMotion.animatedSize,
-    dbViewPrefsByProject,
     ensureBlankSessionForProject,
     onLeavePageStage,
     openAttachedThreadSessionById,
@@ -3413,7 +3351,8 @@ export function WorkbenchRuntime({
     openProjectSceneCanvas,
     openProjectSceneManualSurface,
     openProjectScenePage,
-    openPageInNewChat,
+    sessionCommands.openPageInNewChat,
+    sessionCommands.sendPageToChat,
     pageStageCloseRef,
     pageStageHistoryModal,
     pageStagePersistRef,
@@ -3425,9 +3364,7 @@ export function WorkbenchRuntime({
     knownSessions,
     refreshProjectSessions,
     searchByProject,
-    setDbViewPrefs,
     setSearchQuery,
-    sendPageToChat,
     taskSearchOpenTick,
     togglePageStageHistoryModal,
     rightPanelMotion.animatedSize,
@@ -3498,6 +3435,10 @@ export function WorkbenchRuntime({
             presentationId: surface.id,
           }}
           presentedPageIds={pagesScenePresentedPageIds}
+          projects={projects}
+          pageStageCloseRef={pageStageCloseRef}
+          onOpenPageInNewChat={sessionCommands.openPageInNewChat}
+          onSendPageToChat={sessionCommands.sendPageToChat}
           onPresentationChange={({ databaseName, viewName }) => {
             publishTitle(
               surface.config.target.kind === "database-default"
@@ -3575,6 +3516,10 @@ export function WorkbenchRuntime({
     pagesSceneKey,
     pagesScenePresentedPageIds,
     pagesSceneOwner,
+    pageStageCloseRef,
+    projects,
+    sessionCommands.openPageInNewChat,
+    sessionCommands.sendPageToChat,
     updateSceneSurfacePresentation,
     windowSessionId,
   ]);
@@ -3713,7 +3658,6 @@ export function WorkbenchRuntime({
             projectId: activeProject.id,
           },
           target: { kind: "project-default" },
-          view: activeView,
         },
       }, { panelId, targetLeafId: leafId });
     },
@@ -3746,7 +3690,6 @@ export function WorkbenchRuntime({
             kind: "database-view",
             databaseViewId: destination.databaseViewId,
           },
-          view: activeView,
         },
       }, { panelId, targetLeafId: leafId });
     },
@@ -4474,7 +4417,7 @@ export function WorkbenchRuntime({
                   open={pageStageHistoryModal !== null}
                   onClose={closePageStageHistoryModal}
                   onPageMutated={() => {
-                    void activeProjectKanban.refresh();
+                    void activeProjectBoard.refresh();
                   }}
                 />
               ) : null,

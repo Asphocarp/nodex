@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import { CheckmarkIcon } from "@/components/shared/icons";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { NodexCheckbox } from "@/components/ui/settings";
 import { cn } from "@/lib/utils";
 import {
   createCustomOptionId,
@@ -18,6 +18,7 @@ import { SemanticSelectPropertyEditor } from "./semantic-property-editors";
 import { DatePropertyEditor } from "./date-property-editor";
 import type { DataSourcePropertyEditorBinding } from "./data-source-property-editor-binding";
 import { PROPERTY_EMPTY_VALUE_LABEL } from "./property-empty-value";
+import { DATABASE_PROPERTY_LIST_CHIP_CLASS_NAME } from "./property-list-chip";
 
 const valueInputClass = cn(
   "h-6 min-w-0 rounded-md border border-transparent bg-transparent",
@@ -36,8 +37,9 @@ interface ScalarPropertyEditorProps {
   readonly value: string;
   readonly revision: number;
   readonly disabled: boolean;
-  readonly presentation: "compact" | "page";
+  readonly presentation: "compact" | "page" | "list";
   readonly kind: "text" | "number";
+  readonly listIcon?: ReactNode;
   readonly onChange: (value: DatabaseJsonValue) => void;
 }
 
@@ -48,6 +50,7 @@ function ScalarPropertyEditor({
   disabled,
   presentation,
   kind,
+  listIcon,
   onChange,
 }: ScalarPropertyEditorProps) {
   const [draft, setDraft] = useState(value);
@@ -85,7 +88,13 @@ function ScalarPropertyEditor({
   };
 
   return (
-    <span className="inline-flex min-w-0 flex-col">
+    <span className={cn(
+      "inline-flex min-w-0",
+      presentation === "list"
+        ? DATABASE_PROPERTY_LIST_CHIP_CLASS_NAME
+        : "flex-col",
+    )}>
+      {presentation === "list" ? listIcon : null}
       <input
         type="text"
         inputMode={kind === "number" ? "decimal" : "text"}
@@ -116,7 +125,9 @@ function ScalarPropertyEditor({
             // The 1px input border plus 3px padding matches the 4px inset of
             // borderless Page Property triggers such as Tags and Due date.
             ? "w-full max-w-72 px-[3px] text-sm"
-            : "w-32 px-1.5 text-[11px]",
+            : presentation === "list"
+              ? "h-full min-w-0 max-w-40 flex-1 border-0 bg-transparent p-0 text-xs text-[lch(39.176_1.25_282)] hover:bg-transparent focus:bg-transparent focus:ring-0"
+              : "w-32 px-1.5 text-[11px]",
         )}
       />
       {error ? <span role="alert" className="px-1.5 text-xs text-token-error-foreground">{error}</span> : null}
@@ -127,7 +138,8 @@ function ScalarPropertyEditor({
 export interface DataSourcePropertyValueEditorProps
   extends DataSourcePropertyEditorBinding {
   readonly showLabel?: boolean;
-  readonly presentation?: "compact" | "page";
+  readonly presentation?: "compact" | "page" | "list";
+  readonly listIcon?: ReactNode;
 }
 
 export function DataSourcePropertyValueEditor({
@@ -138,6 +150,7 @@ export function DataSourcePropertyValueEditor({
   pending = false,
   showLabel = true,
   presentation = "compact",
+  listIcon,
   onChange,
   onCreateOption,
   onRequestOptions,
@@ -193,6 +206,7 @@ export function DataSourcePropertyValueEditor({
         onValueStale={onRelationValueStale}
         showLabel={showLabel}
         presentation={presentation}
+        triggerIcon={listIcon}
       />
     );
   }
@@ -200,23 +214,13 @@ export function DataSourcePropertyValueEditor({
     return (
       <span className="inline-flex min-w-0 items-center gap-1">
         {label}
-        <button
-          type="button"
-          role="checkbox"
-          aria-label={`${property.name} value`}
-          aria-checked={value === true}
+        <NodexCheckbox
+          ariaLabel={`${property.name} value`}
+          checked={value === true}
           disabled={disabled || pending}
-          onClick={() => onChange(value !== true)}
-          className={cn(
-            "grid size-4 shrink-0 place-items-center rounded-[4px] ring-[0.5px] outline-hidden",
-            "focus-visible:ring-2 focus-visible:ring-token-focus disabled:opacity-50",
-            value === true
-              ? "bg-(--accent-blue) text-white ring-transparent"
-              : "bg-token-foreground/5 text-transparent ring-token-border hover:bg-token-foreground/10",
-          )}
-        >
-          <CheckmarkIcon className="icon-xxs" />
-        </button>
+          onCheckedChange={(checked) => onChange(checked)}
+          className={presentation === "list" ? "size-3.5" : undefined}
+        />
       </span>
     );
   }
@@ -237,6 +241,7 @@ export function DataSourcePropertyValueEditor({
         disabled={disabled}
         pending={pending}
         presentation={presentation}
+        triggerPrefix={presentation === "list" ? listIcon : undefined}
         onRequestOptions={onRequestOptions}
         hasMore={optionRegistryHasMore}
         loadingMore={optionRegistryLoadingMore}
@@ -252,6 +257,7 @@ export function DataSourcePropertyValueEditor({
         disabled={disabled}
         pending={pending}
         presentation={presentation}
+        triggerPrefix={presentation === "list" ? listIcon : undefined}
         registryError={optionRegistryState === "error"}
         loading={optionRegistryState === "idle" || optionRegistryState === "loading"}
         onOpen={onRequestOptions}
@@ -302,6 +308,7 @@ export function DataSourcePropertyValueEditor({
           disabled={disabled}
           pending={pending}
           presentation={presentation}
+          triggerPrefix={presentation === "list" ? listIcon : undefined}
           allowCreate={
             optionRegistryState === "ready"
             && !optionRegistryHasMore
@@ -330,6 +337,7 @@ export function DataSourcePropertyValueEditor({
           revision={revision}
           disabled={disabled || pending}
           presentation={presentation}
+          triggerIcon={presentation === "list" ? listIcon : undefined}
           onChange={onChange}
         />
       </span>
@@ -351,6 +359,7 @@ export function DataSourcePropertyValueEditor({
           disabled={disabled || pending}
           presentation={presentation}
           kind={property.valueType}
+          listIcon={presentation === "list" ? listIcon : undefined}
           onChange={onChange}
         />
       </span>

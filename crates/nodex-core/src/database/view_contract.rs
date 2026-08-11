@@ -12,7 +12,7 @@ pub(crate) fn is_exact_primary_board_config(config: &Value) -> bool {
                 .is_some_and(Vec::is_empty)
     });
     let has_manual_sort = config
-        .get("sort")
+        .pointer("/presentation/sort")
         .and_then(Value::as_array)
         .is_some_and(|sort| {
             let [rule] = sort.as_slice() else {
@@ -22,7 +22,9 @@ pub(crate) fn is_exact_primary_board_config(config: &Value) -> bool {
                 && rule.get("direction").and_then(Value::as_str) == Some("asc")
                 && rule.get("nulls").and_then(Value::as_str) == Some("last")
         });
-    let has_status_group =
-        config.pointer("/group/propertyId").and_then(Value::as_str) == Some("status");
+    let has_status_group = config
+        .pointer("/presentation/group/propertyId")
+        .and_then(Value::as_str)
+        == Some("status");
     has_empty_filter && has_manual_sort && has_status_group
 }

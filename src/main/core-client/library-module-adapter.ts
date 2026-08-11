@@ -3,7 +3,7 @@ import {
   parseDatabaseViewId,
   parseDataSourceId,
 } from "../../shared/database-identities";
-import type { DatabaseViewKind } from "../../shared/database-kernel";
+import type { DatabaseViewLayout } from "../../shared/database-kernel";
 import type {
   LibraryApplyOperation,
   LibraryCanvasDestination,
@@ -45,7 +45,10 @@ import {
   type LibraryBlockPropertyMutationRequestV2,
 } from "../../shared/block-property-mutations-v2";
 import { parsePage } from "../../shared/page";
-import type { PageLifecyclePreflightResultV2 } from "../../shared/page-lifecycle-v2-runtime";
+import {
+  PAGE_LIFECYCLE_PREFLIGHT_V2_VERSION,
+  type PageLifecyclePreflightResultV2,
+} from "../../shared/page-lifecycle-v2-runtime";
 import { parsePageLifecyclePreflightResultV2 } from "../../shared/page-lifecycle-v2-transport";
 import {
   parsePageLifecycleMutationCommandResultV2,
@@ -565,11 +568,11 @@ const fromCoreParent = (
   return { kind: parent.kind, databaseId: parseDatabaseId(parent.database_id) };
 };
 
-const parseViewKind = (value: string): DatabaseViewKind => {
-  if (value === "kanban" || value === "list" || value === "calendar") {
+const parseViewLayout = (value: string): DatabaseViewLayout => {
+  if (value === "board" || value === "list") {
     return value;
   }
-  throw new Error(`Core returned unsupported Database View kind ${value}`);
+  throw new Error(`Core returned unsupported Database View layout ${value}`);
 };
 
 const fromCoreNode = (
@@ -619,7 +622,7 @@ const fromCoreNode = (
     databaseId: parseDatabaseId(node.database_id),
     dataSourceId: parseDataSourceId(node.data_source_id),
     title: node.title,
-    viewKind: parseViewKind(node.view_kind),
+    defaultLayout: parseViewLayout(node.default_layout),
     isDefault: node.is_default,
     revision: node.revision,
   };
@@ -1132,7 +1135,6 @@ const mapLifecyclePage = (
         status: page.membership.status,
         position: page.membership.position
           ? {
-              groupKey: page.membership.position.group_key ?? null,
               rankKey: page.membership.position.rank_key,
               revision: page.membership.position.revision,
             }
@@ -1904,7 +1906,7 @@ export const createCoreLibraryModuleAdapter = (
         return parsePageLifecyclePreflightResultV2({
           ok: true,
           value: {
-            version: 2,
+            version: PAGE_LIFECYCLE_PREFLIGHT_V2_VERSION,
             projectId,
             libraryId: input.libraryId,
             storeEpoch: snapshot.store_epoch,

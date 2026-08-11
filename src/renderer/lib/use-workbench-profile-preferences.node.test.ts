@@ -35,9 +35,7 @@ describe("Workbench profile preferences", () => {
       ],
     });
 
-    expect(preferences.viewsByProject).toEqual({
-      "project-a": "calendar",
-    });
+    expect(preferences).not.toHaveProperty("viewsByProject");
     expect(preferences.sidebar).toEqual({
       collapsed: true,
       width: 520,
@@ -51,7 +49,7 @@ describe("Workbench profile preferences", () => {
     expect(preferences.recentPageSessions).toHaveLength(1);
   });
 
-  test("migrates retired Priority filters in v1 profile preferences", () => {
+  test("drops retired Database presentation preferences", () => {
     const preferences = normalizeLegacyWorkbenchProfilePreferences({
       dbViewPrefsByProject: {
         "project-a": {
@@ -73,18 +71,7 @@ describe("Workbench profile preferences", () => {
       },
     });
 
-    expect(
-      preferences.dbViewPrefsByProject["project-a"]?.list?.rules.filter,
-    ).toEqual({
-      any: [{
-        all: [{
-          field: "priority",
-          op: "in",
-          values: ["p3-low"],
-          includeEmpty: false,
-        }],
-      }],
-    });
+    expect(preferences).not.toHaveProperty("dbViewPrefsByProject");
   });
 
   test("retains v1 profile preferences when the v2 write fails", () => {
@@ -126,18 +113,7 @@ describe("Workbench profile preferences", () => {
 
     const loaded = loadWorkbenchProfilePreferencesFromStorage(storage);
 
-    expect(
-      loaded.dbViewPrefsByProject["project-a"]?.list?.rules.filter,
-    ).toEqual({
-      any: [{
-        all: [{
-          field: "priority",
-          op: "in",
-          values: ["p3-low"],
-          includeEmpty: false,
-        }],
-      }],
-    });
+    expect(loaded).not.toHaveProperty("dbViewPrefsByProject");
     expect(values.has(workbenchProfilePreferencesStorageKey)).toBe(false);
     expect(values.has(legacyWorkbenchProfilePreferencesStorageKey)).toBe(true);
   });

@@ -67,7 +67,6 @@ function projectionConfig(
     return {
       projectId: requireProjectAccess(surface),
       databaseViewId: surface.config.target.databaseViewId,
-      view: surface.config.view,
     };
   }
   if (surface.kind === "page_stage") {
@@ -204,7 +203,6 @@ export function workbenchSurfaceFromCreateInput(
           kind: "database-view",
           databaseViewId: input.config.databaseViewId,
         },
-        view: input.config.view,
       },
     };
   }
@@ -291,7 +289,7 @@ export function applyWorkbenchSurfacePatch(
     };
   }
   if (surface.kind === "db_view") {
-    if (!("databaseViewId" in patch.config) || !("view" in patch.config)) {
+    if (!("databaseViewId" in patch.config)) {
       return common;
     }
     return {
@@ -306,7 +304,6 @@ export function applyWorkbenchSurfacePatch(
           kind: "database-view",
           databaseViewId: patch.config.databaseViewId,
         },
-        view: patch.config.view,
       },
     };
   }

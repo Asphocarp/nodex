@@ -3,11 +3,11 @@ import type { PageInput, PageUpdateMutationResult } from "@/lib/types";
 import type { PageStageHandlers } from "@/lib/page-stage-handlers";
 import { createUuidV7 } from "../../../shared/uuid-v7";
 import { isWorkflowStatus } from "../../../shared/workflow-status";
-import { getKanbanProjectStore } from "@/lib/kanban-store";
+import { getBoardProjectStore } from "@/lib/board-store";
 import {
-  deleteKanbanPage,
-  moveKanbanPage,
-} from "@/lib/kanban-page-mutation-command";
+  deleteBoardPage,
+  moveBoardPage,
+} from "@/lib/board-page-mutation-command";
 import {
   isPageMetadataPatch,
 } from "@/lib/page-detail-metadata-runtime";
@@ -47,8 +47,8 @@ export function makeRemotePageStageHandlers(
       });
     },
     onDelete: async (columnId: string, pageId: string) => {
-      const deleted = await deleteKanbanPage({
-        store: getKanbanProjectStore(projectId, databaseViewId),
+      const deleted = await deleteBoardPage({
+        store: getBoardProjectStore(projectId, databaseViewId),
         projectId,
         columnId,
         operationId: crypto.randomUUID(),
@@ -60,8 +60,8 @@ export function makeRemotePageStageHandlers(
       if (!isWorkflowStatus(fromStatus) || !isWorkflowStatus(toStatus)) {
         throw new Error("Page Stage move requires canonical Page statuses");
       }
-      const moved = await moveKanbanPage({
-        store: getKanbanProjectStore(projectId, databaseViewId),
+      const moved = await moveBoardPage({
+        store: getBoardProjectStore(projectId, databaseViewId),
         projectId,
         operationId: crypto.randomUUID(),
         move: { pageId: pageId, fromStatus, toStatus },

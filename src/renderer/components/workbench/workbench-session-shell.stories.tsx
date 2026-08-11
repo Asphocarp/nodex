@@ -13,7 +13,6 @@ import type {
   WorkbenchTabProjection,
   WorkbenchProjectionTabConfiguration,
 } from "@/lib/types";
-import type { WorkbenchView } from "@/lib/use-workbench-profile-preferences";
 import * as Y from "yjs";
 import {
   PAGE_DOCUMENT_SCHEMA_VERSION,
@@ -34,7 +33,7 @@ import type {
   CodexSideChatStartInput,
   CodexSideChatStartResult,
 } from "../../../shared/types";
-import { buildPageDetailStoryResult } from "../kanban/page-stage/page-stage-story-page-detail";
+import { buildPageDetailStoryResult } from "../board/page-stage/page-stage-story-page-detail";
 import {
   findWorkbenchPanelLeafForTab,
   makeWorkbenchPanelLayout,
@@ -528,8 +527,7 @@ function makeSession(args: ShellStoryArgs): ProjectSession {
         order: 0,
         config: {
           projectId: "nodex",
-          databaseViewId: "database-view:nodex:primary-kanban",
-          view: "kanban",
+          databaseViewId: "database-view:nodex:primary-board",
         },
       }),
       makeTab({
@@ -586,8 +584,7 @@ function makeSession(args: ShellStoryArgs): ProjectSession {
       order: 0,
       config: {
         projectId: "nodex",
-        databaseViewId: "database-view:nodex:primary-kanban",
-        view: "kanban",
+        databaseViewId: "database-view:nodex:primary-board",
       },
     }),
     makeTab({
@@ -936,9 +933,6 @@ function ProjectSessionShellStory(args: ShellStoryArgs) {
           : args.activeTab === "welcome"
             ? [INITIAL_PROJECT]
             : PROJECTS}
-        activeView={"kanban" as WorkbenchView}
-        activeDbViewPrefs={null}
-        dbViewPrefsByProject={{}}
         sidebar={{
           collapsed: sidebarCollapsed,
           width: sidebarWidth,
@@ -953,7 +947,6 @@ function ProjectSessionShellStory(args: ShellStoryArgs) {
           }));
         }}
         pageStageCloseRef={{ current: null }}
-        setDbViewPrefs={() => undefined}
         openPageStage={() => undefined}
         onLeavePageStage={() => undefined}
         onCreateProject={async () => null}
@@ -1019,7 +1012,6 @@ function ProjectSceneStory({
                 kind: "database-view",
                 databaseViewId: "view:test:primary",
               },
-              view: "kanban",
             },
             stateKey: 0,
             state: null,
@@ -1114,12 +1106,8 @@ function ProjectSceneStory({
         windowSessionId="window-session:storybook-project-scene"
         initialWindowLayoutSnapshot={initialWindowLayoutSnapshot}
         projects={welcome ? [INITIAL_PROJECT] : PROJECTS}
-        activeView="kanban"
-        activeDbViewPrefs={null}
-        dbViewPrefsByProject={{}}
         sidebar={{ collapsed: false, width: 300 }}
         pageStageCloseRef={{ current: null }}
-        setDbViewPrefs={() => undefined}
         openPageStage={() => undefined}
         onLeavePageStage={() => undefined}
         onCreateProject={async () => null}
@@ -1285,7 +1273,7 @@ function installStoryApi(
           const board = storyUsesWelcomePage(readSessionsByProject())
             ? WELCOME_BOARD
             : STORY_BOARD;
-          const viewId = `database-view:${projectId}:primary-kanban`;
+          const viewId = `database-view:${projectId}:primary-board`;
           const databaseId = `database:${projectId}:primary`;
           const dataSourceId = `${databaseId}:data-source:initial`;
           // Core-backed read channels return a CoreReadResult envelope.
@@ -1312,7 +1300,7 @@ function installStoryApi(
               databaseBlockId: databaseId,
               projectId,
               name: "Tasks",
-              kind: "kanban",
+              defaultLayout: "board",
               config: {},
               isPrimary: true,
               createdAt: CREATED_AT,
@@ -1347,7 +1335,7 @@ function installStoryApi(
                 databaseId,
                 dataSourceId,
                 name: "Tasks",
-                kind: "kanban",
+                defaultLayout: "board",
                 config: {
                   schemaKey: "nodex.database-view",
                   schemaVersion: 2,
@@ -1379,7 +1367,7 @@ function installStoryApi(
             libraryId: "library:test",
             databaseId,
             dataSourceId: `${databaseId}:data-source:initial`,
-            viewId: `database-view:${projectId}:primary-kanban`,
+            viewId: `database-view:${projectId}:primary-board`,
             storeEpoch: "epoch:story",
             commitSeq: 1,
             grouped: true,

@@ -782,11 +782,10 @@ fn resolve_data_source_destination(
                ON position.view_id = ?1 AND position.page_block_id = membership.page_block_id \
              WHERE membership.data_source_id = ?2 AND membership.removed_at IS NULL \
                AND page.lifecycle = 'active' \
-               AND position.group_key IS ?3 \
              ORDER BY CASE WHEN position.rank_key IS NULL THEN 1 ELSE 0 END, \
                position.rank_key, membership.page_block_id",
         )?
-        .query_map(params![view_id, data_source_id, group_key], |row| {
+        .query_map(params![view_id, data_source_id], |row| {
             row.get::<_, String>(0)
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;

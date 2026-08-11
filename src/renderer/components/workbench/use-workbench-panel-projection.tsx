@@ -155,20 +155,16 @@ interface WorkbenchPanelProjectionInput {
   readonly controller: WorkbenchPanelController;
   readonly surface: Pick<
     SurfaceProps,
-    | "activeDbViewPrefs"
     | "activeSearchQuery"
-    | "activeView"
     | "browserViewScopeId"
     | "onOpenBrowserSettings"
     | "windowSessionId"
-    | "dbViewPrefsByProject"
     | "onLeavePageStage"
     | "pageStageCloseRef"
     | "pageStageHistoryModal"
     | "pageStagePersistRef"
     | "pageStageSessionSnapshotRef"
     | "searchByProject"
-    | "setDbViewPrefs"
     | "setSearchQuery"
     | "taskSearchOpenTick"
   >;
@@ -765,7 +761,6 @@ export function useWorkbenchPanelProjection({
     createBrowserTabToRight,
     createManualTab,
     ensureBlankSessionForProject,
-    openPageInNewChat,
     onOpenAutomations,
     onOpenHooksSettings,
     onOpenLocalEnvironmentsSettings,
@@ -778,6 +773,7 @@ export function useWorkbenchPanelProjection({
     openCanvasStage,
     openMcpAppSidePanel,
     openPageTab,
+    openPageInNewChat,
     sendPageToChat,
     openSubagentsPanelTab,
     openTurnDiffFileInSidePanel,

@@ -96,9 +96,9 @@ const propertyRecord = () => ({
 });
 
 describe("Database Module v2 transport boundary", () => {
-  test("is additive and keeps the active v1 contract untouched", () => {
-    expect(DATABASE_MODULE_CONTRACT_VERSION).toBe(1);
-    expect(DATABASE_MODULE_V2_CONTRACT_VERSION).toBe(4);
+  test("exposes the View-global ordering contract versions", () => {
+    expect(DATABASE_MODULE_CONTRACT_VERSION).toBe(3);
+    expect(DATABASE_MODULE_V2_CONTRACT_VERSION).toBe(8);
   });
 
   test("binds ordered option creation and value writes under one apply", () => {

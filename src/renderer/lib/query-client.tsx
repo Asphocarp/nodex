@@ -46,9 +46,12 @@ export function applyCodexHostCatalogEvent(
 }
 
 function CodexHostCatalogQuerySync({ queryClient }: { queryClient: QueryClient }) {
-  useEffect(() => subscribeCodexEvents((event) => {
-    applyCodexHostCatalogEvent(queryClient, event);
-  }), [queryClient]);
+  useEffect(() => {
+    if (window.__NODEX_STORYBOOK__ === true) return;
+    return subscribeCodexEvents((event) => {
+      applyCodexHostCatalogEvent(queryClient, event);
+    });
+  }, [queryClient]);
   return null;
 }
 

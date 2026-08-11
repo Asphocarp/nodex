@@ -274,7 +274,7 @@ describe("WorkbenchLayoutSnapshotV5Schema", () => {
             kind: "database-view",
             databaseViewId: "view:alpha",
           },
-          view: "kanban",
+          view: "board",
         },
       }),
     ]);
@@ -318,7 +318,7 @@ describe("WorkbenchLayoutSnapshotV5Schema", () => {
         config: {
           projectId: "alpha",
           target: { kind: "project-default" },
-          view: "kanban",
+          view: "board",
         },
         stateKey: 0,
         state: null,
@@ -375,7 +375,7 @@ describe("WorkbenchLayoutSnapshotV6Schema", () => {
         config: {
           projectId: "alpha",
           target: { kind: "project-default" },
-          view: currentScene.primary.config.view,
+          view: "board",
         },
       },
     } as const;
@@ -422,7 +422,7 @@ describe("WorkbenchLayoutSnapshotV6Schema", () => {
       config: {
         accessContext: { kind: "library" as const },
         target: { kind: "database-default" as const, databaseId: root.databaseId },
-        view: "kanban" as const,
+        view: "board" as const,
       },
     };
     const rightRoot = seed.panels.right.layout.root;

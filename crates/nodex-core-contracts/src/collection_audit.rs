@@ -57,6 +57,7 @@ fn database_policy(mode: DatabaseReadMode) -> ReadBudgetPolicy {
         | DatabaseReadMode::ViewDescriptorWindow
         | DatabaseReadMode::AgentQuery
         | DatabaseReadMode::ViewWindow
+        | DatabaseReadMode::ListWindow
         | DatabaseReadMode::ViewContext
         | DatabaseReadMode::RelationTargetWindow
         | DatabaseReadMode::RelationCandidateWindow => ReadBudgetPolicy::CollectionWindow,
@@ -67,6 +68,7 @@ fn database_policy(mode: DatabaseReadMode) -> ReadBudgetPolicy {
         DatabaseReadMode::Database
         | DatabaseReadMode::DataSource
         | DatabaseReadMode::View
+        | DatabaseReadMode::ViewPersonalPreferences
         | DatabaseReadMode::RowDetail => ReadBudgetPolicy::Identity,
     }
 }
@@ -114,6 +116,7 @@ fn library_policy(read: &LibraryRead) -> ReadBudgetPolicy {
         LibraryRead::Children { .. }
         | LibraryRead::StandaloneRoots { .. }
         | LibraryRead::Catalog { .. }
+        | LibraryRead::MoveDestinations { .. }
         | LibraryRead::AgentSearch { .. }
         | LibraryRead::Search { .. }
         | LibraryRead::PageHistory { .. } => ReadBudgetPolicy::CollectionWindow,

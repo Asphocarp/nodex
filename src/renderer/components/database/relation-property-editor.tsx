@@ -1,4 +1,4 @@
-import { useDeferredValue, useEffect, useId, useRef, useState } from "react";
+import { useDeferredValue, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import {
   CloseIcon,
   PageIcon,
@@ -20,6 +20,7 @@ import {
 import { foldDataSourceRelationSearchText } from "@/lib/data-source-relation-runtime";
 import { cn } from "@/lib/utils";
 import { PropertyEmptyValue } from "./property-empty-value";
+import { DATABASE_PROPERTY_LIST_CHIP_CLASS_NAME } from "./property-list-chip";
 
 const mergeCandidates = (
   left: readonly { readonly pageId: string; readonly title: string }[],
@@ -57,6 +58,7 @@ export function RelationPropertyEditor({
   onValueStale,
   showLabel = true,
   presentation = "compact",
+  triggerIcon,
 }: {
   readonly label: string;
   readonly value: unknown;
@@ -78,7 +80,8 @@ export function RelationPropertyEditor({
   readonly onOpenPage?: (pageId: string, title: string) => void;
   readonly onValueStale?: () => void;
   readonly showLabel?: boolean;
-  readonly presentation?: "compact" | "page";
+  readonly presentation?: "compact" | "page" | "list";
+  readonly triggerIcon?: ReactNode;
 }) {
   const parsedPreview = readRelationValuePreview(value);
   const invalidPreview = value != null && parsedPreview === null;
@@ -369,12 +372,20 @@ export function RelationPropertyEditor({
             className={cn(
               "inline-flex min-h-6 min-w-0 max-w-full flex-wrap items-center gap-1 rounded-md px-1 text-left outline-hidden",
               "hover:bg-token-foreground/5 focus-visible:ring-2 focus-visible:ring-token-focus disabled:opacity-50",
-              presentation === "page" ? "text-sm" : "text-[11px]",
+              presentation === "page"
+                ? "text-sm"
+                : presentation === "list"
+                  ? DATABASE_PROPERTY_LIST_CHIP_CLASS_NAME
+                  : "text-[11px]",
             )}
           >
+            {presentation === "list" && preview.totalCount > 0 ? triggerIcon : null}
             {visibleTargets.slice(0, 3).map((target) => (
-              <span key={target.pageId} className="inline-flex h-5.5 min-w-0 max-w-36 items-center gap-1 rounded-md bg-token-foreground/8 px-1.5 text-token-text-secondary">
-                <PageIcon className="icon-2xs shrink-0" />
+              <span key={target.pageId} className={cn(
+                "inline-flex min-w-0 max-w-36 items-center gap-1 text-token-text-secondary",
+                presentation !== "list" && "h-5.5 rounded-md bg-token-foreground/8 px-1.5",
+              )}>
+                {presentation !== "list" ? <PageIcon className="icon-2xs shrink-0" /> : null}
                 <span className="truncate">{target.title || "Untitled"}</span>
               </span>
             ))}
@@ -391,7 +402,7 @@ export function RelationPropertyEditor({
             ) : preview.totalCount === 0 ? (
               <PropertyEmptyValue />
             ) : null}
-            {preview.totalCount > 0 ? (
+            {preview.totalCount > 0 && presentation !== "list" ? (
               <PlusIcon className="icon-2xs shrink-0 text-token-description-foreground" />
             ) : null}
           </button>

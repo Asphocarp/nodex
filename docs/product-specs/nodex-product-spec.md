@@ -92,7 +92,7 @@ identity/type rather than display-name matching; Relation remains a non-owning,
 authorization-safe reference set.
 
 Read [Database, Pages, and Views Behavior](database-pages-and-views-behavior.md)
-for the feature contract, [Kanban Drag and Drop Behavior](kanban-drag-and-drop-behavior.md)
+for the feature contract, [Board Drag and Drop Behavior](board-drag-and-drop-behavior.md)
 for Board movement, and the focused NFM specifications in
 [the product-spec index](index.md) for editor interactions.
 

@@ -87,7 +87,8 @@ const hasEmptyAndFilter = (model: DatabaseViewRenderModel): boolean =>
 
 export const databaseViewSupportsManualReorder = (
   model: DatabaseViewRenderModel,
-): boolean => model.query.view.config.sort[0]?.field.kind === "manual";
+): boolean =>
+  model.query.view.config.presentation.sort[0]?.field.kind === "manual";
 
 export const buildDatabaseViewMoveOperations = (input: {
   readonly model: DatabaseViewRenderModel;
@@ -124,7 +125,7 @@ export const buildDatabaseViewMoveOperations = (input: {
   if (!moving) return [];
   desired.splice(targetIndex, 0, moving);
   const authorityOrder =
-    input.model.query.view.config.sort[0]?.direction === "desc"
+    input.model.query.view.config.presentation.sort[0]?.direction === "desc"
       ? [...desired].reverse()
       : desired;
 
@@ -141,7 +142,6 @@ export const buildDatabaseViewMoveOperations = (input: {
         pageId: candidate.page.pageId,
         expectedPositionRevision: candidate.position?.revision ?? 0,
       })),
-      groupKey: row.effectiveGroupKey,
     }];
   }
 
@@ -155,7 +155,6 @@ export const buildDatabaseViewMoveOperations = (input: {
     viewId: input.model.databaseViewId,
     pageId: row.page.pageId,
     expectedPositionRevision: row.position?.revision ?? 0,
-    groupKey: row.effectiveGroupKey,
     ...(anchor ? { beforePageId: anchor.page.pageId } : {}),
   }];
 };
@@ -255,7 +254,8 @@ export const buildDatabaseViewMovePageRunOperations = (input: {
   }
 
   if (desired.every((row, index) => row === visibleGroup[index])) return [];
-  const authorityOrder = input.model.query.view.config.sort[0]?.direction === "desc"
+  const authorityOrder =
+    input.model.query.view.config.presentation.sort[0]?.direction === "desc"
     ? [...desired].reverse()
     : desired;
   return [{
@@ -265,7 +265,6 @@ export const buildDatabaseViewMovePageRunOperations = (input: {
       pageId: candidate.page.pageId,
       expectedPositionRevision: candidate.position?.revision ?? 0,
     })),
-    groupKey,
   }];
 };
 

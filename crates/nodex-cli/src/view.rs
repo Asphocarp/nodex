@@ -30,10 +30,14 @@ pub(crate) fn query(
     let project = selected_project(client, explicit_project, cwd)?;
     let view_id = resolve_view_selector(client, &project, &arguments.view)?;
     let group_scope = match (arguments.group, arguments.unassigned) {
-        (Some(key), false) => Some(DatabaseGroupScope::Key {
-            key: validate_group_key(key)?,
+        (Some(key), false) => Some(DatabaseGroupScope::Path {
+            group_key: Some(validate_group_key(key)?),
+            subgroup_key: None,
         }),
-        (None, true) => Some(DatabaseGroupScope::Unassigned),
+        (None, true) => Some(DatabaseGroupScope::Path {
+            group_key: None,
+            subgroup_key: None,
+        }),
         (None, false) => None,
         (Some(_), true) => {
             return Err(CliError::new(
@@ -237,7 +241,6 @@ struct NamedIdentity {
 struct ViewIdentity {
     id: String,
     name: String,
-    kind: String,
     database_id: String,
     data_source_id: String,
     grouping_property_id: Option<String>,
@@ -391,7 +394,6 @@ fn project_context(
     let view = ViewIdentity {
         id: required_string(&context.view, "/viewId")?,
         name: required_string(&context.view, "/name")?,
-        kind: required_string(&context.view, "/kind")?,
         database_id: required_string(&context.view, "/databaseId")?,
         data_source_id: required_string(&context.view, "/dataSourceId")?,
         grouping_property_id,
@@ -498,7 +500,7 @@ mod tests {
             view: json!({
                 "viewId": "view-1",
                 "name": "Planning",
-                "kind": "kanban",
+                "defaultLayout": "board",
                 "databaseId": "database-1",
                 "dataSourceId": "source-1",
                 "config": {
@@ -538,10 +540,14 @@ mod tests {
                 view_id: "view-1".to_owned(),
                 projection: projection_authority(),
                 grouped: true,
+                subgrouped: false,
                 total_rows: 1,
+                total_groups: 1,
+                group_limit: 200,
                 truncated: false,
                 groups: vec![DatabaseViewGroupSummary {
                     group_key: Some("triage".to_owned()),
+                    subgroup_key: None,
                     total_rows: 1,
                 }],
             },
@@ -613,9 +619,13 @@ mod tests {
             created_at: "2026-07-31T00:00:00Z".to_owned(),
             updated_at: "2026-07-31T00:00:00Z".to_owned(),
             effective_group_key: Some("triage".to_owned()),
+            effective_subgroup_key: None,
             rank_key: Some("a".to_owned()),
             position_revision: Some(1),
             position_order: Some(0),
+            task_parent_page_id: None,
+            task_sibling_rank: None,
+            task_hierarchy_revision: 0,
         }
     }
 }

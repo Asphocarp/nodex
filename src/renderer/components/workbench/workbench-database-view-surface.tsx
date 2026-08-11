@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { hashKey, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import type { ContentAccessContext } from "../../../shared/content-access-context";
@@ -16,10 +16,10 @@ import {
 } from "../../lib/api";
 import {
   buildDatabaseViewWindowRenderModel,
-  groupScopeKeyForColumn,
+  groupScopeKeyForPath,
   UNGROUPED_SCOPE_KEY,
 } from "../../lib/database-view-render-model";
-import type { ColumnPaginationState } from "../../lib/kanban-store";
+import type { ColumnPaginationState } from "../../lib/board-store";
 import {
   invalidateExactQuery,
   projectionCursorForSnapshots,
@@ -32,6 +32,13 @@ import {
   resourceAuthorityQueryMeta,
 } from "../../lib/resource-authority-query-cache";
 import { DatabaseViewTabSurface } from "./workbench-db-view-panel";
+import { Board } from "@/components/board/board";
+import { classicBoardPreferences } from "@/lib/classic-board-adapter";
+import type { Project } from "@/lib/types";
+import type {
+  OpenPageInNewChatInput,
+  SendPageToChatInput,
+} from "@/lib/page-chat-actions";
 
 type DatabaseReadTarget =
   | { readonly databaseViewId: string }
@@ -119,17 +126,17 @@ const readTargetFromIdentity = (identity: string): DatabaseReadTarget => {
 const scopesFromGroups = (
   groups: DatabaseViewGroupsSnapshot<string | null>,
 ): readonly Omit<ScopedWindow, "snapshot">[] => {
+  if (groups.truncated) return [{ scopeKey: UNGROUPED_SCOPE_KEY }];
   if (!groups.grouped) return [{ scopeKey: UNGROUPED_SCOPE_KEY }];
   if (groups.groups.length === 0) return [{ scopeKey: UNGROUPED_SCOPE_KEY }];
-  return groups.groups.map((group) => group.groupKey === null
-    ? {
-        scopeKey: "unassigned",
-        scope: { kind: "unassigned" as const },
-      }
-    : {
-        scopeKey: groupScopeKeyForColumn(group.groupKey),
-        scope: { kind: "key" as const, key: group.groupKey },
-      });
+  return groups.groups.map((group) => ({
+    scopeKey: groupScopeKeyForPath(group.groupKey, group.subgroupKey),
+    scope: {
+      kind: "path",
+      groupKey: group.groupKey,
+      subgroupKey: group.subgroupKey,
+    },
+  }));
 };
 
 const uniqueBy = <Value, Key>(
@@ -175,6 +182,10 @@ export function WorkbenchDatabaseViewSurface({
   onPresentationChange,
   keyboardSurface,
   presentedPageIds,
+  projects = [],
+  pageStageCloseRef,
+  onOpenPageInNewChat,
+  onSendPageToChat,
 }: {
   readonly accessContext: ContentAccessContext;
   readonly target: DatabaseSurfaceTarget;
@@ -188,6 +199,14 @@ export function WorkbenchDatabaseViewSurface({
     readonly presentationId: string;
   };
   readonly presentedPageIds?: ReadonlySet<string>;
+  readonly projects?: Project[];
+  readonly pageStageCloseRef?: RefObject<(() => Promise<void>) | null>;
+  readonly onOpenPageInNewChat?: (
+    input: OpenPageInNewChatInput,
+  ) => Promise<void> | void;
+  readonly onSendPageToChat?: (
+    input: SendPageToChatInput,
+  ) => Promise<void> | void;
 }) {
   const queryClient = useQueryClient();
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -196,6 +215,9 @@ export function WorkbenchDatabaseViewSurface({
   const revocationRepairRef = useRef<Promise<void> | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
+  const [selectedPageIds, setSelectedPageIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
   const [continuations, setContinuations] = useState<
     ReadonlyMap<string, ContinuationState>
   >(new Map());
@@ -273,6 +295,12 @@ export function WorkbenchDatabaseViewSurface({
       : undefined,
     [mergedWindow],
   );
+  const classicBoardPrefs = useMemo(() => model
+    ? classicBoardPreferences({
+        layout: model.query.view.defaultLayout,
+        presentation: model.query.view.config.presentation,
+      })
+    : null, [model]);
   useEffect(() => {
     if (!model) return;
     onPresentationChange?.({
@@ -282,9 +310,7 @@ export function WorkbenchDatabaseViewSurface({
   }, [model, onPresentationChange]);
   const groupTotals = useMemo(() => new Map(
     (query.data?.groups.groups ?? []).map((group) => [
-      group.groupKey === null
-        ? "unassigned"
-        : groupScopeKeyForColumn(group.groupKey),
+      groupScopeKeyForPath(group.groupKey, group.subgroupKey),
       group.totalRows,
     ]),
   ), [query.data?.groups.groups]);
@@ -447,6 +473,12 @@ export function WorkbenchDatabaseViewSurface({
             </button>
           </div>
         ) : null}
+        {query.data?.groups.truncated ? (
+          <DatabaseViewGroupLimitNotice
+            totalGroups={query.data.groups.totalGroups}
+            groupLimit={query.data.groups.groupLimit}
+          />
+        ) : null}
         {query.isPending ? (
           <div className="py-20 text-center text-sm text-token-description-foreground" role="status">
             Opening Database…
@@ -477,14 +509,61 @@ export function WorkbenchDatabaseViewSurface({
             onOpenTaskSearch={openSearch}
             onCloseTaskSearch={() => setSearchOpen(false)}
             onOpenPage={onOpenPage}
-        keyboardSurface={keyboardSurface}
-        presentedPageIds={presentedPageIds}
+            keyboardSurface={keyboardSurface}
+            presentedPageIds={presentedPageIds}
+            initialSelectedPageIds={selectedPageIds}
+            onSelectedPageIdsChange={setSelectedPageIds}
+            boardSurface={
+              accessContext.kind === "project" && classicBoardPrefs
+                ? (
+                    <Board
+                      surfaceId={keyboardSurface?.surfaceId ?? targetIdentity}
+                      panelTabId={keyboardSurface?.presentationId ?? targetIdentity}
+                      projectId={accessContext.projectId}
+                      databaseViewId={model.databaseViewId}
+                      presentationOverride={null}
+                      presentationOverrideReady
+                      projects={projects}
+                      searchQuery={searchQuery}
+                      dbViewPrefs={classicBoardPrefs}
+                      openPageStage={(_projectId, pageId, titleSnapshot) => {
+                        onOpenPage(pageId, titleSnapshot ?? "Untitled Page");
+                      }}
+                      onOpenPageInNewChat={onOpenPageInNewChat}
+                      onSendPageToChat={onSendPageToChat}
+                      pageStagePageId={undefined}
+                      presentedPageIds={presentedPageIds}
+                      initialSelectedPageIds={selectedPageIds}
+                      onSelectedPageIdsChange={setSelectedPageIds}
+                      pageStageCloseRef={pageStageCloseRef}
+                      scrollStateKey={`database-view:${targetIdentity}:board`}
+                    />
+                  )
+                : undefined
+            }
             onCommitted={async () => {
               await query.refetch();
             }}
           />
         ) : null}
       </div>
+    </div>
+  );
+}
+
+export function DatabaseViewGroupLimitNotice({
+  totalGroups,
+  groupLimit,
+}: {
+  readonly totalGroups: number;
+  readonly groupLimit: number;
+}) {
+  return (
+    <div
+      role="alert"
+      className="mx-3 mt-2 min-h-8 rounded-md bg-token-warning-background/20 px-2.5 py-2 text-xs text-token-text-secondary"
+    >
+      This View has {totalGroups} group combinations. Refine grouping or filters to stay within the {groupLimit}-group limit.
     </div>
   );
 }

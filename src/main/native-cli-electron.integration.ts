@@ -230,7 +230,7 @@ describe.skipIf(!packagedCli)("packaged native CLI and Electron authority", () =
         "--view",
         `@${defaultViewId}`,
         "--title",
-        "Packaged Kanban acceptance",
+        "Packaged Board acceptance",
         "--file",
         bodyFile,
         "--idempotency-key",

@@ -186,8 +186,8 @@ describe("db view prefs", () => {
     expect(normalized.display.showEmptyEstimate).toBe(true);
   });
 
-  test("uses kanban-specific display properties by default", () => {
-    const prefs = getDefaultDbViewPrefs("kanban");
+  test("uses board-specific display properties by default", () => {
+    const prefs = getDefaultDbViewPrefs("board");
 
     expect(JSON.stringify(prefs.display.propertyOrder)).toBe(
       JSON.stringify(["priority", "estimate", "tags", "assignee"]),
@@ -196,7 +196,7 @@ describe("db view prefs", () => {
   });
 
   test("filterDbViewCards applies shared status and tag rules", () => {
-    const prefs = getDefaultDbViewPrefs("kanban");
+    const prefs = getDefaultDbViewPrefs("board");
     prefs.rules.filter.any = [
       {
         all: [
@@ -219,7 +219,7 @@ describe("db view prefs", () => {
   });
 
   test("filterDbViewCards respects explicit empty-priority selection", () => {
-    const prefs = getDefaultDbViewPrefs("kanban");
+    const prefs = getDefaultDbViewPrefs("board");
     prefs.rules.filter.any = [
       {
         all: [
@@ -241,7 +241,7 @@ describe("db view prefs", () => {
   });
 
   test("normalization preserves explicit empty-only priority filters", () => {
-    const normalized = normalizeDbViewPrefs("kanban", {
+    const normalized = normalizeDbViewPrefs("board", {
       rules: {
         filter: {
           any: [
@@ -267,7 +267,7 @@ describe("db view prefs", () => {
   });
 
   test("normalization preserves explicit empty status filters", () => {
-    const normalized = normalizeDbViewPrefs("kanban", {
+    const normalized = normalizeDbViewPrefs("board", {
       rules: {
         filter: {
           any: [
@@ -306,7 +306,7 @@ describe("db view prefs", () => {
   });
 
   test("sortDbViewCards can place empty priorities first", () => {
-    const prefs = getDefaultDbViewPrefs("kanban");
+    const prefs = getDefaultDbViewPrefs("board");
     prefs.rules.sort = [{ field: "priority", direction: "asc", emptyPlacement: "first" }];
 
     const sorted = sortDbViewCards(
@@ -338,13 +338,13 @@ describe("db view prefs", () => {
   });
 
   test("hasActiveDbViewRules respects per-view defaults", () => {
-    const kanbanPrefs = getDefaultDbViewPrefs("kanban");
+    const boardPrefs = getDefaultDbViewPrefs("board");
     const listPrefs = getDefaultDbViewPrefs("list");
 
-    expect(hasActiveDbViewRules("kanban", kanbanPrefs.rules)).toBe(false);
+    expect(hasActiveDbViewRules("board", boardPrefs.rules)).toBe(false);
     expect(hasActiveDbViewRules("list", listPrefs.rules)).toBe(false);
 
-    kanbanPrefs.rules.sort = [{ field: "priority", direction: "asc" }];
-    expect(hasActiveDbViewRules("kanban", kanbanPrefs.rules)).toBe(true);
+    boardPrefs.rules.sort = [{ field: "priority", direction: "asc" }];
+    expect(hasActiveDbViewRules("board", boardPrefs.rules)).toBe(true);
   });
 });

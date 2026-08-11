@@ -60,7 +60,7 @@ export const projectNodexAgentQueryV3Data = (
         viewId: result.value.view.viewId,
         dataSourceId: result.value.view.dataSourceId,
         name: result.value.view.name,
-        kind: result.value.view.kind,
+        defaultLayout: result.value.view.defaultLayout,
       },
     } : {}),
     rows: query.rows.map((row) => ({
@@ -72,7 +72,7 @@ export const projectNodexAgentQueryV3Data = (
       ...(result.kind === "query" && row.position ? {
         placement: {
           viewId: result.value.view.viewId,
-          groupKey: row.position.groupKey,
+          groupKey: row.effectiveGroupKey,
         },
       } : {}),
       ...(select?.documentSummary ? { documentSummary: row.page.preview } : {}),

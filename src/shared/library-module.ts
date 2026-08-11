@@ -3,7 +3,7 @@ import type {
   DatabaseViewId,
   DataSourceId,
 } from "./database-identities";
-import type { DatabaseViewKind } from "./database-kernel";
+import type { DatabaseViewLayout } from "./database-kernel";
 import type { DocumentCommitRef } from "./block-documents/contracts";
 import type { ProjectAppearance } from "./project-appearance";
 import type { BlockPropertyFieldMutationV2 } from "./block-property-mutations-v2";
@@ -11,7 +11,7 @@ import type { DatabaseApplyOperationV2 } from "./database-module-v2";
 import type { LocalCommitCommandSuccess } from "./local-commit-delivery";
 import type { AuthorizedReadStamp } from "./authorized-read-stamp";
 
-export const LIBRARY_MODULE_CONTRACT_VERSION = 8 as const;
+export const LIBRARY_MODULE_CONTRACT_VERSION = 11 as const;
 export const DEFAULT_LIBRARY_READ_LIMIT = 20 as const;
 export const MAX_LIBRARY_READ_LIMIT = 100 as const;
 export const MAX_LIBRARY_CURSOR_LENGTH = 2_048 as const;
@@ -81,7 +81,7 @@ export interface LibraryViewNavigationNode {
   readonly databaseId: DatabaseId;
   readonly dataSourceId: DataSourceId;
   readonly title: string;
-  readonly viewKind: DatabaseViewKind;
+  readonly defaultLayout: DatabaseViewLayout;
   readonly isDefault: boolean;
   readonly revision: number;
 }

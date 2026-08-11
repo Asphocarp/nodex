@@ -14,7 +14,7 @@ import {
 import {
   DatabasePropertyValueTypeSchema,
   DatabaseViewFilterNodeSchema,
-  DatabaseViewKindSchema,
+  DatabaseViewLayoutSchema,
   NonManualDatabaseViewSortSchema,
 } from "./read-schemas";
 import {
@@ -35,7 +35,7 @@ const DatabaseSummaryV3Schema = z.strictObject({
     viewId: ViewIdSchema,
     dataSourceId: DataSourceIdSchema,
     name: z.string(),
-    kind: DatabaseViewKindSchema,
+    defaultLayout: DatabaseViewLayoutSchema,
     isDefault: z.boolean(),
   })),
 });
@@ -283,7 +283,7 @@ export const QueryDatabaseV3DataSchema = z.strictObject({
     viewId: ViewIdSchema,
     dataSourceId: DataSourceIdSchema,
     name: z.string(),
-    kind: DatabaseViewKindSchema,
+    defaultLayout: DatabaseViewLayoutSchema,
   }).optional(),
   rows: z.array(z.strictObject({
     pageId: BlockIdSchema,

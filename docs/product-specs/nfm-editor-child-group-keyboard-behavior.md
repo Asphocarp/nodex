@@ -6,9 +6,9 @@ Last Updated: 2026-04-13
 This document describes the current `Enter` and `Backspace` behavior for nested child groups inside the NFM / BlockNote editor.
 
 This is intentionally narrower than the main product spec. It is the detailed source of truth for child-group keyboard overrides implemented in:
-- `src/renderer/components/kanban/editor/child-group-enter.ts`
-- `src/renderer/components/kanban/editor/child-group-backspace.ts`
-- `src/renderer/components/kanban/editor/nfm-editor-extensions.ts`
+- `src/renderer/components/board/editor/child-group-enter.ts`
+- `src/renderer/components/board/editor/child-group-backspace.ts`
+- `src/renderer/components/board/editor/nfm-editor-extensions.ts`
 
 ## Scope
 
@@ -353,10 +353,10 @@ The current contract is:
 ## Source References
 
 Primary implementation:
-- `src/renderer/components/kanban/editor/child-group-enter.ts`
-- `src/renderer/components/kanban/editor/child-group-backspace.ts`
-- `src/renderer/components/kanban/editor/nfm-editor-extensions.ts`
+- `src/renderer/components/board/editor/child-group-enter.ts`
+- `src/renderer/components/board/editor/child-group-backspace.ts`
+- `src/renderer/components/board/editor/nfm-editor-extensions.ts`
 
 Current regression coverage:
-- `src/renderer/components/kanban/editor/child-group-enter.test.ts`
-- `src/renderer/components/kanban/editor/child-group-backspace.test.ts`
+- `src/renderer/components/board/editor/child-group-enter.test.ts`
+- `src/renderer/components/board/editor/child-group-backspace.test.ts`

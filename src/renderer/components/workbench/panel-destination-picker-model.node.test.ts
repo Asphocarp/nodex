@@ -7,6 +7,7 @@ import {
   parseDataSourceId,
 } from "../../../shared/database-identities";
 import { plainTextToPortableRichText } from "../../../shared/block-documents";
+import { upgradeDatabaseViewConfigV2 } from "../../../shared/database-view-presentation";
 import {
   buildPanelDestinationSections,
   flattenPanelDestinationRows,
@@ -136,15 +137,15 @@ function makeDescriptor(
       databaseId,
       dataSourceId,
       name: view.name,
-      kind: "kanban",
-      config: {
+      defaultLayout: "board",
+      config: upgradeDatabaseViewConfigV2({
         schemaKey: "nodex.database-view",
         schemaVersion: 2,
         filter: { kind: "group", operator: "and", children: [] },
         sort: [],
         group: null,
         display: { propertyIds: [], showTitle: true },
-      },
+      }),
       isDefault: view.primary,
       revision: 1,
       rankKey: String(index),

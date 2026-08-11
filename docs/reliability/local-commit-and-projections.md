@@ -54,6 +54,24 @@ canonical base until the bounded projection actually materializes it. Promise
 success or a broad commit cursor is not proof that one row/window contains the
 result.
 
+### Database List occurrence windows
+
+Database List reads use a projection-identity-bound occurrence cursor over the
+effective Filter, sort, grouping, subgrouping, presentation, and task hierarchy.
+Every response reports its logical start, total model count, total projection-row
+count, and stable group, subgroup, Page, and transient-ancestor occurrence keys.
+The renderer accepts a continuation only when identity, generation, start, and
+occurrence uniqueness match the admitted prefix. A rejected or stale continuation
+restarts from the first window; a transport failure keeps the admitted prefix
+visible and offers retry.
+
+Selection-all remains sparse until all windows are admitted, and drag is disabled
+while selected Page authority is incomplete. A List drop commits Property,
+hierarchy, and position intent in one transaction. The renderer may recompile
+once after a typed revision conflict; otherwise it discards optimism and
+converges from Core. Session Undo exists only when exact acknowledged before-
+values and committed revisions make the inverse lossless.
+
 ## Visibility and authorization changes
 
 Core computes authorization before and after the mutation inside the same

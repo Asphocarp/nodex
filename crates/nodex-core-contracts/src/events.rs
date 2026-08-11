@@ -242,6 +242,7 @@ pub enum LocalProjectionPatch {
         page_id: String,
         total_rows: i64,
         group_key: Option<String>,
+        subgroup_key: Option<String>,
         group_total: Option<i64>,
     },
     PageChanged {

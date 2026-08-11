@@ -4,7 +4,7 @@ import { ExternalLink, Rows3, TriangleAlert } from "@/components/shared/icons/ge
 import type { DatabaseViewReadModel } from "../../../shared/database-views";
 import { isInlineCardCycle } from "./block-reference-runtime-context";
 import type { DatabasePageSummary } from "@/lib/types";
-import { resolveKanbanPriorityOption } from "@/lib/kanban-options";
+import { resolveBoardPriorityOption } from "@/lib/board-options";
 import {
   BlockDisclosureStateStore,
   blockDisclosureStateStore,
@@ -63,7 +63,7 @@ function CardRowMetadata({
   readonly card: DatabasePageSummary;
   readonly archived: boolean;
 }) {
-  const priority = resolveKanbanPriorityOption(card.priority);
+  const priority = resolveBoardPriorityOption(card.priority);
   return (
     <span className="ml-auto flex shrink-0 items-center gap-1.5 pl-2">
       {priority ? (

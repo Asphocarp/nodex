@@ -6,7 +6,7 @@ import {
   type DatabaseViewFilterNode,
   type DatabaseViewFilterOperator,
   type DatabaseViewSort,
-  type DatabaseViewConfigV2,
+  type DatabaseViewConfigV4,
 } from "../../shared/database-kernel";
 import type {
   DatabaseViewRecordV2,
@@ -21,19 +21,26 @@ const authoringPropertyId = (property: DatabaseAuthoringProperty): string =>
 const authoringViewId = (view: DatabaseAuthoringView): string =>
   view.viewId;
 
-export const emptyDatabaseViewConfig = (): DatabaseViewConfigV2 => ({
+export const emptyDatabaseViewConfig = (): DatabaseViewConfigV4 => ({
   schemaKey: "nodex.database-view",
-  schemaVersion: 2,
+  schemaVersion: 4,
   filter: { kind: "group", operator: "and", children: [] },
-  sort: [
-    {
+  presentation: {
+    sort: [{
       field: { kind: "manual" },
       direction: "asc",
       nulls: "last",
+    }],
+    group: null,
+    subgroup: null,
+    groupDirection: "asc",
+    completion: { range: "all", orderByRecency: false },
+    hierarchy: { showSubPages: true, nestedSubPages: false },
+    layouts: {
+      board: { fields: [], showEmptyGroups: false },
+      list: { fields: [], showEmptyGroups: false },
     },
-  ],
-  group: null,
-  display: { propertyIds: [], showTitle: true },
+  },
 });
 
 export const readDatabasePropertyOptions = (
@@ -58,8 +65,8 @@ export const readDatabasePropertyOptions = (
 };
 
 export const databaseViewConfigsEqual = (
-  left: DatabaseViewConfigV2,
-  right: DatabaseViewConfigV2,
+  left: DatabaseViewConfigV4,
+  right: DatabaseViewConfigV4,
 ): boolean =>
   stableStringifyDatabaseJson(left) === stableStringifyDatabaseJson(right);
 

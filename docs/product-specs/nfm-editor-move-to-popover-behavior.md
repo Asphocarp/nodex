@@ -22,7 +22,7 @@ The `Card in` row inside the side-menu `Turn into` submenu uses the same popover
 - `DB` rows represent projects and are disclosure rows only. Clicking a DB row expands or collapses its column/status children.
 - DB rows use the sidebar project folder icon when a project has no custom emoji icon.
 - DB column/status child rows are the selectable DB destinations.
-- DB column/status rows use the same status icons as kanban columns.
+- DB column/status rows use the same status icons as board columns.
 - DB column/status icons are indented to the right of their parent DB icon so the tree preserves a clear visual parent-child relationship.
 - `Card` rows are selectable card destinations and show the owning DB and column as secondary metadata.
 - The source card is excluded from card results.
@@ -46,5 +46,5 @@ The `Card in` row inside the side-menu `Turn into` submenu uses the same popover
 - Selecting a card appends the selected NFM blocks to that card description.
 - Selecting a DB column from `Card in` uses the same DB-column move semantics as selecting a DB column from `Move to`.
 - The implementation reuses the existing selected-block guard, projected-ancestor rejection, editor snapshot rollback, and grouped `card:import-block-drop` persistence path.
-- Grouped source/target card description updates advance the touched cards' revisions so Kanban summaries and full Card Stage descriptions converge through the same detail hydration path.
+- Grouped source/target card description updates advance the touched cards' revisions so Board summaries and full Card Stage descriptions converge through the same detail hydration path.
 - After a successful move, Nodex refreshes the full source card detail and, for card destinations, the full target card detail so already-open Card Stage tabs render the moved blocks.

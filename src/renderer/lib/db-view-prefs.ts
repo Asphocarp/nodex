@@ -25,11 +25,11 @@ import {
   type SortEmptyPlacement,
 } from "./sort-empty-placement";
 
-type WorkbenchView = "kanban" | "list" | "toggle-list" | "calendar";
+type WorkbenchView = "board" | "list" | "toggle-list" | "calendar";
 
-export type SupportedDbView = "kanban" | "list" | "toggle-list";
+export type SupportedDbView = "board" | "list" | "toggle-list";
 
-export const SUPPORTED_DB_VIEWS: SupportedDbView[] = ["kanban", "list", "toggle-list"];
+export const SUPPORTED_DB_VIEWS: SupportedDbView[] = ["board", "list", "toggle-list"];
 
 export const DB_VIEW_SORT_FIELDS = [
   "board-order",
@@ -135,7 +135,7 @@ const DEFAULT_FILTER: DbViewFilterSpec = {
 };
 
 const DB_VIEW_DISPLAY_PROPERTIES_BY_VIEW: Record<SupportedDbView, readonly DbViewDisplayPropertyKey[]> = {
-  kanban: ["priority", "estimate", "tags", "assignee"],
+  board: ["priority", "estimate", "tags", "assignee"],
   list: [],
   "toggle-list": ["priority", "estimate", "status", "tags"],
 };
@@ -158,7 +158,7 @@ export function viewSupportsDbViewPrefs(view: WorkbenchView): view is SupportedD
 }
 
 export function getDefaultDbViewRules(view: SupportedDbView): DbViewRules {
-  if (view === "kanban") {
+  if (view === "board") {
     return {
       filter: cloneFilterSpec(DEFAULT_FILTER),
       sort: [{ field: "board-order", direction: "asc" }],
@@ -259,9 +259,9 @@ export function getDefaultDbViewDisplayPrefs(view: SupportedDbView): DbViewDispl
     };
   }
 
-  if (view === "kanban") {
+  if (view === "board") {
     return {
-      propertyOrder: [...DB_VIEW_DISPLAY_PROPERTIES_BY_VIEW.kanban],
+      propertyOrder: [...DB_VIEW_DISPLAY_PROPERTIES_BY_VIEW.board],
       hiddenProperties: [],
       showEmptyEstimate: false,
       showEmptyPriority: false,
@@ -577,7 +577,7 @@ function normalizeTagSortValue(tags: string[]): string {
 }
 
 export function getAvailableSortFields(view: SupportedDbView): DbViewSortField[] {
-  if (view === "kanban") {
+  if (view === "board") {
     return ["board-order", "priority", "estimate", "created", "title"];
   }
   if (view === "list") {

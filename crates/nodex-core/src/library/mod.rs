@@ -2216,23 +2216,31 @@ mod tests {
                     )?;
                     transaction.execute(
                         r#"INSERT INTO database_views(
-                           id, database_block_id, data_source_id, name, kind, config_json,
+                           id, database_block_id, data_source_id, name, default_layout, config_json,
                            rank_key, created_at, updated_at
                          ) VALUES (?1, ?2, ?3, 'All', 'list',
-                           '{"filter":{"kind":"group","operator":"and","children":[]},
-                             "sort":[],"group":null,
-                             "display":{"propertyIds":[],"showTitle":true}}',
+                           '{"schemaKey":"nodex.database-view","schemaVersion":4,
+                             "filter":{"kind":"group","operator":"and","children":[]},
+                             "presentation":{"sort":[],"group":null,"subgroup":null,
+                               "completion":{"range":"all","orderByRecency":false},
+                               "hierarchy":{"showSubPages":true,"nestedSubPages":false},
+                               "layouts":{"board":{"fields":[],"showEmptyGroups":false},
+                                 "list":{"fields":[],"showEmptyGroups":false}}}}',
                            'a', ?4, ?4)"#,
                         params![VIEW, DATABASE, SOURCE, NOW],
                     )?;
                     transaction.execute(
                         r#"INSERT INTO database_views(
-                           id, database_block_id, data_source_id, name, kind, config_json,
+                           id, database_block_id, data_source_id, name, default_layout, config_json,
                            rank_key, lifecycle, created_at, updated_at
                          ) VALUES (?1, ?2, ?3, 'Deleted', 'list',
-                           '{"filter":{"kind":"group","operator":"and","children":[]},
-                             "sort":[],"group":null,
-                             "display":{"propertyIds":[],"showTitle":true}}',
+                           '{"schemaKey":"nodex.database-view","schemaVersion":4,
+                             "filter":{"kind":"group","operator":"and","children":[]},
+                             "presentation":{"sort":[],"group":null,"subgroup":null,
+                               "completion":{"range":"all","orderByRecency":false},
+                               "hierarchy":{"showSubPages":true,"nestedSubPages":false},
+                               "layouts":{"board":{"fields":[],"showEmptyGroups":false},
+                                 "list":{"fields":[],"showEmptyGroups":false}}}}',
                            'b', 'deleted', ?4, ?4)"#,
                         params![DELETED_VIEW, DATABASE, SOURCE, NOW],
                     )?;
@@ -2763,7 +2771,7 @@ mod tests {
         else {
             panic!("Page lifecycle preflight");
         };
-        assert_eq!(value.version, 2);
+        assert_eq!(value.version, 3);
         assert_eq!(value.tags_property["propertyId"], "tags");
         let page = value.page.expect("Page lifecycle authority");
         assert_eq!(page.page_id, ROW_PAGE);
@@ -4746,7 +4754,7 @@ mod tests {
                 let data_source_evidence = connection.query_row(
                     "SELECT block.project_id, block.location_kind, block.containing_database_id, \
                             page.parent_kind, page.parent_id, membership.revision, \
-                            status.value_json, status.revision, position.group_key, \
+                            status.value_json, status.revision, json_extract(status.value_json, '$'), \
                             position.revision, projection.database_block_id, \
                             projection.view_id, \
                             (SELECT count(*) FROM library_block_placements WHERE block_id = block.id), \

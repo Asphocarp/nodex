@@ -317,7 +317,7 @@ export const compilePageLifecycleCreateRequestV2 = (
   return compiled as PageLifecycleCreateMutationRequestV2;
 };
 
-export const PAGE_LIFECYCLE_PREFLIGHT_V2_VERSION = 2 as const;
+export const PAGE_LIFECYCLE_PREFLIGHT_V2_VERSION = 3 as const;
 
 export interface PageLifecycleDocumentCoordinateV2 {
   readonly documentId: string;
@@ -340,7 +340,6 @@ export interface PageLifecycleMembershipCoordinateV2 {
   readonly statusValueRevision: number;
   readonly status: WorkflowStatus;
   readonly position: Readonly<{
-    groupKey: string | null;
     rankKey: string;
     revision: number;
   }> | null;
@@ -521,7 +520,7 @@ const primaryView = (preflight: PageLifecyclePreflightSnapshotV2) => {
     dataSource.lifecycle !== "active" ||
     view.lifecycle !== "active" ||
     !view.isDefault ||
-    view.kind !== "kanban" ||
+    view.defaultLayout !== "board" ||
     view.databaseId !== database.databaseId ||
     view.dataSourceId !== dataSource.dataSourceId ||
     value.tagsProperty.propertyId !== "tags" ||

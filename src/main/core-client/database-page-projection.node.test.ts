@@ -19,6 +19,7 @@ import {
   projectDatabasePage,
   projectDatabaseViewReference,
 } from "../../shared/database-page-projection";
+import { upgradeDatabaseViewConfigV2 } from "../../shared/database-view-presentation";
 import type { CoreDatabaseRowSummary } from "./types";
 
 const dataSourceId = parseDataSourceId("source:test");
@@ -159,11 +160,11 @@ const makeRow = (
     },
   ],
   position: {
-    groupKey: status,
     rankKey: `rank:${pageId}`,
     revision: 1,
   },
   effectiveGroupKey: status,
+  effectiveSubgroupKey: null,
 });
 
 const makeQuery = (
@@ -196,9 +197,9 @@ const makeQuery = (
     viewId,
     databaseId,
     dataSourceId,
-    name: "Kanban",
-    kind: "kanban",
-    config: {
+    name: "Board",
+    defaultLayout: "board",
+    config: upgradeDatabaseViewConfigV2({
       schemaKey: "nodex.database-view",
       schemaVersion: 2,
       filter: { kind: "group", operator: "and", children: [] },
@@ -209,7 +210,7 @@ const makeQuery = (
       }],
       group: { propertyId: "status" },
       display: { propertyIds: ["status"], showTitle: true },
-    },
+    }),
     isDefault: true,
     revision: 1,
     rankKey: "rank:view",
@@ -244,6 +245,9 @@ describe("native Database Page projections", () => {
         "reminders.config": [],
       },
       database_value_revisions: {},
+      task_parent_page_id: null,
+      task_sibling_rank: null,
+      task_hierarchy_revision: 0,
       metadata_revision: 1,
       parent_revision: 1,
       document_id: "document:defaults",

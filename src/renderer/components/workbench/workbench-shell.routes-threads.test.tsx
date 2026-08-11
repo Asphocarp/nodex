@@ -3,7 +3,6 @@ import { describe, test, expect } from "vitest";
 import { settleAsyncRender, textContent } from "../../test/dom";
 import { act, fireEvent, waitFor, within } from "@testing-library/react";
 import { WORKBENCH_AUTOMATION_FIRST_RUN_SUGGESTIONS } from "./workbench-automation-templates";
-import { getDefaultDbViewPrefs } from "@/lib/db-view-prefs";
 import { THREAD_QUEUE_FOLLOW_UPS_STORAGE_KEY } from "@/lib/thread-composer-follow-up-mode";
 import { COMPOSER_ENTER_BEHAVIOR_STORAGE_KEY } from "@/lib/composer-enter-behavior";
 import { type CodexScheduledAutomationCreateInput } from "@/lib/types";
@@ -306,15 +305,14 @@ describe("workbench session shell / routes-threads", () => {
   });
 
   test("restores the DB toolbar controls inside session DB tabs", async () => {
-    const prefs = getDefaultDbViewPrefs("list");
     const listTab = makeSessionTab({
       id: "session:alpha:database-view:list",
       sessionId: "session:alpha:database-view",
       projectId: "alpha",
       kind: "db_view",
-      title: "Table",
+      title: "Tasks",
       order: 0,
-      config: { projectId: "alpha", view: "list" },
+      config: { projectId: "alpha" },
     });
     const screen = renderWorkbench({
       sessionsByProject: {
@@ -326,46 +324,60 @@ describe("workbench session shell / routes-threads", () => {
         ],
       },
       searchByProject: { alpha: "urgent" },
-      dbViewPrefsByProject: { alpha: { list: prefs } },
     });
     await settleAsyncRender();
     await settleAsyncRender();
 
     const dbToolbarTabList = screen.getByRole("tablist", { name: "Database views" });
     expect(dbToolbarTabList.getAttribute("aria-label")).toBe("Database views");
-    expect(within(dbToolbarTabList).getByRole("tab", { name: "Table" }).getAttribute("aria-selected")).toBe("true");
-    expect(screen.getByRole("button", { name: "Filter" }).getAttribute("aria-label")).toBe("Filter");
-    expect(screen.getByRole("button", { name: "Sort" }).getAttribute("aria-label")).toBe("Sort");
-    expect(screen.getByRole("button", { name: "Display" }).getAttribute("aria-label")).toBe("Display");
+    expect(within(dbToolbarTabList).getByRole("tab", { name: "Board" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("button", { name: "Filter View" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Display options" })).toBeTruthy();
     expect(screen.getByDisplayValue("urgent").getAttribute("value")).toBe("urgent");
 
-    const props = (globalThis as { __lastMainViewHostProps?: Record<string, unknown> }).__lastMainViewHostProps;
+    const props = (globalThis as { __lastDatabaseViewSurfaceProps?: Record<string, unknown> }).__lastDatabaseViewSurfaceProps;
     expect(props?.searchQuery).toBe("urgent");
-    expect(props?.dbViewPrefs === prefs).toBe(true);
-    expect(typeof props?.onUpdateDbViewPrefs).toBe("function");
+    expect(props?.presentationLayout).toBe("board");
   });
 
-  test("persists DB toolbar view selection in the Window Session view", async () => {
+  test("keeps layout selection in the personal View preference, not Session identity", async () => {
     const screen = renderWorkbench();
     await settleAsyncRender();
     await settleAsyncRender();
 
     await act(async () => {
       const dbToolbarTabList = screen.getByRole("tablist", { name: "Database views" });
-      fireEvent.mouseDown(within(dbToolbarTabList).getByRole("tab", { name: "Table" }), { button: 0 });
+      fireEvent.mouseDown(
+        within(dbToolbarTabList).getByRole("tab", { name: "List" }),
+        { button: 0, ctrlKey: false },
+      );
       await Promise.resolve();
     });
+    await settleAsyncRender();
 
-    expect(invokeCalls.find((call) =>
+    expect(invokeCalls.some((call) =>
       call[0] === "window-session-view:tab-update"
       && call[1] === "session:alpha:database-view:db"
-    )?.[2]).toMatchObject({
-      config: {
-        projectId: "alpha",
-        databaseViewId: "database-view:alpha:primary-kanban",
-        view: "list",
-      },
-      title: "Table",
+    )).toBe(false);
+    const dbToolbarTabList = screen.getByRole("tablist", { name: "Database views" });
+    expect(
+      within(dbToolbarTabList).getByRole("tab", { name: "List" })
+        .getAttribute("aria-selected"),
+    ).toBe("true");
+    expect(screen.getByRole("grid", { name: "Board List" })).toBeTruthy();
+    const preferenceWrite = invokeCalls.find((call) =>
+      call[0] === "database-module:apply"
+      && call[1] === "alpha"
+      && (call[2] as { operations?: ReadonlyArray<{ kind?: string }> })
+        .operations?.some((operation) =>
+          operation.kind === "put_view_personal_preferences"
+        )
+    );
+    expect(preferenceWrite?.[2]).toMatchObject({
+      operations: [{
+        kind: "put_view_personal_preferences",
+        presentationOverride: { layout: "list" },
+      }],
     });
   });
 
@@ -377,7 +389,6 @@ describe("workbench session shell / routes-threads", () => {
       config: {
         projectId: "alpha",
         databaseViewId: "view-alpha-primary",
-        view: "kanban",
       },
     });
     const focusedTab = makeSessionTab({
@@ -387,7 +398,6 @@ describe("workbench session shell / routes-threads", () => {
       config: {
         projectId: "alpha",
         databaseViewId: "view-alpha-focused",
-        view: "list",
       },
     });
     const screen = renderWorkbench({
@@ -406,7 +416,7 @@ describe("workbench session shell / routes-threads", () => {
 
     expect(
       screen.container.querySelector(
-        '[data-main-view-host="true"][data-database-view-id="view-alpha-focused"]',
+        '[data-database-view-surface="true"][data-database-view-id="view-alpha-focused"]',
       ) !== null,
     ).toBe(true);
 
@@ -420,7 +430,7 @@ describe("workbench session shell / routes-threads", () => {
 
     expect(
       screen.container.querySelector(
-        '[data-main-view-host="true"][data-database-view-id="view-alpha-primary"]',
+        '[data-database-view-surface="true"][data-database-view-id="view-alpha-primary"]',
       ) !== null,
     ).toBe(true);
   });

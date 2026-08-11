@@ -216,8 +216,8 @@ describe("workbench session shell / sidebar-projects", () => {
     await settleAsyncRender();
 
     const props = (globalThis as {
-      __lastMainViewHostProps?: Record<string, unknown>;
-    }).__lastMainViewHostProps;
+      __lastDatabaseViewSurfaceProps?: Record<string, unknown>;
+    }).__lastDatabaseViewSurfaceProps;
     if (typeof props?.openPageStage !== "function") {
       throw new Error("Expected Project Home Database Page opener");
     }
@@ -241,8 +241,8 @@ describe("workbench session shell / sidebar-projects", () => {
       projectHomeRow?.getAttribute("data-panel-tab-row"),
     );
     const nextProps = (globalThis as {
-      __lastMainViewHostProps?: Record<string, unknown>;
-    }).__lastMainViewHostProps;
+      __lastDatabaseViewSurfaceProps?: Record<string, unknown>;
+    }).__lastDatabaseViewSurfaceProps;
     const presentedPageIds = nextProps?.presentedPageIds as
       | ReadonlySet<string>
       | undefined;
@@ -258,8 +258,8 @@ describe("workbench session shell / sidebar-projects", () => {
     await settleAsyncRender();
 
     const hostProps = (globalThis as {
-      __lastMainViewHostProps?: Record<string, unknown>;
-    }).__lastMainViewHostProps;
+      __lastDatabaseViewSurfaceProps?: Record<string, unknown>;
+    }).__lastDatabaseViewSurfaceProps;
     if (typeof hostProps?.openPageStage !== "function") {
       throw new Error("Expected Project Home Database Page opener");
     }

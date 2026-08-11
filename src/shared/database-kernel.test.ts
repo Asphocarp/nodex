@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
+  DATABASE_MUTATION_CONTRACT_VERSION,
   canonicalizeDatabaseMutationIntent,
   evaluateDatabaseViewFilter,
   normalizeDatabasePropertyValue,
@@ -21,7 +22,7 @@ const viewConfig = (): DatabaseViewConfig => ({
 });
 
 const request = (): DatabaseMutationRequest => ({
-  version: 1,
+  version: DATABASE_MUTATION_CONTRACT_VERSION,
   operationId: "operation-1",
   projectId: "project-1",
   storeEpoch: "epoch-1",
@@ -36,7 +37,7 @@ const request = (): DatabaseMutationRequest => ({
       initialView: {
         viewId: "view-1",
         name: "Table",
-        viewKind: "list",
+        defaultLayout: "list",
         config: viewConfig(),
       },
     },
@@ -125,7 +126,6 @@ describe("general Database mutation contract", () => {
       viewId: "view-1",
       pageId: "card-1",
       expectedPositionRevision: 2,
-      groupKey: "ship",
       beforePageId: "card-2",
     };
     const boardDrag = parseDatabaseMutationRequest({
@@ -161,7 +161,7 @@ describe("general Database mutation contract", () => {
               viewId: "unrelated-view",
               expectedRevision: 0,
               name: "Unrelated",
-              viewKind: "list",
+              defaultLayout: "list",
               config: viewConfig(),
               isPrimary: false,
             },
@@ -205,7 +205,6 @@ describe("general Database mutation contract", () => {
           kind: "position_pages",
           viewId: "view-1",
           pages,
-          groupKey: "ship",
           beforePageId: "external-anchor",
         },
       ],
@@ -281,7 +280,7 @@ describe("general Database mutation contract", () => {
           initialView: {
             viewId: "view-1",
             name: "Loose",
-            viewKind: "list",
+            defaultLayout: "list",
             config: {},
           },
         },

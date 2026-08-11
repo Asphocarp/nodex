@@ -9,7 +9,7 @@ import type {
 } from "@tanstack/react-query";
 import {
   ensureFreshDatabaseViewBoard,
-} from "@/lib/kanban-store";
+} from "@/lib/board-store";
 import {
   getGitWorkerClient,
   invoke,

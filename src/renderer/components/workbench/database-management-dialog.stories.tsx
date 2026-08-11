@@ -11,6 +11,7 @@ import {
   parseDataSourcePropertyId,
 } from "../../../shared/database-identities";
 import { testPropertySemantics } from "../../../shared/testing/database-property-record";
+import { upgradeDatabaseViewConfigV2 } from "../../../shared/database-view-presentation";
 import { DatabaseManagementDialog } from "./database-management-dialog";
 
 const timestamp = "2026-07-16T00:00:00.000Z";
@@ -18,7 +19,7 @@ const libraryId = "library:story";
 const databaseId = parseDatabaseId("database:story");
 const dataSourceId = parseDataSourceId("source:story");
 const boardViewId = parseDatabaseViewId("view:board");
-const calendarViewId = parseDatabaseViewId("view:calendar");
+const listViewId = parseDatabaseViewId("view:list");
 
 const databases: readonly DatabaseContainerDescriptorV2[] = [{
   database: {
@@ -50,15 +51,15 @@ const databases: readonly DatabaseContainerDescriptorV2[] = [{
       databaseId,
       dataSourceId,
       name: "Board",
-      kind: "kanban",
-      config: {
+      defaultLayout: "board",
+      config: upgradeDatabaseViewConfigV2({
         schemaKey: "nodex.database-view",
         schemaVersion: 2,
         filter: { kind: "group", operator: "and", children: [] },
         sort: [{ field: { kind: "manual" }, direction: "asc", nulls: "last" }],
         group: { propertyId: "status" },
         display: { propertyIds: ["priority", "tags"], showTitle: true },
-      },
+      }),
       isDefault: true,
       revision: 3,
       rankKey: "a",
@@ -67,19 +68,19 @@ const databases: readonly DatabaseContainerDescriptorV2[] = [{
       updatedAt: timestamp,
     },
     {
-      viewId: calendarViewId,
+      viewId: listViewId,
       databaseId,
       dataSourceId,
       name: "Upcoming",
-      kind: "calendar",
-      config: {
+      defaultLayout: "list",
+      config: upgradeDatabaseViewConfigV2({
         schemaKey: "nodex.database-view",
         schemaVersion: 2,
         filter: { kind: "group", operator: "and", children: [] },
         sort: [],
         group: null,
         display: { propertyIds: ["due_date"], showTitle: true },
-      },
+      }),
       isDefault: false,
       revision: 1,
       rankKey: "b",
@@ -203,21 +204,11 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const SingleSource: Story = {};
-export const CalendarGateOff: Story = {
+export const BoardAndListOnly: Story = {
   parameters: {
     docs: {
       description: {
-        story: "The default release state keeps an existing Calendar View manageable while removing Calendar from new View authoring.",
-      },
-    },
-  },
-};
-export const CalendarEnabled: Story = {
-  args: { calendarPresentation: { enabled: true } },
-  parameters: {
-    docs: {
-      description: {
-        story: "The explicit enabled state preserves Calendar authoring for redesign and release review.",
+        story: "View authoring exposes only Board and List as default layouts.",
       },
     },
   },

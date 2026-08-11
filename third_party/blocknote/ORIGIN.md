@@ -126,7 +126,7 @@ Finish with the standard validation commands:
 bun install
 bun test config/renderer-manual-chunks.test.ts
 bun test src/renderer/lib/nfm/blocknote-adapter.test.ts
-bun test src/renderer/components/kanban/editor/code-block-options.test.ts
+bun test src/renderer/components/board/editor/code-block-options.test.ts
 bun run typecheck
 bun run lint
 bun test

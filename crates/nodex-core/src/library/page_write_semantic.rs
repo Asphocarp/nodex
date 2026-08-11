@@ -426,22 +426,26 @@ fn resolve_destination(
             let view_config = serde_json::from_str::<serde_json::Value>(&view_config)
                 .map_err(|_| corrupt("Destination View config is invalid"))?;
             let group_property_id = view_config
-                .pointer("/group/propertyId")
+                .pointer("/presentation/group/propertyId")
                 .and_then(serde_json::Value::as_str);
             let existing_group_key = if group.is_none() {
                 moving_page_id
                     .map(|page_id| {
                         connection
                             .query_row(
-                                "SELECT position.group_key \
-                             FROM data_source_page_memberships membership \
-                             LEFT JOIN database_view_page_positions position \
-                               ON position.view_id = ?1 \
-                              AND position.page_block_id = membership.page_block_id \
-                             WHERE membership.data_source_id = ?2 \
-                               AND membership.page_block_id = ?3 \
-                               AND membership.removed_at IS NULL",
-                                params![view_id, data_source_id, page_id],
+                                "SELECT json_extract(model.database_values_json, ?1) \
+                                 FROM data_source_page_memberships membership \
+                                 JOIN page_read_model model \
+                                   ON model.page_block_id = membership.page_block_id \
+                                  AND model.membership_id = membership.id \
+                                 WHERE membership.data_source_id = ?2 \
+                                   AND membership.page_block_id = ?3 \
+                                   AND membership.removed_at IS NULL",
+                                params![
+                                    group_property_id.map(|id| format!("$.\"{id}\"")),
+                                    data_source_id,
+                                    page_id
+                                ],
                                 |row| row.get::<_, Option<String>>(0),
                             )
                             .optional()
@@ -453,11 +457,20 @@ fn resolve_destination(
                 None
             };
             let group_key = match group {
-                Some(DatabaseGroupScope::Key { key }) => {
-                    validate_id(key, "destination.group")?;
-                    Some(key.clone())
+                Some(DatabaseGroupScope::Path {
+                    group_key,
+                    subgroup_key,
+                }) => {
+                    if subgroup_key.is_some() {
+                        return Err(invalid(
+                            "Page destination cannot target a subgroup without typed values",
+                        ));
+                    }
+                    if let Some(key) = group_key {
+                        validate_id(key, "destination.group")?;
+                    }
+                    group_key.clone()
                 }
-                Some(DatabaseGroupScope::Unassigned) => None,
                 None => existing_group_key
                     .or_else(|| (group_property_id == Some("status")).then(|| "triage".to_owned())),
             };
@@ -469,11 +482,11 @@ fn resolve_destination(
                      LEFT JOIN database_view_page_positions position \
                        ON position.view_id = ?1 AND position.page_block_id = membership.page_block_id \
                      WHERE membership.data_source_id = ?2 AND membership.removed_at IS NULL \
-                       AND page.lifecycle = 'active' AND position.group_key IS ?3 \
+                       AND page.lifecycle = 'active' \
                      ORDER BY CASE WHEN position.rank_key IS NULL THEN 1 ELSE 0 END, \
                        position.rank_key, membership.page_block_id",
                 )?
-                .query_map(params![view_id, data_source_id, group_key.as_deref()], |row| {
+                .query_map(params![view_id, data_source_id], |row| {
                     row.get::<_, String>(0)
                 })?
                 .collect::<rusqlite::Result<Vec<_>>>()?;

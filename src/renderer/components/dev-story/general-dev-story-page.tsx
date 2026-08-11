@@ -26,7 +26,7 @@ import {
   pageStagePropertyEmptyValueInteractive,
   pageStagePropertyTextSize,
   pageStagePropertyValueHoverSurface,
-} from "@/components/kanban/page-stage/property-value-styles";
+} from "@/components/board/page-stage/property-value-styles";
 import { cn } from "@/lib/utils";
 import type { CodexPermissionMode } from "@/lib/types";
 import {
@@ -522,7 +522,7 @@ export function GeneralDevStoryPage({
             <ShowcaseCard
               title="Property chips"
               description="Page Stage metadata style for filled values and empty interactive placeholders."
-              source="src/renderer/components/kanban/page-stage/property-value-styles.ts"
+              source="src/renderer/components/board/page-stage/property-value-styles.ts"
             >
               <PreviewSurface className="flex flex-col justify-between gap-4">
                 <div className="flex flex-wrap gap-2">

@@ -41,9 +41,6 @@ export function materializePageCreateTarget({
     accessContext: databaseView.accessContext,
     properties: databaseView.query.properties,
     columns: board.columns,
-    readOnlyReason: databaseView.primaryWriteCompatible
-      ? null
-      : databaseView.readOnlyReason
-        ?? "The selected Database View is read-only.",
+    readOnlyReason: databaseView.readOnlyReason,
   };
 }

@@ -70,7 +70,7 @@ const makeReadModel = (includeHostCard: boolean): DatabaseViewReadModel => {
       databaseBlockId: "database-query",
       projectId: "source-project",
       name: "Query",
-      kind: "list",
+      defaultLayout: "list",
       config: JSON.parse(
         JSON.stringify(config),
       ) as DatabaseViewReadModel["view"]["config"],
@@ -82,26 +82,31 @@ const makeReadModel = (includeHostCard: boolean): DatabaseViewReadModel => {
       {
         page: makePage("host-card", "build", "p0-critical"),
         groupKey: null,
+        subgroupKey: null,
         rankKey: "a",
       },
       {
         page: makePage("filtered-backlog", "plan", "p0-critical"),
         groupKey: null,
+        subgroupKey: null,
         rankKey: "b",
       },
       {
         page: makePage("p1-b", "build", "p1-high"),
         groupKey: null,
+        subgroupKey: null,
         rankKey: "same",
       },
       {
         page: makePage("p1-a", "build", "p1-high"),
         groupKey: null,
+        subgroupKey: null,
         rankKey: "same",
       },
       {
         page: makePage("p0-other", "build", "p0-critical"),
         groupKey: null,
+        subgroupKey: null,
         rankKey: "z",
       },
     ],
@@ -422,11 +427,13 @@ describe("durable Database View contracts", () => {
         {
           page: makePage("empty", "triage", undefined),
           groupKey: "triage",
+          subgroupKey: null,
           rankKey: "a",
         },
         {
           page: makePage("prioritized", "triage", "p1-high"),
           groupKey: "triage",
+          subgroupKey: null,
           rankKey: "b",
         },
       ],

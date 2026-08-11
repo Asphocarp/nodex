@@ -11,7 +11,6 @@ const databaseSurface: WorkbenchSurfaceDescriptor = {
   config: {
     accessContext: { kind: "project", projectId: "alpha" },
     target: { kind: "project-default" },
-    view: "kanban",
   },
   stateKey: 0,
   state: null,

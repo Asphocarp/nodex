@@ -30,11 +30,7 @@ export const DatabasePropertyValueTypeSchema = z.enum([
   "datetime",
 ]) satisfies z.ZodType<DatabasePropertyValueType>;
 
-export const DatabaseViewKindSchema = z.enum([
-  "kanban",
-  "list",
-  "calendar",
-]);
+export const DatabaseViewLayoutSchema = z.enum(["board", "list"]);
 
 const DatabaseViewFilterOperatorSchema = z.enum([
   "equals",
@@ -85,7 +81,7 @@ const DatabaseSummarySchema = z.strictObject({
   views: z.array(z.strictObject({
     viewId: ViewIdSchema,
     name: z.string(),
-    kind: DatabaseViewKindSchema,
+    defaultLayout: DatabaseViewLayoutSchema,
     isPrimary: z.boolean(),
   })),
 });
@@ -340,7 +336,7 @@ export const QueryDatabaseDataSchema = z.strictObject({
   view: z.strictObject({
     viewId: ViewIdSchema,
     name: z.string(),
-    kind: DatabaseViewKindSchema,
+    defaultLayout: DatabaseViewLayoutSchema,
   }).optional(),
   rows: z.array(z.strictObject({
     blockId: BlockIdSchema,

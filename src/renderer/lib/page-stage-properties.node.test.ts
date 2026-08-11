@@ -2,8 +2,8 @@ import { describe, expect, test } from "vitest";
 import { parseDataSourcePropertyId } from "../../shared/database-identities";
 import type { PageDetail } from "../../shared/page-detail";
 import { testPropertySemantics } from "../../shared/testing/database-property-record";
-import { buildPageDetailStoryResult } from "../components/kanban/page-stage/page-stage-story-page-detail";
-import { buildPageStageStoryPage } from "../components/kanban/page-stage/page-stage-dev-story-data";
+import { buildPageDetailStoryResult } from "../components/board/page-stage/page-stage-story-page-detail";
+import { buildPageStageStoryPage } from "../components/board/page-stage/page-stage-dev-story-data";
 import { projectPageDetailToStageModel } from "./page-stage-page";
 import {
   hasPageStageScheduleCapability,

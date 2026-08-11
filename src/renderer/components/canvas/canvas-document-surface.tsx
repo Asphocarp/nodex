@@ -24,7 +24,7 @@ import {
   createDefaultCanvasSceneOutbox,
   useTheme,
   readCanvasSceneCompaction,
-} from "../kanban/canvas-view-deps";
+} from "../board/canvas-view-deps";
 import {
   createPageElement,
   collectPlacedPageIds,
@@ -46,7 +46,7 @@ import { canvasDocumentSessionRegistry } from "@/lib/canvas-document-session";
 import { canvasSceneSurfaceRegistry } from "@/lib/canvas-scene-surface-runtime";
 import type { ReadyRegisteredOwnedBlockDocumentDescriptor } from "@/lib/owned-block-document";
 import { LayoutGrid } from "@/components/shared/icons/generic-icons";
-import { CanvasDocumentState } from "../kanban/canvas-document-state";
+import { CanvasDocumentState } from "../board/canvas-document-state";
 import { CANVAS_SCENE_MAINTENANCE_VERSION } from "../../../shared/block-documents/canvas-scene-maintenance";
 import {
   createCanvasPresenceController,
