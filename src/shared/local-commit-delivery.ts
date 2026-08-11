@@ -210,6 +210,26 @@ const projectionImpactOf = (
         document_heads: [],
       };
     }
+    if (scope.kind === "page_detail_data_source") {
+      return {
+        kind: "resources",
+        page_ids: [],
+        database_ids: [scope.database_id],
+        data_source_ids: [scope.data_source_id],
+        view_ids: [],
+        document_heads: [],
+      };
+    }
+    if (scope.kind === "page_detail_database") {
+      return {
+        kind: "resources",
+        page_ids: [],
+        database_ids: [scope.database_id],
+        data_source_ids: [],
+        view_ids: [],
+        document_heads: [],
+      };
+    }
     return { kind: "all" };
   }
   if (patch.kind === "page_changed") {

@@ -2890,17 +2890,12 @@ fn default_projection_scopes(
     impact: &ProjectionImpact,
 ) -> Result<Vec<LocalProjectionScope>, StoreError> {
     let ProjectionImpact::Resources {
-        page_ids,
-        database_ids,
-        data_source_ids,
-        view_ids,
-        ..
+        page_ids, view_ids, ..
     } = impact
     else {
         return Ok(Vec::new());
     };
     let mut scopes = Vec::new();
-    let mut projects = BTreeSet::new();
     for page_id in page_ids {
         if let Some(project_id) = connection
             .query_row(
@@ -2911,10 +2906,9 @@ fn default_projection_scopes(
             .optional()?
         {
             scopes.push(LocalProjectionScope::Page {
-                project_id: project_id.clone(),
+                project_id,
                 page_id: page_id.clone(),
             });
-            projects.insert(project_id);
         }
     }
     for view_id in view_ids {
@@ -2936,45 +2930,13 @@ fn default_projection_scopes(
             .optional()?;
         if let Some((project_id, database_id, data_source_id)) = coordinates {
             scopes.push(LocalProjectionScope::DatabaseView {
-                project_id: project_id.clone(),
+                project_id,
                 database_id,
                 data_source_id,
                 view_id: view_id.clone(),
             });
-            projects.insert(project_id);
         }
     }
-    if !database_ids.is_empty() || !data_source_ids.is_empty() {
-        for project_id in connection
-            .prepare(
-                "SELECT DISTINCT block.project_id FROM database_containers container
-                 JOIN blocks block ON block.id = container.block_id
-                 WHERE container.block_id IN (SELECT value FROM json_each(?1))
-                    OR EXISTS (
-                      SELECT 1 FROM data_sources source
-                      WHERE source.home_database_block_id = container.block_id
-                        AND source.id IN (SELECT value FROM json_each(?2))
-                    )",
-            )?
-            .query_map(
-                params![
-                    serde_json::to_string(database_ids)
-                        .map_err(|_| corrupt("Projection Database identities are invalid"))?,
-                    serde_json::to_string(data_source_ids)
-                        .map_err(|_| corrupt("Projection Data Source identities are invalid"))?,
-                ],
-                |row| row.get::<_, String>(0),
-            )?
-            .collect::<rusqlite::Result<Vec<_>>>()?
-        {
-            projects.insert(project_id);
-        }
-    }
-    scopes.extend(
-        projects
-            .into_iter()
-            .map(|project_id| LocalProjectionScope::Project { project_id }),
-    );
     canonicalize_projection_scopes(&mut scopes);
     Ok(scopes)
 }
@@ -3156,6 +3118,44 @@ fn requirements_for_scope(scope: &LocalProjectionScope) -> (ResourceKey, Vec<Res
                     },
                     ResourceKey::DataSource {
                         data_source_id: data_source_id.clone(),
+                    },
+                    subject,
+                ]),
+            )
+        }
+        LocalProjectionScope::PageDetailDataSource {
+            project_id,
+            database_id,
+            data_source_id,
+        } => {
+            let subject = ResourceKey::DataSource {
+                data_source_id: data_source_id.clone(),
+            };
+            (
+                subject.clone(),
+                BTreeSet::from([
+                    ResourceKey::Project {
+                        project_id: project_id.clone(),
+                    },
+                    ResourceKey::Database {
+                        database_id: database_id.clone(),
+                    },
+                    subject,
+                ]),
+            )
+        }
+        LocalProjectionScope::PageDetailDatabase {
+            project_id,
+            database_id,
+        } => {
+            let subject = ResourceKey::Database {
+                database_id: database_id.clone(),
+            };
+            (
+                subject.clone(),
+                BTreeSet::from([
+                    ResourceKey::Project {
+                        project_id: project_id.clone(),
                     },
                     subject,
                 ]),
@@ -4006,6 +4006,52 @@ mod tests {
                 database_ids: vec!["database-a".to_owned(), "database-b".to_owned()],
             }
         );
+    }
+
+    #[test]
+    fn exact_resource_fallback_does_not_promote_to_a_project_reset() {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        let kernel = SqliteStoreKernel::open_test(&home).expect("current Core store");
+
+        kernel
+            .writer()
+            .call(|connection| {
+                connection.execute(
+                    "INSERT INTO projects(id, name, created, updated)
+                     VALUES ('project:exact-fallback', 'Exact fallback', '2026-08-11', '2026-08-11')",
+                    [],
+                )?;
+                connection.execute(
+                    "INSERT INTO blocks(
+                       id, project_id, type, lifecycle, location_kind,
+                       location_revision, metadata_revision, created_at, updated_at
+                     ) VALUES (
+                       'page:exact-fallback', 'project:exact-fallback', 'page', 'active', 'space',
+                       1, 1, '2026-08-11', '2026-08-11'
+                     )",
+                    [],
+                )?;
+                let scopes = default_projection_scopes(
+                    connection,
+                    &ProjectionImpact::Resources {
+                        page_ids: vec!["page:exact-fallback".to_owned()],
+                        database_ids: vec!["database:routing-evidence".to_owned()],
+                        data_source_ids: vec!["data-source:routing-evidence".to_owned()],
+                        view_ids: Vec::new(),
+                        document_heads: Vec::new(),
+                    },
+                )?;
+                assert_eq!(
+                    scopes,
+                    vec![LocalProjectionScope::Page {
+                        project_id: "project:exact-fallback".to_owned(),
+                        page_id: "page:exact-fallback".to_owned(),
+                    }]
+                );
+                Ok(())
+            })
+            .expect("exact projection fallback");
     }
 
     #[test]

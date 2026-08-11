@@ -546,6 +546,8 @@ fn projection_scope_project(scope: &LocalProjectionScope) -> Option<&str> {
         LocalProjectionScope::Library { .. } => None,
         LocalProjectionScope::Project { project_id }
         | LocalProjectionScope::Page { project_id, .. }
+        | LocalProjectionScope::PageDetailDatabase { project_id, .. }
+        | LocalProjectionScope::PageDetailDataSource { project_id, .. }
         | LocalProjectionScope::DatabaseView { project_id, .. } => Some(project_id),
     }
 }

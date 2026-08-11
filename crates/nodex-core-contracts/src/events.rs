@@ -205,6 +205,15 @@ pub enum LocalProjectionScope {
         data_source_id: String,
         view_id: String,
     },
+    PageDetailDatabase {
+        project_id: String,
+        database_id: String,
+    },
+    PageDetailDataSource {
+        project_id: String,
+        database_id: String,
+        data_source_id: String,
+    },
     Page {
         project_id: String,
         page_id: String,
