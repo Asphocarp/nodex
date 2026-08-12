@@ -71,7 +71,6 @@ export interface DatabaseListPageRow {
   readonly ancestorPageIds: readonly string[];
   readonly depth: number;
   readonly hasChildren: boolean;
-  readonly collapsed: boolean;
   readonly transientKind: "none" | "ancestor" | "child";
   readonly firstInGroup: boolean;
   readonly lastInGroup: boolean;
@@ -100,16 +99,12 @@ export const databaseListOccurrenceKey = (input: {
     input.pageId,
   ].map(encodeURIComponent).join("/")}`;
 
-export const databaseListParentCollapseKey = (occurrenceKey: string): string =>
-  `PARENT_${occurrenceKey}`;
-
 interface NestedRow {
   readonly key: string;
   readonly row: DatabaseViewRenderRow;
   readonly ancestorPageIds: readonly string[];
   readonly depth: number;
   readonly hasChildren: boolean;
-  readonly collapsed: boolean;
 }
 
 const nestedRows = (
@@ -118,7 +113,6 @@ const nestedRows = (
   showSubPages: boolean,
   groupKey: string | null,
   subgroupKey: string | null,
-  collapsedKeys: ReadonlySet<string>,
 ): readonly NestedRow[] => {
   const visibleRows = showSubPages
     ? rows
@@ -135,7 +129,6 @@ const nestedRows = (
       ancestorPageIds: [],
       depth: 0,
       hasChildren: false,
-      collapsed: false,
     }));
   }
 
@@ -155,14 +148,6 @@ const nestedRows = (
 
   const result: NestedRow[] = [];
   const visited = new Set<string>();
-  const suppressDescendants = (pageId: string, path: ReadonlySet<string>): void => {
-    if (path.has(pageId)) return;
-    const nextPath = new Set(path).add(pageId);
-    for (const child of childrenByParent.get(pageId) ?? []) {
-      visited.add(child.pageId);
-      suppressDescendants(child.pageId, nextPath);
-    }
-  };
   const visit = (
     row: DatabaseViewRenderRow,
     ancestors: readonly string[],
@@ -178,20 +163,13 @@ const nestedRows = (
     });
     const children = childrenByParent.get(row.pageId) ?? [];
     const hasChildren = children.length > 0;
-    const collapsed = hasChildren
-      && collapsedKeys.has(databaseListParentCollapseKey(key));
     result.push({
       key,
       row,
       ancestorPageIds: ancestors,
       depth: Math.min(ancestors.length, DATABASE_LIST_MAX_NESTING_DEPTH),
       hasChildren,
-      collapsed,
     });
-    if (collapsed) {
-      suppressDescendants(row.pageId, path);
-      return;
-    }
     if (ancestors.length >= DATABASE_LIST_MAX_NESTING_DEPTH) return;
     const nextPath = new Set(path).add(row.pageId);
     for (const child of children) {
@@ -271,7 +249,6 @@ export const buildDatabaseListProjection = (input: {
         input.showSubPages !== false,
         column.groupKey,
         subgroup.subgroupKey,
-        input.collapsedGroupKeys,
       );
       for (const [index, nestedRow] of materialized.entries()) {
         projection.push({
@@ -284,7 +261,6 @@ export const buildDatabaseListProjection = (input: {
           ancestorPageIds: nestedRow.ancestorPageIds,
           depth: nestedRow.depth,
           hasChildren: nestedRow.hasChildren,
-          collapsed: nestedRow.collapsed,
           transientKind: "none",
           firstInGroup: index === 0,
           lastInGroup: index === materialized.length - 1,
@@ -314,7 +290,7 @@ export interface CoreDatabaseListProjection {
 export const projectCoreDatabaseListRows = (input: {
   readonly rows: readonly DatabaseListProjectionRowSnapshot[];
   readonly properties: readonly DataSourcePropertyRecordV2[];
-  readonly collapsedKeys: ReadonlySet<string>;
+  readonly collapsedGroupKeys: ReadonlySet<string>;
   readonly groupLabel: (key: string | null) => string;
   readonly subgroupLabel: (key: string | null) => string;
   readonly matchesPage?: (
@@ -369,22 +345,11 @@ export const projectCoreDatabaseListRows = (input: {
       ? [pathKey([page.groupPath[0] ?? null])]
       : []
   ));
-  const collapsedParentsByPath = new Map<string, Set<string>>();
-  for (const page of pageSnapshots) {
-    if (!input.collapsedKeys.has(databaseListParentCollapseKey(page.occurrenceKey))) {
-      continue;
-    }
-    const key = coreGroupPathKey(page.groupPath);
-    const pageIds = collapsedParentsByPath.get(key) ?? new Set<string>();
-    pageIds.add(page.row.page.pageId);
-    collapsedParentsByPath.set(key, pageIds);
-  }
-
   const projected: DatabaseListProjectionRow[] = [];
   let currentGroupCollapsed = false;
   for (const snapshot of input.rows) {
     if (snapshot.kind === "group") {
-      currentGroupCollapsed = input.collapsedKeys.has(snapshot.occurrenceKey);
+      currentGroupCollapsed = input.collapsedGroupKeys.has(snapshot.occurrenceKey);
       if (
         input.matchesPage
         && !visibleGroupKeys.has(pathKey([snapshot.groupKey]))
@@ -425,12 +390,6 @@ export const projectCoreDatabaseListRows = (input: {
       continue;
     }
     if (!visiblePageKeys.has(snapshot.occurrenceKey)) continue;
-    const collapsedAncestors = collapsedParentsByPath.get(
-      coreGroupPathKey(snapshot.groupPath),
-    );
-    if (snapshot.ancestorPageIds.some((pageId) => collapsedAncestors?.has(pageId))) {
-      continue;
-    }
     const renderRow = renderRows.get(snapshot.occurrenceKey)!;
     projected.push({
       kind: "page",
@@ -442,8 +401,6 @@ export const projectCoreDatabaseListRows = (input: {
       ancestorPageIds: snapshot.ancestorPageIds,
       depth: Math.min(snapshot.depth, DATABASE_LIST_MAX_NESTING_DEPTH),
       hasChildren: snapshot.hasChildren,
-      collapsed: snapshot.hasChildren
-        && input.collapsedKeys.has(databaseListParentCollapseKey(snapshot.occurrenceKey)),
       transientKind: snapshot.transientKind,
       firstInGroup: false,
       lastInGroup: false,

@@ -68,7 +68,6 @@ import {
   databaseListScrollTopForOccurrence,
   databaseListMountedActiveOccurrenceKey,
   databaseListGroupKey,
-  databaseListParentCollapseKey,
   emptyDatabaseListSelection,
   isDatabaseListOccurrenceSelected,
   moveDatabaseListActiveOccurrence,
@@ -499,7 +498,7 @@ export function DatabaseList({
   const coreProjection = useMemo(() => projectCoreDatabaseListRows({
     rows: coreWindow.rows,
     properties: model.query.properties,
-    collapsedKeys: collapsedGroupKeys,
+    collapsedGroupKeys,
     groupLabel: (key) => groupLabel(
       model,
       presentation.group?.propertyId,
@@ -1292,22 +1291,16 @@ export function DatabaseList({
     if (event.key.toLowerCase() !== "t") return;
     event.preventDefault();
     if (event.altKey) {
-      const collapsibleKeys = projection.flatMap((row) => {
-        if (row.kind === "group") return [row.key];
-        if (row.kind === "page" && row.hasChildren) {
-          return [databaseListParentCollapseKey(row.key)];
-        }
-        return [];
-      });
+      const collapsibleKeys = projection.flatMap((row) =>
+        row.kind === "group" ? [row.key] : []
+      );
       updateCollapsedGroups((current) => current.size > 0
         ? new Set()
         : new Set(collapsibleKeys));
       return;
     }
-    if (!activePage) return;
-    toggleCollapseKey(activePage.hasChildren
-      ? databaseListParentCollapseKey(activePage.key)
-      : databaseListGroupKey(activePage.groupKey));
+    if (!activePage || !grouped) return;
+    toggleCollapseKey(databaseListGroupKey(activePage.groupKey));
   };
 
   const renderPage = (item: DatabaseListPageRow, logicalIndex: number) => {
@@ -1432,9 +1425,6 @@ export function DatabaseList({
           targetPageId: item.pageId,
           position,
         })}
-        onToggleParent={() => toggleCollapseKey(
-          databaseListParentCollapseKey(item.key),
-        )}
         statusOptions={statusOptions}
         priorityOptions={priorityOptions}
         onSetStatus={(optionId) => setProperty(item.pageId, "status", optionId)}

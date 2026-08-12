@@ -79,8 +79,8 @@ These actions require the current Workbench tab to present a Database View. Boar
 | `Shift+↑` / `Shift+↓` in List | Extend selection | Extends the contiguous occurrence range from the selection anchor |
 | `⌘/Ctrl+A` in List | Select all matching Pages | Keeps a sparse all-matching selection and loads remaining Core windows before enabling bulk drag/move |
 | `Escape` | Clear selection / close Peek | Clears selection first, then closes the Page preview |
-| `T` in List | Collapse or expand | Toggles the active parent subtree, otherwise its containing group |
-| `Alt+T` in List | Collapse or expand all | Toggles all currently available group and parent disclosure boundaries |
+| `T` in List | Collapse or expand | Toggles the active Page's containing group |
+| `Alt+T` in List | Collapse or expand all | Toggles all currently available group boundaries |
 | `S` | Set status | Opens the canonical status menu; moving multiple selected Pages is atomic |
 | `P` | Set priority | Opens the canonical priority menu |
 | `Shift+E` | Set estimate | Opens the canonical estimate menu |

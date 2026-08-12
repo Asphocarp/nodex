@@ -8,10 +8,7 @@ import { usePresentedPageTitle } from "@/lib/page-title-projection-context";
 import { cn } from "@/lib/utils";
 import { isPriority } from "../../../../shared/priority";
 import type { DatabaseListDropPosition } from "./compile-list-drop-intent";
-import {
-  DatabaseListDisclosureIcon,
-  DatabaseListPriorityIcon,
-} from "./database-list-icons";
+import { DatabaseListPriorityIcon } from "./database-list-icons";
 import type { DatabaseListPageRow } from "./database-list-model";
 import {
   DatabaseListNestingLines,
@@ -55,7 +52,6 @@ export function DatabaseListRow({
   dropPosition,
   onDragTargetChange,
   onDrop,
-  onToggleParent,
   statusOptions,
   priorityOptions,
   onSetStatus,
@@ -88,7 +84,6 @@ export function DatabaseListRow({
     event: DragEvent<HTMLDivElement>,
     position: DatabaseListDropPosition,
   ) => void;
-  readonly onToggleParent: () => void;
   readonly statusOptions: readonly { readonly id: string; readonly name: string }[];
   readonly priorityOptions: readonly { readonly id: string; readonly name: string }[];
   readonly onSetStatus: (optionId: string | null) => void;
@@ -117,7 +112,7 @@ export function DatabaseListRow({
       aria-rowindex={ariaRowIndex}
       aria-selected={selected}
       tabIndex={active ? 0 : -1}
-      draggable="true"
+      draggable={item.transientKind === "none"}
       data-list-row="true"
       data-list-key={item.key}
       data-database-view-page-id={item.pageId}
@@ -136,6 +131,9 @@ export function DatabaseListRow({
       data-raise-row={active || dragging || undefined}
       data-drop-position={dropPosition ?? undefined}
       data-database-view-page-presented={presented ? "true" : undefined}
+      data-list-transient-kind={item.transientKind === "none"
+        ? undefined
+        : item.transientKind}
       className={cn(
         "group/list-row relative grid h-11 min-h-11 min-w-0 items-center gap-x-2 rounded-lg outline-none [grid-template-columns:subgrid] [grid-column:1/-1]",
         "before:absolute before:inset-x-2 before:inset-y-0 before:-z-0 before:rounded-lg before:content-['']",
@@ -144,6 +142,8 @@ export function DatabaseListRow({
         selected && selectedBefore && "before:rounded-t-none",
         selected && selectedAfter && "before:rounded-b-none",
         active && "focus-visible:before:ring-1 focus-visible:before:ring-inset focus-visible:before:ring-[var(--database-list-focus)]",
+        item.transientKind !== "none"
+          && "before:opacity-60 [&>[role=gridcell]]:opacity-60",
         dragging && "opacity-70",
         dropPosition === "nest" && "before:ring-1 before:ring-inset before:ring-[var(--database-list-drop-indicator)]",
       )}
@@ -166,6 +166,10 @@ export function DatabaseListRow({
         onOpen(presentedTitle);
       }}
       onDragStart={(event) => {
+        if (item.transientKind !== "none") {
+          event.preventDefault();
+          return;
+        }
         if ((event.target as HTMLElement).closest(DATABASE_LIST_INTERACTIVE_SELECTOR)) {
           event.preventDefault();
           return;
@@ -209,12 +213,12 @@ export function DatabaseListRow({
         />
       ) : null}
       <div role="gridcell" aria-hidden="true" data-list-grid-column="indent" className="relative z-[1] h-full min-w-0" />
+      <DatabaseListNestingLines
+        depth={item.depth}
+        continuations={nestingContinuations}
+        hasChildren={item.hasChildren}
+      />
       <div role="gridcell" data-list-grid-column="checkbox" className="relative z-[1] flex items-center justify-center">
-        <DatabaseListNestingLines
-          depth={item.depth}
-          continuations={nestingContinuations}
-          hasChildren={item.hasChildren}
-        />
         <NodexCheckbox
           ariaLabel={`${selected ? "Deselect" : "Select"} ${presentedTitle}`}
           checked={selected}
@@ -324,21 +328,6 @@ export function DatabaseListRow({
         }}
       >
         <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
-          {item.hasChildren ? (
-            <button
-              type="button"
-              aria-label={`${item.collapsed ? "Expand" : "Collapse"} sub-pages of ${presentedTitle}`}
-              aria-expanded={!item.collapsed}
-              className="grid size-4 shrink-0 place-items-center rounded-full text-[var(--database-list-text-muted)] outline-none hover:bg-[var(--database-list-row-hover)] focus-visible:ring-1 focus-visible:ring-[var(--database-list-focus)]"
-              onPointerDown={(event) => event.stopPropagation()}
-              onClick={(event) => {
-                event.stopPropagation();
-                onToggleParent();
-              }}
-            >
-              <DatabaseListDisclosureIcon open={!item.collapsed} />
-            </button>
-          ) : null}
           <button
             type="button"
             className="min-w-0 shrink truncate text-left text-sm font-medium leading-[normal] text-[var(--database-list-text-primary)] outline-none"

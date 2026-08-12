@@ -1,6 +1,10 @@
 import type { DatabaseViewField } from "../../../../shared/database-kernel";
 
 export const DATABASE_LIST_FIELD_GAP = 8;
+export const DATABASE_LIST_INDENT_WIDTH = 8;
+export const DATABASE_LIST_CHECKBOX_WIDTH = 18;
+export const DATABASE_LIST_PRIORITY_WIDTH = 16;
+export const DATABASE_LIST_END_PADDING_WIDTH = 18;
 
 export interface DatabaseListCoreColumnVisibility {
   readonly priority: boolean;
@@ -42,14 +46,16 @@ export const databaseListGridTemplate = (
   trailingFields: readonly DatabaseViewField[],
   coreColumns: DatabaseListCoreColumnVisibility = DEFAULT_CORE_COLUMN_VISIBILITY,
 ): string => [
-  "[indent] 8px",
-  "[checkbox] 18px",
-  ...(coreColumns.priority ? ["[priority] 16px"] : []),
+  `[indent] ${DATABASE_LIST_INDENT_WIDTH}px`,
+  `[checkbox] ${DATABASE_LIST_CHECKBOX_WIDTH}px`,
+  ...(coreColumns.priority
+    ? [`[priority] ${DATABASE_LIST_PRIORITY_WIDTH}px`]
+    : []),
   "[identifier] minmax(51px,auto)",
   ...(coreColumns.status ? ["[status] 16px"] : []),
   "[title] minmax(0,1fr)",
   ...trailingFields.flatMap((field) => field.kind === "intrinsic"
     ? [`[${field.field}] minmax(60px,auto)`]
     : []),
-  "[end-padding] 18px [list-end]",
+  `[end-padding] ${DATABASE_LIST_END_PADDING_WIDTH}px [list-end]`,
 ].join(" ");

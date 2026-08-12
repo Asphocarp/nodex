@@ -1,7 +1,12 @@
 import { describe, expect, test } from "vitest";
 
 import type { DatabaseListPageRow } from "./database-list-model";
-import { databaseListNestingContinuations } from "./database-list-nesting-lines";
+import {
+  databaseListNestingContinuations,
+  databaseListNestingGeometry,
+  databaseListNestingLineInset,
+  databaseListNestingLineLeft,
+} from "./database-list-nesting-lines";
 
 const page = (
   key: string,
@@ -28,7 +33,6 @@ const page = (
   ancestorPageIds,
   depth: ancestorPageIds.length,
   hasChildren: false,
-  collapsed: false,
   transientKind: "none",
   firstInGroup: false,
   lastInGroup: false,
@@ -36,6 +40,22 @@ const page = (
 });
 
 describe("Database List nesting guides", () => {
+  test("anchors every tree level to the leading identity lane", () => {
+    expect(databaseListNestingLineLeft(0)).toBe(33.5);
+    expect(databaseListNestingLineLeft(1)).toBe(57.5);
+    expect(databaseListNestingLineLeft(2)).toBe(81.5);
+    expect(databaseListNestingLineInset(0)).toBe(27.5);
+    expect(databaseListNestingLineInset(1)).toBe(51.5);
+  });
+
+  test("aligns stems and elbows to the full Page row", () => {
+    expect(databaseListNestingGeometry(44)).toEqual({
+      fullVerticalLineHeight: 16,
+      nestingLineTop: 15,
+      parentLineTop: 39,
+    });
+  });
+
   test("continues only ancestor branches with a later direct sibling", () => {
     const rows = [
       page("root", "root", []),
