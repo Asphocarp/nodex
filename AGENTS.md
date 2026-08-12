@@ -70,13 +70,13 @@ It ships as an Electron desktop app plus a CLI/HTTP API backed by SQLite.
 
 ## Architecture
 
-Read `ARCHITECTURE.md` first for system boundaries and dependency flow, then follow its links to the narrow source of truth for the subsystem being changed.
+Read `docs/ARCHITECTURE.md` first for system boundaries and dependency flow, then follow its links to the narrow source of truth for the subsystem being changed.
 
 ## Documentation Map
 
 Use these docs as the source of truth:
 
-- System ownership, dependency directions, critical cross-runtime flows, and system-wide invariants: `ARCHITECTURE.md`
+- System ownership, dependency directions, critical cross-runtime flows, and system-wide invariants: `docs/ARCHITECTURE.md`
 - Execution-plan format and requirements: `docs/PLANS.md`
 - Cross-feature renderer construction, state-owner selection, shared UI/editor primitives, and Storybook conventions: `docs/FRONTEND.md`
 - UI design guidance for agent-built surfaces: `.agents/skills/general-design-guidelines/SKILL.md`
@@ -99,14 +99,14 @@ Prefer executable enforcement such as types, validation, architecture, or a mean
 When behavior changes, update the narrowest source-of-truth doc:
 
 - User-visible behavior/API contract changes: the narrow owning document under `docs/product-specs/`
-- State-ownership, dependency-direction, system-boundary/deep-Module, system-wide-invariant, or critical cross-runtime-flow changes: `ARCHITECTURE.md`
+- State-ownership, dependency-direction, system-boundary/deep-Module, system-wide-invariant, or critical cross-runtime-flow changes: `docs/ARCHITECTURE.md`
 - New cross-feature renderer construction convention that applies across independent features and cannot be made obvious at a narrower executable seam: `docs/FRONTEND.md`
 - New reusable UI design guidance for agents: `.agents/skills/general-design-guidelines/SKILL.md`
 - New cross-cutting, non-obvious, high-cost learning that cannot be enforced at a narrower seam: `docs/ENGINEERING_LEARNINGS.md`
 - New subsystem caveat or regression: update the owning product spec/runbook, behavioral test, Adapter comment, or other narrow source of truth instead of appending an incident entry to `docs/ENGINEERING_LEARNINGS.md`
 - New reliability/security expectation: `docs/RELIABILITY.md` or `docs/SECURITY.md`
 
-Do not add implementation chronology, schema/version inventories, individual file behavior, UI interaction detail, failure runbooks, or feature acceptance rules to `ARCHITECTURE.md`.
+Do not add implementation chronology, schema/version inventories, individual file behavior, UI interaction detail, failure runbooks, or feature acceptance rules to `docs/ARCHITECTURE.md`.
 Replace stale architectural statements and link to the narrow owner instead of appending another description of the same contract.
 
 Treat `CHANGELOG.md` as a required deliverable only for **release-note-worthy** user-visible changes:

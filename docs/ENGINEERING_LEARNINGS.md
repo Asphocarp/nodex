@@ -74,7 +74,7 @@ and metadata overlays are projections. They never seed, refresh, or save a
 mounted title/body editor. A Card's owned Document identity also does not choose
 its sync engine; the registered schema and engine do.
 
-See [Architecture](../ARCHITECTURE.md), [Reliability](RELIABILITY.md), and
+See [Architecture](ARCHITECTURE.md), [Reliability](RELIABILITY.md), and
 [Card Detail](adr/0010-card-detail-and-database-capability.md).
 
 ### 3. Streaming is an ordered transaction, not a set of callbacks
@@ -340,7 +340,7 @@ measurement loop is too expensive to rediscover through runtime testing alone.
 
 | Topic | Authoritative document |
 | --- | --- |
-| System modules, dependency flow, authority table | [Architecture](../ARCHITECTURE.md) |
+| System modules, dependency flow, authority table | [Architecture](ARCHITECTURE.md) |
 | Domain language and invariants | [Context](../CONTEXT.md) |
 | Significant design decisions and tradeoffs | [ADRs](adr/) |
 | User-visible behavior and public contracts | [Product specifications](product-specs/index.md) |

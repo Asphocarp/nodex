@@ -3,7 +3,7 @@ import { classifyChangedPaths } from "./classify-change";
 
 describe("CI change classification", () => {
   test("keeps documentation and landing changes out of expensive application jobs", () => {
-    expect(classifyChangedPaths(["docs/release-macos.md", "ARCHITECTURE.md"])).toEqual({
+    expect(classifyChangedPaths(["docs/release-macos.md", "docs/ARCHITECTURE.md"])).toEqual({
       app: false,
       docsOnly: true,
       landingOnly: false,
