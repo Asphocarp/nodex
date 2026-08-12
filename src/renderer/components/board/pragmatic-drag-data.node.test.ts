@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { BoardSummary } from "@/lib/types";
-import { plainTextToPortableRichText } from "../../../shared/block-documents";
+import { plainTextToPortableRichText } from "../../../shared/block-documents/portable-rich-text";
 import { emptyCardSelection, toggleCardSelection } from "./card-selection";
 import {
   buildBoardCardDragData,

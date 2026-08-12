@@ -9,7 +9,7 @@ import {
 } from "./command-palette-page-search";
 import type { CommandPalettePage } from "./command-palette";
 import type { DatabasePageSummary } from "./types";
-import { plainTextToPortableRichText } from "../../shared/block-documents";
+import { plainTextToPortableRichText } from "../../shared/block-documents/portable-rich-text";
 import { DEFAULT_PROJECT_APPEARANCE } from "../../shared/project-appearance";
 
 function makePage(overrides: Partial<DatabasePageSummary> = {}): DatabasePageSummary {

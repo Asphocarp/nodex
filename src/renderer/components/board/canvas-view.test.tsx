@@ -5,16 +5,18 @@ import { createHash } from "node:crypto";
 import type { BoardSummary, DatabasePageSummary } from "@/lib/types";
 import { render, settleAsyncRender, textContent } from "@/test/dom";
 import {
-  CANVAS_SCENE_SYNC_VERSION,
   canonicalPortableCanvasSceneFingerprint,
   chooseCanvasSceneElementWinner,
   materializePortableCanvasScene,
-  plainTextToPortableRichText,
+  type PortableCanvasScene,
+} from "../../../shared/block-documents/canvas-scene";
+import {
+  CANVAS_SCENE_SYNC_VERSION,
   type CanvasSceneMutationRequest,
   type CanvasSceneRealtimeEvent,
-  type CanvasPresenceRealtimeEvent,
-  type PortableCanvasScene,
-} from "../../../shared/block-documents";
+} from "../../../shared/block-documents/canvas-scene-sync";
+import type { CanvasPresenceRealtimeEvent } from "../../../shared/block-documents/document-presence";
+import { plainTextToPortableRichText } from "../../../shared/block-documents/portable-rich-text";
 import { MemoryCanvasSceneOutbox } from "@/lib/canvas-scene-outbox";
 import type { CanvasSceneSyncAdapter } from "@/lib/canvas-scene-provider";
 import { noOpLocalCommit } from "../../../shared/testing/local-commit";
@@ -424,6 +426,18 @@ async function renderCanvas(strict = false) {
   return render(strict ? createElement(StrictMode, null, canvas) : canvas);
 }
 
+async function runThroughCanvasMutationDebounce(action: () => void): Promise<void> {
+  vi.useFakeTimers();
+  try {
+    await act(async () => {
+      action();
+      await vi.advanceTimersByTimeAsync(180);
+    });
+  } finally {
+    vi.useRealTimers();
+  }
+}
+
 describe("CanvasDocumentSurface", () => {
   beforeEach(() => {
     serverScene = materializePortableCanvasScene({ elements: [makePlacedElement("card-1")] });
@@ -455,9 +469,8 @@ describe("CanvasDocumentSurface", () => {
     await view.findByTestId("excalidraw");
     expect(closeFlushHandlers.size).toBe(0);
     mockSceneElements = [makePlacedElement("card-1", 2)];
-    await act(async () => {
+    await runThroughCanvasMutationDebounce(() => {
       fireEvent.click(view.getByRole("button", { name: "emit change" }));
-      await new Promise((resolve) => setTimeout(resolve, 180));
     });
     expect(appliedMutations).toHaveLength(1);
   });
@@ -563,9 +576,8 @@ describe("CanvasDocumentSurface", () => {
     await settleAsyncRender();
     const initialSidebarRenderCount = sidebarRenderCount;
     mockSceneElements = [makePlacedElement("card-1"), makePlacedElement("card-2")];
-    await act(async () => {
+    await runThroughCanvasMutationDebounce(() => {
       fireEvent.click(view.getByRole("button", { name: "emit change" }));
-      await new Promise((resolve) => setTimeout(resolve, 180));
     });
     await waitFor(() => expect(appliedMutations).toHaveLength(1));
     expect(serverScene.elements).toHaveLength(2);
@@ -577,15 +589,13 @@ describe("CanvasDocumentSurface", () => {
     const view = await renderCanvas();
     await view.findByTestId("excalidraw");
     mockSceneElements = [{ ...makePlacedElement("card-1", 2), customData: () => undefined }];
-    await act(async () => {
+    await runThroughCanvasMutationDebounce(() => {
       fireEvent.click(view.getByRole("button", { name: "emit change" }));
-      await new Promise((resolve) => setTimeout(resolve, 180));
     });
     await view.findByRole("button", { name: "Retry sync" });
     mockSceneElements = [{ ...makePlacedElement("card-1", 3), x: 320 }];
-    await act(async () => {
+    await runThroughCanvasMutationDebounce(() => {
       fireEvent.click(view.getByRole("button", { name: "Retry sync" }));
-      await new Promise((resolve) => setTimeout(resolve, 180));
     });
     await waitFor(() => expect(serverScene.elements[0]?.x).toBe(320));
     expect(view.queryByRole("button", { name: "Retry sync" })).toBeNull();

@@ -24,7 +24,7 @@ import {
 import type { DefaultReactSuggestionItem } from "@blocknote/react";
 import type { CommandPalettePage, CommandPaletteThread } from "@/lib/command-palette";
 import type { DatabasePageSummary, CodexThreadSummary, Project } from "@/lib/types";
-import { plainTextToPortableRichText } from "../../../../shared/block-documents";
+import { plainTextToPortableRichText } from "../../../../shared/block-documents/portable-rich-text";
 import { DEFAULT_PROJECT_APPEARANCE } from "../../../../shared/project-appearance";
 
 function makeItems(): DefaultReactSuggestionItem[] {

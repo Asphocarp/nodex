@@ -349,8 +349,9 @@ describe("LocalConversationThreadScrollLayout", () => {
     const scrollContainer = view.container.querySelector(
       "[data-local-conversation-thread-body='true']",
     ) as HTMLDivElement | null;
+    const activeController = controller as LocalConversationThreadScrollControllerValue | null;
     expect(scrollContainer !== null).toBe(true);
-    if (!scrollContainer || controller === null) return;
+    if (!scrollContainer || activeController === null) return;
 
     Object.defineProperty(scrollContainer, "scrollHeight", {
       configurable: true,
@@ -370,19 +371,19 @@ describe("LocalConversationThreadScrollLayout", () => {
     });
 
     await act(async () => {
-      controller?.registerResponseSpacerState({
+      activeController.registerResponseSpacerState({
         getHeightPx: () => 100,
         scrollToBottom: () => {},
       });
       await Promise.resolve();
     });
 
-    const placement = controller.prepareLatestTurnSubmitPlacement();
+    const placement = activeController.prepareLatestTurnSubmitPlacement();
     expect(placement?.distanceFromBottomPx ?? 0).toBe(280);
     expect(placement?.scrollHeightPx ?? 0).toBe(1000);
     expect(placement?.shouldPlaceLatestTurn ?? false).toBe(true);
-    expect(controller.consumePendingLatestTurnSubmitPlacement()?.distanceFromBottomPx ?? 0).toBe(280);
-    expect(controller.consumePendingLatestTurnSubmitPlacement() === null).toBe(true);
+    expect(activeController.consumePendingLatestTurnSubmitPlacement()?.distanceFromBottomPx ?? 0).toBe(280);
+    expect(activeController.consumePendingLatestTurnSubmitPlacement() === null).toBe(true);
   });
 });
 

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { plainTextToPortableRichText } from "../../shared/block-documents";
+import { plainTextToPortableRichText } from "../../shared/block-documents/portable-rich-text";
 import {
   DATABASE_MODULE_V2_CONTRACT_VERSION,
   type DatabaseApplyResultV2,

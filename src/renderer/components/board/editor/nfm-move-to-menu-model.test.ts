@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { BoardSummary, DatabasePageSummary, Project } from "@/lib/types";
-import { plainTextToPortableRichText } from "../../../../shared/block-documents";
+import { plainTextToPortableRichText } from "../../../../shared/block-documents/portable-rich-text";
 import {
   buildNfmMoveToSections,
   flattenNfmMoveToRows,

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { fireEvent } from "@testing-library/react";
 import { act, type ComponentProps } from "react";
 import {
@@ -43,8 +43,8 @@ function restoreElementMetrics(): void {
   }
 }
 
-function installCalendarGridMetrics(): void {
-  installAsyncRequestAnimationFrame();
+function installCalendarGridMetrics(frameDelayMs = 0): void {
+  installAsyncRequestAnimationFrame(frameDelayMs);
   installMeasuredResizeObserver({ blockSize: 640, inlineSize: 760 });
 
   Object.defineProperty(HTMLElement.prototype, "clientWidth", {
@@ -168,50 +168,57 @@ describe("CalendarGrid retained scroll", () => {
 
 describe("CalendarGrid Shift+Wheel navigation", () => {
   test("does not change the anchor date immediately on wheel input", async () => {
-    installCalendarGridMetrics();
-    let nextCount = 0;
-    const view = renderCalendarGrid({
-      onNavigateNext: () => {
-        nextCount += 1;
-      },
-    });
-    await settleAsyncRender();
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 16));
-    });
-    const slide = view.getByTestId("calendar-day-columns-slide");
-    const beforeTransform = slide.getAttribute("style") ?? "";
-    await act(async () => {
-      dispatchShiftWheel(view.getByTestId("calendar-grid-scroll"), 100);
-      await new Promise((resolve) => setTimeout(resolve, 16));
-    });
-    const afterTransform = slide.getAttribute("style") ?? "";
-    expect(afterTransform === beforeTransform).toBe(false);
-
-    expect(nextCount).toBe(0);
+    vi.useFakeTimers();
+    try {
+      installCalendarGridMetrics(16);
+      let nextCount = 0;
+      const view = renderCalendarGrid({
+        onNavigateNext: () => {
+          nextCount += 1;
+        },
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(32);
+      });
+      const slide = view.getByTestId("calendar-day-columns-slide");
+      const beforeTransform = slide.getAttribute("style") ?? "";
+      await act(async () => {
+        dispatchShiftWheel(view.getByTestId("calendar-grid-scroll"), 100);
+        await vi.advanceTimersByTimeAsync(16);
+      });
+      const afterTransform = slide.getAttribute("style") ?? "";
+      expect(afterTransform === beforeTransform).toBe(false);
+      expect(nextCount).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   test("settles a wheel burst by accumulated distance", async () => {
-    installCalendarGridMetrics();
-    let nextCount = 0;
-    const view = renderCalendarGrid({
-      onNavigateNext: () => {
-        nextCount += 1;
-      },
-    });
-    await settleAsyncRender();
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 16));
-    });
-    const scroller = view.getByTestId("calendar-grid-scroll");
+    vi.useFakeTimers();
+    try {
+      installCalendarGridMetrics(16);
+      let nextCount = 0;
+      const view = renderCalendarGrid({
+        onNavigateNext: () => {
+          nextCount += 1;
+        },
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(32);
+      });
+      const scroller = view.getByTestId("calendar-grid-scroll");
 
-    await act(async () => {
-      for (let index = 0; index < 5; index += 1) {
-        dispatchShiftWheel(scroller, 400);
-      }
-      await new Promise((resolve) => setTimeout(resolve, 800));
-    });
+      await act(async () => {
+        for (let index = 0; index < 5; index += 1) {
+          dispatchShiftWheel(scroller, 400);
+        }
+        await vi.advanceTimersByTimeAsync(800);
+      });
 
-    expect(nextCount > 1).toBe(true);
+      expect(nextCount > 1).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

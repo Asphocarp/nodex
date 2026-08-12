@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { act, fireEvent, waitFor } from "@testing-library/react";
 import { installAsyncRequestAnimationFrame, installWindowApi } from "../../../../test/browser-globals";
 import { render } from "../../../../test/dom";
@@ -202,10 +202,13 @@ describe("ThreadComposer dictation", () => {
   const nativeAudioContext = globalThis.AudioContext;
   let transcribeCallCount = 0;
   let transcribeResult = "";
+  let dictationNow = 0;
 
   beforeEach(() => {
     transcribeCallCount = 0;
     transcribeResult = "";
+    dictationNow = 1_000;
+    vi.spyOn(performance, "now").mockImplementation(() => dictationNow);
     installAsyncRequestAnimationFrame();
     document.documentElement.dataset.codexWindowType = "electron";
     installWindowApi({
@@ -254,6 +257,7 @@ describe("ThreadComposer dictation", () => {
       writable: true,
       value: nativeAudioContext,
     });
+    vi.restoreAllMocks();
   });
 
   test("hides dictation when dictation support is unavailable", async () => {
@@ -299,10 +303,9 @@ describe("ThreadComposer dictation", () => {
     });
 
     await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 260));
-    });
-    await act(async () => {
+      dictationNow += 260;
       fireEvent.click(getByLabelText("Stop dictation"));
+      await Promise.resolve();
     });
 
     await waitFor(() => {
@@ -358,10 +361,9 @@ describe("ThreadComposer dictation", () => {
     });
 
     await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 260));
-    });
-    await act(async () => {
+      dictationNow += 260;
       fireEvent.keyUp(document, { key: "m", ctrlKey: true });
+      await Promise.resolve();
     });
     await waitFor(() => {
       expect(transcribeCallCount).toBe(1);
@@ -392,10 +394,9 @@ describe("ThreadComposer dictation", () => {
     });
 
     await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 260));
-    });
-    await act(async () => {
+      dictationNow += 260;
       fireEvent.click(getByLabelText("Transcribe and send"));
+      await Promise.resolve();
     });
 
     await waitFor(() => {

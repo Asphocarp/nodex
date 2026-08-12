@@ -2,10 +2,12 @@ import { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import {
   DateMentionInlineContentView,
+} from "./date-mention-chip";
+import {
   dateMentionPayloadToProps,
   type DateMentionInlineContentUpdate,
   type DateMentionProps,
-} from "./date-mention-chip";
+} from "./date-mention-inline-content";
 import { ReadonlyNfmBlockNotePreview } from "./readonly-nfm-blocknote-preview";
 import { addIsoDateDays, todayIsoDate } from "@/lib/nfm/date-mention";
 

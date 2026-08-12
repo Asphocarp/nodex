@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { act, fireEvent, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import { plainTextToPortableRichText } from "../../../shared/block-documents";
+import { plainTextToPortableRichText } from "../../../shared/block-documents/portable-rich-text";
 import {
   parseDataSourceId,
   parseDataSourcePropertyId,

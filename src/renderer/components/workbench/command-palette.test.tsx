@@ -13,7 +13,7 @@ import {
   type CommandPaletteShellCommandContext,
 } from "@/lib/command-palette-commands";
 import type { DatabasePageSummary } from "@/lib/types";
-import { plainTextToPortableRichText } from "../../../shared/block-documents";
+import { plainTextToPortableRichText } from "../../../shared/block-documents/portable-rich-text";
 import { createCommandPalettePageSearchIndex } from "../../lib/command-palette-page-search";
 import type { CommandPalettePageDescriptionSearchBatch } from "../../lib/command-palette-page-results";
 import { createCommandPaletteThreadSearchIndex } from "../../lib/command-palette-thread-search";
@@ -801,29 +801,34 @@ describe("CommandPaletteSurface", () => {
       return [];
     };
 
-    const { container } = render(
-      <CommandPaletteSurface
-        open
-        openTriggerTick={7}
-        mode="chats"
-        initialQuery="snippet"
-        commands={[]}
-        pages={[]}
-        threads={threads}
-        pageSearchIndex={createCommandPalettePageSearchIndex([])}
-        threadSearchIndex={createCommandPaletteThreadSearchIndex(threads)}
-        loading={false}
-        pagesLoading={false}
-        chatsLoading={false}
-        onChangeMode={() => undefined}
-        onRequestClose={() => undefined}
-        onExecute={() => undefined}
-      />,
-    );
-
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 240));
-    });
+    let container!: HTMLElement;
+    vi.useFakeTimers();
+    try {
+      ({ container } = render(
+        <CommandPaletteSurface
+          open
+          openTriggerTick={7}
+          mode="chats"
+          initialQuery="snippet"
+          commands={[]}
+          pages={[]}
+          threads={threads}
+          pageSearchIndex={createCommandPalettePageSearchIndex([])}
+          threadSearchIndex={createCommandPaletteThreadSearchIndex(threads)}
+          loading={false}
+          pagesLoading={false}
+          chatsLoading={false}
+          onChangeMode={() => undefined}
+          onRequestClose={() => undefined}
+          onExecute={() => undefined}
+        />,
+      ));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(240);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
     await settleAsyncRender();
 
     expect(textContent(container).includes("backend snippet")).toBe(true);

@@ -33,7 +33,7 @@ import { parseNfm, nfmToBlockNote } from "@/lib/nfm";
 import { resolveAssetSourceToDisplayUrl } from "@/lib/assets";
 import { resolveAgentConfigChip, type AgentConfigProps } from "./agent-config-chip";
 import { formatAttachmentBytes } from "./attachment-chip-format";
-import { createReadonlyDateMentionInlineContentSpec } from "./date-mention-chip";
+import { createReadonlyDateMentionInlineContentSpec } from "./date-mention-inline-content-spec";
 import { resolveThreadMentionDisplay } from "@/lib/nfm/thread-mention-display";
 import { createCalloutBlock } from "./callout-block";
 import { createPageToggleBlockSpec } from "./card-toggle-block";

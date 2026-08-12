@@ -1,9 +1,12 @@
-export function installAsyncRequestAnimationFrame(): void {
+export function installAsyncRequestAnimationFrame(frameDelayMs = 0): void {
   Object.defineProperty(globalThis, "requestAnimationFrame", {
     configurable: true,
     writable: true,
     value: ((callback: FrameRequestCallback) => {
-      return setTimeout(() => callback(performance.now()), 0) as unknown as number;
+      return setTimeout(
+        () => callback(performance.now()),
+        frameDelayMs,
+      ) as unknown as number;
     }) as typeof globalThis.requestAnimationFrame,
   });
 

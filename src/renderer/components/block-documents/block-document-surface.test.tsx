@@ -6,15 +6,19 @@ import {
   PAGE_DOCUMENT_SCHEMA_KEY,
   PAGE_DOCUMENT_SCHEMA_VERSION,
   createPageDocument,
+} from "../../../shared/block-documents/page-document";
+import {
   createSyncedBlockDocument,
   SYNCED_BLOCK_DOCUMENT_SCHEMA_KEY,
   SYNCED_BLOCK_DOCUMENT_SCHEMA_VERSION,
   SYNCED_BLOCK_SOURCE_TYPE,
-  type DocumentSyncApplyRequest,
-  type DocumentSyncCommandResult,
-  type DocumentSyncRealtimeEvent,
-  type DocumentSyncResponse,
-} from "../../../shared/block-documents";
+} from "../../../shared/block-documents/synced-block-document";
+import type {
+  DocumentSyncApplyRequest,
+  DocumentSyncCommandResult,
+  DocumentSyncRealtimeEvent,
+  DocumentSyncResponse,
+} from "../../../shared/block-documents/document-sync";
 import { populateBlockDocumentBodyFromBlockTree } from "../../../shared/block-documents/block-document-codec";
 import { render } from "@/test/dom";
 import { BlockDocumentSurfaceRuntime } from "@/lib/block-document-surface-runtime";

@@ -3,7 +3,7 @@ import { fireEvent, waitFor } from "@testing-library/react";
 import { act } from "react";
 
 import type { OwnedDocumentDescriptor } from "../../../shared/block-documents/contracts";
-import { PAGE_DOCUMENT_SCHEMA_VERSION } from "../../../shared/block-documents";
+import { PAGE_DOCUMENT_SCHEMA_VERSION } from "../../../shared/block-documents/page-document";
 import type { DocumentVersionDetail } from "../../../shared/block-documents/document-history";
 import type { PageHistoryEntry, PageHistoryPage } from "../../../shared/page-history";
 import { renderWithMaitai as render, textContent } from "../../test/dom";

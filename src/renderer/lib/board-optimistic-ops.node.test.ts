@@ -10,7 +10,7 @@ import {
   overlap,
 } from "./board-optimistic-ops";
 import type { BoardSummary, DatabasePageSummary } from "./types";
-import { plainTextToPortableRichText } from "../../shared/block-documents";
+import { plainTextToPortableRichText } from "../../shared/block-documents/portable-rich-text";
 
 function createPageSummary(id: string, order: number): DatabasePageSummary {
   return {

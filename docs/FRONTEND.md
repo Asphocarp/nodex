@@ -290,6 +290,13 @@ evidence at the seam that owns the behavior:
 - Assert visible structure, accessibility, and behavior. Raw class checks,
   serialized markup, test IDs, and source inspection are fallback tools only
   when those representations are the real contract.
+- Keep pure renderer logic in ordinary `.test.ts` files so it runs in Node.
+  Name non-TSX tests that require browser globals `.jsdom.test.ts`; ordinary
+  `.test.tsx` remains the React/jsdom path, while pure TSX uses
+  `.node.test.tsx` explicitly.
+- Renderer DOM tests and their testkits import the owning
+  `shared/block-documents/*` module directly. Importing its aggregate entry
+  point pulls unrelated schemas and editors into every isolated test file.
 
 Before adding prose here, confirm that every affected feature branch needs the
 same convention and that the nearest executable seam cannot carry it. That is

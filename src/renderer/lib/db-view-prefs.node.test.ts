@@ -8,7 +8,7 @@ import {
   sortDbViewCards,
   type DbViewCardRecord,
 } from "./db-view-prefs";
-import { plainTextToPortableRichText } from "../../shared/block-documents";
+import { plainTextToPortableRichText } from "../../shared/block-documents/portable-rich-text";
 
 function makeCard(overrides: Partial<DbViewCardRecord>): DbViewCardRecord {
   const title = overrides.title ?? "Card title";

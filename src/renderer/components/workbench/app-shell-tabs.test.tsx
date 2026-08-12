@@ -95,17 +95,26 @@ function renderAppShellTabs(props: {
   );
 }
 
+async function hoverTabThroughTooltipDelay(element: HTMLElement): Promise<void> {
+  vi.useFakeTimers();
+  try {
+    await act(async () => {
+      fireEvent.pointerMove(element);
+      fireEvent.mouseEnter(element);
+      await vi.advanceTimersByTimeAsync(300);
+    });
+  } finally {
+    vi.useRealTimers();
+  }
+}
+
 describe("AppShellTabs", () => {
   test("reveals default title tooltips on hover", async () => {
     const view = renderAppShellTabs({});
 
     expect(view.container.ownerDocument.body.querySelector('[role="tooltip"]') === null).toBe(true);
 
-    fireEvent.pointerMove(view.getByText("One"));
-    fireEvent.mouseEnter(view.getByText("One"));
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 300));
-    });
+    await hoverTabThroughTooltipDelay(view.getByText("One"));
 
     const tooltip = view.container.ownerDocument.body.querySelector('[role="tooltip"]');
     expect(tooltip?.textContent).toBe("One");
@@ -116,11 +125,7 @@ describe("AppShellTabs", () => {
 
     expect(view.container.ownerDocument.body.querySelector('[role="tooltip"]') === null).toBe(true);
 
-    fireEvent.pointerMove(view.getByText("Two"));
-    fireEvent.mouseEnter(view.getByText("Two"));
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 300));
-    });
+    await hoverTabThroughTooltipDelay(view.getByText("Two"));
 
     const tooltip = view.container.ownerDocument.body.querySelector('[role="tooltip"]');
     expect(tooltip?.textContent?.includes("Project Alpha")).toBe(true);
@@ -146,11 +151,7 @@ describe("AppShellTabs", () => {
     expect(view.getByRole("tabpanel").getAttribute("aria-label")).toBe("Beta project, Two");
     expect(view.getByLabelText("Close Beta project, Two tab") !== null).toBe(true);
 
-    fireEvent.pointerMove(view.getByText("Two"));
-    fireEvent.mouseEnter(view.getByText("Two"));
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 300));
-    });
+    await hoverTabThroughTooltipDelay(view.getByText("Two"));
 
     const tooltip = view.container.ownerDocument.body.querySelector('[role="tooltip"]');
     expect(tooltip?.textContent).toBe("Beta · Two");
@@ -209,11 +210,7 @@ describe("AppShellTabs", () => {
       },
     });
 
-    fireEvent.pointerMove(view.getByText("One"));
-    fireEvent.mouseEnter(view.getByText("One"));
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 300));
-    });
+    await hoverTabThroughTooltipDelay(view.getByText("One"));
 
     expect(view.container.ownerDocument.body.querySelector('[role="tooltip"]') === null).toBe(true);
   });
