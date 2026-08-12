@@ -64,11 +64,20 @@ failed registry cannot leave visible Property chips permanently loading.
 
 List is a virtual grid over Core-authored occurrence rows. Group headers are
 36px with a 2px first-row gap, Page rows are 44px, row surfaces are inset 8px,
-and each nested level shifts visible Page identity, Status, and title content by
-24px while preserving named-column alignment. Group, subgroup, Page, and
-transient-ancestor occurrences have stable path keys independent of Page
-identity. Collapsing hard-removes descendants without row tweening. The mounted
-View session restores a logical row anchor, continues bounded windows near the
+and each nested level shifts the complete visible Page identity cluster by 24px
+while preserving named-column alignment. Hierarchy guides anchor to the leading
+identity lane. Their overlay spans the full 44px Page row: a parent stem begins
+5px above the row edge, a child elbow begins 15px from the row top, and a final
+child stem is 16px tall. Guides use the solid divider contrast and maintain
+consistent opacity across Page-row boundaries. A transient occurrence weakens
+its Page content and row-state surface to 60%, while its hierarchy guide remains
+part of the full-opacity structural overlay. Nested descendants remain visible
+without a Page-row disclosure control. Group, subgroup, Page, and transient
+occurrences have stable path keys independent of Page identity. Group collapse
+hard-removes that group's occurrences without row tweening. This separation
+keeps cross-group hierarchy legible without implying membership in the current
+group. The mounted View
+session restores a logical row anchor, continues bounded windows near the
 viewport end, keeps field widths monotonic, and hides trailing low-value fields
 before compressing the title column.
 
@@ -95,8 +104,8 @@ sparse exclusions, a roving keyboard cursor, context actions, and a bulk action
 bar. A normal pointer click on either the title or any non-interactive part of a
 Page row opens that Page; it does not convert navigation into selection.
 Pointer selection is explicit: the row checkbox toggles an occurrence and
-Shift-click extends the current range, while disclosure and Property controls
-remain isolated from both Page-open and selection. Selection-state paint in a
+Shift-click extends the current range, while Property controls remain isolated
+from both Page-open and selection. Selection-state paint in a
 List row is immediate rather than tweened. A visible Status or Priority icon is
 also its inline editor trigger: opening it must not select or open the Page. The
 editor uses the shared searchable Property option picker, and choosing an option
@@ -106,8 +115,9 @@ when a bounded option window is not embedded in the current projection.
 
 An ordinary Page-row drag resolves against the target row midpoint as a
 before/after insertion and never treats the row center as an implicit drop
-inside the target Page. Holding Option/Alt deliberately switches that target to
-the nest operation. Reorder, cross-group Property adoption, explicit nest,
+inside the target Page. Transient hierarchy context cannot originate a drag.
+Holding Option/Alt deliberately switches that target to the nest operation.
+Reorder, cross-group Property adoption, explicit nest,
 un-nest, and eligible
 multi-Page drops compile from occurrence context into one atomic Database apply
 with Property, Parent-value, and position compare-and-swap. The renderer may apply

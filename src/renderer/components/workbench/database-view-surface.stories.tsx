@@ -315,6 +315,7 @@ const withNestedList = (): DatabaseViewRenderModel => {
     { id: "page-1", title: "Unify Database View rendering", parentId: null },
     { id: "page-2", title: "Define the List occurrence projection", parentId: "page-1" },
     { id: "page-3", title: "Verify nested keyboard navigation", parentId: "page-2" },
+    { id: "page-6", title: "Align the sibling hierarchy guide", parentId: "page-1" },
     { id: "page-4", title: "Polish responsive property columns", parentId: null },
     { id: "page-5", title: "Exercise a deliberately long task title without disturbing adjacent metadata", parentId: null },
   ] as const;
@@ -377,7 +378,67 @@ const withNestedList = (): DatabaseViewRenderModel => {
   };
 };
 
+const withNestedGroupedList = (): DatabaseViewRenderModel => {
+  const base = withNestedList();
+  const groupKeyByPageId = new Map<string, "build" | "ship">([
+    ["page-1", "build"],
+    ["page-2", "ship"],
+    ["page-3", "ship"],
+    ["page-6", "build"],
+    ["page-4", "ship"],
+    ["page-5", "build"],
+  ] as const);
+  const rows = base.query.rows.map((row) => {
+    const groupKey = groupKeyByPageId.get(row.page.pageId) ?? "build";
+    return {
+      ...row,
+      values: {
+        ...row.values,
+        [statusPropertyId]: {
+          propertyId: statusPropertyId,
+          valueType: "select" as const,
+          value: groupKey,
+          revision: 1,
+        },
+      },
+      effectiveGroupKey: groupKey,
+    };
+  });
+  const renderRows = base.columns.flatMap((column) => column.rows).map((row) => {
+    const groupKey = groupKeyByPageId.get(row.pageId) ?? "build";
+    return { ...row, groupKey, status: groupKey };
+  });
+  return {
+    ...base,
+    query: {
+      ...base.query,
+      view: {
+        ...base.query.view,
+        config: {
+          ...base.query.view.config,
+          presentation: {
+            ...base.query.view.config.presentation,
+            group: { propertyId: statusPropertyId },
+          },
+        },
+      },
+      rows,
+    },
+    columns: ["build", "ship"].map((groupKey) => ({
+      id: groupKey,
+      groupKey,
+      scopeKey: `key:${groupKey}`,
+      name: groupKey === "build" ? "Build" : "Ship",
+      rows: renderRows.filter((row) => row.groupKey === groupKey),
+    })),
+  };
+};
+
 export const ListView: Story = { args: { model: withLayout("list") } };
+export const NestedListHierarchy: Story = { args: { model: withNestedList() } };
+export const NestedListAcrossGroups: Story = {
+  args: { model: withNestedGroupedList() },
+};
 export const GroupedList: Story = {
   args: {
     model,

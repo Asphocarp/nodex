@@ -4,8 +4,36 @@ import type {
   DatabaseListPageRow,
   DatabaseListProjectionRow,
 } from "./database-list-model";
+import {
+  DATABASE_LIST_CHECKBOX_WIDTH,
+  DATABASE_LIST_FIELD_GAP,
+  DATABASE_LIST_PRIORITY_WIDTH,
+} from "./database-list-grid";
 
 export const DATABASE_LIST_NESTING_DEPTH_PX = 24;
+export const DATABASE_LIST_NESTING_OVERLAY_LEFT_PX = 6;
+export const DATABASE_LIST_PAGE_ROW_HEIGHT_PX = 44;
+// The visible 1px guide is centered on the leading identity icon lane.
+export const DATABASE_LIST_NESTING_ANCHOR_PX = DATABASE_LIST_CHECKBOX_WIDTH
+  + DATABASE_LIST_FIELD_GAP
+  + DATABASE_LIST_PRIORITY_WIDTH / 2
+  - 0.5;
+
+export const databaseListNestingLineLeft = (level: number): number =>
+  DATABASE_LIST_NESTING_ANCHOR_PX + level * DATABASE_LIST_NESTING_DEPTH_PX;
+
+export const databaseListNestingLineInset = (level: number): number =>
+  databaseListNestingLineLeft(level) - DATABASE_LIST_NESTING_OVERLAY_LEFT_PX;
+
+export const databaseListNestingGeometry = (rowHeight: number) => ({
+  fullVerticalLineHeight: rowHeight / 2 - 6,
+  nestingLineTop: rowHeight / 2 - 7,
+  parentLineTop: rowHeight - 5,
+});
+
+const DATABASE_LIST_NESTING_GEOMETRY = databaseListNestingGeometry(
+  DATABASE_LIST_PAGE_ROW_HEIGHT_PX,
+);
 
 const parentPathKey = (
   row: DatabaseListPageRow,
@@ -59,26 +87,33 @@ export function DatabaseListNestingLines({
   readonly continuations: readonly boolean[];
   readonly hasChildren: boolean;
 }) {
-  if (depth <= 0) return null;
+  if (depth <= 0 && !hasChildren) return null;
   const connectorLevel = depth - 1;
   return (
     <div
       aria-hidden="true"
-      className="pointer-events-none absolute inset-y-0 left-0 overflow-visible text-token-border"
-      style={{ width: `${depth * DATABASE_LIST_NESTING_DEPTH_PX}px` }}
+      data-list-nesting-lines="true"
+      className="pointer-events-none absolute top-0 z-[1] flex h-full items-center overflow-visible text-[var(--database-list-nesting-line)]"
+      style={{
+        gridColumn: "checkbox",
+        left: DATABASE_LIST_NESTING_OVERLAY_LEFT_PX,
+        width: `${depth * DATABASE_LIST_NESTING_DEPTH_PX}px`,
+      }}
     >
       {Array.from({ length: depth }, (_, level) => {
-        const left = 11.5 + level * DATABASE_LIST_NESTING_DEPTH_PX;
+        const left = databaseListNestingLineInset(level);
         const isConnector = level === connectorLevel;
         if (!isConnector && !continuations[level]) return null;
         return (
           <Fragment key={level}>
             <span
-              className="absolute top-0 w-px bg-current opacity-55"
+              className="absolute top-0 w-px rounded-[0.5px] bg-current"
               style={{
                 left,
                 bottom: continuations[level] ? 0 : undefined,
-                height: continuations[level] ? undefined : 16,
+                height: continuations[level]
+                  ? undefined
+                  : DATABASE_LIST_NESTING_GEOMETRY.fullVerticalLineHeight,
               }}
             />
             {isConnector ? (
@@ -86,8 +121,11 @@ export function DatabaseListNestingLines({
                 width="10"
                 height="9"
                 viewBox="0 0 10 9"
-                className="absolute opacity-55"
-                style={{ left, top: 15 }}
+                className="absolute"
+                style={{
+                  left,
+                  top: DATABASE_LIST_NESTING_GEOMETRY.nestingLineTop,
+                }}
               >
                 <path
                   fill="currentColor"
@@ -100,8 +138,11 @@ export function DatabaseListNestingLines({
       })}
       {hasChildren ? (
         <span
-          className="absolute bottom-0 h-[5px] w-px bg-current opacity-55"
-          style={{ left: 11.5 + depth * DATABASE_LIST_NESTING_DEPTH_PX }}
+          className="absolute bottom-0 w-px rounded-[0.5px] bg-current"
+          style={{
+            left: databaseListNestingLineInset(depth),
+            top: DATABASE_LIST_NESTING_GEOMETRY.parentLineTop,
+          }}
         />
       ) : null}
     </div>

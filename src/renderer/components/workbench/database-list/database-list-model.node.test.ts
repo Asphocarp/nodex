@@ -12,7 +12,6 @@ import {
   databaseListScrollTopForOccurrence,
   databaseListMountedActiveOccurrenceKey,
   databaseListGroupKey,
-  databaseListParentCollapseKey,
   emptyDatabaseListSelection,
   moveDatabaseListActiveOccurrence,
   isDatabaseListOccurrenceSelected,
@@ -106,45 +105,6 @@ describe("Database List projection", () => {
 
     expect(projection).toHaveLength(1);
     expect(projection[0]).toMatchObject({ kind: "group", collapsed: true });
-  });
-
-  test("collapsing a parent occurrence hard-removes descendants and keeps the parent", () => {
-    const expanded = buildDatabaseListProjection({
-      columns: [column([
-        row("parent"),
-        row("child", { parentPageId: "parent" }),
-        row("grandchild", { parentPageId: "child" }),
-      ])],
-      grouped: true,
-      subgrouped: false,
-      nested: true,
-      collapsedGroupKeys: new Set(),
-    });
-    const parent = expanded.find((item) =>
-      item.kind === "page" && item.pageId === "parent"
-    );
-    expect(parent).toMatchObject({ hasChildren: true, collapsed: false });
-    if (!parent || parent.kind !== "page") throw new Error("missing parent fixture");
-
-    const collapsed = buildDatabaseListProjection({
-      columns: [column([
-        row("parent"),
-        row("child", { parentPageId: "parent" }),
-        row("grandchild", { parentPageId: "child" }),
-      ])],
-      grouped: true,
-      subgrouped: false,
-      nested: true,
-      collapsedGroupKeys: new Set([databaseListParentCollapseKey(parent.key)]),
-    });
-
-    expect(collapsed.filter((item) => item.kind === "page")).toEqual([
-      expect.objectContaining({
-        pageId: "parent",
-        hasChildren: true,
-        collapsed: true,
-      }),
-    ]);
   });
 
   test("computes bounded windows without losing logical scroll height", () => {
@@ -360,49 +320,6 @@ describe("Database List occurrence selection", () => {
     expect(isDatabaseListOccurrenceSelected(excluded, pages[1]!.key)).toBe(false);
     expect(selectedDatabaseListPageIds(projection, excluded)).toEqual(
       new Set(["one", "three"]),
-    );
-  });
-
-  test("restores roving focus to the nearest visible occurrence after collapse", () => {
-    const previous = buildDatabaseListProjection({
-      columns: [column([
-        row("parent"),
-        row("child", { parentPageId: "parent" }),
-        row("after"),
-      ])],
-      grouped: true,
-      subgrouped: false,
-      nested: true,
-      collapsedGroupKeys: new Set(),
-    });
-    const parent = previous.find((item) => item.kind === "page" && item.pageId === "parent");
-    const child = previous.find((item) => item.kind === "page" && item.pageId === "child");
-    if (!parent || parent.kind !== "page" || !child || child.kind !== "page") {
-      throw new Error("missing hierarchy fixture");
-    }
-    const next = buildDatabaseListProjection({
-      columns: [column([
-        row("parent"),
-        row("child", { parentPageId: "parent" }),
-        row("after"),
-      ])],
-      grouped: true,
-      subgrouped: false,
-      nested: true,
-      collapsedGroupKeys: new Set([databaseListParentCollapseKey(parent.key)]),
-    });
-    const synced = syncDatabaseListSelection({
-      selectedOccurrenceKeys: new Set([child.key]),
-      allMatching: false,
-      excludedOccurrenceKeys: new Set(),
-      anchorOccurrenceKey: child.key,
-      activeOccurrenceKey: child.key,
-      focusedOccurrenceKey: child.key,
-    }, next, previous);
-
-    expect(synced.selectedOccurrenceKeys.size).toBe(0);
-    expect(synced.activeOccurrenceKey).toBe(
-      next.find((item) => item.kind === "page" && item.pageId === "after")?.key,
     );
   });
 

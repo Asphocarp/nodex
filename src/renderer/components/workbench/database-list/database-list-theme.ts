@@ -1,7 +1,9 @@
 /**
  * List owns semantic roles for its dense interaction states, while their colors
  * derive from the app surface contract so the view remains part of the same
- * visual system as Board and PageStage in every theme.
+ * visual system as Board and PageStage in every theme. The hierarchy guide is
+ * preblended against the surface so its one-pixel stem/elbow overlap cannot
+ * accumulate alpha and create a brighter seam.
  */
 export const DATABASE_LIST_THEME_CLASS_NAME = [
   "[--database-list-surface:var(--color-token-main-surface-primary)]",
@@ -15,6 +17,7 @@ export const DATABASE_LIST_THEME_CLASS_NAME = [
   "[--database-list-text-muted:var(--color-token-text-secondary)]",
   "[--database-list-group-count:var(--color-token-description-foreground)]",
   "[--database-list-icon-muted:var(--color-token-description-foreground)]",
+  "[--database-list-nesting-line:color-mix(in_srgb,var(--color-token-foreground)_10%,var(--database-list-surface))]",
   "[--database-list-chip-border:var(--color-token-border)]",
   "[--database-list-chip-background:color-mix(in_srgb,var(--color-token-foreground)_2.5%,var(--color-token-main-surface-primary))]",
   "[--database-list-chip-hover:color-mix(in_srgb,var(--color-token-foreground)_5%,var(--color-token-main-surface-primary))]",
