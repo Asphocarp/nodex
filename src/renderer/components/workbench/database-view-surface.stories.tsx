@@ -604,6 +604,14 @@ export const ListPropertyDensity: Story = {
   args: { model: withListFieldStress() },
 };
 
+export const ListDarkMode: Story = {
+  args: {
+    model: withListFieldStress(),
+    initialSelectedPageIds: new Set(["page-2", "page-3"]),
+  },
+  globals: { theme: "dark" },
+};
+
 const withLargeListFixture = (count: number): DatabaseViewRenderModel => {
   const base = withLayout("list");
   const authority = base.query.rows[0];

@@ -352,7 +352,7 @@ async function dragListRowWithMouse({
   page: Page;
   sourceRow: Locator;
   targetRow: Locator;
-  position: "before" | "after" | "nest";
+  position: "before" | "after" | "center" | "nest";
 }): Promise<void> {
   await sourceRow.scrollIntoViewIfNeeded();
   await sourceRow.hover();
@@ -372,10 +372,15 @@ async function dragListRowWithMouse({
     y: targetBox.y + targetBox.height * targetRatio,
   };
 
-  await page.mouse.move(sourcePoint.x, sourcePoint.y);
-  await page.mouse.down();
   let mouseReleased = false;
+  let altPressed = false;
   try {
+    if (position === "nest") {
+      await page.keyboard.down("Alt");
+      altPressed = true;
+    }
+    await page.mouse.move(sourcePoint.x, sourcePoint.y);
+    await page.mouse.down();
     await page.mouse.move(sourcePoint.x + 12, sourcePoint.y, { steps: 4 });
     await page.mouse.move(targetPoint.x, targetPoint.y, { steps: 24 });
     await page.mouse.move(targetPoint.x + 1, targetPoint.y);
@@ -384,6 +389,7 @@ async function dragListRowWithMouse({
     mouseReleased = true;
   } finally {
     if (!mouseReleased) await page.mouse.up().catch(() => undefined);
+    if (altPressed) await page.keyboard.up("Alt").catch(() => undefined);
   }
 }
 
@@ -2213,7 +2219,7 @@ test("moves a Block into a Board with native DnD @dnd-smoke", async () => {
   }
 });
 
-test("reorders the Core-backed List with native DnD @list-dnd-smoke", async () => {
+test("opens and center-reorders a List row without nesting @list-dnd-smoke", async () => {
   test.setTimeout(120_000);
   const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nx-list-dnd-smoke-"));
   const nodexHome = path.join(fixtureRoot, "profile");
@@ -2232,10 +2238,11 @@ test("reorders the Core-backed List with native DnD @list-dnd-smoke", async () =
       "Native List DnD smoke",
       workspace,
     );
+    const firstTitle = "List fixture one";
     const firstFixture = await createConvergenceBoardPage(
       page,
       project,
-      "List fixture one",
+      firstTitle,
       "First List Page",
     );
     const secondFixture = await createConvergenceBoardPage(
@@ -2271,14 +2278,18 @@ test("reorders the Core-backed List with native DnD @list-dnd-smoke", async () =
         `[data-list-row="true"][data-database-view-page-id="${fixture.pageId}"]`,
       )).toHaveCount(1, { timeout: 15_000 });
     }
-    const initialOrder = await rows.evaluateAll((elements) => elements.map((element) =>
-      element.getAttribute("data-database-view-page-id") ?? ""
-    ));
-    expect(initialOrder).toEqual(expect.arrayContaining([
+    const fixturePageIds = [
       firstFixture.pageId,
       secondFixture.pageId,
       thirdFixture.pageId,
-    ]));
+    ];
+    let initialOrder: string[] = [];
+    await expect.poll(async () => {
+      initialOrder = await rows.evaluateAll((elements) => elements.map((element) =>
+        element.getAttribute("data-database-view-page-id") ?? ""
+      ));
+      return initialOrder;
+    }, { timeout: 15_000 }).toEqual(expect.arrayContaining(fixturePageIds));
     const targetPageId = firstFixture.pageId;
     const sourcePageId = thirdFixture.pageId;
     const sourceRow = grid.locator(
@@ -2292,20 +2303,28 @@ test("reorders the Core-backed List with native DnD @list-dnd-smoke", async () =
       page,
       sourceRow,
       targetRow,
-      position: "before",
+      position: "center",
     });
 
+    const orderWithoutSource = initialOrder.filter((pageId) => pageId !== sourcePageId);
+    const targetIndex = orderWithoutSource.indexOf(targetPageId);
+    expect(targetIndex).toBeGreaterThanOrEqual(0);
+    const expectedOrder = [
+      ...orderWithoutSource.slice(0, targetIndex + 1),
+      sourcePageId,
+      ...orderWithoutSource.slice(targetIndex + 1),
+    ];
     await expect.poll(async () => await rows.evaluateAll((elements) => elements.map((element) =>
       element.getAttribute("data-database-view-page-id") ?? ""
-    )), { timeout: 15_000 }).toEqual([
-      sourcePageId,
-      ...initialOrder.filter((pageId) => pageId !== sourcePageId),
-    ]);
+    )), { timeout: 15_000 }).toEqual(expectedOrder);
     await expect.poll(async () => {
       const result = requireIpcValue<{
         readonly rows: readonly {
           readonly kind: string;
-          readonly row?: { readonly page?: { readonly pageId?: string } };
+          readonly row?: {
+            readonly page?: { readonly pageId?: string };
+            readonly taskParent?: { readonly parentPageId?: string | null };
+          };
         }[];
       }>(await invokeIpc(
         page,
@@ -2313,13 +2332,26 @@ test("reorders the Core-backed List with native DnD @list-dnd-smoke", async () =
         project.projectId,
         { databaseViewId: project.defaultDatabaseViewId, first: 50 },
       ), "Read reordered List window");
-      return result.rows.flatMap((row) =>
+      const order = result.rows.flatMap((row) =>
         row.kind === "page" && row.row?.page?.pageId ? [row.row.page.pageId] : []
       );
-    }, { timeout: 15_000 }).toEqual([
-      sourcePageId,
-      ...initialOrder.filter((pageId) => pageId !== sourcePageId),
-    ]);
+      const source = result.rows.find((row) =>
+        row.kind === "page" && row.row?.page?.pageId === sourcePageId
+      );
+      return {
+        order,
+        sourceParentPageId: source?.row?.taskParent?.parentPageId ?? null,
+      };
+    }, { timeout: 15_000 }).toEqual({
+      order: expectedOrder,
+      sourceParentPageId: null,
+    });
+
+    await targetRow.locator('[data-list-grid-column="identifier"]').click();
+    const pageStage = page.locator('[data-page-stage-surface="true"]:visible');
+    await expect(pageStage).toBeVisible({ timeout: 15_000 });
+    await expect(pageStage.getByRole("textbox", { name: "Page title" }))
+      .toHaveText(firstTitle, { timeout: 15_000 });
   } finally {
     if (application) await stopApplication(application);
     await shutdownTemporaryCore(nodexHome);

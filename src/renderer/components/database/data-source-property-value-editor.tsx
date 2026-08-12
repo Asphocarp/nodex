@@ -127,7 +127,7 @@ function ScalarPropertyEditor({
             // borderless Page Property triggers such as Tags and Due date.
             ? "w-full max-w-72 px-[3px] text-sm"
             : presentation === "list"
-              ? "h-full min-w-0 max-w-40 flex-1 border-0 bg-transparent p-0 text-xs text-[lch(39.176_1.25_282)] hover:bg-transparent focus:bg-transparent focus:ring-0"
+              ? "h-full min-w-0 max-w-40 flex-1 border-0 bg-transparent p-0 text-xs text-[var(--database-list-text-muted)] hover:bg-transparent focus:bg-transparent focus:ring-0"
               : "w-32 px-1.5 text-[11px]",
         )}
       />

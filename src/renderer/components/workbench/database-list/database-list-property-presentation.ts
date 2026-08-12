@@ -6,7 +6,7 @@ import {
   isWorkflowStatus,
 } from "../../../../shared/workflow-status";
 
-export const DATABASE_LIST_MUTED_ICON_COLOR = "lch(67.969 3.577 260.65)";
+export const DATABASE_LIST_MUTED_ICON_COLOR = "var(--database-list-icon-muted)";
 export const DATABASE_LIST_DUE_NOW_ICON_COLOR = "lch(58% 73 29)";
 export const DATABASE_LIST_DUE_FUTURE_ICON_COLOR = "lch(66% 80 48)";
 
