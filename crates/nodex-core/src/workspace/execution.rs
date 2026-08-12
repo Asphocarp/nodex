@@ -479,6 +479,35 @@ pub(super) fn mutate_writable_roots(
     };
     candidates.extend_from_slice(roots);
     let next = normalize_roots_input(&candidates);
+    replace_writable_roots_records(connection, thread_id, &next)?;
+    finish_execution_mutation(
+        connection,
+        library_id,
+        context,
+        store_epoch,
+        operation_id,
+        request_hash,
+        if merge {
+            "merge_thread_writable_roots"
+        } else {
+            "replace_thread_writable_roots"
+        },
+        project_id.as_deref(),
+        thread_id,
+    )
+}
+
+/** Writes the exact normalized root set inside an already-owned Workspace mutation. */
+pub(super) fn replace_writable_roots_records(
+    connection: &Connection,
+    thread_id: &str,
+    roots: &[String],
+) -> Result<(), StoreError> {
+    validate_id("thread_id", thread_id)?;
+    if roots.len() > MAX_WRITABLE_ROOT_INPUTS {
+        return Err(invalid("Writable root input exceeds its Core bound"));
+    }
+    let next = normalize_roots_input(roots);
     connection.execute(
         "DELETE FROM codex_thread_writable_roots WHERE thread_id = ?1",
         [thread_id],
@@ -497,21 +526,7 @@ pub(super) fn mutate_writable_roots(
             ],
         )?;
     }
-    finish_execution_mutation(
-        connection,
-        library_id,
-        context,
-        store_epoch,
-        operation_id,
-        request_hash,
-        if merge {
-            "merge_thread_writable_roots"
-        } else {
-            "replace_thread_writable_roots"
-        },
-        project_id.as_deref(),
-        thread_id,
-    )
+    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]

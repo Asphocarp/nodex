@@ -171,6 +171,12 @@ pub struct ProjectWorkspaceThreadMoveMetadataPatch {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct ProjectWorkspaceThreadMoveProjectAccessGrant {
+    pub expected_target_binding_revision: i64,
+    pub missing_source_roots: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 pub struct ProjectWorkspaceExecutionContext {
     pub thread: ProjectWorkspaceThread,
     pub project: Option<ProjectWorkspaceProject>,
@@ -745,6 +751,10 @@ pub enum ProjectWorkspaceIntent {
         target: ProjectWorkspaceThreadLane,
         placement: ProjectWorkspaceThreadPlacement,
         metadata: ProjectWorkspaceThreadMoveMetadataPatch,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        runtime_workspace_roots: Option<Vec<String>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        project_access_grant: Option<ProjectWorkspaceThreadMoveProjectAccessGrant>,
     },
     SetThreadUnread {
         thread_id: String,
@@ -983,6 +993,8 @@ mod tests {
             target,
             placement,
             metadata,
+            runtime_workspace_roots,
+            project_access_grant,
             ..
         } = intent
         else {
@@ -1007,6 +1019,8 @@ mod tests {
             Some(Some("/tmp/worktree".to_owned()))
         );
         assert_eq!(metadata.projectless_output_directory, None);
+        assert_eq!(runtime_workspace_roots, None);
+        assert_eq!(project_access_grant, None);
 
         let set_empty = serde_json::to_value(ProjectWorkspaceIntent::SetProjectThreadOrder {
             project_id: "project-1".to_owned(),

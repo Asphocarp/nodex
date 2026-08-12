@@ -5,6 +5,7 @@ use nodex_core_contracts::workspace::{
     ProjectAppearance, ProjectCatalogChangeKind, ProjectLifecycle, ProjectMarker,
     ProjectSessionInvalidationScope, ProjectWorkspaceCommitValue, ProjectWorkspaceIntent,
     ProjectWorkspaceReceipt, ProjectWorkspaceStarterPage,
+    ProjectWorkspaceThreadMoveProjectAccessGrant,
 };
 use nodex_core_contracts::{
     BoundModuleContext, ModuleApplyRequest, ModuleMutationReceipt, ModuleName,
@@ -582,6 +583,8 @@ pub(super) fn apply(
                     target,
                     placement,
                     metadata,
+                    runtime_workspace_roots,
+                    project_access_grant,
                 } => sidebar::move_thread(
                     transaction,
                     &library_id,
@@ -608,6 +611,8 @@ pub(super) fn apply(
                     },
                     placement,
                     metadata,
+                    runtime_workspace_roots.as_deref(),
+                    project_access_grant.as_ref(),
                 ),
                 ProjectWorkspaceIntent::SetThreadUnread { thread_id, unread } => {
                     thread::set_thread_unread(
@@ -872,6 +877,34 @@ fn create_project(
     workspace_commit_result(connection, commit_result)
 }
 
+pub(super) fn run_mutation(
+    connection: &Connection,
+    context: &BoundModuleContext,
+    store_epoch: &str,
+    operation_id: &str,
+    request_hash: &str,
+    committed_at: &str,
+    apply: impl FnOnce(&DurableMutationScope<'_>) -> Result<WorkspaceMutationEffects, StoreError>,
+) -> Result<ProjectWorkspaceApplyOutcome, StoreError> {
+    let result = durable_mutation::run(
+        connection,
+        OperationIdentity {
+            module: ModuleName::ProjectWorkspace,
+            module_name: MODULE_NAME,
+            operation_id,
+            intent_hash: request_hash,
+            store_epoch,
+            committed_at,
+            context,
+        },
+        |scope| {
+            let effects = apply(scope)?;
+            seal_mutation(scope, context, operation_id, effects)
+        },
+    )?;
+    workspace_commit_result(connection, result)
+}
+
 pub(super) fn finish_mutation(
     connection: &Connection,
     context: &BoundModuleContext,
@@ -881,20 +914,15 @@ pub(super) fn finish_mutation(
     effects: WorkspaceMutationEffects,
 ) -> Result<ProjectWorkspaceApplyOutcome, StoreError> {
     let committed_at = effects.committed_at.clone();
-    let result = durable_mutation::run(
+    run_mutation(
         connection,
-        OperationIdentity {
-            module: ModuleName::ProjectWorkspace,
-            module_name: MODULE_NAME,
-            operation_id,
-            intent_hash: request_hash,
-            store_epoch,
-            committed_at: &committed_at,
-            context,
-        },
-        |scope| seal_mutation(scope, context, operation_id, effects),
-    )?;
-    workspace_commit_result(connection, result)
+        context,
+        store_epoch,
+        operation_id,
+        request_hash,
+        &committed_at,
+        |_| Ok(effects),
+    )
 }
 
 fn workspace_commit_result(
@@ -1064,67 +1092,71 @@ fn update_project(
     let sources = source_roots.map(normalize_source_roots).transpose()?;
     let now = sqlite_now(connection)?;
     let metadata_changed = name.is_some() || description.is_some() || appearance.is_some();
-    if metadata_changed {
-        let appearance_storage = appearance.as_ref().map(project_appearance_storage);
-        let changed = connection.execute(
-            "UPDATE projects SET \
-               name = COALESCE(?1, name), description = COALESCE(?2, description), \
-               appearance_color = COALESCE(?3, appearance_color), \
-               appearance_marker_kind = COALESCE(?4, appearance_marker_kind), \
-               appearance_marker_value = COALESCE(?5, appearance_marker_value), \
-               binding_revision = binding_revision + 1, updated = ?6 \
-             WHERE id = ?7 AND library_id = ?8 AND binding_revision = ?9",
-            params![
-                name.as_deref(),
-                description,
-                appearance_storage.as_ref().map(|value| value.0),
-                appearance_storage.as_ref().map(|value| value.1),
-                appearance_storage.as_ref().map(|value| value.2.as_str()),
-                now,
-                project_id,
-                library_id,
-                expected_binding_revision,
-            ],
-        )?;
-        if changed != 1 {
-            return Err(corrupt("Project disappeared during metadata update"));
-        }
-    }
-    if let Some(sources) = &sources {
-        connection.execute(
-            "DELETE FROM project_sources WHERE project_id = ?1",
-            [project_id],
-        )?;
-        insert_project_sources(connection, project_id, sources, &now)?;
-        if !metadata_changed {
-            let changed = connection.execute(
-                "UPDATE projects SET binding_revision = binding_revision + 1, updated = ?1 \
-                 WHERE id = ?2 AND library_id = ?3 AND binding_revision = ?4",
-                params![now, project_id, library_id, expected_binding_revision],
-            )?;
-            if changed != 1 {
-                return Err(corrupt("Project disappeared during source update"));
-            }
-        }
-    }
-    finish_project_mutation(
+    let project_catalog_change = if sources.is_some() {
+        ProjectCatalogChangeKind::SourcesUpdated
+    } else {
+        ProjectCatalogChangeKind::MetadataUpdated
+    };
+    let effects = project_mutation_effects(
+        "update_project",
+        project_catalog_change,
+        project_id,
+        Vec::new(),
+        now.clone(),
+    );
+    run_mutation(
         connection,
         context,
         store_epoch,
         operation_id,
         request_hash,
-        "update_project",
-        // Source-derived consumers need the broader invalidation whenever a
-        // compound Edit includes sources; metadata-only writes use the
-        // narrower MetadataUpdated classification.
-        if sources.is_some() {
-            ProjectCatalogChangeKind::SourcesUpdated
-        } else {
-            ProjectCatalogChangeKind::MetadataUpdated
+        &now,
+        |_| {
+            if metadata_changed {
+                let appearance_storage = appearance.as_ref().map(project_appearance_storage);
+                let changed = connection.execute(
+                    "UPDATE projects SET \
+                       name = COALESCE(?1, name), description = COALESCE(?2, description), \
+                       appearance_color = COALESCE(?3, appearance_color), \
+                       appearance_marker_kind = COALESCE(?4, appearance_marker_kind), \
+                       appearance_marker_value = COALESCE(?5, appearance_marker_value), \
+                       binding_revision = binding_revision + 1, updated = ?6 \
+                     WHERE id = ?7 AND library_id = ?8 AND binding_revision = ?9",
+                    params![
+                        name.as_deref(),
+                        description,
+                        appearance_storage.as_ref().map(|value| value.0),
+                        appearance_storage.as_ref().map(|value| value.1),
+                        appearance_storage.as_ref().map(|value| value.2.as_str()),
+                        now,
+                        project_id,
+                        library_id,
+                        expected_binding_revision,
+                    ],
+                )?;
+                if changed != 1 {
+                    return Err(corrupt("Project disappeared during metadata update"));
+                }
+            }
+            if let Some(sources) = &sources {
+                connection.execute(
+                    "DELETE FROM project_sources WHERE project_id = ?1",
+                    [project_id],
+                )?;
+                insert_project_sources(connection, project_id, sources, &now)?;
+                if !metadata_changed {
+                    let changed = connection.execute(
+                        "UPDATE projects SET binding_revision = binding_revision + 1, updated = ?1 \
+                         WHERE id = ?2 AND library_id = ?3 AND binding_revision = ?4",
+                        params![now, project_id, library_id, expected_binding_revision],
+                    )?;
+                    if changed != 1 {
+                        return Err(corrupt("Project disappeared during source update"));
+                    }
+                }
+            }
+            Ok(effects)
         },
-        project_id,
-        Vec::new(),
-        now,
     )
 }
 
@@ -1143,59 +1175,65 @@ fn set_project_lifecycle(
     let (current_lifecycle, _) = require_project(connection, library_id, project_id)?;
     let next_lifecycle = lifecycle_literal(lifecycle);
     let now = sqlite_now(connection)?;
-    if current_lifecycle != next_lifecycle {
-        if current_lifecycle == "archived" && next_lifecycle != "archived" {
-            require_unarchived_project_capacity(connection, library_id)?;
-        }
-        let changed = connection.execute(
-            "UPDATE projects SET lifecycle = ?1, binding_revision = binding_revision + 1, \
-               updated = ?2 WHERE id = ?3 AND library_id = ?4 AND lifecycle = ?5",
-            params![
-                next_lifecycle,
-                now,
-                project_id,
-                library_id,
-                current_lifecycle
-            ],
-        )?;
-        if changed != 1 {
-            return Err(StoreError::new(
-                StoreErrorCode::RevisionConflict,
-                "Project lifecycle changed",
-                true,
-            ));
-        }
-        if next_lifecycle == "archived" {
-            connection.execute(
-                "DELETE FROM pinned_project_order WHERE project_id = ?1",
-                [project_id],
-            )?;
-            connection.execute(
-                "DELETE FROM project_order WHERE project_id = ?1",
-                [project_id],
-            )?;
-        } else if current_lifecycle == "archived" {
-            connection.execute(
-                "INSERT INTO project_order(project_id, \"order\", updated) \
-                 SELECT ?1, COALESCE(MAX(ordering.\"order\"), -1) + 1, ?2 \
-                 FROM project_order ordering \
-                 JOIN projects project ON project.id = ordering.project_id \
-                 WHERE project.library_id = ?3",
-                params![project_id, now, library_id],
-            )?;
-        }
+    if current_lifecycle == "archived" && next_lifecycle != "archived" {
+        require_unarchived_project_capacity(connection, library_id)?;
     }
-    finish_project_mutation(
+    let effects = project_mutation_effects(
+        "set_project_lifecycle",
+        ProjectCatalogChangeKind::LifecycleUpdated,
+        project_id,
+        vec![ProjectSessionInvalidationScope::All],
+        now.clone(),
+    );
+    run_mutation(
         connection,
         context,
         store_epoch,
         operation_id,
         request_hash,
-        "set_project_lifecycle",
-        ProjectCatalogChangeKind::LifecycleUpdated,
-        project_id,
-        vec![ProjectSessionInvalidationScope::All],
-        now,
+        &now,
+        |_| {
+            if current_lifecycle != next_lifecycle {
+                let changed = connection.execute(
+                    "UPDATE projects SET lifecycle = ?1, binding_revision = binding_revision + 1, \
+                       updated = ?2 WHERE id = ?3 AND library_id = ?4 AND lifecycle = ?5",
+                    params![
+                        next_lifecycle,
+                        now,
+                        project_id,
+                        library_id,
+                        current_lifecycle
+                    ],
+                )?;
+                if changed != 1 {
+                    return Err(StoreError::new(
+                        StoreErrorCode::RevisionConflict,
+                        "Project lifecycle changed",
+                        true,
+                    ));
+                }
+                if next_lifecycle == "archived" {
+                    connection.execute(
+                        "DELETE FROM pinned_project_order WHERE project_id = ?1",
+                        [project_id],
+                    )?;
+                    connection.execute(
+                        "DELETE FROM project_order WHERE project_id = ?1",
+                        [project_id],
+                    )?;
+                } else if current_lifecycle == "archived" {
+                    connection.execute(
+                        "INSERT INTO project_order(project_id, \"order\", updated) \
+                         SELECT ?1, COALESCE(MAX(ordering.\"order\"), -1) + 1, ?2 \
+                         FROM project_order ordering \
+                         JOIN projects project ON project.id = ordering.project_id \
+                         WHERE project.library_id = ?3",
+                        params![project_id, now, library_id],
+                    )?;
+                }
+            }
+            Ok(effects)
+        },
     )
 }
 
@@ -1423,31 +1461,48 @@ fn finish_project_mutation(
     session_summary_scopes: Vec<ProjectSessionInvalidationScope>,
     committed_at: String,
 ) -> Result<ProjectWorkspaceApplyOutcome, StoreError> {
+    let effects = project_mutation_effects(
+        operation_kind,
+        project_catalog_change,
+        project_id,
+        session_summary_scopes,
+        committed_at,
+    );
     finish_mutation(
         connection,
         context,
         store_epoch,
         operation_id,
         request_hash,
-        WorkspaceMutationEffects {
-            operation_kind,
-            project_catalog_change: Some(project_catalog_change),
-            change_project_id: project_id.to_owned(),
-            project_ids: vec![project_id.to_owned()],
-            session_ids: Vec::new(),
-            thread_ids: Vec::new(),
-            session_summary_scopes,
-            session_detail_ids: Vec::new(),
-            block_ids: Vec::new(),
-            document_ids: Vec::new(),
-            database_ids: Vec::new(),
-            page_ids: Vec::new(),
-            data_source_ids: Vec::new(),
-            view_ids: Vec::new(),
-            document_heads: Vec::new(),
-            committed_at,
-        },
+        effects,
     )
+}
+
+fn project_mutation_effects(
+    operation_kind: &'static str,
+    project_catalog_change: ProjectCatalogChangeKind,
+    project_id: &str,
+    session_summary_scopes: Vec<ProjectSessionInvalidationScope>,
+    committed_at: String,
+) -> WorkspaceMutationEffects {
+    WorkspaceMutationEffects {
+        operation_kind,
+        project_catalog_change: Some(project_catalog_change),
+        change_project_id: project_id.to_owned(),
+        project_ids: vec![project_id.to_owned()],
+        session_ids: Vec::new(),
+        thread_ids: Vec::new(),
+        session_summary_scopes,
+        session_detail_ids: Vec::new(),
+        block_ids: Vec::new(),
+        document_ids: Vec::new(),
+        database_ids: Vec::new(),
+        page_ids: Vec::new(),
+        data_source_ids: Vec::new(),
+        view_ids: Vec::new(),
+        document_heads: Vec::new(),
+        committed_at,
+    }
 }
 
 fn require_project(
@@ -1464,6 +1519,96 @@ fn require_project(
         )
         .optional()?
         .ok_or_else(|| not_found("Project is unavailable in this Library"))
+}
+
+pub(super) fn grant_project_sources_for_thread_move(
+    connection: &Connection,
+    library_id: &str,
+    source_project_id: &str,
+    target_project_id: &str,
+    grant: &ProjectWorkspaceThreadMoveProjectAccessGrant,
+) -> Result<(), StoreError> {
+    if grant.expected_target_binding_revision < 1 {
+        return Err(invalid("expected_target_binding_revision must be positive"));
+    }
+    if grant.missing_source_roots.is_empty() {
+        return Err(invalid("Project access grant must include source roots"));
+    }
+
+    let (source_lifecycle, _) = require_project(connection, library_id, source_project_id)?;
+    if source_lifecycle != "active" {
+        return Err(conflict("Source Project must be active during Thread move"));
+    }
+    let (target_lifecycle, target_binding_revision) =
+        require_project(connection, library_id, target_project_id)?;
+    if target_lifecycle != "active" {
+        return Err(conflict("Target Project must be active during Thread move"));
+    }
+    if target_binding_revision != grant.expected_target_binding_revision {
+        return Err(StoreError::new(
+            StoreErrorCode::RevisionConflict,
+            "Target Project binding revision changed",
+            true,
+        ));
+    }
+
+    let source_roots = connection
+        .prepare("SELECT root FROM project_sources WHERE project_id = ?1 ORDER BY \"order\"")?
+        .query_map([source_project_id], |row| row.get::<_, String>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let source_root_set = source_roots.into_iter().collect::<BTreeSet<_>>();
+    let requested = normalize_source_roots(&grant.missing_source_roots)?;
+    if requested.len() != grant.missing_source_roots.len() {
+        return Err(invalid(
+            "Project access grant source roots must be unique and non-empty",
+        ));
+    }
+    if requested
+        .iter()
+        .any(|source| !source_root_set.contains(&source.root))
+    {
+        return Err(invalid(
+            "Project access grant may only add roots from the source Project",
+        ));
+    }
+
+    let target_roots = connection
+        .prepare("SELECT root FROM project_sources WHERE project_id = ?1 ORDER BY \"order\"")?
+        .query_map([target_project_id], |row| row.get::<_, String>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let mut next_roots = target_roots.clone();
+    next_roots.extend(requested.iter().map(|source| source.root.clone()));
+    let next_sources = normalize_source_roots(&next_roots)?;
+    if next_sources.len() == target_roots.len() {
+        return Err(conflict(
+            "Target Project sources changed before the confirmed Thread move",
+        ));
+    }
+
+    let now = sqlite_now(connection)?;
+    let updated = connection.execute(
+        "UPDATE projects SET binding_revision = binding_revision + 1, updated = ?1 \
+         WHERE id = ?2 AND library_id = ?3 AND lifecycle = 'active' \
+           AND binding_revision = ?4",
+        params![
+            now,
+            target_project_id,
+            library_id,
+            grant.expected_target_binding_revision,
+        ],
+    )?;
+    if updated != 1 {
+        return Err(StoreError::new(
+            StoreErrorCode::RevisionConflict,
+            "Target Project binding revision changed",
+            true,
+        ));
+    }
+    connection.execute(
+        "DELETE FROM project_sources WHERE project_id = ?1",
+        [target_project_id],
+    )?;
+    insert_project_sources(connection, target_project_id, &next_sources, &now)
 }
 
 pub(super) fn workspace_event_anchor(
@@ -3080,6 +3225,16 @@ mod tests {
                 Ok(())
             })
             .expect("seed archived-owner Thread");
+        kernel
+            .writer()
+            .call(|connection| {
+                connection.execute(
+                    "DELETE FROM local_commit_visibility_context WHERE mode = 'maintenance'",
+                    [],
+                )?;
+                Ok(())
+            })
+            .expect("production visibility guard");
         module
             .apply(
                 &context(),
