@@ -1,6 +1,7 @@
 # AGENTS.md
 
 ## **IMPORTANT Global Instructions for Agents:**
+
 - Always commit changes after all edits are done. Do not leave uncommitted changes at the end of a task.
 - This app has no real users or real data yet. Prefer long-term architectural correctness over short-term compatibility. Breaking changes, schema migrations, and large refactors are acceptable when they make the product model simpler and more coherent.
 - For frontend design, prioritize an elegant, information-dense layout with minimal logical/visual redundancy and shallow nesting.
@@ -12,14 +13,17 @@
 ## Agent skills
 
 ### Domain docs
+
 Nodex uses a single-context layout with one root `CONTEXT.md` and system-wide ADRs under `docs/adr/`.
 See `docs/agents/domain.md`.
 
 ## Project Overview
+
 Nodex is a local-first, block-based agent orchestrator.
 It ships as an Electron desktop app plus a CLI/HTTP API backed by SQLite.
 
 ## Setup Commands
+
 - Install deps: `pnpm install`
 - Dev app: `pnpm run dev`
 - Build: `pnpm run build`
@@ -32,6 +36,7 @@ It ships as an Electron desktop app plus a CLI/HTTP API backed by SQLite.
 - Signed dual-architecture gate: GitHub `Distribution Rehearsal`
 
 ## Runtime and Tooling
+
 - Package manager: pnpm
 - Development runtime: Node 24.15.0
 - Native addon: `node-pty` is rebuilt for Electron by `postinstall`; host Node and Electron have different ABIs even when they report the same Node version.
@@ -42,6 +47,7 @@ It ships as an Electron desktop app plus a CLI/HTTP API backed by SQLite.
 - Backend: detached Rust Core (`rusqlite` + Yrs) with a Hono desktop adapter
 
 ## Code Style
+
 - **DRY**: Always keep code DRY. Extract shared hooks, helpers, and patterns instead of duplicating.
 - **Tailwind over custom CSS**: Use Tailwind utility classes. Avoid inflating `globals.css` with new custom class rules.
 - Before defining any new protocol-facing type, first check `packages/codex-app-server-protocol/src/v2`.
@@ -53,8 +59,8 @@ It ships as an Electron desktop app plus a CLI/HTTP API backed by SQLite.
 - Keep renderer transport-agnostic by going through `src/renderer/lib/api.ts`.
 - Preserve project scoping for stateful UI and server operations.
 
-
 ## Architectural Preference
+
 - Default to the long-term, architecturally clean solution over the smallest incremental patch, even when that requires broad refactors, internal API changes, schema migrations, or breaking changes inside this repository.
 - This project has no real users or real data yet. Do not preserve legacy behavior, compatibility layers, duplicate paths, or awkward abstractions merely to reduce diff size.
 - When choosing between a quick local fix and a deeper model-level fix, prefer the model-level fix if it simplifies ownership, removes special cases, or makes future features easier to build.
@@ -63,13 +69,16 @@ It ships as an Electron desktop app plus a CLI/HTTP API backed by SQLite.
 - If a long-term fix is too large for one safe change, implement a clean vertical slice and document the remaining migration path instead of landing a temporary workaround.
 
 ## Architecture
+
 Read `ARCHITECTURE.md` first for system boundaries and dependency flow, then follow its links to the narrow source of truth for the subsystem being changed.
 
 ## Documentation Map
+
 Use these docs as the source of truth:
+
 - System ownership, dependency directions, critical cross-runtime flows, and system-wide invariants: `ARCHITECTURE.md`
 - Execution-plan format and requirements: `docs/PLANS.md`
-- Frontend conventions and editor patterns: `docs/FRONTEND.md`
+- Cross-feature renderer construction, state-owner selection, shared UI/editor primitives, and Storybook conventions: `docs/FRONTEND.md`
 - UI design guidance for agent-built surfaces: `.agents/skills/general-design-guidelines/SKILL.md`
 - Product principles and tradeoffs: `docs/PRODUCT_SENSE.md`
 - Reliability model (backups, SSE/IPC sync, ops): `docs/RELIABILITY.md`
@@ -77,16 +86,19 @@ Use these docs as the source of truth:
 - Keyboard shortcuts reference: `docs/KEYBOARD_SHORTCUTS.md`
 - Current quality grading and gaps: `docs/QUALITY_SCORE.md`
 - Cross-cutting engineering principles and knowledge routing: `docs/ENGINEERING_LEARNINGS.md`
-- Product behavior specifications: `docs/product-specs/`
+- User-visible feature behavior and public contracts: `docs/product-specs/`
 - External/reference specs (Nested Markdown format, examples): `docs/references/`
 
 ## Documentation Update Rules
+
 Documentation maintenance is an active, required responsibility for every agent task.
 Whenever a user asks you to fix a defect or corrects your previous work, repair the immediate issue and complete a recurrence-prevention review before handoff: determine whether a fresh coding agent without the current conversation could make the same mistake, then encode any enduring constraint at the narrowest effective seam.
 Prefer executable enforcement such as types, validation, architecture, or a meaningful regression test; update the owning documentation or agent instructions under the routing rules below when executable enforcement does not make the lesson sufficiently obvious or complete, and do not add redundant prose for a one-off issue already fully protected by an executable regression boundary.
 When behavior changes, update the narrowest source-of-truth doc:
-- User-visible behavior/API contract changes: `docs/product-specs/nodex-product-spec.md`
+
+- User-visible behavior/API contract changes: the narrow owning document under `docs/product-specs/`
 - State-ownership, dependency-direction, system-boundary/deep-Module, system-wide-invariant, or critical cross-runtime-flow changes: `ARCHITECTURE.md`
+- New cross-feature renderer construction convention that applies across independent features and cannot be made obvious at a narrower executable seam: `docs/FRONTEND.md`
 - New reusable UI design guidance for agents: `.agents/skills/general-design-guidelines/SKILL.md`
 - New cross-cutting, non-obvious, high-cost learning that cannot be enforced at a narrower seam: `docs/ENGINEERING_LEARNINGS.md`
 - New subsystem caveat or regression: update the owning product spec/runbook, behavioral test, Adapter comment, or other narrow source of truth instead of appending an incident entry to `docs/ENGINEERING_LEARNINGS.md`
@@ -96,6 +108,7 @@ Do not add implementation chronology, schema/version inventories, individual fil
 Replace stale architectural statements and link to the narrow owner instead of appending another description of the same contract.
 
 Treat `CHANGELOG.md` as a required deliverable only for **release-note-worthy** user-visible changes:
+
 - Keep an `Unreleased` section at the top.
 - Write for humans, not commit-log style.
 - Only include externally relevant changes:
@@ -112,8 +125,8 @@ Treat `CHANGELOG.md` as a required deliverable only for **release-note-worthy** 
 - Use one bullet per user-visible change.
 - Prefer impact-oriented wording, not implementation wording.
 
-
 ## Testing Expectations
+
 - Use a two-tier validation strategy: run targeted checks while iterating, then run risk-appropriate handoff checks once after the final edit set is stable.
 - Match targeted test commands to their runtime:
   - Node/shared tests outside CoreClient: `pnpm exec vitest run --config vitest.node.config.ts <path-to-test>`
@@ -147,28 +160,32 @@ Treat `CHANGELOG.md` as a required deliverable only for **release-note-worthy** 
 - In the handoff, list the checks that ran and briefly explain any intentionally skipped broader check when its omission might otherwise be surprising.
 
 ### Electron HTML5 DnD E2E
+
 - The internal Block → Board native smoke must use the shared realistic `page.mouse` helper in `tests/e2e/electron-smoke.spec.ts` and a real `button[draggable="true"]` handle.
 - Do not replace it with `locator.drop`, synthetic `dragstart`, direct `blocks:transfer`, or CDP `Input.dispatchDragEvent`; those exercise different boundaries.
 - Do not use one-jump `dragTo` or invent another mouse path. Reuse the helper, which waits for the hover-only handle, crosses the activation threshold, moves in steps, and moves again inside the target to produce `dragover`.
 - If `dragstart` is missing, inspect the Playwright trace for handle remount, hit target, draggable state, activation distance, and overlays before changing frameworks or adding `Input.setInterceptDrags`.
 - Keep high-pressure and performance coverage on the direct typed transfer boundary; those are convergence tests, not native DnD gesture tests.
 
-
 ## Commit and PR Expectations
+
 - Keep changes scoped and atomic.
 - Use Conventional Commits: `<type>(<scope>): <description>`, omitting the scope when it adds no value. Common types include `feat`, `fix`, `refactor`, `docs`, `test`, `chore`, `build`, `ci`, and `perf`.
 - Write a concise, imperative, human-readable subject that explains why the change matters. Prefer the user, product, reliability, or performance outcome over the implementation mechanism.
   - Bad: `perf(server): negotiate permessage-deflate on the websocket`
   - Good: `perf(server): cut websocket frame size by 70%+ with gzipping`
 - Add a commit body only when it provides useful motivation, constraints, impact, or trade-offs. Open commit bodies and PR descriptions with a simple explanation of the problem based on the user's original request, then briefly explain the solution. Lead with user impact; include implementation details afterward only when they clarify important constraints or trade-offs.
+- For multi-paragraph commit bodies, pass each paragraph as a separate `-m` argument (or use `git commit -F`); shell-quoted `\n` is literal.
 - Bad: `Removed implicit workspace carry-over from every "new thread" entry point (cmd+n / cmd+shift+o, sidebar v1/v2 buttons, command palette). New threads inherit only the project from context; branch, worktree, and env mode always come from the configured defaults. Deleted buildContextualThreadOptions, startNewThreadInProjectFromContext, and the v1 sidebar's seed-context machinery.`
 - Good: `My "new thread" default was ignored when starting new threads on existing worktrees. Super unintuitive. Now your preferences always apply.`
 - Update related docs in the same change when contracts or workflows change.
 - Include commands run and validation outcomes in your PR notes.
 
 ## Frontend tasks
+
 When doing frontend design tasks, avoid generic, overbuilt layouts.
 **Use these hard rules:**
+
 - Prioritize an elegant, information-dense layout with minimal logical/visual redundancy and shallow nesting.
 - One composition: The first viewport must read as one composition, not a dashboard (unless it's a dashboard).
 - Brand first: On branded pages, the brand or product name must be a hero-level signal, not just nav text or an eyebrow. No headline should overpower the brand.
