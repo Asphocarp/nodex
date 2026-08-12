@@ -258,6 +258,9 @@ Load the narrow contract only for the branch being changed:
 | Feature branch | Read first |
 | --- | --- |
 | Workbench Scenes, sidebar, panels, tabs, navigation, and shell presentation | [Workbench shell](product-specs/workbench-shell.md) and the Scene ADRs |
+| Database Views, Page creation, Page Stage, and Properties | [Database, Pages, and Views](product-specs/database-pages-and-views-behavior.md) |
+| Canvas inline and Stage presentation | [Canvas](product-specs/canvas-behavior.md) |
+| Chat lifecycle, workspaces, worktrees, forks, and runtime integrations | [Codex workspace](product-specs/codex-workspace-behavior.md) |
 | Renderer scope and persistence ownership | [Renderer view-state ownership](renderer-view-state-ownership.md) |
 | Codex transcript, requests, tools, composer, and turn/activity projection | [Codex transcript behavior](product-specs/codex-thread-transcript-behavior.md) |
 | Codex owner/follower publication and recovery | [Owner/follower streaming](product-specs/codex-thread-owner-follower-streaming.md) |

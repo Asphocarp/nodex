@@ -282,7 +282,7 @@ This map names stable regions and responsibilities rather than enumerating indiv
 
 Reliability and security are architectural constraints but their operational detail changes more frequently than this map.
 
-- [Reliability](docs/RELIABILITY.md) owns LocalCommit recovery, Document sync, backup/restore, retention, event delivery, and operational checks.
+- [Reliability](docs/RELIABILITY.md) routes LocalCommit recovery, Document sync, backup/restore, retention, event delivery, and operational checks to its focused reliability contracts.
 - [Security](docs/SECURITY.md) owns trust boundaries, authorization, renderer and guest sandboxing, release supply chain, and the hardening backlog.
 - [Engineering Learnings](docs/ENGINEERING_LEARNINGS.md) distills reusable cross-cutting principles and routes narrower knowledge to its owner.
 
