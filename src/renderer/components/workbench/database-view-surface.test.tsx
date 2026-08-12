@@ -1338,7 +1338,7 @@ describe("DatabaseViewTabSurface", () => {
     expect(screen.getByText("No matching Pages")).toBeTruthy();
   });
 
-  test("uses the independent List grid for hierarchy collapse and keyboard range selection", async () => {
+  test("uses the independent List grid for an always-visible hierarchy and keyboard range selection", async () => {
     const selectedSnapshots: ReadonlySet<string>[] = [];
     const screen = render(
       <NestedDatabaseListHarness
@@ -1358,16 +1358,8 @@ describe("DatabaseViewTabSurface", () => {
       new Set(["page-focused", "page-next"]),
     ));
 
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", {
-        name: "Collapse sub-pages of Focused Page",
-      }));
-      await Promise.resolve();
-    });
-    expect(screen.queryByRole("button", { name: "Open Page Next Page" })).toBeNull();
-    expect(screen.getByRole("button", {
-      name: "Expand sub-pages of Focused Page",
-    })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Open Page Next Page" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /sub-pages of Focused Page/ })).toBeNull();
     expect(screen.queryByRole("article")).toBeNull();
   });
 
