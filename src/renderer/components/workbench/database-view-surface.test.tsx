@@ -1005,6 +1005,10 @@ describe("DatabaseViewSurface", () => {
           ...row,
           values: {
             ...row.values,
+            [tagsPropertyId]: {
+              ...row.values[tagsPropertyId]!,
+              value: ["o_CCCCCCCC"],
+            },
             [brokenPropertyId]: {
               propertyId: brokenPropertyId,
               valueType: "select",
@@ -1030,31 +1034,38 @@ describe("DatabaseViewSurface", () => {
       };
     });
     try {
-      const screen = render(
-        <DatabaseViewSurface
-          model={loadingModel}
-          searchQuery=""
-          onOpenPage={() => undefined}
-        />,
-      );
-      expect(optionRuntime.read).not.toHaveBeenCalled();
+      let screen!: ReturnType<typeof render>;
+      await act(async () => {
+        screen = render(
+          <DatabaseViewSurface
+            model={loadingModel}
+            searchQuery=""
+            onOpenPage={() => undefined}
+          />,
+        );
+        await Promise.resolve();
+      });
+      await waitFor(() => expect(optionRuntime.read).toHaveBeenCalledTimes(2));
+      await waitFor(() => expect(screen.getByRole("button", {
+        name: "Edit Tags",
+      }).textContent).toContain("Loaded sibling"));
       await act(async () => {
         fireEvent.click(screen.getByRole("button", { name: "Edit Tags" }));
         await Promise.resolve();
       });
       await waitFor(() => expect(screen.getByRole("option", { name: "Loaded sibling" })).toBeTruthy());
-      expect(optionRuntime.read).toHaveBeenCalledTimes(1);
-      screen.rerender(
-        <DatabaseViewSurface
-          model={{ ...loadingModel, commitSeq: loadingModel.commitSeq + 1 }}
-          searchQuery=""
-          onOpenPage={() => undefined}
-        />,
-      );
+      expect(optionRuntime.read).toHaveBeenCalledTimes(2);
       await act(async () => {
+        screen.rerender(
+          <DatabaseViewSurface
+            model={{ ...loadingModel, commitSeq: loadingModel.commitSeq + 1 }}
+            searchQuery=""
+            onOpenPage={() => undefined}
+          />,
+        );
         await Promise.resolve();
       });
-      expect(optionRuntime.read).toHaveBeenCalledTimes(1);
+      expect(optionRuntime.read).toHaveBeenCalledTimes(2);
       expect(screen.getByRole("option", { name: "Loaded sibling" })).toBeTruthy();
       await act(async () => {
         fireEvent.keyDown(screen.getByRole("combobox", { name: "Search Tags options" }), {
@@ -1073,7 +1084,7 @@ describe("DatabaseViewSurface", () => {
         name: "Couldn’t load options. Retry",
       }));
       expect(screen.queryByText("registry unavailable")).toBeNull();
-      expect(optionRuntime.read).toHaveBeenCalledTimes(2);
+      expect(optionRuntime.read).toHaveBeenCalledTimes(3);
       await act(async () => {
         fireEvent.keyDown(retry, { key: "Escape" });
         await Promise.resolve();
@@ -1088,7 +1099,7 @@ describe("DatabaseViewSurface", () => {
       await waitFor(() => expect(screen.getByRole("option", {
         name: "Loaded sibling",
       })).toBeTruthy());
-      expect(optionRuntime.read).toHaveBeenCalledTimes(2);
+      expect(optionRuntime.read).toHaveBeenCalledTimes(3);
     } finally {
       consoleError.mockRestore();
     }

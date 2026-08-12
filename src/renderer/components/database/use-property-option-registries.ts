@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ContentAccessContext } from "../../../shared/content-access-context";
 import type { DatabasePropertyOption } from "../../../shared/database-kernel";
 import type { DataSourcePropertyRecordV2 } from "../../../shared/database-module-v2";
@@ -18,6 +18,8 @@ interface PropertyOptionRegistryEntry {
   readonly seenCursors: readonly string[];
   readonly loadingMore: boolean;
 }
+
+const EMPTY_REQUIRED_OPTION_IDS: Readonly<Record<string, readonly string[]>> = {};
 
 const isOptionProperty = (
   property: DataSourcePropertyRecordV2,
@@ -42,9 +44,12 @@ const initialEntry = (
 export function usePropertyOptionRegistries({
   accessContext,
   properties,
+  requiredOptionIds = EMPTY_REQUIRED_OPTION_IDS,
 }: {
   readonly accessContext: ContentAccessContext;
   readonly properties: readonly DataSourcePropertyRecordV2[];
+  /** Selected identities whose labels are visible before a picker opens. */
+  readonly requiredOptionIds?: Readonly<Record<string, readonly string[]>>;
 }) {
   const [entries, setEntries] = useState<Readonly<Record<
     string,
@@ -172,6 +177,34 @@ export function usePropertyOptionRegistries({
     (property: DataSourcePropertyRecordV2) => load(property, true),
     [load],
   );
+  const requiredOptionEntries = useMemo(
+    () => Object.entries(requiredOptionIds).map(([propertyId, optionIds]) => [
+      propertyId,
+      [...new Set(optionIds)],
+    ] as const),
+    [requiredOptionIds],
+  );
+
+  useEffect(() => {
+    const propertyById = new Map<string, DataSourcePropertyRecordV2>(
+      propertiesRef.current.map((property) => [String(property.propertyId), property]),
+    );
+    for (const [propertyId, requiredIds] of requiredOptionEntries) {
+      if (requiredIds.length === 0) continue;
+      const property = propertyById.get(propertyId);
+      if (!property || !isOptionProperty(property)) continue;
+      const entry = entriesRef.current[property.propertyId] ?? initialEntry(property);
+      const presentIds = new Set(entry.options.map((option) => option.id));
+      if (requiredIds.every((optionId) => presentIds.has(optionId))) continue;
+      if (entry.state === "idle") {
+        load(property, false);
+        continue;
+      }
+      if (entry.state === "ready" && entry.nextCursor !== null) {
+        load(property, true);
+      }
+    }
+  }, [entries, load, requiredOptionEntries]);
 
   return useMemo(() => ({
     options: Object.fromEntries(

@@ -19,6 +19,7 @@ import {
   projectDatabasePage,
   projectDatabaseViewReference,
 } from "../../shared/database-page-projection";
+import { projectCoreDatabaseQueryRow } from "../../shared/core-database-row-projection";
 import { upgradeDatabaseViewConfigV2 } from "../../shared/database-view-presentation";
 import type { CoreDatabaseRowSummary } from "./types";
 
@@ -224,7 +225,7 @@ const makeQuery = (
 });
 
 describe("native Database Page projections", () => {
-  test("uses canonical defaults when optional card Properties have no stored value", () => {
+  test("keeps canonical option identities separate from compatibility display values", () => {
     const row: CoreDatabaseRowSummary = {
       page_id: "page:defaults",
       lifecycle: "active",
@@ -233,7 +234,8 @@ describe("native Database Page projections", () => {
       description_preview: "",
       description_length: 0,
       has_description: false,
-      database_values: { status: "triage" },
+      database_values: { status: "triage", tags: ["tag:api"] },
+      database_display_values: { status: "triage", tags: ["API"] },
       intrinsic_properties: {
         "run.target": "localProject",
         "run.localPath": null,
@@ -245,7 +247,7 @@ describe("native Database Page projections", () => {
         "recurrence.config": null,
         "reminders.config": [],
       },
-      database_value_revisions: {},
+      database_value_revisions: { status: 1, tags: 1 },
       task_parent_page_id: null,
       task_sibling_rank: null,
       task_parent_value_revision: 1,
@@ -264,7 +266,7 @@ describe("native Database Page projections", () => {
     expect(projectCoreDatabaseRowSummary(row)).toMatchObject({
       id: "page:defaults",
       status: "triage",
-      tags: [],
+      tags: ["API"],
       priority: undefined,
       estimate: undefined,
       dueDate: undefined,
@@ -272,6 +274,11 @@ describe("native Database Page projections", () => {
       scheduledEnd: undefined,
       assignee: undefined,
     });
+    expect(projectCoreDatabaseQueryRow(row, {
+      libraryId: "library:test",
+      dataSourceId,
+      properties,
+    }).values.tags?.value).toEqual(["tag:api"]);
   });
 
   test("builds the complete compatibility Page from one native query row", () => {
