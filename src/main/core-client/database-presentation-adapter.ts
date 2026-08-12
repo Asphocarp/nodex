@@ -107,7 +107,10 @@ const fromCoreViewField = (
   >[number],
 ): DatabaseViewField => field.kind === "property"
   ? { kind: "property", propertyId: field.property_id }
-  : { kind: "intrinsic", field: field.field as "created_at" | "updated_at" };
+  : {
+      kind: "intrinsic",
+      field: field.field as "page_id" | "created_at" | "updated_at",
+    };
 
 export const fromCoreDatabaseViewPresentationOverride = (
   override: CoreDatabaseViewPresentationOverride,

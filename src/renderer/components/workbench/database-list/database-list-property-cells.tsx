@@ -329,6 +329,7 @@ export function DatabaseListTrailingPropertyCells({
 }) {
   return fields.flatMap((field) => {
     if (field.kind !== "intrinsic") return [];
+    if (field.field === "page_id") return [];
     const value = field.field === "created_at"
       ? authority.page.createdAt
       : authority.page.updatedAt;
@@ -339,6 +340,7 @@ export function DatabaseListTrailingPropertyCells({
         data-list-grid-column={field.field}
         data-list-field-key={`intrinsic:${field.field}`}
         className="relative z-[1] min-w-0 truncate text-right text-xs tabular-nums text-[var(--database-list-text-muted)]"
+        style={{ gridColumn: field.field }}
       >
         {dateFormatter.format(new Date(value))}
       </div>

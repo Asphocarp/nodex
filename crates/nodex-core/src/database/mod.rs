@@ -273,10 +273,10 @@ mod tests {
         DatabasePropertySetDelta, DatabasePropertyValueEdit, DatabasePropertyValueInput,
         DatabasePropertyValueMutation, DatabaseReadMode, DatabaseTarget, DatabaseTaskParentPage,
         DatabaseTransferTarget, DatabaseViewCompletedRangeInput,
-        DatabaseViewCompletionOverrideInput, DatabaseViewGroupOverrideInput,
-        DatabaseViewLayoutDisplayOverrideInput, DatabaseViewLayoutInput,
-        DatabaseViewLayoutsOverrideInput, DatabaseViewPresentationOverrideInput,
-        DatabaseViewSortDirectionInput,
+        DatabaseViewCompletionOverrideInput, DatabaseViewFieldInput,
+        DatabaseViewGroupOverrideInput, DatabaseViewLayoutDisplayOverrideInput,
+        DatabaseViewLayoutInput, DatabaseViewLayoutsOverrideInput,
+        DatabaseViewPresentationOverrideInput, DatabaseViewSortDirectionInput,
     };
     use nodex_core_contracts::library::{
         LIBRARY_CONTRACT_VERSION, LibraryIntent, LibraryPageLifecycleMutation, LibraryWriteParent,
@@ -4989,7 +4989,12 @@ mod tests {
                     fields: None,
                     show_empty_groups: Some(true),
                 }),
-                list: None,
+                list: Some(DatabaseViewLayoutDisplayOverrideInput {
+                    fields: Some(vec![DatabaseViewFieldInput::Intrinsic {
+                        field: "page_id".to_owned(),
+                    }]),
+                    show_empty_groups: None,
+                }),
             }),
         };
         let groups_snapshot = module

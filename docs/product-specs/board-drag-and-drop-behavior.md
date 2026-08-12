@@ -45,6 +45,8 @@ This post-removal contract must stay identical across:
 - Board card drag uses Atlassian Pragmatic Drag and Drop.
 - Cards register their own draggable behavior locally.
 - Board outcomes are resolved in one board-level monitor.
+- An idle card keeps the pointer cursor because clicking it opens the Page; the
+  grabbing cursor appears only after a drag has actually started.
 - The native drag preview preserves source geometry and source offset.
 - While dragging, the source card stays rendered as a static ghost in place instead of live-shifting siblings.
 

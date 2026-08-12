@@ -4294,7 +4294,7 @@ fn validate_view_config(
                     if field.len() == 2
                         && matches!(
                             field.get("field").and_then(Value::as_str),
-                            Some("created_at" | "updated_at")
+                            Some("page_id" | "created_at" | "updated_at")
                         ) => {}
                 _ => return Err(invalid("Database View layout field is invalid")),
             }

@@ -301,7 +301,7 @@ export function DbViewSessionTab({
       groupable: property.capabilities.groupable,
       finite: property.valueType === "select" || property.valueType === "checkbox",
     })) ?? [],
-    intrinsicFields: ["created_at", "updated_at"] as const,
+    intrinsicFields: ["page_id", "created_at", "updated_at"] as const,
     ...(databaseView?.query.properties.some(
       (property) => property.propertyId === "status",
     )

@@ -408,7 +408,6 @@ interface CardSurfaceProps extends React.HTMLAttributes<HTMLDivElement> {
   card: CardType;
   columnId: string;
   displayPrefs?: DbViewDisplayPrefs;
-  dragDisabled?: boolean;
   showStaticDragGhost?: boolean;
   fixedWidth?: number;
   fixedHeight?: number;
@@ -431,7 +430,6 @@ const CardSurface = forwardRef<HTMLDivElement, CardSurfaceProps>(function CardSu
   card,
   columnId,
   displayPrefs,
-  dragDisabled = false,
   showStaticDragGhost = false,
   fixedWidth,
   fixedHeight,
@@ -484,7 +482,7 @@ const CardSurface = forwardRef<HTMLDivElement, CardSurfaceProps>(function CardSu
       data-board-card-presented={isPresented ? "true" : undefined}
       className={cn(
         "relative min-h-10 overflow-hidden rounded-lg bg-(--card) select-none",
-        dragDisabled ? "cursor-pointer" : "cursor-grab active:cursor-grabbing",
+        isDragging ? "cursor-grabbing" : "cursor-pointer",
         "hover:bg-[color-mix(in_srgb,var(--column-accent,#888)_8%,var(--card))]",
         showStaticDragGhost && "opacity-35",
         isDragging && !showStaticDragGhost && "opacity-50",
@@ -527,7 +525,6 @@ export function CardPreview({
       card={card}
       columnId={columnId}
       displayPrefs={displayPrefs}
-      dragDisabled
       isSelected={isSelected}
       fixedWidth={fixedWidth}
       fixedHeight={fixedHeight}
@@ -764,7 +761,6 @@ export function Card({
       columnId={columnId}
       displayPrefs={displayPrefs}
       className="bn-drag-exclude"
-      dragDisabled={dragDisabled}
       showStaticDragGhost={showStaticDragGhost}
       isDragging={isDragging}
       isKeyboardActive={isKeyboardActive}

@@ -60,6 +60,7 @@ export function DatabaseListRow({
   priorityMutationDisabled,
   showPriority,
   showStatus,
+  showIdentifier,
   nestingContinuations,
   ariaRowIndex,
 }: {
@@ -92,6 +93,7 @@ export function DatabaseListRow({
   readonly priorityMutationDisabled: boolean;
   readonly showPriority: boolean;
   readonly showStatus: boolean;
+  readonly showIdentifier: boolean;
   readonly nestingContinuations: readonly boolean[];
   readonly ariaRowIndex: number;
 }) {
@@ -212,13 +214,24 @@ export function DatabaseListRow({
           )}
         />
       ) : null}
-      <div role="gridcell" aria-hidden="true" data-list-grid-column="indent" className="relative z-[1] h-full min-w-0" />
+      <div
+        role="gridcell"
+        aria-hidden="true"
+        data-list-grid-column="indent"
+        className="relative z-[1] h-full min-w-0"
+        style={{ gridColumn: "indent" }}
+      />
       <DatabaseListNestingLines
         depth={item.depth}
         continuations={nestingContinuations}
         hasChildren={item.hasChildren}
       />
-      <div role="gridcell" data-list-grid-column="checkbox" className="relative z-[1] flex items-center justify-center">
+      <div
+        role="gridcell"
+        data-list-grid-column="checkbox"
+        className="relative z-[1] flex items-center justify-center"
+        style={{ gridColumn: "checkbox" }}
+      >
         <NodexCheckbox
           ariaLabel={`${selected ? "Deselect" : "Select"} ${presentedTitle}`}
           checked={selected}
@@ -231,7 +244,10 @@ export function DatabaseListRow({
           role="gridcell"
           data-list-grid-column="priority"
           className="relative z-[1] flex min-w-0 items-center justify-center text-[var(--database-list-text-muted)]"
-          style={{ transform: `translateX(${depthOffset}px)` }}
+          style={{
+            gridColumn: "priority",
+            transform: `translateX(${depthOffset}px)`,
+          }}
         >
           <PropertyOptionPicker
             label="Priority"
@@ -266,21 +282,29 @@ export function DatabaseListRow({
           />
         </div>
       ) : null}
-      <div
-        role="gridcell"
-        data-list-grid-column="identifier"
-        className="relative z-[1] min-w-0 truncate text-[13px] font-[450] leading-[normal] tabular-nums text-[var(--database-list-text-muted)]"
-        style={{ transform: `translateX(${depthOffset}px)` }}
-        title={item.pageId}
-      >
-        {shortIdentifier(item.pageId)}
-      </div>
+      {showIdentifier ? (
+        <div
+          role="gridcell"
+          data-list-grid-column="identifier"
+          className="relative z-[1] min-w-0 truncate text-[13px] font-[450] leading-[normal] tabular-nums text-[var(--database-list-text-muted)]"
+          style={{
+            gridColumn: "identifier",
+            transform: `translateX(${depthOffset}px)`,
+          }}
+          title={item.pageId}
+        >
+          {shortIdentifier(item.pageId)}
+        </div>
+      ) : null}
       {showStatus ? (
         <div
           role="gridcell"
           data-list-grid-column="status"
           className="relative z-[1] flex min-w-0 items-center justify-center text-[var(--database-list-text-muted)]"
-          style={{ transform: `translateX(${depthOffset}px)` }}
+          style={{
+            gridColumn: "status",
+            transform: `translateX(${depthOffset}px)`,
+          }}
         >
           <PropertyOptionPicker
             label="Status"
@@ -323,6 +347,7 @@ export function DatabaseListRow({
         data-list-grid-column="title"
         className="relative z-[1] -mr-[5px] flex min-w-0 items-center overflow-hidden"
         style={{
+          gridColumn: "title",
           transform: `translateX(${depthOffset}px)`,
           marginRight: `${depthOffset - 5}px`,
         }}
@@ -343,7 +368,12 @@ export function DatabaseListRow({
         </div>
       </div>
       {trailingCells}
-      <div role="gridcell" data-list-grid-column="end-padding" className="relative z-[1]" />
+      <div
+        role="gridcell"
+        data-list-grid-column="end-padding"
+        className="relative z-[1]"
+        style={{ gridColumn: "end-padding" }}
+      />
     </div>
   );
 }

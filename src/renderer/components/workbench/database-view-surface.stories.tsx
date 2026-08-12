@@ -436,7 +436,33 @@ const withNestedGroupedList = (): DatabaseViewRenderModel => {
 };
 
 export const ListView: Story = { args: { model: withLayout("list") } };
-export const NestedListHierarchy: Story = { args: { model: withNestedList() } };
+export const NestedListHierarchy: Story = {
+  args: { model: withNestedList() },
+  play: async ({ canvasElement }) => {
+    const layoutGrid = canvasElement.querySelector<HTMLElement>(
+      "[data-list-layout-grid=true]",
+    );
+    const row = canvasElement.querySelector<HTMLElement>(
+      "[data-database-view-page-id]",
+    );
+    if (!layoutGrid || !row) throw new Error("Expected the nested List grid and a Page row");
+
+    await waitFor(() => {
+      const view = canvasElement.ownerDocument.defaultView;
+      if (!view) throw new Error("Expected the Storybook window");
+      if (view.getComputedStyle(layoutGrid).gridTemplateColumns === "none") {
+        throw new Error("Hidden Page ID invalidated the List grid template");
+      }
+      for (const cell of row.querySelectorAll<HTMLElement>(
+        ":scope > [data-list-grid-column]",
+      )) {
+        if (view.getComputedStyle(cell).gridColumnStart === "auto") {
+          throw new Error(`${cell.dataset.listGridColumn} lost its named grid placement`);
+        }
+      }
+    });
+  },
+};
 export const NestedListAcrossGroups: Story = {
   args: { model: withNestedGroupedList() },
 };

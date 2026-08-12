@@ -72,8 +72,11 @@ test("keeps layout edits personal until explicitly published or reset", async ()
   expect(statusField.getAttribute("aria-pressed")).toBe("false");
   fireEvent.click(statusField);
   expect(statusField.getAttribute("aria-pressed")).toBe("true");
-  expect(screen.getByRole("button", { name: "ID" }).hasAttribute("disabled"))
-    .toBe(true);
+  const idField = screen.getByRole("button", { name: "ID" });
+  expect(idField.hasAttribute("disabled")).toBe(false);
+  expect(idField.getAttribute("aria-pressed")).toBe("false");
+  fireEvent.click(idField);
+  expect(idField.getAttribute("aria-pressed")).toBe("true");
 
   expect(screen.getByRole("button", { name: "Reset" }).hasAttribute("disabled"))
     .toBe(false);
