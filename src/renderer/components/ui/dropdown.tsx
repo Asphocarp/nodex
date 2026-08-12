@@ -52,14 +52,18 @@ function NodexDropdownRoot(
   return <DropdownMenuPrimitive.Root modal={false} {...props} />;
 }
 
-function NodexDropdownTrigger({
+const NodexDropdownTrigger = forwardRef<
+  HTMLButtonElement,
+  ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Trigger>
+>(function NodexDropdownTrigger({
   asChild,
   className,
   disabled,
   ...props
-}: ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Trigger>) {
+}, ref) {
   return (
     <DropdownMenuPrimitive.Trigger
+      ref={ref}
       data-slot={asChild ? undefined : "dropdown-trigger"}
       asChild={asChild}
       disabled={disabled}
@@ -67,7 +71,7 @@ function NodexDropdownTrigger({
       {...props}
     />
   );
-}
+});
 
 function NodexDropdownPortal(
   props: ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Portal>,
@@ -200,6 +204,8 @@ function resolveDropdownMaxHeightClass(maxHeight?: NodexDropdownContentMaxHeight
 
 export interface NodexDropdownMenuProps {
   triggerButton: ReactElement;
+  triggerTooltipContent?: ReactNode;
+  triggerTooltipShortcut?: ReactNode;
   children: ReactNode;
   disabled?: boolean;
   open?: boolean;
@@ -222,6 +228,8 @@ export interface NodexDropdownMenuProps {
 
 export function NodexDropdownMenu({
   triggerButton,
+  triggerTooltipContent,
+  triggerTooltipShortcut,
   children,
   disabled = false,
   open,
@@ -241,15 +249,29 @@ export function NodexDropdownMenu({
   portalContainer,
   motion = "default",
 }: NodexDropdownMenuProps) {
+  const trigger = (
+    <NodexDropdownTrigger asChild disabled={disabled}>
+      {triggerButton}
+    </NodexDropdownTrigger>
+  );
+
   return (
     <NodexDropdownRoot
       dir={dir}
       open={open}
       onOpenChange={onOpenChange}
     >
-      <NodexDropdownTrigger asChild disabled={disabled}>
-        {triggerButton}
-      </NodexDropdownTrigger>
+      {triggerTooltipContent == null ? trigger : (
+        <NodexTooltip
+          tooltipContent={triggerTooltipContent}
+          shortcut={triggerTooltipShortcut}
+          side="top"
+          sideOffset={4}
+          surface="rich"
+        >
+          {trigger}
+        </NodexTooltip>
+      )}
       {disabled ? null : (
         <NodexDropdownPortal container={portalContainer ?? undefined}>
           <NodexDropdownContent

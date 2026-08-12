@@ -154,6 +154,7 @@ export const CODEX_COMMAND_REGISTRY = [
   command("quickChat", "New quick chat", "Start a quick chat", 50, "app", ["CmdOrCtrl+Alt+N"]),
   command("toggleThreadPin", "Toggle pin", "Pin or unpin the current chat", 60, "app", ["CmdOrCtrl+Alt+P"]),
   command("findInThread", "Find", "Find in the current chat, review, or project view", 70, "app", ["CmdOrCtrl+F"]),
+  command("openModelPicker", "Select model", "Choose the model, effort, and speed for the next turn", 75, "app", ["Ctrl+Shift+M"]),
   command(
     "focusBrowserAddressBar",
     "Focus browser address bar",

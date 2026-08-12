@@ -12002,6 +12002,68 @@ describe("local-conversation-store", () => {
     }
   });
 
+  test("owner optimistic params and turn/start use the same explicit intelligence", async () => {
+    invokeCalls = [];
+    invokeRecords = [];
+    hostMessageListener = null;
+    rendererClientRequestListener = null;
+    threadListByProject = {};
+    resumeThreadResult = {
+      ...buildConversation("thread-1", "project-1"),
+      turns: [],
+    };
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
+
+    const manager = new CodexAppServerManager("default");
+    try {
+      await manager.requestThreadStreamResume("thread-1");
+      invokeRecords = [];
+      await manager.startTurn("thread-1", "Implement", {
+        permissionMode: "auto",
+        collaborationMode: "default",
+        model: "gpt-5.6-sol",
+        reasoningEffort: "xhigh",
+        serviceTier: "fast",
+      });
+
+      const params = manager.readConversation("thread-1")
+        ?.canonicalState?.turns[0]?.sidecar.params;
+      const startRequest = invokeRecords.find((record) =>
+        record.channel === "codex:thread-owner:app-server-request"
+        && (record.args[0] as { request?: { method?: string } }).request?.method === "turn/start"
+      )?.args[0] as {
+        request?: {
+          params?: {
+            opts?: {
+              collaborationMode?: string;
+              model?: string;
+              reasoningEffort?: string;
+              serviceTier?: string | null;
+            };
+          };
+        };
+      } | undefined;
+
+      expect(params?.collaborationMode?.mode).toBe("default");
+      expect(params?.collaborationMode?.settings.model).toBe("gpt-5.6-sol");
+      expect(params?.collaborationMode?.settings.reasoning_effort).toBe("xhigh");
+      expect(params?.serviceTier).toBe("fast");
+      expect(startRequest?.request?.params?.opts).toMatchObject({
+        collaborationMode: "default",
+        model: "gpt-5.6-sol",
+        reasoningEffort: "xhigh",
+        serviceTier: "fast",
+      });
+    } finally {
+      resumeThreadResult = null;
+      manager.destroy();
+    }
+  });
+
   test("owner start turn publishes params-owned user row snapshot from bundle 49055-49112", async () => {
     invokeCalls = [];
     invokeRecords = [];

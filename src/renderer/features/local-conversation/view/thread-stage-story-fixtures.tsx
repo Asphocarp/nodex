@@ -180,6 +180,37 @@ const DEFAULT_MODELS: CodexModelOption[] = [
   },
 ];
 
+const IMPLEMENT_PLAN_MODELS: CodexModelOption[] = [
+  {
+    id: "gpt-5.6-terra",
+    model: "gpt-5.6-terra",
+    displayName: "GPT-5.6 Terra",
+    description: "Fast everyday implementation work.",
+    hidden: false,
+    supportedReasoningEfforts: [
+      { reasoningEffort: "low", description: "Light" },
+    ],
+    defaultReasoningEffort: "low",
+    isDefault: false,
+  },
+  {
+    id: "gpt-5.6-sol",
+    model: "gpt-5.6-sol",
+    displayName: "GPT-5.6 Sol",
+    description: "Deeper implementation work.",
+    hidden: false,
+    supportedReasoningEfforts: [
+      { reasoningEffort: "low", description: "Light" },
+      { reasoningEffort: "medium", description: "Medium" },
+      { reasoningEffort: "high", description: "High" },
+      { reasoningEffort: "xhigh", description: "Extra High" },
+      { reasoningEffort: "ultra", description: "Ultra" },
+    ],
+    defaultReasoningEffort: "xhigh",
+    isDefault: true,
+  },
+];
+
 const DEFAULT_COLLABORATION_MODES: CodexCollaborationModePreset[] = [
   { name: "Default", mode: "default", model: null, reasoningEffort: null },
   { name: "Plan", mode: "plan", model: null, reasoningEffort: "high" },
@@ -3217,6 +3248,15 @@ export function buildThreadStageStorySurfaceModels(
   });
 
   const activeTurn = [...turns].reverse().find((turn) => turn.status === "inProgress") ?? null;
+  const availableModels = controls.preset === "implement-plan"
+    ? IMPLEMENT_PLAN_MODELS
+    : DEFAULT_MODELS;
+  const selectedModel = controls.preset === "implement-plan"
+    ? "gpt-5.6-sol"
+    : (availableModels[0]?.model ?? "");
+  const selectedReasoningEffort = controls.preset === "implement-plan"
+    ? "xhigh"
+    : "high";
   const footerModel: ThreadFooterModel = {
     projectId: STORY_PROJECT_ID,
     projectWorkspacePath: STORY_WORKSPACE_PATH,
@@ -3236,9 +3276,9 @@ export function buildThreadStageStorySurfaceModels(
     body,
     collaborationModes: DEFAULT_COLLABORATION_MODES,
     selectedCollaborationMode: "default",
-    selectedModel: DEFAULT_MODELS[0]?.model ?? "",
-    availableModels: DEFAULT_MODELS,
-    selectedReasoningEffort: "high",
+    selectedModel,
+    availableModels,
+    selectedReasoningEffort,
     reasoningEffortOptions: DEFAULT_REASONING_OPTIONS,
     permissionMode: controls.permissionMode,
     permissionState: {

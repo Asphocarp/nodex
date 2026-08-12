@@ -33,6 +33,13 @@ export function CodexImplementPlanRequestCard({
   onRespond,
 }: CodexImplementPlanRequestCardProps) {
   const composerRequest = buildPlanComposerRequest(request);
+  const dismiss = async () => {
+    try {
+      await onRespond({ type: "dismiss" });
+    } catch {
+      throw new Error("Could not dismiss plan — try again");
+    }
+  };
 
   return (
     <RequestComposerView
@@ -45,7 +52,7 @@ export function CodexImplementPlanRequestCard({
           ? buildUserInputAnswers(nextRequest, state)[questionId]?.[0]?.trim() ?? ""
           : "";
         if (!answer) {
-          await onRespond({ type: "dismiss" });
+          await dismiss();
           return;
         }
         if (answer === "Yes, implement this plan") {
@@ -55,10 +62,10 @@ export function CodexImplementPlanRequestCard({
         await onRespond({ type: "followUp", prompt: answer });
       }}
       onEscapeDismiss={async () => {
-        await onRespond({ type: "dismiss" });
+        await dismiss();
       }}
       submitErrorMessage="Could not submit plan implementation request"
-      dismissErrorMessage="Could not dismiss plan implementation request"
+      dismissErrorMessage="Could not dismiss plan — try again"
     />
   );
 }

@@ -4,6 +4,7 @@ import { LocalConversationNewThreadHomeScreen } from "./local-conversation-new-t
 import { LocalConversationStageScreen } from "./local-conversation-stage-screen";
 import { ThreadStageHeader } from "./local-conversation-stage-header";
 import { LocalConversationThreadBody } from "./local-conversation-thread-body";
+import { EnsureLocalConversationThreadScrollController } from "./local-conversation-thread-scroll-controller";
 import { NewChatProjectSelector } from "./composer/new-chat-project-selector";
 import {
   StorybookElectronTransportBoundary,
@@ -29,6 +30,7 @@ import {
   useAutoReviewApprovalNudgeActions,
 } from "../auto-review-approval-nudge-state";
 import { useSetPersistedAtom } from "@/lib/maitai";
+import { TestThreadRouteScopePath } from "@/test/maitai-scope-harness";
 
 export interface ThreadStageDevStoryPageProps extends ThreadStageStoryControls {
   renderPreview?: boolean;
@@ -784,8 +786,10 @@ export function ThreadStageDevStoryPage({
               permissionMode={surfaceModels.footerModel.permissionMode}
               permissionDescription={scenario.permissionDescription}
             >
-              <div ref={previewRef} className="min-h-[760px]">
-                {isNewThreadHome ? (
+              <TestThreadRouteScopePath>
+                <EnsureLocalConversationThreadScrollController>
+                  <div ref={previewRef} className="min-h-[760px]">
+                  {isNewThreadHome ? (
                   <LocalConversationNewThreadHomeScreen
                     hero={<NewThreadHomeStoryHero model={surfaceModels.footerModel} actions={actions} />}
                     body={surfaceModels.bodyModel.body.showThreadStartProgressPanel ? (
@@ -832,8 +836,10 @@ export function ThreadStageDevStoryPage({
                       }
                     />
                   </ThreadStageStoryHeaderShell>
-                )}
-              </div>
+                  )}
+                  </div>
+                </EnsureLocalConversationThreadScrollController>
+              </TestThreadRouteScopePath>
             </StorybookElectronTransportBoundary>
           ) : (
             <div className="flex min-h-[420px] items-center justify-center px-6 text-sm text-(--foreground-secondary)">

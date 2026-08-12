@@ -231,6 +231,66 @@ describe("createThreadStageActions settings routing", () => {
     }]);
   });
 
+  test("commits Codex intelligence and Default mode in one awaited settings patch", async () => {
+    const settingsUpdates: unknown[] = [];
+    const actions = createThreadStageActions(buildInput({
+      codexControl: {
+        setConversationThreadSettings: async (threadId: string, patch: unknown) => {
+          settingsUpdates.push({ threadId, patch });
+          return null;
+        },
+      } as unknown as ThreadActionControllerInput["codexControl"],
+    }));
+
+    await actions.onIntelligenceSelectionChange?.({
+      kind: "codex",
+      model: "gpt-5.6-sol",
+      reasoningEffort: "xhigh",
+      serviceTier: "fast",
+    }, { collaborationMode: "default" });
+
+    expect(settingsUpdates).toEqual([{
+      threadId: "thread_1",
+      patch: {
+        collaborationMode: "default",
+        model: "gpt-5.6-sol",
+        reasoningEffort: "xhigh",
+        serviceTier: "fast",
+      },
+    }]);
+  });
+
+  test("forwards explicit intelligence overrides to the owner turn start", async () => {
+    const calls: unknown[] = [];
+    const actions = createThreadStageActions(buildInput({
+      codexControl: {
+        startTurn: async (threadId: string, prompt: string, options: unknown) => {
+          calls.push({ threadId, prompt, options });
+        },
+      } as unknown as ThreadActionControllerInput["codexControl"],
+    }));
+
+    await actions.onSendPrompt("Implement", {
+      collaborationMode: "default",
+      model: "gpt-5.6-sol",
+      reasoningEffort: "xhigh",
+      serviceTier: "fast",
+    });
+
+    expect(calls).toEqual([{
+      threadId: "thread_1",
+      prompt: "Implement",
+      options: {
+        projectId: "project_1",
+        collaborationMode: "default",
+        promptInput: undefined,
+        model: "gpt-5.6-sol",
+        reasoningEffort: "xhigh",
+        serviceTier: "fast",
+      },
+    }]);
+  });
+
   test("opens a pending worktree route without refreshing real project sessions", async () => {
     const calls: string[] = [];
     const input = buildInput({
