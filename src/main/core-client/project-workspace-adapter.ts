@@ -127,6 +127,11 @@ export interface DesktopProjectWorkspaceThreadMoveInput {
   readonly beforeThreadId?: string | null;
   readonly insertAtEnd?: boolean;
   readonly useDefaultOrder?: boolean;
+  readonly runtimeWorkspaceRoots?: readonly string[];
+  readonly projectAccessGrant?: {
+    readonly expectedTargetBindingRevision: number;
+    readonly missingProjectSources: readonly string[];
+  };
   readonly metadata?: Pick<
     DesktopProjectWorkspaceThreadPatch,
     | "cwd"
@@ -1409,6 +1414,18 @@ export function createCoreProjectWorkspaceAdapter(
         target: toCoreThreadLane(input.targetProjectId),
         placement: toCoreThreadMovePlacement(input),
         metadata: toCoreThreadMoveMetadata(input.metadata),
+        ...(input.runtimeWorkspaceRoots === undefined
+          ? {}
+          : { runtime_workspace_roots: [...input.runtimeWorkspaceRoots] }),
+        ...(input.projectAccessGrant === undefined
+          ? {}
+          : {
+              project_access_grant: {
+                expected_target_binding_revision:
+                  input.projectAccessGrant.expectedTargetBindingRevision,
+                missing_source_roots: [...input.projectAccessGrant.missingProjectSources],
+              },
+            }),
       });
       const thread = await getThread(input.threadId);
       if (!thread) {

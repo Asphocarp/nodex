@@ -34,9 +34,10 @@ import {
 import {
   buildSessionContextMenuItems,
   canForkSessionLocally,
+  readSessionMoveToProjectActionId,
   resolveSessionRevealPath,
+  resolveSessionProjectMoveContainers,
   SESSION_CONTEXT_MENU_ACTION_IDS,
-  type SessionContextMenuActionId,
 } from "./session-context-menu-model";
 import {
   showNativeContextMenu,
@@ -91,8 +92,8 @@ import {
   RenameChatDialog,
 } from "./rename-chat-dialog";
 import {
-  SidebarThreadMoveBlockedDialog,
-} from "./sidebar-thread-move-blocked-dialog";
+  SidebarThreadMoveConfirmationDialog,
+} from "./sidebar-thread-move-confirmation-dialog";
 import type {
   SidebarThreadDropRequest,
 } from "./sidebar-thread-reorder";
@@ -258,6 +259,55 @@ export function useWorkbenchSidebarController({
     });
   }, [applySidebarThreadSnapshot]);
 
+  const moveSidebarThreadInputForSidebar = useCallback(async (
+    initialInput: CodexSidebarThreadMoveInput,
+  ) => {
+    const submitMove = async (moveInput: CodexSidebarThreadMoveInput): Promise<void> => {
+      try {
+        const result = await invoke("codex:sidebar:thread:move", moveInput);
+        if (result.status === "confirmation-required") {
+          openModal(appHandle, SidebarThreadMoveConfirmationDialog, {
+            confirmation: result,
+            onContinue: () => {
+              void submitMove({
+                ...moveInput,
+                projectAccessGrant: {
+                  targetProjectId: result.targetProjectId,
+                  expectedBindingRevision: result.targetBindingRevision,
+                  missingProjectSources: result.missingProjectSources,
+                },
+              });
+            },
+          });
+          return;
+        }
+
+        const scopeIds = new Set([
+          result.source.projectId,
+          result.destination.projectId,
+        ]);
+        await Promise.all([...scopeIds].map(async (projectId) => {
+          await queryClient.invalidateQueries({
+            queryKey: queryKeys.projectSessions.summaries(projectId),
+            exact: true,
+          });
+        }));
+        if (moveInput.projectAccessGrant) {
+          await queryClient.invalidateQueries({
+            queryKey: queryKeys.projects.all(),
+          });
+        }
+        startTransition(() => {
+          applySidebarThreadSnapshot(result.snapshot);
+        });
+      } catch {
+        toast.danger("Couldn’t move chat");
+      }
+    };
+
+    await submitMove(initialInput);
+  }, [appHandle, applySidebarThreadSnapshot, queryClient]);
+
   const moveSidebarThreadForSidebar = useCallback(async (
     drop: SidebarThreadDropRequest,
   ) => {
@@ -275,36 +325,14 @@ export function useWorkbenchSidebarController({
         : drop.beforeThreadId === null
           ? { beforeThreadId: null }
           : { beforeThreadId: drop.beforeThreadId };
-    const moveInput: CodexSidebarThreadMoveInput = {
+    await moveSidebarThreadInputForSidebar({
       hostId: "local",
       threadId: drop.threadId,
       sourceContainerId: drop.sourceContainerId,
       targetContainerId: drop.targetContainerId,
       ...placement,
-    };
-    const result = await invoke("codex:sidebar:thread:move", moveInput);
-    if (result.status === "blocked") {
-      openModal(appHandle, SidebarThreadMoveBlockedDialog, {
-        blocked: result,
-      });
-      return;
-    }
-    if (result.status === "unchanged") return;
-
-    const scopeIds = new Set([
-      result.source.projectId,
-      result.destination.projectId,
-    ]);
-    await Promise.all([...scopeIds].map(async (projectId) => {
-      await queryClient.invalidateQueries({
-        queryKey: queryKeys.projectSessions.summaries(projectId),
-        exact: true,
-      });
-    }));
-    startTransition(() => {
-      applySidebarThreadSnapshot(result.snapshot);
     });
-  }, [appHandle, applySidebarThreadSnapshot, queryClient]);
+  }, [moveSidebarThreadInputForSidebar]);
 
   const mergeSessionInState = useCallback((
     session: ProjectSessionDomain,
@@ -956,8 +984,27 @@ export function useWorkbenchSidebarController({
 
   const handleSessionContextMenuAction = useCallback(async (
     session: ProjectSession,
-    actionId: SessionContextMenuActionId,
+    actionId: string,
   ) => {
+    const moveTargetProjectId = readSessionMoveToProjectActionId(actionId);
+    if (
+      moveTargetProjectId
+      || actionId === SESSION_CONTEXT_MENU_ACTION_IDS.removeFromProject
+    ) {
+      const threadId = session.thread?.threadId;
+      if (!threadId) return;
+      const containers = resolveSessionProjectMoveContainers(
+        session,
+        moveTargetProjectId,
+      );
+      await moveSidebarThreadInputForSidebar({
+        hostId: "local",
+        threadId,
+        ...containers,
+        beforeThreadId: null,
+      });
+      return;
+    }
     if (actionId === SESSION_CONTEXT_MENU_ACTION_IDS.togglePin) {
       await toggleSessionPin(session);
       return;
@@ -1026,6 +1073,7 @@ export function useWorkbenchSidebarController({
     archiveSessionWithSidebarPendingState,
     copySessionText,
     forkSession,
+    moveSidebarThreadInputForSidebar,
     onOpenProjectSessionInNewWindow,
     openRenameSessionDialog,
     revealSession,
@@ -1049,6 +1097,7 @@ export function useWorkbenchSidebarController({
       await resolveSessionHasGitRepository(session);
     const items = buildSessionContextMenuItems({
       session,
+      projects,
       projectWorkspacePath: projectWorkspaceRootOrNull(project),
       platform: readRendererPlatform(),
       isGitRepository,
@@ -1063,7 +1112,7 @@ export function useWorkbenchSidebarController({
       if (!selectedId) return;
       await handleSessionContextMenuAction(
         session,
-        selectedId as SessionContextMenuActionId,
+        selectedId,
       );
     } catch {
       toast.danger("Native context menu is unavailable");

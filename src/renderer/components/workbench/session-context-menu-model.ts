@@ -1,8 +1,15 @@
 import type { NativeContextMenuItem } from "../../../shared/native-context-menu";
-import type { ProjectSession } from "@/lib/types";
+import {
+  codexSidebarProjectThreadContainerId,
+  type CodexSidebarThreadContainerId,
+} from "../../../shared/codex-sidebar-thread-move";
+import type { Project, ProjectSession } from "@/lib/types";
+
+export const SESSION_CONTEXT_MENU_MOVE_TO_PROJECT_PREFIX = "session.moveToProject:";
 
 export const SESSION_CONTEXT_MENU_ACTION_IDS = {
   togglePin: "session.togglePin",
+  removeFromProject: "session.removeFromProject",
   rename: "session.rename",
   archive: "archive-thread",
   markUnread: "session.markUnread",
@@ -16,10 +23,12 @@ export const SESSION_CONTEXT_MENU_ACTION_IDS = {
 } as const;
 
 export type SessionContextMenuActionId =
-  typeof SESSION_CONTEXT_MENU_ACTION_IDS[keyof typeof SESSION_CONTEXT_MENU_ACTION_IDS];
+  | typeof SESSION_CONTEXT_MENU_ACTION_IDS[keyof typeof SESSION_CONTEXT_MENU_ACTION_IDS]
+  | `${typeof SESSION_CONTEXT_MENU_MOVE_TO_PROJECT_PREFIX}${string}`;
 
 export interface SessionContextMenuInput {
   session: ProjectSession;
+  projects?: readonly Project[];
   projectWorkspacePath?: string | null;
   platform?: NodeJS.Platform | "browser";
   isGitRepository?: boolean;
@@ -44,11 +53,67 @@ export function canForkSessionLocally(session: ProjectSession): boolean {
   return Boolean(session.thread?.threadId && session.thread.cwd);
 }
 
+export function sessionMoveToProjectActionId(projectId: string): SessionContextMenuActionId {
+  return `${SESSION_CONTEXT_MENU_MOVE_TO_PROJECT_PREFIX}${projectId}`;
+}
+
+export function readSessionMoveToProjectActionId(
+  actionId: string,
+): string | null {
+  if (!actionId.startsWith(SESSION_CONTEXT_MENU_MOVE_TO_PROJECT_PREFIX)) return null;
+  return actionId.slice(SESSION_CONTEXT_MENU_MOVE_TO_PROJECT_PREFIX.length).trim() || null;
+}
+
+export function resolveSessionProjectMoveContainers(
+  session: Pick<ProjectSession, "pinned" | "projectId">,
+  targetProjectId: string | null,
+): {
+  sourceContainerId: CodexSidebarThreadContainerId;
+  targetContainerId: CodexSidebarThreadContainerId;
+} {
+  const sourceContainerId = session.projectId === null
+    ? session.pinned ? "pinned" : "chats"
+    : codexSidebarProjectThreadContainerId(session.projectId, session.pinned);
+  const targetContainerId = targetProjectId === null
+    ? session.pinned ? "pinned" : "chats"
+    : codexSidebarProjectThreadContainerId(targetProjectId, session.pinned);
+  return { sourceContainerId, targetContainerId };
+}
+
 export function buildSessionContextMenuItems(input: SessionContextMenuInput): NativeContextMenuItem[] {
   const { session } = input;
   const revealPath = resolveSessionRevealPath(input);
   const forkLocalEnabled = canForkSessionLocally(session);
   const forkNewWorktreeEnabled = forkLocalEnabled && input.isGitRepository === true;
+  const currentProject = input.projects?.find((project) => project.id === session.projectId);
+  const projectMoveItems: NativeContextMenuItem[] = session.thread
+    ? (input.projects ?? [])
+        .filter((project) => project.lifecycle === "active" && project.id !== session.projectId)
+        .map((project) => ({
+          id: sessionMoveToProjectActionId(project.id),
+          label: project.name,
+          enabled: true,
+        }))
+    : [];
+  const projectMoveActions: NativeContextMenuItem[] = [
+    ...(projectMoveItems.length === 0
+      ? []
+      : [{
+          id: "session.moveToProject",
+          type: "submenu" as const,
+          label: "Move to project",
+          iconKey: "folder" as const,
+          submenu: projectMoveItems,
+        }]),
+    ...(session.thread && session.projectId
+      ? [{
+          id: SESSION_CONTEXT_MENU_ACTION_IDS.removeFromProject,
+          label: `Remove from ${currentProject?.name ?? "project"}`,
+          enabled: true,
+          iconKey: "folder" as const,
+        }]
+      : []),
+  ];
 
   return [
     {
@@ -57,6 +122,7 @@ export function buildSessionContextMenuItems(input: SessionContextMenuInput): Na
       enabled: true,
       iconKey: session.pinned ? "unpin" : "pin",
     },
+    ...projectMoveActions,
     {
       id: SESSION_CONTEXT_MENU_ACTION_IDS.rename,
       label: "Rename",

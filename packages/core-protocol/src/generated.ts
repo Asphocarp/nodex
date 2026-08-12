@@ -4687,6 +4687,8 @@ export interface components {
                 readonly kind: "move_thread";
                 readonly metadata: components["schemas"]["ProjectWorkspaceThreadMoveMetadataPatch"];
                 readonly placement: components["schemas"]["ProjectWorkspaceThreadPlacement"];
+                readonly project_access_grant?: null | components["schemas"]["ProjectWorkspaceThreadMoveProjectAccessGrant"];
+                readonly runtime_workspace_roots?: readonly string[] | null;
                 readonly source: components["schemas"]["ProjectWorkspaceThreadLane"];
                 readonly target: components["schemas"]["ProjectWorkspaceThreadLane"];
                 readonly thread_id: string;
@@ -5759,6 +5761,11 @@ export interface components {
             readonly managed_worktree_path?: string | null;
             readonly projectless_output_directory?: string | null;
             readonly projectless_workspace_browser_root?: string | null;
+        };
+        readonly ProjectWorkspaceThreadMoveProjectAccessGrant: {
+            /** Format: int64 */
+            readonly expected_target_binding_revision: number;
+            readonly missing_source_roots: readonly string[];
         };
         readonly ProjectWorkspaceThreadPatch: {
             readonly agent_nickname?: string | null;

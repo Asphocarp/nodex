@@ -18784,6 +18784,25 @@
                   "placement": {
                     "$ref": "#/components/schemas/ProjectWorkspaceThreadPlacement"
                   },
+                  "project_access_grant": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/ProjectWorkspaceThreadMoveProjectAccessGrant"
+                      }
+                    ]
+                  },
+                  "runtime_workspace_roots": {
+                    "type": [
+                      "array",
+                      "null"
+                    ],
+                    "items": {
+                      "type": "string"
+                    }
+                  },
                   "source": {
                     "$ref": "#/components/schemas/ProjectWorkspaceThreadLane"
                   },
@@ -23036,6 +23055,25 @@
               "string",
               "null"
             ]
+          }
+        }
+      },
+      "ProjectWorkspaceThreadMoveProjectAccessGrant": {
+        "type": "object",
+        "required": [
+          "expected_target_binding_revision",
+          "missing_source_roots"
+        ],
+        "properties": {
+          "expected_target_binding_revision": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "missing_source_roots": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         }
       },

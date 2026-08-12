@@ -718,6 +718,7 @@ import {
   repairCodexProjectlessWorkspace,
 } from "./codex-projectless-workspace-repair";
 import {
+  appendMissingCodexProjectMoveSources,
   listMissingCodexProjectMoveSources,
   resolveCodexProjectlessThreadWorkspaceMove,
   resolveCodexProjectThreadWorkspaceMove,
@@ -8712,74 +8713,46 @@ export class CodexService extends EventEmitter {
     }
   }
 
-  private async stageSidebarThreadWorkspaceMove(input: {
+  private async syncLoadedSidebarThreadWorkspaceMove(input: {
     threadId: string;
+    wasLoaded: boolean;
     previous: CodexSidebarThreadWorkspaceState;
     move: CodexSidebarThreadWorkspaceMove;
-  }): Promise<() => Promise<void>> {
-    const previousWritableRoots = await this.readThreadWritableRoots(
-      input.threadId,
-    );
-    await this.projectWorkspace.replaceThreadWritableRoots(
-      input.threadId,
-      input.move.runtimeWorkspaceRoots,
-    );
-    let appServerUpdated = false;
-
+  }): Promise<void> {
+    if (!input.wasLoaded) return;
+    if (input.previous.cwd === input.move.next.cwd) return;
+    if (this.threadSettingsUpdateSupport === "unsupported") return;
     try {
-      if (
-        input.previous.cwd !== input.move.next.cwd
-        && this.threadSettingsUpdateSupport !== "unsupported"
-      ) {
-        await this.ensureClientReady();
-        try {
-          await this.client.request<"thread/settings/update", ThreadSettingsUpdateResponse>(
-            "thread/settings/update",
-            {
-              threadId: input.threadId,
-              cwd: input.move.next.cwd,
-            },
-          );
-          this.threadSettingsUpdateSupport = "supported";
-          appServerUpdated = true;
-        } catch (error) {
-          if (!isUnsupportedThreadSettingsUpdateError(error)) throw error;
-          this.threadSettingsUpdateSupport = "unsupported";
-          this.logger.warn(
-            "Codex app-server does not support workspace updates while moving a sidebar task",
-            { threadId: input.threadId },
-          );
-        }
-      }
-    } catch (error) {
-      await this.projectWorkspace.replaceThreadWritableRoots(
-        input.threadId,
-        previousWritableRoots,
-      );
-      throw error;
-    }
-
-    return async () => {
-      await this.projectWorkspace.replaceThreadWritableRoots(
-        input.threadId,
-        previousWritableRoots,
-      );
-      if (!appServerUpdated) return;
-      try {
-        await this.client.request<"thread/settings/update", ThreadSettingsUpdateResponse>(
-          "thread/settings/update",
-          {
-            threadId: input.threadId,
-            cwd: input.previous.cwd,
-          },
-        );
-      } catch (error) {
-        this.logger.warn("Could not restore task workspace after a failed sidebar move", {
+      await this.ensureClientReady();
+      await this.client.request<"thread/settings/update", ThreadSettingsUpdateResponse>(
+        "thread/settings/update",
+        {
           threadId: input.threadId,
-          error: error instanceof Error ? error.message : String(error),
-        });
+          cwd: input.move.next.cwd,
+        },
+      );
+      this.threadSettingsUpdateSupport = "supported";
+    } catch (error) {
+      if (isUnsupportedThreadSettingsUpdateError(error)) {
+        this.threadSettingsUpdateSupport = "unsupported";
+        this.logger.warn(
+          "Codex app-server does not support workspace updates for loaded sidebar tasks",
+          { threadId: input.threadId },
+        );
+        return;
       }
-    };
+      if (isThreadNotFoundError(error)) {
+        this.logger.info(
+          "Sidebar task unloaded before its runtime workspace could be synchronized",
+          { threadId: input.threadId },
+        );
+        return;
+      }
+      this.logger.warn("Could not synchronize the loaded task workspace after moving it", {
+        threadId: input.threadId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   private applySidebarThreadWorkspaceMoveToRecord(input: {
@@ -8901,7 +8874,16 @@ export class CodexService extends EventEmitter {
       throw new Error(`Unsupported local sidebar task target: ${input.targetContainerId}`);
     }
     const targetProjectId = targetLocation.projectId;
+    if (
+      input.projectAccessGrant
+      && input.projectAccessGrant.targetProjectId !== targetProjectId
+    ) {
+      throw new Error("Sidebar task Project access grant does not match its target");
+    }
     if (targetProjectId === sourceProjectId) {
+      if (input.projectAccessGrant) {
+        throw new Error("Sidebar task Project access grant requires a cross-Project move");
+      }
       const snapshot = await this.setThreadPinned(
         threadId,
         targetLocation.pinned,
@@ -8926,24 +8908,46 @@ export class CodexService extends EventEmitter {
     if (targetProjectId !== null && !targetProject) {
       throw new Error(`Project not found: ${targetProjectId}`);
     }
-    const missingProjectSources = listMissingCodexProjectMoveSources(
-      sourceProject,
-      targetProject,
-    );
+    if (sourceProjectId !== null && !sourceProject) {
+      throw new Error(`Project not found: ${sourceProjectId}`);
+    }
+    const missingProjectSources = targetProject === null
+      ? []
+      : listMissingCodexProjectMoveSources(sourceProject, targetProject);
+    let targetProjectForMove = targetProject;
+    let projectAccessGrant:
+      | NonNullable<Parameters<DesktopProjectWorkspacePort["moveThread"]>[0]["projectAccessGrant"]>
+      | undefined;
     if (missingProjectSources.length > 0) {
-      if (targetProjectId === null) {
+      if (!targetProject || targetProjectId === null) {
+        throw new Error("Target Project is unavailable during access confirmation");
+      }
+      const grant = input.projectAccessGrant;
+      const grantMatches = grant !== undefined
+        && grant.targetProjectId === targetProjectId
+        && grant.expectedBindingRevision === targetProject.bindingRevision
+        && grant.missingProjectSources.length === missingProjectSources.length
+        && grant.missingProjectSources.every(
+          (root, index) => root === missingProjectSources[index],
+        );
+      if (!grantMatches) {
         return {
-          status: "unchanged",
-          reason: "project-sources-cannot-move-to-chats",
+          status: "confirmation-required",
+          reason: "target-project-needs-source-access",
           threadId,
+          targetProjectId,
+          targetBindingRevision: targetProject.bindingRevision,
+          missingProjectSources,
+          targetProjectName: targetProject.name,
         };
       }
-      if (!targetProject) throw new Error(`Project not found: ${targetProjectId}`);
-      return {
-        status: "blocked",
-        reason: "missing-project-sources",
+      targetProjectForMove = appendMissingCodexProjectMoveSources(
+        targetProject,
         missingProjectSources,
-        targetProjectName: targetProject.name,
+      );
+      projectAccessGrant = {
+        expectedTargetBindingRevision: targetProject.bindingRevision,
+        missingProjectSources,
       };
     }
 
@@ -8965,10 +8969,10 @@ export class CodexService extends EventEmitter {
           next: previousWorkspace,
           runtimeWorkspaceRoots: await this.readThreadWritableRoots(threadId),
         }
-      : targetProject
+      : targetProjectForMove
         ? await resolveCodexProjectThreadWorkspaceMove({
             current: previousWorkspace,
-            targetProject,
+            targetProject: targetProjectForMove,
             threadTitle: summary.threadName ?? summary.threadPreview ?? threadId,
             createProjectlessWorkspace: async (workspaceInput) => (
               await createCodexProjectlessWorkspace(workspaceInput)
@@ -8979,48 +8983,44 @@ export class CodexService extends EventEmitter {
             persistedRuntimeWorkspaceRoots:
               await this.readThreadWritableRoots(threadId),
           });
-    const rollbackWorkspace = sourceProjectId === targetProjectId
-      ? async () => undefined
-      : await this.stageSidebarThreadWorkspaceMove({
-          threadId,
-          previous: previousWorkspace,
-          move: workspaceMove,
-        });
-
-    let moved: Awaited<ReturnType<DesktopProjectWorkspacePort["moveThread"]>>;
-    try {
-      moved = await this.projectWorkspace.moveThread({
-        threadId,
-        sourceProjectId,
-        targetProjectId,
-        ...(targetProjectId === null || targetLocation.pinned
-          ? {
-              useDefaultOrder: true,
-            }
-          : {
-              beforeThreadId: input.beforeThreadId,
-              ...(input.insertAtEnd ? { insertAtEnd: true } : {}),
-              ...(input.useDefaultOrder ? { useDefaultOrder: true } : {}),
-            }),
-        ...(sourceProjectId === targetProjectId
-          ? {}
-          : {
-              metadata: {
-                cwd: workspaceMove.next.cwd,
-                managedWorktreePath: workspaceMove.next.managedWorktreePath,
-                projectlessOutputDirectory: workspaceMove.next.projectlessOutputDirectory,
-                projectlessWorkspaceBrowserRoot:
-                  workspaceMove.next.projectlessWorkspaceBrowserRoot,
-              },
-            }),
-      });
-    } catch (error) {
-      await rollbackWorkspace();
-      throw error;
-    }
+    const moved = await this.projectWorkspace.moveThread({
+      threadId,
+      sourceProjectId,
+      targetProjectId,
+      ...(sourceProjectId === targetProjectId
+        ? {}
+        : { runtimeWorkspaceRoots: workspaceMove.runtimeWorkspaceRoots }),
+      ...(projectAccessGrant === undefined ? {} : { projectAccessGrant }),
+      ...(targetProjectId === null || targetLocation.pinned
+        ? {
+            useDefaultOrder: true,
+          }
+        : {
+            beforeThreadId: input.beforeThreadId,
+            ...(input.insertAtEnd ? { insertAtEnd: true } : {}),
+            ...(input.useDefaultOrder ? { useDefaultOrder: true } : {}),
+          }),
+      ...(sourceProjectId === targetProjectId
+        ? {}
+        : {
+            metadata: {
+              cwd: workspaceMove.next.cwd,
+              managedWorktreePath: workspaceMove.next.managedWorktreePath,
+              projectlessOutputDirectory: workspaceMove.next.projectlessOutputDirectory,
+              projectlessWorkspaceBrowserRoot:
+                workspaceMove.next.projectlessWorkspaceBrowserRoot,
+            },
+          }),
+    });
     this.rememberWorkspaceThread(moved.thread);
 
     this.rememberWorkspaceSidebar(moved.sidebar);
+    await this.syncLoadedSidebarThreadWorkspaceMove({
+      threadId,
+      wasLoaded: workspaceThread.statusType !== "notLoaded",
+      previous: previousWorkspace,
+      move: workspaceMove,
+    });
     if (pinned || targetLocation.pinned) {
       try {
         this.rememberWorkspaceSidebar(
@@ -19204,6 +19204,13 @@ export class CodexService extends EventEmitter {
             this.threadSettingsUpdateSupport = "supported";
             return nextSettings;
           } catch (error) {
+            if (isThreadNotFoundError(error)) {
+              this.logger.info(
+                "Task settings will be applied when the unloaded task starts its next turn",
+                { threadId },
+              );
+              return nextSettings;
+            }
             if (!isUnsupportedThreadSettingsUpdateError(error)) throw error;
             this.threadSettingsUpdateSupport = "unsupported";
             this.logger.warn("Codex app-server does not support thread/settings/update; using local next-turn settings fallback", {

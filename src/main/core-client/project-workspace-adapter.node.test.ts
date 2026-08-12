@@ -843,6 +843,11 @@ describe("Core Project Workspace adapter", () => {
       sourceProjectId: "project:one",
       targetProjectId: "project:two",
       beforeThreadId: "thread:anchor",
+      runtimeWorkspaceRoots: ["/workspace/two", "/workspace/one"],
+      projectAccessGrant: {
+        expectedTargetBindingRevision: 4,
+        missingProjectSources: ["/workspace/one"],
+      },
       metadata: {
         cwd: "/workspace/two",
         managedWorktreePath: "/workspace/two/.worktrees/task",
@@ -869,6 +874,11 @@ describe("Core Project Workspace adapter", () => {
         source: { kind: "project", project_id: "project:one" },
         target: { kind: "project", project_id: "project:two" },
         placement: { kind: "before", thread_id: "thread:anchor" },
+        runtime_workspace_roots: ["/workspace/two", "/workspace/one"],
+        project_access_grant: {
+          expected_target_binding_revision: 4,
+          missing_source_roots: ["/workspace/one"],
+        },
         metadata: {
           cwd: "/workspace/two",
           managed_worktree_path: "/workspace/two/.worktrees/task",

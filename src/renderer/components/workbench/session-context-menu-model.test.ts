@@ -3,7 +3,12 @@ import type { ProjectSession } from "@/lib/types";
 import {
   SESSION_CONTEXT_MENU_ACTION_IDS,
   buildSessionContextMenuItems,
+  readSessionMoveToProjectActionId,
+  resolveSessionProjectMoveContainers,
+  sessionMoveToProjectActionId,
 } from "./session-context-menu-model";
+import type { Project } from "@/lib/types";
+import { DEFAULT_PROJECT_APPEARANCE } from "../../../shared/project-appearance";
 
 function makeSession(overrides: Partial<ProjectSession> = {}): ProjectSession {
   const now = "2026-06-08T00:00:00.000Z";
@@ -22,6 +27,26 @@ function makeSession(overrides: Partial<ProjectSession> = {}): ProjectSession {
     createdAt: now,
     updatedAt: now,
     ...overrides,
+  };
+}
+
+function makeProject(id: string, name: string): Project {
+  return {
+    id,
+    libraryId: "library:test",
+    databaseId: `database:${id}`,
+    defaultDatabaseViewId: null,
+    lifecycle: "active",
+    bindingRevision: 1,
+    name,
+    description: "",
+    appearance: DEFAULT_PROJECT_APPEARANCE,
+    sources: [],
+    primaryWorkspaceRoot: null,
+    pinned: false,
+    pinnedOrder: null,
+    created: new Date(0),
+    updated: new Date(0),
   };
 }
 
@@ -59,10 +84,17 @@ describe("session context menu model", () => {
       projectWorkspacePath: "/tmp/project",
       platform: "darwin",
       isGitRepository: true,
+      projects: [
+        makeProject("project-1", "Current"),
+        makeProject("project-2", "Destination"),
+      ],
     });
 
     expect(JSON.stringify(flattenActionIds(items))).toBe(JSON.stringify([
       SESSION_CONTEXT_MENU_ACTION_IDS.togglePin,
+      "session.moveToProject",
+      sessionMoveToProjectActionId("project-2"),
+      SESSION_CONTEXT_MENU_ACTION_IDS.removeFromProject,
       SESSION_CONTEXT_MENU_ACTION_IDS.rename,
       SESSION_CONTEXT_MENU_ACTION_IDS.archive,
       "separator",
@@ -78,6 +110,67 @@ describe("session context menu model", () => {
       "separator",
       SESSION_CONTEXT_MENU_ACTION_IDS.openInNewWindow,
     ]));
+  });
+
+  test("offers every other active Project and parses the selected destination", () => {
+    const archived = { ...makeProject("project-archived", "Archived"), lifecycle: "archived" as const };
+    const items = buildSessionContextMenuItems({
+      session: makeSession({
+        projectId: "project-1",
+        thread: {
+          sessionId: "session-1",
+          projectId: "project-1",
+          threadId: "thread-1",
+          threadPreview: "",
+          modelProvider: "openai",
+          cwd: "/tmp/project",
+          statusType: "idle",
+          statusActiveFlags: [],
+          archived: false,
+          createdAt: 1,
+          updatedAt: 1,
+          linkedAt: "2026-06-08T00:00:00.000Z",
+        },
+      }),
+      projects: [
+        makeProject("project-1", "Current"),
+        makeProject("project-2", "Destination"),
+        archived,
+      ],
+    });
+    const move = items.find((item) => item.type === "submenu" && item.id === "session.moveToProject");
+
+    expect(move?.type).toBe("submenu");
+    if (move?.type === "submenu") {
+      expect(move.submenu.map((item) => item.type === "separator" ? null : item.label))
+        .toEqual(["Destination"]);
+      const destinationId = move.submenu[0]?.type === "separator"
+        ? null
+        : move.submenu[0]?.id ?? "";
+      expect(readSessionMoveToProjectActionId(destinationId ?? "")).toBe("project-2");
+    }
+    const remove = items.find((item) =>
+      item.type !== "separator"
+      && item.id === SESSION_CONTEXT_MENU_ACTION_IDS.removeFromProject
+    );
+    expect(remove?.type === "separator" ? null : remove?.label).toBe("Remove from Current");
+  });
+
+  test("preserves pin state when moving to another Project or back to Chats", () => {
+    expect(resolveSessionProjectMoveContainers(
+      makeSession({ projectId: "project-1", pinned: true, pinnedOrder: 0 }),
+      "project-2",
+    )).toEqual({
+      sourceContainerId: "project-pinned:project-1",
+      targetContainerId: "project-pinned:project-2",
+    });
+    expect(resolveSessionProjectMoveContainers(
+      makeSession({ projectId: "project-1", pinned: true, pinnedOrder: 0 }),
+      null,
+    )).toEqual({
+      sourceContainerId: "project-pinned:project-1",
+      targetContainerId: "pinned",
+    });
   });
 
   test("switches pin label and platform reveal label", () => {

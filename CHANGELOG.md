@@ -26,6 +26,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- Fixed moving chats between Projects so missing folder access can be granted from an explicit confirmation, the grant and move commit together, and Project chats can be moved back to Chats without losing their workspace context.
 - Fixed Page editors and cached Page or Database View tabs re-entering loading during typing, unrelated edits, reset retries, or tab switches; Relation previews and restored Database details now refresh only from their exact matching changes.
 - Fixed parent-linked subagent tasks so they remain in parent-conversation activity without appearing as standalone Project or projectless sidebar chats; any leaked Session is retired when late parent metadata arrives.
 - Fixed Page Detail losing its entire Property surface after an optional Source Property was deleted; remaining and custom Properties now stay editable, schema changes refresh open Pages, and destructive deletion is confirmed with exact View blockers.
