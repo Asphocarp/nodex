@@ -664,7 +664,6 @@ export interface DatabaseListSelectionState {
   readonly excludedOccurrenceKeys: ReadonlySet<string>;
   readonly anchorOccurrenceKey: string | null;
   readonly activeOccurrenceKey: string | null;
-  readonly focusedOccurrenceKey: string | null;
 }
 
 export const emptyDatabaseListSelection = (): DatabaseListSelectionState => ({
@@ -673,7 +672,6 @@ export const emptyDatabaseListSelection = (): DatabaseListSelectionState => ({
   excludedOccurrenceKeys: new Set(),
   anchorOccurrenceKey: null,
   activeOccurrenceKey: null,
-  focusedOccurrenceKey: null,
 });
 
 const selectableKeys = (
@@ -698,7 +696,6 @@ export const selectDatabaseListOccurrence = (input: {
         excludedOccurrenceKeys: excluded,
         anchorOccurrenceKey: input.occurrenceKey,
         activeOccurrenceKey: input.occurrenceKey,
-        focusedOccurrenceKey: input.occurrenceKey,
       };
     }
     const selected = new Set(input.state.selectedOccurrenceKeys);
@@ -710,7 +707,6 @@ export const selectDatabaseListOccurrence = (input: {
       excludedOccurrenceKeys: new Set(),
       anchorOccurrenceKey: input.occurrenceKey,
       activeOccurrenceKey: input.occurrenceKey,
-      focusedOccurrenceKey: input.occurrenceKey,
     };
   }
   if (input.mode === "range" && input.state.anchorOccurrenceKey) {
@@ -725,7 +721,6 @@ export const selectDatabaseListOccurrence = (input: {
         excludedOccurrenceKeys: new Set(),
         anchorOccurrenceKey: input.state.anchorOccurrenceKey,
         activeOccurrenceKey: input.occurrenceKey,
-        focusedOccurrenceKey: input.occurrenceKey,
       };
     }
   }
@@ -735,7 +730,6 @@ export const selectDatabaseListOccurrence = (input: {
     excludedOccurrenceKeys: new Set(),
     anchorOccurrenceKey: input.occurrenceKey,
     activeOccurrenceKey: input.occurrenceKey,
-    focusedOccurrenceKey: input.occurrenceKey,
   };
 };
 
@@ -767,7 +761,6 @@ export const moveDatabaseListActiveOccurrence = (input: {
   return {
     ...input.state,
     activeOccurrenceKey: occurrenceKey,
-    focusedOccurrenceKey: occurrenceKey,
   };
 };
 
@@ -796,7 +789,6 @@ export const moveDatabaseListActiveOccurrenceToBoundary = (input: {
   return {
     ...input.state,
     activeOccurrenceKey: occurrenceKey,
-    focusedOccurrenceKey: occurrenceKey,
   };
 };
 
@@ -808,16 +800,22 @@ export const isDatabaseListOccurrenceSelected = (
   : state.selectedOccurrenceKeys.has(occurrenceKey);
 
 export const selectAllDatabaseListOccurrences = (
-  rows: readonly DatabaseListProjectionRow[],
+  input: {
+    readonly state: DatabaseListSelectionState;
+    readonly rows: readonly DatabaseListProjectionRow[];
+  },
 ): DatabaseListSelectionState => {
-  const first = selectableKeys(rows)[0] ?? null;
+  const keys = selectableKeys(input.rows);
+  const activeOccurrenceKey = input.state.activeOccurrenceKey
+    && keys.includes(input.state.activeOccurrenceKey)
+    ? input.state.activeOccurrenceKey
+    : keys[0] ?? null;
   return {
     selectedOccurrenceKeys: new Set(),
     allMatching: true,
     excludedOccurrenceKeys: new Set(),
-    anchorOccurrenceKey: first,
-    activeOccurrenceKey: first,
-    focusedOccurrenceKey: first,
+    anchorOccurrenceKey: activeOccurrenceKey,
+    activeOccurrenceKey,
   };
 };
 
@@ -857,18 +855,12 @@ export const syncDatabaseListSelection = (
     state.activeOccurrenceKey && valid.has(state.activeOccurrenceKey)
       ? state.activeOccurrenceKey
       : fallbackActiveKey;
-  const focusedOccurrenceKey = state.focusedOccurrenceKey === null
-    ? null
-    : valid.has(state.focusedOccurrenceKey)
-      ? state.focusedOccurrenceKey
-      : fallbackActiveKey;
   const selectionUnchanged = selected.size === state.selectedOccurrenceKeys.size
     && [...selected].every((key) => state.selectedOccurrenceKeys.has(key));
   if (
     selectionUnchanged
     && anchorOccurrenceKey === state.anchorOccurrenceKey
     && activeOccurrenceKey === state.activeOccurrenceKey
-    && focusedOccurrenceKey === state.focusedOccurrenceKey
   ) {
     return state;
   }
@@ -878,6 +870,5 @@ export const syncDatabaseListSelection = (
     excludedOccurrenceKeys: state.excludedOccurrenceKeys,
     anchorOccurrenceKey,
     activeOccurrenceKey,
-    focusedOccurrenceKey,
   };
 };

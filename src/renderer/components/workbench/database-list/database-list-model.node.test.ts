@@ -290,7 +290,6 @@ describe("Database List occurrence selection", () => {
       extendSelection: false,
     });
     expect(active.activeOccurrenceKey).toBe(pages[0]!.key);
-    expect(active.focusedOccurrenceKey).toBe(pages[0]!.key);
     expect(active.selectedOccurrenceKeys.size).toBe(0);
 
     const extended = moveDatabaseListActiveOccurrence({
@@ -305,10 +304,18 @@ describe("Database List occurrence selection", () => {
   });
 
   test("represents select-all sparsely and tracks occurrence exclusions", () => {
-    const all = selectAllDatabaseListOccurrences(projection);
+    const active = {
+      ...emptyDatabaseListSelection(),
+      activeOccurrenceKey: pages[1]!.key,
+    };
+    const all = selectAllDatabaseListOccurrences({
+      state: active,
+      rows: projection,
+    });
     expect(all.selectedOccurrenceKeys.size).toBe(0);
     expect(pages.every((item) => isDatabaseListOccurrenceSelected(all, item.key)))
       .toBe(true);
+    expect(all.activeOccurrenceKey).toBe(pages[1]!.key);
 
     const excluded = selectDatabaseListOccurrence({
       state: all,
@@ -323,21 +330,6 @@ describe("Database List occurrence selection", () => {
     );
   });
 
-  test("does not steal DOM focus when only the active occurrence is initialized", () => {
-    const first = pages[0]!;
-    const synced = syncDatabaseListSelection({
-      selectedOccurrenceKeys: new Set(),
-      allMatching: false,
-      excludedOccurrenceKeys: new Set(),
-      anchorOccurrenceKey: null,
-      activeOccurrenceKey: first.key,
-      focusedOccurrenceKey: null,
-    }, projection);
-
-    expect(synced.activeOccurrenceKey).toBe(first.key);
-    expect(synced.focusedOccurrenceKey).toBeNull();
-  });
-
   test("preserves selection identity when a refreshed projection changes no keys", () => {
     const first = pages[0]!;
     const state = {
@@ -346,7 +338,6 @@ describe("Database List occurrence selection", () => {
       excludedOccurrenceKeys: new Set<string>(),
       anchorOccurrenceKey: first.key,
       activeOccurrenceKey: first.key,
-      focusedOccurrenceKey: first.key,
     };
 
     expect(syncDatabaseListSelection(state, [...projection], projection)).toBe(state);

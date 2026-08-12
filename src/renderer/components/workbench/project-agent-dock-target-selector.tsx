@@ -104,8 +104,13 @@ export function ProjectAgentDockTargetSelector({
     if (!open) return;
     const selectedIndex = model.rows.findIndex((row) => row.selected);
     setActiveIndex(selectedIndex >= 0 ? selectedIndex : 0);
-    requestAnimationFrame(() => inputRef.current?.focus());
   }, [model.rows, open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const frame = requestAnimationFrame(() => inputRef.current?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, [open]);
 
   const closeAndRestoreFocus = () => {
     setOpen(false);
