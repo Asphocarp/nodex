@@ -2,7 +2,7 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
-import { plainTextToPortableRichText } from "../../shared/block-documents";
+import { plainTextToPortableRichText } from "../../shared/block-documents/portable-rich-text";
 import type { AuthorityResource } from "../../shared/authorized-read-stamp";
 import type { PageDetail } from "../../shared/page-detail";
 import { authorizedReadStampFixture } from "../../shared/testing/authorized-read-stamp-fixture";

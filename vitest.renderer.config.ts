@@ -12,7 +12,10 @@ const testFiles = selectTieredTestFiles({
     "src/renderer/**/*.node.test.{ts,tsx}",
     "src/renderer/**/*.integration.ts",
   ],
-  defaultInclude: ["src/renderer/**/*.test.{ts,tsx}"],
+  defaultInclude: [
+    "src/renderer/**/*.test.tsx",
+    "src/renderer/**/*.jsdom.test.ts",
+  ],
   stressInclude: ["src/renderer/**/*.stress.test.{ts,tsx}"],
 });
 

@@ -27,7 +27,7 @@ import { buildComposerShellModel } from "../projection/build-composer-shell-mode
 import { buildThreadBodyModel } from "../projection/build-thread-body-model";
 import { selectPrimaryConversationRequest } from "../conversation-request-helpers";
 import { buildCodexFileChangeMap } from "../../../../shared/codex-file-change";
-import { plainTextToPortableRichText } from "../../../../shared/block-documents";
+import { plainTextToPortableRichText } from "../../../../shared/block-documents/portable-rich-text";
 import { buildPageDetailStoryResult } from "@/components/board/page-stage/page-stage-story-page-detail";
 import type {
   ThreadBodySurfaceModel,

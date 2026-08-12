@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 import { getDefaultToggleListSettings } from "./settings";
 import type { ToggleListCard, ToggleListRulesV2, ToggleListSettings } from "./types";
 import { filterCards, rankCards } from "./rules";
-import { plainTextToPortableRichText } from "../../../shared/block-documents";
+import { plainTextToPortableRichText } from "../../../shared/block-documents/portable-rich-text";
 
 function makeCard(overrides: Partial<ToggleListCard>): ToggleListCard {
   const title = overrides.title ?? "Card title";

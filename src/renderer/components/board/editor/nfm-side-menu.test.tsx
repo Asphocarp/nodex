@@ -4,7 +4,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import { render } from "@/test/dom";
 import { TestQueryProvider } from "@/test/query";
 import type { BoardSummary, DatabasePageSummary, Project } from "@/lib/types";
-import { plainTextToPortableRichText } from "../../../../shared/block-documents";
+import { plainTextToPortableRichText } from "../../../../shared/block-documents/portable-rich-text";
 import { NfmMoveToMenuSurface } from "./nfm-move-to-menu";
 import type { NfmMoveToDestination } from "./nfm-move-to-menu-model";
 import {

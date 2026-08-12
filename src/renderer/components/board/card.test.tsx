@@ -8,7 +8,7 @@ import {
   createPageTitleProjectionStore,
   makePageTitleResourceKey,
 } from "../../lib/page-title-projection-store";
-import { plainTextToPortableRichText } from "../../../shared/block-documents";
+import { plainTextToPortableRichText } from "../../../shared/block-documents/portable-rich-text";
 
 let mockCardPropertyPosition: CardPropertyPosition = "inline";
 

@@ -5,7 +5,7 @@ import {
   tokenizeSearchQuery,
 } from "./page-search";
 import type { DatabasePageSummary } from "./types";
-import { plainTextToPortableRichText } from "../../shared/block-documents";
+import { plainTextToPortableRichText } from "../../shared/block-documents/portable-rich-text";
 
 function makeCard(overrides: Partial<DatabasePageSummary> = {}): DatabasePageSummary {
   const title = overrides.title ?? "Improve NFM search";

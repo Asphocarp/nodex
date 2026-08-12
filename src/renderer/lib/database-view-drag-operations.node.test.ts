@@ -7,7 +7,7 @@ import {
   parseDataSourceId,
   parseDataSourcePropertyId,
 } from "../../shared/database-identities";
-import { plainTextToPortableRichText } from "../../shared/block-documents";
+import { plainTextToPortableRichText } from "../../shared/block-documents/portable-rich-text";
 import { testPropertySemantics } from "../../shared/testing/database-property-record";
 
 const timestamp = "2026-08-11T00:00:00.000Z";

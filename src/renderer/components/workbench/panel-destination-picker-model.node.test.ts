@@ -6,7 +6,7 @@ import {
   parseDatabaseViewId,
   parseDataSourceId,
 } from "../../../shared/database-identities";
-import { plainTextToPortableRichText } from "../../../shared/block-documents";
+import { plainTextToPortableRichText } from "../../../shared/block-documents/portable-rich-text";
 import { upgradeDatabaseViewConfigV2 } from "../../../shared/database-view-presentation";
 import {
   buildPanelDestinationSections,

@@ -3,7 +3,7 @@ import { createElement } from "react";
 import { fireEvent } from "@testing-library/react";
 import { Column } from "./column";
 import { renderWithMaitai as render } from "@/test/dom";
-import { plainTextToPortableRichText } from "../../../shared/block-documents";
+import { plainTextToPortableRichText } from "../../../shared/block-documents/portable-rich-text";
 import type { DatabasePageSummary } from "@/lib/types";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
 

@@ -6,7 +6,7 @@ import {
   commitDatabaseViewOperations,
   DatabaseViewMutationError,
 } from "@/lib/database-view-row-mutations";
-import { plainTextToPortableRichText } from "../../../shared/block-documents";
+import { plainTextToPortableRichText } from "../../../shared/block-documents/portable-rich-text";
 import {
   parseDatabaseId,
   parseDatabaseViewId,

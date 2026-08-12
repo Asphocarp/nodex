@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { BoardChangeEvent } from "../../shared/ipc-api";
-import { plainTextToPortableRichText } from "../../shared/block-documents";
+import { plainTextToPortableRichText } from "../../shared/block-documents/portable-rich-text";
 import type { BoardSummary, DatabasePageSummary } from "./types";
 import {
   applyBoardChangeEventToBoard,
