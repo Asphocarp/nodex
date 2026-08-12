@@ -16,7 +16,17 @@ function makeMockServerScript(): { scriptPath: string; cleanup: () => void } {
   fs.writeFileSync(
     scriptPath,
     [
+      "import fs from 'node:fs';",
       "import readline from 'node:readline';",
+      "if (process.env.NODEX_TEST_START_LOG) fs.appendFileSync(process.env.NODEX_TEST_START_LOG, `${process.pid}\\n`);",
+      "if (process.env.NODEX_TEST_TERMINATION_LOG) {",
+      "  process.on('SIGTERM', () => {",
+      "    setTimeout(() => {",
+      "      fs.appendFileSync(process.env.NODEX_TEST_TERMINATION_LOG, `${process.pid}\\n`);",
+      "      process.exit(0);",
+      "    }, 50);",
+      "  });",
+      "}",
       "const rl = readline.createInterface({ input: process.stdin });",
       "let pendingTriggerId = null;",
       "let nextIgnoredRequestId = 9100;",
@@ -41,6 +51,11 @@ function makeMockServerScript(): { scriptPath: string; cleanup: () => void } {
       "  if (msg.method === 'emitStderr') {",
       "    process.stderr.write(String(msg.params?.line ?? '') + '\\n');",
       "    send({ id: msg.id, result: {} });",
+      "    return;",
+      "  }",
+      "  if (msg.method === 'terminate') {",
+      "    send({ id: msg.id, result: {} });",
+      "    setTimeout(() => process.exit(0), 0);",
       "    return;",
       "  }",
       "  if (msg.method === 'triggerApproval') {",
@@ -160,6 +175,205 @@ describe("codex-app-server-client", () => {
     } finally {
       await client.stop();
       expect(client.getInitializeResponse()).toBeNull();
+      mock.cleanup();
+    }
+  });
+
+  test("coalesces concurrent cold-start callers into one app-server process", async () => {
+    const mock = makeMockServerScript();
+    const startLogPath = path.join(path.dirname(mock.scriptPath), "starts.log");
+    const client = new CodexAppServerClient({
+      binaryPath: process.execPath,
+      args: [mock.scriptPath],
+      env: {
+        ...process.env,
+        NODEX_TEST_START_LOG: startLogPath,
+      },
+    });
+
+    try {
+      const [, , first, second] = await Promise.all([
+        client.start(),
+        client.start(),
+        client.request<{ value: string }>("echo", { value: "first" }),
+        client.request<{ value: string }>("echo", { value: "second" }),
+      ]);
+
+      expect(first.value).toBe("first");
+      expect(second.value).toBe("second");
+      expect(fs.readFileSync(startLogPath, "utf8").trim().split("\n")).toHaveLength(1);
+    } finally {
+      await client.stop();
+      mock.cleanup();
+    }
+  });
+
+  test("does not spawn a superseded startup after stop", async () => {
+    const mock = makeMockServerScript();
+    const startLogPath = path.join(path.dirname(mock.scriptPath), "starts.log");
+    let markEnvResolutionStarted: () => void = () => undefined;
+    const envResolutionStarted = new Promise<void>((resolve) => {
+      markEnvResolutionStarted = resolve;
+    });
+    let releaseEnvResolution: () => void = () => undefined;
+    const envResolutionGate = new Promise<void>((resolve) => {
+      releaseEnvResolution = resolve;
+    });
+    const client = new CodexAppServerClient({
+      binaryPath: process.execPath,
+      args: [mock.scriptPath],
+      resolveEnv: async () => {
+        markEnvResolutionStarted();
+        await envResolutionGate;
+        return {
+          ...process.env,
+          NODEX_TEST_START_LOG: startLogPath,
+        };
+      },
+    });
+
+    try {
+      const supersededStart = client.start();
+      await envResolutionStarted;
+      await client.stop();
+      releaseEnvResolution();
+
+      await expect(supersededStart).rejects.toThrow("startup was superseded");
+      expect(fs.existsSync(startLogPath)).toBe(false);
+
+      await client.start();
+      expect(fs.readFileSync(startLogPath, "utf8").trim().split("\n")).toHaveLength(1);
+    } finally {
+      releaseEnvResolution();
+      await client.stop();
+      mock.cleanup();
+    }
+  });
+
+  test("waits for the previous process to retire before a controlled restart", async () => {
+    const mock = makeMockServerScript();
+    const startLogPath = path.join(path.dirname(mock.scriptPath), "starts.log");
+    const terminationLogPath = path.join(path.dirname(mock.scriptPath), "terminations.log");
+    const client = new CodexAppServerClient({
+      binaryPath: process.execPath,
+      args: [mock.scriptPath],
+      env: {
+        ...process.env,
+        NODEX_TEST_START_LOG: startLogPath,
+        NODEX_TEST_TERMINATION_LOG: terminationLogPath,
+      },
+    });
+
+    try {
+      await client.start();
+      const firstPid = fs.readFileSync(startLogPath, "utf8").trim();
+      await client.stop();
+
+      expect(fs.readFileSync(terminationLogPath, "utf8").trim()).toBe(firstPid);
+
+      await client.start();
+      const startedPids = fs.readFileSync(startLogPath, "utf8").trim().split("\n");
+      expect(startedPids).toHaveLength(2);
+      expect(startedPids[1]).not.toBe(firstPid);
+    } finally {
+      await client.stop();
+      mock.cleanup();
+    }
+  });
+
+  test("reconnects through the shared start lifecycle and reports the recovered attempt", async () => {
+    const mock = makeMockServerScript();
+    const startLogPath = path.join(path.dirname(mock.scriptPath), "starts.log");
+    const client = new CodexAppServerClient({
+      binaryPath: process.execPath,
+      args: [mock.scriptPath],
+      env: {
+        ...process.env,
+        NODEX_TEST_START_LOG: startLogPath,
+      },
+    });
+    const connectionStates: Array<ReturnType<typeof client.getState>> = [];
+    client.on("connection", (state) => {
+      connectionStates.push(state);
+    });
+
+    try {
+      await client.start();
+      await client.request("terminate", {});
+
+      const deadline = Date.now() + 1_000;
+      while (
+        Date.now() < deadline
+        && !connectionStates.some((state) => state.status === "starting" && state.retries === 1)
+      ) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+
+      await client.start();
+
+      expect(client.getState()).toMatchObject({ status: "connected", retries: 1 });
+      expect(fs.readFileSync(startLogPath, "utf8").trim().split("\n")).toHaveLength(2);
+    } finally {
+      await client.stop();
+      mock.cleanup();
+    }
+  });
+
+  test("ignores lifecycle events from a retired process generation", () => {
+    const client = new CodexAppServerClient({
+      binaryPath: process.execPath,
+    });
+    const retiredChild = {};
+    const currentChild = {};
+    const connectedState = {
+      status: "connected" as const,
+      retries: 0,
+      lastConnectedAt: Date.now(),
+    };
+    const clientInternals = client as unknown as {
+      child: unknown;
+      connectionState: typeof connectedState;
+      handleChildExit: (
+        child: unknown,
+        generation: number,
+        code: number | null,
+        signal: NodeJS.Signals | null,
+      ) => void;
+      initialized: boolean;
+      lifecycleGeneration: number;
+    };
+    clientInternals.child = currentChild;
+    clientInternals.connectionState = connectedState;
+    clientInternals.initialized = true;
+    clientInternals.lifecycleGeneration = 2;
+
+    clientInternals.handleChildExit(retiredChild, 1, 1, null);
+
+    expect(clientInternals.child).toBe(currentChild);
+    expect(clientInternals.initialized).toBe(true);
+    expect(client.getState()).toBe(connectedState);
+  });
+
+  test("never restarts after permanent disposal", async () => {
+    const mock = makeMockServerScript();
+    const startLogPath = path.join(path.dirname(mock.scriptPath), "starts.log");
+    const client = new CodexAppServerClient({
+      binaryPath: process.execPath,
+      args: [mock.scriptPath],
+      env: {
+        ...process.env,
+        NODEX_TEST_START_LOG: startLogPath,
+      },
+    });
+
+    try {
+      await client.start();
+      await client.dispose();
+
+      await expect(client.start()).rejects.toThrow("client was disposed");
+      expect(fs.readFileSync(startLogPath, "utf8").trim().split("\n")).toHaveLength(1);
+    } finally {
+      await client.stop();
       mock.cleanup();
     }
   });

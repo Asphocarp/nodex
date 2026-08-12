@@ -26,6 +26,8 @@ export type {
 
 const DEFAULT_CONNECT_TIMEOUT_MS = 20_000;
 const DEFAULT_REQUEST_TIMEOUT_MS = 120_000;
+const CHILD_TERMINATION_TIMEOUT_MS = 2_000;
+const CHILD_FORCE_TERMINATION_TIMEOUT_MS = 1_000;
 const MAX_RECONNECT_DELAY_MS = 30_000;
 const PATH_DELIMITER = process.platform === "win32" ? ";" : ":";
 
@@ -304,8 +306,12 @@ export class CodexAppServerClient extends EventEmitter {
   private requestIdCounter = 1;
   private pendingRequests = new Map<string, PendingRequest>();
   private readyDeferred!: Deferred<void>;
+  private isDisposed = false;
   private initialized = false;
   private isStopping = false;
+  private lifecycleGeneration = 0;
+  private startInFlight: Promise<void> | null = null;
+  private retirementInFlight: Promise<void> | null = null;
   private reconnectTimer: NodeJS.Timeout | null = null;
   private reconnectAttempts = 0;
   private initializeResponse: InitializeResponse | null = null;
@@ -350,23 +356,35 @@ export class CodexAppServerClient extends EventEmitter {
   }
 
   async start(): Promise<void> {
-    if (this.child) {
-      logger.debug("Codex app-server client start reused existing child");
-      await this.waitUntilReady();
-      return;
-    }
+    if (this.isDisposed) throw new Error("Codex app-server client was disposed");
+    if (this.initialized && this.connectionState.status === "connected") return;
+    if (this.startInFlight) return await this.startInFlight;
+    if (this.child) return await this.waitUntilReady();
 
     this.isStopping = false;
+    this.clearReconnectTimer();
+    const generation = ++this.lifecycleGeneration;
     logger.info("Starting Codex app-server client", {
       binaryPath: this.binaryPath,
       args: this.args,
       additionalSearchPaths: this.additionalSearchPaths,
+      generation,
     });
-    await this.spawnAndInitialize();
+
+    const operation = Promise.resolve()
+      .then(async () => await this.spawnAndInitialize(generation))
+      .finally(() => {
+        if (this.startInFlight === operation) this.startInFlight = null;
+      });
+    this.startInFlight = operation;
+    return await operation;
   }
 
   async stop(): Promise<void> {
+    const stoppedError = new Error("Codex app-server client stopped");
     this.isStopping = true;
+    this.lifecycleGeneration += 1;
+    this.startInFlight = null;
     this.clearReconnectTimer();
     logger.info("Stopping Codex app-server client", {
       hadChild: Boolean(this.child),
@@ -374,23 +392,29 @@ export class CodexAppServerClient extends EventEmitter {
     });
 
     const current = this.child;
-    if (current) {
-      current.removeAllListeners();
-      current.stdout.removeAllListeners();
-      current.stderr.removeAllListeners();
-      current.kill();
-    }
 
     this.child = null;
     this.initialized = false;
     this.initializeResponse = null;
-    this.rejectAllPending(new Error("Codex app-server client stopped"));
+    this.rejectAllPending(stoppedError);
+    this.readyDeferred.reject(stoppedError);
     this.resetReadyDeferred();
-    this.setConnectionState({ status: "disconnected", retries: this.reconnectAttempts });
+    this.reconnectAttempts = 0;
+    this.setConnectionState({ status: "disconnected", retries: 0 });
+
+    if (current) await this.retireChild(current);
+    else if (this.retirementInFlight) await this.retirementInFlight;
+  }
+
+  /** Permanently closes this client; unlike stop(), a disposed client cannot restart. */
+  async dispose(): Promise<void> {
+    this.isDisposed = true;
+    await this.stop();
   }
 
   async waitUntilReady(): Promise<void> {
     if (this.initialized && this.connectionState.status === "connected") return;
+    if (this.startInFlight) return await this.startInFlight;
     await this.readyDeferred.promise;
   }
 
@@ -403,18 +427,12 @@ export class CodexAppServerClient extends EventEmitter {
     method: string,
     ...args: [params?: unknown]
   ): Promise<unknown> {
-    if (!this.child) {
-      await this.start();
-    }
-    await this.waitUntilReady();
+    await this.start();
     return this.requestRaw(method, args[0]);
   }
 
   async notify(method: string, params?: unknown): Promise<void> {
-    if (!this.child) {
-      await this.start();
-    }
-    await this.waitUntilReady();
+    await this.start();
     this.writeMessage({ method, params } satisfies JsonRpcNotificationEnvelope);
   }
 
@@ -426,8 +444,9 @@ export class CodexAppServerClient extends EventEmitter {
     });
   }
 
-  private async spawnAndInitialize(): Promise<void> {
-    this.clearReconnectTimer();
+  private async spawnAndInitialize(generation: number): Promise<void> {
+    if (this.retirementInFlight) await this.retirementInFlight;
+    this.assertStartupIsCurrent(generation);
     this.stdoutBuffer = "";
     this.stderrBuffer = "";
     this.resetReadyDeferred();
@@ -437,6 +456,7 @@ export class CodexAppServerClient extends EventEmitter {
       mkdirSync(this.expectedCodexHome, { recursive: true, mode: 0o700 });
     }
     const resolvedEnv = this.resolveEnv ? await this.resolveEnv() : this.env;
+    this.assertStartupIsCurrent(generation);
     const spawnEnv = createSpawnEnv(resolvedEnv, this.additionalSearchPaths);
     const startedAt = Date.now();
 
@@ -473,55 +493,42 @@ export class CodexAppServerClient extends EventEmitter {
     child.stderr.setEncoding("utf8");
 
     child.stdout.on("data", (chunk: string) => {
+      if (!this.isCurrentChildGeneration(child, generation)) return;
       this.handleStdoutData(chunk);
     });
 
     child.stderr.on("data", (chunk: string) => {
+      if (!this.isCurrentChildGeneration(child, generation)) return;
       this.handleStderrData(chunk);
     });
 
     child.on("error", (error) => {
-      const message = error instanceof Error ? error.message : String(error);
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-        logger.error("Codex app-server spawn failed because binary was not found", {
-          binaryPath: this.binaryPath,
-          error,
-        });
-        this.setMissingBinaryState();
-        this.readyDeferred.reject(new Error(`Missing Codex binary: ${this.binaryPath}`));
-        return;
-      }
-
-      logger.error("Codex app-server child emitted process error", {
-        error,
-        binaryPath: this.binaryPath,
-      });
-      this.setConnectionState({
-        status: "error",
-        retries: this.reconnectAttempts,
-        message,
-      });
-      this.readyDeferred.reject(error);
+      void this.handleChildError(child, generation, error);
     });
 
     child.on("exit", (code, signal) => {
-      this.handleChildExit(code, signal);
+      this.handleChildExit(child, generation, code, signal);
     });
 
     try {
       await this.initializeHandshake();
+      this.assertChildIsCurrent(child, generation);
+      const completedReconnectAttempts = this.reconnectAttempts;
       this.reconnectAttempts = 0;
       logger.info("Codex app-server client connected", {
         pid: child.pid ?? null,
         durationMs: Date.now() - startedAt,
+        generation,
+        reconnectAttempts: completedReconnectAttempts,
       });
       this.setConnectionState({
         status: "connected",
-        retries: this.reconnectAttempts,
+        retries: completedReconnectAttempts,
         lastConnectedAt: Date.now(),
       });
       this.readyDeferred.resolve();
     } catch (error) {
+      if (!this.isCurrentChildGeneration(child, generation)) throw error;
       const message = error instanceof Error ? error.message : String(error);
       if (
         this.connectionState.status === "missingBinary" ||
@@ -534,7 +541,9 @@ export class CodexAppServerClient extends EventEmitter {
       logger.error("Codex app-server initialization failed", {
         error,
         durationMs: Date.now() - startedAt,
+        generation,
       });
+      await this.abandonCurrentChild(child, error instanceof Error ? error : new Error(message));
       this.setConnectionState({
         status: "error",
         retries: this.reconnectAttempts,
@@ -821,14 +830,126 @@ export class CodexAppServerClient extends EventEmitter {
     return child !== null && this.child === child && !child.stdin.destroyed;
   }
 
-  private handleChildExit(code: number | null, signal: NodeJS.Signals | null): void {
+  private isCurrentChildGeneration(
+    child: ChildProcessWithoutNullStreams,
+    generation: number,
+  ): boolean {
+    return this.lifecycleGeneration === generation && this.child === child;
+  }
+
+  private assertStartupIsCurrent(generation: number): void {
+    if (!this.isStopping && this.lifecycleGeneration === generation) return;
+    throw new Error("Codex app-server startup was superseded");
+  }
+
+  private assertChildIsCurrent(
+    child: ChildProcessWithoutNullStreams,
+    generation: number,
+  ): void {
+    this.assertStartupIsCurrent(generation);
+    if (this.child === child) return;
+    throw new Error("Codex app-server startup was superseded");
+  }
+
+  private async terminateChild(child: ChildProcessWithoutNullStreams): Promise<void> {
+    child.removeAllListeners();
+    child.stdout.removeAllListeners();
+    child.stderr.removeAllListeners();
+    if (child.exitCode !== null || child.signalCode !== null) return;
+
+    const exit = new Promise<void>((resolve) => {
+      child.once("exit", () => resolve());
+      child.once("error", () => resolve());
+    });
+    child.kill();
+    const exitedGracefully = await Promise.race([
+      exit.then(() => true),
+      sleep(CHILD_TERMINATION_TIMEOUT_MS).then(() => false),
+    ]);
+    if (exitedGracefully || child.exitCode !== null || child.signalCode !== null) return;
+
+    logger.warn("Codex app-server did not exit after termination request; forcing shutdown", {
+      pid: child.pid ?? null,
+      timeoutMs: CHILD_TERMINATION_TIMEOUT_MS,
+    });
+    child.kill("SIGKILL");
+    await Promise.race([
+      exit,
+      sleep(CHILD_FORCE_TERMINATION_TIMEOUT_MS),
+    ]);
+  }
+
+  private async retireChild(child: ChildProcessWithoutNullStreams): Promise<void> {
+    if (this.retirementInFlight) return await this.retirementInFlight;
+
+    const retirement = this.terminateChild(child).finally(() => {
+      if (this.retirementInFlight === retirement) this.retirementInFlight = null;
+    });
+    this.retirementInFlight = retirement;
+    return await retirement;
+  }
+
+  private async abandonCurrentChild(child: ChildProcessWithoutNullStreams, error: Error): Promise<void> {
+    if (this.child !== child) return;
     this.child = null;
     this.initialized = false;
     this.initializeResponse = null;
-    this.rejectAllPending(new Error(`Codex app-server exited (code=${code ?? "null"}, signal=${signal ?? "null"})`));
+    this.rejectAllPending(error);
+    await this.retireChild(child);
+  }
+
+  private async handleChildError(
+    child: ChildProcessWithoutNullStreams,
+    generation: number,
+    error: Error,
+  ): Promise<void> {
+    if (!this.isCurrentChildGeneration(child, generation)) return;
+    const missingBinary = (error as NodeJS.ErrnoException).code === "ENOENT";
+    const failure = missingBinary
+      ? new Error(`Missing Codex binary: ${this.binaryPath}`)
+      : error;
+
+    logger.error(
+      missingBinary
+        ? "Codex app-server spawn failed because binary was not found"
+        : "Codex app-server child emitted process error",
+      { error, binaryPath: this.binaryPath, generation },
+    );
+    this.readyDeferred.reject(failure);
+    await this.abandonCurrentChild(child, failure);
+    if (missingBinary) {
+      this.setMissingBinaryState();
+    } else {
+      this.setConnectionState({
+        status: "error",
+        retries: this.reconnectAttempts,
+        message: failure.message,
+      });
+    }
+    if (!missingBinary && !this.isStopping) void this.scheduleReconnect();
+  }
+
+  private handleChildExit(
+    child: ChildProcessWithoutNullStreams,
+    generation: number,
+    code: number | null,
+    signal: NodeJS.Signals | null,
+  ): void {
+    if (!this.isCurrentChildGeneration(child, generation)) {
+      logger.debug("Ignored stale Codex app-server exit", { code, signal, generation });
+      return;
+    }
+
+    const error = new Error(`Codex app-server exited (code=${code ?? "null"}, signal=${signal ?? "null"})`);
+    this.child = null;
+    this.initialized = false;
+    this.initializeResponse = null;
+    this.rejectAllPending(error);
+    this.readyDeferred.reject(error);
     logger.warn("Codex app-server process exited", {
       code,
       signal,
+      generation,
       isStopping: this.isStopping,
       reconnectAttempts: this.reconnectAttempts,
     });
@@ -863,7 +984,7 @@ export class CodexAppServerClient extends EventEmitter {
 
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
-      void this.spawnAndInitialize().catch(() => {
+      void this.start().catch(() => {
         // Errors already reflected in connection state; keep retrying.
       });
     }, delayMs);

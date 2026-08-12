@@ -10,6 +10,7 @@ import type {
   CodexBackgroundSubagentThreadsHydrateInput,
   CodexSubagentPanelHydrateInput,
   CodexAgentMode,
+  CodexAccountSnapshot,
   CodexApprovalResponse,
   CodexApprovalKind,
   CodexConversationSnapshot,
@@ -4834,6 +4835,70 @@ function initializeGitRepository(repoPath: string): void {
   execFileSync("git", ["add", "README.md"], { cwd: repoPath });
   execFileSync("git", ["commit", "-m", "initial"], { cwd: repoPath });
 }
+
+describe("codex-service account recovery", () => {
+  test("coalesces account reads and republishes the canonical snapshot after reconnect", async () => {
+    const service = createService();
+    const client = Reflect.get(service as object, "client") as {
+      emit: (event: string, payload: unknown) => boolean;
+      request: (method: string, params?: unknown) => Promise<unknown>;
+      start: () => Promise<void>;
+    };
+    const unavailableComputerUseRuntime = {
+      message: "Computer Use is unavailable in this fixture",
+      reason: "runtime-unavailable" as const,
+      status: "unavailable" as const,
+    };
+    Reflect.set(service as object, "computerUseRuntimeCoordinator", {
+      dispose: async () => undefined,
+      ensureReady: async () => unavailableComputerUseRuntime,
+      getResult: () => unavailableComputerUseRuntime,
+    });
+    service.syncSidebarThreadsDetailed = async () => ({}) as never;
+
+    let accountReadCount = 0;
+    let accountResult: unknown = {
+      account: { type: "apiKey" },
+      requiresOpenaiAuth: false,
+    };
+    client.start = async () => undefined;
+    client.request = async (method: string) => {
+      if (method !== "account/read") throw new Error(`Unexpected method ${method}`);
+      accountReadCount += 1;
+      await Promise.resolve();
+      return accountResult;
+    };
+    const accountEvents: CodexAccountSnapshot[] = [];
+    service.on("event", (event) => {
+      if (event.type === "account") accountEvents.push(event.account);
+    });
+
+    try {
+      const [first, second] = await Promise.all([
+        service.readAccountSnapshot(),
+        service.readAccountSnapshot(),
+      ]);
+      expect(first.account).toEqual({ type: "apiKey" });
+      expect(second).toBe(first);
+      expect(accountReadCount).toBe(1);
+
+      accountResult = {
+        account: null,
+        requiresOpenaiAuth: true,
+      };
+      client.emit("connection", { status: "connected", retries: 1 });
+      await waitForCondition(() => accountReadCount === 2, 250);
+      await waitForCondition(() => accountEvents.at(-1)?.account === null, 250);
+
+      expect(accountEvents.at(-1)).toMatchObject({
+        account: null,
+        requiresOpenAiAuth: true,
+      });
+    } finally {
+      await service.shutdown();
+    }
+  });
+});
 
 describe("codex-service rate limit polling", () => {
   test.each([
