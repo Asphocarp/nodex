@@ -18,10 +18,6 @@ export const testPropertySemantics = (
       }
     : { kind: valueType };
   const capabilities: DatabasePropertyCapabilitiesV2 = {
-    replace: true,
-    patchSetMember: valueType === "multi_select"
-      ? "option"
-      : valueType === "relation" ? "page" : null,
     filterOperators: valueType === "relation" || valueType === "multi_select"
       ? ["contains", "not_contains", "is_empty", "is_not_empty"]
       : ["equals", "not_equals", "is_empty", "is_not_empty"],

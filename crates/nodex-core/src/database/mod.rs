@@ -2811,6 +2811,33 @@ mod tests {
             ],
         );
 
+        let patch_one = module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    operation_id: "operation:reject-patch-one-relation".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: vec![DatabaseIntent::EditPropertyValues {
+                        edits: vec![DatabasePropertyValueMutation {
+                            address: DatabasePagePropertyAddress {
+                                page_id: "page:child".to_owned(),
+                                data_source_id: SOURCE_ID.to_owned(),
+                                property_id: "task_parent".to_owned(),
+                            },
+                            edit: DatabasePropertyValueEdit::PatchSet {
+                                delta: nodex_core_contracts::database::DatabasePropertySetDelta::Relation {
+                                    add_page_ids: vec!["page:parent".to_owned()],
+                                    remove_edge_ids: Vec::new(),
+                                },
+                            },
+                        }],
+                    }],
+                },
+            )
+            .expect_err("cardinality-one Relation rejects set patches");
+        assert_eq!(patch_one.code, CoreErrorCode::InvalidInput);
+
         let related = module
             .apply(
                 &context(),
@@ -2825,7 +2852,7 @@ mod tests {
                                 data_source_id: SOURCE_ID.to_owned(),
                                 property_id: "task_parent".to_owned(),
                             },
-                            edit: DatabasePropertyValueEdit::ReplaceRelation {
+                            edit: DatabasePropertyValueEdit::ReplaceOneRelation {
                                 expected_value_revision: 1,
                                 target_page_id: Some("page:parent".to_owned()),
                             },
@@ -2873,7 +2900,7 @@ mod tests {
                                 data_source_id: SOURCE_ID.to_owned(),
                                 property_id: "task_parent".to_owned(),
                             },
-                            edit: DatabasePropertyValueEdit::ReplaceRelation {
+                            edit: DatabasePropertyValueEdit::ReplaceOneRelation {
                                 expected_value_revision: 2,
                                 target_page_id: Some("page:parent".to_owned()),
                             },
@@ -3910,6 +3937,30 @@ mod tests {
                 },
             )
             .expect("create Relation Property");
+        let replace_many = module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    operation_id: "operation:reject-replace-many-relation".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: vec![DatabaseIntent::EditPropertyValues {
+                        edits: vec![DatabasePropertyValueMutation {
+                            address: DatabasePagePropertyAddress {
+                                page_id: "page:relation-row".to_owned(),
+                                data_source_id: SOURCE_ID.to_owned(),
+                                property_id: "blocked_by".to_owned(),
+                            },
+                            edit: DatabasePropertyValueEdit::ReplaceOneRelation {
+                                expected_value_revision: 0,
+                                target_page_id: Some("page:target-a".to_owned()),
+                            },
+                        }],
+                    }],
+                },
+            )
+            .expect_err("cardinality-many Relation rejects single-target replacement");
+        assert_eq!(replace_many.code, CoreErrorCode::InvalidInput);
         let write = module
             .apply(
                 &context(),
@@ -4048,12 +4099,12 @@ mod tests {
             CoreErrorCode::NotFound,
             "{guessed_remove:?}"
         );
-        let stale_replace = module
+        let stale_clear = module
             .apply(
                 &context(),
                 ModuleApplyRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    operation_id: "operation:replace-relation-stale".to_owned(),
+                    operation_id: "operation:clear-many-relation-stale".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: vec![DatabaseIntent::EditPropertyValues {
                         edits: vec![DatabasePropertyValueMutation {
@@ -4062,16 +4113,15 @@ mod tests {
                                 data_source_id: SOURCE_ID.to_owned(),
                                 property_id: "blocked_by".to_owned(),
                             },
-                            edit: DatabasePropertyValueEdit::ReplaceRelation {
+                            edit: DatabasePropertyValueEdit::ClearManyRelation {
                                 expected_value_revision: 0,
-                                target_page_id: None,
                             },
                         }],
                     }],
                 },
             )
-            .expect_err("stale Relation replacement");
-        assert_eq!(stale_replace.code, CoreErrorCode::RevisionConflict);
+            .expect_err("stale cardinality-many Relation clear");
+        assert_eq!(stale_clear.code, CoreErrorCode::RevisionConflict);
         let (view_revision, mut view_config) = kernel
             .readers()
             .read_default(|connection| {
@@ -4277,9 +4327,8 @@ mod tests {
                                 data_source_id: SOURCE_ID.to_owned(),
                                 property_id: "blocked_by".to_owned(),
                             },
-                            edit: DatabasePropertyValueEdit::ReplaceRelation {
+                            edit: DatabasePropertyValueEdit::ClearManyRelation {
                                 expected_value_revision: 2,
-                                target_page_id: None,
                             },
                         }],
                     }],

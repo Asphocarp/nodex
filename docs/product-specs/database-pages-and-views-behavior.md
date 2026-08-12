@@ -250,15 +250,18 @@ add/remove intent. Conflicts and collection failures stay on the control or
 popover that owns the action and do not hide unaffected fields.
 
 Relation is a one-way Page-reference Property targeting one Data Source. Its
-schema declares cardinality `one` or `many`: a single Relation stores zero or
-one target and replaces it through value-revision compare-and-swap; a multi
-Relation is an unordered unique set with idempotent edge patches. Both use the
-same normalized edge table and a JSON-null value revision header. Relation never
+schema declares cardinality `one` or `many`, and that cardinality selects the
+mutation grammar. A single Relation stores zero or one target and uses a
+value-revision-fenced replace/clear command. A multi Relation is an unordered
+unique set with idempotent edge patches plus a distinct revision-fenced whole-set
+clear command. A one Relation rejects set patches; a many Relation rejects
+single-target replacement. Both use the same normalized edge table and a
+JSON-null value revision header. Relation never
 changes ownership or grants access. Compact values show visible targets plus
 hidden/restricted counts; inaccessible targets disclose neither identity nor
 title. Candidate and selected lists are bounded and paged. Removal of a
 restricted target uses a Core-authored opaque edge handle rather than a guessed
-Page ID; a revision-fenced empty replacement can clear the whole value without
+Page ID; the many-Relation clear command can remove every edge without
 disclosing targets. Generic Relation references survive target membership and
 lifecycle changes until explicitly removed. The standard `task_parent` Relation
 adds same-Source activity, acyclicity, depth, sibling-order, copy-as-root, and

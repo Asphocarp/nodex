@@ -1,6 +1,6 @@
 use nodex_core_contracts::database::{
     DatabasePropertyCapabilities, DatabasePropertyFilterOperator, DatabasePropertySchema,
-    DatabasePropertySetMemberKind, DatabaseRelationCardinality,
+    DatabaseRelationCardinality,
 };
 use rusqlite::{Connection, OptionalExtension, params};
 
@@ -42,8 +42,6 @@ pub(crate) fn capabilities(schema: &DatabasePropertySchema) -> DatabasePropertyC
     let equality = vec![Equals, NotEquals, IsEmpty, IsNotEmpty];
     match schema {
         DatabasePropertySchema::Text => DatabasePropertyCapabilities {
-            replace: true,
-            patch_set_member: None,
             filter_operators: vec![
                 Equals,
                 NotEquals,
@@ -56,8 +54,6 @@ pub(crate) fn capabilities(schema: &DatabasePropertySchema) -> DatabasePropertyC
             groupable: true,
         },
         DatabasePropertySchema::MultiSelect => DatabasePropertyCapabilities {
-            replace: true,
-            patch_set_member: Some(DatabasePropertySetMemberKind::Option),
             filter_operators: vec![
                 Equals,
                 NotEquals,
@@ -70,8 +66,6 @@ pub(crate) fn capabilities(schema: &DatabasePropertySchema) -> DatabasePropertyC
             groupable: true,
         },
         DatabasePropertySchema::Relation { .. } => DatabasePropertyCapabilities {
-            replace: true,
-            patch_set_member: Some(DatabasePropertySetMemberKind::Page),
             filter_operators: vec![Contains, NotContains, IsEmpty, IsNotEmpty],
             sortable: false,
             groupable: false,
@@ -81,8 +75,6 @@ pub(crate) fn capabilities(schema: &DatabasePropertySchema) -> DatabasePropertyC
         | DatabasePropertySchema::Select
         | DatabasePropertySchema::Date
         | DatabasePropertySchema::Datetime => DatabasePropertyCapabilities {
-            replace: true,
-            patch_set_member: None,
             filter_operators: equality,
             sortable: true,
             groupable: true,

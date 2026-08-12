@@ -544,7 +544,7 @@ const parseApplyOperation = (
           },
         };
       }
-      if (edit.kind === "replace_relation") {
+      if (edit.kind === "replace_one_relation") {
         assertExactKeys(
           edit,
           `${editLabel}.edit`,
@@ -556,7 +556,7 @@ const parseApplyOperation = (
           dataSourceId: readDataSourceId(mutation.dataSourceId, `${editLabel}.dataSourceId`),
           propertyId,
           edit: {
-            kind: "replace_relation" as const,
+            kind: "replace_one_relation" as const,
             expectedValueRevision: readRevision(
               edit.expectedValueRevision,
               `${editLabel}.edit.expectedValueRevision`,
@@ -569,6 +569,25 @@ const parseApplyOperation = (
                     `${editLabel}.edit.targetPageId`,
                   ),
                 }),
+          },
+        };
+      }
+      if (edit.kind === "clear_many_relation") {
+        assertExactKeys(
+          edit,
+          `${editLabel}.edit`,
+          ["kind", "expectedValueRevision"],
+        );
+        return {
+          pageId: readString(mutation.pageId, `${editLabel}.pageId`),
+          dataSourceId: readDataSourceId(mutation.dataSourceId, `${editLabel}.dataSourceId`),
+          propertyId,
+          edit: {
+            kind: "clear_many_relation" as const,
+            expectedValueRevision: readRevision(
+              edit.expectedValueRevision,
+              `${editLabel}.edit.expectedValueRevision`,
+            ),
           },
         };
       }
@@ -1413,16 +1432,10 @@ const parsePropertyRecord = (
   }
   const capabilities = readRecord(record.capabilities, `${label}.capabilities`);
   assertExactKeys(capabilities, `${label}.capabilities`, [
-    "replace",
-    "patchSetMember",
     "filterOperators",
     "sortable",
     "groupable",
   ]);
-  const patchSetMember = capabilities.patchSetMember;
-  if (patchSetMember !== null && patchSetMember !== "option" && patchSetMember !== "page") {
-    throw new TypeError(`${label}.capabilities.patchSetMember is invalid`);
-  }
   if (!Array.isArray(capabilities.filterOperators)
     || capabilities.filterOperators.some((operator) => ![
       "equals", "not_equals", "contains", "not_contains", "is_empty", "is_not_empty",
@@ -1446,8 +1459,6 @@ const parsePropertyRecord = (
     name: readString(record.name, `${label}.name`, MAX_NAME_LENGTH),
     schema,
     capabilities: {
-      replace: readBoolean(capabilities.replace, `${label}.capabilities.replace`),
-      patchSetMember,
       filterOperators: capabilities.filterOperators as NonNullable<DataSourcePropertyRecordV2["capabilities"]>["filterOperators"],
       sortable: readBoolean(capabilities.sortable, `${label}.capabilities.sortable`),
       groupable: readBoolean(capabilities.groupable, `${label}.capabilities.groupable`),

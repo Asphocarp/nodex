@@ -132,8 +132,6 @@ const preflight = (
         name: "Tags",
         schema: { kind: "multi_select" },
         capabilities: {
-          replace: true,
-          patchSetMember: "option",
           filterOperators: ["contains", "not_contains", "is_empty", "is_not_empty"],
           sortable: true,
           groupable: true,

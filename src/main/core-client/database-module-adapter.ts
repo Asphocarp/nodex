@@ -315,11 +315,16 @@ export const toCoreDatabaseIntent = (
                   return value;
                 })(),
               }
-            : mutation.edit.kind === "replace_relation"
+            : mutation.edit.kind === "replace_one_relation"
               ? {
-                  kind: "replace_relation" as const,
+                  kind: "replace_one_relation" as const,
                   expected_value_revision: mutation.edit.expectedValueRevision,
                   target_page_id: mutation.edit.targetPageId ?? null,
+                }
+            : mutation.edit.kind === "clear_many_relation"
+              ? {
+                  kind: "clear_many_relation" as const,
+                  expected_value_revision: mutation.edit.expectedValueRevision,
                 }
             : {
                 kind: "patch_set" as const,
@@ -544,11 +549,6 @@ export const mapCorePropertyDescriptor = (
         }
       : { kind: schemaKind },
     capabilities: {
-      replace: capabilities.replace === true,
-      patchSetMember: capabilities.patch_set_member === "option"
-          || capabilities.patch_set_member === "page"
-        ? capabilities.patch_set_member
-        : null,
       filterOperators: Array.isArray(capabilities.filter_operators)
         ? capabilities.filter_operators as NonNullable<DataSourcePropertyRecordV2["capabilities"]>["filterOperators"]
         : [],

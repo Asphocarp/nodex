@@ -720,7 +720,7 @@ const compileDirectPropertyEdit = (
       removeEdgeIds: edit.removeEdgeIds,
     });
   }
-  if (edit.kind === "replace_relation") {
+  if (edit.kind === "replace_one_relation") {
     return buildDataSourceRelationReplacementOperations({
       pageId: detail.page.pageId,
       dataSourceId: context.dataSource.dataSourceId,

@@ -13,6 +13,7 @@ import {
   buildDataSourceMultiSelectPatchOperations,
   buildDataSourcePropertyValueOperations,
   buildDataSourceRelationPatchOperations,
+  buildDataSourceRelationReplacementOperations,
 } from "./data-source-property-value-operations";
 
 const dataSourceId = parseDataSourceId("source-1");
@@ -137,6 +138,44 @@ describe("Data Source Property value operations", () => {
     }]);
   });
 
+  test("selects exactly one cardinality-one Relation target", () => {
+    const base = property("p_0123abcd", "relation");
+    const definition: DataSourcePropertyRecordV2 = {
+      ...base,
+      schema: { ...base.schema, cardinality: "one" },
+    } as DataSourcePropertyRecordV2;
+    expect(buildDataSourceRelationReplacementOperations({
+      pageId: "page-1",
+      dataSourceId,
+      property: definition,
+      expectedValueRevision: 4,
+      targetPageId: "page-2",
+    })).toMatchObject([{
+      kind: "edit_property_values",
+      edits: [{
+        edit: {
+          kind: "replace_one_relation",
+          expectedValueRevision: 4,
+          targetPageId: "page-2",
+        },
+      }],
+    }]);
+    expect(() => buildDataSourceRelationPatchOperations({
+      pageId: "page-1",
+      dataSourceId,
+      property: definition,
+      addPageIds: ["page-3"],
+      removeEdgeIds: [],
+    })).toThrow(/incompatible/u);
+    expect(() => buildDataSourceRelationReplacementOperations({
+      pageId: "page-1",
+      dataSourceId,
+      property: base,
+      expectedValueRevision: 4,
+      targetPageId: "page-2",
+    })).toThrow(/incompatible/u);
+  });
+
   test("clears every visible and restricted Relation edge behind a revision fence", () => {
     const definition = property("p_0123abcd", "relation");
     expect(buildDataSourcePropertyValueOperations({
@@ -160,7 +199,7 @@ describe("Data Source Property value operations", () => {
         pageId: "page-1",
         dataSourceId,
         propertyId: definition.propertyId,
-        edit: { kind: "replace_relation", expectedValueRevision: 7 },
+        edit: { kind: "clear_many_relation", expectedValueRevision: 7 },
       }],
     }]);
   });

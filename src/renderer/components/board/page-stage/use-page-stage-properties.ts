@@ -253,7 +253,7 @@ export function usePageStageProperties(input: {
     property: PageStageDataSourceProperty,
     targetPageId: string | null,
   ) => edit(property, {
-    kind: "replace_relation",
+    kind: "replace_one_relation",
     targetPageId,
     expectedValueRevision: property.valueRevision,
   }), [edit]);

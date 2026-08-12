@@ -9,7 +9,7 @@ use crate::collection::{CollectionWindow, CollectionWindowRequest};
 use crate::events::ProjectionSnapshotAuthority;
 use crate::{ModuleMutationReceipt, ModuleName, VersionedModuleContract};
 
-pub const DATABASE_CONTRACT_VERSION: u32 = 11;
+pub const DATABASE_CONTRACT_VERSION: u32 = 12;
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
@@ -36,13 +36,6 @@ pub enum DatabasePropertySchema {
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
-pub enum DatabasePropertySetMemberKind {
-    Option,
-    Page,
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
-#[serde(rename_all = "snake_case")]
 pub enum DatabasePropertyFilterOperator {
     Equals,
     NotEquals,
@@ -54,8 +47,6 @@ pub enum DatabasePropertyFilterOperator {
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 pub struct DatabasePropertyCapabilities {
-    pub replace: bool,
-    pub patch_set_member: Option<DatabasePropertySetMemberKind>,
     pub filter_operators: Vec<DatabasePropertyFilterOperator>,
     pub sortable: bool,
     pub groupable: bool,
@@ -668,9 +659,12 @@ pub enum DatabasePropertyValueEdit {
     PatchSet {
         delta: DatabasePropertySetDelta,
     },
-    ReplaceRelation {
+    ReplaceOneRelation {
         expected_value_revision: i64,
         target_page_id: Option<String>,
+    },
+    ClearManyRelation {
+        expected_value_revision: i64,
     },
 }
 

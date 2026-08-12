@@ -6413,7 +6413,6 @@
       "DatabasePropertyCapabilities": {
         "type": "object",
         "required": [
-          "replace",
           "filter_operators",
           "sortable",
           "groupable"
@@ -6426,19 +6425,6 @@
             }
           },
           "groupable": {
-            "type": "boolean"
-          },
-          "patch_set_member": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/DatabasePropertySetMemberKind"
-              }
-            ]
-          },
-          "replace": {
             "type": "boolean"
           },
           "sortable": {
@@ -6695,13 +6681,6 @@
           }
         ]
       },
-      "DatabasePropertySetMemberKind": {
-        "type": "string",
-        "enum": [
-          "option",
-          "page"
-        ]
-      },
       "DatabasePropertyValueEdit": {
         "oneOf": [
           {
@@ -6759,13 +6738,32 @@
               "kind": {
                 "type": "string",
                 "enum": [
-                  "replace_relation"
+                  "replace_one_relation"
                 ]
               },
               "target_page_id": {
                 "type": [
                   "string",
                   "null"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "expected_value_revision",
+              "kind"
+            ],
+            "properties": {
+              "expected_value_revision": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "clear_many_relation"
                 ]
               }
             }

@@ -422,8 +422,6 @@ describe("Core Database Module Adapter", () => {
             name: "Status",
             schema: { kind: "select" },
             capabilities: {
-              replace: true,
-              patch_set_member: null,
               filter_operators: ["equals", "not_equals", "is_empty", "is_not_empty"],
               sortable: true,
               groupable: true,
@@ -451,8 +449,6 @@ describe("Core Database Module Adapter", () => {
             name: "Notes",
             schema: { kind: "text" },
             capabilities: {
-              replace: true,
-              patch_set_member: null,
               filter_operators: ["equals", "not_equals", "contains", "not_contains", "is_empty", "is_not_empty"],
               sortable: true,
               groupable: true,

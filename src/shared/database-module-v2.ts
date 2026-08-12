@@ -26,7 +26,7 @@ import type {
   DatabaseViewPresentationOverride,
 } from "./database-kernel";
 
-export const DATABASE_MODULE_V2_CONTRACT_VERSION = 9 as const;
+export const DATABASE_MODULE_V2_CONTRACT_VERSION = 10 as const;
 export const MAX_DATABASE_MODULE_V2_OPERATIONS = 64 as const;
 export const MAX_DATABASE_MODULE_V2_BULK_ENTRIES = 100 as const;
 
@@ -57,8 +57,6 @@ export type DatabasePropertySchemaV2 =
     };
 
 export interface DatabasePropertyCapabilitiesV2 {
-  readonly replace: boolean;
-  readonly patchSetMember: "option" | "page" | null;
   readonly filterOperators: readonly (
     | "equals"
     | "not_equals"
@@ -445,9 +443,13 @@ export interface DatabasePropertyValueMutationV2 {
       }
     | { readonly kind: "patch_set"; readonly delta: DatabasePropertySetDeltaV2 }
     | {
-        readonly kind: "replace_relation";
+        readonly kind: "replace_one_relation";
         readonly expectedValueRevision: number;
         readonly targetPageId?: string;
+      }
+    | {
+        readonly kind: "clear_many_relation";
+        readonly expectedValueRevision: number;
       };
 }
 

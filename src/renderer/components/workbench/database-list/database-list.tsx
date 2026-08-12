@@ -1170,7 +1170,7 @@ export function DatabaseList({
     onSetValue: setPropertyValue,
     onPatchOptions: patchOptions,
     onPatchRelation: patchRelation,
-    onReplaceRelation: replaceRelation,
+    onReplaceOneRelation: replaceRelation,
     onCreateOption: createOption,
     onRequestOptions: propertyOptionRegistries.requestOptions,
     onRequestMoreOptions: propertyOptionRegistries.requestMoreOptions,

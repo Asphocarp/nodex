@@ -98,8 +98,6 @@ const memberResult = (): PageDetailResult => ({
         name: "Status",
         schema: { kind: "select" },
         capabilities: {
-          replace: true,
-          patchSetMember: null,
           filterOperators: [
             "equals",
             "not_equals",

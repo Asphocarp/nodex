@@ -57,7 +57,7 @@ export function PageStageDataSourcePropertyControl({
         onPatchRelation={(delta) => {
           void controls.patchRelation(item, delta);
         }}
-        onReplaceRelation={(targetPageId) => {
+        onReplaceOneRelation={(targetPageId) => {
           void controls.replaceRelation(item, targetPageId);
         }}
         onPatchOptions={(delta) => {

@@ -214,7 +214,7 @@ function BoardPageCardSurface({
   onSetValue,
   onPatchOptions,
   onPatchRelation,
-  onReplaceRelation,
+  onReplaceOneRelation,
   onCreateOption,
   onLoadRelationTargets,
   onSearchRelationCandidates,
@@ -255,7 +255,7 @@ function BoardPageCardSurface({
     propertyId: string,
     delta: { readonly addPageIds: readonly string[]; readonly removeEdgeIds: readonly string[] },
   ) => void;
-  readonly onReplaceRelation: (
+  readonly onReplaceOneRelation: (
     pageId: string,
     property: DataSourcePropertyRecordV2,
     targetPageId: string | null,
@@ -360,8 +360,8 @@ function BoardPageCardSurface({
             onPatchOptions(row.pageId, property, delta)}
           onPatchRelation={(delta) =>
             onPatchRelation(row.pageId, property.propertyId, delta)}
-          onReplaceRelation={(targetPageId) =>
-            onReplaceRelation(row.pageId, property, targetPageId)}
+          onReplaceOneRelation={(targetPageId) =>
+            onReplaceOneRelation(row.pageId, property, targetPageId)}
           onLoadRelationTargets={(after) =>
             onLoadRelationTargets(row.pageId, property.propertyId, after)}
           onSearchRelationCandidates={(query, after) =>
@@ -1206,7 +1206,7 @@ function BoardDatabaseViewSurface({
     onSetValue: setValue,
     onPatchOptions: patchOptions,
     onPatchRelation: patchRelation,
-    onReplaceRelation: replaceRelation,
+    onReplaceOneRelation: replaceRelation,
     onCreateOption: createOption,
     onLoadRelationTargets: loadRelationTargets,
     onSearchRelationCandidates: searchRelationCandidates,

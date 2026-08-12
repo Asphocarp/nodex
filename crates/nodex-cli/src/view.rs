@@ -516,8 +516,6 @@ mod tests {
                 name: "Status".to_owned(),
                 schema: DatabasePropertySchema::Select,
                 capabilities: DatabasePropertyCapabilities {
-                    replace: true,
-                    patch_set_member: None,
                     filter_operators: vec![
                         DatabasePropertyFilterOperator::Equals,
                         DatabasePropertyFilterOperator::NotEquals,

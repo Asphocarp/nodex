@@ -73,7 +73,7 @@ export interface DatabaseListPropertyRuntime {
       readonly removeEdgeIds: readonly string[];
     },
   ) => void;
-  readonly onReplaceRelation: (
+  readonly onReplaceOneRelation: (
     pageId: string,
     property: DataSourcePropertyRecordV2,
     targetPageId: string | null,
@@ -239,7 +239,7 @@ function PropertyEditor({
           property.propertyId,
           delta,
         )}
-        onReplaceRelation={(targetPageId) => runtime.onReplaceRelation(
+        onReplaceOneRelation={(targetPageId) => runtime.onReplaceOneRelation(
           pageId,
           property,
           targetPageId,

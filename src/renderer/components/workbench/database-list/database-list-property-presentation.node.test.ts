@@ -22,8 +22,6 @@ const property = (valueType: DataSourcePropertyRecordV2["valueType"]): DataSourc
       }
     : { kind: valueType },
   capabilities: {
-    replace: true,
-    patchSetMember: null,
     filterOperators: [],
     sortable: true,
     groupable: true,

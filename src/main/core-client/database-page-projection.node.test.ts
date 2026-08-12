@@ -37,8 +37,6 @@ const property = (
   name: propertyId,
   schema: { kind: valueType } as DataSourcePropertyRecordV2["schema"],
   capabilities: {
-    replace: true,
-    patchSetMember: valueType === "multi_select" ? "option" : null,
     filterOperators: [
       "equals",
       "not_equals",

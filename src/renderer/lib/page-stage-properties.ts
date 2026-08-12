@@ -83,7 +83,7 @@ export type PageStagePropertyEdit =
       readonly removeEdgeIds: readonly string[];
     }
   | {
-      readonly kind: "replace_relation";
+      readonly kind: "replace_one_relation";
       readonly targetPageId: string | null;
       readonly expectedValueRevision: number;
     }

@@ -1114,7 +1114,7 @@ fn edit_property_value(
                 library_id,
                 project_id,
                 &input.address,
-                RelationEdit::Patch {
+                RelationEdit::PatchMany {
                     add_page_ids,
                     remove_edge_ids,
                 },
@@ -1123,7 +1123,7 @@ fn edit_property_value(
                 library_scope,
             ),
         },
-        DatabasePropertyValueEdit::ReplaceRelation {
+        DatabasePropertyValueEdit::ReplaceOneRelation {
             expected_value_revision,
             target_page_id,
         } => edit_relation_value(
@@ -1131,9 +1131,23 @@ fn edit_property_value(
             library_id,
             project_id,
             &input.address,
-            RelationEdit::Replace {
+            RelationEdit::ReplaceOne {
                 expected_value_revision: *expected_value_revision,
                 target_page_id: target_page_id.as_deref(),
+            },
+            now,
+            effects,
+            library_scope,
+        ),
+        DatabasePropertyValueEdit::ClearManyRelation {
+            expected_value_revision,
+        } => edit_relation_value(
+            connection,
+            library_id,
+            project_id,
+            &input.address,
+            RelationEdit::ClearMany {
+                expected_value_revision: *expected_value_revision,
             },
             now,
             effects,
@@ -1187,8 +1201,9 @@ fn edit_relation_value(
         return Err(invalid("Relation value edit requires a Relation Property"));
     }
     let adds_target = match &edit {
-        RelationEdit::Replace { target_page_id, .. } => target_page_id.is_some(),
-        RelationEdit::Patch { add_page_ids, .. } => !add_page_ids.is_empty(),
+        RelationEdit::ReplaceOne { target_page_id, .. } => target_page_id.is_some(),
+        RelationEdit::PatchMany { add_page_ids, .. } => !add_page_ids.is_empty(),
+        RelationEdit::ClearMany { .. } => false,
     };
     if adds_target {
         let target_data_source_id = super::relation::target_data_source_id(
@@ -4309,7 +4324,7 @@ fn validate_view_config(
             Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
-    let mut property_capabilities = BTreeMap::new();
+    let mut property_semantics = BTreeMap::new();
     for (property_id, value_type) in property_records {
         let schema = super::property_semantics::schema_from_storage(
             connection,
@@ -4317,14 +4332,18 @@ fn validate_view_config(
             &property_id,
             &value_type,
         )?;
-        property_capabilities.insert(
+        let capabilities = super::property_semantics::capabilities(&schema);
+        property_semantics.insert(
             property_id,
-            super::property_semantics::capabilities(&schema),
+            ViewPropertySemantics {
+                schema,
+                capabilities,
+            },
         );
     }
     if !property_ids
         .iter()
-        .all(|property_id| property_capabilities.contains_key(property_id))
+        .all(|property_id| property_semantics.contains_key(property_id))
     {
         return Err(invalid(
             "Database View references a missing Data Source Property",
@@ -4336,9 +4355,14 @@ fn validate_view_config(
         project_id,
         data_source_id,
         config,
-        &property_capabilities,
+        &property_semantics,
         library_scope,
     )
+}
+
+struct ViewPropertySemantics {
+    schema: DatabasePropertySchema,
+    capabilities: DatabasePropertyCapabilities,
 }
 
 fn validate_view_property_capabilities(
@@ -4347,16 +4371,16 @@ fn validate_view_property_capabilities(
     project_id: &str,
     data_source_id: &str,
     config: &Value,
-    property_capabilities: &BTreeMap<String, DatabasePropertyCapabilities>,
+    property_semantics: &BTreeMap<String, ViewPropertySemantics>,
     library_scope: bool,
 ) -> Result<(), StoreError> {
     if [view_group_property(config), view_subgroup_property(config)]
         .into_iter()
         .flatten()
         .any(|property_id| {
-            property_capabilities
+            property_semantics
                 .get(property_id)
-                .is_some_and(|capabilities| !capabilities.groupable)
+                .is_some_and(|property| !property.capabilities.groupable)
         })
     {
         return Err(invalid("Property cannot group a Database View"));
@@ -4373,9 +4397,9 @@ fn validate_view_property_capabilities(
             .and_then(|field| field.get("propertyId"))
             .and_then(Value::as_str);
         if property_id.is_some_and(|property_id| {
-            property_capabilities
+            property_semantics
                 .get(property_id)
-                .is_some_and(|capabilities| !capabilities.sortable)
+                .is_some_and(|property| !property.capabilities.sortable)
         }) {
             return Err(invalid("Property cannot sort a Database View"));
         }
@@ -4388,7 +4412,7 @@ fn validate_view_property_capabilities(
         config
             .get("filter")
             .ok_or_else(|| invalid("Database View filter is missing"))?,
-        property_capabilities,
+        property_semantics,
         library_scope,
     )
 }
@@ -4399,7 +4423,7 @@ fn validate_filter_capabilities(
     project_id: &str,
     data_source_id: &str,
     filter: &Value,
-    property_capabilities: &BTreeMap<String, DatabasePropertyCapabilities>,
+    property_semantics: &BTreeMap<String, ViewPropertySemantics>,
     library_scope: bool,
 ) -> Result<(), StoreError> {
     let object = filter
@@ -4417,7 +4441,7 @@ fn validate_filter_capabilities(
                 project_id,
                 data_source_id,
                 child,
-                property_capabilities,
+                property_semantics,
                 library_scope,
             )?;
         }
@@ -4452,10 +4476,10 @@ fn validate_filter_capabilities(
     {
         return Err(invalid("Priority filter references a noncanonical option"));
     }
-    let capabilities = property_capabilities
+    let property = property_semantics
         .get(property_id)
         .ok_or_else(|| invalid("Database View filter references a missing Property"))?;
-    if !capabilities.filter_operators.contains(&operator) {
+    if !property.capabilities.filter_operators.contains(&operator) {
         return Err(invalid("Property filter operator is unsupported"));
     }
     if matches!(
@@ -4468,8 +4492,7 @@ fn validate_filter_capabilities(
     {
         return Err(invalid("Property membership filter requires an identity"));
     }
-    if capabilities.patch_set_member
-        == Some(nodex_core_contracts::database::DatabasePropertySetMemberKind::Page)
+    if matches!(property.schema, DatabasePropertySchema::Relation { .. })
         && matches!(
             operator,
             DatabasePropertyFilterOperator::Contains | DatabasePropertyFilterOperator::NotContains

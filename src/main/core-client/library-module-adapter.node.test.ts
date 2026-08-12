@@ -229,8 +229,6 @@ const lifecycleTagsProperty = () => ({
   name: "Tags",
   schema: { kind: "multi_select" as const },
   capabilities: {
-    replace: true,
-    patchSetMember: "option" as const,
     filterOperators: ["contains", "not_contains", "is_empty", "is_not_empty"] as const,
     sortable: true,
     groupable: true,
@@ -253,8 +251,6 @@ const lifecycleCoreTagsProperty = () => ({
   name: "Tags",
   schema: { kind: "multi_select" as const },
   capabilities: {
-    replace: true,
-    patch_set_member: "option" as const,
     filter_operators: ["contains", "not_contains", "is_empty", "is_not_empty"] as const,
     sortable: true,
     groupable: true,
@@ -1277,7 +1273,7 @@ describe("Core Library Module Adapter", () => {
   test("maps move destination authority and exact Document heads", async () => {
     const client = new FakeCoreClient();
     client.enqueueRead({
-      contract_version: 11,
+      contract_version: 12,
       store_epoch: identity.storeEpoch,
       commit_head: 8,
       authorization: null,

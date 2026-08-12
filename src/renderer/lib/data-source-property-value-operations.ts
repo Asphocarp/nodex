@@ -11,6 +11,7 @@ import {
 } from "../../shared/database-kernel";
 import type {
   DatabaseApplyOperationV2,
+  DatabasePropertyValueMutationV2,
   DatabasePropertyValueInputV2,
   DataSourcePageValueV2,
   DataSourcePropertyRecordV2,
@@ -18,6 +19,25 @@ import type {
 
 const localError = (propertyId: string): TypeError =>
   new TypeError(`Value is incompatible with Property ${propertyId}`);
+
+const relationCardinality = (
+  property: DataSourcePropertyRecordV2,
+): "one" | "many" | null =>
+  property.schema.kind === "relation" ? property.schema.cardinality : null;
+
+const relationClearEdit = (
+  property: DataSourcePropertyRecordV2,
+  expectedValueRevision: number,
+): DatabasePropertyValueMutationV2["edit"] => {
+  const cardinality = relationCardinality(property);
+  if (cardinality === "one") {
+    return { kind: "replace_one_relation", expectedValueRevision };
+  }
+  if (cardinality === "many") {
+    return { kind: "clear_many_relation", expectedValueRevision };
+  }
+  throw localError(property.propertyId);
+};
 
 const stringSet = (value: DatabaseJsonValue | undefined): ReadonlySet<string> =>
   new Set(
@@ -88,10 +108,7 @@ export const buildDataSourcePropertyValueOperations = (input: {
         pageId: input.pageId,
         dataSourceId: input.dataSourceId,
         propertyId: input.property.propertyId,
-        edit: {
-          kind: "replace_relation",
-          expectedValueRevision: input.current?.revision ?? 0,
-        },
+        edit: relationClearEdit(input.property, input.current?.revision ?? 0),
       }],
     }];
   }
@@ -150,7 +167,7 @@ export const buildDataSourceRelationReplacementOperations = (input: {
   readonly expectedValueRevision: number;
   readonly targetPageId: string | null;
 }): readonly DatabaseApplyOperationV2[] => {
-  if (input.property.valueType !== "relation") {
+  if (relationCardinality(input.property) !== "one") {
     throw localError(input.property.propertyId);
   }
   return [{
@@ -160,7 +177,7 @@ export const buildDataSourceRelationReplacementOperations = (input: {
       dataSourceId: input.dataSourceId,
       propertyId: input.property.propertyId,
       edit: {
-        kind: "replace_relation",
+        kind: "replace_one_relation",
         expectedValueRevision: input.expectedValueRevision,
         ...(input.targetPageId ? { targetPageId: input.targetPageId } : {}),
       },
@@ -175,7 +192,7 @@ export const buildDataSourceRelationPatchOperations = (input: {
   readonly addPageIds: readonly string[];
   readonly removeEdgeIds: readonly string[];
 }): readonly DatabaseApplyOperationV2[] => {
-  if (input.property.valueType !== "relation") {
+  if (relationCardinality(input.property) !== "many") {
     throw localError(input.property.propertyId);
   }
   const addPageIds = [...new Set(input.addPageIds)].sort();

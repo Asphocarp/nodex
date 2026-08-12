@@ -27,13 +27,16 @@ const MAX_TASK_PARENT_ROWS: usize = 100_000;
 const MAX_TASK_PARENT_DEPTH: usize = 10;
 
 pub(crate) enum RelationValueEdit<'a> {
-    Replace {
+    ReplaceOne {
         expected_value_revision: i64,
         target_page_id: Option<&'a str>,
     },
-    Patch {
+    PatchMany {
         add_page_ids: &'a [String],
         remove_edge_ids: &'a [String],
+    },
+    ClearMany {
+        expected_value_revision: i64,
     },
 }
 
@@ -177,10 +180,10 @@ pub(crate) fn apply_value_edit(
     let current = current_edges.values().cloned().collect::<BTreeSet<_>>();
 
     let (desired, targets_requiring_read_access, removed_edge_ids) = match edit {
-        RelationValueEdit::Replace {
+        RelationValueEdit::ReplaceOne {
             expected_value_revision,
             target_page_id,
-        } => {
+        } if definition.cardinality == DatabaseRelationCardinality::One => {
             require_revision(expected_value_revision, current_revision)?;
             let desired = target_page_id
                 .map(|page_id| canonical_targets(&[page_id.to_owned()], "Relation target"))
@@ -192,10 +195,10 @@ pub(crate) fn apply_value_edit(
                 current_edges.keys().cloned().collect(),
             )
         }
-        RelationValueEdit::Patch {
+        RelationValueEdit::PatchMany {
             add_page_ids,
             remove_edge_ids,
-        } => {
+        } if definition.cardinality == DatabaseRelationCardinality::Many => {
             if add_page_ids.len() + remove_edge_ids.len() > MAX_RELATION_PATCH_TARGETS {
                 return Err(resource_exhausted(format!(
                     "Relation patch exceeds {MAX_RELATION_PATCH_TARGETS} targets"
@@ -218,16 +221,31 @@ pub(crate) fn apply_value_edit(
             }
             (desired, add, remove)
         }
+        RelationValueEdit::ClearMany {
+            expected_value_revision,
+        } if definition.cardinality == DatabaseRelationCardinality::Many => {
+            require_revision(expected_value_revision, current_revision)?;
+            (
+                BTreeSet::new(),
+                BTreeSet::new(),
+                current_edges.keys().cloned().collect(),
+            )
+        }
+        RelationValueEdit::ReplaceOne { .. } => {
+            return Err(invalid(
+                "Cardinality-many Relation Property cannot replace a single target",
+            ));
+        }
+        RelationValueEdit::PatchMany { .. } | RelationValueEdit::ClearMany { .. } => {
+            return Err(invalid(
+                "Cardinality-one Relation Property cannot mutate a target set",
+            ));
+        }
     };
     if desired.len() > MAX_RELATION_TARGETS {
         return Err(resource_exhausted(format!(
             "Relation value exceeds {MAX_RELATION_TARGETS} targets"
         )));
-    }
-    if definition.cardinality == DatabaseRelationCardinality::One && desired.len() > 1 {
-        return Err(invalid(
-            "Cardinality-one Relation Property accepts at most one target",
-        ));
     }
     validate_readable_targets(
         connection,

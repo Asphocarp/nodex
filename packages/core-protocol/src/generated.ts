@@ -1725,8 +1725,6 @@ export interface components {
         readonly DatabasePropertyCapabilities: {
             readonly filter_operators: readonly components["schemas"]["DatabasePropertyFilterOperator"][];
             readonly groupable: boolean;
-            readonly patch_set_member?: null | components["schemas"]["DatabasePropertySetMemberKind"];
-            readonly replace: boolean;
             readonly sortable: boolean;
         };
         readonly DatabasePropertyDescriptor: {
@@ -1784,8 +1782,6 @@ export interface components {
             readonly kind: "relation";
             readonly remove_edge_ids: readonly string[];
         };
-        /** @enum {string} */
-        readonly DatabasePropertySetMemberKind: "option" | "page";
         readonly DatabasePropertyValueEdit: {
             /** Format: int64 */
             readonly expected_value_revision: number;
@@ -1800,8 +1796,13 @@ export interface components {
             /** Format: int64 */
             readonly expected_value_revision: number;
             /** @enum {string} */
-            readonly kind: "replace_relation";
+            readonly kind: "replace_one_relation";
             readonly target_page_id?: string | null;
+        } | {
+            /** Format: int64 */
+            readonly expected_value_revision: number;
+            /** @enum {string} */
+            readonly kind: "clear_many_relation";
         };
         readonly DatabasePropertyValueInput: {
             /** @enum {string} */
