@@ -235,6 +235,8 @@ export function DatabaseViewDisplayOptions({
           <DisplayRow label="Grouping">
             <DatabaseViewSelect
               ariaLabel="Group by"
+              search="filter"
+              searchPlaceholder="Search group properties…"
               value={presentation.group?.propertyId ?? ""}
               valueLabel={groupLabel}
               disabled={busy}
@@ -268,6 +270,8 @@ export function DatabaseViewDisplayOptions({
           <DisplayRow label="Sub-grouping" disabled={presentation.group === null}>
             <DatabaseViewSelect
               ariaLabel="Subgroup by"
+              search="filter"
+              searchPlaceholder="Search subgroup properties…"
               value={presentation.subgroup?.propertyId ?? ""}
               valueLabel={subgroupLabel}
               disabled={busy || presentation.group === null}
@@ -293,6 +297,8 @@ export function DatabaseViewDisplayOptions({
           <DisplayRow label="Ordering">
             <DatabaseViewSelect
               ariaLabel="Order by"
+              search="filter"
+              searchPlaceholder="Search ordering fields…"
               value={currentSortKey}
               valueLabel={currentSortLabel}
               disabled={busy}

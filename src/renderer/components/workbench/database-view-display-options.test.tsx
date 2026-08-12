@@ -115,13 +115,15 @@ describe("DatabaseViewDisplayOptions", () => {
     expect(screen.getByRole("switch", { name: "Show empty groups" })).toBeTruthy();
 
     await act(async () => {
-      fireEvent.pointerDown(screen.getByLabelText("Order by"), {
-        button: 0,
-        ctrlKey: false,
-      });
+      fireEvent.click(screen.getByLabelText("Order by"));
       await Promise.resolve();
     });
-    fireEvent.click(screen.getByRole("menuitem", { name: "Status" }));
+    const orderingSearch = screen.getByRole("combobox", { name: "Search Order by" });
+    await act(async () => {
+      fireEvent.change(orderingSearch, { target: { value: "status" } });
+      await Promise.resolve();
+    });
+    fireEvent.click(screen.getByRole("option", { name: "Status" }));
     expect(onForcedFieldChange).toHaveBeenLastCalledWith({
       kind: "property",
       propertyId: "status",

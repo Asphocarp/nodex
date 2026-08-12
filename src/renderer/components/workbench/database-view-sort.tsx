@@ -119,6 +119,8 @@ export function DatabaseViewSort({
             >
               <DatabaseViewSelect
                 ariaLabel={`Sort field ${index + 1}`}
+                search="filter"
+                searchPlaceholder="Search sort fields…"
                 value={sortFieldValue(sort)}
                 valueLabel={databaseViewSortFieldLabel(sort, sortableProperties)}
                 disabled={busy}

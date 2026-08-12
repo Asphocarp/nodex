@@ -38,14 +38,10 @@ import {
 } from "./dialog";
 import {
   NodexDropdownButtonTrigger,
-  NodexDropdownChoiceMenu,
+  NodexOptionPicker,
   NodexDropdownFlyoutSubmenuItem,
   NodexDropdownItem,
-  NodexDropdownMessage,
   NodexDropdownMenu,
-  NodexDropdownSearchInput,
-  NodexDropdownSection,
-  NodexDropdownSectionLabel,
   NodexDropdownSeparator,
   NodexDropdownTitle,
 } from "./dropdown";
@@ -105,7 +101,7 @@ function XsTriggerDropdownDemo() {
 
   return (
     <StorySurface>
-      <NodexDropdownChoiceMenu
+      <NodexOptionPicker
         open={true}
         value={value}
         onValueChange={setValue}
@@ -130,7 +126,7 @@ function CompactIconLabelTriggerDemo() {
 
   return (
     <StorySurface>
-      <NodexDropdownChoiceMenu
+      <NodexOptionPicker
         open={true}
         value={value}
         onValueChange={setValue}
@@ -273,7 +269,7 @@ function LibraryActionIconDropdownDemo() {
 function LongLabelDropdownDemo() {
   return (
     <StorySurface>
-      <NodexDropdownChoiceMenu
+      <NodexOptionPicker
         open={true}
         value="workspace"
         onValueChange={() => {}}
@@ -300,31 +296,37 @@ function LongLabelDropdownDemo() {
 }
 
 function SearchableDropdownDemo() {
+  const [value, setValue] = useState("nodex");
+
   return (
     <StorySurface>
-      <NodexDropdownMenu
+      <NodexOptionPicker
         open={true}
+        value={value}
+        onValueChange={setValue}
+        search="filter"
+        searchPlaceholder="Search projects…"
+        searchAriaLabel="Search projects"
+        title="Project"
         contentWidth="panel"
         triggerButton={(
           <NodexDropdownButtonTrigger className="min-w-40">
             Searchable menu
           </NodexDropdownButtonTrigger>
         )}
-      >
-        <NodexDropdownTitle>Project</NodexDropdownTitle>
-        <NodexDropdownSearchInput placeholder="Search projects" />
-        <NodexDropdownSectionLabel>Recent</NodexDropdownSectionLabel>
-        <NodexDropdownSection className="flex flex-col">
-          <NodexDropdownItem leftSlot={<FolderGit2 className="size-4" />}>
-            Nodex
-          </NodexDropdownItem>
-          <NodexDropdownItem leftSlot={<FolderGit2 className="size-4" />}>
-            Codex Electron readable bundle
-          </NodexDropdownItem>
-        </NodexDropdownSection>
-        <NodexDropdownSeparator />
-        <NodexDropdownMessage compact>Type to narrow the list</NodexDropdownMessage>
-      </NodexDropdownMenu>
+        options={[
+          {
+            value: "nodex",
+            label: "Nodex",
+            leftSlot: <FolderGit2 className="size-4" />,
+          },
+          {
+            value: "bundle",
+            label: "Codex Electron readable bundle",
+            leftSlot: <FolderGit2 className="size-4" />,
+          },
+        ]}
+      />
     </StorySurface>
   );
 }

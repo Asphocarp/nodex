@@ -6,7 +6,7 @@ import { NFM_EDITOR_FLOATING_UI_Z_INDEX } from "@/components/board/editor/nfm-bl
 import { Circle } from "@/components/shared/icons/generic-icons";
 import {
   NodexDropdownButtonTrigger,
-  NodexDropdownChoiceMenu,
+  NodexOptionPicker,
 } from "./dropdown";
 import {
   __resetNodexToastStoreForTests,
@@ -77,7 +77,7 @@ describe("shared floating UI in Chromium", () => {
           selectedIds={["triage"]}
           onSelectedIdsChange={() => undefined}
         />
-        <NodexDropdownChoiceMenu
+        <NodexOptionPicker
           value="triage"
           onValueChange={() => undefined}
           options={[
@@ -111,6 +111,36 @@ describe("shared floating UI in Chromium", () => {
     });
 
     expect(view.getByTestId("menu-status-icon").getBoundingClientRect().width).toBe(16);
+  });
+
+  test("renders filtered option selection with app-owned combobox chrome", async () => {
+    const view = render(
+      <NodexOptionPicker
+        value="nodex"
+        search="filter"
+        searchPlaceholder="Search projects…"
+        searchAriaLabel="Search projects"
+        options={[
+          { value: "nodex", label: "Nodex" },
+          { value: "bundle", label: "Readable bundle" },
+        ]}
+        onValueChange={() => undefined}
+        triggerButton={(
+          <NodexDropdownButtonTrigger>Project</NodexDropdownButtonTrigger>
+        )}
+      />,
+    );
+
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Project" }));
+      await settleFloatingSurface();
+    });
+    const search = view.getByRole("combobox", {
+      name: "Search projects",
+    }) as HTMLInputElement;
+    expect(search.type).toBe("text");
+    expect(document.activeElement).toBe(search);
+    expect(view.getAllByRole("option")).toHaveLength(2);
   });
 
   test("stacks tooltips above editor floating menus", async () => {

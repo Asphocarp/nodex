@@ -167,12 +167,13 @@ describe("agent config chip popover", () => {
 
     await act(async () => {
       const trigger = view.getByLabelText("Agent config model");
-      fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
       fireEvent.click(trigger);
       await settleAsyncRender();
     });
+    const search = view.getByRole("combobox", { name: "Search agent models" });
     await act(async () => {
-      fireEvent.click(view.getByText("GPT-5.5"));
+      fireEvent.change(search, { target: { value: "5.5" } });
+      fireEvent.click(view.getByRole("option", { name: /GPT-5\.5/u }));
       await settleAsyncRender();
     });
 

@@ -124,6 +124,8 @@ function FilterValueField({
     return (
       <DatabaseViewSelect
         ariaLabel={`Filter value for ${property.name}`}
+        search="filter"
+        searchPlaceholder={`Search ${property.name} options…`}
         value={rawValue}
         valueLabel={selectedOption?.name ?? "None"}
         disabled={disabled}
@@ -213,6 +215,8 @@ function FilterNodeEditor({
       <div className="flex min-h-8 flex-wrap items-center gap-1.5">
         <DatabaseViewSelect
           ariaLabel={`Filter property ${property.name}`}
+          search="filter"
+          searchPlaceholder="Search properties…"
           value={property.propertyId}
           valueLabel={property.name}
           disabled={disabled}
@@ -384,6 +388,8 @@ function SortEditor({
           <span className="w-4 text-center text-[11px] text-token-description-foreground">{index + 1}</span>
           <DatabaseViewSelect
             ariaLabel={`Sort field ${index + 1}`}
+            search="filter"
+            searchPlaceholder="Search sort fields…"
             value={sortFieldValue(sort)}
             valueLabel={(() => {
               if (sort.field.kind === "property") {
@@ -610,6 +616,8 @@ export function DatabaseViewConfigEditor({
         <div className="flex flex-wrap gap-2">
           <DatabaseViewSelect
             ariaLabel="Group View by property"
+            search="filter"
+            searchPlaceholder="Search group properties…"
             value={presentation.group?.propertyId ?? ""}
             valueLabel={
               groupableProperties.find((property) =>
@@ -640,6 +648,8 @@ export function DatabaseViewConfigEditor({
           />
           <DatabaseViewSelect
             ariaLabel="Subgroup View by property"
+            search="filter"
+            searchPlaceholder="Search subgroup properties…"
             value={presentation.subgroup?.propertyId ?? ""}
             valueLabel={
               groupableProperties.find((property) =>

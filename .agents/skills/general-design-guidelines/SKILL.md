@@ -165,6 +165,8 @@ Dropdowns are **frosted glass** with a subtle shadow — they float above conten
 
 Use one shared dropdown chrome system across selector-style surfaces. Radix `Select`, `DropdownMenu`, and selector `Popover` content should share the same surface, row, divider, and motion treatment by default. Triggers can stay context-specific: toolbar pills, dialog fields, and inline chip controls do not need identical trigger chrome as long as their poppers resolve to the same floating menu language.
 
+Single-value selectors use the shared `NodexOptionPicker` seam rather than mapping menu items at feature call sites. Closed, bounded enums such as direction or access level use `search="none"`; data-driven or growing catalogs such as models, Properties, options, Databases, projects, and timezones use `search="filter"`. A filtered selector uses combobox/listbox semantics rather than placing an ad hoc input inside an action menu. Database Property editors that require domain behavior such as multi-selection, option creation, registry loading, or pagination keep those capabilities in `PropertyOptionPicker`.
+
 - Default action menus are content-sized within a compact 172–240px range. Use a wider semantic size only when the content demands it; never use a fixed width that leaves obvious empty space.
 - Shared menu-item primitives own leading-icon hierarchy: 16px, `shrink-0`, secondary color at rest, and primary color on hover/focus. Feature menus only provide the semantic icon or an intentional accent.
 - Use `…` only when completing the command requires missing information or an additional choice. Immediate and confirmation-only commands use plain labels, for example `Archive` rather than `Archive…`.

@@ -25,7 +25,7 @@ import {
 } from "../ui/popover";
 import {
   NodexDropdownButtonTrigger,
-  NodexDropdownChoiceMenu,
+  NodexOptionPicker,
 } from "../ui/dropdown";
 
 const PANEL_CLASS_NAME = "min-w-96 max-w-[min(36rem,calc(100vw-2rem))]";
@@ -198,7 +198,7 @@ export function CommandPalettePageFilterPopover({
         </FilterValueRow>
 
         <FilterValueRow label="Tags">
-          <NodexDropdownChoiceMenu
+          <NodexOptionPicker
             value={filters.tagMode}
             onValueChange={(value) =>
               onChange((prev) => ({
