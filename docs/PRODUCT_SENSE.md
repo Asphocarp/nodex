@@ -27,4 +27,4 @@ When choosing between alternatives, prefer options that:
 - Highly automated workflow orchestration at the cost of legibility.
 
 ## Feature Source of Truth
-Use `docs/product-specs/nodex-product-spec.md` for complete feature contracts and API behaviors.
+Use `docs/product-specs/nodex-product-spec.md` for the product promise and capability map, then follow its link to the narrow owning feature contract under `docs/product-specs/`.

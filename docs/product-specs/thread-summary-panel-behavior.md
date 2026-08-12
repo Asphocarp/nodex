@@ -142,7 +142,7 @@ Tasks represents registered background processes, not child-agent metadata.
 Rows can open the same live Process output surface as Process Manager, and the
 section's `View all processes` action opens that Workbench-owned dialog. Process
 status and action behavior remain summarized in
-[the product specification](nodex-product-spec.md).
+[Codex Workspace Behavior](codex-workspace-behavior.md).
 
 ## Computer Use and Browser
 
