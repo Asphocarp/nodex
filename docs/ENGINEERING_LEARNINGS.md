@@ -26,7 +26,7 @@ nearest seam instead:
 - product behavior and interaction contracts go in `docs/product-specs/`;
 - architecturally significant choices and rejected alternatives go in an ADR;
 - durability and recovery rules go in `docs/RELIABILITY.md`;
-- frontend construction and testing conventions go in `docs/FRONTEND.md`;
+- cross-feature renderer construction and testing conventions go in `docs/FRONTEND.md`;
 - release and toolchain compatibility goes in the relevant runbook;
 - dependency quirks go beside the Adapter and its behavioral regression test;
 - one-off fixes that are fully covered by tests need no permanent prose entry.
@@ -346,8 +346,11 @@ measurement loop is too expensive to rediscover through runtime testing alone.
 | User-visible behavior and public contracts | [Product specifications](product-specs/index.md) |
 | Codex owner/follower ordering and recovery | [Owner/follower streaming](product-specs/codex-thread-owner-follower-streaming.md) |
 | Codex transcript, request, activity, and composer projection | [Transcript behavior](product-specs/codex-thread-transcript-behavior.md) |
+| Thread Summary sections, artifacts, Git actions, Browser, and PiP | [Thread Summary panel](product-specs/thread-summary-panel-behavior.md) |
+| Scheduled task/template route, drafts, runs, and navigation guards | [Scheduled route](product-specs/scheduled-route-behavior.md) |
+| Settings routes, catalog, search, composition, and deep links | [Settings route](product-specs/settings-route-behavior.md) |
 | Block/Owned Document durability, sync, backup, recovery | [Reliability](RELIABILITY.md) |
-| Editor, renderer, UI, and frontend tests | [Frontend](FRONTEND.md) |
+| Cross-feature renderer construction, state ownership, shared UI/editor primitives, and Storybook conventions | [Frontend](FRONTEND.md) |
 | Kanban and cross-surface drag behavior | [Kanban drag and drop](product-specs/kanban-drag-and-drop-behavior.md) |
 | NFM side-menu interaction | [NFM block side menu](product-specs/nfm-block-side-menu-behavior.md) |
 | Workbench ownership and navigation | [Workbench shell](product-specs/workbench-shell.md) |

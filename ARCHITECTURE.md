@@ -146,7 +146,7 @@ Renderer state follows explicit ownership:
 
 Reusable transport-neutral helpers and contracts live in [`src/shared`](src/shared). Shared code must not import Electron Main or renderer presentation. Protocol-facing Codex shapes come from [`packages/codex-app-server-protocol`](packages/codex-app-server-protocol); local types may derive or project those shapes but must not hand-write a second raw protocol model.
 
-Frontend state ownership and editor conventions are detailed in [Frontend](docs/FRONTEND.md). Workbench presentation is detailed in [the Workbench shell specification](docs/product-specs/workbench-shell.md) and the Scene ADRs beginning with [ADR 0026](docs/adr/0026-window-owned-project-session-views.md).
+Cross-feature renderer construction, state-owner selection, and shared UI/editor conventions are detailed in [Frontend](docs/FRONTEND.md). Feature presentation remains with its product specification; Workbench presentation is detailed in [the Workbench shell specification](docs/product-specs/workbench-shell.md) and the Scene ADRs beginning with [ADR 0026](docs/adr/0026-window-owned-project-session-views.md).
 
 ### Native CLI
 
@@ -325,7 +325,7 @@ Do not add implementation chronology, current version inventories, individual fi
 | User-visible behavior and public contracts | [Product specifications](docs/product-specs/index.md) |
 | Reliability, sync, recovery, backup, retention | [RELIABILITY.md](docs/RELIABILITY.md) |
 | Security model and hardening | [SECURITY.md](docs/SECURITY.md) |
-| Frontend state, editor, and component conventions | [FRONTEND.md](docs/FRONTEND.md) |
+| Cross-feature renderer construction, state ownership, shared UI/editor primitives, and Storybook conventions | [FRONTEND.md](docs/FRONTEND.md) |
 | Cross-cutting engineering principles | [ENGINEERING_LEARNINGS.md](docs/ENGINEERING_LEARNINGS.md) |
 | Build, signing, notarization, distribution recovery | [release-macos.md](docs/release-macos.md) |
 | Executable migration and protocol versions | Source contracts, migration code, generated artifacts, and tests |
