@@ -273,8 +273,8 @@ mod tests {
         DatabasePropertySetDelta, DatabasePropertyValueEdit, DatabasePropertyValueInput,
         DatabasePropertyValueMutation, DatabaseReadMode, DatabaseTarget, DatabaseTaskParentPage,
         DatabaseTransferTarget, DatabaseViewCompletedRangeInput,
-        DatabaseViewCompletionOverrideInput, DatabaseViewFieldInput,
-        DatabaseViewGroupOverrideInput, DatabaseViewLayoutDisplayOverrideInput,
+        DatabaseViewCompletionOverrideInput, DatabaseViewDefinition, DatabaseViewFieldInput,
+        DatabaseViewGroupOverrideInput, DatabaseViewLayout, DatabaseViewLayoutDisplayOverrideInput,
         DatabaseViewLayoutInput, DatabaseViewLayoutsOverrideInput,
         DatabaseViewPresentationOverrideInput, DatabaseViewSortDirectionInput,
     };
@@ -333,6 +333,11 @@ mod tests {
                 }
             }
         })
+    }
+
+    fn view_definition(config: Value) -> DatabaseViewDefinition {
+        super::view_contract::decode_definition_value(config)
+            .expect("test View config must satisfy the durable definition contract")
     }
 
     fn context() -> BoundModuleContext {
@@ -499,8 +504,8 @@ mod tests {
                         view_id: VIEW_ID.to_owned(),
                         expected_revision: view_revision,
                         name: "Product work".to_owned(),
-                        default_layout: "board".to_owned(),
-                        config: view_config(
+                        layout: DatabaseViewLayout::Board,
+                        definition: view_definition(view_config(
                             json!({
                                 "kind": "clause",
                                 "propertyId": "priority",
@@ -509,7 +514,7 @@ mod tests {
                             }),
                             Some("status"),
                             &["status", "priority", "estimate", "tags"],
-                        ),
+                        )),
                         is_default: true,
                         before_view_id: None,
                     }],
@@ -1788,8 +1793,8 @@ mod tests {
                             view_id: SECOND_VIEW_ID.to_owned(),
                             expected_revision: 0,
                             name: "Risk list".to_owned(),
-                            default_layout: "list".to_owned(),
-                            config: ungrouped_config.clone(),
+                            layout: DatabaseViewLayout::List,
+                            definition: view_definition(ungrouped_config.clone()),
                             is_default: true,
                             before_view_id: Some(VIEW_ID.to_owned()),
                         },
@@ -1827,8 +1832,8 @@ mod tests {
                             view_id: SECOND_VIEW_ID.to_owned(),
                             expected_revision: 1,
                             name: "Risk board".to_owned(),
-                            default_layout: "board".to_owned(),
-                            config: grouped_config,
+                            layout: DatabaseViewLayout::Board,
+                            definition: view_definition(grouped_config),
                             is_default: true,
                             before_view_id: None,
                         },
@@ -3296,8 +3301,8 @@ mod tests {
                         view_id: VIEW_ID.to_owned(),
                         expected_revision: 1,
                         name: "Nested List".to_owned(),
-                        default_layout: "list".to_owned(),
-                        config,
+                        layout: DatabaseViewLayout::List,
+                        definition: view_definition(config),
                         is_default: true,
                         before_view_id: None,
                     }],
@@ -3428,12 +3433,12 @@ mod tests {
                             view_id: VIEW_ID.to_owned(),
                             expected_revision: 1,
                             name: "Tag List".to_owned(),
-                            default_layout: "list".to_owned(),
-                            config: view_config(
+                            layout: DatabaseViewLayout::List,
+                            definition: view_definition(view_config(
                                 json!({ "kind": "group", "operator": "and", "children": [] }),
                                 Some("tags"),
                                 &["status", "priority", "estimate", "tags"],
-                            ),
+                            )),
                             is_default: true,
                             before_view_id: None,
                         },
@@ -3546,8 +3551,8 @@ mod tests {
                         view_id: VIEW_ID.to_owned(),
                         expected_revision: 2,
                         name: "Tag List".to_owned(),
-                        default_layout: "list".to_owned(),
-                        config: view_config(
+                        layout: DatabaseViewLayout::List,
+                        definition: view_definition(view_config(
                             json!({
                                 "kind": "clause",
                                 "propertyId": "tags",
@@ -3556,7 +3561,7 @@ mod tests {
                             }),
                             Some("tags"),
                             &["status", "priority", "estimate", "tags"],
-                        ),
+                        )),
                         is_default: true,
                         before_view_id: None,
                     }],
@@ -3590,8 +3595,8 @@ mod tests {
                         view_id: VIEW_ID.to_owned(),
                         expected_revision: 3,
                         name: "Tag List".to_owned(),
-                        default_layout: "list".to_owned(),
-                        config: sorted_config,
+                        layout: DatabaseViewLayout::List,
+                        definition: view_definition(sorted_config),
                         is_default: true,
                         before_view_id: None,
                     }],
@@ -3632,8 +3637,8 @@ mod tests {
                         view_id: SECOND_VIEW_ID.to_owned(),
                         expected_revision: 0,
                         name: "Secondary list".to_owned(),
-                        default_layout: "list".to_owned(),
-                        config: view_config(
+                        layout: DatabaseViewLayout::List,
+                        definition: view_definition(view_config(
                             json!({
                                 "kind": "group",
                                 "operator": "and",
@@ -3641,7 +3646,7 @@ mod tests {
                             }),
                             None,
                             &["status"],
-                        ),
+                        )),
                         is_default: false,
                         before_view_id: None,
                     }],
@@ -4167,8 +4172,8 @@ mod tests {
                         view_id: VIEW_ID.to_owned(),
                         expected_revision: view_revision,
                         name: "Workflow".to_owned(),
-                        default_layout: "board".to_owned(),
-                        config: view_config,
+                        layout: DatabaseViewLayout::Board,
+                        definition: view_definition(view_config),
                         is_default: true,
                         before_view_id: None,
                     }],

@@ -741,8 +741,11 @@ describe("Core Database Module Adapter", () => {
           view_id: viewId,
           expected_revision: 0,
           name: "Priority",
-          default_layout: "list",
-          config,
+          layout: "list",
+          definition: {
+            filter: config.filter,
+            presentation: config.presentation,
+          },
           is_default: true,
           before_view_id: null,
         },

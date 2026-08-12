@@ -6072,8 +6072,8 @@
               "view_id",
               "expected_revision",
               "name",
-              "default_layout",
-              "config",
+              "layout",
+              "definition",
               "is_default",
               "kind"
             ],
@@ -6084,15 +6084,14 @@
                   "null"
                 ]
               },
-              "config": {},
               "data_source_id": {
                 "type": "string"
               },
               "database_id": {
                 "type": "string"
               },
-              "default_layout": {
-                "type": "string"
+              "definition": {
+                "$ref": "#/components/schemas/DatabaseViewDefinition"
               },
               "expected_revision": {
                 "type": "integer",
@@ -6106,6 +6105,9 @@
                 "enum": [
                   "put_view"
                 ]
+              },
+              "layout": {
+                "$ref": "#/components/schemas/DatabaseViewLayout"
               },
               "name": {
                 "type": "string"
@@ -7464,6 +7466,16 @@
           }
         ]
       },
+      "DatabaseViewCompletedRange": {
+        "type": "string",
+        "enum": [
+          "all",
+          "past_month",
+          "past_week",
+          "past_day",
+          "none"
+        ]
+      },
       "DatabaseViewCompletedRangeInput": {
         "type": "string",
         "enum": [
@@ -7473,6 +7485,22 @@
           "past_day",
           "none"
         ]
+      },
+      "DatabaseViewCompletion": {
+        "type": "object",
+        "required": [
+          "range",
+          "orderByRecency"
+        ],
+        "properties": {
+          "orderByRecency": {
+            "type": "boolean"
+          },
+          "range": {
+            "$ref": "#/components/schemas/DatabaseViewCompletedRange"
+          }
+        },
+        "additionalProperties": false
       },
       "DatabaseViewCompletionOverrideInput": {
         "type": "object",
@@ -7527,6 +7555,63 @@
           "view": {}
         }
       },
+      "DatabaseViewDefinition": {
+        "type": "object",
+        "description": "Durable View policy. Storage schema markers are an adapter concern and are\nintentionally absent from the domain contract.",
+        "required": [
+          "filter",
+          "presentation"
+        ],
+        "properties": {
+          "filter": {
+            "$ref": "#/components/schemas/DatabaseViewFilter"
+          },
+          "presentation": {
+            "$ref": "#/components/schemas/DatabaseViewPresentation"
+          }
+        },
+        "additionalProperties": false
+      },
+      "DatabaseViewField": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "propertyId",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "property"
+                ]
+              },
+              "propertyId": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "field",
+              "kind"
+            ],
+            "properties": {
+              "field": {
+                "$ref": "#/components/schemas/DatabaseViewIntrinsicField"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "intrinsic"
+                ]
+              }
+            }
+          }
+        ]
+      },
       "DatabaseViewFieldInput": {
         "oneOf": [
           {
@@ -7566,6 +7651,88 @@
             }
           }
         ]
+      },
+      "DatabaseViewFilter": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "operator",
+              "children",
+              "kind"
+            ],
+            "properties": {
+              "children": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/DatabaseViewFilter"
+                }
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "group"
+                ]
+              },
+              "operator": {
+                "$ref": "#/components/schemas/DatabaseViewFilterGroupOperator"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "propertyId",
+              "operator",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "clause"
+                ]
+              },
+              "operator": {
+                "$ref": "#/components/schemas/DatabaseViewFilterOperator"
+              },
+              "propertyId": {
+                "type": "string"
+              },
+              "value": {}
+            }
+          }
+        ]
+      },
+      "DatabaseViewFilterGroupOperator": {
+        "type": "string",
+        "enum": [
+          "and",
+          "or"
+        ]
+      },
+      "DatabaseViewFilterOperator": {
+        "type": "string",
+        "enum": [
+          "equals",
+          "not_equals",
+          "contains",
+          "not_contains",
+          "is_empty",
+          "is_not_empty"
+        ]
+      },
+      "DatabaseViewGroup": {
+        "type": "object",
+        "required": [
+          "propertyId"
+        ],
+        "properties": {
+          "propertyId": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
       },
       "DatabaseViewGroupOverrideInput": {
         "oneOf": [
@@ -7686,6 +7853,22 @@
           }
         }
       },
+      "DatabaseViewHierarchy": {
+        "type": "object",
+        "required": [
+          "showSubPages",
+          "nestedSubPages"
+        ],
+        "properties": {
+          "nestedSubPages": {
+            "type": "boolean"
+          },
+          "showSubPages": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
       "DatabaseViewHierarchyOverrideInput": {
         "type": "object",
         "properties": {
@@ -7702,6 +7885,40 @@
             ]
           }
         }
+      },
+      "DatabaseViewIntrinsicField": {
+        "type": "string",
+        "enum": [
+          "page_id",
+          "created_at",
+          "updated_at"
+        ]
+      },
+      "DatabaseViewLayout": {
+        "type": "string",
+        "enum": [
+          "board",
+          "list"
+        ]
+      },
+      "DatabaseViewLayoutDisplay": {
+        "type": "object",
+        "required": [
+          "fields",
+          "showEmptyGroups"
+        ],
+        "properties": {
+          "fields": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DatabaseViewField"
+            }
+          },
+          "showEmptyGroups": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
       },
       "DatabaseViewLayoutDisplayOverrideInput": {
         "type": "object",
@@ -7730,6 +7947,22 @@
           "list"
         ]
       },
+      "DatabaseViewLayouts": {
+        "type": "object",
+        "required": [
+          "board",
+          "list"
+        ],
+        "properties": {
+          "board": {
+            "$ref": "#/components/schemas/DatabaseViewLayoutDisplay"
+          },
+          "list": {
+            "$ref": "#/components/schemas/DatabaseViewLayoutDisplay"
+          }
+        },
+        "additionalProperties": false
+      },
       "DatabaseViewLayoutsOverrideInput": {
         "type": "object",
         "properties": {
@@ -7754,6 +7987,13 @@
             ]
           }
         }
+      },
+      "DatabaseViewNullOrder": {
+        "type": "string",
+        "enum": [
+          "first",
+          "last"
+        ]
       },
       "DatabaseViewNullOrderInput": {
         "type": "string",
@@ -7785,6 +8025,57 @@
             "description": "Zero means that this Profile has no durable preference row yet."
           }
         }
+      },
+      "DatabaseViewPresentation": {
+        "type": "object",
+        "required": [
+          "sort",
+          "groupDirection",
+          "completion",
+          "hierarchy",
+          "layouts"
+        ],
+        "properties": {
+          "completion": {
+            "$ref": "#/components/schemas/DatabaseViewCompletion"
+          },
+          "group": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DatabaseViewGroup"
+              }
+            ]
+          },
+          "groupDirection": {
+            "$ref": "#/components/schemas/DatabaseViewSortDirection"
+          },
+          "hierarchy": {
+            "$ref": "#/components/schemas/DatabaseViewHierarchy"
+          },
+          "layouts": {
+            "$ref": "#/components/schemas/DatabaseViewLayouts"
+          },
+          "sort": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DatabaseViewSort"
+            }
+          },
+          "subgroup": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DatabaseViewGroup"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false
       },
       "DatabaseViewPresentationOverrideInput": {
         "type": "object",
@@ -7871,11 +8162,102 @@
           }
         }
       },
+      "DatabaseViewSort": {
+        "type": "object",
+        "required": [
+          "field",
+          "direction",
+          "nulls"
+        ],
+        "properties": {
+          "direction": {
+            "$ref": "#/components/schemas/DatabaseViewSortDirection"
+          },
+          "field": {
+            "$ref": "#/components/schemas/DatabaseViewSortField"
+          },
+          "nulls": {
+            "$ref": "#/components/schemas/DatabaseViewNullOrder"
+          }
+        },
+        "additionalProperties": false
+      },
+      "DatabaseViewSortDirection": {
+        "type": "string",
+        "enum": [
+          "asc",
+          "desc"
+        ]
+      },
       "DatabaseViewSortDirectionInput": {
         "type": "string",
         "enum": [
           "asc",
           "desc"
+        ]
+      },
+      "DatabaseViewSortField": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "manual"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "title"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "created"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "propertyId",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "property"
+                ]
+              },
+              "propertyId": {
+                "type": "string"
+              }
+            }
+          }
         ]
       },
       "DatabaseViewSortFieldInput": {
@@ -19410,8 +19792,8 @@
                     "view_id",
                     "expected_revision",
                     "name",
-                    "default_layout",
-                    "config",
+                    "layout",
+                    "definition",
                     "is_default",
                     "kind"
                   ],
@@ -19422,15 +19804,14 @@
                         "null"
                       ]
                     },
-                    "config": {},
                     "data_source_id": {
                       "type": "string"
                     },
                     "database_id": {
                       "type": "string"
                     },
-                    "default_layout": {
-                      "type": "string"
+                    "definition": {
+                      "$ref": "#/components/schemas/DatabaseViewDefinition"
                     },
                     "expected_revision": {
                       "type": "integer",
@@ -19444,6 +19825,9 @@
                       "enum": [
                         "put_view"
                       ]
+                    },
+                    "layout": {
+                      "$ref": "#/components/schemas/DatabaseViewLayout"
                     },
                     "name": {
                       "type": "string"

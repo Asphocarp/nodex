@@ -9,7 +9,7 @@ use crate::collection::{CollectionWindow, CollectionWindowRequest};
 use crate::events::ProjectionSnapshotAuthority;
 use crate::{ModuleMutationReceipt, ModuleName, VersionedModuleContract};
 
-pub const DATABASE_CONTRACT_VERSION: u32 = 12;
+pub const DATABASE_CONTRACT_VERSION: u32 = 13;
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
@@ -203,6 +203,167 @@ pub struct DatabaseViewPresentationOverrideInput {
     pub completion: Option<DatabaseViewCompletionOverrideInput>,
     pub hierarchy: Option<DatabaseViewHierarchyOverrideInput>,
     pub layouts: Option<DatabaseViewLayoutsOverrideInput>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DatabaseViewLayout {
+    Board,
+    List,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DatabaseViewSortDirection {
+    Asc,
+    Desc,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DatabaseViewNullOrder {
+    First,
+    Last,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DatabaseViewFilterGroupOperator {
+    And,
+    Or,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DatabaseViewFilterOperator {
+    Equals,
+    NotEquals,
+    Contains,
+    NotContains,
+    IsEmpty,
+    IsNotEmpty,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum DatabaseViewFilter {
+    Group {
+        operator: DatabaseViewFilterGroupOperator,
+        #[schema(no_recursion)]
+        children: Vec<DatabaseViewFilter>,
+    },
+    Clause {
+        #[serde(rename = "propertyId")]
+        property_id: String,
+        operator: DatabaseViewFilterOperator,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        value: Option<Value>,
+    },
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum DatabaseViewSortField {
+    Manual,
+    Title,
+    Created,
+    Property {
+        #[serde(rename = "propertyId")]
+        property_id: String,
+    },
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct DatabaseViewSort {
+    pub field: DatabaseViewSortField,
+    pub direction: DatabaseViewSortDirection,
+    pub nulls: DatabaseViewNullOrder,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DatabaseViewGroup {
+    pub property_id: String,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DatabaseViewCompletedRange {
+    All,
+    PastMonth,
+    PastWeek,
+    PastDay,
+    None,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DatabaseViewCompletion {
+    pub range: DatabaseViewCompletedRange,
+    pub order_by_recency: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DatabaseViewHierarchy {
+    pub show_sub_pages: bool,
+    pub nested_sub_pages: bool,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DatabaseViewIntrinsicField {
+    PageId,
+    CreatedAt,
+    UpdatedAt,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum DatabaseViewField {
+    Property {
+        #[serde(rename = "propertyId")]
+        property_id: String,
+    },
+    Intrinsic {
+        field: DatabaseViewIntrinsicField,
+    },
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DatabaseViewLayoutDisplay {
+    pub fields: Vec<DatabaseViewField>,
+    pub show_empty_groups: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct DatabaseViewLayouts {
+    pub board: DatabaseViewLayoutDisplay,
+    pub list: DatabaseViewLayoutDisplay,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DatabaseViewPresentation {
+    pub sort: Vec<DatabaseViewSort>,
+    pub group: Option<DatabaseViewGroup>,
+    pub subgroup: Option<DatabaseViewGroup>,
+    pub group_direction: DatabaseViewSortDirection,
+    pub completion: DatabaseViewCompletion,
+    pub hierarchy: DatabaseViewHierarchy,
+    pub layouts: DatabaseViewLayouts,
+}
+
+/// Durable View policy. Storage schema markers are an adapter concern and are
+/// intentionally absent from the domain contract.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct DatabaseViewDefinition {
+    pub filter: DatabaseViewFilter,
+    pub presentation: DatabaseViewPresentation,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -581,8 +742,8 @@ pub enum DatabaseIntent {
         view_id: String,
         expected_revision: i64,
         name: String,
-        default_layout: String,
-        config: Value,
+        layout: DatabaseViewLayout,
+        definition: DatabaseViewDefinition,
         is_default: bool,
         before_view_id: Option<String>,
     },

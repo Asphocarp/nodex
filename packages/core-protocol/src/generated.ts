@@ -1632,15 +1632,15 @@ export interface components {
             readonly target: components["schemas"]["DatabaseTransferTarget"];
         } | {
             readonly before_view_id?: string | null;
-            readonly config: unknown;
             readonly data_source_id: string;
             readonly database_id: string;
-            readonly default_layout: string;
+            readonly definition: components["schemas"]["DatabaseViewDefinition"];
             /** Format: int64 */
             readonly expected_revision: number;
             readonly is_default: boolean;
             /** @enum {string} */
             readonly kind: "put_view";
+            readonly layout: components["schemas"]["DatabaseViewLayout"];
             readonly name: string;
             readonly view_id: string;
         } | {
@@ -1987,7 +1987,13 @@ export interface components {
             readonly kind: "data_source";
         };
         /** @enum {string} */
+        readonly DatabaseViewCompletedRange: "all" | "past_month" | "past_week" | "past_day" | "none";
+        /** @enum {string} */
         readonly DatabaseViewCompletedRangeInput: "all" | "past_month" | "past_week" | "past_day" | "none";
+        readonly DatabaseViewCompletion: {
+            readonly orderByRecency: boolean;
+            readonly range: components["schemas"]["DatabaseViewCompletedRange"];
+        };
         readonly DatabaseViewCompletionOverrideInput: {
             readonly order_by_recency?: boolean | null;
             readonly range?: null | components["schemas"]["DatabaseViewCompletedRangeInput"];
@@ -2001,6 +2007,23 @@ export interface components {
             readonly rows: components["schemas"]["CollectionWindow_DatabaseViewContextRow"];
             readonly view: unknown;
         };
+        /**
+         * @description Durable View policy. Storage schema markers are an adapter concern and are
+         *     intentionally absent from the domain contract.
+         */
+        readonly DatabaseViewDefinition: {
+            readonly filter: components["schemas"]["DatabaseViewFilter"];
+            readonly presentation: components["schemas"]["DatabaseViewPresentation"];
+        };
+        readonly DatabaseViewField: {
+            /** @enum {string} */
+            readonly kind: "property";
+            readonly propertyId: string;
+        } | {
+            readonly field: components["schemas"]["DatabaseViewIntrinsicField"];
+            /** @enum {string} */
+            readonly kind: "intrinsic";
+        };
         readonly DatabaseViewFieldInput: {
             /** @enum {string} */
             readonly kind: "property";
@@ -2009,6 +2032,25 @@ export interface components {
             readonly field: string;
             /** @enum {string} */
             readonly kind: "intrinsic";
+        };
+        readonly DatabaseViewFilter: {
+            readonly children: readonly components["schemas"]["DatabaseViewFilter"][];
+            /** @enum {string} */
+            readonly kind: "group";
+            readonly operator: components["schemas"]["DatabaseViewFilterGroupOperator"];
+        } | {
+            /** @enum {string} */
+            readonly kind: "clause";
+            readonly operator: components["schemas"]["DatabaseViewFilterOperator"];
+            readonly propertyId: string;
+            readonly value?: unknown;
+        };
+        /** @enum {string} */
+        readonly DatabaseViewFilterGroupOperator: "and" | "or";
+        /** @enum {string} */
+        readonly DatabaseViewFilterOperator: "equals" | "not_equals" | "contains" | "not_contains" | "is_empty" | "is_not_empty";
+        readonly DatabaseViewGroup: {
+            readonly propertyId: string;
         };
         readonly DatabaseViewGroupOverrideInput: {
             /** @enum {string} */
@@ -2046,9 +2088,21 @@ export interface components {
             /** Format: int64 */
             readonly total_rows: number;
         };
+        readonly DatabaseViewHierarchy: {
+            readonly nestedSubPages: boolean;
+            readonly showSubPages: boolean;
+        };
         readonly DatabaseViewHierarchyOverrideInput: {
             readonly nested_sub_pages?: boolean | null;
             readonly show_sub_pages?: boolean | null;
+        };
+        /** @enum {string} */
+        readonly DatabaseViewIntrinsicField: "page_id" | "created_at" | "updated_at";
+        /** @enum {string} */
+        readonly DatabaseViewLayout: "board" | "list";
+        readonly DatabaseViewLayoutDisplay: {
+            readonly fields: readonly components["schemas"]["DatabaseViewField"][];
+            readonly showEmptyGroups: boolean;
         };
         readonly DatabaseViewLayoutDisplayOverrideInput: {
             readonly fields?: readonly components["schemas"]["DatabaseViewFieldInput"][] | null;
@@ -2056,10 +2110,16 @@ export interface components {
         };
         /** @enum {string} */
         readonly DatabaseViewLayoutInput: "board" | "list";
+        readonly DatabaseViewLayouts: {
+            readonly board: components["schemas"]["DatabaseViewLayoutDisplay"];
+            readonly list: components["schemas"]["DatabaseViewLayoutDisplay"];
+        };
         readonly DatabaseViewLayoutsOverrideInput: {
             readonly board?: null | components["schemas"]["DatabaseViewLayoutDisplayOverrideInput"];
             readonly list?: null | components["schemas"]["DatabaseViewLayoutDisplayOverrideInput"];
         };
+        /** @enum {string} */
+        readonly DatabaseViewNullOrder: "first" | "last";
         /** @enum {string} */
         readonly DatabaseViewNullOrderInput: "first" | "last";
         readonly DatabaseViewPersonalPreferences: {
@@ -2070,6 +2130,15 @@ export interface components {
              * @description Zero means that this Profile has no durable preference row yet.
              */
             readonly revision: number;
+        };
+        readonly DatabaseViewPresentation: {
+            readonly completion: components["schemas"]["DatabaseViewCompletion"];
+            readonly group?: null | components["schemas"]["DatabaseViewGroup"];
+            readonly groupDirection: components["schemas"]["DatabaseViewSortDirection"];
+            readonly hierarchy: components["schemas"]["DatabaseViewHierarchy"];
+            readonly layouts: components["schemas"]["DatabaseViewLayouts"];
+            readonly sort: readonly components["schemas"]["DatabaseViewSort"][];
+            readonly subgroup?: null | components["schemas"]["DatabaseViewGroup"];
         };
         /**
          * @description A bounded Profile-local patch over a durable View presentation. Membership
@@ -2085,8 +2154,29 @@ export interface components {
             readonly sort?: readonly components["schemas"]["DatabaseViewSortInput"][] | null;
             readonly subgroup?: null | components["schemas"]["DatabaseViewGroupOverrideInput"];
         };
+        readonly DatabaseViewSort: {
+            readonly direction: components["schemas"]["DatabaseViewSortDirection"];
+            readonly field: components["schemas"]["DatabaseViewSortField"];
+            readonly nulls: components["schemas"]["DatabaseViewNullOrder"];
+        };
+        /** @enum {string} */
+        readonly DatabaseViewSortDirection: "asc" | "desc";
         /** @enum {string} */
         readonly DatabaseViewSortDirectionInput: "asc" | "desc";
+        readonly DatabaseViewSortField: {
+            /** @enum {string} */
+            readonly kind: "manual";
+        } | {
+            /** @enum {string} */
+            readonly kind: "title";
+        } | {
+            /** @enum {string} */
+            readonly kind: "created";
+        } | {
+            /** @enum {string} */
+            readonly kind: "property";
+            readonly propertyId: string;
+        };
         readonly DatabaseViewSortFieldInput: {
             /** @enum {string} */
             readonly kind: "manual";
@@ -4832,15 +4922,15 @@ export interface components {
                 readonly target: components["schemas"]["DatabaseTransferTarget"];
             } | {
                 readonly before_view_id?: string | null;
-                readonly config: unknown;
                 readonly data_source_id: string;
                 readonly database_id: string;
-                readonly default_layout: string;
+                readonly definition: components["schemas"]["DatabaseViewDefinition"];
                 /** Format: int64 */
                 readonly expected_revision: number;
                 readonly is_default: boolean;
                 /** @enum {string} */
                 readonly kind: "put_view";
+                readonly layout: components["schemas"]["DatabaseViewLayout"];
                 readonly name: string;
                 readonly view_id: string;
             } | {

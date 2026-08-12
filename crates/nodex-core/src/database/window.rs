@@ -7,16 +7,20 @@ use nodex_core_contracts::collection::{
 use nodex_core_contracts::database::{
     DatabaseGroupScope, DatabaseListGroupSummary, DatabaseListProjectionRow,
     DatabaseListTransientKind, DatabaseListWindow, DatabaseRowDetail, DatabaseRowSummary,
-    DatabaseRowsById, DatabaseViewCompletedRangeInput, DatabaseViewContextRow,
-    DatabaseViewFieldInput, DatabaseViewGroupOverrideInput, DatabaseViewGroupSummary,
-    DatabaseViewGroups, DatabaseViewLayoutInput, DatabaseViewNullOrderInput,
-    DatabaseViewPresentationOverrideInput, DatabaseViewSortDirectionInput,
+    DatabaseRowsById, DatabaseViewCompletedRange, DatabaseViewCompletedRangeInput,
+    DatabaseViewCompletion, DatabaseViewContextRow, DatabaseViewDefinition, DatabaseViewField,
+    DatabaseViewFieldInput, DatabaseViewFilter, DatabaseViewFilterGroupOperator,
+    DatabaseViewFilterOperator, DatabaseViewGroup, DatabaseViewGroupOverrideInput,
+    DatabaseViewGroupSummary, DatabaseViewGroups, DatabaseViewIntrinsicField, DatabaseViewLayout,
+    DatabaseViewLayoutInput, DatabaseViewNullOrder, DatabaseViewNullOrderInput,
+    DatabaseViewPresentation, DatabaseViewPresentationOverrideInput, DatabaseViewSort,
+    DatabaseViewSortDirection, DatabaseViewSortDirectionInput, DatabaseViewSortField,
     DatabaseViewSortFieldInput, DatabaseViewWindow, MAX_VIEW_GROUP_SUMMARIES,
 };
 use nodex_core_contracts::events::{LocalProjectionScope, ProjectionSnapshotAuthority};
 use rusqlite::types::Value as SqlValue;
 use rusqlite::{Connection, OptionalExtension, Row, params, params_from_iter};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
@@ -89,158 +93,20 @@ pub(super) struct ViewContextRead<'a> {
     pub group_scope: Option<&'a DatabaseGroupScope>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ViewConfig {
-    filter: ViewFilter,
-    presentation: ViewPresentation,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ViewPresentation {
-    sort: Vec<ViewSort>,
-    group: Option<ViewGroup>,
-    subgroup: Option<ViewGroup>,
-    #[serde(default = "default_group_direction")]
-    group_direction: SortDirection,
-    completion: ViewCompletion,
-    hierarchy: ViewHierarchy,
-    layouts: ViewLayouts,
-}
-
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ViewHierarchy {
-    show_sub_pages: bool,
-    nested_sub_pages: bool,
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case")]
-enum ViewCompletedRange {
-    All,
-    PastMonth,
-    PastWeek,
-    PastDay,
-    None,
-}
-
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ViewCompletion {
-    range: ViewCompletedRange,
-    order_by_recency: bool,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-struct ViewLayouts {
-    board: ViewLayoutDisplay,
-    list: ViewLayoutDisplay,
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case")]
-enum ViewLayout {
-    Board,
-    List,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ViewLayoutDisplay {
-    fields: Vec<ViewField>,
-    show_empty_groups: bool,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-enum ViewField {
-    Property {
-        #[serde(rename = "propertyId")]
-        property_id: String,
-    },
-    Intrinsic {
-        #[serde(rename = "field")]
-        field: String,
-    },
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-enum ViewFilter {
-    Group {
-        operator: FilterGroupOperator,
-        children: Vec<ViewFilter>,
-    },
-    Clause {
-        #[serde(rename = "propertyId")]
-        property_id: String,
-        operator: FilterOperator,
-        value: Option<Value>,
-    },
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "snake_case")]
-enum FilterGroupOperator {
-    And,
-    Or,
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "snake_case")]
-enum FilterOperator {
-    Equals,
-    NotEquals,
-    Contains,
-    NotContains,
-    IsEmpty,
-    IsNotEmpty,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-struct ViewSort {
-    field: ViewSortField,
-    direction: SortDirection,
-    nulls: NullOrder,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-enum ViewSortField {
-    Manual,
-    Title,
-    Created,
-    Property {
-        #[serde(rename = "propertyId")]
-        property_id: String,
-    },
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "snake_case")]
-enum SortDirection {
-    Asc,
-    Desc,
-}
-
-fn default_group_direction() -> SortDirection {
-    SortDirection::Asc
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "snake_case")]
-enum NullOrder {
-    First,
-    Last,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ViewGroup {
-    property_id: String,
-}
+type ViewConfig = DatabaseViewDefinition;
+type ViewPresentation = DatabaseViewPresentation;
+type ViewCompletedRange = DatabaseViewCompletedRange;
+type ViewCompletion = DatabaseViewCompletion;
+type ViewLayout = DatabaseViewLayout;
+type ViewField = DatabaseViewField;
+type ViewFilter = DatabaseViewFilter;
+type FilterGroupOperator = DatabaseViewFilterGroupOperator;
+type FilterOperator = DatabaseViewFilterOperator;
+type ViewSort = DatabaseViewSort;
+type ViewSortField = DatabaseViewSortField;
+type SortDirection = DatabaseViewSortDirection;
+type NullOrder = DatabaseViewNullOrder;
+type ViewGroup = DatabaseViewGroup;
 
 #[derive(Clone, Debug)]
 struct SortComponent {
@@ -2179,24 +2045,17 @@ fn resolve_view(
             params![library_id, view_id],
             |row| {
                 let config_json = row.get::<_, String>(2)?;
-                let config_value =
-                    serde_json::from_str::<Value>(&config_json).map_err(|error| {
+                let config = super::view_contract::decode_definition_json(&config_json).map_err(
+                    |error| {
                         rusqlite::Error::FromSqlConversionFailure(
                             config_json.len(),
                             rusqlite::types::Type::Text,
-                            error.into(),
+                            std::io::Error::new(std::io::ErrorKind::InvalidData, error).into(),
                         )
-                    })?;
+                    },
+                )?;
                 let exact_primary_board_config =
-                    super::is_exact_primary_board_config(&config_value);
-                let config =
-                    serde_json::from_value::<ViewConfig>(config_value).map_err(|error| {
-                        rusqlite::Error::FromSqlConversionFailure(
-                            config_json.len(),
-                            rusqlite::types::Type::Text,
-                            error.into(),
-                        )
-                    })?;
+                    super::view_contract::is_exact_primary_board_definition(&config);
                 Ok((
                     row.get::<_, String>(0)?,
                     row.get::<_, String>(1)?,
@@ -2355,11 +2214,11 @@ fn refresh_effective_presentation(
                 ViewField::Property { property_id } if properties.contains_key(property_id) => {
                     format!("property:{property_id}")
                 }
-                ViewField::Intrinsic { field }
-                    if matches!(field.as_str(), "page_id" | "created_at" | "updated_at") =>
-                {
-                    format!("intrinsic:{field}")
-                }
+                ViewField::Intrinsic { field } => match field {
+                    DatabaseViewIntrinsicField::PageId => "intrinsic:page_id".to_owned(),
+                    DatabaseViewIntrinsicField::CreatedAt => "intrinsic:created_at".to_owned(),
+                    DatabaseViewIntrinsicField::UpdatedAt => "intrinsic:updated_at".to_owned(),
+                },
                 _ => return false,
             };
             seen.insert(key)
@@ -2409,16 +2268,18 @@ fn view_field_override(input: &DatabaseViewFieldInput) -> Result<ViewField, Stor
                 property_id: property_id.clone(),
             })
         }
-        DatabaseViewFieldInput::Intrinsic { field }
-            if matches!(field.as_str(), "page_id" | "created_at" | "updated_at") =>
-        {
-            Ok(ViewField::Intrinsic {
-                field: field.clone(),
-            })
-        }
-        DatabaseViewFieldInput::Intrinsic { .. } => {
-            Err(invalid("Database View intrinsic field is unsupported"))
-        }
+        DatabaseViewFieldInput::Intrinsic { field } => match field.as_str() {
+            "page_id" => Ok(ViewField::Intrinsic {
+                field: DatabaseViewIntrinsicField::PageId,
+            }),
+            "created_at" => Ok(ViewField::Intrinsic {
+                field: DatabaseViewIntrinsicField::CreatedAt,
+            }),
+            "updated_at" => Ok(ViewField::Intrinsic {
+                field: DatabaseViewIntrinsicField::UpdatedAt,
+            }),
+            _ => Err(invalid("Database View intrinsic field is unsupported")),
+        },
     }
 }
 

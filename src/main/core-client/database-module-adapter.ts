@@ -359,8 +359,11 @@ export const toCoreDatabaseIntent = (
         view_id: operation.viewId,
         expected_revision: operation.expectedRevision,
         name: operation.name,
-        default_layout: operation.defaultLayout,
-        config: operation.config,
+        layout: operation.defaultLayout,
+        definition: {
+          filter: operation.config.filter,
+          presentation: operation.config.presentation,
+        },
         is_default: operation.isDefault,
         before_view_id: operation.beforeViewId ?? null,
       };

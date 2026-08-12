@@ -6,7 +6,10 @@ use nodex_core_contracts::database::{
     DatabasePropertySchema, DatabasePropertySetDelta, DatabasePropertyValueEdit,
     DatabasePropertyValueInput, DatabasePropertyValueMutation, DatabaseReceipt,
     DatabaseRelationCardinality, DatabaseTaskParentPage, DatabaseTransferTarget,
-    DatabaseViewPresentationOverrideInput,
+    DatabaseViewDefinition, DatabaseViewField, DatabaseViewFilter,
+    DatabaseViewFilterOperator as ViewFilterOperator, DatabaseViewIntrinsicField,
+    DatabaseViewLayout, DatabaseViewPresentationOverrideInput, DatabaseViewSortDirection,
+    DatabaseViewSortField,
 };
 use nodex_core_contracts::{
     BoundModuleContext, CoreModuleEventPayload, ModuleApplyRequest, ModuleMutationReceipt,
@@ -496,8 +499,8 @@ fn apply_intent(
             view_id,
             expected_revision,
             name,
-            default_layout,
-            config,
+            layout,
+            definition,
             is_default,
             before_view_id,
         } => put_view(
@@ -509,8 +512,8 @@ fn apply_intent(
             view_id,
             *expected_revision,
             name,
-            default_layout,
-            config,
+            *layout,
+            definition,
             *is_default,
             before_view_id.as_deref(),
             now,
@@ -1800,8 +1803,9 @@ fn resolve_page_transfer_data_source_destination_with_access(
             "Block transfer target View belongs to another Data Source",
         ));
     }
-    let config = parse_json(&view.config_json, "Database View config")?;
-    let values = view_group_property(&config)
+    let definition =
+        super::view_contract::decode_definition_json(&view.config_json).map_err(corrupt)?;
+    let values = view_group_property(&definition)
         .map(|property_id| PageCopyValueDraft {
             property_id: property_id.to_owned(),
             value: group_key.map_or(Value::Null, |value| Value::String(value.to_owned())),
@@ -2685,8 +2689,9 @@ pub(crate) fn finalize_agent_moved_pages_in_data_source_prevalidated(
                 "Agent Page-move target View belongs to another Data Source",
             ));
         }
-        let config = parse_json(&view.config_json, "Database View config")?;
-        if let Some(property_id) = view_group_property(&config) {
+        let definition =
+            super::view_contract::decode_definition_json(&view.config_json).map_err(corrupt)?;
+        if let Some(property_id) = view_group_property(&definition) {
             let property = active_property(connection, &destination.data_source_id, property_id)?;
             let value =
                 database_group_value_from_key(&property.value_type, placement.group_key.as_deref());
@@ -3543,10 +3548,10 @@ fn preferred_view_placement(
             |row| row.get::<_, String>(0),
         )
         .optional()?;
-    let config = parse_json(&config_json, "Database View config")?;
+    let definition = super::view_contract::decode_definition_json(&config_json).map_err(corrupt)?;
     Ok(PreferredViewPlacement {
         view_id: Some(view_id),
-        group_key: derived_view_group_key(connection, data_source_id, page_id, &config)?,
+        group_key: derived_view_group_key(connection, data_source_id, page_id, &definition)?,
         rank_key: position,
     })
 }
@@ -3555,9 +3560,9 @@ fn derived_view_group_key(
     connection: &Connection,
     data_source_id: &str,
     page_id: &str,
-    config: &Value,
+    definition: &DatabaseViewDefinition,
 ) -> Result<Option<String>, StoreError> {
-    let Some(property_id) = view_group_property(config) else {
+    let Some(property_id) = view_group_property(definition) else {
         return Ok(None);
     };
     let value = connection
@@ -3638,8 +3643,8 @@ fn put_view(
     view_id: &str,
     expected_revision: i64,
     name: &str,
-    default_layout: &str,
-    config: &Value,
+    layout: DatabaseViewLayout,
+    definition: &DatabaseViewDefinition,
     is_default: bool,
     before_view_id: Option<&str>,
     now: &str,
@@ -3649,9 +3654,6 @@ fn put_view(
     validate_id(database_id, "database_id", MAX_ID_LENGTH)?;
     validate_id(view_id, "view_id", MAX_ID_LENGTH)?;
     let name = validate_name(name, "View name")?;
-    if !matches!(default_layout, "board" | "list") {
-        return Err(invalid("Database View default layout is unsupported"));
-    }
     let container = require_container(connection, library_id, database_id)?;
     if container.lifecycle != "active" {
         return Err(not_found("Database is not active"));
@@ -3701,27 +3703,29 @@ fn put_view(
             false,
         ));
     }
-    validate_view_config(
+    validate_view_definition(
         connection,
         library_id,
         project_id,
         data_source_id,
-        config,
+        definition,
         library_scope,
     )?;
-    let encoded_config = serde_json::to_string(config)
-        .map_err(|_| invalid("Database View config cannot be encoded"))?;
+    let encoded_config =
+        super::view_contract::encode_definition_json(definition).map_err(invalid)?;
     if encoded_config.len() > 262_144 {
         return Err(invalid("Database View config exceeds its byte bound"));
     }
     let existing_group = existing
         .as_ref()
-        .map(|view| parse_json(&view.config_json, "Database View config"))
+        .map(|view| {
+            super::view_contract::decode_definition_json(&view.config_json).map_err(corrupt)
+        })
         .transpose()?
         .as_ref()
         .and_then(view_group_property)
         .map(str::to_owned);
-    let next_group = view_group_property(config).map(str::to_owned);
+    let next_group = view_group_property(definition).map(str::to_owned);
     let source_changed = existing
         .as_ref()
         .is_some_and(|view| view.data_source_id != data_source_id);
@@ -3741,6 +3745,10 @@ fn put_view(
     let created_at = existing
         .as_ref()
         .map_or(now, |view| view.created_at.as_str());
+    let layout = match layout {
+        DatabaseViewLayout::Board => "board",
+        DatabaseViewLayout::List => "list",
+    };
     connection.execute(
         "INSERT INTO database_views(\
            id, database_block_id, data_source_id, name, default_layout, config_json, revision, \
@@ -3756,7 +3764,7 @@ fn put_view(
             database_id,
             data_source_id,
             name,
-            default_layout,
+            layout,
             encoded_config,
             revision,
             rank_key,
@@ -3904,7 +3912,8 @@ fn position_pages(
         DatabaseWriteAction::Write,
         library_scope,
     )?;
-    let config = parse_json(&view.config_json, "Database View config")?;
+    let definition =
+        super::view_contract::decode_definition_json(&view.config_json).map_err(corrupt)?;
     let mut existing_revisions = std::collections::HashMap::new();
     for page in pages {
         active_row_membership(connection, &view.data_source_id, &page.page_id)?;
@@ -3926,7 +3935,7 @@ fn position_pages(
     }
 
     let logical = read_logical_view(connection, &view, &page_ids)?;
-    let descending = view_manual_direction(&config) == "desc";
+    let descending = view_manual_direction(&definition) == DatabaseViewSortDirection::Desc;
     let moved_page_ids = pages
         .iter()
         .map(|page| page.page_id.clone())
@@ -4160,161 +4169,53 @@ fn put_view_personal_preferences(
     Ok(())
 }
 
-fn validate_view_config(
+fn validate_view_definition(
     connection: &Connection,
     library_id: &str,
     project_id: &str,
     data_source_id: &str,
-    config: &Value,
+    definition: &DatabaseViewDefinition,
     library_scope: bool,
 ) -> Result<(), StoreError> {
-    let object = config
-        .as_object()
-        .ok_or_else(|| invalid("Database View config must be an object"))?;
-    let expected = ["schemaKey", "schemaVersion", "filter", "presentation"];
-    if object.len() != expected.len() || expected.iter().any(|key| !object.contains_key(*key)) {
-        return Err(invalid("Database View config has unsupported fields"));
-    }
-    if object.get("schemaKey").and_then(Value::as_str) != Some("nodex.database-view")
-        || object.get("schemaVersion").and_then(Value::as_i64) != Some(4)
-    {
-        return Err(invalid("Database View config schema is unsupported"));
-    }
-    validate_view_filter(
-        object
-            .get("filter")
-            .ok_or_else(|| invalid("Database View filter is missing"))?,
-        0,
-        &mut 0,
-    )?;
-    let presentation = object
-        .get("presentation")
-        .and_then(Value::as_object)
-        .ok_or_else(|| invalid("Database View presentation is invalid"))?;
-    let presentation_fields = [
-        "sort",
-        "group",
-        "subgroup",
-        "groupDirection",
-        "completion",
-        "hierarchy",
-        "layouts",
-    ];
-    if presentation.len() != presentation_fields.len()
-        || presentation_fields
-            .iter()
-            .any(|key| !presentation.contains_key(*key))
-    {
-        return Err(invalid("Database View presentation has unsupported fields"));
-    }
-    let sort = presentation
-        .get("sort")
-        .and_then(Value::as_array)
-        .ok_or_else(|| invalid("Database View sort must be an array"))?;
-    if sort.len() > MAX_VIEW_SORT_RULES {
+    validate_view_filter(&definition.filter, 0, &mut 0)?;
+    if definition.presentation.sort.len() > MAX_VIEW_SORT_RULES {
         return Err(invalid("Database View sort exceeds its bound"));
     }
-    for item in sort {
-        validate_view_sort(item)?;
-    }
-    for key in ["group", "subgroup"] {
-        match presentation.get(key) {
-            Some(Value::Null) => {}
-            Some(group)
-                if group.as_object().is_some_and(|group| {
-                    group.len() == 1 && group.get("propertyId").and_then(Value::as_str).is_some()
-                }) => {}
-            _ => return Err(invalid("Database View grouping is invalid")),
-        }
-    }
-    if view_group_property(config).is_some()
-        && view_group_property(config) == view_subgroup_property(config)
+    if view_group_property(definition).is_some()
+        && view_group_property(definition) == view_subgroup_property(definition)
     {
         return Err(invalid(
             "Database View group and subgroup must be different",
         ));
     }
-    if !matches!(
-        presentation.get("groupDirection").and_then(Value::as_str),
-        Some("asc" | "desc")
-    ) {
-        return Err(invalid("Database View group direction is invalid"));
-    }
-    let completion = presentation
-        .get("completion")
-        .and_then(Value::as_object)
-        .ok_or_else(|| invalid("Database View completion policy is invalid"))?;
-    if completion.len() != 2
-        || !matches!(
-            completion.get("range").and_then(Value::as_str),
-            Some("all" | "past_month" | "past_week" | "past_day" | "none")
-        )
-        || completion
-            .get("orderByRecency")
-            .and_then(Value::as_bool)
-            .is_none()
+    if !definition.presentation.hierarchy.show_sub_pages
+        && definition.presentation.hierarchy.nested_sub_pages
     {
-        return Err(invalid("Database View completion policy is invalid"));
-    }
-    let hierarchy = presentation
-        .get("hierarchy")
-        .and_then(Value::as_object)
-        .ok_or_else(|| invalid("Database View hierarchy policy is invalid"))?;
-    let show_sub_pages = hierarchy
-        .get("showSubPages")
-        .and_then(Value::as_bool)
-        .ok_or_else(|| invalid("Database View hierarchy policy is invalid"))?;
-    let nested_sub_pages = hierarchy
-        .get("nestedSubPages")
-        .and_then(Value::as_bool)
-        .ok_or_else(|| invalid("Database View hierarchy policy is invalid"))?;
-    if hierarchy.len() != 2 || (!show_sub_pages && nested_sub_pages) {
         return Err(invalid("Database View hierarchy policy is invalid"));
     }
-    let layouts = presentation
-        .get("layouts")
-        .and_then(Value::as_object)
-        .ok_or_else(|| invalid("Database View layouts are invalid"))?;
-    if layouts.len() != 2 || !layouts.contains_key("board") || !layouts.contains_key("list") {
-        return Err(invalid("Database View layouts have unsupported fields"));
-    }
-    for layout_name in ["board", "list"] {
-        let layout = layouts
-            .get(layout_name)
-            .and_then(Value::as_object)
-            .ok_or_else(|| invalid("Database View layout display is invalid"))?;
-        let fields = layout
-            .get("fields")
-            .and_then(Value::as_array)
-            .ok_or_else(|| invalid("Database View layout fields are invalid"))?;
-        if layout.len() != 2
-            || layout
-                .get("showEmptyGroups")
-                .and_then(Value::as_bool)
-                .is_none()
-            || fields.len() > MAX_VIEW_DISPLAY_PROPERTIES
-        {
+    for layout in [
+        &definition.presentation.layouts.board,
+        &definition.presentation.layouts.list,
+    ] {
+        if layout.fields.len() > MAX_VIEW_DISPLAY_PROPERTIES {
             return Err(invalid("Database View layout display is invalid"));
         }
-        for field in fields {
-            let field = field
-                .as_object()
-                .ok_or_else(|| invalid("Database View layout field is invalid"))?;
-            match field.get("kind").and_then(Value::as_str) {
-                Some("property")
-                    if field.len() == 2
-                        && field.get("propertyId").and_then(Value::as_str).is_some() => {}
-                Some("intrinsic")
-                    if field.len() == 2
-                        && matches!(
-                            field.get("field").and_then(Value::as_str),
-                            Some("page_id" | "created_at" | "updated_at")
-                        ) => {}
-                _ => return Err(invalid("Database View layout field is invalid")),
+        let mut identities = HashSet::new();
+        for field in &layout.fields {
+            let identity = match field {
+                DatabaseViewField::Property { property_id } => format!("property:{property_id}"),
+                DatabaseViewField::Intrinsic { field } => match field {
+                    DatabaseViewIntrinsicField::PageId => "intrinsic:page_id".to_owned(),
+                    DatabaseViewIntrinsicField::CreatedAt => "intrinsic:created_at".to_owned(),
+                    DatabaseViewIntrinsicField::UpdatedAt => "intrinsic:updated_at".to_owned(),
+                },
+            };
+            if !identities.insert(identity) {
+                return Err(invalid("Database View layout fields contain duplicates"));
             }
         }
     }
-    let property_ids = collect_view_property_ids(config)?;
+    let property_ids = collect_view_property_ids(definition);
     let property_records = connection
         .prepare(
             "SELECT id, value_type FROM data_source_properties \
@@ -4354,7 +4255,7 @@ fn validate_view_config(
         library_id,
         project_id,
         data_source_id,
-        config,
+        definition,
         &property_semantics,
         library_scope,
     )
@@ -4370,37 +4271,31 @@ fn validate_view_property_capabilities(
     library_id: &str,
     project_id: &str,
     data_source_id: &str,
-    config: &Value,
+    definition: &DatabaseViewDefinition,
     property_semantics: &BTreeMap<String, ViewPropertySemantics>,
     library_scope: bool,
 ) -> Result<(), StoreError> {
-    if [view_group_property(config), view_subgroup_property(config)]
-        .into_iter()
-        .flatten()
-        .any(|property_id| {
-            property_semantics
-                .get(property_id)
-                .is_some_and(|property| !property.capabilities.groupable)
-        })
-    {
+    if [
+        view_group_property(definition),
+        view_subgroup_property(definition),
+    ]
+    .into_iter()
+    .flatten()
+    .any(|property_id| {
+        property_semantics
+            .get(property_id)
+            .is_some_and(|property| !property.capabilities.groupable)
+    }) {
         return Err(invalid("Property cannot group a Database View"));
     }
-    let sort = config
-        .pointer("/presentation/sort")
-        .and_then(Value::as_array)
-        .ok_or_else(|| invalid("Database View sort must be an array"))?;
-    for rule in sort {
-        let property_id = rule
-            .get("field")
-            .and_then(Value::as_object)
-            .filter(|field| field.get("kind").and_then(Value::as_str) == Some("property"))
-            .and_then(|field| field.get("propertyId"))
-            .and_then(Value::as_str);
-        if property_id.is_some_and(|property_id| {
-            property_semantics
-                .get(property_id)
-                .is_some_and(|property| !property.capabilities.sortable)
-        }) {
+    for rule in &definition.presentation.sort {
+        let DatabaseViewSortField::Property { property_id } = &rule.field else {
+            continue;
+        };
+        if property_semantics
+            .get(property_id)
+            .is_some_and(|property| !property.capabilities.sortable)
+        {
             return Err(invalid("Property cannot sort a Database View"));
         }
     }
@@ -4409,9 +4304,7 @@ fn validate_view_property_capabilities(
         library_id,
         project_id,
         data_source_id,
-        config
-            .get("filter")
-            .ok_or_else(|| invalid("Database View filter is missing"))?,
+        &definition.filter,
         property_semantics,
         library_scope,
     )
@@ -4422,19 +4315,20 @@ fn validate_filter_capabilities(
     library_id: &str,
     project_id: &str,
     data_source_id: &str,
-    filter: &Value,
+    filter: &DatabaseViewFilter,
     property_semantics: &BTreeMap<String, ViewPropertySemantics>,
     library_scope: bool,
 ) -> Result<(), StoreError> {
-    let object = filter
-        .as_object()
-        .ok_or_else(|| invalid("Database View filter node must be an object"))?;
-    if object.get("kind").and_then(Value::as_str) == Some("group") {
-        for child in object
-            .get("children")
-            .and_then(Value::as_array)
-            .ok_or_else(|| invalid("Database View filter group children are invalid"))?
-        {
+    let DatabaseViewFilter::Clause {
+        property_id,
+        operator,
+        value,
+    } = filter
+    else {
+        let DatabaseViewFilter::Group { children, .. } = filter else {
+            unreachable!("Database View filter variants are exhaustive")
+        };
+        for child in children {
             validate_filter_capabilities(
                 connection,
                 library_id,
@@ -4446,31 +4340,22 @@ fn validate_filter_capabilities(
             )?;
         }
         return Ok(());
-    }
-    let property_id = object
-        .get("propertyId")
-        .and_then(Value::as_str)
-        .ok_or_else(|| invalid("Database View filter clause is invalid"))?;
-    let operator_name = object
-        .get("operator")
-        .and_then(Value::as_str)
-        .ok_or_else(|| invalid("Database View filter clause is invalid"))?;
-    let operator = match operator_name {
-        "equals" => DatabasePropertyFilterOperator::Equals,
-        "not_equals" => DatabasePropertyFilterOperator::NotEquals,
-        "contains" => DatabasePropertyFilterOperator::Contains,
-        "not_contains" => DatabasePropertyFilterOperator::NotContains,
-        "is_empty" => DatabasePropertyFilterOperator::IsEmpty,
-        "is_not_empty" => DatabasePropertyFilterOperator::IsNotEmpty,
-        _ => return Err(invalid("Database View filter operator is unsupported")),
+    };
+    let operator = match operator {
+        ViewFilterOperator::Equals => DatabasePropertyFilterOperator::Equals,
+        ViewFilterOperator::NotEquals => DatabasePropertyFilterOperator::NotEquals,
+        ViewFilterOperator::Contains => DatabasePropertyFilterOperator::Contains,
+        ViewFilterOperator::NotContains => DatabasePropertyFilterOperator::NotContains,
+        ViewFilterOperator::IsEmpty => DatabasePropertyFilterOperator::IsEmpty,
+        ViewFilterOperator::IsNotEmpty => DatabasePropertyFilterOperator::IsNotEmpty,
     };
     if property_id == super::property_semantics::PRIORITY_PROPERTY_ID
         && matches!(
             operator,
             DatabasePropertyFilterOperator::Equals | DatabasePropertyFilterOperator::NotEquals
         )
-        && !object
-            .get("value")
+        && !value
+            .as_ref()
             .and_then(Value::as_str)
             .is_some_and(super::property_semantics::is_priority_option_id)
     {
@@ -4485,8 +4370,8 @@ fn validate_filter_capabilities(
     if matches!(
         operator,
         DatabasePropertyFilterOperator::Contains | DatabasePropertyFilterOperator::NotContains
-    ) && object
-        .get("value")
+    ) && value
+        .as_ref()
         .and_then(Value::as_str)
         .is_none_or(str::is_empty)
     {
@@ -4498,8 +4383,8 @@ fn validate_filter_capabilities(
             DatabasePropertyFilterOperator::Contains | DatabasePropertyFilterOperator::NotContains
         )
     {
-        let page_id = object
-            .get("value")
+        let page_id = value
+            .as_ref()
             .and_then(Value::as_str)
             .ok_or_else(|| invalid("Relation Property filter requires a Page identity"))?;
         let target_data_source_id =
@@ -4523,171 +4408,102 @@ fn validate_filter_capabilities(
     Ok(())
 }
 
-fn validate_view_filter(value: &Value, depth: usize, nodes: &mut usize) -> Result<(), StoreError> {
+fn validate_view_filter(
+    filter: &DatabaseViewFilter,
+    depth: usize,
+    nodes: &mut usize,
+) -> Result<(), StoreError> {
     if depth > 8 || *nodes >= 1_024 {
         return Err(invalid("Database View filter exceeds its structural bound"));
     }
     *nodes += 1;
-    let object = value
-        .as_object()
-        .ok_or_else(|| invalid("Database View filter node must be an object"))?;
-    match object.get("kind").and_then(Value::as_str) {
-        Some("group") => {
-            if !matches!(
-                object.get("operator").and_then(Value::as_str),
-                Some("and" | "or")
-            ) {
-                return Err(invalid("Database View filter group operator is invalid"));
-            }
-            let children = object
-                .get("children")
-                .and_then(Value::as_array)
-                .ok_or_else(|| invalid("Database View filter group children are invalid"))?;
+    match filter {
+        DatabaseViewFilter::Group { children, .. } => {
             for child in children {
                 validate_view_filter(child, depth + 1, nodes)?;
             }
-            Ok(())
         }
-        Some("clause") => {
-            if object.get("propertyId").and_then(Value::as_str).is_none()
-                || !matches!(
-                    object.get("operator").and_then(Value::as_str),
-                    Some(
-                        "equals"
-                            | "not_equals"
-                            | "contains"
-                            | "not_contains"
-                            | "is_empty"
-                            | "is_not_empty"
-                    )
-                )
-            {
-                return Err(invalid("Database View filter clause is invalid"));
-            }
-            Ok(())
-        }
-        _ => Err(invalid("Database View filter kind is invalid")),
-    }
-}
-
-fn validate_view_sort(value: &Value) -> Result<(), StoreError> {
-    let object = value
-        .as_object()
-        .ok_or_else(|| invalid("Database View sort item must be an object"))?;
-    if !matches!(
-        object.get("direction").and_then(Value::as_str),
-        Some("asc" | "desc")
-    ) || !matches!(
-        object.get("nulls").and_then(Value::as_str),
-        Some("first" | "last")
-    ) {
-        return Err(invalid(
-            "Database View sort direction or null policy is invalid",
-        ));
-    }
-    let field = object
-        .get("field")
-        .and_then(Value::as_object)
-        .ok_or_else(|| invalid("Database View sort field is invalid"))?;
-    match field.get("kind").and_then(Value::as_str) {
-        Some("manual" | "title" | "created") if field.len() == 1 => Ok(()),
-        Some("property")
-            if field.len() == 2 && field.get("propertyId").and_then(Value::as_str).is_some() =>
-        {
-            Ok(())
-        }
-        _ => Err(invalid("Database View sort field is invalid")),
-    }
-}
-
-fn collect_view_property_ids(config: &Value) -> Result<HashSet<String>, StoreError> {
-    let mut property_ids = HashSet::new();
-    for property_id in [view_group_property(config), view_subgroup_property(config)]
-        .into_iter()
-        .flatten()
-    {
-        property_ids.insert(property_id.to_owned());
-    }
-    for layout_name in ["board", "list"] {
-        let fields = config
-            .pointer(&format!("/presentation/layouts/{layout_name}/fields"))
-            .and_then(Value::as_array)
-            .ok_or_else(|| invalid("Database View layout fields are invalid"))?;
-        for field in fields {
-            if let Some(property_id) = field.get("propertyId").and_then(Value::as_str) {
-                property_ids.insert(property_id.to_owned());
+        DatabaseViewFilter::Clause {
+            operator, value, ..
+        } => {
+            let requires_value = !matches!(
+                operator,
+                ViewFilterOperator::IsEmpty | ViewFilterOperator::IsNotEmpty
+            );
+            if requires_value != value.is_some() {
+                return Err(invalid("Database View filter has invalid value arity"));
             }
         }
-    }
-    if let Some(sort) = config
-        .pointer("/presentation/sort")
-        .and_then(Value::as_array)
-    {
-        for item in sort {
-            if let Some(property_id) = item.pointer("/field/propertyId").and_then(Value::as_str) {
-                property_ids.insert(property_id.to_owned());
-            }
-        }
-    }
-    collect_filter_property_ids(
-        config
-            .get("filter")
-            .ok_or_else(|| invalid("Database View filter is missing"))?,
-        &mut property_ids,
-    )?;
-    Ok(property_ids)
-}
-
-fn collect_filter_property_ids(
-    value: &Value,
-    property_ids: &mut HashSet<String>,
-) -> Result<(), StoreError> {
-    let object = value
-        .as_object()
-        .ok_or_else(|| invalid("Database View filter node is invalid"))?;
-    if object.get("kind").and_then(Value::as_str) == Some("clause") {
-        property_ids.insert(
-            object
-                .get("propertyId")
-                .and_then(Value::as_str)
-                .ok_or_else(|| invalid("Database View filter Property ID is invalid"))?
-                .to_owned(),
-        );
-        return Ok(());
-    }
-    for child in object
-        .get("children")
-        .and_then(Value::as_array)
-        .ok_or_else(|| invalid("Database View filter children are invalid"))?
-    {
-        collect_filter_property_ids(child, property_ids)?;
     }
     Ok(())
 }
 
-fn view_group_property(config: &Value) -> Option<&str> {
-    config
-        .pointer("/presentation/group/propertyId")
-        .and_then(Value::as_str)
+fn collect_view_property_ids(definition: &DatabaseViewDefinition) -> HashSet<String> {
+    let mut property_ids = HashSet::new();
+    for property_id in [
+        view_group_property(definition),
+        view_subgroup_property(definition),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        property_ids.insert(property_id.to_owned());
+    }
+    for layout in [
+        &definition.presentation.layouts.board,
+        &definition.presentation.layouts.list,
+    ] {
+        for field in &layout.fields {
+            if let DatabaseViewField::Property { property_id } = field {
+                property_ids.insert(property_id.to_owned());
+            }
+        }
+    }
+    for rule in &definition.presentation.sort {
+        if let DatabaseViewSortField::Property { property_id } = &rule.field {
+            property_ids.insert(property_id.to_owned());
+        }
+    }
+    collect_filter_property_ids(&definition.filter, &mut property_ids);
+    property_ids
 }
 
-fn view_subgroup_property(config: &Value) -> Option<&str> {
-    config
-        .pointer("/presentation/subgroup/propertyId")
-        .and_then(Value::as_str)
+fn collect_filter_property_ids(filter: &DatabaseViewFilter, property_ids: &mut HashSet<String>) {
+    match filter {
+        DatabaseViewFilter::Group { children, .. } => {
+            for child in children {
+                collect_filter_property_ids(child, property_ids);
+            }
+        }
+        DatabaseViewFilter::Clause { property_id, .. } => {
+            property_ids.insert(property_id.to_owned());
+        }
+    }
 }
 
-fn view_manual_direction(config: &Value) -> &str {
-    config
-        .pointer("/presentation/sort")
-        .and_then(Value::as_array)
-        .and_then(|sort| {
-            sort.iter()
-                .find(|item| item.pointer("/field/kind").and_then(Value::as_str) == Some("manual"))
-        })
-        .and_then(|item| item.get("direction"))
-        .and_then(Value::as_str)
-        .unwrap_or("asc")
+fn view_group_property(definition: &DatabaseViewDefinition) -> Option<&str> {
+    definition
+        .presentation
+        .group
+        .as_ref()
+        .map(|group| group.property_id.as_str())
+}
+
+fn view_subgroup_property(definition: &DatabaseViewDefinition) -> Option<&str> {
+    definition
+        .presentation
+        .subgroup
+        .as_ref()
+        .map(|group| group.property_id.as_str())
+}
+
+fn view_manual_direction(definition: &DatabaseViewDefinition) -> DatabaseViewSortDirection {
+    definition
+        .presentation
+        .sort
+        .iter()
+        .find(|rule| rule.field == DatabaseViewSortField::Manual)
+        .map_or(DatabaseViewSortDirection::Asc, |rule| rule.direction)
 }
 
 fn read_logical_view(
@@ -4723,7 +4539,9 @@ fn read_logical_view(
         }
         result.push(LogicalPositionItem { page_id, rank_key });
     }
-    if view_manual_direction(&parse_json(&view.config_json, "Database View config")?) == "desc" {
+    let definition =
+        super::view_contract::decode_definition_json(&view.config_json).map_err(corrupt)?;
+    if view_manual_direction(&definition) == DatabaseViewSortDirection::Desc {
         result.reverse();
     }
     Ok(result)
@@ -4880,12 +4698,9 @@ fn refresh_default_view_projection(
                     let (_, source_id, config_json) = default_view.as_ref().ok_or_else(|| {
                         corrupt("Default Database View projection is unavailable")
                     })?;
-                    derived_view_group_key(
-                        connection,
-                        source_id,
-                        &page_id,
-                        &parse_json(config_json, "Database View config")?,
-                    )?
+                    let definition = super::view_contract::decode_definition_json(config_json)
+                        .map_err(corrupt)?;
+                    derived_view_group_key(connection, source_id, &page_id, &definition)?
                 } else {
                     None
                 },
@@ -5026,8 +4841,8 @@ fn active_view_references_property(
         .query_map([data_source_id], |row| row.get::<_, String>(0))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     for config in configs {
-        let config = parse_json(&config, "Database View config")?;
-        if collect_view_property_ids(&config)?.contains(property_id) {
+        let definition = super::view_contract::decode_definition_json(&config).map_err(corrupt)?;
+        if collect_view_property_ids(&definition).contains(property_id) {
             return Ok(true);
         }
     }
@@ -5249,12 +5064,8 @@ fn update_grouped_view_projections(
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     for (view_id, config) in views {
-        let config = parse_json(&config, "Database View config")?;
-        if config
-            .pointer("/presentation/group/propertyId")
-            .and_then(Value::as_str)
-            != Some(property_id)
-        {
+        let definition = super::view_contract::decode_definition_json(&config).map_err(corrupt)?;
+        if view_group_property(&definition) != Some(property_id) {
             continue;
         }
         let group_key = database_group_key(value)?;
@@ -5996,7 +5807,7 @@ mod tests {
 
     #[test]
     fn view_property_references_ignore_filter_values() {
-        let property_ids = collect_view_property_ids(&json!({
+        let definition = super::super::view_contract::decode_definition_value(json!({
             "schemaKey": "nodex.database-view",
             "schemaVersion": 4,
             "filter": {
@@ -6009,6 +5820,7 @@ mod tests {
                 "sort": [],
                 "group": null,
                 "subgroup": null,
+                "groupDirection": "asc",
                 "completion": { "range": "all", "orderByRecency": false },
                 "hierarchy": { "showSubPages": true, "nestedSubPages": false },
                 "layouts": {
@@ -6018,6 +5830,7 @@ mod tests {
             }
         }))
         .expect("valid View config");
+        let property_ids = collect_view_property_ids(&definition);
 
         assert!(property_ids.contains("status"));
         assert!(!property_ids.contains("due_date"));
