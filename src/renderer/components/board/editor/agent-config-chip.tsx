@@ -3,9 +3,9 @@ import { createReactInlineContentSpec } from "@blocknote/react";
 import { AlertTriangle, Bot, Gauge, RotateCcw, Settings2 } from "@/components/shared/icons/generic-icons";
 import {
   NodexDropdownButtonTrigger,
-  NodexDropdownChoiceMenu,
+  NodexOptionPicker,
   NodexDropdownSeparator,
-  type NodexDropdownChoiceOption,
+  type NodexOptionPickerOption,
 } from "@/components/ui/dropdown";
 import {
   NodexPopover,
@@ -232,7 +232,7 @@ function AgentConfigPopoverBody({
     ? visibleModels.some((model) => model.id === props.model)
     : true;
   const modelOptions = useMemo(() => {
-    const options: NodexDropdownChoiceOption[] = [
+    const options: NodexOptionPickerOption[] = [
       {
         value: "",
         label: "Use current/default",
@@ -261,7 +261,7 @@ function AgentConfigPopoverBody({
   }, [availableModels, modelIsVisible, props.model, visibleModels]);
   const reasoningOptions = useMemo(() => {
     const supportedOptions = getReasoningOptions(props.model, availableModels);
-    const options: NodexDropdownChoiceOption[] = [
+    const options: NodexOptionPickerOption[] = [
       {
         value: "",
         label: "Use current/default",
@@ -347,9 +347,12 @@ function AgentConfigPopoverBody({
       </AgentConfigControlRow>
 
       <AgentConfigControlRow label="Model">
-        <NodexDropdownChoiceMenu
+        <NodexOptionPicker
           value={props.model}
           options={modelOptions}
+          search="filter"
+          searchPlaceholder="Search models…"
+          searchAriaLabel="Search agent models"
           onValueChange={(model) => onPatch({ model })}
           contentWidth="menu"
           triggerButton={(
@@ -371,7 +374,7 @@ function AgentConfigPopoverBody({
       </AgentConfigControlRow>
 
       <AgentConfigControlRow label="Reasoning">
-        <NodexDropdownChoiceMenu
+        <NodexOptionPicker
           value={props.reasoning}
           options={reasoningOptions}
           onValueChange={(reasoning) => onPatch({ reasoning })}

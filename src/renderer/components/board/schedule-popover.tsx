@@ -2,7 +2,7 @@ import { useState } from "react";
 import { BellIcon, ClockIcon, GlobeIcon, RepeatIcon, SmallChevronDownIcon } from "@/components/shared/icons";
 import {
   NodexDropdownButtonTrigger,
-  NodexDropdownChoiceMenu,
+  NodexOptionPicker,
 } from "@/components/ui/dropdown";
 import {
   NodexPopover,
@@ -189,7 +189,7 @@ export function SchedulePopover({ schedule, page }: SchedulePopoverProps) {
 
               {repeatOpen && (
                 <div className="space-y-2 px-3 pb-3">
-                  <NodexDropdownChoiceMenu
+                  <NodexOptionPicker
                     value={schedule.recurrenceEnabled ? schedule.recurrenceFrequency : "none"}
                     onValueChange={(value) => {
                       if (value === "none") {
@@ -284,7 +284,7 @@ export function SchedulePopover({ schedule, page }: SchedulePopoverProps) {
                       )}
 
                       <div className="flex items-center gap-2">
-                        <NodexDropdownChoiceMenu
+                        <NodexOptionPicker
                           value={schedule.recurrenceEndType}
                           onValueChange={(value) => {
                             const nextType = value === "untilDate" ? "untilDate" as const : "never" as const;

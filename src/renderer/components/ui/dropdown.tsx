@@ -1,8 +1,13 @@
 import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu";
 import {
   forwardRef,
+  useEffect,
+  useId,
+  useRef,
+  useState,
   type ComponentPropsWithoutRef,
   type CSSProperties,
+  type KeyboardEvent,
   type ReactElement,
   type ReactNode,
 } from "react";
@@ -15,6 +20,11 @@ import {
 import { APP_SHELL_FLOATING_UI_LAYER_CLASS } from "@/lib/app-shell-layers";
 import { cn } from "@/lib/utils";
 import { NODEX_RAISED_CONTROL_CHROME_CLASS_NAME } from "./control-chrome";
+import {
+  NodexPopover,
+  NodexPopoverContent,
+  NodexPopoverTrigger,
+} from "./popover";
 import { NodexTooltip } from "./tooltip";
 
 export type NodexDropdownSurface = "menu" | "panel";
@@ -548,35 +558,80 @@ export const NodexDropdownRadioItem = forwardRef<
   );
 });
 
-export interface NodexDropdownChoiceOption {
-  value: string;
-  label: ReactNode;
-  leftSlot?: ReactNode;
-  subText?: ReactNode;
-  tooltipText?: ReactNode;
-  disabled?: boolean;
-  allowWrap?: boolean;
+export type NodexOptionPickerSearchMode = "none" | "filter";
+
+export interface NodexOptionPickerOption {
+  readonly value: string;
+  readonly label: ReactNode;
+  readonly searchText?: string;
+  readonly leftSlot?: ReactNode;
+  readonly subText?: ReactNode;
+  readonly tooltipText?: ReactNode;
+  readonly disabled?: boolean;
+  readonly allowWrap?: boolean;
 }
 
-export interface NodexDropdownChoiceMenuProps
-  extends Omit<NodexDropdownMenuProps, "children"> {
-  value: string;
-  options: NodexDropdownChoiceOption[];
-  onValueChange: (value: string) => void;
-  title?: ReactNode;
-  emptyMessage?: ReactNode;
+export interface NodexOptionPickerProps {
+  readonly triggerButton: ReactElement;
+  readonly value: string;
+  readonly options: readonly NodexOptionPickerOption[];
+  readonly onValueChange: (value: string) => void;
+  readonly search?: NodexOptionPickerSearchMode;
+  readonly searchPlaceholder?: string;
+  readonly searchAriaLabel?: string;
+  readonly title?: ReactNode;
+  readonly emptyMessage?: ReactNode;
+  readonly noResultsMessage?: ReactNode;
+  readonly disabled?: boolean;
+  readonly open?: boolean;
+  readonly onOpenChange?: (open: boolean) => void;
+  readonly side?: "top" | "right" | "bottom" | "left";
+  readonly align?: "start" | "center" | "end";
+  readonly sideOffset?: number;
+  readonly alignOffset?: number;
+  readonly contentClassName?: string;
+  readonly contentStyle?: CSSProperties;
+  readonly contentWidth?: NodexDropdownContentWidth;
+  readonly contentMaxHeight?: NodexDropdownContentMaxHeight;
+  readonly portalContainer?: HTMLElement | null;
 }
 
-export function NodexDropdownChoiceMenu({
+function NodexStaticOptionPicker({
   value,
   options,
   onValueChange,
   title,
-  emptyMessage = "No options available",
-  ...menuProps
-}: NodexDropdownChoiceMenuProps) {
+  emptyMessage,
+  triggerButton,
+  disabled,
+  open,
+  onOpenChange,
+  side,
+  align,
+  sideOffset,
+  alignOffset,
+  contentClassName,
+  contentStyle,
+  contentWidth,
+  contentMaxHeight,
+  portalContainer,
+}: NodexOptionPickerProps) {
   return (
-    <NodexDropdownMenu {...menuProps}>
+    <NodexDropdownMenu
+      triggerButton={triggerButton}
+      disabled={disabled}
+      open={open}
+      onOpenChange={onOpenChange}
+      side={side}
+      align={align}
+      sideOffset={sideOffset}
+      alignOffset={alignOffset}
+      contentClassName={contentClassName}
+      contentStyle={contentStyle}
+      contentWidth={contentWidth}
+      contentMaxHeight={contentMaxHeight}
+      portalContainer={portalContainer}
+    >
       {title ? <NodexDropdownTitle>{title}</NodexDropdownTitle> : null}
       {options.length === 0 ? (
         <NodexDropdownMessage compact>{emptyMessage}</NodexDropdownMessage>
@@ -598,6 +653,283 @@ export function NodexDropdownChoiceMenu({
       )}
     </NodexDropdownMenu>
   );
+}
+
+const normalizeOptionPickerSearchText = (value: string): string =>
+  value.normalize("NFKC").trim().toLocaleLowerCase();
+
+const stringNode = (value: ReactNode): string => {
+  if (typeof value === "string" || typeof value === "number") return String(value);
+  return "";
+};
+
+const optionPickerSearchValue = (option: NodexOptionPickerOption): string =>
+  normalizeOptionPickerSearchText([
+    option.searchText,
+    stringNode(option.label),
+    stringNode(option.subText),
+    option.value,
+  ].filter((value): value is string => Boolean(value)).join(" "));
+
+const filterOptionPickerOptions = (
+  options: readonly NodexOptionPickerOption[],
+  query: string,
+): readonly NodexOptionPickerOption[] => {
+  const terms = normalizeOptionPickerSearchText(query).split(/\s+/u).filter(Boolean);
+  if (terms.length === 0) return options;
+  return options.filter((option) => {
+    const searchValue = optionPickerSearchValue(option);
+    return terms.every((term) => searchValue.includes(term));
+  });
+};
+
+function NodexFilterOptionButton({
+  id,
+  option,
+  selected,
+  onKeyDown,
+  onSelect,
+}: {
+  readonly id: string;
+  readonly option: NodexOptionPickerOption;
+  readonly selected: boolean;
+  readonly onKeyDown: (event: KeyboardEvent<HTMLButtonElement>) => void;
+  readonly onSelect: () => void;
+}) {
+  const button = (
+    <button
+      id={id}
+      type="button"
+      role="option"
+      aria-selected={selected}
+      disabled={option.disabled}
+      onClick={onSelect}
+      onKeyDown={onKeyDown}
+      className={cn(
+        "no-drag group flex w-full flex-col",
+        dropdownItemBaseClassName,
+        !option.disabled && dropdownItemInteractiveClassName,
+        option.disabled && "cursor-default opacity-50",
+      )}
+    >
+      <span className="flex w-full items-center gap-1.5">
+        {option.leftSlot ? (
+          <span
+            className={cn(
+              dropdownItemLeftSlotClassName,
+              !option.disabled && dropdownItemLeftSlotInteractiveClassName,
+            )}
+          >
+            {option.leftSlot}
+          </span>
+        ) : null}
+        <span className={cn("min-w-0 flex-1 text-left", option.allowWrap ? "whitespace-normal" : "truncate")}>
+          <span className={cn("flex min-w-0 items-center gap-1", option.subText && "flex-col items-start gap-0.5")}>
+            <span className={cn("min-w-0", !option.allowWrap && "truncate")}>{option.label}</span>
+            {option.subText ? (
+              <span className="min-w-0 truncate text-xs text-token-description-foreground">
+                {option.subText}
+              </span>
+            ) : null}
+          </span>
+        </span>
+        {selected ? <NodexDropdownSelectedIcon /> : null}
+      </span>
+    </button>
+  );
+
+  if (!option.tooltipText) return button;
+
+  return (
+    <NodexTooltip tooltipContent={option.tooltipText} side="right">
+      {button}
+    </NodexTooltip>
+  );
+}
+
+function NodexFilterOptionPicker({
+  triggerButton,
+  value,
+  options,
+  onValueChange,
+  searchPlaceholder = "Search options…",
+  searchAriaLabel,
+  title,
+  emptyMessage,
+  noResultsMessage,
+  disabled = false,
+  open: controlledOpen,
+  onOpenChange,
+  side,
+  align = "start",
+  sideOffset = 4,
+  alignOffset,
+  contentClassName,
+  contentStyle,
+  contentWidth,
+  contentMaxHeight,
+  portalContainer,
+}: NodexOptionPickerProps) {
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+  const listboxRef = useRef<HTMLDivElement>(null);
+  const listboxId = useId();
+  const open = controlledOpen ?? uncontrolledOpen;
+  const effectiveQuery = open ? query : "";
+  const filteredOptions = filterOptionPickerOptions(options, effectiveQuery);
+  const enabledOptions = filteredOptions.filter((option) => !option.disabled);
+
+  const changeOpen = (next: boolean) => {
+    if (controlledOpen === undefined) setUncontrolledOpen(next);
+    if (!next) setQuery("");
+    onOpenChange?.(next);
+  };
+
+  const chooseOption = (option: NodexOptionPickerOption) => {
+    if (option.disabled) return;
+    onValueChange(option.value);
+    changeOpen(false);
+  };
+
+  const focusOptionAt = (index: number) => {
+    const optionElements = listboxRef.current?.querySelectorAll<HTMLButtonElement>(
+      '[role="option"]:not(:disabled)',
+    );
+    if (!optionElements || optionElements.length === 0) return;
+    optionElements[Math.max(0, Math.min(index, optionElements.length - 1))]?.focus();
+  };
+
+  const handleSearchKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      changeOpen(false);
+      return;
+    }
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      focusOptionAt(0);
+      return;
+    }
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      focusOptionAt(enabledOptions.length - 1);
+      return;
+    }
+    if (event.key !== "Enter" || enabledOptions.length !== 1) return;
+    event.preventDefault();
+    chooseOption(enabledOptions[0]!);
+  };
+
+  const handleOptionKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
+    const optionElements = Array.from(
+      listboxRef.current?.querySelectorAll<HTMLButtonElement>('[role="option"]:not(:disabled)') ?? [],
+    );
+    const currentIndex = optionElements.indexOf(event.currentTarget);
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      optionElements[(currentIndex + 1) % optionElements.length]?.focus();
+      return;
+    }
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      optionElements[(currentIndex - 1 + optionElements.length) % optionElements.length]?.focus();
+      return;
+    }
+    if (event.key === "Home") {
+      event.preventDefault();
+      optionElements[0]?.focus();
+      return;
+    }
+    if (event.key === "End") {
+      event.preventDefault();
+      optionElements.at(-1)?.focus();
+    }
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    const frame = requestAnimationFrame(() => {
+      const activeElement = document.activeElement;
+      if (activeElement && listboxRef.current?.contains(activeElement)) return;
+      inputRef.current?.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [open]);
+
+  return (
+    <NodexPopover open={open} onOpenChange={changeOpen}>
+      <NodexPopoverTrigger asChild disabled={disabled}>
+        {triggerButton}
+      </NodexPopoverTrigger>
+      {disabled ? null : (
+        <NodexPopoverContent
+          align={align}
+          side={side}
+          sideOffset={sideOffset}
+          alignOffset={alignOffset}
+          portalContainer={portalContainer}
+          onOpenAutoFocus={(event) => event.preventDefault()}
+          className={cn(
+            "overflow-hidden p-1",
+            resolveDropdownWidthClass(contentWidth),
+            contentClassName,
+          )}
+          style={contentStyle}
+        >
+          {title ? <NodexDropdownTitle>{title}</NodexDropdownTitle> : null}
+          <NodexDropdownSearchInput
+            ref={inputRef}
+            role="combobox"
+            aria-label={searchAriaLabel ?? searchPlaceholder}
+            aria-autocomplete="list"
+            aria-expanded={open}
+            aria-controls={listboxId}
+            placeholder={searchPlaceholder}
+            value={effectiveQuery}
+            onChange={(event) => setQuery(event.currentTarget.value)}
+            onKeyDown={handleSearchKeyDown}
+          />
+          <div
+            ref={listboxRef}
+            id={listboxId}
+            role="listbox"
+            aria-label={typeof title === "string" ? title : "Options"}
+            className={cn(
+              "flex flex-col overflow-y-auto",
+              contentMaxHeight === "tall" ? "max-h-[350px]" : "max-h-[250px]",
+            )}
+          >
+            {options.length === 0 ? (
+              <NodexDropdownMessage compact>{emptyMessage}</NodexDropdownMessage>
+            ) : filteredOptions.length === 0 ? (
+              <NodexDropdownMessage compact>{noResultsMessage}</NodexDropdownMessage>
+            ) : filteredOptions.map((option, index) => (
+              <NodexFilterOptionButton
+                key={option.value}
+                id={`${listboxId}-option-${index}`}
+                option={option}
+                selected={option.value === value}
+                onKeyDown={handleOptionKeyDown}
+                onSelect={() => chooseOption(option)}
+              />
+            ))}
+          </div>
+        </NodexPopoverContent>
+      )}
+    </NodexPopover>
+  );
+}
+
+export function NodexOptionPicker({
+  search = "none",
+  emptyMessage = "No options available",
+  noResultsMessage = "No matching options",
+  ...props
+}: NodexOptionPickerProps) {
+  const pickerProps = { ...props, search, emptyMessage, noResultsMessage };
+  if (search === "filter") return <NodexFilterOptionPicker {...pickerProps} />;
+  return <NodexStaticOptionPicker {...pickerProps} />;
 }
 
 export const NodexDropdownInput = forwardRef<
@@ -964,7 +1296,6 @@ export const NodexDropdown = {
   Item: NodexDropdownItem,
   RadioGroup: NodexDropdownRadioGroup,
   RadioItem: NodexDropdownRadioItem,
-  ChoiceMenu: NodexDropdownChoiceMenu,
   Input: NodexDropdownInput,
   SearchInput: NodexDropdownSearchInput,
   Separator: NodexDropdownSeparator,

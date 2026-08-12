@@ -17,7 +17,7 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   NodexDropdownButtonTrigger,
-  NodexDropdownChoiceMenu,
+  NodexOptionPicker,
 } from "@/components/ui/dropdown";
 import { NodexTooltip } from "@/components/ui/tooltip";
 import { PermissionModeDropdown } from "@/features/local-conversation/view/shared/permission-mode-dropdown";
@@ -368,7 +368,7 @@ export function GeneralDevStoryPage({
             >
               <PreviewSurface className="items-start">
                 <div className="w-full max-w-sm space-y-3">
-                  <NodexDropdownChoiceMenu
+                  <NodexOptionPicker
                     value={density}
                     onValueChange={(value) => setDensity(value as GeneralDevStoryDensity)}
                     options={SELECT_DENSITY_OPTIONS.map((option) => ({

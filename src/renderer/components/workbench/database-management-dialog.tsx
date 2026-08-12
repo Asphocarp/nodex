@@ -475,6 +475,8 @@ export function DatabaseManagementSurface({
                   {propertyType === "relation" ? (
                     <DatabaseViewSelect
                       ariaLabel="Relation target database"
+                      search="filter"
+                      searchPlaceholder="Search databases…"
                       value={relationTargetDataSourceId || source.dataSource.dataSourceId}
                       valueLabel={databases.flatMap((database) =>
                         database.dataSources.map((dataSource) => ({
