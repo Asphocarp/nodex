@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
-use nodex_core_contracts::database::{DatabaseRead, DatabaseReadMode, DatabaseTarget};
+use nodex_core_contracts::database::DatabaseRead;
 use nodex_core_contracts::library::{
     LibraryCommitValue, LibraryDocumentHead, LibraryLifecycle, LibraryPageLifecycleDeleteEvidence,
     LibraryPageLifecycleDeletedBlock, LibraryPageLifecycleMutation,
@@ -348,16 +348,8 @@ fn create_page(
         connection,
         library_id,
         context,
-        DatabaseRead {
-            target: DatabaseTarget::DataSource {
-                data_source_id: data_source_id.clone(),
-            },
-            mode: DatabaseReadMode::DataSource,
-            filter: None,
-            sort: None,
-            window: None,
-            page_ids: None,
-            group_scope: None,
+        DatabaseRead::DataSource {
+            data_source_id: data_source_id.clone(),
         },
     )?;
     let source = read_create_source(connection, library_id, data_source_id)?;

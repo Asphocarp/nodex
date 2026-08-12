@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use nodex_core_contracts::database::{
-    DatabaseGroupScope, DatabaseRead, DatabaseReadMode, DatabaseReadValue, DatabaseTarget,
+    DatabaseGroupScope, DatabaseIdentityTarget, DatabaseRead, DatabaseReadValue,
 };
 use nodex_core_contracts::library::{
     LIBRARY_CONTRACT_VERSION, LibraryAgentSiblingAnchor, LibraryIntent,
@@ -417,16 +417,10 @@ fn resolve_page_destination(
         let database = client
             .database_read(
                 Some(&project.id),
-                DatabaseRead {
-                    target: DatabaseTarget::Database {
+                DatabaseRead::Database {
+                    target: DatabaseIdentityTarget::Database {
                         database_id: unprefixed.to_owned(),
                     },
-                    mode: DatabaseReadMode::Database,
-                    filter: None,
-                    sort: None,
-                    window: None,
-                    page_ids: None,
-                    group_scope: None,
                 },
             )
             .map_err(map_client_error)?;
@@ -451,16 +445,8 @@ fn resolve_page_destination(
         }
         let source = unwrap_database(client.database_read(
             Some(&project.id),
-            DatabaseRead {
-                target: DatabaseTarget::DataSource {
-                    data_source_id: unprefixed.to_owned(),
-                },
-                mode: DatabaseReadMode::DataSource,
-                filter: None,
-                sort: None,
-                window: None,
-                page_ids: None,
-                group_scope: None,
+            DatabaseRead::DataSource {
+                data_source_id: unprefixed.to_owned(),
             },
         ))?;
         let DatabaseReadValue::DataSource { value } = source.value else {
@@ -468,12 +454,8 @@ fn resolve_page_destination(
                 "Core returned the wrong Data Source owner snapshot",
             ));
         };
-        let data_source_id = value
-            .pointer("/dataSource/dataSourceId")
-            .and_then(serde_json::Value::as_str)
-            .ok_or_else(|| internal("Core Data Source owner has no stable identity"))?;
         return Ok(LibraryPageWriteDestination::DataSource {
-            data_source_id: data_source_id.to_owned(),
+            data_source_id: value.data_source.data_source_id,
             view_id: placement
                 .view
                 .as_deref()
@@ -527,16 +509,10 @@ fn primary_data_source(
 ) -> Result<String, CliError> {
     let snapshot = unwrap_database(client.database_read(
         Some(&project.id),
-        DatabaseRead {
-            target: DatabaseTarget::Database {
+        DatabaseRead::Database {
+            target: DatabaseIdentityTarget::Database {
                 database_id: project.database_id.clone(),
             },
-            mode: DatabaseReadMode::Database,
-            filter: None,
-            sort: None,
-            window: None,
-            page_ids: None,
-            group_scope: None,
         },
     ))?;
     let DatabaseReadValue::Database { .. } = snapshot.value else {
@@ -554,16 +530,9 @@ fn active_data_source_id(
 ) -> Result<String, CliError> {
     let snapshot = unwrap_database(client.database_read(
         Some(project_id),
-        DatabaseRead {
-            target: DatabaseTarget::Database {
-                database_id: database_id.to_owned(),
-            },
-            mode: DatabaseReadMode::DataSourceWindow,
-            filter: None,
-            sort: None,
-            window: Some(Default::default()),
-            page_ids: None,
-            group_scope: None,
+        DatabaseRead::DataSourceWindow {
+            database_id: database_id.to_owned(),
+            window: Default::default(),
         },
     ))?;
     let DatabaseReadValue::DataSourceWindow { data_sources } = snapshot.value else {
@@ -574,12 +543,8 @@ fn active_data_source_id(
     data_sources
         .items
         .iter()
-        .find(|source| {
-            source.get("lifecycle").and_then(serde_json::Value::as_str) == Some("active")
-        })
-        .and_then(|source| source.get("dataSourceId"))
-        .and_then(serde_json::Value::as_str)
-        .map(str::to_owned)
+        .find(|source| source.lifecycle == "active")
+        .map(|source| source.data_source_id.clone())
         .ok_or_else(|| {
             CliError::new(
                 CliErrorCode::ScopeNotFound,

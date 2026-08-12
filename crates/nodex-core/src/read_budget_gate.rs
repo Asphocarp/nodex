@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use nodex_core_contracts::collection::{CollectionWindowRequest, MAX_COLLECTION_WINDOW_JSON_BYTES};
 use nodex_core_contracts::database::{
-    DatabaseIntent, DatabaseRead, DatabaseReadMode, DatabaseTarget,
+    DatabaseIntent, DatabaseRead, DatabaseRowsTarget, DatabaseViewReadTarget,
 };
 use nodex_core_contracts::library::{LibraryIntent, LibraryWriteParent};
 use nodex_core_contracts::workspace::{ProjectWorkspaceRead, ProjectWorkspaceReadValue};
@@ -548,18 +548,14 @@ fn read_budget_gate_large_fixture() {
             &context(),
             ModuleReadRequest {
                 contract_version: DATABASE_CONTRACT_VERSION,
-                read: DatabaseRead {
-                    target: DatabaseTarget::View {
+                read: DatabaseRead::ViewWindow {
+                    target: DatabaseViewReadTarget::View {
                         view_id: VIEW_ID.to_owned(),
                     },
-                    mode: DatabaseReadMode::ViewWindow,
-                    filter: None,
-                    sort: None,
-                    window: Some(CollectionWindowRequest {
+                    window: CollectionWindowRequest {
                         after: None,
                         first: Some(200),
-                    }),
-                    page_ids: None,
+                    },
                     group_scope: None,
                 },
             },
@@ -593,18 +589,14 @@ fn read_budget_gate_large_fixture() {
             &context(),
             ModuleReadRequest {
                 contract_version: DATABASE_CONTRACT_VERSION,
-                read: DatabaseRead {
-                    target: DatabaseTarget::View {
+                read: DatabaseRead::ViewWindow {
+                    target: DatabaseViewReadTarget::View {
                         view_id: VIEW_ID.to_owned(),
                     },
-                    mode: DatabaseReadMode::ViewWindow,
-                    filter: None,
-                    sort: None,
-                    window: Some(CollectionWindowRequest {
+                    window: CollectionWindowRequest {
                         after: Some(database_cursor.clone()),
                         first: Some(200),
-                    }),
-                    page_ids: None,
+                    },
                     group_scope: None,
                 },
             },
@@ -629,19 +621,11 @@ fn read_budget_gate_large_fixture() {
             &context(),
             ModuleReadRequest {
                 contract_version: DATABASE_CONTRACT_VERSION,
-                read: DatabaseRead {
-                    target: DatabaseTarget::View {
+                read: DatabaseRead::RowsById {
+                    target: DatabaseRowsTarget::View {
                         view_id: VIEW_ID.to_owned(),
                     },
-                    mode: DatabaseReadMode::RowsById,
-                    filter: None,
-                    sort: None,
-                    window: None,
-                    page_ids: Some(vec![
-                        "page:scale:00000".to_owned(),
-                        "page:scale:19999".to_owned(),
-                    ]),
-                    group_scope: None,
+                    page_ids: vec!["page:scale:00000".to_owned(), "page:scale:19999".to_owned()],
                 },
             },
         )
@@ -665,16 +649,8 @@ fn read_budget_gate_large_fixture() {
             &context(),
             ModuleReadRequest {
                 contract_version: DATABASE_CONTRACT_VERSION,
-                read: DatabaseRead {
-                    target: DatabaseTarget::Page {
-                        page_id: "page:scale:19999".to_owned(),
-                    },
-                    mode: DatabaseReadMode::RowDetail,
-                    filter: None,
-                    sort: None,
-                    window: None,
-                    page_ids: None,
-                    group_scope: None,
+                read: DatabaseRead::RowDetail {
+                    page_id: "page:scale:19999".to_owned(),
                 },
             },
         )
@@ -712,18 +688,14 @@ fn read_budget_gate_large_fixture() {
             &context(),
             ModuleReadRequest {
                 contract_version: DATABASE_CONTRACT_VERSION,
-                read: DatabaseRead {
-                    target: DatabaseTarget::View {
+                read: DatabaseRead::ViewWindow {
+                    target: DatabaseViewReadTarget::View {
                         view_id: VIEW_ID.to_owned(),
                     },
-                    mode: DatabaseReadMode::ViewWindow,
-                    filter: None,
-                    sort: None,
-                    window: Some(CollectionWindowRequest {
+                    window: CollectionWindowRequest {
                         after: Some(database_cursor),
                         first: Some(200),
-                    }),
-                    page_ids: None,
+                    },
                     group_scope: None,
                 },
             },
@@ -772,18 +744,14 @@ fn read_budget_gate_large_fixture() {
                 &context(),
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead {
-                        target: DatabaseTarget::View {
+                    read: DatabaseRead::ViewWindow {
+                        target: DatabaseViewReadTarget::View {
                             view_id: VIEW_ID.to_owned(),
                         },
-                        mode: DatabaseReadMode::ViewWindow,
-                        filter: None,
-                        sort: None,
-                        window: Some(CollectionWindowRequest {
+                        window: CollectionWindowRequest {
                             after: Some(cursor),
                             first: Some(200),
-                        }),
-                        page_ids: None,
+                        },
                         group_scope: None,
                     },
                 },
@@ -812,16 +780,10 @@ fn read_budget_gate_large_fixture() {
             &context(),
             ModuleReadRequest {
                 contract_version: DATABASE_CONTRACT_VERSION,
-                read: DatabaseRead {
-                    target: DatabaseTarget::View {
+                read: DatabaseRead::ViewGroups {
+                    target: DatabaseViewReadTarget::View {
                         view_id: VIEW_ID.to_owned(),
                     },
-                    mode: DatabaseReadMode::ViewGroups,
-                    filter: None,
-                    sort: None,
-                    window: None,
-                    page_ids: None,
-                    group_scope: None,
                 },
             },
         )
@@ -853,18 +815,14 @@ fn read_budget_gate_large_fixture() {
             &context(),
             ModuleReadRequest {
                 contract_version: DATABASE_CONTRACT_VERSION,
-                read: DatabaseRead {
-                    target: DatabaseTarget::View {
+                read: DatabaseRead::ViewWindow {
+                    target: DatabaseViewReadTarget::View {
                         view_id: VIEW_ID.to_owned(),
                     },
-                    mode: DatabaseReadMode::ViewWindow,
-                    filter: None,
-                    sort: None,
-                    window: Some(CollectionWindowRequest {
+                    window: CollectionWindowRequest {
                         after: None,
                         first: Some(200),
-                    }),
-                    page_ids: None,
+                    },
                     group_scope: Some(nodex_core_contracts::database::DatabaseGroupScope::Path {
                         group_key: Some("build".to_owned()),
                         subgroup_key: None,

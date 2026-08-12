@@ -977,6 +977,30 @@ export interface components {
             }[];
             readonly next_cursor?: string | null;
         };
+        readonly CollectionWindow_DatabaseDataSourceRecord: {
+            readonly authority: components["schemas"]["CollectionWindowAuthority"];
+            readonly items: readonly {
+                readonly created_at: string;
+                readonly data_source_id: string;
+                readonly home_database_id: string;
+                readonly library_id: string;
+                readonly lifecycle: string;
+                readonly name: string;
+                readonly rank_key: string;
+                readonly schema_key: string;
+                /** Format: int64 */
+                readonly schema_revision: number;
+                readonly updated_at: string;
+            }[];
+            readonly next_cursor?: string | null;
+        };
+        readonly CollectionWindow_DatabaseDescriptor: {
+            readonly authority: components["schemas"]["CollectionWindowAuthority"];
+            readonly items: readonly {
+                readonly database: components["schemas"]["DatabaseContainerRecord"];
+            }[];
+            readonly next_cursor?: string | null;
+        };
         readonly CollectionWindow_DatabaseListProjectionRow: {
             readonly authority: components["schemas"]["CollectionWindowAuthority"];
             readonly items: readonly ({
@@ -1024,6 +1048,15 @@ export interface components {
                 readonly revision: number;
                 readonly schema: components["schemas"]["DatabasePropertySchema"];
                 readonly updated_at: string;
+            }[];
+            readonly next_cursor?: string | null;
+        };
+        readonly CollectionWindow_DatabasePropertyOption: {
+            readonly authority: components["schemas"]["CollectionWindowAuthority"];
+            readonly items: readonly {
+                readonly color?: string | null;
+                readonly id: string;
+                readonly name: string;
             }[];
             readonly next_cursor?: string | null;
         };
@@ -1118,6 +1151,25 @@ export interface components {
             readonly items: readonly {
                 readonly move_etag: string;
                 readonly summary: components["schemas"]["DatabaseRowSummary"];
+            }[];
+            readonly next_cursor?: string | null;
+        };
+        readonly CollectionWindow_DatabaseViewRecord: {
+            readonly authority: components["schemas"]["CollectionWindowAuthority"];
+            readonly items: readonly {
+                readonly created_at: string;
+                readonly data_source_id: string;
+                readonly database_id: string;
+                readonly definition: components["schemas"]["DatabaseViewDefinition"];
+                readonly is_default: boolean;
+                readonly layout: components["schemas"]["DatabaseViewLayout"];
+                readonly lifecycle: string;
+                readonly name: string;
+                readonly rank_key: string;
+                /** Format: int64 */
+                readonly revision: number;
+                readonly updated_at: string;
+                readonly view_id: string;
             }[];
             readonly next_cursor?: string | null;
         };
@@ -1313,11 +1365,6 @@ export interface components {
                 readonly title: string;
                 readonly updated_at: string;
             }[];
-            readonly next_cursor?: string | null;
-        };
-        readonly CollectionWindow_Value: {
-            readonly authority: components["schemas"]["CollectionWindowAuthority"];
-            readonly items: readonly unknown[];
             readonly next_cursor?: string | null;
         };
         readonly CollectionWindowAuthority: {
@@ -1558,6 +1605,38 @@ export interface components {
         };
         readonly DatabaseApplyRequest: components["schemas"]["ModuleApplyRequest_Vec_DatabaseIntent"];
         readonly DatabaseApplyResponse: components["schemas"]["ResponseEnvelope_ApplyResponse_DatabaseCommitValue_DatabaseReceipt"];
+        readonly DatabaseContainerRecord: {
+            /** Format: int64 */
+            readonly access_revision: number;
+            readonly created_at: string;
+            readonly database_id: string;
+            readonly default_view_id?: string | null;
+            readonly library_id: string;
+            readonly lifecycle: string;
+            /** Format: int64 */
+            readonly metadata_revision: number;
+            readonly name: string;
+            readonly updated_at: string;
+        };
+        readonly DatabaseDataSourceDescriptor: {
+            readonly data_source: components["schemas"]["DatabaseDataSourceRecord"];
+        };
+        readonly DatabaseDataSourceRecord: {
+            readonly created_at: string;
+            readonly data_source_id: string;
+            readonly home_database_id: string;
+            readonly library_id: string;
+            readonly lifecycle: string;
+            readonly name: string;
+            readonly rank_key: string;
+            readonly schema_key: string;
+            /** Format: int64 */
+            readonly schema_revision: number;
+            readonly updated_at: string;
+        };
+        readonly DatabaseDescriptor: {
+            readonly database: components["schemas"]["DatabaseContainerRecord"];
+        };
         readonly DatabaseEvent: {
             readonly data_source_ids: readonly string[];
             readonly database_ids: readonly string[];
@@ -1577,6 +1656,14 @@ export interface components {
             /** @enum {string} */
             readonly kind: "path";
             readonly subgroup_key?: string | null;
+        };
+        readonly DatabaseIdentityTarget: {
+            /** @enum {string} */
+            readonly kind: "project_default";
+        } | {
+            readonly database_id: string;
+            /** @enum {string} */
+            readonly kind: "database";
         };
         readonly DatabaseIntent: {
             readonly before_property_id?: string | null;
@@ -1841,8 +1928,6 @@ export interface components {
             readonly address: components["schemas"]["DatabasePagePropertyAddress"];
             readonly edit: components["schemas"]["DatabasePropertyValueEdit"];
         };
-        /** @enum {string} */
-        readonly DatabaseReadMode: "catalog_window" | "database" | "data_source_window" | "data_source" | "property_window" | "option_window" | "view_descriptor_window" | "view" | "agent_query" | "view_window" | "list_window" | "view_groups" | "view_context" | "rows_by_id" | "row_detail" | "relation_target_window" | "relation_candidate_window" | "view_personal_preferences";
         readonly DatabaseReadRequest: components["schemas"]["ModuleReadRequest_DatabaseRead"];
         readonly DatabaseReadResponse: components["schemas"]["ResponseEnvelope_ModuleReadSnapshot_DatabaseReadValue"];
         /** @enum {string} */
@@ -1860,6 +1945,14 @@ export interface components {
         };
         readonly DatabaseRowsById: {
             readonly rows: readonly components["schemas"]["DatabaseRowSummary"][];
+        };
+        readonly DatabaseRowsTarget: {
+            /** @enum {string} */
+            readonly kind: "project_default";
+        } | {
+            /** @enum {string} */
+            readonly kind: "view";
+            readonly view_id: string;
         };
         readonly DatabaseRowSummary: {
             readonly created_at: string;
@@ -1918,52 +2011,6 @@ export interface components {
             readonly title: string;
             readonly updated_at: string;
         };
-        readonly DatabaseTarget: {
-            /** @enum {string} */
-            readonly kind: "project_default";
-        } | {
-            readonly database_id: string;
-            /** @enum {string} */
-            readonly kind: "database";
-        } | {
-            readonly data_source_id: string;
-            /** @enum {string} */
-            readonly kind: "data_source";
-        } | {
-            readonly data_source_id: string;
-            /** @enum {string} */
-            readonly kind: "property";
-            readonly property_id: string;
-        } | {
-            /** @enum {string} */
-            readonly kind: "view";
-            readonly view_id: string;
-        } | {
-            /** @enum {string} */
-            readonly kind: "presented_view";
-            readonly presentation_override: components["schemas"]["DatabaseViewPresentationOverrideInput"];
-            readonly view_id: string;
-        } | {
-            /** @enum {string} */
-            readonly kind: "page";
-            readonly page_id: string;
-        } | {
-            readonly data_source_id: string;
-            /** @enum {string} */
-            readonly kind: "page_property";
-            readonly page_id: string;
-            readonly property_id: string;
-        } | {
-            readonly data_source_id: string;
-            /** @enum {string} */
-            readonly kind: "agent_data_source";
-            readonly query: components["schemas"]["DatabaseAgentQuery"];
-        } | {
-            /** @enum {string} */
-            readonly kind: "agent_view";
-            readonly query: components["schemas"]["DatabaseAgentQuery"];
-            readonly view_id: string;
-        };
         readonly DatabaseTaskParentPage: {
             /**
              * Format: int64
@@ -1999,13 +2046,13 @@ export interface components {
             readonly range?: null | components["schemas"]["DatabaseViewCompletedRangeInput"];
         };
         readonly DatabaseViewContext: {
-            readonly data_source: unknown;
-            readonly database: unknown;
+            readonly data_source: components["schemas"]["DatabaseDataSourceRecord"];
+            readonly database: components["schemas"]["DatabaseContainerRecord"];
             readonly groups: components["schemas"]["DatabaseViewGroups"];
             readonly projection: components["schemas"]["ProjectionSnapshotAuthority"];
             readonly properties: readonly components["schemas"]["DatabasePropertyDescriptor"][];
             readonly rows: components["schemas"]["CollectionWindow_DatabaseViewContextRow"];
-            readonly view: unknown;
+            readonly view: components["schemas"]["DatabaseViewRecord"];
         };
         /**
          * @description Durable View policy. Storage schema markers are an adapter concern and are
@@ -2153,6 +2200,38 @@ export interface components {
             readonly layouts?: null | components["schemas"]["DatabaseViewLayoutsOverrideInput"];
             readonly sort?: readonly components["schemas"]["DatabaseViewSortInput"][] | null;
             readonly subgroup?: null | components["schemas"]["DatabaseViewGroupOverrideInput"];
+        };
+        readonly DatabaseViewReadTarget: {
+            /** @enum {string} */
+            readonly kind: "project_default";
+        } | {
+            readonly database_id: string;
+            /** @enum {string} */
+            readonly kind: "database";
+        } | {
+            /** @enum {string} */
+            readonly kind: "view";
+            readonly view_id: string;
+        } | {
+            /** @enum {string} */
+            readonly kind: "presented_view";
+            readonly presentation_override: components["schemas"]["DatabaseViewPresentationOverrideInput"];
+            readonly view_id: string;
+        };
+        readonly DatabaseViewRecord: {
+            readonly created_at: string;
+            readonly data_source_id: string;
+            readonly database_id: string;
+            readonly definition: components["schemas"]["DatabaseViewDefinition"];
+            readonly is_default: boolean;
+            readonly layout: components["schemas"]["DatabaseViewLayout"];
+            readonly lifecycle: string;
+            readonly name: string;
+            readonly rank_key: string;
+            /** Format: int64 */
+            readonly revision: number;
+            readonly updated_at: string;
+            readonly view_id: string;
         };
         readonly DatabaseViewSort: {
             readonly direction: components["schemas"]["DatabaseViewSortDirection"];
@@ -5044,14 +5123,103 @@ export interface components {
         readonly ModuleReadRequest_DatabaseRead: {
             /** Format: int32 */
             readonly contract_version: number;
+            /**
+             * @description One discriminated Database read command. Each variant carries only the
+             *     coordinates accepted by that read, so target/mode/optional-field
+             *     cross-products cannot cross the module boundary.
+             */
             readonly read: {
-                readonly filter?: unknown;
+                /** @enum {string} */
+                readonly kind: "catalog_window";
+                readonly window: components["schemas"]["CollectionWindowRequest"];
+            } | {
+                /** @enum {string} */
+                readonly kind: "database";
+                readonly target: components["schemas"]["DatabaseIdentityTarget"];
+            } | {
+                readonly database_id: string;
+                /** @enum {string} */
+                readonly kind: "data_source_window";
+                readonly window: components["schemas"]["CollectionWindowRequest"];
+            } | {
+                readonly data_source_id: string;
+                /** @enum {string} */
+                readonly kind: "data_source";
+            } | {
+                readonly data_source_id: string;
+                /** @enum {string} */
+                readonly kind: "property_window";
+                readonly window: components["schemas"]["CollectionWindowRequest"];
+            } | {
+                readonly data_source_id: string;
+                /** @enum {string} */
+                readonly kind: "option_window";
+                readonly property_id: string;
+                readonly window: components["schemas"]["CollectionWindowRequest"];
+            } | {
+                readonly database_id: string;
+                /** @enum {string} */
+                readonly kind: "view_descriptor_window";
+                readonly window: components["schemas"]["CollectionWindowRequest"];
+            } | {
+                /** @enum {string} */
+                readonly kind: "view";
+                readonly view_id: string;
+            } | {
+                readonly data_source_id: string;
+                /** @enum {string} */
+                readonly kind: "agent_data_source_query";
+                readonly query: components["schemas"]["DatabaseAgentQuery"];
+            } | {
+                /** @enum {string} */
+                readonly kind: "agent_view_query";
+                readonly query: components["schemas"]["DatabaseAgentQuery"];
+                readonly view_id: string;
+            } | {
                 readonly group_scope?: null | components["schemas"]["DatabaseGroupScope"];
-                readonly mode: components["schemas"]["DatabaseReadMode"];
-                readonly page_ids?: readonly string[] | null;
-                readonly sort?: readonly unknown[] | null;
-                readonly target: components["schemas"]["DatabaseTarget"];
-                readonly window?: null | components["schemas"]["CollectionWindowRequest"];
+                /** @enum {string} */
+                readonly kind: "view_window";
+                readonly target: components["schemas"]["DatabaseViewReadTarget"];
+                readonly window: components["schemas"]["CollectionWindowRequest"];
+            } | {
+                /** @enum {string} */
+                readonly kind: "list_window";
+                readonly target: components["schemas"]["DatabaseViewReadTarget"];
+                readonly window: components["schemas"]["CollectionWindowRequest"];
+            } | {
+                /** @enum {string} */
+                readonly kind: "view_groups";
+                readonly target: components["schemas"]["DatabaseViewReadTarget"];
+            } | {
+                readonly group_scope?: null | components["schemas"]["DatabaseGroupScope"];
+                /** @enum {string} */
+                readonly kind: "view_context";
+                readonly view_id: string;
+                readonly window: components["schemas"]["CollectionWindowRequest"];
+            } | {
+                /** @enum {string} */
+                readonly kind: "rows_by_id";
+                readonly page_ids: readonly string[];
+                readonly target: components["schemas"]["DatabaseRowsTarget"];
+            } | {
+                /** @enum {string} */
+                readonly kind: "row_detail";
+                readonly page_id: string;
+            } | {
+                readonly address: components["schemas"]["DatabasePagePropertyAddress"];
+                /** @enum {string} */
+                readonly kind: "relation_target_window";
+                readonly window: components["schemas"]["CollectionWindowRequest"];
+            } | {
+                readonly data_source_id: string;
+                /** @enum {string} */
+                readonly kind: "relation_candidate_window";
+                readonly query?: string | null;
+                readonly window: components["schemas"]["CollectionWindowRequest"];
+            } | {
+                /** @enum {string} */
+                readonly kind: "view_personal_preferences";
+                readonly view_id: string;
             };
         };
         readonly ModuleReadRequest_LibraryRead: {
@@ -6428,21 +6596,21 @@ export interface components {
                 readonly contract_version: number;
                 readonly store_epoch: components["schemas"]["StoreEpoch"];
                 readonly value: {
-                    readonly databases: components["schemas"]["CollectionWindow_Value"];
+                    readonly databases: components["schemas"]["CollectionWindow_DatabaseDescriptor"];
                     /** @enum {string} */
                     readonly kind: "catalog_window";
                 } | {
                     /** @enum {string} */
                     readonly kind: "database";
-                    readonly value: unknown;
+                    readonly value: components["schemas"]["DatabaseDescriptor"];
                 } | {
-                    readonly data_sources: components["schemas"]["CollectionWindow_Value"];
+                    readonly data_sources: components["schemas"]["CollectionWindow_DatabaseDataSourceRecord"];
                     /** @enum {string} */
                     readonly kind: "data_source_window";
                 } | {
                     /** @enum {string} */
                     readonly kind: "data_source";
-                    readonly value: unknown;
+                    readonly value: components["schemas"]["DatabaseDataSourceDescriptor"];
                 } | {
                     /** @enum {string} */
                     readonly kind: "property_window";
@@ -6450,15 +6618,15 @@ export interface components {
                 } | {
                     /** @enum {string} */
                     readonly kind: "option_window";
-                    readonly options: components["schemas"]["CollectionWindow_Value"];
+                    readonly options: components["schemas"]["CollectionWindow_DatabasePropertyOption"];
                 } | {
                     /** @enum {string} */
                     readonly kind: "view_descriptor_window";
-                    readonly views: components["schemas"]["CollectionWindow_Value"];
+                    readonly views: components["schemas"]["CollectionWindow_DatabaseViewRecord"];
                 } | {
                     /** @enum {string} */
                     readonly kind: "view";
-                    readonly value: unknown;
+                    readonly value: components["schemas"]["DatabaseViewRecord"];
                 } | {
                     /** @enum {string} */
                     readonly kind: "agent_query";

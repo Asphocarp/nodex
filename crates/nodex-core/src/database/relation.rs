@@ -4,6 +4,7 @@ use nodex_core_contracts::collection::{CollectionWindowAuthority, CollectionWind
 use nodex_core_contracts::database::{
     DatabasePagePropertyAddress, DatabaseRelationCandidate, DatabaseRelationCardinality,
     DatabaseRelationTargetItem, DatabaseRelationTargetWindow, DatabaseTaskParentPage,
+    DatabaseViewFilter, DatabaseViewFilterOperator,
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::{Value, json};
@@ -1147,7 +1148,7 @@ pub(crate) fn candidate_window(
     library_id: &str,
     commit_head: i64,
     target_data_source_id: &str,
-    filter: Option<&Value>,
+    query: Option<&str>,
     request: &CollectionWindowRequest,
 ) -> Result<nodex_core_contracts::collection::CollectionWindow<DatabaseRelationCandidate>, StoreError>
 {
@@ -1157,16 +1158,7 @@ pub(crate) fn candidate_window(
             "Relation candidate window cannot exceed {MAX_RELATION_WINDOW} Pages"
         )));
     }
-    let query = match filter {
-        None | Some(Value::Null) => String::new(),
-        Some(Value::Object(filter)) if filter.keys().all(|key| key == "query") => filter
-            .get("query")
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .trim()
-            .to_ascii_lowercase(),
-        _ => return Err(invalid("Relation candidate filter must contain only query")),
-    };
+    let query = query.unwrap_or_default().trim().to_ascii_lowercase();
     if query.len() > MAX_RELATION_CANDIDATE_QUERY_BYTES {
         return Err(invalid("Relation candidate query is too long"));
     }
@@ -1474,15 +1466,9 @@ pub(crate) fn validate_view_filter_read_access(
     library_id: &str,
     project_id: Option<&str>,
     data_source_id: &str,
-    config: &Value,
+    filter: &DatabaseViewFilter,
 ) -> Result<(), StoreError> {
     let Some(project_id) = project_id else {
-        return Ok(());
-    };
-    let Some(filter) = config.get("filter") else {
-        // Pre-v2 View fixtures and imported stores may not carry a canonical
-        // filter node. There is no persisted operand to reauthorize in that
-        // case, so preserve the historical unfiltered read behavior.
         return Ok(());
     };
     let mut targets = BTreeSet::new();
@@ -1505,7 +1491,7 @@ pub(crate) fn validate_view_filter_read_access(
 fn collect_relation_filter_targets(
     connection: &Connection,
     data_source_id: &str,
-    filter: &Value,
+    filter: &DatabaseViewFilter,
     depth: usize,
     nodes: &mut usize,
     targets: &mut BTreeSet<(String, String)>,
@@ -1514,14 +1500,7 @@ fn collect_relation_filter_targets(
         return Err(corrupt("Database View filter exceeds its structural bound"));
     }
     *nodes += 1;
-    let object = filter
-        .as_object()
-        .ok_or_else(|| corrupt("Database View filter node is invalid"))?;
-    if object.get("kind").and_then(Value::as_str) == Some("group") {
-        let children = object
-            .get("children")
-            .and_then(Value::as_array)
-            .ok_or_else(|| corrupt("Database View filter group is invalid"))?;
+    if let DatabaseViewFilter::Group { children, .. } = filter {
         for child in children {
             collect_relation_filter_targets(
                 connection,
@@ -1534,15 +1513,20 @@ fn collect_relation_filter_targets(
         }
         return Ok(());
     }
+    let DatabaseViewFilter::Clause {
+        property_id,
+        operator,
+        value,
+    } = filter
+    else {
+        unreachable!("Database View filter variants are exhaustive")
+    };
     if !matches!(
-        object.get("operator").and_then(Value::as_str),
-        Some("contains" | "not_contains")
+        operator,
+        DatabaseViewFilterOperator::Contains | DatabaseViewFilterOperator::NotContains
     ) {
         return Ok(());
     }
-    let Some(property_id) = object.get("propertyId").and_then(Value::as_str) else {
-        return Err(corrupt("Database View filter Property is invalid"));
-    };
     let target_data_source_id = connection
         .query_row(
             "SELECT relation.target_data_source_id \
@@ -1559,8 +1543,8 @@ fn collect_relation_filter_targets(
     let Some(target_data_source_id) = target_data_source_id else {
         return Ok(());
     };
-    let page_id = object
-        .get("value")
+    let page_id = value
+        .as_ref()
         .and_then(Value::as_str)
         .filter(|value| !value.is_empty())
         .ok_or_else(|| corrupt("Relation Property filter operand is invalid"))?;
@@ -1653,20 +1637,17 @@ mod tests {
                    'project:reader', 'database', 'database:secret', 'active');",
             )
             .expect("Relation authorization rows");
-        let config = json!({
-            "filter": {
-                "kind": "clause",
-                "propertyId": "blocked_by",
-                "operator": "contains",
-                "value": "page:secret"
-            }
-        });
+        let filter = DatabaseViewFilter::Clause {
+            property_id: "blocked_by".to_owned(),
+            operator: DatabaseViewFilterOperator::Contains,
+            value: Some(json!("page:secret")),
+        };
         validate_view_filter_read_access(
             &connection,
             "library:one",
             Some("project:reader"),
             "source:tasks",
-            &config,
+            &filter,
         )
         .expect("authorized filter operand");
 
@@ -1681,7 +1662,7 @@ mod tests {
             "library:one",
             Some("project:reader"),
             "source:tasks",
-            &config,
+            &filter,
         )
         .expect_err("stale View filter cannot retain a restricted Page identity");
         assert_eq!(error.code, StoreErrorCode::NotFound);

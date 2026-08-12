@@ -46,6 +46,31 @@ const databaseRecord = () => ({
   updatedAt: "2026-07-25T00:00:00.000Z",
 });
 
+const coreDatabaseRecord = () => ({
+  database_id: "database:test",
+  library_id: identity.libraryId,
+  name: "Tasks",
+  lifecycle: "active",
+  default_view_id: null,
+  access_revision: 1,
+  metadata_revision: 1,
+  created_at: "2026-07-25T00:00:00.000Z",
+  updated_at: "2026-07-25T00:00:00.000Z",
+});
+
+const coreDataSourceRecord = (schemaRevision = 1) => ({
+  data_source_id: "source:test",
+  library_id: identity.libraryId,
+  home_database_id: "database:test",
+  name: "Tasks",
+  schema_key: "nodex.database",
+  schema_revision: schemaRevision,
+  lifecycle: "active",
+  rank_key: "a",
+  created_at: "2026-07-25T00:00:00.000Z",
+  updated_at: "2026-07-25T00:00:00.000Z",
+});
+
 const viewAuthorization = (
   commitSeq: number,
   storeEpoch: string = identity.storeEpoch,
@@ -67,7 +92,7 @@ const databaseSnapshot = () => ({
   authorization: null,
   value: {
     kind: "database" as const,
-    value: { database: databaseRecord() },
+    value: { database: coreDatabaseRecord() },
   },
 });
 
@@ -151,18 +176,7 @@ const emptyDataSourceDescriptorReads = (client: FakeCoreClient): void => {
     value: {
       kind: "data_source" as const,
       value: {
-        dataSource: {
-          dataSourceId: "source:test",
-          libraryId: identity.libraryId,
-          homeDatabaseId: "database:test",
-          name: "Tasks",
-          schemaKey: "nodex.database",
-          schemaRevision: 1,
-          lifecycle: "active",
-          rankKey: "a",
-          createdAt: "2026-07-25T00:00:00.000Z",
-          updatedAt: "2026-07-25T00:00:00.000Z",
-        },
+        data_source: coreDataSourceRecord(),
       },
     },
   });
@@ -211,23 +225,15 @@ describe("Core Database Module Adapter", () => {
       },
     });
     expect(client.databaseReads).toEqual([{
+      kind: "database",
       target: { kind: "project_default" },
-      mode: "database",
-      filter: null,
-      sort: null,
     }, {
-      target: { kind: "database", database_id: "database:test" },
-      mode: "data_source_window",
-      filter: null,
-      sort: null,
-      page_ids: null,
+      kind: "data_source_window",
+      database_id: "database:test",
       window: { after: null, first: 200 },
     }, {
-      target: { kind: "database", database_id: "database:test" },
-      mode: "view_descriptor_window",
-      filter: null,
-      sort: null,
-      page_ids: null,
+      kind: "view_descriptor_window",
+      database_id: "database:test",
       window: { after: null, first: 200 },
     }]);
   });
@@ -242,7 +248,7 @@ describe("Core Database Module Adapter", () => {
       value: {
         kind: "catalog_window",
         databases: {
-          items: [{ database: databaseRecord() }],
+          items: [{ database: coreDatabaseRecord() }],
           next_cursor: null,
           authority: { projection_revision: 21 },
         },
@@ -341,8 +347,9 @@ describe("Core Database Module Adapter", () => {
       },
     });
     expect(candidateClient.databaseReads[0]).toMatchObject({
-      mode: "relation_candidate_window",
-      filter: { query: "blocked" },
+      kind: "relation_candidate_window",
+      data_source_id: "source:test",
+      query: "blocked",
       window: { first: 25 },
     });
   });
@@ -377,8 +384,8 @@ describe("Core Database Module Adapter", () => {
       },
     });
     expect(client.databaseReads[0]).toMatchObject({
-      mode: "relation_candidate_window",
-      filter: null,
+      kind: "relation_candidate_window",
+      query: null,
       window: { first: 25 },
     });
   });
@@ -396,18 +403,7 @@ describe("Core Database Module Adapter", () => {
       value: {
         kind: "data_source" as const,
         value: {
-          dataSource: {
-            dataSourceId: "source:test",
-            libraryId: identity.libraryId,
-            homeDatabaseId: "database:test",
-            name: "Tasks",
-            schemaKey: "nodex.database",
-            schemaRevision: 2,
-            lifecycle: "active",
-            rankKey: "a",
-            createdAt: "2026-07-25T00:00:00.000Z",
-            updatedAt: "2026-07-25T00:00:00.000Z",
-          },
+          data_source: coreDataSourceRecord(2),
         },
       },
     });
@@ -497,7 +493,7 @@ describe("Core Database Module Adapter", () => {
         },
       },
     });
-    expect(client.databaseReads.map((read) => read.mode)).toEqual([
+    expect(client.databaseReads.map((read) => read.kind)).toEqual([
       "data_source",
       "property_window",
       "property_window",
@@ -938,7 +934,7 @@ describe("Core Database Module Adapter", () => {
     });
 
     expect(client.databaseReads[0]).toMatchObject({
-      mode: "view_groups",
+      kind: "view_groups",
       target: { kind: "view", view_id: "view:test" },
     });
     expect(groups).toMatchObject({
@@ -1065,7 +1061,7 @@ describe("Core Database Module Adapter", () => {
     });
 
     expect(client.databaseReads[0]).toMatchObject({
-      mode: "list_window",
+      kind: "list_window",
       target: { kind: "view", view_id: "view:test" },
       window: { first: 1 },
     });
@@ -1154,7 +1150,7 @@ describe("Core Database Module Adapter", () => {
     ).rejects.toThrow("non-window");
 
     expect(client.databaseReads[0]).toMatchObject({
-      mode: "view_window",
+      kind: "view_window",
       window: { first: 25 },
       group_scope: { kind: "path", group_key: "triage", subgroup_key: null },
     });
@@ -1200,21 +1196,24 @@ describe("Core Database Module Adapter", () => {
       }),
     ).rejects.toThrow("non-window");
 
-    expect(client.databaseReads[0]?.target).toEqual({
-      kind: "presented_view",
-      view_id: "view:test",
-      presentation_override: {
-        layout: "list",
-        sort: [{
-          field: { kind: "property", property_id: "priority" },
-          direction: "desc",
-          nulls: "last",
-        }],
-        group: { kind: "none" },
-        group_direction: "desc",
-        layouts: {
-          list: {
-            fields: [{ kind: "property", property_id: "priority" }],
+    expect(client.databaseReads[0]).toMatchObject({
+      kind: "view_window",
+      target: {
+        kind: "presented_view",
+        view_id: "view:test",
+        presentation_override: {
+          layout: "list",
+          sort: [{
+            field: { kind: "property", property_id: "priority" },
+            direction: "desc",
+            nulls: "last",
+          }],
+          group: { kind: "none" },
+          group_direction: "desc",
+          layouts: {
+            list: {
+              fields: [{ kind: "property", property_id: "priority" }],
+            },
           },
         },
       },

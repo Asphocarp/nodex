@@ -271,12 +271,13 @@ mod tests {
         DatabaseAgentQuery, DatabaseGroupScope, DatabaseIntent, DatabaseListProjectionRow,
         DatabaseListTransientKind, DatabasePagePropertyAddress, DatabasePropertySchema,
         DatabasePropertySetDelta, DatabasePropertyValueEdit, DatabasePropertyValueInput,
-        DatabasePropertyValueMutation, DatabaseReadMode, DatabaseTarget, DatabaseTaskParentPage,
+        DatabasePropertyValueMutation, DatabaseRowsTarget, DatabaseTaskParentPage,
         DatabaseTransferTarget, DatabaseViewCompletedRangeInput,
         DatabaseViewCompletionOverrideInput, DatabaseViewDefinition, DatabaseViewFieldInput,
         DatabaseViewGroupOverrideInput, DatabaseViewLayout, DatabaseViewLayoutDisplayOverrideInput,
         DatabaseViewLayoutInput, DatabaseViewLayoutsOverrideInput,
-        DatabaseViewPresentationOverrideInput, DatabaseViewSortDirectionInput,
+        DatabaseViewPresentationOverrideInput, DatabaseViewReadTarget,
+        DatabaseViewSortDirectionInput,
     };
     use nodex_core_contracts::library::{
         LIBRARY_CONTRACT_VERSION, LibraryIntent, LibraryPageLifecycleMutation, LibraryWriteParent,
@@ -967,16 +968,12 @@ mod tests {
                 &context(),
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead {
-                        target: DatabaseTarget::ProjectDefault,
-                        mode: DatabaseReadMode::ViewWindow,
-                        filter: None,
-                        sort: None,
-                        window: Some(CollectionWindowRequest {
+                    read: DatabaseRead::ViewWindow {
+                        target: DatabaseViewReadTarget::ProjectDefault,
+                        window: CollectionWindowRequest {
                             after: None,
                             first: Some(1),
-                        }),
-                        page_ids: None,
+                        },
                         group_scope: None,
                     },
                 },
@@ -1032,16 +1029,12 @@ mod tests {
                 &context(),
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead {
-                        target: DatabaseTarget::ProjectDefault,
-                        mode: DatabaseReadMode::ViewWindow,
-                        filter: None,
-                        sort: None,
-                        window: Some(CollectionWindowRequest {
+                    read: DatabaseRead::ViewWindow {
+                        target: DatabaseViewReadTarget::ProjectDefault,
+                        window: CollectionWindowRequest {
                             after: Some(next_cursor),
                             first: Some(1),
-                        }),
-                        page_ids: None,
+                        },
                         group_scope: None,
                     },
                 },
@@ -1066,14 +1059,9 @@ mod tests {
                 &context(),
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead {
-                        target: DatabaseTarget::ProjectDefault,
-                        mode: DatabaseReadMode::RowsById,
-                        filter: None,
-                        sort: None,
-                        window: None,
-                        page_ids: Some(vec!["page:database-row-2".to_owned()]),
-                        group_scope: None,
+                    read: DatabaseRead::RowsById {
+                        target: DatabaseRowsTarget::ProjectDefault,
+                        page_ids: vec!["page:database-row-2".to_owned()],
                     },
                 },
             )
@@ -1089,16 +1077,8 @@ mod tests {
                 &context(),
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead {
-                        target: DatabaseTarget::Page {
-                            page_id: "page:database-row".to_owned(),
-                        },
-                        mode: DatabaseReadMode::RowDetail,
-                        filter: None,
-                        sort: None,
-                        window: None,
-                        page_ids: None,
-                        group_scope: None,
+                    read: DatabaseRead::RowDetail {
+                        page_id: "page:database-row".to_owned(),
                     },
                 },
             )
@@ -1114,21 +1094,13 @@ mod tests {
                 &context(),
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead {
-                        target: DatabaseTarget::AgentDataSource {
-                            data_source_id: SOURCE_ID.to_owned(),
-                            query: Box::new(DatabaseAgentQuery {
-                                authorization: agent_authorization.clone(),
-                                cursor: None,
-                                limit: Some(1),
-                            }),
+                    read: DatabaseRead::AgentDataSourceQuery {
+                        data_source_id: SOURCE_ID.to_owned(),
+                        query: DatabaseAgentQuery {
+                            authorization: agent_authorization.clone(),
+                            cursor: None,
+                            limit: Some(1),
                         },
-                        mode: DatabaseReadMode::AgentQuery,
-                        filter: None,
-                        sort: None,
-                        window: None,
-                        page_ids: None,
-                        group_scope: None,
                     },
                 },
             )
@@ -1150,21 +1122,13 @@ mod tests {
                 &context(),
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead {
-                        target: DatabaseTarget::AgentDataSource {
-                            data_source_id: SOURCE_ID.to_owned(),
-                            query: Box::new(DatabaseAgentQuery {
-                                authorization: continuation_authorization,
-                                cursor: Some(next_cursor),
-                                limit: Some(1),
-                            }),
+                    read: DatabaseRead::AgentDataSourceQuery {
+                        data_source_id: SOURCE_ID.to_owned(),
+                        query: DatabaseAgentQuery {
+                            authorization: continuation_authorization,
+                            cursor: Some(next_cursor),
+                            limit: Some(1),
                         },
-                        mode: DatabaseReadMode::AgentQuery,
-                        filter: None,
-                        sort: None,
-                        window: None,
-                        page_ids: None,
-                        group_scope: None,
                     },
                 },
             )
@@ -1255,21 +1219,13 @@ mod tests {
                 &context(),
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead {
-                        target: DatabaseTarget::AgentDataSource {
-                            data_source_id: SOURCE_ID.to_owned(),
-                            query: Box::new(DatabaseAgentQuery {
-                                authorization: agent_authorization,
-                                cursor: Some(cursor_before_change),
-                                limit: Some(1),
-                            }),
+                    read: DatabaseRead::AgentDataSourceQuery {
+                        data_source_id: SOURCE_ID.to_owned(),
+                        query: DatabaseAgentQuery {
+                            authorization: agent_authorization,
+                            cursor: Some(cursor_before_change),
+                            limit: Some(1),
                         },
-                        mode: DatabaseReadMode::AgentQuery,
-                        filter: None,
-                        sort: None,
-                        window: None,
-                        page_ids: None,
-                        group_scope: None,
                     },
                 },
             )
@@ -1285,14 +1241,8 @@ mod tests {
                 &context(),
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead {
-                        target: DatabaseTarget::ProjectDefault,
-                        mode: DatabaseReadMode::CatalogWindow,
-                        filter: None,
-                        sort: None,
-                        window: Some(Default::default()),
-                        page_ids: None,
-                        group_scope: None,
+                    read: DatabaseRead::CatalogWindow {
+                        window: Default::default(),
                     },
                 },
             )
@@ -1301,22 +1251,15 @@ mod tests {
             panic!("catalog snapshot");
         };
         assert_eq!(databases.items.len(), 1);
-        assert_eq!(databases.items[0]["database"]["databaseId"], DATABASE_ID);
+        assert_eq!(databases.items[0].database.database_id, DATABASE_ID);
         let data_sources = module
             .read(
                 &context(),
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead {
-                        target: DatabaseTarget::Database {
-                            database_id: DATABASE_ID.to_owned(),
-                        },
-                        mode: DatabaseReadMode::DataSourceWindow,
-                        filter: None,
-                        sort: None,
-                        window: Some(Default::default()),
-                        page_ids: None,
-                        group_scope: None,
+                    read: DatabaseRead::DataSourceWindow {
+                        database_id: DATABASE_ID.to_owned(),
+                        window: Default::default(),
                     },
                 },
             )
@@ -1324,22 +1267,15 @@ mod tests {
         let DatabaseReadValue::DataSourceWindow { data_sources } = data_sources.value else {
             panic!("Data Source descriptor window");
         };
-        assert_eq!(data_sources.items[0]["dataSourceId"], SOURCE_ID);
+        assert_eq!(data_sources.items[0].data_source_id, SOURCE_ID);
         let views = module
             .read(
                 &context(),
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead {
-                        target: DatabaseTarget::Database {
-                            database_id: DATABASE_ID.to_owned(),
-                        },
-                        mode: DatabaseReadMode::ViewDescriptorWindow,
-                        filter: None,
-                        sort: None,
-                        window: Some(Default::default()),
-                        page_ids: None,
-                        group_scope: None,
+                    read: DatabaseRead::ViewDescriptorWindow {
+                        database_id: DATABASE_ID.to_owned(),
+                        window: Default::default(),
                     },
                 },
             )
@@ -1347,23 +1283,15 @@ mod tests {
         let DatabaseReadValue::ViewDescriptorWindow { views } = views.value else {
             panic!("View descriptor window");
         };
-        assert_eq!(views.items[0]["isDefault"], true);
+        assert!(views.items[0].is_default);
 
         let page_row = module
             .read(
                 &context(),
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead {
-                        target: DatabaseTarget::Page {
-                            page_id: "page:database-row".to_owned(),
-                        },
-                        mode: DatabaseReadMode::RowDetail,
-                        filter: None,
-                        sort: None,
-                        window: None,
-                        page_ids: None,
-                        group_scope: None,
+                    read: DatabaseRead::RowDetail {
+                        page_id: "page:database-row".to_owned(),
                     },
                 },
             )
@@ -1401,16 +1329,8 @@ mod tests {
                 &context(),
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead {
-                        target: DatabaseTarget::Page {
-                            page_id: "page:database-row".to_owned(),
-                        },
-                        mode: DatabaseReadMode::RowDetail,
-                        filter: None,
-                        sort: None,
-                        window: None,
-                        page_ids: None,
-                        group_scope: None,
+                    read: DatabaseRead::RowDetail {
+                        page_id: "page:database-row".to_owned(),
                     },
                 },
             )
@@ -1636,16 +1556,8 @@ mod tests {
                 &context(),
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead {
-                        target: DatabaseTarget::DataSource {
-                            data_source_id: SOURCE_ID.to_owned(),
-                        },
-                        mode: DatabaseReadMode::DataSource,
-                        filter: None,
-                        sort: None,
-                        window: None,
-                        page_ids: None,
-                        group_scope: None,
+                    read: DatabaseRead::DataSource {
+                        data_source_id: SOURCE_ID.to_owned(),
                     },
                 },
             )
@@ -1653,22 +1565,15 @@ mod tests {
         let DatabaseReadValue::DataSource { value: source } = source.value else {
             panic!("Data Source descriptor snapshot");
         };
-        assert_eq!(source["dataSource"]["schemaRevision"], 3);
+        assert_eq!(source.data_source.schema_revision, 3);
         let properties = module
             .read(
                 &context(),
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead {
-                        target: DatabaseTarget::DataSource {
-                            data_source_id: SOURCE_ID.to_owned(),
-                        },
-                        mode: DatabaseReadMode::PropertyWindow,
-                        filter: None,
-                        sort: None,
-                        window: Some(Default::default()),
-                        page_ids: None,
-                        group_scope: None,
+                    read: DatabaseRead::PropertyWindow {
+                        data_source_id: SOURCE_ID.to_owned(),
+                        window: Default::default(),
                     },
                 },
             )
@@ -1696,20 +1601,13 @@ mod tests {
                 &context(),
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead {
-                        target: DatabaseTarget::Property {
-                            data_source_id: SOURCE_ID.to_owned(),
-                            property_id: "status".to_owned(),
-                        },
-                        mode: DatabaseReadMode::OptionWindow,
-                        filter: None,
-                        sort: None,
-                        window: Some(CollectionWindowRequest {
+                    read: DatabaseRead::OptionWindow {
+                        data_source_id: SOURCE_ID.to_owned(),
+                        property_id: "status".to_owned(),
+                        window: CollectionWindowRequest {
                             after: None,
                             first: Some(1),
-                        }),
-                        page_ids: None,
-                        group_scope: None,
+                        },
                     },
                 },
             )
@@ -1718,26 +1616,19 @@ mod tests {
             panic!("Property option window");
         };
         assert_eq!(options.items.len(), 1);
-        assert_eq!(options.items[0]["id"], "triage");
+        assert_eq!(options.items[0].id, "triage");
         let second_option = module
             .read(
                 &context(),
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead {
-                        target: DatabaseTarget::Property {
-                            data_source_id: SOURCE_ID.to_owned(),
-                            property_id: "status".to_owned(),
-                        },
-                        mode: DatabaseReadMode::OptionWindow,
-                        filter: None,
-                        sort: None,
-                        window: Some(CollectionWindowRequest {
+                    read: DatabaseRead::OptionWindow {
+                        data_source_id: SOURCE_ID.to_owned(),
+                        property_id: "status".to_owned(),
+                        window: CollectionWindowRequest {
                             after: options.next_cursor,
                             first: Some(1),
-                        }),
-                        page_ids: None,
-                        group_scope: None,
+                        },
                     },
                 },
             )
@@ -1748,21 +1639,17 @@ mod tests {
         else {
             panic!("second Property option window");
         };
-        assert_eq!(second_option.items[0]["id"], "plan");
+        assert_eq!(second_option.items[0].id, "plan");
         let row_window = module
             .read(
                 &context(),
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead {
-                        target: DatabaseTarget::View {
+                    read: DatabaseRead::ViewWindow {
+                        target: DatabaseViewReadTarget::View {
                             view_id: VIEW_ID.to_owned(),
                         },
-                        mode: DatabaseReadMode::ViewWindow,
-                        filter: None,
-                        sort: None,
-                        window: Some(Default::default()),
-                        page_ids: None,
+                        window: Default::default(),
                         group_scope: None,
                     },
                 },
@@ -1852,15 +1739,11 @@ mod tests {
                 &context(),
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead {
-                        target: DatabaseTarget::View {
+                    read: DatabaseRead::ViewWindow {
+                        target: DatabaseViewReadTarget::View {
                             view_id: SECOND_VIEW_ID.to_owned(),
                         },
-                        mode: DatabaseReadMode::ViewWindow,
-                        filter: None,
-                        sort: None,
-                        window: Some(Default::default()),
-                        page_ids: None,
+                        window: Default::default(),
                         group_scope: None,
                     },
                 },
@@ -1879,8 +1762,8 @@ mod tests {
                 &context(),
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead {
-                        target: DatabaseTarget::PresentedView {
+                    read: DatabaseRead::ViewWindow {
+                        target: DatabaseViewReadTarget::PresentedView {
                             view_id: SECOND_VIEW_ID.to_owned(),
                             presentation_override: DatabaseViewPresentationOverrideInput {
                                 layout: None,
@@ -1893,11 +1776,7 @@ mod tests {
                                 layouts: None,
                             },
                         },
-                        mode: DatabaseReadMode::ViewWindow,
-                        filter: None,
-                        sort: None,
-                        window: Some(Default::default()),
-                        page_ids: None,
+                        window: Default::default(),
                         group_scope: None,
                     },
                 },
@@ -1954,16 +1833,8 @@ mod tests {
                 &context(),
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead {
-                        target: DatabaseTarget::View {
-                            view_id: VIEW_ID.to_owned(),
-                        },
-                        mode: DatabaseReadMode::View,
-                        filter: None,
-                        sort: None,
-                        window: None,
-                        page_ids: None,
-                        group_scope: None,
+                    read: DatabaseRead::View {
+                        view_id: VIEW_ID.to_owned(),
                     },
                 },
             )
@@ -1971,8 +1842,8 @@ mod tests {
         let DatabaseReadValue::View { value: old_view } = old_view.value else {
             panic!("View descriptor snapshot");
         };
-        assert_eq!(old_view["lifecycle"], "deleted");
-        assert_eq!(old_view["revision"], 2);
+        assert_eq!(old_view.lifecycle, "deleted");
+        assert_eq!(old_view.revision, 2);
 
         module
             .apply(
@@ -1997,15 +1868,11 @@ mod tests {
                 &context(),
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead {
-                        target: DatabaseTarget::View {
+                    read: DatabaseRead::ViewWindow {
+                        target: DatabaseViewReadTarget::View {
                             view_id: SECOND_VIEW_ID.to_owned(),
                         },
-                        mode: DatabaseReadMode::ViewWindow,
-                        filter: None,
-                        sort: None,
-                        window: Some(Default::default()),
-                        page_ids: None,
+                        window: Default::default(),
                         group_scope: None,
                     },
                 },
@@ -2042,15 +1909,11 @@ mod tests {
                 &context(),
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead {
-                        target: DatabaseTarget::View {
+                    read: DatabaseRead::ViewWindow {
+                        target: DatabaseViewReadTarget::View {
                             view_id: SECOND_VIEW_ID.to_owned(),
                         },
-                        mode: DatabaseReadMode::ViewWindow,
-                        filter: None,
-                        sort: None,
-                        window: Some(Default::default()),
-                        page_ids: None,
+                        window: Default::default(),
                         group_scope: None,
                     },
                 },
@@ -2085,16 +1948,8 @@ mod tests {
                 &library_context(AdapterKind::Test),
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead {
-                        target: DatabaseTarget::DataSource {
-                            data_source_id: SOURCE_ID.to_owned(),
-                        },
-                        mode: DatabaseReadMode::DataSource,
-                        filter: None,
-                        sort: None,
-                        window: None,
-                        page_ids: None,
-                        group_scope: None,
+                    read: DatabaseRead::DataSource {
+                        data_source_id: SOURCE_ID.to_owned(),
                     },
                 },
             )
@@ -2105,22 +1960,14 @@ mod tests {
         else {
             panic!("Library Data Source descriptor");
         };
-        assert_eq!(library_source["dataSource"]["dataSourceId"], SOURCE_ID);
+        assert_eq!(library_source.data_source.data_source_id, SOURCE_ID);
         let untrusted_library_read = module
             .read(
                 &library_context(AdapterKind::Agent),
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead {
-                        target: DatabaseTarget::DataSource {
-                            data_source_id: SOURCE_ID.to_owned(),
-                        },
-                        mode: DatabaseReadMode::DataSource,
-                        filter: None,
-                        sort: None,
-                        window: None,
-                        page_ids: None,
-                        group_scope: None,
+                    read: DatabaseRead::DataSource {
+                        data_source_id: SOURCE_ID.to_owned(),
                     },
                 },
             )
@@ -2333,16 +2180,8 @@ mod tests {
                 &context(),
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead {
-                        target: DatabaseTarget::View {
-                            view_id: VIEW_ID.to_owned(),
-                        },
-                        mode: DatabaseReadMode::ViewPersonalPreferences,
-                        filter: None,
-                        sort: None,
-                        window: None,
-                        page_ids: None,
-                        group_scope: None,
+                    read: DatabaseRead::ViewPersonalPreferences {
+                        view_id: VIEW_ID.to_owned(),
                     },
                 },
             )
@@ -3503,23 +3342,18 @@ mod tests {
                 &context(),
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead {
-                        target: DatabaseTarget::PresentedView {
+                    read: DatabaseRead::ListWindow {
+                        target: DatabaseViewReadTarget::PresentedView {
                             view_id: VIEW_ID.to_owned(),
                             presentation_override: DatabaseViewPresentationOverrideInput {
                                 group_direction: Some(DatabaseViewSortDirectionInput::Desc),
                                 ..Default::default()
                             },
                         },
-                        mode: DatabaseReadMode::ListWindow,
-                        filter: None,
-                        sort: None,
-                        window: Some(CollectionWindowRequest {
+                        window: CollectionWindowRequest {
                             after: None,
                             first: Some(20),
-                        }),
-                        page_ids: None,
-                        group_scope: None,
+                        },
                     },
                 },
             )
@@ -4185,15 +4019,11 @@ mod tests {
                 &context(),
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead {
-                        target: DatabaseTarget::View {
+                    read: DatabaseRead::ViewWindow {
+                        target: DatabaseViewReadTarget::View {
                             view_id: VIEW_ID.to_owned(),
                         },
-                        mode: DatabaseReadMode::ViewWindow,
-                        filter: None,
-                        sort: None,
-                        window: Some(Default::default()),
-                        page_ids: None,
+                        window: Default::default(),
                         group_scope: None,
                     },
                 },
@@ -4213,21 +4043,16 @@ mod tests {
                 &context(),
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead {
-                        target: DatabaseTarget::PageProperty {
+                    read: DatabaseRead::RelationTargetWindow {
+                        address: DatabasePagePropertyAddress {
                             page_id: "page:relation-row".to_owned(),
                             data_source_id: SOURCE_ID.to_owned(),
                             property_id: "blocked_by".to_owned(),
                         },
-                        mode: DatabaseReadMode::RelationTargetWindow,
-                        filter: None,
-                        sort: None,
-                        window: Some(CollectionWindowRequest {
+                        window: CollectionWindowRequest {
                             after: None,
                             first: Some(1),
-                        }),
-                        page_ids: None,
-                        group_scope: None,
+                        },
                     },
                 },
             )
@@ -4270,19 +4095,13 @@ mod tests {
                 &context(),
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead {
-                        target: DatabaseTarget::DataSource {
-                            data_source_id: SOURCE_ID.to_owned(),
-                        },
-                        mode: DatabaseReadMode::RelationCandidateWindow,
-                        filter: Some(json!({ "query": "define" })),
-                        sort: None,
-                        window: Some(CollectionWindowRequest {
+                    read: DatabaseRead::RelationCandidateWindow {
+                        data_source_id: SOURCE_ID.to_owned(),
+                        query: Some("define".to_owned()),
+                        window: CollectionWindowRequest {
                             after: None,
                             first: Some(10),
-                        }),
-                        page_ids: None,
-                        group_scope: None,
+                        },
                     },
                 },
             )
@@ -4366,18 +4185,14 @@ mod tests {
             &context(),
             ModuleReadRequest {
                 contract_version: DATABASE_CONTRACT_VERSION,
-                read: DatabaseRead {
-                    target: DatabaseTarget::View {
+                read: DatabaseRead::ViewWindow {
+                    target: DatabaseViewReadTarget::View {
                         view_id: VIEW_ID.to_owned(),
                     },
-                    mode: DatabaseReadMode::ViewWindow,
-                    filter: None,
-                    sort: None,
-                    window: Some(CollectionWindowRequest {
+                    window: CollectionWindowRequest {
                         after,
                         first: Some(first),
-                    }),
-                    page_ids: None,
+                    },
                     group_scope,
                 },
             },
@@ -4397,19 +4212,14 @@ mod tests {
             &context(),
             ModuleReadRequest {
                 contract_version: DATABASE_CONTRACT_VERSION,
-                read: DatabaseRead {
-                    target: DatabaseTarget::View {
+                read: DatabaseRead::ListWindow {
+                    target: DatabaseViewReadTarget::View {
                         view_id: VIEW_ID.to_owned(),
                     },
-                    mode: DatabaseReadMode::ListWindow,
-                    filter: None,
-                    sort: None,
-                    window: Some(CollectionWindowRequest {
+                    window: CollectionWindowRequest {
                         after,
                         first: Some(first),
-                    }),
-                    page_ids: None,
-                    group_scope: None,
+                    },
                 },
             },
         )?;
@@ -4430,18 +4240,12 @@ mod tests {
             &context(),
             ModuleReadRequest {
                 contract_version: DATABASE_CONTRACT_VERSION,
-                read: DatabaseRead {
-                    target: DatabaseTarget::View {
-                        view_id: view_id.to_owned(),
-                    },
-                    mode: DatabaseReadMode::ViewContext,
-                    filter: None,
-                    sort: None,
-                    window: Some(CollectionWindowRequest {
+                read: DatabaseRead::ViewContext {
+                    view_id: view_id.to_owned(),
+                    window: CollectionWindowRequest {
                         after,
                         first: Some(first),
-                    }),
-                    page_ids: None,
+                    },
                     group_scope,
                 },
             },
@@ -4524,30 +4328,37 @@ mod tests {
             .expect("read diverged heads");
         assert!(physical_head > semantic_head);
 
-        for mode in [
-            DatabaseReadMode::ViewWindow,
-            DatabaseReadMode::ViewGroups,
-            DatabaseReadMode::ViewContext,
+        for read in [
+            DatabaseRead::ViewWindow {
+                target: DatabaseViewReadTarget::View {
+                    view_id: VIEW_ID.to_owned(),
+                },
+                window: CollectionWindowRequest {
+                    after: None,
+                    first: Some(10),
+                },
+                group_scope: None,
+            },
+            DatabaseRead::ViewGroups {
+                target: DatabaseViewReadTarget::View {
+                    view_id: VIEW_ID.to_owned(),
+                },
+            },
+            DatabaseRead::ViewContext {
+                view_id: VIEW_ID.to_owned(),
+                window: CollectionWindowRequest {
+                    after: None,
+                    first: Some(10),
+                },
+                group_scope: None,
+            },
         ] {
             let snapshot = module
                 .read(
                     &context(),
                     ModuleReadRequest {
                         contract_version: DATABASE_CONTRACT_VERSION,
-                        read: DatabaseRead {
-                            target: DatabaseTarget::View {
-                                view_id: VIEW_ID.to_owned(),
-                            },
-                            mode,
-                            filter: None,
-                            sort: None,
-                            window: Some(CollectionWindowRequest {
-                                after: None,
-                                first: Some(10),
-                            }),
-                            page_ids: None,
-                            group_scope: None,
-                        },
+                        read,
                     },
                 )
                 .expect("read View authority");
@@ -4594,12 +4405,18 @@ mod tests {
         );
 
         let first = read_view_context(&module, VIEW_ID, 1, None, None).expect("first context");
-        assert_eq!(first.database["databaseId"], DATABASE_ID);
-        assert_eq!(first.data_source["dataSourceId"], SOURCE_ID);
-        assert_eq!(first.view["viewId"], VIEW_ID);
+        assert_eq!(first.database.database_id, DATABASE_ID);
+        assert_eq!(first.data_source.data_source_id, SOURCE_ID);
+        assert_eq!(first.view.view_id, VIEW_ID);
         assert_eq!(
-            first.view["config"]["presentation"]["group"]["propertyId"],
-            "status"
+            first
+                .view
+                .definition
+                .presentation
+                .group
+                .as_ref()
+                .map(|group| group.property_id.as_str()),
+            Some("status")
         );
         assert!(
             first
@@ -4715,15 +4532,9 @@ mod tests {
                 &unauthorized_context,
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead {
-                        target: DatabaseTarget::View {
-                            view_id: VIEW_ID.to_owned(),
-                        },
-                        mode: DatabaseReadMode::ViewContext,
-                        filter: None,
-                        sort: None,
-                        window: Some(Default::default()),
-                        page_ids: None,
+                    read: DatabaseRead::ViewContext {
+                        view_id: VIEW_ID.to_owned(),
+                        window: Default::default(),
                         group_scope: None,
                     },
                 },
@@ -4805,16 +4616,10 @@ mod tests {
                 &context(),
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead {
-                        target: DatabaseTarget::View {
+                    read: DatabaseRead::ViewGroups {
+                        target: DatabaseViewReadTarget::View {
                             view_id: VIEW_ID.to_owned(),
                         },
-                        mode: DatabaseReadMode::ViewGroups,
-                        filter: None,
-                        sort: None,
-                        window: None,
-                        page_ids: None,
-                        group_scope: None,
                     },
                 },
             )
@@ -4930,30 +4735,18 @@ mod tests {
         .expect_err("cross-scope cursor must be rejected");
         assert_eq!(cross_scope.code, CoreErrorCode::InvalidInput);
 
-        // Group scope is only meaningful for view_window reads.
-        let wrong_mode = module
-            .read(
-                &context(),
-                ModuleReadRequest {
-                    contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead {
-                        target: DatabaseTarget::View {
-                            view_id: VIEW_ID.to_owned(),
-                        },
-                        mode: DatabaseReadMode::ViewGroups,
-                        filter: None,
-                        sort: None,
-                        window: None,
-                        page_ids: None,
-                        group_scope: Some(DatabaseGroupScope::Path {
-                            group_key: None,
-                            subgroup_key: None,
-                        }),
-                    },
-                },
-            )
-            .expect_err("group scope outside view_window must be rejected");
-        assert_eq!(wrong_mode.code, CoreErrorCode::InvalidInput);
+        // The discriminated read contract rejects coordinates that do not
+        // belong to a read before they can reach Database authorization.
+        let wrong_mode = serde_json::from_value::<DatabaseRead>(json!({
+            "kind": "view_groups",
+            "target": { "kind": "view", "view_id": VIEW_ID },
+            "group_scope": {
+                "kind": "path",
+                "group_key": null,
+                "subgroup_key": null
+            }
+        }));
+        assert!(wrong_mode.is_err());
     }
 
     #[test]
@@ -5080,8 +4873,8 @@ mod tests {
                     &context(),
                     ModuleReadRequest {
                         contract_version: DATABASE_CONTRACT_VERSION,
-                        read: DatabaseRead {
-                            target: DatabaseTarget::PresentedView {
+                        read: DatabaseRead::ViewWindow {
+                            target: DatabaseViewReadTarget::PresentedView {
                                 view_id: VIEW_ID.to_owned(),
                                 presentation_override: DatabaseViewPresentationOverrideInput {
                                     layout: None,
@@ -5097,11 +4890,7 @@ mod tests {
                                     layouts: None,
                                 },
                             },
-                            mode: DatabaseReadMode::ViewWindow,
-                            filter: None,
-                            sort: None,
-                            window: Some(Default::default()),
-                            page_ids: None,
+                            window: Default::default(),
                             group_scope: None,
                         },
                     },
@@ -5223,17 +5012,11 @@ mod tests {
                 &context(),
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead {
-                        target: DatabaseTarget::PresentedView {
+                    read: DatabaseRead::ViewGroups {
+                        target: DatabaseViewReadTarget::PresentedView {
                             view_id: VIEW_ID.to_owned(),
                             presentation_override: presentation_override.clone(),
                         },
-                        mode: DatabaseReadMode::ViewGroups,
-                        filter: None,
-                        sort: None,
-                        window: None,
-                        page_ids: None,
-                        group_scope: None,
                     },
                 },
             )
@@ -5275,16 +5058,12 @@ mod tests {
                 &context(),
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead {
-                        target: DatabaseTarget::PresentedView {
+                    read: DatabaseRead::ViewWindow {
+                        target: DatabaseViewReadTarget::PresentedView {
                             view_id: VIEW_ID.to_owned(),
                             presentation_override: presentation_override.clone(),
                         },
-                        mode: DatabaseReadMode::ViewWindow,
-                        filter: None,
-                        sort: None,
-                        window: Some(Default::default()),
-                        page_ids: None,
+                        window: Default::default(),
                         group_scope: Some(DatabaseGroupScope::Path {
                             group_key: Some("triage".to_owned()),
                             subgroup_key: Some("p2-medium".to_owned()),
@@ -5341,17 +5120,11 @@ mod tests {
                 &context(),
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead {
-                        target: DatabaseTarget::PresentedView {
+                    read: DatabaseRead::ViewGroups {
+                        target: DatabaseViewReadTarget::PresentedView {
                             view_id: VIEW_ID.to_owned(),
                             presentation_override,
                         },
-                        mode: DatabaseReadMode::ViewGroups,
-                        filter: None,
-                        sort: None,
-                        window: None,
-                        page_ids: None,
-                        group_scope: None,
                     },
                 },
             )
@@ -5381,17 +5154,11 @@ mod tests {
                 &context(),
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead {
-                        target: DatabaseTarget::PresentedView {
+                    read: DatabaseRead::ViewGroups {
+                        target: DatabaseViewReadTarget::PresentedView {
                             view_id: VIEW_ID.to_owned(),
                             presentation_override: invalid_override,
                         },
-                        mode: DatabaseReadMode::ViewGroups,
-                        filter: None,
-                        sort: None,
-                        window: None,
-                        page_ids: None,
-                        group_scope: None,
                     },
                 },
             )
@@ -5439,15 +5206,11 @@ mod tests {
                 &context(),
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead {
-                        target: DatabaseTarget::View {
+                    read: DatabaseRead::ViewWindow {
+                        target: DatabaseViewReadTarget::View {
                             view_id: FLAT_VIEW_ID.to_owned(),
                         },
-                        mode: DatabaseReadMode::ViewWindow,
-                        filter: None,
-                        sort: None,
-                        window: Some(Default::default()),
-                        page_ids: None,
+                        window: Default::default(),
                         group_scope: Some(DatabaseGroupScope::Path {
                             group_key: None,
                             subgroup_key: None,
@@ -5463,16 +5226,10 @@ mod tests {
                 &context(),
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead {
-                        target: DatabaseTarget::View {
+                    read: DatabaseRead::ViewGroups {
+                        target: DatabaseViewReadTarget::View {
                             view_id: FLAT_VIEW_ID.to_owned(),
                         },
-                        mode: DatabaseReadMode::ViewGroups,
-                        filter: None,
-                        sort: None,
-                        window: None,
-                        page_ids: None,
-                        group_scope: None,
                     },
                 },
             )

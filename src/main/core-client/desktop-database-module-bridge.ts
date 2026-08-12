@@ -145,7 +145,7 @@ const minimumCommitSeqForEpoch = (
 
 const coreViewTarget = (
   input: DatabaseViewWindowInput | DatabaseViewGroupsInput | DatabaseListWindowInput,
-): DatabaseRead["target"] => {
+): Extract<DatabaseRead, { readonly kind: "view_window" }>["target"] => {
   if (input.presentationOverride && !input.databaseViewId) {
     throw new Error("A Database View presentation override requires an explicit View");
   }
@@ -184,11 +184,8 @@ const readBoundedDatabaseViewWindow = async <
     input.currentStoreEpoch,
   );
   const snapshot = await input.readCore({
+    kind: "view_window",
     target: coreViewTarget(input.windowInput),
-    mode: "view_window",
-    filter: null,
-    sort: null,
-    page_ids: null,
     window: {
       after: input.windowInput.after ?? null,
       first: input.windowInput.first ?? 50,
@@ -330,11 +327,8 @@ const readBoundedDatabaseListWindow = async <
     input.currentStoreEpoch,
   );
   const snapshot = await input.readCore({
+    kind: "list_window",
     target: coreViewTarget(input.windowInput),
-    mode: "list_window",
-    filter: null,
-    sort: null,
-    page_ids: null,
     window: {
       after: input.windowInput.after ?? null,
       first: input.windowInput.first ?? 200,
@@ -443,12 +437,8 @@ const readBoundedDatabaseViewGroups = async <
     input.currentStoreEpoch,
   );
   const snapshot = await input.readCore({
+    kind: "view_groups",
     target: coreViewTarget(input.groupsInput),
-    mode: "view_groups",
-    filter: null,
-    sort: null,
-    page_ids: null,
-    window: null,
   }, minimumCommitSeq);
   if (snapshot.value.kind !== "view_groups") {
     throw new Error("Database Core returned a non-groups View snapshot");
@@ -637,12 +627,8 @@ export const createDesktopDatabaseModuleBridge = (
         : 0;
       try {
         const snapshot = await coreAdapterFor(runtime, projectId).readCore({
-          target: { kind: "page", page_id: pageId },
-          mode: "row_detail",
-          filter: null,
-          sort: null,
-          page_ids: null,
-          window: null,
+          kind: "row_detail",
+          page_id: pageId,
         }, minimumCommitSeq);
         if (snapshot.value.kind !== "row_detail") {
           throw new Error("Database Core returned a non-detail Page snapshot");

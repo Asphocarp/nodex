@@ -49,26 +49,19 @@ export async function readNativeDatabaseQuery(
       cursor: request.input.page?.cursor ?? null,
       limit: request.input.page?.limit ?? null,
     };
-    const snapshot = await runtime.clientForProject(request.projectId).databaseRead({
-      target: request.tool === "query_database_view"
+    const snapshot = await runtime.clientForProject(request.projectId).databaseRead(
+      request.tool === "query_database_view"
         ? {
-            kind: "agent_view",
+            kind: "agent_view_query",
             view_id: request.input.viewId,
             query: agentQuery,
           }
         : {
-            kind: "agent_data_source",
+            kind: "agent_data_source_query",
             data_source_id: request.input.dataSourceId,
             query: agentQuery,
           },
-      mode: "agent_query",
-      filter: request.tool === "query_data_source"
-        ? request.input.filter ?? null
-        : null,
-      sort: request.tool === "query_data_source"
-        ? request.input.sort ?? null
-        : null,
-    });
+    );
     if (snapshot.value.kind !== "agent_query") {
       throw new Error("Core returned the wrong Agent Database query variant");
     }

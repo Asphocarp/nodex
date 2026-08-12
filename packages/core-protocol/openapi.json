@@ -3557,6 +3557,107 @@
           }
         }
       },
+      "CollectionWindow_DatabaseDataSourceRecord": {
+        "type": "object",
+        "required": [
+          "items",
+          "authority"
+        ],
+        "properties": {
+          "authority": {
+            "$ref": "#/components/schemas/CollectionWindowAuthority"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "data_source_id",
+                "library_id",
+                "home_database_id",
+                "name",
+                "schema_key",
+                "schema_revision",
+                "lifecycle",
+                "rank_key",
+                "created_at",
+                "updated_at"
+              ],
+              "properties": {
+                "created_at": {
+                  "type": "string"
+                },
+                "data_source_id": {
+                  "type": "string"
+                },
+                "home_database_id": {
+                  "type": "string"
+                },
+                "library_id": {
+                  "type": "string"
+                },
+                "lifecycle": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "rank_key": {
+                  "type": "string"
+                },
+                "schema_key": {
+                  "type": "string"
+                },
+                "schema_revision": {
+                  "type": "integer",
+                  "format": "int64"
+                },
+                "updated_at": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "CollectionWindow_DatabaseDescriptor": {
+        "type": "object",
+        "required": [
+          "items",
+          "authority"
+        ],
+        "properties": {
+          "authority": {
+            "$ref": "#/components/schemas/CollectionWindowAuthority"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "database"
+              ],
+              "properties": {
+                "database": {
+                  "$ref": "#/components/schemas/DatabaseContainerRecord"
+                }
+              }
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "CollectionWindow_DatabaseListProjectionRow": {
         "type": "object",
         "required": [
@@ -3761,6 +3862,48 @@
                   "$ref": "#/components/schemas/DatabasePropertySchema"
                 },
                 "updated_at": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "CollectionWindow_DatabasePropertyOption": {
+        "type": "object",
+        "required": [
+          "items",
+          "authority"
+        ],
+        "properties": {
+          "authority": {
+            "$ref": "#/components/schemas/CollectionWindowAuthority"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "name"
+              ],
+              "properties": {
+                "color": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "id": {
+                  "type": "string"
+                },
+                "name": {
                   "type": "string"
                 }
               }
@@ -4098,6 +4241,83 @@
                 },
                 "summary": {
                   "$ref": "#/components/schemas/DatabaseRowSummary"
+                }
+              }
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "CollectionWindow_DatabaseViewRecord": {
+        "type": "object",
+        "required": [
+          "items",
+          "authority"
+        ],
+        "properties": {
+          "authority": {
+            "$ref": "#/components/schemas/CollectionWindowAuthority"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "view_id",
+                "database_id",
+                "data_source_id",
+                "name",
+                "layout",
+                "definition",
+                "is_default",
+                "revision",
+                "rank_key",
+                "lifecycle",
+                "created_at",
+                "updated_at"
+              ],
+              "properties": {
+                "created_at": {
+                  "type": "string"
+                },
+                "data_source_id": {
+                  "type": "string"
+                },
+                "database_id": {
+                  "type": "string"
+                },
+                "definition": {
+                  "$ref": "#/components/schemas/DatabaseViewDefinition"
+                },
+                "is_default": {
+                  "type": "boolean"
+                },
+                "layout": {
+                  "$ref": "#/components/schemas/DatabaseViewLayout"
+                },
+                "lifecycle": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "rank_key": {
+                  "type": "string"
+                },
+                "revision": {
+                  "type": "integer",
+                  "format": "int64"
+                },
+                "updated_at": {
+                  "type": "string"
+                },
+                "view_id": {
+                  "type": "string"
                 }
               }
             }
@@ -4934,28 +5154,6 @@
           }
         }
       },
-      "CollectionWindow_Value": {
-        "type": "object",
-        "required": [
-          "items",
-          "authority"
-        ],
-        "properties": {
-          "authority": {
-            "$ref": "#/components/schemas/CollectionWindowAuthority"
-          },
-          "items": {
-            "type": "array",
-            "items": {}
-          },
-          "next_cursor": {
-            "type": [
-              "string",
-              "null"
-            ]
-          }
-        }
-      },
       "CommitIdentity": {
         "type": "object",
         "description": "Stable identity shared by every authorized representation of one semantic\nmutation. `manifest_hash` authenticates the immutable manifest; delivery\ncoverage and recipient identity are deliberately outside this coordinate.",
@@ -5777,6 +5975,123 @@
       "DatabaseApplyResponse": {
         "$ref": "#/components/schemas/ResponseEnvelope_ApplyResponse_DatabaseCommitValue_DatabaseReceipt"
       },
+      "DatabaseContainerRecord": {
+        "type": "object",
+        "required": [
+          "database_id",
+          "library_id",
+          "name",
+          "lifecycle",
+          "access_revision",
+          "metadata_revision",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "access_revision": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "database_id": {
+            "type": "string"
+          },
+          "default_view_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "library_id": {
+            "type": "string"
+          },
+          "lifecycle": {
+            "type": "string"
+          },
+          "metadata_revision": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "name": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        }
+      },
+      "DatabaseDataSourceDescriptor": {
+        "type": "object",
+        "required": [
+          "data_source"
+        ],
+        "properties": {
+          "data_source": {
+            "$ref": "#/components/schemas/DatabaseDataSourceRecord"
+          }
+        }
+      },
+      "DatabaseDataSourceRecord": {
+        "type": "object",
+        "required": [
+          "data_source_id",
+          "library_id",
+          "home_database_id",
+          "name",
+          "schema_key",
+          "schema_revision",
+          "lifecycle",
+          "rank_key",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string"
+          },
+          "data_source_id": {
+            "type": "string"
+          },
+          "home_database_id": {
+            "type": "string"
+          },
+          "library_id": {
+            "type": "string"
+          },
+          "lifecycle": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "rank_key": {
+            "type": "string"
+          },
+          "schema_key": {
+            "type": "string"
+          },
+          "schema_revision": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        }
+      },
+      "DatabaseDescriptor": {
+        "type": "object",
+        "required": [
+          "database"
+        ],
+        "properties": {
+          "database": {
+            "$ref": "#/components/schemas/DatabaseContainerRecord"
+          }
+        }
+      },
       "DatabaseEvent": {
         "type": "object",
         "required": [
@@ -5858,6 +6173,42 @@
           }
         ],
         "description": "Restricts a `ViewWindow` read to one stable primary/secondary group path.\nA null key addresses the unassigned value at that level."
+      },
+      "DatabaseIdentityTarget": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "project_default"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "database_id",
+              "kind"
+            ],
+            "properties": {
+              "database_id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "database"
+                ]
+              }
+            }
+          }
+        ]
       },
       "DatabaseIntent": {
         "oneOf": [
@@ -6935,29 +7286,6 @@
           }
         }
       },
-      "DatabaseReadMode": {
-        "type": "string",
-        "enum": [
-          "catalog_window",
-          "database",
-          "data_source_window",
-          "data_source",
-          "property_window",
-          "option_window",
-          "view_descriptor_window",
-          "view",
-          "agent_query",
-          "view_window",
-          "list_window",
-          "view_groups",
-          "view_context",
-          "rows_by_id",
-          "row_detail",
-          "relation_target_window",
-          "relation_candidate_window",
-          "view_personal_preferences"
-        ]
-      },
       "DatabaseReadRequest": {
         "$ref": "#/components/schemas/ModuleReadRequest_DatabaseRead"
       },
@@ -7187,7 +7515,7 @@
           }
         }
       },
-      "DatabaseTarget": {
+      "DatabaseRowsTarget": {
         "oneOf": [
           {
             "type": "object",
@@ -7206,64 +7534,6 @@
           {
             "type": "object",
             "required": [
-              "database_id",
-              "kind"
-            ],
-            "properties": {
-              "database_id": {
-                "type": "string"
-              },
-              "kind": {
-                "type": "string",
-                "enum": [
-                  "database"
-                ]
-              }
-            }
-          },
-          {
-            "type": "object",
-            "required": [
-              "data_source_id",
-              "kind"
-            ],
-            "properties": {
-              "data_source_id": {
-                "type": "string"
-              },
-              "kind": {
-                "type": "string",
-                "enum": [
-                  "data_source"
-                ]
-              }
-            }
-          },
-          {
-            "type": "object",
-            "required": [
-              "data_source_id",
-              "property_id",
-              "kind"
-            ],
-            "properties": {
-              "data_source_id": {
-                "type": "string"
-              },
-              "kind": {
-                "type": "string",
-                "enum": [
-                  "property"
-                ]
-              },
-              "property_id": {
-                "type": "string"
-              }
-            }
-          },
-          {
-            "type": "object",
-            "required": [
               "view_id",
               "kind"
             ],
@@ -7273,116 +7543,6 @@
                 "enum": [
                   "view"
                 ]
-              },
-              "view_id": {
-                "type": "string"
-              }
-            }
-          },
-          {
-            "type": "object",
-            "required": [
-              "view_id",
-              "presentation_override",
-              "kind"
-            ],
-            "properties": {
-              "kind": {
-                "type": "string",
-                "enum": [
-                  "presented_view"
-                ]
-              },
-              "presentation_override": {
-                "$ref": "#/components/schemas/DatabaseViewPresentationOverrideInput"
-              },
-              "view_id": {
-                "type": "string"
-              }
-            }
-          },
-          {
-            "type": "object",
-            "required": [
-              "page_id",
-              "kind"
-            ],
-            "properties": {
-              "kind": {
-                "type": "string",
-                "enum": [
-                  "page"
-                ]
-              },
-              "page_id": {
-                "type": "string"
-              }
-            }
-          },
-          {
-            "type": "object",
-            "required": [
-              "page_id",
-              "data_source_id",
-              "property_id",
-              "kind"
-            ],
-            "properties": {
-              "data_source_id": {
-                "type": "string"
-              },
-              "kind": {
-                "type": "string",
-                "enum": [
-                  "page_property"
-                ]
-              },
-              "page_id": {
-                "type": "string"
-              },
-              "property_id": {
-                "type": "string"
-              }
-            }
-          },
-          {
-            "type": "object",
-            "required": [
-              "data_source_id",
-              "query",
-              "kind"
-            ],
-            "properties": {
-              "data_source_id": {
-                "type": "string"
-              },
-              "kind": {
-                "type": "string",
-                "enum": [
-                  "agent_data_source"
-                ]
-              },
-              "query": {
-                "$ref": "#/components/schemas/DatabaseAgentQuery"
-              }
-            }
-          },
-          {
-            "type": "object",
-            "required": [
-              "view_id",
-              "query",
-              "kind"
-            ],
-            "properties": {
-              "kind": {
-                "type": "string",
-                "enum": [
-                  "agent_view"
-                ]
-              },
-              "query": {
-                "$ref": "#/components/schemas/DatabaseAgentQuery"
               },
               "view_id": {
                 "type": "string"
@@ -7535,8 +7695,12 @@
           "rows"
         ],
         "properties": {
-          "data_source": {},
-          "database": {},
+          "data_source": {
+            "$ref": "#/components/schemas/DatabaseDataSourceRecord"
+          },
+          "database": {
+            "$ref": "#/components/schemas/DatabaseContainerRecord"
+          },
           "groups": {
             "$ref": "#/components/schemas/DatabaseViewGroups"
           },
@@ -7552,7 +7716,9 @@
           "rows": {
             "$ref": "#/components/schemas/CollectionWindow_DatabaseViewContextRow"
           },
-          "view": {}
+          "view": {
+            "$ref": "#/components/schemas/DatabaseViewRecord"
+          }
         }
       },
       "DatabaseViewDefinition": {
@@ -8159,6 +8325,138 @@
                 "$ref": "#/components/schemas/DatabaseViewGroupOverrideInput"
               }
             ]
+          }
+        }
+      },
+      "DatabaseViewReadTarget": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "project_default"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "database_id",
+              "kind"
+            ],
+            "properties": {
+              "database_id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "database"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "view_id",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "view"
+                ]
+              },
+              "view_id": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "view_id",
+              "presentation_override",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "presented_view"
+                ]
+              },
+              "presentation_override": {
+                "$ref": "#/components/schemas/DatabaseViewPresentationOverrideInput"
+              },
+              "view_id": {
+                "type": "string"
+              }
+            }
+          }
+        ]
+      },
+      "DatabaseViewRecord": {
+        "type": "object",
+        "required": [
+          "view_id",
+          "database_id",
+          "data_source_id",
+          "name",
+          "layout",
+          "definition",
+          "is_default",
+          "revision",
+          "rank_key",
+          "lifecycle",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string"
+          },
+          "data_source_id": {
+            "type": "string"
+          },
+          "database_id": {
+            "type": "string"
+          },
+          "definition": {
+            "$ref": "#/components/schemas/DatabaseViewDefinition"
+          },
+          "is_default": {
+            "type": "boolean"
+          },
+          "layout": {
+            "$ref": "#/components/schemas/DatabaseViewLayout"
+          },
+          "lifecycle": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "rank_key": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "updated_at": {
+            "type": "string"
+          },
+          "view_id": {
+            "type": "string"
           }
         }
       },
@@ -20320,56 +20618,432 @@
             "minimum": 0
           },
           "read": {
-            "type": "object",
-            "required": [
-              "target",
-              "mode"
-            ],
-            "properties": {
-              "filter": {},
-              "group_scope": {
-                "oneOf": [
-                  {
-                    "type": "null"
-                  },
-                  {
-                    "$ref": "#/components/schemas/DatabaseGroupScope"
-                  }
-                ]
-              },
-              "mode": {
-                "$ref": "#/components/schemas/DatabaseReadMode"
-              },
-              "page_ids": {
-                "type": [
-                  "array",
-                  "null"
+            "oneOf": [
+              {
+                "type": "object",
+                "required": [
+                  "window",
+                  "kind"
                 ],
-                "items": {
-                  "type": "string"
-                }
-              },
-              "sort": {
-                "type": [
-                  "array",
-                  "null"
-                ],
-                "items": {}
-              },
-              "target": {
-                "$ref": "#/components/schemas/DatabaseTarget"
-              },
-              "window": {
-                "oneOf": [
-                  {
-                    "type": "null"
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "catalog_window"
+                    ]
                   },
-                  {
+                  "window": {
                     "$ref": "#/components/schemas/CollectionWindowRequest"
                   }
-                ]
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "target",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "database"
+                    ]
+                  },
+                  "target": {
+                    "$ref": "#/components/schemas/DatabaseIdentityTarget"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "database_id",
+                  "window",
+                  "kind"
+                ],
+                "properties": {
+                  "database_id": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "data_source_window"
+                    ]
+                  },
+                  "window": {
+                    "$ref": "#/components/schemas/CollectionWindowRequest"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "data_source_id",
+                  "kind"
+                ],
+                "properties": {
+                  "data_source_id": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "data_source"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "data_source_id",
+                  "window",
+                  "kind"
+                ],
+                "properties": {
+                  "data_source_id": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "property_window"
+                    ]
+                  },
+                  "window": {
+                    "$ref": "#/components/schemas/CollectionWindowRequest"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "data_source_id",
+                  "property_id",
+                  "window",
+                  "kind"
+                ],
+                "properties": {
+                  "data_source_id": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "option_window"
+                    ]
+                  },
+                  "property_id": {
+                    "type": "string"
+                  },
+                  "window": {
+                    "$ref": "#/components/schemas/CollectionWindowRequest"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "database_id",
+                  "window",
+                  "kind"
+                ],
+                "properties": {
+                  "database_id": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "view_descriptor_window"
+                    ]
+                  },
+                  "window": {
+                    "$ref": "#/components/schemas/CollectionWindowRequest"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "view_id",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "view"
+                    ]
+                  },
+                  "view_id": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "data_source_id",
+                  "query",
+                  "kind"
+                ],
+                "properties": {
+                  "data_source_id": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "agent_data_source_query"
+                    ]
+                  },
+                  "query": {
+                    "$ref": "#/components/schemas/DatabaseAgentQuery"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "view_id",
+                  "query",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "agent_view_query"
+                    ]
+                  },
+                  "query": {
+                    "$ref": "#/components/schemas/DatabaseAgentQuery"
+                  },
+                  "view_id": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "target",
+                  "window",
+                  "kind"
+                ],
+                "properties": {
+                  "group_scope": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/DatabaseGroupScope"
+                      }
+                    ]
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "view_window"
+                    ]
+                  },
+                  "target": {
+                    "$ref": "#/components/schemas/DatabaseViewReadTarget"
+                  },
+                  "window": {
+                    "$ref": "#/components/schemas/CollectionWindowRequest"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "target",
+                  "window",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "list_window"
+                    ]
+                  },
+                  "target": {
+                    "$ref": "#/components/schemas/DatabaseViewReadTarget"
+                  },
+                  "window": {
+                    "$ref": "#/components/schemas/CollectionWindowRequest"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "target",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "view_groups"
+                    ]
+                  },
+                  "target": {
+                    "$ref": "#/components/schemas/DatabaseViewReadTarget"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "view_id",
+                  "window",
+                  "kind"
+                ],
+                "properties": {
+                  "group_scope": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/DatabaseGroupScope"
+                      }
+                    ]
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "view_context"
+                    ]
+                  },
+                  "view_id": {
+                    "type": "string"
+                  },
+                  "window": {
+                    "$ref": "#/components/schemas/CollectionWindowRequest"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "target",
+                  "page_ids",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "rows_by_id"
+                    ]
+                  },
+                  "page_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "target": {
+                    "$ref": "#/components/schemas/DatabaseRowsTarget"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "page_id",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "row_detail"
+                    ]
+                  },
+                  "page_id": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "address",
+                  "window",
+                  "kind"
+                ],
+                "properties": {
+                  "address": {
+                    "$ref": "#/components/schemas/DatabasePagePropertyAddress"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "relation_target_window"
+                    ]
+                  },
+                  "window": {
+                    "$ref": "#/components/schemas/CollectionWindowRequest"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "data_source_id",
+                  "window",
+                  "kind"
+                ],
+                "properties": {
+                  "data_source_id": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "relation_candidate_window"
+                    ]
+                  },
+                  "query": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "window": {
+                    "$ref": "#/components/schemas/CollectionWindowRequest"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "view_id",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "view_personal_preferences"
+                    ]
+                  },
+                  "view_id": {
+                    "type": "string"
+                  }
+                }
               }
-            }
+            ],
+            "description": "One discriminated Database read command. Each variant carries only the\ncoordinates accepted by that read, so target/mode/optional-field\ncross-products cannot cross the module boundary."
           }
         }
       },
@@ -26676,7 +27350,7 @@
                         ],
                         "properties": {
                           "databases": {
-                            "$ref": "#/components/schemas/CollectionWindow_Value"
+                            "$ref": "#/components/schemas/CollectionWindow_DatabaseDescriptor"
                           },
                           "kind": {
                             "type": "string",
@@ -26699,7 +27373,9 @@
                               "database"
                             ]
                           },
-                          "value": {}
+                          "value": {
+                            "$ref": "#/components/schemas/DatabaseDescriptor"
+                          }
                         }
                       },
                       {
@@ -26710,7 +27386,7 @@
                         ],
                         "properties": {
                           "data_sources": {
-                            "$ref": "#/components/schemas/CollectionWindow_Value"
+                            "$ref": "#/components/schemas/CollectionWindow_DatabaseDataSourceRecord"
                           },
                           "kind": {
                             "type": "string",
@@ -26733,7 +27409,9 @@
                               "data_source"
                             ]
                           },
-                          "value": {}
+                          "value": {
+                            "$ref": "#/components/schemas/DatabaseDataSourceDescriptor"
+                          }
                         }
                       },
                       {
@@ -26768,7 +27446,7 @@
                             ]
                           },
                           "options": {
-                            "$ref": "#/components/schemas/CollectionWindow_Value"
+                            "$ref": "#/components/schemas/CollectionWindow_DatabasePropertyOption"
                           }
                         }
                       },
@@ -26786,7 +27464,7 @@
                             ]
                           },
                           "views": {
-                            "$ref": "#/components/schemas/CollectionWindow_Value"
+                            "$ref": "#/components/schemas/CollectionWindow_DatabaseViewRecord"
                           }
                         }
                       },
@@ -26803,7 +27481,9 @@
                               "view"
                             ]
                           },
-                          "value": {}
+                          "value": {
+                            "$ref": "#/components/schemas/DatabaseViewRecord"
+                          }
                         }
                       },
                       {

@@ -13,7 +13,7 @@ export const CORE_CLIENT_REQUIREMENTS = {
     },
     {
       "module": "database",
-      "contract_version": 13
+      "contract_version": 14
     },
     {
       "module": "owned_document",

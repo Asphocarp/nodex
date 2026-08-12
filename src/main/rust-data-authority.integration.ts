@@ -2170,8 +2170,7 @@ describe("Electron native data authority", () => {
       expect(listCurrentProcessFiles()).not.toContain(databasePath);
       await expect(
         runtime.clientForProject(projectId).databaseRead({
-          target: { kind: "project_default" },
-          mode: "catalog_window",
+          kind: "catalog_window",
           window: { after: null, first: 10 },
         }),
       ).resolves.toMatchObject({ value: { kind: "catalog_window" } });
