@@ -1590,11 +1590,21 @@ export interface components {
             /** Format: int64 */
             readonly ordinary_json_response_bytes: number;
         };
-        readonly DatabaseAgentQuery: {
+        readonly DatabaseAgentDataSourceQuery: {
+            readonly authorization: components["schemas"]["AgentExecutionAuthorization"];
+            readonly cursor?: string | null;
+            readonly filter: components["schemas"]["DatabaseViewFilter"];
+            /** Format: int32 */
+            readonly limit?: number | null;
+            readonly projection_property_ids?: readonly string[] | null;
+            readonly sort: readonly components["schemas"]["DatabaseViewSort"][];
+        };
+        readonly DatabaseAgentViewQuery: {
             readonly authorization: components["schemas"]["AgentExecutionAuthorization"];
             readonly cursor?: string | null;
             /** Format: int32 */
             readonly limit?: number | null;
+            readonly projection_property_ids?: readonly string[] | null;
         };
         readonly DatabaseApplyRequest: components["schemas"]["ModuleApplyRequest_Vec_DatabaseIntent"];
         readonly DatabaseApplyResponse: components["schemas"]["ResponseEnvelope_ApplyResponse_DatabaseCommitValue_DatabaseReceipt"];
@@ -1613,6 +1623,12 @@ export interface components {
         };
         readonly DatabaseDataSourceDescriptor: {
             readonly data_source: components["schemas"]["DatabaseDataSourceRecord"];
+        };
+        readonly DatabaseDataSourceQueryWindow: {
+            readonly data_source_id: string;
+            readonly database_id: string;
+            readonly projection: components["schemas"]["ProjectionSnapshotAuthority"];
+            readonly rows: components["schemas"]["CollectionWindow_DatabaseRowSummary"];
         };
         readonly DatabaseDataSourceRecord: {
             readonly created_at: string;
@@ -5193,11 +5209,11 @@ export interface components {
                 readonly data_source_id: string;
                 /** @enum {string} */
                 readonly kind: "agent_data_source_query";
-                readonly query: components["schemas"]["DatabaseAgentQuery"];
+                readonly query: components["schemas"]["DatabaseAgentDataSourceQuery"];
             } | {
                 /** @enum {string} */
                 readonly kind: "agent_view_query";
-                readonly query: components["schemas"]["DatabaseAgentQuery"];
+                readonly query: components["schemas"]["DatabaseAgentViewQuery"];
                 readonly view_id: string;
             } | {
                 readonly group_scope?: null | components["schemas"]["DatabaseGroupScope"];
@@ -6657,7 +6673,11 @@ export interface components {
                     readonly value: components["schemas"]["DatabaseViewRecord"];
                 } | {
                     /** @enum {string} */
-                    readonly kind: "agent_query";
+                    readonly kind: "agent_data_source_query";
+                    readonly value: components["schemas"]["DatabaseDataSourceQueryWindow"];
+                } | {
+                    /** @enum {string} */
+                    readonly kind: "agent_view_query";
                     readonly value: components["schemas"]["DatabaseViewWindow"];
                 } | {
                     /** @enum {string} */

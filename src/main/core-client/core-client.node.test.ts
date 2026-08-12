@@ -459,10 +459,13 @@ describe("CoreClient over a Unix socket", () => {
           },
           cursor: null,
           limit: 1,
+          projection_property_ids: null,
+          filter: { kind: "group", operator: "and", children: [] },
+          sort: [],
         },
       });
       expect(agentDatabaseQuery.value).toMatchObject({
-        kind: "agent_query",
+        kind: "agent_data_source_query",
         value: {
           data_source_id: dataSourceId,
           rows: {

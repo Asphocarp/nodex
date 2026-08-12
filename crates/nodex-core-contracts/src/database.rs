@@ -9,7 +9,7 @@ use crate::collection::{CollectionWindow, CollectionWindowRequest};
 use crate::events::ProjectionSnapshotAuthority;
 use crate::{ModuleMutationReceipt, ModuleName, VersionedModuleContract};
 
-pub const DATABASE_CONTRACT_VERSION: u32 = 15;
+pub const DATABASE_CONTRACT_VERSION: u32 = 16;
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
@@ -339,10 +339,22 @@ pub enum DatabaseGroupScope {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
-pub struct DatabaseAgentQuery {
+pub struct DatabaseAgentViewQuery {
     pub authorization: AgentExecutionAuthorization,
     pub cursor: Option<String>,
     pub limit: Option<u32>,
+    pub projection_property_ids: Option<Vec<String>>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct DatabaseAgentDataSourceQuery {
+    pub authorization: AgentExecutionAuthorization,
+    pub cursor: Option<String>,
+    pub limit: Option<u32>,
+    pub projection_property_ids: Option<Vec<String>>,
+    pub filter: DatabaseViewFilter,
+    pub sort: Vec<DatabaseViewSort>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -412,11 +424,11 @@ pub enum DatabaseRead {
     },
     AgentDataSourceQuery {
         data_source_id: String,
-        query: DatabaseAgentQuery,
+        query: DatabaseAgentDataSourceQuery,
     },
     AgentViewQuery {
         view_id: String,
-        query: DatabaseAgentQuery,
+        query: DatabaseAgentViewQuery,
     },
     ViewWindow {
         target: DatabaseViewReadTarget,
@@ -546,7 +558,10 @@ pub enum DatabaseReadValue {
     View {
         value: DatabaseViewRecord,
     },
-    AgentQuery {
+    AgentDataSourceQuery {
+        value: DatabaseDataSourceQueryWindow,
+    },
+    AgentViewQuery {
         value: DatabaseViewWindow,
     },
     ViewWindow {
@@ -674,6 +689,14 @@ pub struct DatabaseViewWindow {
     pub database_id: String,
     pub data_source_id: String,
     pub view_id: String,
+    pub projection: ProjectionSnapshotAuthority,
+    pub rows: CollectionWindow<DatabaseRowSummary>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct DatabaseDataSourceQueryWindow {
+    pub database_id: String,
+    pub data_source_id: String,
     pub projection: ProjectionSnapshotAuthority,
     pub rows: CollectionWindow<DatabaseRowSummary>,
 }

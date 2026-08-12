@@ -5935,7 +5935,53 @@
           }
         }
       },
-      "DatabaseAgentQuery": {
+      "DatabaseAgentDataSourceQuery": {
+        "type": "object",
+        "required": [
+          "authorization",
+          "filter",
+          "sort"
+        ],
+        "properties": {
+          "authorization": {
+            "$ref": "#/components/schemas/AgentExecutionAuthorization"
+          },
+          "cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "filter": {
+            "$ref": "#/components/schemas/DatabaseViewFilter"
+          },
+          "limit": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "projection_property_ids": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "sort": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DatabaseViewSort"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "DatabaseAgentViewQuery": {
         "type": "object",
         "required": [
           "authorization"
@@ -5957,6 +6003,15 @@
             ],
             "format": "int32",
             "minimum": 0
+          },
+          "projection_property_ids": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
           }
         }
       },
@@ -6021,6 +6076,29 @@
         "properties": {
           "data_source": {
             "$ref": "#/components/schemas/DatabaseDataSourceRecord"
+          }
+        }
+      },
+      "DatabaseDataSourceQueryWindow": {
+        "type": "object",
+        "required": [
+          "database_id",
+          "data_source_id",
+          "projection",
+          "rows"
+        ],
+        "properties": {
+          "data_source_id": {
+            "type": "string"
+          },
+          "database_id": {
+            "type": "string"
+          },
+          "projection": {
+            "$ref": "#/components/schemas/ProjectionSnapshotAuthority"
+          },
+          "rows": {
+            "$ref": "#/components/schemas/CollectionWindow_DatabaseRowSummary"
           }
         }
       },
@@ -20927,7 +21005,7 @@
                     ]
                   },
                   "query": {
-                    "$ref": "#/components/schemas/DatabaseAgentQuery"
+                    "$ref": "#/components/schemas/DatabaseAgentDataSourceQuery"
                   }
                 }
               },
@@ -20946,7 +21024,7 @@
                     ]
                   },
                   "query": {
-                    "$ref": "#/components/schemas/DatabaseAgentQuery"
+                    "$ref": "#/components/schemas/DatabaseAgentViewQuery"
                   },
                   "view_id": {
                     "type": "string"
@@ -27640,7 +27718,25 @@
                           "kind": {
                             "type": "string",
                             "enum": [
-                              "agent_query"
+                              "agent_data_source_query"
+                            ]
+                          },
+                          "value": {
+                            "$ref": "#/components/schemas/DatabaseDataSourceQueryWindow"
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "value",
+                          "kind"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "agent_view_query"
                             ]
                           },
                           "value": {

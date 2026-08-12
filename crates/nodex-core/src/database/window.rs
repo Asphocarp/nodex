@@ -5,17 +5,19 @@ use nodex_core_contracts::collection::{
     CollectionWindow, CollectionWindowAuthority, CollectionWindowRequest,
 };
 use nodex_core_contracts::database::{
-    DatabaseGroupScope, DatabaseListGroupSummary, DatabaseListProjectionRow,
-    DatabaseListTransientKind, DatabaseListWindow, DatabaseRowDetail, DatabaseRowSummary,
-    DatabaseRowsById, DatabaseViewCompletedRange, DatabaseViewCompletedRangeInput,
-    DatabaseViewCompletion, DatabaseViewContextRow, DatabaseViewDefinition, DatabaseViewField,
-    DatabaseViewFieldInput, DatabaseViewFilter, DatabaseViewFilterGroupOperator,
-    DatabaseViewFilterOperator, DatabaseViewGroup, DatabaseViewGroupOverrideInput,
-    DatabaseViewGroupSummary, DatabaseViewGroups, DatabaseViewIntrinsicField, DatabaseViewLayout,
-    DatabaseViewLayoutInput, DatabaseViewNullOrder, DatabaseViewNullOrderInput,
-    DatabaseViewPresentation, DatabaseViewPresentationOverrideInput, DatabaseViewSort,
-    DatabaseViewSortDirection, DatabaseViewSortDirectionInput, DatabaseViewSortField,
-    DatabaseViewSortFieldInput, DatabaseViewWindow, MAX_VIEW_GROUP_SUMMARIES,
+    DatabaseAgentDataSourceQuery, DatabaseDataSourceQueryWindow, DatabaseGroupScope,
+    DatabaseListGroupSummary, DatabaseListProjectionRow, DatabaseListTransientKind,
+    DatabaseListWindow, DatabaseRowDetail, DatabaseRowSummary, DatabaseRowsById,
+    DatabaseViewCompletedRange, DatabaseViewCompletedRangeInput, DatabaseViewCompletion,
+    DatabaseViewContextRow, DatabaseViewDefinition, DatabaseViewField, DatabaseViewFieldInput,
+    DatabaseViewFilter, DatabaseViewFilterGroupOperator, DatabaseViewFilterOperator,
+    DatabaseViewGroup, DatabaseViewGroupOverrideInput, DatabaseViewGroupSummary,
+    DatabaseViewGroups, DatabaseViewHierarchy, DatabaseViewIntrinsicField, DatabaseViewLayout,
+    DatabaseViewLayoutDisplay, DatabaseViewLayoutInput, DatabaseViewLayouts, DatabaseViewNullOrder,
+    DatabaseViewNullOrderInput, DatabaseViewPresentation, DatabaseViewPresentationOverrideInput,
+    DatabaseViewSort, DatabaseViewSortDirection, DatabaseViewSortDirectionInput,
+    DatabaseViewSortField, DatabaseViewSortFieldInput, DatabaseViewWindow,
+    MAX_VIEW_GROUP_SUMMARIES,
 };
 use nodex_core_contracts::events::{LocalProjectionScope, ProjectionSnapshotAuthority};
 use rusqlite::types::Value as SqlValue;
@@ -60,6 +62,14 @@ struct ResolvedView {
     completion_cutoff: Option<String>,
     layout: ViewLayout,
     config: ViewConfig,
+    query_scope: RowQueryScope,
+}
+
+#[derive(Clone, Copy, Debug, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum RowQueryScope {
+    View,
+    DataSource,
 }
 
 pub(super) struct ViewContextProjection {
@@ -143,6 +153,80 @@ pub(super) fn view_window(
         read.group_scope,
         projection,
     )
+}
+
+pub(super) fn agent_view_window(
+    connection: &Connection,
+    library_id: &str,
+    view_id: &str,
+    projection_property_ids: Option<&[String]>,
+    read: ViewWindowRead<'_>,
+) -> Result<DatabaseViewWindow, StoreError> {
+    let view = resolve_view(connection, library_id, view_id)?;
+    let projection_property_ids = resolve_agent_projection_property_ids(
+        connection,
+        &view.data_source_id,
+        projection_property_ids,
+    )?;
+    let projection = projection_snapshot_authority(
+        connection,
+        library_id,
+        read.store_epoch,
+        read.commit_head,
+        read.project_id,
+        &view,
+    )?;
+    view_window_for_projecting(
+        connection,
+        library_id,
+        read.commit_head,
+        &view,
+        read.window,
+        None,
+        projection,
+        &projection_property_ids,
+    )
+}
+
+pub(super) fn agent_data_source_window(
+    connection: &Connection,
+    library_id: &str,
+    data_source_id: &str,
+    query: &DatabaseAgentDataSourceQuery,
+    read: ViewWindowRead<'_>,
+) -> Result<DatabaseDataSourceQueryWindow, StoreError> {
+    let project_id = read
+        .project_id
+        .ok_or_else(|| unauthorized("Agent Data Source query requires a bound Project"))?;
+    let view =
+        resolve_agent_data_source_query(connection, library_id, project_id, data_source_id, query)?;
+    let projection_property_ids = resolve_agent_projection_property_ids(
+        connection,
+        data_source_id,
+        query.projection_property_ids.as_deref(),
+    )?;
+    let projection = data_source_projection_snapshot_authority(
+        connection,
+        read.store_epoch,
+        read.commit_head,
+        project_id,
+        &view,
+    )?;
+    let rows = row_window_for(
+        connection,
+        library_id,
+        read.commit_head,
+        &view,
+        read.window,
+        None,
+        &projection_property_ids,
+    )?;
+    Ok(DatabaseDataSourceQueryWindow {
+        database_id: view.database_id,
+        data_source_id: view.data_source_id,
+        projection,
+        rows,
+    })
 }
 
 pub(super) fn presented_view_window(
@@ -1104,17 +1188,72 @@ fn view_window_for(
     group_scope: Option<&DatabaseGroupScope>,
     projection: ProjectionSnapshotAuthority,
 ) -> Result<DatabaseViewWindow, StoreError> {
+    view_window_for_projecting(
+        connection,
+        library_id,
+        commit_head,
+        view,
+        request,
+        group_scope,
+        projection,
+        &BTreeSet::new(),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn view_window_for_projecting(
+    connection: &Connection,
+    library_id: &str,
+    commit_head: i64,
+    view: &ResolvedView,
+    request: &CollectionWindowRequest,
+    group_scope: Option<&DatabaseGroupScope>,
+    projection: ProjectionSnapshotAuthority,
+    projection_property_ids: &BTreeSet<String>,
+) -> Result<DatabaseViewWindow, StoreError> {
+    let rows = row_window_for(
+        connection,
+        library_id,
+        commit_head,
+        view,
+        request,
+        group_scope,
+        projection_property_ids,
+    )?;
+    Ok(DatabaseViewWindow {
+        database_id: view.database_id.clone(),
+        data_source_id: view.data_source_id.clone(),
+        view_id: view.view_id.clone(),
+        projection,
+        rows,
+    })
+}
+
+fn row_window_for(
+    connection: &Connection,
+    library_id: &str,
+    commit_head: i64,
+    view: &ResolvedView,
+    request: &CollectionWindowRequest,
+    group_scope: Option<&DatabaseGroupScope>,
+    projection_property_ids: &BTreeSet<String>,
+) -> Result<CollectionWindow<DatabaseRowSummary>, StoreError> {
     let normalized = normalize_request(request)?;
     let fingerprint = cursor::query_fingerprint(&(
         "database_view_window_v2",
+        view.query_scope,
         &view.view_id,
         &view.data_source_id,
         &view.config,
         &view.completion_cutoff,
         group_scope,
+        projection_property_ids,
     ))?;
     let subject = CollectionCursorSubject {
-        kind: "database_view_rows",
+        kind: match view.query_scope {
+            RowQueryScope::View => "database_view_rows",
+            RowQueryScope::DataSource => "database_data_source_query_rows",
+        },
         library_id,
         query_fingerprint: &fingerprint,
     };
@@ -1161,7 +1300,7 @@ fn view_window_for(
     let filter = compile_filter(&view.config.filter, &mut parameters, 1, &mut 0)?;
     let completion = compile_completion_predicate(view, &mut parameters)?;
     let (database_values_projection, property_revisions_projection) =
-        compact_value_projections(&view.config, &mut parameters)?;
+        compact_value_projections_with(&view.config, projection_property_ids, &mut parameters)?;
     let effective_group_select = effective_group.as_deref().unwrap_or("NULL");
     let effective_subgroup_select = effective_subgroup.as_deref().unwrap_or("NULL");
     let sort_projection = sort_components
@@ -1283,13 +1422,7 @@ fn view_window_for(
             )
         },
     )?;
-    Ok(DatabaseViewWindow {
-        database_id: view.database_id.clone(),
-        data_source_id: view.data_source_id.clone(),
-        view_id: view.view_id.clone(),
-        projection,
-        rows,
-    })
+    Ok(rows)
 }
 
 fn projection_snapshot_authority(
@@ -1312,6 +1445,29 @@ fn projection_snapshot_authority(
         },
     };
     let scope = crate::infrastructure::projection_scope_head::canonical_scope_key(scope)?;
+    let head = crate::infrastructure::projection_scope_head::read(connection, store_epoch, &scope)?;
+    Ok(ProjectionSnapshotAuthority {
+        scope,
+        revision: head.as_ref().map_or(0, |value| value.revision),
+        covered_commit_seq: commit_head,
+        effect_hash: head.map(|value| value.effect_hash),
+    })
+}
+
+fn data_source_projection_snapshot_authority(
+    connection: &Connection,
+    store_epoch: &str,
+    commit_head: i64,
+    project_id: &str,
+    view: &ResolvedView,
+) -> Result<ProjectionSnapshotAuthority, StoreError> {
+    let scope = crate::infrastructure::projection_scope_head::canonical_scope_key(
+        LocalProjectionScope::PageDetailDataSource {
+            project_id: project_id.to_owned(),
+            database_id: view.database_id.clone(),
+            data_source_id: view.data_source_id.clone(),
+        },
+    )?;
     let head = crate::infrastructure::projection_scope_head::read(connection, store_epoch, &scope)?;
     Ok(ProjectionSnapshotAuthority {
         scope,
@@ -2100,6 +2256,7 @@ fn resolve_view(
                     completion_cutoff: None,
                     layout,
                     config,
+                    query_scope: RowQueryScope::View,
                 };
                 refresh_effective_presentation(connection, &mut view)?;
                 Ok(view)
@@ -2107,6 +2264,147 @@ fn resolve_view(
         )
         .transpose()?
         .ok_or_else(|| not_found("Database View is unavailable"))
+}
+
+fn resolve_agent_data_source_query(
+    connection: &Connection,
+    library_id: &str,
+    project_id: &str,
+    data_source_id: &str,
+    query: &DatabaseAgentDataSourceQuery,
+) -> Result<ResolvedView, StoreError> {
+    validate_identity(data_source_id, "Data Source identity")?;
+    if query
+        .sort
+        .iter()
+        .any(|rule| matches!(&rule.field, DatabaseViewSortField::Manual))
+    {
+        return Err(invalid(
+            "Transient Data Source queries cannot use View manual order",
+        ));
+    }
+    let source = connection
+        .query_row(
+            "SELECT source.home_database_block_id, source.schema_revision, source.lifecycle, \
+               container.lifecycle, \
+               EXISTS(SELECT 1 FROM data_source_properties status_property \
+                 WHERE status_property.data_source_id = source.id \
+                   AND status_property.id = 'status' \
+                   AND status_property.value_type = 'select' \
+                   AND status_property.lifecycle = 'active') \
+             FROM data_sources source \
+             JOIN database_containers container \
+               ON container.block_id = source.home_database_block_id \
+              AND container.library_id = source.library_id \
+             WHERE source.id = ?1 AND source.library_id = ?2",
+            params![data_source_id, library_id],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, bool>(4)?,
+                ))
+            },
+        )
+        .optional()?
+        .ok_or_else(|| not_found("Data Source is unavailable"))?;
+    let (database_id, revision, source_lifecycle, database_lifecycle, task_status_capable) = source;
+    if source_lifecycle != "active" || database_lifecycle != "active" {
+        return Err(not_found("Data Source is not active"));
+    }
+    let empty_layout = DatabaseViewLayoutDisplay {
+        fields: Vec::new(),
+        show_empty_groups: false,
+    };
+    let definition = DatabaseViewDefinition {
+        filter: query.filter.clone(),
+        presentation: DatabaseViewPresentation {
+            sort: query.sort.clone(),
+            group: None,
+            subgroup: None,
+            group_direction: DatabaseViewSortDirection::Asc,
+            completion: DatabaseViewCompletion {
+                range: DatabaseViewCompletedRange::All,
+                order_by_recency: false,
+            },
+            hierarchy: DatabaseViewHierarchy {
+                show_sub_pages: false,
+                nested_sub_pages: false,
+            },
+            layouts: DatabaseViewLayouts {
+                board: empty_layout.clone(),
+                list: empty_layout,
+            },
+        },
+    };
+    super::mutation::validate_view_definition(
+        connection,
+        library_id,
+        project_id,
+        data_source_id,
+        &definition,
+        false,
+    )?;
+    let mut view = ResolvedView {
+        database_id,
+        data_source_id: data_source_id.to_owned(),
+        view_id: format!(
+            "agent-data-source:{}",
+            hex::encode(Sha256::digest(data_source_id.as_bytes()))
+        ),
+        revision,
+        exact_primary_board_config: false,
+        task_status_capable,
+        completion_cutoff: None,
+        layout: DatabaseViewLayout::List,
+        config: definition,
+        query_scope: RowQueryScope::DataSource,
+    };
+    refresh_effective_presentation(connection, &mut view)?;
+    Ok(view)
+}
+
+fn resolve_agent_projection_property_ids(
+    connection: &Connection,
+    data_source_id: &str,
+    requested: Option<&[String]>,
+) -> Result<BTreeSet<String>, StoreError> {
+    let active = connection
+        .prepare(
+            "SELECT id FROM data_source_properties \
+             WHERE data_source_id = ?1 AND lifecycle = 'active' ORDER BY id",
+        )?
+        .query_map([data_source_id], |row| row.get::<_, String>(0))?
+        .collect::<rusqlite::Result<BTreeSet<_>>>()?;
+    if active
+        .iter()
+        .any(|property_id| !super::property_semantics::is_canonical_property_id(property_id))
+    {
+        return Err(corrupt("Stored Property ID is not canonical"));
+    }
+    let Some(requested) = requested else {
+        return Ok(active);
+    };
+    if requested.len() > super::MAX_DATA_SOURCE_PROPERTIES {
+        return Err(invalid("Agent query projects too many Properties"));
+    }
+    let requested_count = requested.len();
+    let requested = requested.iter().cloned().collect::<BTreeSet<_>>();
+    if requested.len() != requested_count {
+        return Err(invalid("Agent query repeats a projected Property"));
+    }
+    if requested
+        .iter()
+        .any(|property_id| !super::property_semantics::is_canonical_property_id(property_id))
+    {
+        return Err(invalid("Agent query Property ID is not canonical"));
+    }
+    if !requested.is_subset(&active) {
+        return Err(not_found("Agent query references an unavailable Property"));
+    }
+    Ok(requested)
 }
 
 fn normalize_completion_capability(completion: &mut ViewCompletion, supported: bool) {
@@ -2532,7 +2830,15 @@ fn compact_value_projections(
     config: &ViewConfig,
     parameters: &mut Vec<SqlValue>,
 ) -> Result<(String, String), StoreError> {
-    let property_ids = projected_property_ids(config)?;
+    compact_value_projections_with(config, &BTreeSet::new(), parameters)
+}
+
+fn compact_value_projections_with(
+    config: &ViewConfig,
+    additional_property_ids: &BTreeSet<String>,
+    parameters: &mut Vec<SqlValue>,
+) -> Result<(String, String), StoreError> {
+    let property_ids = projected_property_ids_with(config, additional_property_ids)?;
     if property_ids.is_empty() {
         return Ok(("'{}'".to_owned(), "'{\"database\":{}}'".to_owned()));
     }
@@ -2560,6 +2866,13 @@ fn compact_value_projections(
 }
 
 fn projected_property_ids(config: &ViewConfig) -> Result<BTreeSet<String>, StoreError> {
+    projected_property_ids_with(config, &BTreeSet::new())
+}
+
+fn projected_property_ids_with(
+    config: &ViewConfig,
+    additional_property_ids: &BTreeSet<String>,
+) -> Result<BTreeSet<String>, StoreError> {
     let mut property_ids = BTreeSet::new();
     for layout in [
         &config.presentation.layouts.board,
@@ -2581,6 +2894,7 @@ fn projected_property_ids(config: &ViewConfig) -> Result<BTreeSet<String>, Store
             .into_iter()
             .map(str::to_owned),
     );
+    property_ids.extend(additional_property_ids.iter().cloned());
     for property_id in &property_ids {
         validate_property_id(property_id)?;
     }
@@ -3084,6 +3398,10 @@ fn parse_json_value(value: String, label: &str) -> rusqlite::Result<Value> {
 
 fn invalid(message: &str) -> StoreError {
     StoreError::new(StoreErrorCode::InvalidInput, message, false)
+}
+
+fn unauthorized(message: &str) -> StoreError {
+    StoreError::new(StoreErrorCode::Unauthorized, message, false)
 }
 
 fn not_found(message: &str) -> StoreError {

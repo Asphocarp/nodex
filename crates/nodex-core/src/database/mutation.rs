@@ -4285,7 +4285,8 @@ fn disclosure_target_from_storage(
     }
 }
 
-fn validate_view_definition(
+/// Shared semantic validation for durable Views and transient Data Source queries.
+pub(super) fn validate_view_definition(
     connection: &Connection,
     library_id: &str,
     project_id: &str,

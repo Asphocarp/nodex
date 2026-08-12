@@ -11,7 +11,10 @@ import type {
 } from "../../shared/nodex-agent-tools";
 import { QueryDatabaseV3OutputSchema } from "../../shared/nodex-agent-tools/v3-read-schemas";
 import { projectNodexAgentQueryV3Data } from "../agent-tools/query-v3-projection";
-import { projectCoreDatabaseViewQuery } from "../../shared/database-page-projection";
+import {
+  projectCoreDatabaseViewQuery,
+  projectCoreDataSourceQuery,
+} from "../../shared/database-page-projection";
 import type { RustDataAuthorityRuntime } from "./desktop-data-authority";
 import { toCoreAgentExecutionAuthorization } from "./desktop-nodex-agent-resource-authority";
 import { mapNativeNodexAgentCoreError } from "./native-nodex-agent-page-update";
@@ -44,25 +47,37 @@ export async function readNativeDatabaseQuery(
       request.callId ?? `nodex-agent:${request.tool}`,
       request.resourceAccess,
     );
-    const agentQuery = {
+    const commonQuery = {
       authorization,
       cursor: request.input.page?.cursor ?? null,
       limit: request.input.page?.limit ?? null,
+      projection_property_ids: request.input.select?.propertyIds ?? null,
     };
     const snapshot = await runtime.clientForProject(request.projectId).databaseRead(
       request.tool === "query_database_view"
         ? {
             kind: "agent_view_query",
             view_id: request.input.viewId,
-            query: agentQuery,
+            query: commonQuery,
           }
         : {
             kind: "agent_data_source_query",
             data_source_id: request.input.dataSourceId,
-            query: agentQuery,
+            query: {
+              ...commonQuery,
+              filter: request.input.filter ?? {
+                kind: "group",
+                operator: "and",
+                children: [],
+              },
+              sort: request.input.sort ?? [],
+            },
           },
     );
-    if (snapshot.value.kind !== "agent_query") {
+    if (
+      snapshot.value.kind !== "agent_view_query"
+      && snapshot.value.kind !== "agent_data_source_query"
+    ) {
       throw new Error("Core returned the wrong Agent Database query variant");
     }
     const window = snapshot.value.value;
@@ -72,7 +87,7 @@ export async function readNativeDatabaseQuery(
       libraryId: authority.libraryId,
       storeEpoch: snapshot.store_epoch,
     });
-    const descriptors = await Promise.all([
+    const [databaseResult, sourceResult] = await Promise.all([
       descriptorAdapter.read({
         version: DATABASE_MODULE_V2_CONTRACT_VERSION,
         projectId: request.projectId,
@@ -95,42 +110,71 @@ export async function readNativeDatabaseQuery(
           mode: "data_source",
         },
       }),
-      descriptorAdapter.read({
+    ]);
+    if (!databaseResult.ok) {
+      throw new Error(
+        `Core could not hydrate the Agent Database descriptor: ${databaseResult.error.message}`,
+      );
+    }
+    if (databaseResult.value.value.kind !== "database") {
+      throw new Error("Core returned a non-Database Agent descriptor");
+    }
+    if (!sourceResult.ok) {
+      throw new Error(
+        `Core could not hydrate the Agent Data Source descriptor: ${sourceResult.error.message}`,
+      );
+    }
+    if (sourceResult.value.value.kind !== "data_source") {
+      throw new Error("Core returned a non-Data Source Agent descriptor");
+    }
+    let projectedValue;
+    if (request.tool === "query_database_view") {
+      if (snapshot.value.kind !== "agent_view_query") {
+        throw new Error("Core returned the wrong Agent View query variant");
+      }
+      const viewResult = await descriptorAdapter.read({
         version: DATABASE_MODULE_V2_CONTRACT_VERSION,
         projectId: request.projectId,
         read: {
           target: {
             kind: "view",
-            viewId: parseDatabaseViewId(window.view_id),
+            viewId: parseDatabaseViewId(snapshot.value.value.view_id),
           },
           mode: "view",
         },
-      }),
-    ]);
-    const [databaseResult, sourceResult, viewResult] = descriptors;
-    if (
-      !databaseResult?.ok
-      || databaseResult.value.value.kind !== "database"
-      || !sourceResult?.ok
-      || sourceResult.value.value.kind !== "data_source"
-      || !viewResult?.ok
-      || viewResult.value.value.kind !== "view"
-    ) {
-      throw new Error("Core returned an incompatible Agent Database descriptor");
+      });
+      if (!viewResult.ok) {
+        throw new Error(
+          `Core could not hydrate the Agent View descriptor: ${viewResult.error.message}`,
+        );
+      }
+      if (viewResult.value.value.kind !== "view") {
+        throw new Error("Core returned a non-View Agent descriptor");
+      }
+      projectedValue = {
+        kind: "query" as const,
+        value: projectCoreDatabaseViewQuery(
+          snapshot.value.value,
+          authority.libraryId,
+          databaseResult.value.value.value,
+          sourceResult.value.value.value,
+          viewResult.value.value.value,
+        ),
+      };
+    } else {
+      if (snapshot.value.kind !== "agent_data_source_query") {
+        throw new Error("Core returned the wrong Agent Data Source query variant");
+      }
+      projectedValue = {
+        kind: "data_source_query" as const,
+        value: projectCoreDataSourceQuery(
+          snapshot.value.value,
+          authority.libraryId,
+          databaseResult.value.value.value,
+          sourceResult.value.value.value,
+        ),
+      };
     }
-    const queryValue = projectCoreDatabaseViewQuery(
-      window,
-      authority.libraryId,
-      databaseResult.value.value.value,
-      sourceResult.value.value.value,
-      viewResult.value.value.value,
-    );
-    const dataSourceQueryValue = {
-      database: queryValue.database,
-      dataSource: queryValue.dataSource,
-      properties: queryValue.properties,
-      rows: queryValue.rows,
-    };
     const parsed = parseDatabaseModuleReadResultV2({
       ok: true,
       value: {
@@ -140,14 +184,7 @@ export async function readNativeDatabaseQuery(
         storeEpoch: snapshot.store_epoch,
         commitSeq: snapshot.commit_head,
         authorization: snapshot.authorization,
-        value: {
-          kind: request.tool === "query_database_view"
-            ? "query"
-            : "data_source_query",
-          value: request.tool === "query_database_view"
-            ? queryValue
-            : dataSourceQueryValue,
-        },
+        value: projectedValue,
       },
     });
     if (!parsed.ok) throw new Error(parsed.error.message);

@@ -125,13 +125,30 @@ fn view_target_subject(
 
 fn append_value_dependencies(value: &DatabaseReadValue, output: &mut Vec<ResourceKey>) {
     match value {
-        DatabaseReadValue::ViewWindow { value } | DatabaseReadValue::AgentQuery { value } => {
+        DatabaseReadValue::ViewWindow { value } | DatabaseReadValue::AgentViewQuery { value } => {
             append_view_coordinates(
                 &value.database_id,
                 &value.data_source_id,
                 &value.view_id,
                 output,
             );
+            append_rows(
+                value
+                    .rows
+                    .items
+                    .iter()
+                    .filter(|row| row.lifecycle == "active")
+                    .map(|row| row.page_id.as_str()),
+                output,
+            );
+        }
+        DatabaseReadValue::AgentDataSourceQuery { value } => {
+            output.push(ResourceKey::Database {
+                database_id: value.database_id.clone(),
+            });
+            output.push(ResourceKey::DataSource {
+                data_source_id: value.data_source_id.clone(),
+            });
             append_rows(
                 value
                     .rows

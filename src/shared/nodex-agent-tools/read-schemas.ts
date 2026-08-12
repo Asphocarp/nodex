@@ -20,6 +20,8 @@ import {
   ViewIdSchema,
 } from "./base-schemas";
 
+export const MAX_DATABASE_QUERY_PROPERTY_IDS = 200;
+
 export const DatabasePropertyValueTypeSchema = z.enum([
   "text",
   "number",
@@ -302,14 +304,16 @@ const DatabaseQuerySourceSchema = z.discriminatedUnion("kind", [
     kind: z.literal("database"),
     databaseBlockId: BlockIdSchema,
     filter: DatabaseViewFilterNodeSchema.optional(),
-    sort: z.array(NonManualDatabaseViewSortSchema).max(64).optional(),
+    sort: z.array(NonManualDatabaseViewSortSchema).max(4).optional(),
   }),
 ]);
 
 export const QueryDatabaseInputSchema = z.strictObject({
   source: DatabaseQuerySourceSchema,
   select: z.strictObject({
-    propertyIds: z.array(PropertyIdSchema).max(512).optional(),
+    propertyIds: z.array(PropertyIdSchema)
+      .max(MAX_DATABASE_QUERY_PROPERTY_IDS)
+      .optional(),
     documentSummary: z.boolean().optional(),
   }).optional(),
   prepareFor: z.array(z.discriminatedUnion("kind", [

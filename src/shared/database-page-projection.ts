@@ -3,6 +3,7 @@ import type {
   DatabaseViewRecordV2,
   DataSourcePageRowV2,
   DataSourceDescriptorV2,
+  DataSourceQueryResultV2,
   DatabaseViewQueryResultV2,
   PageIntrinsicPropertyValueV2,
 } from "./database-module-v2";
@@ -38,6 +39,8 @@ import { parseDataSourceOptionId } from "./database-identities";
 type CoreDatabaseRowDetail = components["schemas"]["DatabaseRowDetail"];
 type CoreDatabaseRowSummary = components["schemas"]["DatabaseRowSummary"];
 type CoreDatabaseViewWindow = components["schemas"]["DatabaseViewWindow"];
+type CoreDataSourceQueryWindow =
+  components["schemas"]["DatabaseDataSourceQueryWindow"];
 
 const INTRINSIC_PROPERTY_KEYS = [
   "run.target",
@@ -554,6 +557,23 @@ export const projectCoreDatabaseViewQuery = (
     })),
   };
 };
+
+/** Adapts a bounded transient Data Source query without inventing a View. */
+export const projectCoreDataSourceQuery = (
+  window: CoreDataSourceQueryWindow,
+  libraryId: string,
+  databaseDescriptor: DatabaseContainerDescriptorV2,
+  sourceDescriptor: DataSourceDescriptorV2,
+): DataSourceQueryResultV2 => ({
+  database: databaseDescriptor.database,
+  dataSource: sourceDescriptor.dataSource,
+  properties: sourceDescriptor.properties,
+  rows: window.rows.items.map((row) => projectCoreDatabaseQueryRow(row, {
+    libraryId,
+    dataSourceId: sourceDescriptor.dataSource.dataSourceId,
+    properties: sourceDescriptor.properties,
+  })),
+});
 
 export const projectCoreDatabaseViewBoard = (
   rows: readonly CoreDatabaseRowSummary[],

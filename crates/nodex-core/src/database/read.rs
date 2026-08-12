@@ -587,20 +587,21 @@ pub(crate) fn read_at_commit_head(
                 },
                 AgentProjectResourceAction::Read,
             )?;
-            let view_id = default_view_for_source(connection, library_id, &data_source_id)?;
-            DatabaseReadValue::AgentQuery {
-                value: super::window::view_window(
+            let window = CollectionWindowRequest {
+                after: query.cursor.clone(),
+                first: query.limit,
+            };
+            DatabaseReadValue::AgentDataSourceQuery {
+                value: super::window::agent_data_source_window(
                     connection,
                     library_id,
-                    &view_id,
+                    &data_source_id,
+                    &query,
                     super::window::ViewWindowRead {
                         commit_head,
                         project_id,
                         store_epoch: &store_epoch,
-                        window: &CollectionWindowRequest {
-                            after: query.cursor,
-                            first: query.limit,
-                        },
+                        window: &window,
                         group_scope: None,
                     },
                 )?,
@@ -617,19 +618,22 @@ pub(crate) fn read_at_commit_head(
                 },
                 AgentProjectResourceAction::Read,
             )?;
-            DatabaseReadValue::AgentQuery {
-                value: super::window::view_window(
+            validate_view_filter_access_by_id(connection, library_id, project_id, &view_id)?;
+            let window = CollectionWindowRequest {
+                after: query.cursor,
+                first: query.limit,
+            };
+            DatabaseReadValue::AgentViewQuery {
+                value: super::window::agent_view_window(
                     connection,
                     library_id,
                     &view_id,
+                    query.projection_property_ids.as_deref(),
                     super::window::ViewWindowRead {
                         commit_head,
                         project_id,
                         store_epoch: &store_epoch,
-                        window: &CollectionWindowRequest {
-                            after: query.cursor,
-                            first: query.limit,
-                        },
+                        window: &window,
                         group_scope: None,
                     },
                 )?,
@@ -813,7 +817,16 @@ fn hydrate_relation_previews(
     value: &mut DatabaseReadValue,
 ) -> Result<(), StoreError> {
     match value {
-        DatabaseReadValue::ViewWindow { value } | DatabaseReadValue::AgentQuery { value } => {
+        DatabaseReadValue::ViewWindow { value } | DatabaseReadValue::AgentViewQuery { value } => {
+            super::relation_projection::hydrate_row_previews(
+                connection,
+                library_id,
+                project_id,
+                &value.data_source_id,
+                &mut value.rows.items,
+            )
+        }
+        DatabaseReadValue::AgentDataSourceQuery { value } => {
             super::relation_projection::hydrate_row_previews(
                 connection,
                 library_id,
@@ -1381,31 +1394,6 @@ fn default_view_for_database(
             |row| row.get::<_, Option<String>>(0),
         )?
         .ok_or_else(|| not_found("Database has no default View"))
-}
-
-fn default_view_for_source(
-    connection: &Connection,
-    library_id: &str,
-    data_source_id: &str,
-) -> Result<String, StoreError> {
-    connection
-        .query_row(
-            "SELECT view.id \
-             FROM database_views view \
-             JOIN database_containers database \
-               ON database.block_id = view.database_block_id \
-               AND database.library_id = ?1 \
-             WHERE view.data_source_id = ?2 \
-               AND view.lifecycle = 'active' \
-               AND database.lifecycle = 'active' \
-             ORDER BY CASE WHEN view.id = database.default_view_id THEN 0 ELSE 1 END, \
-               view.rank_key, view.id \
-             LIMIT 1",
-            params![library_id, data_source_id],
-            |row| row.get::<_, String>(0),
-        )
-        .optional()?
-        .ok_or_else(|| not_found("Data Source has no active View"))
 }
 
 fn database_for_source(

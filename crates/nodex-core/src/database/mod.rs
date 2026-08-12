@@ -268,17 +268,18 @@ mod tests {
     use nodex_core_contracts::agent::{AgentExecutionAuthorization, AgentTurnProvenance};
     use nodex_core_contracts::collection::CollectionWindowRequest;
     use nodex_core_contracts::database::{
-        DatabaseAgentQuery, DatabaseGroupScope, DatabaseIntent, DatabaseListProjectionRow,
-        DatabaseListTransientKind, DatabasePagePropertyAddress, DatabasePropertySchema,
-        DatabasePropertySetDelta, DatabasePropertyValueEdit, DatabasePropertyValueInput,
-        DatabasePropertyValueMutation, DatabaseRowsTarget, DatabaseTaskParentPage,
-        DatabaseTransferTarget, DatabaseViewCompletedRangeInput,
+        DatabaseAgentDataSourceQuery, DatabaseAgentViewQuery, DatabaseGroupScope, DatabaseIntent,
+        DatabaseListProjectionRow, DatabaseListTransientKind, DatabasePagePropertyAddress,
+        DatabasePropertySchema, DatabasePropertySetDelta, DatabasePropertyValueEdit,
+        DatabasePropertyValueInput, DatabasePropertyValueMutation, DatabaseRowsTarget,
+        DatabaseTaskParentPage, DatabaseTransferTarget, DatabaseViewCompletedRangeInput,
         DatabaseViewCompletionOverrideInput, DatabaseViewDefinition, DatabaseViewDisclosureTarget,
-        DatabaseViewFieldInput, DatabaseViewGroupOverrideInput, DatabaseViewLayout,
+        DatabaseViewFieldInput, DatabaseViewFilter, DatabaseViewFilterGroupOperator,
+        DatabaseViewFilterOperator, DatabaseViewGroupOverrideInput, DatabaseViewLayout,
         DatabaseViewLayoutDisplayOverrideInput, DatabaseViewLayoutInput,
-        DatabaseViewLayoutsOverrideInput, DatabaseViewPersonalPresentation,
-        DatabaseViewPresentationOverrideInput, DatabaseViewReadTarget,
-        DatabaseViewSortDirectionInput,
+        DatabaseViewLayoutsOverrideInput, DatabaseViewNullOrder, DatabaseViewPersonalPresentation,
+        DatabaseViewPresentationOverrideInput, DatabaseViewReadTarget, DatabaseViewSort,
+        DatabaseViewSortDirection, DatabaseViewSortDirectionInput, DatabaseViewSortField,
     };
     use nodex_core_contracts::library::{
         LIBRARY_CONTRACT_VERSION, LibraryIntent, LibraryPageLifecycleMutation, LibraryWriteParent,
@@ -837,6 +838,14 @@ mod tests {
                         [DATABASE_ID],
                     )?;
                     transaction.execute(
+                        "INSERT INTO data_source_properties(\
+                           data_source_id, id, name, value_type, config_json, rank_key, lifecycle, \
+                           schema_revision, created_at, updated_at\
+                         ) VALUES (?1, 'p_agent000', 'Agent note', 'text', '{}', \
+                           'zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz', 'active', 1, ?2, ?2)",
+                        params![SOURCE_ID, NOW],
+                    )?;
+                    transaction.execute(
                         "DELETE FROM library_block_placements WHERE block_id = 'page:database-row'",
                         [],
                     )?;
@@ -865,6 +874,13 @@ mod tests {
                            data_source_id, membership_id, property_id, value_type, value_json, \
                            revision, updated_at\
                          ) VALUES (?1, 'membership:row', 'status', 'select', '\"triage\"', 1, ?2)",
+                        params![SOURCE_ID, NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO data_source_property_values(\
+                           data_source_id, membership_id, property_id, value_type, value_json, \
+                           revision, updated_at\
+                         ) VALUES (?1, 'membership:row', 'p_agent000', 'text', '\"alpha\"', 1, ?2)",
                         params![SOURCE_ID, NOW],
                     )?;
                     transaction.execute(
@@ -921,6 +937,13 @@ mod tests {
                            data_source_id, membership_id, property_id, value_type, value_json, \
                            revision, updated_at\
                          ) VALUES (?1, 'membership:row-2', 'task_parent', 'relation', 'null', 1, ?2)",
+                        params![SOURCE_ID, NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO data_source_property_values(\
+                           data_source_id, membership_id, property_id, value_type, value_json, \
+                           revision, updated_at\
+                         ) VALUES (?1, 'membership:row-2', 'p_agent000', 'text', '\"beta\"', 1, ?2)",
                         params![SOURCE_ID, NOW],
                     )?;
                     transaction.execute(
@@ -1141,16 +1164,22 @@ mod tests {
                     contract_version: DATABASE_CONTRACT_VERSION,
                     read: DatabaseRead::AgentDataSourceQuery {
                         data_source_id: SOURCE_ID.to_owned(),
-                        query: DatabaseAgentQuery {
+                        query: DatabaseAgentDataSourceQuery {
                             authorization: agent_authorization.clone(),
                             cursor: None,
                             limit: Some(1),
+                            projection_property_ids: None,
+                            filter: DatabaseViewFilter::Group {
+                                operator: DatabaseViewFilterGroupOperator::And,
+                                children: Vec::new(),
+                            },
+                            sort: Vec::new(),
                         },
                     },
                 },
             )
             .expect("query primary Data Source with exact Agent Turn authority");
-        let DatabaseReadValue::AgentQuery { value } = agent_query.value else {
+        let DatabaseReadValue::AgentDataSourceQuery { value } = agent_query.value else {
             panic!("Agent Database query snapshot");
         };
         assert_eq!(value.rows.items[0].page_id, "page:database-row");
@@ -1169,20 +1198,168 @@ mod tests {
                     contract_version: DATABASE_CONTRACT_VERSION,
                     read: DatabaseRead::AgentDataSourceQuery {
                         data_source_id: SOURCE_ID.to_owned(),
-                        query: DatabaseAgentQuery {
+                        query: DatabaseAgentDataSourceQuery {
                             authorization: continuation_authorization,
                             cursor: Some(next_cursor),
                             limit: Some(1),
+                            projection_property_ids: None,
+                            filter: DatabaseViewFilter::Group {
+                                operator: DatabaseViewFilterGroupOperator::And,
+                                children: Vec::new(),
+                            },
+                            sort: Vec::new(),
                         },
                     },
                 },
             )
             .expect("continue exact Agent Database query");
-        let DatabaseReadValue::AgentQuery { value } = next_agent_query.value else {
+        let DatabaseReadValue::AgentDataSourceQuery { value } = next_agent_query.value else {
             panic!("next Agent Database query snapshot");
         };
         assert_eq!(value.rows.items[0].page_id, "page:database-row-2");
         assert!(value.rows.next_cursor.is_none());
+
+        let mut sorted_authorization = agent_authorization.clone();
+        sorted_authorization.call_id = "call:database-agent-sorted".to_owned();
+        let sorted_agent_query = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    read: DatabaseRead::AgentDataSourceQuery {
+                        data_source_id: SOURCE_ID.to_owned(),
+                        query: DatabaseAgentDataSourceQuery {
+                            authorization: sorted_authorization,
+                            cursor: None,
+                            limit: Some(2),
+                            projection_property_ids: Some(vec!["p_agent000".to_owned()]),
+                            filter: DatabaseViewFilter::Group {
+                                operator: DatabaseViewFilterGroupOperator::And,
+                                children: Vec::new(),
+                            },
+                            sort: vec![DatabaseViewSort {
+                                field: DatabaseViewSortField::Title,
+                                direction: DatabaseViewSortDirection::Desc,
+                                nulls: DatabaseViewNullOrder::Last,
+                            }],
+                        },
+                    },
+                },
+            )
+            .expect("run a sorted transient Data Source query");
+        let DatabaseReadValue::AgentDataSourceQuery { value } = sorted_agent_query.value else {
+            panic!("sorted Agent Data Source query snapshot");
+        };
+        assert_eq!(
+            value
+                .rows
+                .items
+                .iter()
+                .map(|row| row.page_id.as_str())
+                .collect::<Vec<_>>(),
+            ["page:database-row-2", "page:database-row"]
+        );
+        assert_eq!(
+            value.rows.items[0].database_values.get("p_agent000"),
+            Some(&json!("beta"))
+        );
+        assert_eq!(value.rows.items[0].effective_group_key, None);
+        assert_eq!(value.rows.items[0].rank_key, None);
+
+        let mut manual_sort_authorization = agent_authorization.clone();
+        manual_sort_authorization.call_id = "call:database-agent-manual-sort".to_owned();
+        let manual_sort_error = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    read: DatabaseRead::AgentDataSourceQuery {
+                        data_source_id: SOURCE_ID.to_owned(),
+                        query: DatabaseAgentDataSourceQuery {
+                            authorization: manual_sort_authorization,
+                            cursor: None,
+                            limit: Some(2),
+                            projection_property_ids: None,
+                            filter: DatabaseViewFilter::Group {
+                                operator: DatabaseViewFilterGroupOperator::And,
+                                children: Vec::new(),
+                            },
+                            sort: vec![DatabaseViewSort {
+                                field: DatabaseViewSortField::Manual,
+                                direction: DatabaseViewSortDirection::Asc,
+                                nulls: DatabaseViewNullOrder::Last,
+                            }],
+                        },
+                    },
+                },
+            )
+            .expect_err("transient Data Source query rejects View manual order");
+        assert_eq!(manual_sort_error.code, CoreErrorCode::InvalidInput);
+
+        let mut view_authorization = agent_authorization.clone();
+        view_authorization.call_id = "call:database-agent-view-projection".to_owned();
+        let agent_view_query = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    read: DatabaseRead::AgentViewQuery {
+                        view_id: VIEW_ID.to_owned(),
+                        query: DatabaseAgentViewQuery {
+                            authorization: view_authorization,
+                            cursor: None,
+                            limit: Some(1),
+                            projection_property_ids: Some(vec!["p_agent000".to_owned()]),
+                        },
+                    },
+                },
+            )
+            .expect("project a hidden Property through a saved View query");
+        let DatabaseReadValue::AgentViewQuery { value } = agent_view_query.value else {
+            panic!("Agent View query snapshot");
+        };
+        assert_eq!(
+            value.rows.items[0].database_values.get("p_agent000"),
+            Some(&json!("alpha"))
+        );
+
+        let mut filtered_authorization = agent_authorization.clone();
+        filtered_authorization.call_id = "call:database-agent-filtered".to_owned();
+        let filtered_agent_query = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    read: DatabaseRead::AgentDataSourceQuery {
+                        data_source_id: SOURCE_ID.to_owned(),
+                        query: DatabaseAgentDataSourceQuery {
+                            authorization: filtered_authorization,
+                            cursor: None,
+                            limit: Some(10),
+                            projection_property_ids: Some(Vec::new()),
+                            filter: DatabaseViewFilter::Clause {
+                                property_id: "status".to_owned(),
+                                operator: DatabaseViewFilterOperator::IsEmpty,
+                                value: None,
+                            },
+                            sort: Vec::new(),
+                        },
+                    },
+                },
+            )
+            .expect("run a filtered transient Data Source query");
+        let DatabaseReadValue::AgentDataSourceQuery { value } = filtered_agent_query.value else {
+            panic!("filtered Agent Data Source query snapshot");
+        };
+        assert_eq!(
+            value
+                .rows
+                .items
+                .iter()
+                .map(|row| row.page_id.as_str())
+                .collect::<Vec<_>>(),
+            ["page:database-row-2"]
+        );
         kernel
             .writer()
             .call(|connection| {
@@ -1266,16 +1443,22 @@ mod tests {
                     contract_version: DATABASE_CONTRACT_VERSION,
                     read: DatabaseRead::AgentDataSourceQuery {
                         data_source_id: SOURCE_ID.to_owned(),
-                        query: DatabaseAgentQuery {
+                        query: DatabaseAgentDataSourceQuery {
                             authorization: agent_authorization,
                             cursor: Some(cursor_before_change),
                             limit: Some(1),
+                            projection_property_ids: None,
+                            filter: DatabaseViewFilter::Group {
+                                operator: DatabaseViewFilterGroupOperator::And,
+                                children: Vec::new(),
+                            },
+                            sort: Vec::new(),
                         },
                     },
                 },
             )
             .expect("Agent Database cursor survives a concurrent commit");
-        let DatabaseReadValue::AgentQuery { value } = continued_after_change.value else {
+        let DatabaseReadValue::AgentDataSourceQuery { value } = continued_after_change.value else {
             panic!("continued Agent Database query snapshot");
         };
         assert!(value.rows.items.is_empty());
@@ -1666,7 +1849,7 @@ mod tests {
         let DatabaseReadValue::PropertyWindow { properties } = properties.value else {
             panic!("Property window");
         };
-        assert_eq!(properties.items.len(), 10);
+        assert_eq!(properties.items.len(), 11);
         assert!(
             properties
                 .items
