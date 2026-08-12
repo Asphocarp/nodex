@@ -146,7 +146,7 @@ or canceled read never replaces a newer generation. Mutation invalidates the
 same worker, and Review preserves its current visible snapshot until a coherent
 replacement is ready.
 
-The ownership decision is [ADR 0036](adr/0036-dedicated-git-read-worker.md), and
+The ownership decision is [ADR 0036](adr/0042-dedicated-git-read-worker.md), and
 the visible contract is [Review Right Panel Behavior](product-specs/review-right-panel-behavior.md).
 
 ### Automations and reminders
@@ -218,7 +218,7 @@ here.
 | Document/Canvas sync, semantic history, retention | [Document sync/history](reliability/document-sync-history-and-retention.md) |
 | Backup, restore, Store replacement, maintenance | [Backup/restore](reliability/backup-restore-and-maintenance.md) |
 | User-visible feature failure/recovery behavior | Focused document in [Product Specifications](product-specs/index.md) |
-| Runtime ownership and critical flows | [Architecture](../ARCHITECTURE.md) and ADRs |
+| Runtime ownership and critical flows | [Architecture](ARCHITECTURE.md) and ADRs |
 | Trust, sandbox, authorization, supply chain | [Security](SECURITY.md) |
 | Exact schema versions, limits, filenames, protocol versions | Source contracts, generated artifacts, and tests |
 | Release procedures and operational recovery | [macOS Release Runbook](release-macos.md) |

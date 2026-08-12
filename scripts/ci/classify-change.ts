@@ -26,7 +26,7 @@ const RELEASE_IDENTITY_PATHS = new Set([
 
 const isDocumentationPath = (path: string): boolean =>
   path === "AGENTS.md"
-  || path === "ARCHITECTURE.md"
+  || path === "docs/ARCHITECTURE.md"
   || path === "CONTEXT.md"
   || path.endsWith(".md")
   || path.startsWith("docs/");

@@ -29,7 +29,7 @@ Prefer the narrowest enforceable seam. Route information as follows:
 | Information | Source of truth |
 | --- | --- |
 | User-visible feature behavior, labels, action order, and acceptance rules | [Product specifications](product-specs/index.md) |
-| Runtime ownership, dependency direction, and cross-runtime flows | [Architecture](../ARCHITECTURE.md) and ADRs |
+| Runtime ownership, dependency direction, and cross-runtime flows | [Architecture](ARCHITECTURE.md) and ADRs |
 | Projection delivery, collaborative sync, recovery, and durability | [Reliability](RELIABILITY.md) |
 | Detailed renderer state inventory and migration decisions | [Renderer view-state ownership](renderer-view-state-ownership.md) |
 | Reusable visual direction for agent-built UI | [General design guidelines](../.agents/skills/general-design-guidelines/SKILL.md) |
