@@ -162,6 +162,13 @@ export function DatabaseViewDisplayOptions({
     onOpenChange?.(nextOpen);
   };
   const fields = [
+    ...(layout === "list"
+      ? [{
+          key: "intrinsic:page_id",
+          label: "ID",
+          field: { kind: "intrinsic" as const, field: "page_id" as const },
+        }]
+      : []),
     ...activeProperties.map((property) => ({
       key: `property:${property.propertyId}`,
       label: property.name,
@@ -417,18 +424,6 @@ export function DatabaseViewDisplayOptions({
             Display properties
           </div>
           <div className="flex flex-wrap gap-1.5 px-3 pb-2">
-            {layout === "list" ? (
-              <NodexButton
-                size="xs"
-                variant="secondary"
-                aria-pressed="true"
-                disabled
-                title="Page identity is always visible"
-                className="h-6 rounded-full border border-transparent bg-token-foreground/9 px-2 text-xs font-normal text-token-text-primary"
-              >
-                ID
-              </NodexButton>
-            ) : null}
             {fields.map(({ key, label, field }) => {
               const durableVisible = layoutConfig.fields.some(
                 (candidate) => databaseViewDisplayFieldKey(candidate) === key,

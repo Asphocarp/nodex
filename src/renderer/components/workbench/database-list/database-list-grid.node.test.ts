@@ -15,7 +15,11 @@ const fields: readonly DatabaseViewField[] = [
 
 describe("Database List field registry", () => {
   test("packs properties into the title cell and reserves grid tracks only for timestamps", () => {
-    const partition = partitionDatabaseListFields(fields);
+    const partition = partitionDatabaseListFields([
+      { kind: "intrinsic", field: "page_id" },
+      ...fields,
+    ]);
+    expect(partition.showIdentifier).toBe(true);
     expect(partition.inlineFields).toEqual(fields.slice(0, 2));
     expect(partition.trailingFields).toEqual([fields[2]]);
 
@@ -27,11 +31,39 @@ describe("Database List field registry", () => {
   });
 
   test("removes optional core tracks without changing the title/property cluster", () => {
-    const coreColumns = { priority: false, status: true };
+    const coreColumns = { identifier: false, priority: false, status: true };
     const template = databaseListGridTemplate([], coreColumns);
     expect(template).not.toContain("[priority]");
-    expect(template).toContain("[status] 16px");
+    expect(template).toContain("[identifier status] 16px");
+    expect(template).not.toContain("[identifier] minmax");
     expect(template).toContain("[title] minmax(0,1fr)");
+  });
+
+  test("removes Page ID from trailing metadata and its visible grid track", () => {
+    const partition = partitionDatabaseListFields(fields);
+    expect(partition.showIdentifier).toBe(false);
+
+    const template = databaseListGridTemplate(partition.trailingFields, {
+      identifier: partition.showIdentifier,
+      priority: true,
+      status: true,
+    });
+    expect(template).toContain("[identifier status] 16px");
+    expect(template).not.toContain("[identifier] minmax");
+    expect(partition.trailingFields).toEqual([{ kind: "intrinsic", field: "updated_at" }]);
+  });
+
+  test("aliases the hidden identifier boundary onto a real track in every core layout", () => {
+    expect(databaseListGridTemplate([], {
+      identifier: false,
+      priority: true,
+      status: true,
+    })).toContain("[identifier status] 16px");
+    expect(databaseListGridTemplate([], {
+      identifier: false,
+      priority: true,
+      status: false,
+    })).toContain("[identifier title] minmax(0,1fr)");
   });
 
   test("adds an ordering field only to the current List session without duplicating it", () => {
