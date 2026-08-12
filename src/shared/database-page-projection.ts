@@ -285,6 +285,17 @@ const coreDatabaseValueOr = (
   return fallback;
 };
 
+const coreDatabaseDisplayValueOr = (
+  row: CoreDatabaseRowSummary,
+  propertyId: Exclude<DatabasePropertyId, "status">,
+  fallback: null | readonly never[],
+): unknown => {
+  if (Object.prototype.hasOwnProperty.call(row.database_display_values, propertyId)) {
+    return row.database_display_values[propertyId];
+  }
+  return coreDatabaseValueOr(row, propertyId, fallback);
+};
+
 const requireCoreIntrinsicValue = (
   row: CoreDatabaseRowSummary,
   key: IntrinsicPropertyKey,
@@ -438,7 +449,7 @@ export const projectCoreDatabaseRowSummary = (
     tags: coreStringArray(
       row,
       "Database Property tags",
-      coreDatabaseValueOr(row, "tags", []),
+      coreDatabaseDisplayValueOr(row, "tags", []),
     ),
     dueDate: coreOptionalDate(
       row,

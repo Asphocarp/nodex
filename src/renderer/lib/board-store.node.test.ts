@@ -553,6 +553,7 @@ function pageUpserted(
             description_length: page.descriptionPreview.length,
             has_description: page.descriptionPreview.length > 0,
             database_values: { status: page.status },
+            database_display_values: { status: page.status },
             intrinsic_properties: {},
             database_value_revisions: { status: 1 },
             task_parent_page_id: null,

@@ -998,6 +998,7 @@ describe("Core Database Module Adapter", () => {
                 description_length: 0,
                 has_description: false,
                 database_values: {},
+                database_display_values: {},
                 intrinsic_properties: {},
                 database_value_revisions: {},
                 metadata_revision: 1,

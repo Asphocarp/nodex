@@ -1059,9 +1059,17 @@ export interface components {
             readonly authority: components["schemas"]["CollectionWindowAuthority"];
             readonly items: readonly {
                 readonly created_at: string;
+                /**
+                 * @description Compatibility display projection for consumers that still render
+                 *     semantic Page fields directly. Identities must never be read from here.
+                 */
+                readonly database_display_values: {
+                    readonly [key: string]: unknown;
+                };
                 readonly database_value_revisions: {
                     readonly [key: string]: number;
                 };
+                /** @description Canonical Property values. Select-like values are stable option IDs. */
                 readonly database_values: {
                     readonly [key: string]: unknown;
                 };
@@ -1857,9 +1865,17 @@ export interface components {
         };
         readonly DatabaseRowSummary: {
             readonly created_at: string;
+            /**
+             * @description Compatibility display projection for consumers that still render
+             *     semantic Page fields directly. Identities must never be read from here.
+             */
+            readonly database_display_values: {
+                readonly [key: string]: unknown;
+            };
             readonly database_value_revisions: {
                 readonly [key: string]: number;
             };
+            /** @description Canonical Property values. Select-like values are stable option IDs. */
             readonly database_values: {
                 readonly [key: string]: unknown;
             };

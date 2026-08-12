@@ -45,6 +45,7 @@ import {
 } from "@/lib/database-view-row-mutations";
 import { matchesSearchTokens, tokenizeSearchQuery } from "@/lib/page-search";
 import { normalizeSearchText } from "@/lib/search-text";
+import { resolveDataSourcePropertyPresentationRole } from "@/lib/data-source-property-presentation-role";
 import { cn } from "@/lib/utils";
 import { StatusIcon } from "@/lib/status-chip";
 import type {
@@ -349,10 +350,6 @@ export function DatabaseList({
     readonly pageIds: ReadonlySet<string>;
   } | null>(null);
   const deferredSearchQuery = useDeferredValue(searchQuery);
-  const propertyOptionRegistries = usePropertyOptionRegistries({
-    accessContext: model.accessContext,
-    properties: model.query.properties,
-  });
   const presentation = effectivePresentation?.presentation
     ?? model.query.view.config.presentation;
   const effective = effectivePresentation ?? {
@@ -364,6 +361,50 @@ export function DatabaseList({
   const grouped = presentation.group !== null;
   const subgrouped = presentation.subgroup !== null;
   const listConfig = presentation.layouts.list;
+  const sessionListFields = useMemo(() => {
+    return withForcedDatabaseListField(listConfig.fields, forcedDisplayField);
+  }, [forcedDisplayField, listConfig.fields]);
+  const requiredOptionIds = useMemo(() => {
+    const displayedPropertyIds = new Set(sessionListFields.flatMap((field) =>
+      field.kind === "property" ? [String(field.propertyId)] : []
+    ));
+    const optionProperties = new Map(model.query.properties.flatMap((property) => {
+      if (!displayedPropertyIds.has(property.propertyId)) return [];
+      if (property.lifecycle !== "active") return [];
+      if (property.valueType !== "select" && property.valueType !== "multi_select") return [];
+      const role = resolveDataSourcePropertyPresentationRole(property);
+      if (role.kind === "status" || role.kind === "priority" || role.kind === "estimate") {
+        return [];
+      }
+      return [[property.propertyId, property] as const];
+    }));
+    const selected = new Map<string, Set<string>>(
+      [...optionProperties.keys()].map((propertyId) => [propertyId, new Set()]),
+    );
+    const rows = [
+      ...model.query.rows,
+      ...coreWindow.rows.flatMap((item) => item.kind === "page" ? [item.row] : []),
+    ];
+    for (const row of rows) {
+      for (const [propertyId, property] of optionProperties) {
+        const value = row.values[propertyId]?.value;
+        const values = property.valueType === "multi_select"
+          ? Array.isArray(value) ? value : []
+          : typeof value === "string" ? [value] : [];
+        for (const optionId of values) {
+          if (typeof optionId === "string") selected.get(propertyId)?.add(optionId);
+        }
+      }
+    }
+    return Object.fromEntries(
+      [...selected].map(([propertyId, optionIds]) => [propertyId, [...optionIds]]),
+    );
+  }, [coreWindow.rows, model.query.properties, model.query.rows, sessionListFields]);
+  const propertyOptionRegistries = usePropertyOptionRegistries({
+    accessContext: model.accessContext,
+    properties: model.query.properties,
+    requiredOptionIds,
+  });
   const nested = presentation.hierarchy.showSubPages
     && presentation.hierarchy.nestedSubPages;
   const [localCollapsedGroupKeys, setLocalCollapsedGroupKeys] = useState<ReadonlySet<string>>(
@@ -547,9 +588,6 @@ export function DatabaseList({
   const [selection, setSelection] = useState<DatabaseListSelectionState>(
     () => initialSelection(projection, initialSelectedPageIds),
   );
-  const sessionListFields = useMemo(() => {
-    return withForcedDatabaseListField(listConfig.fields, forcedDisplayField);
-  }, [forcedDisplayField, listConfig.fields]);
   const allFields = useMemo(
     () => availableListFields(model, sessionListFields),
     [model, sessionListFields],

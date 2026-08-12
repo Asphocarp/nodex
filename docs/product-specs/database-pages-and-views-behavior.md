@@ -49,6 +49,17 @@ presentation enums remain compact selection menus without a redundant search
 field. Board and List share bounded group windows, selection, Page-open behavior,
 Property editors, and mutation receipts.
 
+Database row authority always carries canonical Property values. In particular,
+select and multi-select values remain stable option IDs through View windows,
+List occurrence windows, optimistic row patches, Page Stage, filtering, sorting,
+and grouping. A compatibility display projection may carry resolved names for
+legacy card presentation, but it is explicit and never substitutes for value
+identity. Closed List and Page Stage controls request bounded option windows for
+their currently selected IDs before the picker opens, continuing across pages
+until every visible label resolves or the authoritative registry proves the ID
+missing. `Loading…` therefore represents an active request only; an idle or
+failed registry cannot leave visible Property chips permanently loading.
+
 ### List projection and task hierarchy
 
 List is a virtual grid over Core-authored occurrence rows. Group headers are

@@ -516,7 +516,11 @@ pub struct DatabaseRowSummary {
     pub description_preview: String,
     pub description_length: i64,
     pub has_description: bool,
+    /// Canonical Property values. Select-like values are stable option IDs.
     pub database_values: BTreeMap<String, Value>,
+    /// Compatibility display projection for consumers that still render
+    /// semantic Page fields directly. Identities must never be read from here.
+    pub database_display_values: BTreeMap<String, Value>,
     pub intrinsic_properties: BTreeMap<String, Value>,
     pub database_value_revisions: BTreeMap<String, i64>,
     pub metadata_revision: i64,
