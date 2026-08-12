@@ -8,9 +8,10 @@ use nodex_core_contracts::collection::{
 use nodex_core_contracts::database::{
     DatabaseContainerRecord, DatabaseDataSourceDescriptor, DatabaseDataSourceRecord,
     DatabaseDescriptor, DatabaseIdentityTarget, DatabasePropertyDescriptor, DatabasePropertyOption,
-    DatabaseRead, DatabaseReadValue, DatabaseRowsTarget, DatabaseViewContext, DatabaseViewLayout,
-    DatabaseViewPersonalPreferences, DatabaseViewPresentationOverrideInput, DatabaseViewReadTarget,
-    DatabaseViewRecord,
+    DatabaseRead, DatabaseReadValue, DatabaseRowsTarget, DatabaseViewCollapsedOccurrences,
+    DatabaseViewContext, DatabaseViewDisclosureTarget, DatabaseViewLayout,
+    DatabaseViewPersonalPresentation, DatabaseViewPresentationOverrideInput,
+    DatabaseViewReadTarget, DatabaseViewRecord,
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::{Map, Value, json};
@@ -313,7 +314,7 @@ pub(crate) fn read_at_commit_head(
                 value: view_record(connection, library_id, project_id, &view_id)?,
             }
         }
-        DatabaseRead::ViewPersonalPreferences { view_id } => {
+        DatabaseRead::ViewPersonalPresentation { view_id } => {
             authorize_view(
                 connection,
                 library_id,
@@ -321,8 +322,24 @@ pub(crate) fn read_at_commit_head(
                 primary_database_id.as_deref(),
                 &view_id,
             )?;
-            DatabaseReadValue::ViewPersonalPreferences {
-                value: view_personal_preferences(
+            DatabaseReadValue::ViewPersonalPresentation {
+                value: view_personal_presentation(
+                    connection,
+                    context.profile_id.0.as_str(),
+                    &view_id,
+                )?,
+            }
+        }
+        DatabaseRead::ViewCollapsedOccurrences { view_id } => {
+            authorize_view(
+                connection,
+                library_id,
+                project_id,
+                primary_database_id.as_deref(),
+                &view_id,
+            )?;
+            DatabaseReadValue::ViewCollapsedOccurrences {
+                value: view_collapsed_occurrences(
                     connection,
                     context.profile_id.0.as_str(),
                     &view_id,
@@ -701,52 +718,64 @@ fn authorize_view(
     authorize_required(connection, project_id, primary_database_id, &database_id)
 }
 
-fn view_personal_preferences(
+fn view_personal_presentation(
     connection: &Connection,
     profile_id: &str,
     view_id: &str,
-) -> Result<DatabaseViewPersonalPreferences, StoreError> {
+) -> Result<DatabaseViewPersonalPresentation, StoreError> {
     let stored = connection
         .query_row(
-            "SELECT presentation_override_json, collapsed_group_keys_json, revision \
-             FROM database_view_personal_preferences \
+            "SELECT presentation_override_json, revision \
+             FROM database_view_personal_presentations \
              WHERE profile_id = ?1 AND view_id = ?2",
             params![profile_id, view_id],
-            |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, i64>(2)?,
-                ))
-            },
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
         )
         .optional()?;
-    let Some((presentation_json, collapsed_json, revision)) = stored else {
-        return Ok(DatabaseViewPersonalPreferences {
+    let Some((presentation_json, revision)) = stored else {
+        return Ok(DatabaseViewPersonalPresentation {
             presentation_override: Default::default(),
-            collapsed_group_keys: Vec::new(),
             revision: 0,
         });
     };
     let presentation_override = serde_json::from_str(&presentation_json)
         .map_err(|_| corrupt("Database View personal presentation override is invalid"))?;
-    let collapsed_group_keys = serde_json::from_str::<Vec<String>>(&collapsed_json)
-        .map_err(|_| corrupt("Database View collapsed group keys are invalid"))?;
-    if collapsed_group_keys.len() > 2_000
-        || collapsed_group_keys
-            .iter()
-            .any(|key| key.is_empty() || key.len() > 1_024)
-        || collapsed_group_keys.iter().collect::<BTreeSet<_>>().len() != collapsed_group_keys.len()
-    {
-        return Err(corrupt(
-            "Database View collapsed group keys violate their durable bound",
-        ));
-    }
-    Ok(DatabaseViewPersonalPreferences {
+    Ok(DatabaseViewPersonalPresentation {
         presentation_override,
-        collapsed_group_keys,
         revision,
     })
+}
+
+fn view_collapsed_occurrences(
+    connection: &Connection,
+    profile_id: &str,
+    view_id: &str,
+) -> Result<DatabaseViewCollapsedOccurrences, StoreError> {
+    let rows = connection
+        .prepare(
+            "SELECT target_kind, occurrence_key \
+             FROM database_view_collapsed_occurrences \
+             WHERE profile_id = ?1 AND view_id = ?2 \
+             ORDER BY target_kind, occurrence_key LIMIT 2001",
+        )?
+        .query_map(params![profile_id, view_id], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    if rows.len() > 2_000 {
+        return Err(corrupt(
+            "Database View collapsed occurrences exceed their durable bound",
+        ));
+    }
+    let targets = rows
+        .into_iter()
+        .map(|(kind, occurrence_key)| match kind.as_str() {
+            "group" => Ok(DatabaseViewDisclosureTarget::Group { occurrence_key }),
+            "page" => Ok(DatabaseViewDisclosureTarget::Page { occurrence_key }),
+            _ => Err(corrupt("Database View disclosure target kind is invalid")),
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(DatabaseViewCollapsedOccurrences { targets })
 }
 
 fn hydrate_relation_previews(

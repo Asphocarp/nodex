@@ -55,7 +55,10 @@ import type {
   EffectiveDatabaseViewPresentation,
 } from "../../../../shared/database-kernel";
 import { isPriority } from "../../../../shared/priority";
-import type { DatabaseApplyOperationV2 } from "../../../../shared/database-module-v2";
+import type {
+  DatabaseApplyOperationV2,
+  DatabaseViewDisclosureTargetV2,
+} from "../../../../shared/database-module-v2";
 import type {
   DataSourcePageRowV2,
   DataSourcePropertyRecordV2,
@@ -132,8 +135,11 @@ interface DatabaseListProps {
   readonly presentedPageIds?: ReadonlySet<string>;
   readonly initialSelectedPageIds?: ReadonlySet<string>;
   readonly onSelectedPageIdsChange?: (pageIds: ReadonlySet<string>) => void;
-  readonly collapsedGroupKeys?: readonly string[];
-  readonly onCollapsedGroupKeysChange?: (keys: readonly string[]) => void;
+  readonly collapsedOccurrenceKeys?: readonly string[];
+  readonly onOccurrenceDisclosureChange?: (
+    target: DatabaseViewDisclosureTargetV2,
+    collapsed: boolean,
+  ) => void;
   readonly scrollStateKey?: string;
   readonly forcedDisplayField?: DatabaseViewField | null;
   readonly pageCreateSurfaceId?: string;
@@ -375,8 +381,8 @@ export function DatabaseList({
   presentedPageIds,
   initialSelectedPageIds,
   onSelectedPageIdsChange,
-  collapsedGroupKeys: controlledCollapsedGroupKeys,
-  onCollapsedGroupKeysChange,
+  collapsedOccurrenceKeys: controlledCollapsedOccurrenceKeys,
+  onOccurrenceDisclosureChange,
   scrollStateKey = `database-view:${model.databaseViewId}:list`,
   forcedDisplayField = null,
   pageCreateSurfaceId,
@@ -455,14 +461,14 @@ export function DatabaseList({
   });
   const nested = presentation.hierarchy.showSubPages
     && presentation.hierarchy.nestedSubPages;
-  const [localCollapsedGroupKeys, setLocalCollapsedGroupKeys] = useState<ReadonlySet<string>>(
-    () => new Set(controlledCollapsedGroupKeys ?? []),
+  const [localCollapsedOccurrenceKeys, setLocalCollapsedOccurrenceKeys] = useState<ReadonlySet<string>>(
+    () => new Set(controlledCollapsedOccurrenceKeys ?? []),
   );
-  const collapsedGroupKeys = useMemo(
-    () => controlledCollapsedGroupKeys === undefined
-      ? localCollapsedGroupKeys
-      : new Set(controlledCollapsedGroupKeys),
-    [controlledCollapsedGroupKeys, localCollapsedGroupKeys],
+  const collapsedOccurrenceKeys = useMemo(
+    () => controlledCollapsedOccurrenceKeys === undefined
+      ? localCollapsedOccurrenceKeys
+      : new Set(controlledCollapsedOccurrenceKeys),
+    [controlledCollapsedOccurrenceKeys, localCollapsedOccurrenceKeys],
   );
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(0);
@@ -533,10 +539,10 @@ export function DatabaseList({
     subgrouped,
     showSubPages: presentation.hierarchy.showSubPages,
     nested,
-    collapsedGroupKeys,
+    collapsedOccurrenceKeys,
     totalRowsByScope,
   }), [
-    collapsedGroupKeys,
+    collapsedOccurrenceKeys,
     columns,
     grouped,
     nested,
@@ -547,7 +553,7 @@ export function DatabaseList({
   const coreProjection = useMemo(() => projectCoreDatabaseListRows({
     rows: coreWindow.rows,
     properties: model.query.properties,
-    collapsedGroupKeys,
+    collapsedOccurrenceKeys,
     groupLabel: (key) => groupLabel(
       model,
       presentation.group?.propertyId,
@@ -572,7 +578,7 @@ export function DatabaseList({
           ),
         }),
   }), [
-    collapsedGroupKeys,
+    collapsedOccurrenceKeys,
     coreWindow.rows,
     model,
     presentation.group?.propertyId,
@@ -1305,20 +1311,27 @@ export function DatabaseList({
     })();
   };
 
-  const updateCollapsedGroups = (
-    update: (current: ReadonlySet<string>) => ReadonlySet<string>,
+  const updateCollapsedOccurrences = (
+    updates: readonly { readonly key: string; readonly collapsed: boolean }[],
   ): void => {
-    const next = update(collapsedGroupKeys);
-    if (controlledCollapsedGroupKeys === undefined) setLocalCollapsedGroupKeys(next);
-    onCollapsedGroupKeysChange?.([...next]);
+    const next = new Set(collapsedOccurrenceKeys);
+    for (const update of updates) {
+      if (update.collapsed) next.add(update.key);
+      else next.delete(update.key);
+      onOccurrenceDisclosureChange?.(
+        { kind: "group", occurrenceKey: update.key },
+        update.collapsed,
+      );
+    }
+    if (controlledCollapsedOccurrenceKeys === undefined) {
+      setLocalCollapsedOccurrenceKeys(next);
+    }
   };
 
-  const toggleCollapseKey = (key: string): void => updateCollapsedGroups((current) => {
-    const next = new Set(current);
-    if (next.has(key)) next.delete(key);
-    else next.add(key);
-    return next;
-  });
+  const toggleCollapseKey = (key: string): void => updateCollapsedOccurrences([{
+    key,
+    collapsed: !collapsedOccurrenceKeys.has(key),
+  }]);
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
     if ((event.target as HTMLElement).closest(DATABASE_LIST_INTERACTIVE_SELECTOR)) return;
@@ -1385,9 +1398,12 @@ export function DatabaseList({
       const collapsibleKeys = projection.flatMap((row) =>
         row.kind === "group" ? [row.key] : []
       );
-      updateCollapsedGroups((current) => current.size > 0
-        ? new Set()
-        : new Set(collapsibleKeys));
+      const collapse = !collapsibleKeys.some((key) =>
+        collapsedOccurrenceKeys.has(key)
+      );
+      updateCollapsedOccurrences(collapsibleKeys
+        .filter((key) => collapsedOccurrenceKeys.has(key) !== collapse)
+        .map((key) => ({ key, collapsed: collapse })));
       return;
     }
     if (!activePage || !grouped) return;

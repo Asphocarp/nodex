@@ -273,9 +273,10 @@ mod tests {
         DatabasePropertySetDelta, DatabasePropertyValueEdit, DatabasePropertyValueInput,
         DatabasePropertyValueMutation, DatabaseRowsTarget, DatabaseTaskParentPage,
         DatabaseTransferTarget, DatabaseViewCompletedRangeInput,
-        DatabaseViewCompletionOverrideInput, DatabaseViewDefinition, DatabaseViewFieldInput,
-        DatabaseViewGroupOverrideInput, DatabaseViewLayout, DatabaseViewLayoutDisplayOverrideInput,
-        DatabaseViewLayoutInput, DatabaseViewLayoutsOverrideInput,
+        DatabaseViewCompletionOverrideInput, DatabaseViewDefinition, DatabaseViewDisclosureTarget,
+        DatabaseViewFieldInput, DatabaseViewGroupOverrideInput, DatabaseViewLayout,
+        DatabaseViewLayoutDisplayOverrideInput, DatabaseViewLayoutInput,
+        DatabaseViewLayoutsOverrideInput, DatabaseViewPersonalPresentation,
         DatabaseViewPresentationOverrideInput, DatabaseViewReadTarget,
         DatabaseViewSortDirectionInput,
     };
@@ -2172,24 +2173,40 @@ mod tests {
         DatabaseModule::new("profile-1", "library-1", kernel)
     }
 
-    fn read_personal_preferences(
-        module: &DatabaseModule,
-    ) -> nodex_core_contracts::database::DatabaseViewPersonalPreferences {
+    fn read_personal_presentation(module: &DatabaseModule) -> DatabaseViewPersonalPresentation {
         let snapshot = module
             .read(
                 &context(),
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead::ViewPersonalPreferences {
+                    read: DatabaseRead::ViewPersonalPresentation {
                         view_id: VIEW_ID.to_owned(),
                     },
                 },
             )
             .expect("read personal View preferences");
-        let DatabaseReadValue::ViewPersonalPreferences { value } = snapshot.value else {
-            panic!("View personal preferences value");
+        let DatabaseReadValue::ViewPersonalPresentation { value } = snapshot.value else {
+            panic!("View personal presentation value");
         };
         value
+    }
+
+    fn read_collapsed_occurrences(module: &DatabaseModule) -> Vec<DatabaseViewDisclosureTarget> {
+        let snapshot = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    read: DatabaseRead::ViewCollapsedOccurrences {
+                        view_id: VIEW_ID.to_owned(),
+                    },
+                },
+            )
+            .expect("read collapsed View occurrences");
+        let DatabaseReadValue::ViewCollapsedOccurrences { value } = snapshot.value else {
+            panic!("View collapsed occurrences value");
+        };
+        value.targets
     }
 
     fn apply_task_parent(
@@ -2224,56 +2241,78 @@ mod tests {
     }
 
     #[test]
-    fn personal_view_preferences_round_trip_reset_and_reject_stale_writes() {
+    fn personal_presentation_and_occurrence_disclosure_have_independent_conflict_scopes() {
         let directory = tempdir().expect("Profile");
         let home = directory.path().canonicalize().expect("absolute Profile");
         let kernel = SqliteStoreKernel::open_test(&home).expect("fresh store");
         let module = seed_grouped_fixture(&kernel, Vec::new());
 
-        assert_eq!(read_personal_preferences(&module).revision, 0);
+        assert_eq!(read_personal_presentation(&module).revision, 0);
+        assert!(read_collapsed_occurrences(&module).is_empty());
         module
             .apply(
                 &context(),
                 ModuleApplyRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    operation_id: "operation:put-personal-view-preferences".to_owned(),
+                    operation_id: "operation:put-personal-view-presentation".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
-                    intent: vec![DatabaseIntent::PutViewPersonalPreferences {
+                    intent: vec![DatabaseIntent::PutViewPersonalPresentation {
                         view_id: VIEW_ID.to_owned(),
                         expected_revision: 0,
                         presentation_override: DatabaseViewPresentationOverrideInput {
                             layout: Some(DatabaseViewLayoutInput::List),
                             ..Default::default()
                         },
-                        collapsed_group_keys: vec!["GROUP_\"triage\"".to_owned()],
                     }],
                 },
             )
-            .expect("persist personal View preferences");
-        let stored = read_personal_preferences(&module);
+            .expect("persist personal View presentation");
+        let stored = read_personal_presentation(&module);
         assert_eq!(stored.revision, 1);
         assert_eq!(
             stored.presentation_override.layout,
             Some(DatabaseViewLayoutInput::List)
         );
-        assert_eq!(stored.collapsed_group_keys, ["GROUP_\"triage\""]);
+
+        module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    operation_id: "operation:collapse-view-group".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: vec![DatabaseIntent::SetViewOccurrenceDisclosure {
+                        view_id: VIEW_ID.to_owned(),
+                        target: DatabaseViewDisclosureTarget::Group {
+                            occurrence_key: "GROUP_\"triage\"".to_owned(),
+                        },
+                        collapsed: true,
+                    }],
+                },
+            )
+            .expect("collapse independently of presentation revision");
+        assert_eq!(
+            read_collapsed_occurrences(&module),
+            [DatabaseViewDisclosureTarget::Group {
+                occurrence_key: "GROUP_\"triage\"".to_owned(),
+            }],
+        );
 
         let stale = module
             .apply(
                 &context(),
                 ModuleApplyRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    operation_id: "operation:stale-personal-view-preferences".to_owned(),
+                    operation_id: "operation:stale-personal-view-presentation".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
-                    intent: vec![DatabaseIntent::PutViewPersonalPreferences {
+                    intent: vec![DatabaseIntent::PutViewPersonalPresentation {
                         view_id: VIEW_ID.to_owned(),
                         expected_revision: 0,
                         presentation_override: DatabaseViewPresentationOverrideInput::default(),
-                        collapsed_group_keys: Vec::new(),
                     }],
                 },
             )
-            .expect_err("stale personal View preference revision");
+            .expect_err("stale personal View presentation revision");
         assert_eq!(stale.code, CoreErrorCode::RevisionConflict);
 
         let reset = module
@@ -2281,29 +2320,92 @@ mod tests {
                 &context(),
                 ModuleApplyRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    operation_id: "operation:reset-personal-view-preferences".to_owned(),
+                    operation_id: "operation:reset-personal-view-presentation".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
-                    intent: vec![DatabaseIntent::PutViewPersonalPreferences {
+                    intent: vec![DatabaseIntent::PutViewPersonalPresentation {
                         view_id: VIEW_ID.to_owned(),
                         expected_revision: 1,
                         presentation_override: DatabaseViewPresentationOverrideInput::default(),
-                        collapsed_group_keys: Vec::new(),
                     }],
                 },
             )
-            .expect("reset personal View preferences");
+            .expect("reset personal View presentation");
         assert_eq!(
             reset
                 .committed
                 .receipt
                 .committed_revisions
-                .get(&format!("view_preferences:profile-1:{VIEW_ID}")),
-            Some(&0),
+                .get(&format!("view_presentation:profile-1:{VIEW_ID}")),
+            Some(&2),
         );
-        let reset_value = read_personal_preferences(&module);
-        assert_eq!(reset_value.revision, 0);
+        let reset_value = read_personal_presentation(&module);
+        assert_eq!(reset_value.revision, 2);
         assert_eq!(reset_value.presentation_override, Default::default());
-        assert!(reset_value.collapsed_group_keys.is_empty());
+        assert_eq!(read_collapsed_occurrences(&module).len(), 1);
+
+        module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    operation_id: "operation:put-personal-group-direction".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: vec![DatabaseIntent::PutViewPersonalPresentation {
+                        view_id: VIEW_ID.to_owned(),
+                        expected_revision: 2,
+                        presentation_override: DatabaseViewPresentationOverrideInput {
+                            group_direction: Some(DatabaseViewSortDirectionInput::Desc),
+                            ..Default::default()
+                        },
+                    }],
+                },
+            )
+            .expect("persist a group-direction-only presentation override");
+        let direction_only = read_personal_presentation(&module);
+        assert_eq!(direction_only.revision, 3);
+        assert_eq!(
+            direction_only.presentation_override.group_direction,
+            Some(DatabaseViewSortDirectionInput::Desc),
+        );
+        assert_eq!(read_collapsed_occurrences(&module).len(), 1);
+
+        let idempotent = module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    operation_id: "operation:collapse-view-group-again".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: vec![DatabaseIntent::SetViewOccurrenceDisclosure {
+                        view_id: VIEW_ID.to_owned(),
+                        target: DatabaseViewDisclosureTarget::Group {
+                            occurrence_key: "GROUP_\"triage\"".to_owned(),
+                        },
+                        collapsed: true,
+                    }],
+                },
+            )
+            .expect("repeat disclosure patch is idempotent");
+        assert!(idempotent.committed.receipt.affected_view_ids.is_empty());
+
+        module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    operation_id: "operation:expand-view-group".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: vec![DatabaseIntent::SetViewOccurrenceDisclosure {
+                        view_id: VIEW_ID.to_owned(),
+                        target: DatabaseViewDisclosureTarget::Group {
+                            occurrence_key: "GROUP_\"triage\"".to_owned(),
+                        },
+                        collapsed: false,
+                    }],
+                },
+            )
+            .expect("expand occurrence");
+        assert!(read_collapsed_occurrences(&module).is_empty());
     }
 
     #[test]

@@ -27,6 +27,7 @@ import {
   resolveEffectiveDatabaseView,
 } from "../../../shared/database-view-presentation";
 import type { ColumnPaginationState } from "@/lib/board-store";
+import type { DatabaseViewDisclosureTargetV2 } from "../../../shared/database-module-v2";
 import { DatabaseManagementDialogController } from "./database-management-dialog-controller";
 import {
   DbViewToolbar,
@@ -113,8 +114,8 @@ export function DatabaseViewTabSurface({
   presentedPageIds,
   initialSelectedPageIds,
   onSelectedPageIdsChange,
-  collapsedGroupKeys,
-  onCollapsedGroupKeysChange,
+  collapsedOccurrenceKeys,
+  onOccurrenceDisclosureChange,
   forcedDisplayField,
   pageCreateSurfaceId,
   onRequestCreatePage,
@@ -147,8 +148,11 @@ export function DatabaseViewTabSurface({
   readonly presentedPageIds?: ReadonlySet<string>;
   readonly initialSelectedPageIds?: ReadonlySet<string>;
   readonly onSelectedPageIdsChange?: (pageIds: ReadonlySet<string>) => void;
-  readonly collapsedGroupKeys?: readonly string[];
-  readonly onCollapsedGroupKeysChange?: (keys: readonly string[]) => void;
+  readonly collapsedOccurrenceKeys?: readonly string[];
+  readonly onOccurrenceDisclosureChange?: (
+    target: DatabaseViewDisclosureTargetV2,
+    collapsed: boolean,
+  ) => void;
   readonly forcedDisplayField?: DatabaseViewField | null;
   readonly pageCreateSurfaceId?: string;
   readonly onRequestCreatePage?: (groupKey: string) => void;
@@ -187,8 +191,8 @@ export function DatabaseViewTabSurface({
                 presentedPageIds={presentedPageIds}
                 initialSelectedPageIds={initialSelectedPageIds}
                 onSelectedPageIdsChange={onSelectedPageIdsChange}
-                collapsedGroupKeys={collapsedGroupKeys}
-                onCollapsedGroupKeysChange={onCollapsedGroupKeysChange}
+                collapsedOccurrenceKeys={collapsedOccurrenceKeys}
+                onOccurrenceDisclosureChange={onOccurrenceDisclosureChange}
                 forcedDisplayField={forcedDisplayField}
                 pageCreateSurfaceId={pageCreateSurfaceId}
                 onRequestCreatePage={onRequestCreatePage}
@@ -428,7 +432,7 @@ export function DbViewSessionTab({
     ) return;
     setPublishingPresentation(true);
     try {
-      const currentPreference = await personalPreference.flush();
+      const currentPresentation = await personalPreference.flushPresentation();
       const receipt = await commitDatabaseViewOperations({
         model: databaseView,
         operations: [
@@ -447,24 +451,23 @@ export function DbViewSessionTab({
             isDefault: databaseView.query.view.isDefault,
           },
           {
-            kind: "put_view_personal_preferences",
+            kind: "put_view_personal_presentation",
             viewId: databaseView.databaseViewId,
-            expectedRevision: currentPreference.revision,
+            expectedRevision: currentPresentation.revision,
             presentationOverride: {},
-            collapsedGroupKeys: currentPreference.collapsedGroupKeys,
           },
         ],
       });
       const preferenceRevision = receipt
         ? Object.entries(receipt.committedRevisions).find(
-            ([key]) => key.startsWith("view_preferences:")
+            ([key]) => key.startsWith("view_presentation:")
               && key.endsWith(`:${databaseView.databaseViewId}`),
-          )?.[1] ?? 0
-        : 0;
-      personalPreference.acceptCommitted({
+          )?.[1] ?? currentPresentation.revision
+        : currentPresentation.revision;
+      personalPreference.acceptPresentationCommitted({
         presentationOverride: null,
-        collapsedGroupKeys: currentPreference.collapsedGroupKeys,
         revision: preferenceRevision,
+        commitSeq: receipt?.commitSeq ?? databaseView.commitSeq,
       });
       await runtime.refresh();
     } finally {
@@ -651,9 +654,9 @@ export function DbViewSessionTab({
       presentedPageIds={presentedPageIds}
       initialSelectedPageIds={selectedPageIds}
       onSelectedPageIdsChange={setSelectedPageIds}
-      collapsedGroupKeys={personalPreference.collapsedGroupKeys}
-      onCollapsedGroupKeysChange={(keys) => {
-        void personalPreference.setCollapsedGroupKeys(keys);
+      collapsedOccurrenceKeys={personalPreference.collapsedOccurrenceKeys}
+      onOccurrenceDisclosureChange={(target, collapsed) => {
+        void personalPreference.setOccurrenceDisclosure(target, collapsed);
       }}
       pageCreateSurfaceId={surfaceId}
       onRequestCreatePage={requestListPageCreate}

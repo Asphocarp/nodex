@@ -71,7 +71,8 @@ fn read_subject(context: &BoundModuleContext, read: &DatabaseRead) -> Option<Res
             })
         }
         DatabaseRead::View { view_id }
-        | DatabaseRead::ViewPersonalPreferences { view_id }
+        | DatabaseRead::ViewPersonalPresentation { view_id }
+        | DatabaseRead::ViewCollapsedOccurrences { view_id }
         | DatabaseRead::ViewContext { view_id, .. } => Some(ResourceKey::View {
             view_id: view_id.clone(),
         }),

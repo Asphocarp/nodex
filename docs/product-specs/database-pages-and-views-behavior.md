@@ -30,13 +30,26 @@ restarts that bounded window rather than silently truncating the result.
 
 Filter is durable View query authority and search is window-local. Layout,
 sorting, grouping, subgrouping, completion policy, empty-group visibility, and
-displayed Properties resolve through a sparse Core personal preference keyed by
-durable View ID. Board and List remember separate displayed-Property sets while
-sharing the other presentation rules. Reset removes only the personal override.
+displayed Properties resolve through a sparse Core personal presentation keyed
+by durable View ID. Its monotonic revision applies only to that presentation;
+List disclosure is a separate bounded sparse set changed by idempotent
+per-target patches. The current List exposes disclosure only on group headers;
+Page occurrences remain expanded and do not create personal disclosure state.
+Changing either coordinate never rewrites or conflicts with the other. Board
+and List remember separate displayed-Property sets while sharing the other
+presentation rules. Reset removes only the personal presentation override and
+does not expand collapsed groups.
 `Set default for everyone` publishes the normalized effective presentation with
 View revision compare-and-swap and clears the override only after success; a
 conflict retains the personal state. A valid legacy renderer preference migrates
 once and is removed only after Core accepts the write.
+
+Personal presentation and disclosure changes converge across mounted windows as
+typed deltas authorized by the durable View. They do not claim a shared View,
+Data Source, Database, or Page projection change, so a personal toggle cannot
+refresh Board/List content or invalidate Library navigation. Reconnect replay
+preserves those deltas; a Store-epoch replacement rehydrates both personal
+authorities while retaining the last readable surface until the handover.
 
 Display Options derives valid group fields, finite empty groups, completion
 controls, and visible Properties from the active Source schema. Page ID is an

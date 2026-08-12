@@ -69,7 +69,8 @@ fn database_policy(read: &DatabaseRead) -> ReadBudgetPolicy {
         DatabaseRead::Database { .. }
         | DatabaseRead::DataSource { .. }
         | DatabaseRead::View { .. }
-        | DatabaseRead::ViewPersonalPreferences { .. }
+        | DatabaseRead::ViewPersonalPresentation { .. }
+        | DatabaseRead::ViewCollapsedOccurrences { .. }
         | DatabaseRead::RowDetail { .. } => ReadBudgetPolicy::Identity,
     }
 }

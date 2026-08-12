@@ -26,7 +26,7 @@ import type {
   DatabaseViewPresentationOverride,
 } from "./database-kernel";
 
-export const DATABASE_MODULE_V2_CONTRACT_VERSION = 10 as const;
+export const DATABASE_MODULE_V2_CONTRACT_VERSION = 11 as const;
 export const MAX_DATABASE_MODULE_V2_OPERATIONS = 64 as const;
 export const MAX_DATABASE_MODULE_V2_BULK_ENTRIES = 100 as const;
 
@@ -201,11 +201,18 @@ export interface DatabaseRelationCandidateWindowV2 {
   readonly projectionRevision: number;
 }
 
-export interface DatabaseViewPersonalPreferencesV2 {
+export interface DatabaseViewPersonalPresentationV2 {
   readonly presentationOverride: DatabaseViewPresentationOverride;
-  readonly collapsedGroupKeys: readonly string[];
-  /** Zero means that this Profile has no durable preference row yet. */
+  /** Zero means that this Profile has never changed this View presentation. */
   readonly revision: number;
+}
+
+export type DatabaseViewDisclosureTargetV2 =
+  | { readonly kind: "group"; readonly occurrenceKey: string }
+  | { readonly kind: "page"; readonly occurrenceKey: string };
+
+export interface DatabaseViewCollapsedOccurrencesV2 {
+  readonly targets: readonly DatabaseViewDisclosureTargetV2[];
 }
 
 export type DatabaseReadV2 = (
@@ -253,7 +260,14 @@ export type DatabaseReadV2 = (
         readonly kind: "view";
         readonly viewId: DatabaseViewId;
       };
-      readonly mode: "view_personal_preferences";
+      readonly mode: "view_personal_presentation";
+    }
+  | {
+      readonly target: {
+        readonly kind: "view";
+        readonly viewId: DatabaseViewId;
+      };
+      readonly mode: "view_collapsed_occurrences";
     }
   | {
       readonly target: {
@@ -291,8 +305,12 @@ export type DatabaseReadValueV2 =
   | { readonly kind: "data_source"; readonly value: DataSourceDescriptorV2 }
   | { readonly kind: "view"; readonly value: DatabaseViewRecordV2 }
   | {
-      readonly kind: "view_personal_preferences";
-      readonly value: DatabaseViewPersonalPreferencesV2;
+      readonly kind: "view_personal_presentation";
+      readonly value: DatabaseViewPersonalPresentationV2;
+    }
+  | {
+      readonly kind: "view_collapsed_occurrences";
+      readonly value: DatabaseViewCollapsedOccurrencesV2;
     }
   | { readonly kind: "query"; readonly value: DatabaseViewQueryResultV2 }
   | {
@@ -521,12 +539,18 @@ export interface SetDatabaseTaskParentOperationV2 {
   readonly beforePageId?: string;
 }
 
-export interface PutDatabaseViewPersonalPreferencesOperationV2 {
-  readonly kind: "put_view_personal_preferences";
+export interface PutDatabaseViewPersonalPresentationOperationV2 {
+  readonly kind: "put_view_personal_presentation";
   readonly viewId: DatabaseViewId;
   readonly expectedRevision: number;
   readonly presentationOverride: DatabaseViewPresentationOverride;
-  readonly collapsedGroupKeys: readonly string[];
+}
+
+export interface SetDatabaseViewOccurrenceDisclosureOperationV2 {
+  readonly kind: "set_view_occurrence_disclosure";
+  readonly viewId: DatabaseViewId;
+  readonly target: DatabaseViewDisclosureTargetV2;
+  readonly collapsed: boolean;
 }
 
 export type DatabaseApplyOperationV2 =
@@ -541,7 +565,8 @@ export type DatabaseApplyOperationV2 =
   | PositionDatabaseViewPageOperationV2
   | PositionDatabaseViewPagesOperationV2
   | SetDatabaseTaskParentOperationV2
-  | PutDatabaseViewPersonalPreferencesOperationV2;
+  | PutDatabaseViewPersonalPresentationOperationV2
+  | SetDatabaseViewOccurrenceDisclosureOperationV2;
 
 export interface DatabaseApplyV2
   extends Omit<DatabaseApplyV1, "version" | "operations"> {

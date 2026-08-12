@@ -2,14 +2,14 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use nodex_core_contracts::database::{
     DatabaseCommitValue, DatabaseEvent, DatabaseEventKind, DatabaseIntent, DatabasePagePosition,
-    DatabasePagePropertyAddress, DatabasePropertyCapabilities, DatabasePropertyFilterOperator,
-    DatabasePropertySchema, DatabasePropertySetDelta, DatabasePropertyValueEdit,
-    DatabasePropertyValueInput, DatabasePropertyValueMutation, DatabaseReceipt,
-    DatabaseRelationCardinality, DatabaseTaskParentPage, DatabaseTransferTarget,
-    DatabaseViewDefinition, DatabaseViewField, DatabaseViewFilter,
+    DatabasePagePropertyAddress, DatabasePersonalViewChange, DatabasePropertyCapabilities,
+    DatabasePropertyFilterOperator, DatabasePropertySchema, DatabasePropertySetDelta,
+    DatabasePropertyValueEdit, DatabasePropertyValueInput, DatabasePropertyValueMutation,
+    DatabaseReceipt, DatabaseRelationCardinality, DatabaseTaskParentPage, DatabaseTransferTarget,
+    DatabaseViewDefinition, DatabaseViewDisclosureTarget, DatabaseViewField, DatabaseViewFilter,
     DatabaseViewFilterOperator as ViewFilterOperator, DatabaseViewIntrinsicField,
-    DatabaseViewLayout, DatabaseViewPresentationOverrideInput, DatabaseViewSortDirection,
-    DatabaseViewSortField,
+    DatabaseViewLayout, DatabaseViewPersonalPresentation, DatabaseViewPresentationOverrideInput,
+    DatabaseViewSortDirection, DatabaseViewSortField,
 };
 use nodex_core_contracts::{
     BoundModuleContext, CoreModuleEventPayload, ModuleApplyRequest, ModuleMutationReceipt,
@@ -38,6 +38,7 @@ use crate::infrastructure::sqlite::{StoreError, StoreErrorCode, with_immediate_t
 use crate::infrastructure::writer::StoreWriter;
 
 use super::DatabaseApplyOutcome;
+use super::authorization::{authorize_required, project_primary_database};
 use super::is_trusted_library_database_context;
 use super::relation::RelationValueEdit as RelationEdit;
 
@@ -49,6 +50,8 @@ const MAX_PROPERTY_ID_LENGTH: usize = 128;
 const MAX_NAME_LENGTH: usize = 256;
 const MAX_VIEW_SORT_RULES: usize = 4;
 const MAX_VIEW_DISPLAY_PROPERTIES: usize = 64;
+const MAX_COLLAPSED_OCCURRENCES: i64 = 2_000;
+const MAX_OCCURRENCE_KEY_LENGTH: usize = 1_024;
 
 #[derive(Default)]
 struct MutationEffects {
@@ -57,6 +60,8 @@ struct MutationEffects {
     page_ids: BTreeSet<String>,
     view_ids: BTreeSet<String>,
     revisions: BTreeMap<String, i64>,
+    personal_presentations: BTreeMap<String, DatabaseViewPersonalPresentation>,
+    occurrence_disclosures: BTreeMap<(String, DatabaseViewDisclosureTarget), bool>,
 }
 
 struct DatabaseMutationAuthority {
@@ -308,28 +313,18 @@ fn validate_request(request: &ModuleApplyRequest<Vec<DatabaseIntent>>) -> Result
                 "set_task_parent requires between 1 and {MAX_BULK_VALUES} Pages"
             )));
         }
-        if let DatabaseIntent::PutViewPersonalPreferences {
-            collapsed_group_keys,
-            expected_revision,
-            ..
+        if let DatabaseIntent::PutViewPersonalPresentation {
+            expected_revision, ..
         } = intent
         {
             if *expected_revision < 0 {
                 return Err(invalid(
-                    "View personal preference revision cannot be negative",
+                    "View personal presentation revision cannot be negative",
                 ));
             }
-            if collapsed_group_keys.len() > 2_000
-                || collapsed_group_keys
-                    .iter()
-                    .any(|key| key.is_empty() || key.len() > 1_024)
-                || collapsed_group_keys.iter().collect::<HashSet<_>>().len()
-                    != collapsed_group_keys.len()
-            {
-                return Err(invalid(
-                    "View collapsed group keys violate their durable bound",
-                ));
-            }
+        }
+        if let DatabaseIntent::SetViewOccurrenceDisclosure { target, .. } = intent {
+            validate_disclosure_target(target)?;
         }
     }
     Ok(())
@@ -348,7 +343,8 @@ fn database_intent_kind(intent: &DatabaseIntent) -> &'static str {
         DatabaseIntent::PositionPage { .. } => "position_page",
         DatabaseIntent::PositionPages { .. } => "position_pages",
         DatabaseIntent::SetTaskParent { .. } => "set_task_parent",
-        DatabaseIntent::PutViewPersonalPreferences { .. } => "put_view_personal_preferences",
+        DatabaseIntent::PutViewPersonalPresentation { .. } => "put_view_personal_presentation",
+        DatabaseIntent::SetViewOccurrenceDisclosure { .. } => "set_view_occurrence_disclosure",
     }
 }
 
@@ -372,7 +368,8 @@ fn page_detail_dependency_ids(intents: &[DatabaseIntent]) -> (BTreeSet<String>, 
             | DatabaseIntent::PositionPage { .. }
             | DatabaseIntent::PositionPages { .. }
             | DatabaseIntent::SetTaskParent { .. }
-            | DatabaseIntent::PutViewPersonalPreferences { .. } => {}
+            | DatabaseIntent::PutViewPersonalPresentation { .. }
+            | DatabaseIntent::SetViewOccurrenceDisclosure { .. } => {}
         }
     }
     (data_source_ids, database_ids)
@@ -586,23 +583,35 @@ fn apply_intent(
             effects,
             library_scope,
         ),
-        DatabaseIntent::PutViewPersonalPreferences {
+        DatabaseIntent::PutViewPersonalPresentation {
             view_id,
             expected_revision,
             presentation_override,
-            collapsed_group_keys,
-        } => put_view_personal_preferences(
+        } => put_view_personal_presentation(
             connection,
             profile_id,
             library_id,
-            project_id,
+            authority.project_id.as_deref(),
             view_id,
             *expected_revision,
             presentation_override,
-            collapsed_group_keys,
             now,
             effects,
-            library_scope,
+        ),
+        DatabaseIntent::SetViewOccurrenceDisclosure {
+            view_id,
+            target,
+            collapsed,
+        } => set_view_occurrence_disclosure(
+            connection,
+            profile_id,
+            library_id,
+            authority.project_id.as_deref(),
+            view_id,
+            target,
+            *collapsed,
+            now,
+            effects,
         ),
         DatabaseIntent::TransferPage {
             page_id,
@@ -4073,25 +4082,170 @@ fn presentation_override_is_empty(presentation: &DatabaseViewPresentationOverrid
         && presentation.sort.is_none()
         && presentation.group.is_none()
         && presentation.subgroup.is_none()
+        && presentation.group_direction.is_none()
         && presentation.completion.is_none()
         && presentation.hierarchy.is_none()
         && presentation.layouts.is_none()
 }
 
 #[allow(clippy::too_many_arguments)]
-fn put_view_personal_preferences(
+fn put_view_personal_presentation(
     connection: &Connection,
     profile_id: &str,
     library_id: &str,
-    project_id: &str,
+    project_id: Option<&str>,
     view_id: &str,
     expected_revision: i64,
     presentation_override: &DatabaseViewPresentationOverrideInput,
-    collapsed_group_keys: &[String],
     now: &str,
     effects: &mut MutationEffects,
-    library_scope: bool,
 ) -> Result<(), StoreError> {
+    let view = authorize_personal_view(connection, library_id, project_id, view_id)?;
+    super::window::validate_presentation_override(
+        connection,
+        library_id,
+        view_id,
+        presentation_override,
+    )?;
+    let current = connection
+        .query_row(
+            "SELECT presentation_override_json, revision \
+             FROM database_view_personal_presentations \
+             WHERE profile_id = ?1 AND view_id = ?2",
+            params![profile_id, view_id],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
+        )
+        .optional()?;
+    let current_revision = current.as_ref().map(|(_, revision)| *revision).unwrap_or(0);
+    require_revision(
+        expected_revision,
+        current_revision,
+        "Database View personal presentation changed",
+    )?;
+    let presentation_json = serde_json::to_string(presentation_override)
+        .map_err(|_| internal("View personal presentation could not be serialized"))?;
+    if current
+        .as_ref()
+        .is_some_and(|(stored, _)| stored == &presentation_json)
+        || (current.is_none() && presentation_override_is_empty(presentation_override))
+    {
+        effects.revisions.insert(
+            format!("view_presentation:{profile_id}:{view_id}"),
+            current_revision,
+        );
+        return Ok(());
+    }
+
+    let revision = current_revision + 1;
+    connection.execute(
+        "INSERT INTO database_view_personal_presentations(\
+           profile_id, view_id, presentation_override_json, revision, created_at, updated_at\
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?5) \
+         ON CONFLICT(profile_id, view_id) DO UPDATE SET \
+           presentation_override_json = excluded.presentation_override_json, \
+           revision = excluded.revision, updated_at = excluded.updated_at",
+        params![profile_id, view_id, presentation_json, revision, now],
+    )?;
+    let value = DatabaseViewPersonalPresentation {
+        presentation_override: presentation_override.clone(),
+        revision,
+    };
+    effects.revisions.insert(
+        format!("view_presentation:{profile_id}:{view_id}"),
+        revision,
+    );
+    effects.personal_presentations.insert(view.id, value);
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn set_view_occurrence_disclosure(
+    connection: &Connection,
+    profile_id: &str,
+    library_id: &str,
+    project_id: Option<&str>,
+    view_id: &str,
+    target: &DatabaseViewDisclosureTarget,
+    collapsed: bool,
+    now: &str,
+    effects: &mut MutationEffects,
+) -> Result<(), StoreError> {
+    validate_disclosure_target(target)?;
+    let view = authorize_personal_view(connection, library_id, project_id, view_id)?;
+    let (target_kind, occurrence_key) = disclosure_storage_address(target);
+    let exists = connection
+        .query_row(
+            "SELECT 1 FROM database_view_collapsed_occurrences \
+             WHERE profile_id = ?1 AND view_id = ?2 \
+               AND target_kind = ?3 AND occurrence_key = ?4",
+            params![profile_id, view_id, target_kind, occurrence_key],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some();
+    if exists == collapsed {
+        return Ok(());
+    }
+
+    if collapsed {
+        let count = connection.query_row(
+            "SELECT count(*) FROM database_view_collapsed_occurrences \
+             WHERE profile_id = ?1 AND view_id = ?2",
+            params![profile_id, view_id],
+            |row| row.get::<_, i64>(0),
+        )?;
+        if count >= MAX_COLLAPSED_OCCURRENCES {
+            let evicted = connection
+                .query_row(
+                    "SELECT target_kind, occurrence_key \
+                     FROM database_view_collapsed_occurrences \
+                     WHERE profile_id = ?1 AND view_id = ?2 \
+                     ORDER BY collapsed_at, target_kind, occurrence_key LIMIT 1",
+                    params![profile_id, view_id],
+                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+                )
+                .optional()?
+                .ok_or_else(|| corrupt("Collapsed occurrence bound is inconsistent"))?;
+            connection.execute(
+                "DELETE FROM database_view_collapsed_occurrences \
+                 WHERE profile_id = ?1 AND view_id = ?2 \
+                   AND target_kind = ?3 AND occurrence_key = ?4",
+                params![profile_id, view_id, evicted.0, evicted.1],
+            )?;
+            effects.occurrence_disclosures.insert(
+                (
+                    view.id.clone(),
+                    disclosure_target_from_storage(&evicted.0, evicted.1)?,
+                ),
+                false,
+            );
+        }
+        connection.execute(
+            "INSERT INTO database_view_collapsed_occurrences(\
+               profile_id, view_id, target_kind, occurrence_key, collapsed_at\
+             ) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![profile_id, view_id, target_kind, occurrence_key, now],
+        )?;
+    } else {
+        connection.execute(
+            "DELETE FROM database_view_collapsed_occurrences \
+             WHERE profile_id = ?1 AND view_id = ?2 \
+               AND target_kind = ?3 AND occurrence_key = ?4",
+            params![profile_id, view_id, target_kind, occurrence_key],
+        )?;
+    }
+    effects
+        .occurrence_disclosures
+        .insert((view.id, target.clone()), collapsed);
+    Ok(())
+}
+
+fn authorize_personal_view(
+    connection: &Connection,
+    library_id: &str,
+    project_id: Option<&str>,
+    view_id: &str,
+) -> Result<ViewRow, StoreError> {
     let view = view_row(connection, view_id)?
         .filter(|view| view.lifecycle == "active")
         .ok_or_else(|| not_found("Active Database View is unavailable"))?;
@@ -4099,74 +4253,54 @@ fn put_view_personal_preferences(
     if source.database_id != view.database_id {
         return Err(corrupt("Database View source authority is inconsistent"));
     }
-    authorize_write(
+    let primary_database_id = project_id
+        .map(|project_id| project_primary_database(connection, library_id, project_id))
+        .transpose()?
+        .flatten();
+    authorize_required(
         connection,
         project_id,
+        primary_database_id.as_deref(),
         &view.database_id,
-        DatabaseWriteAction::Write,
-        library_scope,
     )?;
-    super::window::validate_presentation_override(
-        connection,
-        library_id,
-        view_id,
-        presentation_override,
-    )?;
-    let current_revision = connection
-        .query_row(
-            "SELECT revision FROM database_view_personal_preferences \
-             WHERE profile_id = ?1 AND view_id = ?2",
-            params![profile_id, view_id],
-            |row| row.get::<_, i64>(0),
-        )
-        .optional()?
-        .unwrap_or(0);
-    require_revision(
-        expected_revision,
-        current_revision,
-        "Database View personal preferences changed",
-    )?;
-    if presentation_override_is_empty(presentation_override) && collapsed_group_keys.is_empty() {
-        connection.execute(
-            "DELETE FROM database_view_personal_preferences \
-             WHERE profile_id = ?1 AND view_id = ?2",
-            params![profile_id, view_id],
-        )?;
-        effects
-            .revisions
-            .insert(format!("view_preferences:{profile_id}:{view_id}"), 0);
-    } else {
-        let presentation_json = serde_json::to_string(presentation_override)
-            .map_err(|_| internal("View personal presentation could not be serialized"))?;
-        let collapsed_json = serde_json::to_string(collapsed_group_keys)
-            .map_err(|_| internal("View collapsed groups could not be serialized"))?;
-        let revision = current_revision + 1;
-        connection.execute(
-            "INSERT INTO database_view_personal_preferences(\
-               profile_id, view_id, presentation_override_json, \
-               collapsed_group_keys_json, revision, created_at, updated_at\
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6) \
-             ON CONFLICT(profile_id, view_id) DO UPDATE SET \
-               presentation_override_json = excluded.presentation_override_json, \
-               collapsed_group_keys_json = excluded.collapsed_group_keys_json, \
-               revision = excluded.revision, updated_at = excluded.updated_at",
-            params![
-                profile_id,
-                view_id,
-                presentation_json,
-                collapsed_json,
-                revision,
-                now,
-            ],
-        )?;
-        effects
-            .revisions
-            .insert(format!("view_preferences:{profile_id}:{view_id}"), revision);
+    Ok(view)
+}
+
+fn validate_disclosure_target(target: &DatabaseViewDisclosureTarget) -> Result<(), StoreError> {
+    let occurrence_key = target.occurrence_key();
+    if occurrence_key.is_empty() || occurrence_key.len() > MAX_OCCURRENCE_KEY_LENGTH {
+        return Err(invalid(
+            "View occurrence disclosure key violates its durable bound",
+        ));
     }
-    effects.database_ids.insert(view.database_id);
-    effects.data_source_ids.insert(view.data_source_id);
-    effects.view_ids.insert(view.id);
-    Ok(())
+    let valid_prefix = match target {
+        DatabaseViewDisclosureTarget::Group { .. } => occurrence_key.starts_with("GROUP_"),
+        DatabaseViewDisclosureTarget::Page { .. } => occurrence_key.starts_with("ITEM_"),
+    };
+    if valid_prefix {
+        return Ok(());
+    }
+    Err(invalid(
+        "View occurrence disclosure target does not match its occurrence kind",
+    ))
+}
+
+fn disclosure_storage_address(target: &DatabaseViewDisclosureTarget) -> (&'static str, &str) {
+    match target {
+        DatabaseViewDisclosureTarget::Group { occurrence_key } => ("group", occurrence_key),
+        DatabaseViewDisclosureTarget::Page { occurrence_key } => ("page", occurrence_key),
+    }
+}
+
+fn disclosure_target_from_storage(
+    kind: &str,
+    occurrence_key: String,
+) -> Result<DatabaseViewDisclosureTarget, StoreError> {
+    match kind {
+        "group" => Ok(DatabaseViewDisclosureTarget::Group { occurrence_key }),
+        "page" => Ok(DatabaseViewDisclosureTarget::Page { occurrence_key }),
+        _ => Err(corrupt("Database View disclosure target kind is invalid")),
+    }
 }
 
 fn validate_view_definition(
@@ -5307,6 +5441,19 @@ fn seal_commit(
     let page_ids = effects.page_ids.into_iter().collect::<Vec<_>>();
     let view_ids = effects.view_ids.into_iter().collect::<Vec<_>>();
     let committed_revisions = effects.revisions;
+    let personal_view_changes =
+        effects
+            .personal_presentations
+            .into_iter()
+            .map(|(view_id, value)| DatabasePersonalViewChange::Presentation { view_id, value })
+            .chain(effects.occurrence_disclosures.into_iter().map(
+                |((view_id, target), collapsed)| DatabasePersonalViewChange::OccurrenceDisclosure {
+                    view_id,
+                    target,
+                    collapsed,
+                },
+            ))
+            .collect::<Vec<_>>();
     let operation_kinds = request
         .intent
         .iter()
@@ -5332,6 +5479,7 @@ fn seal_commit(
         "dataSourceIds": data_source_ids,
         "pageIds": page_ids,
         "viewIds": view_ids,
+        "personalViewChanges": personal_view_changes,
         "committedRevisions": committed_revisions,
     });
     let event_payload = CoreModuleEventPayload::Database(DatabaseEvent {
@@ -5341,6 +5489,7 @@ fn seal_commit(
         data_source_ids: data_source_ids.clone(),
         page_ids: page_ids.clone(),
         view_ids: view_ids.clone(),
+        personal_view_changes: personal_view_changes.clone(),
     });
     let projection_impact =
         expand_database_coordinates(connection, impact_for_payload(&event_payload)?)?;

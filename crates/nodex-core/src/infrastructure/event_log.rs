@@ -2,7 +2,9 @@ use nodex_core_contracts::administration::{
     StoreAdministrationEvent, StoreAdministrationEventKind,
 };
 use nodex_core_contracts::automation::{AutomationEvent, AutomationEventKind};
-use nodex_core_contracts::database::{DatabaseEvent, DatabaseEventKind};
+use nodex_core_contracts::database::{
+    DatabaseEvent, DatabaseEventKind, DatabasePersonalViewChange, DatabaseViewDisclosureTarget,
+};
 use nodex_core_contracts::events::DeliveryAuthorizationScope;
 use nodex_core_contracts::library::{LibraryEvent, LibraryEventKind};
 use nodex_core_contracts::workspace::{
@@ -597,6 +599,8 @@ struct DatabaseMetadata {
     data_source_ids: Vec<String>,
     page_ids: Vec<String>,
     view_ids: Vec<String>,
+    #[serde(default)]
+    personal_view_changes: Vec<DatabasePersonalViewChange>,
 }
 
 #[derive(Deserialize)]
@@ -1017,6 +1021,7 @@ fn reconstruct_event(
             validate_strings(&metadata.data_source_ids, "Data Source")?;
             validate_strings(&metadata.page_ids, "Database Page")?;
             validate_strings(&metadata.view_ids, "Database View")?;
+            validate_personal_view_changes(&metadata.personal_view_changes)?;
             if let Some(project_id) = metadata.project_id.as_deref() {
                 validate_identity(project_id, "Database Project")?;
                 if project_id != row.project_id {
@@ -1032,6 +1037,7 @@ fn reconstruct_event(
                 data_source_ids: metadata.data_source_ids,
                 page_ids: metadata.page_ids,
                 view_ids: metadata.view_ids,
+                personal_view_changes: metadata.personal_view_changes,
             })
         }
         "project_workspace.changed" => {
@@ -1238,6 +1244,33 @@ fn validate_strings(values: &[String], label: &str) -> Result<(), StoreError> {
     }
     for value in values {
         validate_identity(value, label)?;
+    }
+    Ok(())
+}
+
+fn validate_personal_view_changes(
+    changes: &[DatabasePersonalViewChange],
+) -> Result<(), StoreError> {
+    if changes.len() > MAX_EVENT_IDENTITIES {
+        return Err(corrupt(
+            "Database personal View change list exceeds its bound",
+        ));
+    }
+    for change in changes {
+        validate_identity(change.view_id(), "Database personal View")?;
+        let DatabasePersonalViewChange::OccurrenceDisclosure { target, .. } = change else {
+            continue;
+        };
+        let occurrence_key = target.occurrence_key();
+        let matches_kind = match target {
+            DatabaseViewDisclosureTarget::Group { .. } => occurrence_key.starts_with("GROUP_"),
+            DatabaseViewDisclosureTarget::Page { .. } => occurrence_key.starts_with("ITEM_"),
+        };
+        if occurrence_key.is_empty() || occurrence_key.len() > 1_024 || !matches_kind {
+            return Err(corrupt(
+                "Database personal View occurrence target is invalid",
+            ));
+        }
     }
     Ok(())
 }
@@ -1511,7 +1544,16 @@ mod tests {
                             "databaseIds": ["database:one"],
                             "dataSourceIds": ["source:one"],
                             "pageIds": [],
-                            "viewIds": ["view:one"]
+                            "viewIds": ["view:one"],
+                            "personalViewChanges": [{
+                                "kind": "occurrence_disclosure",
+                                "view_id": "view:one",
+                                "target": {
+                                    "kind": "page",
+                                    "occurrence_key": "ITEM_parent/child"
+                                },
+                                "collapsed": true
+                            }]
                         }),
                     ),
                 ] {
@@ -1544,10 +1586,19 @@ mod tests {
             events[0].effects[0].payload,
             CoreModuleEventPayload::Library(_)
         ));
-        assert!(matches!(
-            events[1].effects[0].payload,
-            CoreModuleEventPayload::Database(_)
-        ));
+        let CoreModuleEventPayload::Database(database_event) = &events[1].effects[0].payload else {
+            panic!("expected Database event");
+        };
+        assert_eq!(
+            database_event.personal_view_changes,
+            vec![DatabasePersonalViewChange::OccurrenceDisclosure {
+                view_id: "view:one".to_owned(),
+                target: DatabaseViewDisclosureTarget::Page {
+                    occurrence_key: "ITEM_parent/child".to_owned(),
+                },
+                collapsed: true,
+            }]
+        );
     }
 
     #[test]

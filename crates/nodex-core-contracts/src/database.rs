@@ -9,7 +9,7 @@ use crate::collection::{CollectionWindow, CollectionWindowRequest};
 use crate::events::ProjectionSnapshotAuthority;
 use crate::{ModuleMutationReceipt, ModuleName, VersionedModuleContract};
 
-pub const DATABASE_CONTRACT_VERSION: u32 = 14;
+pub const DATABASE_CONTRACT_VERSION: u32 = 15;
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
@@ -451,7 +451,10 @@ pub enum DatabaseRead {
         query: Option<String>,
         window: CollectionWindowRequest,
     },
-    ViewPersonalPreferences {
+    ViewPersonalPresentation {
+        view_id: String,
+    },
+    ViewCollapsedOccurrences {
         view_id: String,
     },
 }
@@ -570,17 +573,63 @@ pub enum DatabaseReadValue {
     RelationCandidateWindow {
         candidates: CollectionWindow<DatabaseRelationCandidate>,
     },
-    ViewPersonalPreferences {
-        value: DatabaseViewPersonalPreferences,
+    ViewPersonalPresentation {
+        value: DatabaseViewPersonalPresentation,
+    },
+    ViewCollapsedOccurrences {
+        value: DatabaseViewCollapsedOccurrences,
     },
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
-pub struct DatabaseViewPersonalPreferences {
+pub struct DatabaseViewPersonalPresentation {
     pub presentation_override: DatabaseViewPresentationOverrideInput,
-    pub collapsed_group_keys: Vec<String>,
-    /// Zero means that this Profile has no durable preference row yet.
+    /// Zero means that this Profile has never changed this View presentation.
     pub revision: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum DatabaseViewDisclosureTarget {
+    Group { occurrence_key: String },
+    Page { occurrence_key: String },
+}
+
+impl DatabaseViewDisclosureTarget {
+    pub fn occurrence_key(&self) -> &str {
+        match self {
+            Self::Group { occurrence_key } | Self::Page { occurrence_key } => occurrence_key,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct DatabaseViewCollapsedOccurrences {
+    pub targets: Vec<DatabaseViewDisclosureTarget>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum DatabasePersonalViewChange {
+    Presentation {
+        view_id: String,
+        value: DatabaseViewPersonalPresentation,
+    },
+    OccurrenceDisclosure {
+        view_id: String,
+        target: DatabaseViewDisclosureTarget,
+        collapsed: bool,
+    },
+}
+
+impl DatabasePersonalViewChange {
+    pub fn view_id(&self) -> &str {
+        match self {
+            Self::Presentation { view_id, .. } | Self::OccurrenceDisclosure { view_id, .. } => {
+                view_id
+            }
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -867,11 +916,15 @@ pub enum DatabaseIntent {
         parent_page_id: Option<String>,
         before_page_id: Option<String>,
     },
-    PutViewPersonalPreferences {
+    PutViewPersonalPresentation {
         view_id: String,
         expected_revision: i64,
         presentation_override: DatabaseViewPresentationOverrideInput,
-        collapsed_group_keys: Vec<String>,
+    },
+    SetViewOccurrenceDisclosure {
+        view_id: String,
+        target: DatabaseViewDisclosureTarget,
+        collapsed: bool,
     },
 }
 
@@ -982,6 +1035,10 @@ pub struct DatabaseEvent {
     pub data_source_ids: Vec<String>,
     pub page_ids: Vec<String>,
     pub view_ids: Vec<String>,
+    /// Profile-owned deltas are routed through View authorization but do not
+    /// invalidate shared Database/View projections.
+    #[serde(default)]
+    pub personal_view_changes: Vec<DatabasePersonalViewChange>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]

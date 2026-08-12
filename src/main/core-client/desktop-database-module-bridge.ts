@@ -66,7 +66,10 @@ import {
   projectCoreDatabaseViewQuery,
 } from "../../shared/database-page-projection";
 import { projectCoreDatabaseQueryRow } from "../../shared/core-database-row-projection";
-import { toCoreDatabaseViewPresentationOverride } from "./database-presentation-adapter";
+import {
+  fromCoreDatabaseViewPresentationOverride,
+  toCoreDatabaseViewPresentationOverride,
+} from "./database-presentation-adapter";
 
 export interface DesktopDatabaseModuleBridgeInput {
   readonly authority: Promise<DesktopDataAuthorityRuntime>;
@@ -721,6 +724,26 @@ export const mapCoreDatabaseEvent = (
     affectedDataSourceIds: payload.event.data_source_ids,
     affectedPageIds: payload.event.page_ids,
     affectedViewIds: payload.event.view_ids,
+    personalViewChanges: (payload.event.personal_view_changes ?? []).map((change) =>
+      change.kind === "presentation"
+        ? {
+            kind: change.kind,
+            viewId: parseDatabaseViewId(change.view_id),
+            presentationOverride: fromCoreDatabaseViewPresentationOverride(
+              change.value.presentation_override,
+            ),
+            revision: change.value.revision,
+          }
+        : {
+            kind: change.kind,
+            viewId: parseDatabaseViewId(change.view_id),
+            target: {
+              kind: change.target.kind,
+              occurrenceKey: change.target.occurrence_key,
+            },
+            collapsed: change.collapsed,
+          }
+    ),
     commitSeq: envelope.packet.manifest.identity.commit_seq,
   };
 };
@@ -732,6 +755,12 @@ export const mapCoreLibraryDatabaseEvent = (
 ): LibraryNavigationChangedEvent | null => {
   const payload = effect.payload;
   if (payload.module !== "database" || payload.event.project_id) return null;
+  if (
+    payload.event.database_ids.length === 0
+    && payload.event.data_source_ids.length === 0
+    && payload.event.page_ids.length === 0
+    && payload.event.view_ids.length === 0
+  ) return null;
   return {
     version: LIBRARY_NAVIGATION_EVENT_VERSION,
     libraryId,

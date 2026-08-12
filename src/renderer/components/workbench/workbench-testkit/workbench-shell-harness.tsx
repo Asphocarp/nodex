@@ -603,7 +603,7 @@ vi.mock("@/lib/api", () => {
       request,
     );
     if (configured !== undefined && configured !== null) return configured;
-    const preferenceOperations = (
+    const personalPresentationOperations = (
       request as {
         operations?: ReadonlyArray<{
           kind?: string;
@@ -613,18 +613,19 @@ vi.mock("@/lib/api", () => {
       }
     ).operations ?? [];
     if (
-      preferenceOperations.length > 0
-      && preferenceOperations.every((operation) =>
-        operation.kind === "put_view_personal_preferences"
+      personalPresentationOperations.length > 0
+      && personalPresentationOperations.every((operation) =>
+        operation.kind === "put_view_personal_presentation"
       )
     ) {
       return {
         ok: true,
         value: {
-          committedRevisions: Object.fromEntries(preferenceOperations.map((operation) => [
-            `view_preferences:profile:test:${String(operation.viewId ?? "")}`,
+          committedRevisions: Object.fromEntries(personalPresentationOperations.map((operation) => [
+            `view_presentation:profile:test:${String(operation.viewId ?? "")}`,
             (operation.expectedRevision ?? 0) + 1,
           ])),
+          commitSeq: 2,
         },
         localCommit: { status: "applied" },
       };
@@ -793,7 +794,7 @@ vi.mock("@/lib/api", () => {
     const databaseId = `database:${projectId}:primary`;
     const dataSourceId = `${databaseId}:data-source:initial`;
     const viewId = `database-view:${projectId}:primary-board`;
-    if (request.read?.mode === "view_personal_preferences") {
+    if (request.read?.mode === "view_personal_presentation") {
       return {
         ok: true,
         value: {
@@ -804,12 +805,28 @@ vi.mock("@/lib/api", () => {
           commitSeq: 1,
           authorization: null,
           value: {
-            kind: "view_personal_preferences",
+            kind: "view_personal_presentation",
             value: {
               presentationOverride: {},
-              collapsedGroupKeys: [],
               revision: 0,
             },
+          },
+        },
+      };
+    }
+    if (request.read?.mode === "view_collapsed_occurrences") {
+      return {
+        ok: true,
+        value: {
+          version: 1,
+          projectId,
+          libraryId: "library:test",
+          storeEpoch: "store-test",
+          commitSeq: 1,
+          authorization: null,
+          value: {
+            kind: "view_collapsed_occurrences",
+            value: { targets: [] },
           },
         },
       };

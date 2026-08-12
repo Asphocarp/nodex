@@ -2263,6 +2263,7 @@ fn upgrade_owned_store(
         110 | 111 => validate_exact_v110_schema(connection)?,
         112 | 113 => validate_exact_v113_schema(connection)?,
         114 => validate_exact_v114_schema(connection)?,
+        115 => validate_exact_v115_schema(connection)?,
         _ => return Err(corrupt("Rust Core forward-migration source is unsupported")),
     }
 
@@ -2390,7 +2391,10 @@ fn upgrade_owned_store(
         if source_version < 114 {
             ensure_v114_database_list_authority(transaction)?;
         }
-        ensure_v115_task_parent_relation_authority(transaction, migration_now)?;
+        if source_version < 115 {
+            ensure_v115_task_parent_relation_authority(transaction, migration_now)?;
+        }
+        ensure_v116_view_personal_state(transaction)?;
         let updated = transaction.execute(
             "UPDATE core_store_metadata SET store_format_version = ?1 \
              WHERE id = 1 AND schema_owner = ?2 AND store_format_version = ?3",
@@ -2848,6 +2852,7 @@ fn publish_current_store(
         ensure_v113_view_global_rank(transaction)?;
         ensure_v114_database_list_authority(transaction)?;
         ensure_v115_task_parent_relation_authority(transaction, now)?;
+        ensure_v116_view_personal_state(transaction)?;
         ensure_v107_block_project_cascade_indexes(transaction)?;
         import_legacy_writable_roots(transaction, profile_home, now)?;
         import_automation_jitter_salt(transaction, profile_home, now)
@@ -2895,6 +2900,7 @@ fn create_fresh_store(
         ensure_v113_view_global_rank(transaction)?;
         ensure_v114_database_list_authority(transaction)?;
         ensure_v115_task_parent_relation_authority(transaction, now)?;
+        ensure_v116_view_personal_state(transaction)?;
         ensure_v107_block_project_cascade_indexes(transaction)?;
         import_legacy_writable_roots(transaction, profile_home, now)?;
         import_automation_jitter_salt(transaction, profile_home, now)
@@ -4310,6 +4316,136 @@ fn ensure_v115_task_parent_relation_authority(
         "#,
     )?;
     validate_database_relation_invariants(connection)
+}
+
+fn ensure_v116_view_personal_state(connection: &Connection) -> Result<(), StoreError> {
+    connection.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS database_view_personal_presentations (
+          profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+          view_id TEXT NOT NULL REFERENCES database_views(id) ON DELETE CASCADE,
+          presentation_override_json TEXT NOT NULL,
+          revision INTEGER NOT NULL CHECK (revision >= 1),
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          PRIMARY KEY (profile_id, view_id),
+          CHECK (
+            json_valid(presentation_override_json)
+            AND json_type(presentation_override_json) = 'object'
+          )
+        ) WITHOUT ROWID, STRICT;
+
+        CREATE TABLE IF NOT EXISTS database_view_collapsed_occurrences (
+          profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+          view_id TEXT NOT NULL REFERENCES database_views(id) ON DELETE CASCADE,
+          target_kind TEXT NOT NULL,
+          occurrence_key TEXT NOT NULL,
+          collapsed_at TEXT NOT NULL,
+          PRIMARY KEY (profile_id, view_id, target_kind, occurrence_key),
+          CHECK (target_kind IN ('group', 'page')),
+          CHECK (length(occurrence_key) BETWEEN 1 AND 1024),
+          CHECK (
+            (target_kind = 'group' AND substr(occurrence_key, 1, 6) = 'GROUP_')
+            OR (target_kind = 'page' AND substr(occurrence_key, 1, 5) = 'ITEM_')
+          )
+        ) WITHOUT ROWID, STRICT;
+
+        CREATE INDEX IF NOT EXISTS idx_database_view_collapsed_occurrences_age
+          ON database_view_collapsed_occurrences(
+            profile_id, view_id, collapsed_at, target_kind, occurrence_key
+          );
+        "#,
+    )?;
+
+    let legacy_exists = connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_schema \
+         WHERE type = 'table' AND name = 'database_view_personal_preferences')",
+        [],
+        |row| row.get::<_, bool>(0),
+    )?;
+    if !legacy_exists {
+        return Ok(());
+    }
+
+    let rows = connection
+        .prepare(
+            "SELECT profile_id, view_id, presentation_override_json, \
+                    collapsed_group_keys_json, created_at, updated_at \
+             FROM database_view_personal_preferences ORDER BY profile_id, view_id",
+        )?
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, String>(5)?,
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    for (profile_id, view_id, presentation_json, collapsed_json, created_at, updated_at) in rows {
+        let presentation = serde_json::from_str::<Value>(&presentation_json)
+            .map_err(|_| corrupt("Legacy View personal presentation is invalid"))?;
+        let presentation = presentation
+            .as_object()
+            .ok_or_else(|| corrupt("Legacy View personal presentation is not an object"))?;
+        if !presentation.is_empty() {
+            connection.execute(
+                "INSERT INTO database_view_personal_presentations(\
+                   profile_id, view_id, presentation_override_json, revision, \
+                   created_at, updated_at\
+                 ) VALUES (?1, ?2, ?3, 1, ?4, ?5)",
+                params![
+                    profile_id,
+                    view_id,
+                    presentation_json,
+                    created_at,
+                    updated_at
+                ],
+            )?;
+        }
+
+        let collapsed = serde_json::from_str::<Value>(&collapsed_json)
+            .map_err(|_| corrupt("Legacy View collapsed occurrences are invalid"))?;
+        let collapsed = collapsed
+            .as_array()
+            .ok_or_else(|| corrupt("Legacy View collapsed occurrences are not an array"))?;
+        let mut targets = BTreeSet::new();
+        for candidate in collapsed {
+            let Some(candidate) = candidate.as_str() else {
+                continue;
+            };
+            let target = if candidate.starts_with("GROUP_") {
+                Some(("group", candidate))
+            } else if let Some(occurrence_key) = candidate.strip_prefix("PARENT_") {
+                occurrence_key
+                    .starts_with("ITEM_")
+                    .then_some(("page", occurrence_key))
+            } else {
+                candidate
+                    .starts_with("ITEM_")
+                    .then_some(("page", candidate))
+            };
+            let Some((kind, occurrence_key)) = target else {
+                continue;
+            };
+            if occurrence_key.is_empty() || occurrence_key.len() > 1_024 {
+                continue;
+            }
+            targets.insert((kind.to_owned(), occurrence_key.to_owned()));
+        }
+        for (target_kind, occurrence_key) in targets.into_iter().take(2_000) {
+            connection.execute(
+                "INSERT INTO database_view_collapsed_occurrences(\
+                   profile_id, view_id, target_kind, occurrence_key, collapsed_at\
+                 ) VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![profile_id, view_id, target_kind, occurrence_key, updated_at],
+            )?;
+        }
+    }
+    connection.execute_batch("DROP TABLE database_view_personal_preferences;")?;
+    Ok(())
 }
 
 fn validate_database_view_global_rank_invariants(
@@ -6525,6 +6661,10 @@ fn validate_exact_v114_schema(connection: &Connection) -> Result<(), StoreError>
     validate_exact_core_schema(connection, true, true, true, true, true, true, true, 114)
 }
 
+fn validate_exact_v115_schema(connection: &Connection) -> Result<(), StoreError> {
+    validate_exact_core_schema(connection, true, true, true, true, true, true, true, 115)
+}
+
 fn validate_exact_current_schema(connection: &Connection) -> Result<(), StoreError> {
     validate_exact_core_schema(
         connection,
@@ -6687,6 +6827,9 @@ fn build_expected_core_schema_inventory(
     if schema_version >= 115 {
         ensure_v115_task_parent_relation_authority(&expected, 0)?;
     }
+    if schema_version >= 116 {
+        ensure_v116_view_personal_state(&expected)?;
+    }
 
     read_schema_inventory(&expected)
 }
@@ -6815,6 +6958,9 @@ pub fn expected_store_schema_fingerprint(version: i64) -> Result<String, StoreEr
     }
     if version >= 115 {
         ensure_v115_task_parent_relation_authority(&expected, 0)?;
+    }
+    if version >= 116 {
+        ensure_v116_view_personal_state(&expected)?;
     }
     read_schema_inventory(&expected).map(|inventory| schema_inventory_fingerprint(&inventory))
 }
@@ -7336,6 +7482,48 @@ mod tests {
         })
         .expect("seed v114 task hierarchy Store");
         validate_exact_v114_schema(&connection).expect("exact v114 Store");
+    }
+
+    fn seed_owned_v115_view_personal_preferences_store(home: &Path) {
+        seed_owned_v114_task_hierarchy_store(home);
+        let mut connection = open_writer(&home.join("nodex.db")).expect("v115 writer");
+        let collapsed_json = serde_json::to_string(&serde_json::json!([
+            "GROUP_\"ship\"",
+            "GROUP_\"ship\"",
+            "PARENT_ITEM_parent/child",
+            "ITEM_direct",
+            "PARENT_GROUP_not-a-page",
+            "not-an-occurrence",
+            42,
+            format!("ITEM_{}", "x".repeat(1_025)),
+        ]))
+        .expect("legacy collapsed occurrences");
+        with_immediate_transaction(&mut connection, |transaction| {
+            crate::infrastructure::visibility_delta_journal::install_test_maintenance_context(
+                transaction,
+            )?;
+            ensure_v115_task_parent_relation_authority(transaction, 1_765_000_000_000)?;
+            transaction.execute(
+                "INSERT INTO database_view_personal_preferences(\
+                   profile_id, view_id, presentation_override_json, \
+                   collapsed_group_keys_json, revision, created_at, updated_at\
+                 ) VALUES (\
+                   'profile:v110-priority', 'view:v111-list', \
+                   '{\"layout\":\"list\",\"showProperties\":\"always\"}', ?1, 9, \
+                   '2026-08-11T10:00:00.000Z', '2026-08-11T11:00:00.000Z'\
+                 )",
+                [collapsed_json],
+            )?;
+            transaction.execute("DELETE FROM local_commit_visibility_context", [])?;
+            transaction.execute(
+                "UPDATE core_store_metadata SET store_format_version = 115 WHERE id = 1",
+                [],
+            )?;
+            transaction.pragma_update(None, "user_version", 115)?;
+            Ok(())
+        })
+        .expect("seed v115 View personal preferences Store");
+        validate_exact_v115_schema(&connection).expect("exact v115 Store");
     }
 
     fn seed_owned_v99_store_with_property_value(home: &Path) {
@@ -8227,6 +8415,115 @@ mod tests {
             .readers()
             .read_default(snapshot)
             .expect("read idempotent Parent Relation");
+        assert_eq!(second, first);
+    }
+
+    #[test]
+    fn v115_view_preferences_split_into_independent_personal_state_once() {
+        type Snapshot = (
+            i64,
+            Option<(Value, i64, String, String)>,
+            Vec<(String, String, String)>,
+        );
+
+        fn snapshot(connection: &Connection) -> Result<Snapshot, StoreError> {
+            let legacy_table = connection.query_row(
+                "SELECT count(*) FROM sqlite_schema \
+                 WHERE type = 'table' AND name = 'database_view_personal_preferences'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )?;
+            let presentation = connection
+                .query_row(
+                    "SELECT presentation_override_json, revision, created_at, updated_at \
+                     FROM database_view_personal_presentations \
+                     WHERE profile_id = 'profile:v110-priority' \
+                       AND view_id = 'view:v111-list'",
+                    [],
+                    |row| {
+                        let json = row.get::<_, String>(0)?;
+                        Ok((
+                            serde_json::from_str::<Value>(&json).map_err(|error| {
+                                rusqlite::Error::FromSqlConversionFailure(
+                                    0,
+                                    rusqlite::types::Type::Text,
+                                    Box::new(error),
+                                )
+                            })?,
+                            row.get::<_, i64>(1)?,
+                            row.get::<_, String>(2)?,
+                            row.get::<_, String>(3)?,
+                        ))
+                    },
+                )
+                .optional()?;
+            let collapsed = connection
+                .prepare(
+                    "SELECT target_kind, occurrence_key, collapsed_at \
+                     FROM database_view_collapsed_occurrences \
+                     WHERE profile_id = 'profile:v110-priority' \
+                       AND view_id = 'view:v111-list' \
+                     ORDER BY target_kind, occurrence_key",
+                )?
+                .query_map([], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
+                })?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            Ok((legacy_table, presentation, collapsed))
+        }
+
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        seed_owned_v115_view_personal_preferences_store(&home);
+
+        let upgraded = SqliteStoreKernel::open(&home).expect("upgrade v115 personal View state");
+        assert_eq!(upgraded.preparation().migrated_from_version, Some(115));
+        let first = upgraded
+            .readers()
+            .read_default(snapshot)
+            .expect("read migrated personal View state");
+        assert_eq!(first.0, 0);
+        assert_eq!(
+            first.1,
+            Some((
+                serde_json::json!({ "layout": "list", "showProperties": "always" }),
+                1,
+                "2026-08-11T10:00:00.000Z".to_owned(),
+                "2026-08-11T11:00:00.000Z".to_owned(),
+            ))
+        );
+        assert_eq!(
+            first.2,
+            vec![
+                (
+                    "group".to_owned(),
+                    "GROUP_\"ship\"".to_owned(),
+                    "2026-08-11T11:00:00.000Z".to_owned(),
+                ),
+                (
+                    "page".to_owned(),
+                    "ITEM_direct".to_owned(),
+                    "2026-08-11T11:00:00.000Z".to_owned(),
+                ),
+                (
+                    "page".to_owned(),
+                    "ITEM_parent/child".to_owned(),
+                    "2026-08-11T11:00:00.000Z".to_owned(),
+                ),
+            ]
+        );
+
+        drop(upgraded);
+        let reopened = SqliteStoreKernel::open(&home).expect("reopen v116 personal View state");
+        assert_eq!(reopened.preparation().migrated_from_version, None);
+        let second = reopened
+            .readers()
+            .read_default(snapshot)
+            .expect("read idempotent personal View state");
         assert_eq!(second, first);
     }
 

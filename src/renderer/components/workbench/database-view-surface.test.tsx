@@ -1359,8 +1359,15 @@ function NestedDatabaseListHarness({
       onOpenTaskSearch={() => undefined}
       onCloseTaskSearch={() => undefined}
       onOpenPage={() => undefined}
-      collapsedGroupKeys={collapsedKeys}
-      onCollapsedGroupKeysChange={setCollapsedKeys}
+      collapsedOccurrenceKeys={collapsedKeys}
+      onOccurrenceDisclosureChange={(target, collapsed) => {
+        setCollapsedKeys((current) => {
+          const next = new Set(current);
+          if (collapsed) next.add(target.occurrenceKey);
+          else next.delete(target.occurrenceKey);
+          return [...next];
+        });
+      }}
       onSelectedPageIdsChange={onSelectedPageIdsChange}
     />
   );

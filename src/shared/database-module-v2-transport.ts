@@ -37,6 +37,7 @@ import {
   type LibraryDatabaseApplyResultV2,
   type DatabaseReadValueV2,
   type DatabaseViewQueryResultV2,
+  type DatabaseViewDisclosureTargetV2,
   type DatabaseViewRecordV2,
   type DataSourceDescriptorV2,
   type DataSourcePageRowV2,
@@ -350,6 +351,22 @@ const readRelationEdgeId = (value: unknown, label: string): string => {
   const edgeId = readString(value, label, 64);
   if (/^[0-9a-f]{64}$/.test(edgeId)) return edgeId;
   throw new TypeError(`${label} must be an opaque Relation edge handle`);
+};
+
+const parseViewDisclosureTarget = (
+  value: unknown,
+  label: string,
+): DatabaseViewDisclosureTargetV2 => {
+  const target = readRecord(value, label);
+  assertExactKeys(target, label, ["kind", "occurrenceKey"]);
+  const occurrenceKey = readString(target.occurrenceKey, `${label}.occurrenceKey`, 1_024);
+  if (target.kind === "group" && occurrenceKey.startsWith("GROUP_")) {
+    return { kind: target.kind, occurrenceKey };
+  }
+  if (target.kind === "page" && occurrenceKey.startsWith("ITEM_")) {
+    return { kind: target.kind, occurrenceKey };
+  }
+  throw new TypeError(`${label} does not match its occurrence kind`);
 };
 
 const parsePropertyValueInput = (
@@ -875,26 +892,15 @@ const parseApplyOperation = (
     };
   }
 
-  if (operation.kind === "put_view_personal_preferences") {
+  if (operation.kind === "put_view_personal_presentation") {
     assertExactKeys(operation, label, [
       "kind",
       "viewId",
       "expectedRevision",
       "presentationOverride",
-      "collapsedGroupKeys",
     ]);
-    if (!Array.isArray(operation.collapsedGroupKeys)
-      || operation.collapsedGroupKeys.length > 2_000) {
-      throw new TypeError(`${label}.collapsedGroupKeys must be a bounded array`);
-    }
-    const collapsedGroupKeys = operation.collapsedGroupKeys.map((key, index) =>
-      readString(key, `${label}.collapsedGroupKeys[${index}]`, 1_024)
-    );
-    if (new Set(collapsedGroupKeys).size !== collapsedGroupKeys.length) {
-      throw new TypeError(`${label}.collapsedGroupKeys must contain unique keys`);
-    }
     return {
-      kind: "put_view_personal_preferences",
+      kind: "put_view_personal_presentation",
       viewId: readViewId(operation.viewId, `${label}.viewId`),
       expectedRevision: readRevision(
         operation.expectedRevision,
@@ -903,7 +909,21 @@ const parseApplyOperation = (
       presentationOverride: parseDatabaseViewPresentationOverride(
         operation.presentationOverride,
       ),
-      collapsedGroupKeys,
+    };
+  }
+
+  if (operation.kind === "set_view_occurrence_disclosure") {
+    assertExactKeys(operation, label, [
+      "kind",
+      "viewId",
+      "target",
+      "collapsed",
+    ]);
+    return {
+      kind: "set_view_occurrence_disclosure",
+      viewId: readViewId(operation.viewId, `${label}.viewId`),
+      target: parseViewDisclosureTarget(operation.target, `${label}.target`),
+      collapsed: readBoolean(operation.collapsed, `${label}.collapsed`),
     };
   }
 
@@ -1109,7 +1129,10 @@ export const bindDatabaseModuleReadV2 = (
     };
   }
 
-  if (target.kind === "view" && mode === "view_personal_preferences") {
+  if (
+    target.kind === "view"
+    && (mode === "view_personal_presentation" || mode === "view_collapsed_occurrences")
+  ) {
     assertExactKeys(target, "databaseModuleReadV2.read.target", ["kind", "viewId"]);
     assertExactKeys(read, "databaseModuleReadV2.read", ["target", "mode"]);
     return {
@@ -1808,36 +1831,42 @@ const parseReadValue = (value: unknown): DatabaseReadValueV2 => {
   if (result.kind === "view") {
     return { kind: "view", value: parseViewRecord(result.value, "databaseModuleReadV2.value.value") };
   }
-  if (result.kind === "view_personal_preferences") {
-    const preferences = readRecord(
+  if (result.kind === "view_personal_presentation") {
+    const presentation = readRecord(
       result.value,
       "databaseModuleReadV2.value.value",
     );
-    assertExactKeys(preferences, "databaseModuleReadV2.value.value", [
+    assertExactKeys(presentation, "databaseModuleReadV2.value.value", [
       "presentationOverride",
-      "collapsedGroupKeys",
       "revision",
     ]);
-    if (!Array.isArray(preferences.collapsedGroupKeys)
-      || preferences.collapsedGroupKeys.length > 2_000) {
-      throw new TypeError("View collapsed group keys must be a bounded array");
-    }
-    const collapsedGroupKeys = preferences.collapsedGroupKeys.map((key, index) =>
-      readString(key, `databaseViewPreferences.collapsedGroupKeys[${index}]`, 1_024)
-    );
-    if (new Set(collapsedGroupKeys).size !== collapsedGroupKeys.length) {
-      throw new TypeError("View collapsed group keys must contain unique keys");
-    }
     return {
-      kind: "view_personal_preferences",
+      kind: "view_personal_presentation",
       value: {
         presentationOverride: parseDatabaseViewPresentationOverride(
-          preferences.presentationOverride,
+          presentation.presentationOverride,
         ),
-        collapsedGroupKeys,
-        revision: readRevision(preferences.revision, "databaseViewPreferences.revision"),
+        revision: readRevision(
+          presentation.revision,
+          "databaseViewPersonalPresentation.revision",
+        ),
       },
     };
+  }
+  if (result.kind === "view_collapsed_occurrences") {
+    const disclosure = readRecord(result.value, "databaseModuleReadV2.value.value");
+    assertExactKeys(disclosure, "databaseModuleReadV2.value.value", ["targets"]);
+    if (!Array.isArray(disclosure.targets) || disclosure.targets.length > 2_000) {
+      throw new TypeError("View collapsed occurrences must be a bounded array");
+    }
+    const targets = disclosure.targets.map((target, index) =>
+      parseViewDisclosureTarget(target, `databaseViewCollapsedOccurrences.targets[${index}]`)
+    );
+    const keys = targets.map((target) => JSON.stringify(target));
+    if (new Set(keys).size !== keys.length) {
+      throw new TypeError("View collapsed occurrences must contain unique targets");
+    }
+    return { kind: "view_collapsed_occurrences", value: { targets } };
   }
   if (result.kind === "query") {
     return { kind: "query", value: parseViewQueryResult(result.value, "databaseModuleReadV2.value.value") };
@@ -2058,7 +2087,8 @@ const OPERATION_KINDS = new Set<DatabaseApplyOperationV2["kind"]>([
   "position_page",
   "position_pages",
   "set_task_parent",
-  "put_view_personal_preferences",
+  "put_view_personal_presentation",
+  "set_view_occurrence_disclosure",
 ]);
 
 export const parseDatabaseApplyResultV2 = (

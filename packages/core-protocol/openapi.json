@@ -6123,6 +6123,13 @@
               "type": "string"
             }
           },
+          "personal_view_changes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DatabasePersonalViewChange"
+            },
+            "description": "Profile-owned deltas are routed through View authorization but do not\ninvalidate shared Database/View projections."
+          },
           "project_id": {
             "type": [
               "string",
@@ -6602,16 +6609,9 @@
               "view_id",
               "expected_revision",
               "presentation_override",
-              "collapsed_group_keys",
               "kind"
             ],
             "properties": {
-              "collapsed_group_keys": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                }
-              },
               "expected_revision": {
                 "type": "integer",
                 "format": "int64"
@@ -6619,11 +6619,37 @@
               "kind": {
                 "type": "string",
                 "enum": [
-                  "put_view_personal_preferences"
+                  "put_view_personal_presentation"
                 ]
               },
               "presentation_override": {
                 "$ref": "#/components/schemas/DatabaseViewPresentationOverrideInput"
+              },
+              "view_id": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "view_id",
+              "target",
+              "collapsed",
+              "kind"
+            ],
+            "properties": {
+              "collapsed": {
+                "type": "boolean"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "set_view_occurrence_disclosure"
+                ]
+              },
+              "target": {
+                "$ref": "#/components/schemas/DatabaseViewDisclosureTarget"
               },
               "view_id": {
                 "type": "string"
@@ -6762,6 +6788,58 @@
             "type": "string"
           }
         }
+      },
+      "DatabasePersonalViewChange": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "view_id",
+              "value",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "presentation"
+                ]
+              },
+              "value": {
+                "$ref": "#/components/schemas/DatabaseViewPersonalPresentation"
+              },
+              "view_id": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "view_id",
+              "target",
+              "collapsed",
+              "kind"
+            ],
+            "properties": {
+              "collapsed": {
+                "type": "boolean"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "occurrence_disclosure"
+                ]
+              },
+              "target": {
+                "$ref": "#/components/schemas/DatabaseViewDisclosureTarget"
+              },
+              "view_id": {
+                "type": "string"
+              }
+            }
+          }
+        ]
       },
       "DatabasePropertyCapabilities": {
         "type": "object",
@@ -7626,6 +7704,20 @@
           }
         ]
       },
+      "DatabaseViewCollapsedOccurrences": {
+        "type": "object",
+        "required": [
+          "targets"
+        ],
+        "properties": {
+          "targets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DatabaseViewDisclosureTarget"
+            }
+          }
+        }
+      },
       "DatabaseViewCompletedRange": {
         "type": "string",
         "enum": [
@@ -7737,6 +7829,46 @@
           }
         },
         "additionalProperties": false
+      },
+      "DatabaseViewDisclosureTarget": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "occurrence_key",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "group"
+                ]
+              },
+              "occurrence_key": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "occurrence_key",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "page"
+                ]
+              },
+              "occurrence_key": {
+                "type": "string"
+              }
+            }
+          }
+        ]
       },
       "DatabaseViewField": {
         "oneOf": [
@@ -8168,27 +8300,20 @@
           "last"
         ]
       },
-      "DatabaseViewPersonalPreferences": {
+      "DatabaseViewPersonalPresentation": {
         "type": "object",
         "required": [
           "presentation_override",
-          "collapsed_group_keys",
           "revision"
         ],
         "properties": {
-          "collapsed_group_keys": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
           "presentation_override": {
             "$ref": "#/components/schemas/DatabaseViewPresentationOverrideInput"
           },
           "revision": {
             "type": "integer",
             "format": "int64",
-            "description": "Zero means that this Profile has no durable preference row yet."
+            "description": "Zero means that this Profile has never changed this View presentation."
           }
         }
       },
@@ -20269,16 +20394,9 @@
                     "view_id",
                     "expected_revision",
                     "presentation_override",
-                    "collapsed_group_keys",
                     "kind"
                   ],
                   "properties": {
-                    "collapsed_group_keys": {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
-                      }
-                    },
                     "expected_revision": {
                       "type": "integer",
                       "format": "int64"
@@ -20286,11 +20404,37 @@
                     "kind": {
                       "type": "string",
                       "enum": [
-                        "put_view_personal_preferences"
+                        "put_view_personal_presentation"
                       ]
                     },
                     "presentation_override": {
                       "$ref": "#/components/schemas/DatabaseViewPresentationOverrideInput"
+                    },
+                    "view_id": {
+                      "type": "string"
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "required": [
+                    "view_id",
+                    "target",
+                    "collapsed",
+                    "kind"
+                  ],
+                  "properties": {
+                    "collapsed": {
+                      "type": "boolean"
+                    },
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "set_view_occurrence_disclosure"
+                      ]
+                    },
+                    "target": {
+                      "$ref": "#/components/schemas/DatabaseViewDisclosureTarget"
                     },
                     "view_id": {
                       "type": "string"
@@ -21034,7 +21178,25 @@
                   "kind": {
                     "type": "string",
                     "enum": [
-                      "view_personal_preferences"
+                      "view_personal_presentation"
+                    ]
+                  },
+                  "view_id": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "view_id",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "view_collapsed_occurrences"
                     ]
                   },
                   "view_id": {
@@ -27658,11 +27820,29 @@
                           "kind": {
                             "type": "string",
                             "enum": [
-                              "view_personal_preferences"
+                              "view_personal_presentation"
                             ]
                           },
                           "value": {
-                            "$ref": "#/components/schemas/DatabaseViewPersonalPreferences"
+                            "$ref": "#/components/schemas/DatabaseViewPersonalPresentation"
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "value",
+                          "kind"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "view_collapsed_occurrences"
+                            ]
+                          },
+                          "value": {
+                            "$ref": "#/components/schemas/DatabaseViewCollapsedOccurrences"
                           }
                         }
                       }

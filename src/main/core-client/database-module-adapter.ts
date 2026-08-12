@@ -114,9 +114,14 @@ const toCoreRead = (read: DatabaseReadV2): DatabaseRead => {
       };
     case "view":
       return { kind: "view", view_id: read.target.viewId };
-    case "view_personal_preferences":
+    case "view_personal_presentation":
       return {
-        kind: "view_personal_preferences",
+        kind: "view_personal_presentation",
+        view_id: read.target.viewId,
+      };
+    case "view_collapsed_occurrences":
+      return {
+        kind: "view_collapsed_occurrences",
         view_id: read.target.viewId,
       };
     case "relation_target_window":
@@ -415,7 +420,7 @@ export const toCoreDatabaseIntent = (
         parent_page_id: operation.parentPageId ?? null,
         before_page_id: operation.beforePageId ?? null,
       };
-    case "put_view_personal_preferences":
+    case "put_view_personal_presentation":
       return {
         kind: operation.kind,
         view_id: operation.viewId,
@@ -423,7 +428,16 @@ export const toCoreDatabaseIntent = (
         presentation_override: toCoreDatabaseViewPresentationOverride(
           operation.presentationOverride,
         ),
-        collapsed_group_keys: operation.collapsedGroupKeys,
+      };
+    case "set_view_occurrence_disclosure":
+      return {
+        kind: operation.kind,
+        view_id: operation.viewId,
+        target: {
+          kind: operation.target.kind,
+          occurrence_key: operation.target.occurrenceKey,
+        },
+        collapsed: operation.collapsed,
       };
   }
 };
@@ -777,15 +791,25 @@ const hydrateCoreReadValue = async (
       value: await hydrateCoreDataSource(client, value.value),
     };
   }
-  if (value.kind === "view_personal_preferences") {
+  if (value.kind === "view_personal_presentation") {
     return {
       kind: value.kind,
       value: {
         presentationOverride: fromCoreDatabaseViewPresentationOverride(
           value.value.presentation_override,
         ),
-        collapsedGroupKeys: value.value.collapsed_group_keys,
         revision: value.value.revision,
+      },
+    };
+  }
+  if (value.kind === "view_collapsed_occurrences") {
+    return {
+      kind: value.kind,
+      value: {
+        targets: value.value.targets.map((target) => ({
+          kind: target.kind,
+          occurrenceKey: target.occurrence_key,
+        })),
       },
     };
   }

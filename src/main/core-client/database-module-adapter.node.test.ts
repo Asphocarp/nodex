@@ -1238,6 +1238,15 @@ describe("Core Database Module Adapter", () => {
             data_source_ids: ["source:test"],
             page_ids: ["page:test"],
             view_ids: ["view:test"],
+            personal_view_changes: [{
+              kind: "occurrence_disclosure",
+              view_id: "view:test",
+              target: {
+                kind: "page",
+                occurrence_key: "ITEM_parent/child",
+              },
+              collapsed: true,
+            }],
           },
         },
         canonicalHash: "0".repeat(64),
@@ -1248,7 +1257,7 @@ describe("Core Database Module Adapter", () => {
       envelope.packet.atoms[0]!,
       identity.libraryId,
     )).toEqual({
-      version: 2,
+      version: 3,
       projectId: identity.projectId,
       libraryId: identity.libraryId,
       storeEpoch: identity.storeEpoch,
@@ -1258,6 +1267,15 @@ describe("Core Database Module Adapter", () => {
       affectedDataSourceIds: ["source:test"],
       affectedPageIds: ["page:test"],
       affectedViewIds: ["view:test"],
+      personalViewChanges: [{
+        kind: "occurrence_disclosure",
+        viewId: "view:test",
+        target: {
+          kind: "page",
+          occurrenceKey: "ITEM_parent/child",
+        },
+        collapsed: true,
+      }],
       commitSeq: 42,
     });
   });

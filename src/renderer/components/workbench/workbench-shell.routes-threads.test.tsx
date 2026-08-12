@@ -370,12 +370,12 @@ describe("workbench session shell / routes-threads", () => {
       && call[1] === "alpha"
       && (call[2] as { operations?: ReadonlyArray<{ kind?: string }> })
         .operations?.some((operation) =>
-          operation.kind === "put_view_personal_preferences"
+          operation.kind === "put_view_personal_presentation"
         )
     );
     expect(preferenceWrite?.[2]).toMatchObject({
       operations: [{
-        kind: "put_view_personal_preferences",
+        kind: "put_view_personal_presentation",
         presentationOverride: { layout: "list" },
       }],
     });

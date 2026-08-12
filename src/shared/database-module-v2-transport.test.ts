@@ -96,7 +96,7 @@ const propertyRecord = () => ({
 describe("Database Module v2 transport boundary", () => {
   test("exposes the View-global ordering contract versions", () => {
     expect(DATABASE_MODULE_CONTRACT_VERSION).toBe(3);
-    expect(DATABASE_MODULE_V2_CONTRACT_VERSION).toBe(10);
+    expect(DATABASE_MODULE_V2_CONTRACT_VERSION).toBe(11);
   });
 
   test("binds ordered option creation and value writes under one apply", () => {
@@ -262,6 +262,74 @@ describe("Database Module v2 transport boundary", () => {
         { actor: { kind: "test" } },
       ),
     ).toThrow("databaseApplyV2.databaseBlockId is not supported");
+  });
+
+  test("keeps presentation conflicts separate from per-occurrence disclosure", () => {
+    const bound = bindDatabaseApplyV2({
+      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+      operationId: "personal-view-state",
+      projectId: "project-1",
+      storeEpoch: "epoch-1",
+      actor: {},
+      operations: [
+        {
+          kind: "put_view_personal_presentation",
+          viewId: "view-1",
+          expectedRevision: 4,
+          presentationOverride: { layout: "list" },
+        },
+        {
+          kind: "set_view_occurrence_disclosure",
+          viewId: "view-1",
+          target: { kind: "page", occurrenceKey: "ITEM_parent/child" },
+          collapsed: true,
+        },
+      ],
+    }, "project-1", { actor: { kind: "test" } });
+    expect(bound.operations).toEqual([
+      {
+        kind: "put_view_personal_presentation",
+        viewId: "view-1",
+        expectedRevision: 4,
+        presentationOverride: { layout: "list" },
+      },
+      {
+        kind: "set_view_occurrence_disclosure",
+        viewId: "view-1",
+        target: { kind: "page", occurrenceKey: "ITEM_parent/child" },
+        collapsed: true,
+      },
+    ]);
+
+    for (const mode of [
+      "view_personal_presentation",
+      "view_collapsed_occurrences",
+    ] as const) {
+      expect(bindDatabaseModuleReadV2({
+        version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+        projectId: "project-1",
+        read: {
+          target: { kind: "view", viewId: "view-1" },
+          mode,
+        },
+      }, "project-1").read.mode).toBe(mode);
+    }
+
+    expect(() => bindDatabaseApplyV2({
+      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+      operationId: "bad-disclosure-target",
+      projectId: "project-1",
+      storeEpoch: "epoch-1",
+      actor: {},
+      operations: [{
+        kind: "set_view_occurrence_disclosure",
+        viewId: "view-1",
+        target: { kind: "group", occurrenceKey: "ITEM_parent/child" },
+        collapsed: true,
+      }],
+    }, "project-1", { actor: { kind: "test" } })).toThrow(
+      "does not match its occurrence kind",
+    );
   });
 
   test("rejects removed ad hoc query reads at the transport boundary", () => {
@@ -553,6 +621,59 @@ describe("Database Module v2 transport boundary", () => {
         },
       }),
     ).toThrow(".key is not supported");
+  });
+
+  test("parses independently versioned presentation and sparse disclosure reads", () => {
+    const envelope = (value: unknown) => ({
+      ok: true,
+      value: {
+        version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+        projectId: "project-1",
+        libraryId: "library-1",
+        storeEpoch: "epoch-1",
+        commitSeq: 4,
+        authorization: null,
+        value,
+      },
+    });
+    expect(parseDatabaseModuleReadResultV2(envelope({
+      kind: "view_personal_presentation",
+      value: { presentationOverride: { layout: "list" }, revision: 5 },
+    }))).toMatchObject({
+      ok: true,
+      value: {
+        value: {
+          kind: "view_personal_presentation",
+          value: { revision: 5 },
+        },
+      },
+    });
+    expect(parseDatabaseModuleReadResultV2(envelope({
+      kind: "view_collapsed_occurrences",
+      value: {
+        targets: [
+          { kind: "group", occurrenceKey: "GROUP_\"ship\"" },
+          { kind: "page", occurrenceKey: "ITEM_parent/child" },
+        ],
+      },
+    }))).toMatchObject({
+      ok: true,
+      value: {
+        value: {
+          kind: "view_collapsed_occurrences",
+          value: { targets: [{ kind: "group" }, { kind: "page" }] },
+        },
+      },
+    });
+    expect(() => parseDatabaseModuleReadResultV2(envelope({
+      kind: "view_collapsed_occurrences",
+      value: {
+        targets: [
+          { kind: "page", occurrenceKey: "ITEM_parent/child" },
+          { kind: "page", occurrenceKey: "ITEM_parent/child" },
+        ],
+      },
+    }))).toThrow("must contain unique targets");
   });
 
   test("admits only unique opaque handles in Relation target windows", () => {

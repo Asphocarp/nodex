@@ -1642,6 +1642,11 @@ export interface components {
             readonly database_ids: readonly string[];
             readonly kind: components["schemas"]["DatabaseEventKind"];
             readonly page_ids: readonly string[];
+            /**
+             * @description Profile-owned deltas are routed through View authorization but do not
+             *     invalidate shared Database/View projections.
+             */
+            readonly personal_view_changes?: readonly components["schemas"]["DatabasePersonalViewChange"][];
             readonly project_id?: string | null;
             readonly view_ids: readonly string[];
         };
@@ -1759,12 +1764,17 @@ export interface components {
             readonly pages: readonly components["schemas"]["DatabaseTaskParentPage"][];
             readonly parent_page_id?: string | null;
         } | {
-            readonly collapsed_group_keys: readonly string[];
             /** Format: int64 */
             readonly expected_revision: number;
             /** @enum {string} */
-            readonly kind: "put_view_personal_preferences";
+            readonly kind: "put_view_personal_presentation";
             readonly presentation_override: components["schemas"]["DatabaseViewPresentationOverrideInput"];
+            readonly view_id: string;
+        } | {
+            readonly collapsed: boolean;
+            /** @enum {string} */
+            readonly kind: "set_view_occurrence_disclosure";
+            readonly target: components["schemas"]["DatabaseViewDisclosureTarget"];
             readonly view_id: string;
         };
         readonly DatabaseListGroupSummary: {
@@ -1808,6 +1818,18 @@ export interface components {
             readonly data_source_id: string;
             readonly page_id: string;
             readonly property_id: string;
+        };
+        readonly DatabasePersonalViewChange: {
+            /** @enum {string} */
+            readonly kind: "presentation";
+            readonly value: components["schemas"]["DatabaseViewPersonalPresentation"];
+            readonly view_id: string;
+        } | {
+            readonly collapsed: boolean;
+            /** @enum {string} */
+            readonly kind: "occurrence_disclosure";
+            readonly target: components["schemas"]["DatabaseViewDisclosureTarget"];
+            readonly view_id: string;
         };
         readonly DatabasePropertyCapabilities: {
             readonly filter_operators: readonly components["schemas"]["DatabasePropertyFilterOperator"][];
@@ -2033,6 +2055,9 @@ export interface components {
             /** @enum {string} */
             readonly kind: "data_source";
         };
+        readonly DatabaseViewCollapsedOccurrences: {
+            readonly targets: readonly components["schemas"]["DatabaseViewDisclosureTarget"][];
+        };
         /** @enum {string} */
         readonly DatabaseViewCompletedRange: "all" | "past_month" | "past_week" | "past_day" | "none";
         /** @enum {string} */
@@ -2061,6 +2086,15 @@ export interface components {
         readonly DatabaseViewDefinition: {
             readonly filter: components["schemas"]["DatabaseViewFilter"];
             readonly presentation: components["schemas"]["DatabaseViewPresentation"];
+        };
+        readonly DatabaseViewDisclosureTarget: {
+            /** @enum {string} */
+            readonly kind: "group";
+            readonly occurrence_key: string;
+        } | {
+            /** @enum {string} */
+            readonly kind: "page";
+            readonly occurrence_key: string;
         };
         readonly DatabaseViewField: {
             /** @enum {string} */
@@ -2169,12 +2203,11 @@ export interface components {
         readonly DatabaseViewNullOrder: "first" | "last";
         /** @enum {string} */
         readonly DatabaseViewNullOrderInput: "first" | "last";
-        readonly DatabaseViewPersonalPreferences: {
-            readonly collapsed_group_keys: readonly string[];
+        readonly DatabaseViewPersonalPresentation: {
             readonly presentation_override: components["schemas"]["DatabaseViewPresentationOverrideInput"];
             /**
              * Format: int64
-             * @description Zero means that this Profile has no durable preference row yet.
+             * @description Zero means that this Profile has never changed this View presentation.
              */
             readonly revision: number;
         };
@@ -5041,12 +5074,17 @@ export interface components {
                 readonly pages: readonly components["schemas"]["DatabaseTaskParentPage"][];
                 readonly parent_page_id?: string | null;
             } | {
-                readonly collapsed_group_keys: readonly string[];
                 /** Format: int64 */
                 readonly expected_revision: number;
                 /** @enum {string} */
-                readonly kind: "put_view_personal_preferences";
+                readonly kind: "put_view_personal_presentation";
                 readonly presentation_override: components["schemas"]["DatabaseViewPresentationOverrideInput"];
+                readonly view_id: string;
+            } | {
+                readonly collapsed: boolean;
+                /** @enum {string} */
+                readonly kind: "set_view_occurrence_disclosure";
+                readonly target: components["schemas"]["DatabaseViewDisclosureTarget"];
                 readonly view_id: string;
             })[];
             readonly operation_id: string;
@@ -5218,7 +5256,11 @@ export interface components {
                 readonly window: components["schemas"]["CollectionWindowRequest"];
             } | {
                 /** @enum {string} */
-                readonly kind: "view_personal_preferences";
+                readonly kind: "view_personal_presentation";
+                readonly view_id: string;
+            } | {
+                /** @enum {string} */
+                readonly kind: "view_collapsed_occurrences";
                 readonly view_id: string;
             };
         };
@@ -6665,8 +6707,12 @@ export interface components {
                     readonly kind: "relation_candidate_window";
                 } | {
                     /** @enum {string} */
-                    readonly kind: "view_personal_preferences";
-                    readonly value: components["schemas"]["DatabaseViewPersonalPreferences"];
+                    readonly kind: "view_personal_presentation";
+                    readonly value: components["schemas"]["DatabaseViewPersonalPresentation"];
+                } | {
+                    /** @enum {string} */
+                    readonly kind: "view_collapsed_occurrences";
+                    readonly value: components["schemas"]["DatabaseViewCollapsedOccurrences"];
                 };
             };
             /** @enum {string} */
