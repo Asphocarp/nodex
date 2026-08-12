@@ -184,6 +184,11 @@ uses local state and a submit-time guard.
 - A contextual surface registers one narrow capability/execution port for its
   mounted lifetime and updates the reactive target behind that port. It does not
   install a second global shortcut listener.
+- Treat imperative focus as a one-shot interaction intent. Roving active or
+  selected state may determine the next tab stop, but data/projection refreshes
+  must not replay an already handled focus request. Async focus that waits for
+  mounting, virtualization, or a portal target carries request identity and is
+  consumed only after the target receives focus.
 - Model drag and drop with one semantic target policy and one owning controller
   per gesture family. Nested providers or parallel native/synthetic paths must
   not split registration and dispatch authority.

@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { fireEvent, getByRole, waitFor } from "@testing-library/dom";
 import { useEffect, useRef, useState } from "react";
 import type { DatabaseViewRenderModel } from "@/lib/database-view-render-model";
 import type { DataSourcePropertyRecordV2 } from "../../../shared/database-module-v2";
@@ -973,6 +974,77 @@ export const FullTabSurface: Story = {
 
 export const FullNestedList: Story = {
   render: () => <FullDatabaseViewTab viewModel={withNestedList()} />,
+};
+
+function ListFocusRetentionStory() {
+  const [title, setTitle] = useState("Unify Database View rendering");
+  const [viewModel, setViewModel] = useState(() => withNestedList());
+  return (
+    <div className="grid h-[640px] w-[1100px] grid-cols-[minmax(0,1fr)_360px] overflow-hidden bg-token-main-surface-primary">
+      <div className="min-w-0 border-r-[0.5px] border-token-border/50">
+        <FullDatabaseViewTab viewModel={viewModel} />
+      </div>
+      <label className="flex min-w-0 flex-col gap-2 px-8 py-10 text-xs text-token-description-foreground">
+        Page Stage title
+        <input
+          aria-label="Page Stage title"
+          className="min-w-0 bg-transparent text-xl font-semibold text-token-foreground outline-none"
+          value={title}
+          onChange={(event) => {
+            const nextTitle = event.target.value;
+            setTitle(nextTitle);
+            setViewModel((current) => ({
+              ...current,
+              commitSeq: current.commitSeq + 1,
+              query: {
+                ...current.query,
+                rows: current.query.rows.map((row) => row.page.pageId === "page-1"
+                  ? {
+                      ...row,
+                      page: {
+                        ...row.page,
+                        title: nextTitle,
+                        richTitle: plainTextToPortableRichText(nextTitle),
+                        metadataRevision: row.page.metadataRevision + 1,
+                      },
+                    }
+                  : row),
+              },
+              columns: current.columns.map((column) => ({
+                ...column,
+                rows: column.rows.map((row) => row.pageId === "page-1"
+                  ? {
+                      ...row,
+                      title: nextTitle,
+                      metadataRevision: row.metadataRevision + 1,
+                    }
+                  : row),
+              })),
+            }));
+          }}
+        />
+      </label>
+    </div>
+  );
+}
+
+export const ListBesideFocusedPageEditor: Story = {
+  render: () => <ListFocusRetentionStory />,
+  play: async ({ canvasElement }) => {
+    const row = canvasElement.querySelector<HTMLElement>("[data-list-row=true]");
+    if (!row) throw new Error("Expected a Database List row");
+    fireEvent.focus(row);
+    const editor = getByRole(canvasElement, "textbox", {
+      name: "Page Stage title",
+    });
+    editor.focus();
+    fireEvent.change(editor, { target: { value: "Focused Page updated" } });
+    await waitFor(() => {
+      if (document.activeElement !== editor) {
+        throw new Error("Database projection refresh moved focus out of Page Stage");
+      }
+    });
+  },
 };
 
 export const FullNestedListNarrow: Story = {

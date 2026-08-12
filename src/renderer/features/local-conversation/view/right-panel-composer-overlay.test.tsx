@@ -340,6 +340,48 @@ describe("RightPanelComposerOverlay", () => {
     });
   });
 
+  test("consumes a controlled focus request before its portal target refreshes", async () => {
+    const firstTarget = makeTarget();
+    const secondTarget = makeTarget();
+    const renderOverlay = (target: HTMLElement) => (
+      <>
+        <button type="button">Elsewhere</button>
+        <RightPanelComposerOverlay
+          target={target}
+          visibility={{
+            kind: "controlled",
+            visible: true,
+            attention: "none",
+            focusRequestKey: 1,
+            onVisibleChange: () => {},
+          }}
+        >
+          <div
+            contentEditable
+            data-codex-composer="true"
+            suppressContentEditableWarning
+          />
+        </RightPanelComposerOverlay>
+      </>
+    );
+    const view = render(renderOverlay(firstTarget));
+    const composer = await waitFor(() => {
+      const element = document.body.querySelector<HTMLElement>(
+        '[data-codex-composer="true"]',
+      );
+      if (!element) throw new Error("Expected controlled Dock composer");
+      expect(document.activeElement).toBe(element);
+      return element;
+    });
+    const elsewhere = view.getByRole("button", { name: "Elsewhere" });
+    elsewhere.focus();
+
+    view.rerender(renderOverlay(secondTarget));
+
+    await waitFor(() => expect(document.activeElement).toBe(elsewhere));
+    expect(document.activeElement).not.toBe(composer);
+  });
+
   test("auto-hides at Browser document bottom until explicitly restored", async () => {
     const target = makeTarget();
     const renderOverlay = (isAtDocumentBottom: boolean) => (

@@ -2,6 +2,7 @@ import {
   useDeferredValue,
   useEffect,
   useMemo,
+  useReducer,
   useRef,
   useState,
   type CSSProperties,
@@ -149,6 +150,55 @@ interface DatabaseListCommitOptions {
   readonly modelOverride?: DatabaseViewRenderModel;
 }
 
+interface DatabaseListFocusRequest {
+  readonly id: number;
+  readonly occurrenceKey: string;
+}
+
+interface DatabaseListInteractionState {
+  readonly selection: DatabaseListSelectionState;
+  readonly focusRequest: DatabaseListFocusRequest | null;
+}
+
+type DatabaseListSelectionUpdate = (
+  current: DatabaseListSelectionState,
+) => DatabaseListSelectionState;
+
+type DatabaseListInteractionAction =
+  | {
+      readonly kind: "update-selection";
+      readonly update: DatabaseListSelectionUpdate;
+      readonly focusRequestId?: number;
+      readonly preserveFocusRequest?: boolean;
+    }
+  | {
+      readonly kind: "consume-focus-request";
+      readonly focusRequestId: number;
+    };
+
+const reduceDatabaseListInteraction = (
+  state: DatabaseListInteractionState,
+  action: DatabaseListInteractionAction,
+): DatabaseListInteractionState => {
+  if (action.kind === "consume-focus-request") {
+    if (state.focusRequest?.id !== action.focusRequestId) return state;
+    return { ...state, focusRequest: null };
+  }
+
+  const selection = action.update(state.selection);
+  const occurrenceKey = selection.activeOccurrenceKey;
+  const focusRequest = action.focusRequestId !== undefined && occurrenceKey
+    ? { id: action.focusRequestId, occurrenceKey }
+    : action.preserveFocusRequest
+      ? state.focusRequest
+      : null;
+  if (
+    selection === state.selection
+    && focusRequest === state.focusRequest
+  ) return state;
+  return { selection, focusRequest };
+};
+
 const propertyValueMutationKey = (pageId: string, propertyId: string): string =>
   `PROPERTY_VALUE_${encodeURIComponent(pageId)}_${encodeURIComponent(propertyId)}`;
 
@@ -295,7 +345,6 @@ const initialSelection = (
     excludedOccurrenceKeys: new Set(),
     anchorOccurrenceKey: first,
     activeOccurrenceKey: first,
-    focusedOccurrenceKey: null,
   };
 };
 
@@ -584,9 +633,28 @@ export function DatabaseList({
   mutationModelRef.current = mutationModel;
   const effectiveRef = useRef(effective);
   effectiveRef.current = effective;
-  const [selection, setSelection] = useState<DatabaseListSelectionState>(
-    () => initialSelection(projection, initialSelectedPageIds),
+  const [interaction, dispatchInteraction] = useReducer(
+    reduceDatabaseListInteraction,
+    {
+      selection: initialSelection(projection, initialSelectedPageIds),
+      focusRequest: null,
+    },
   );
+  const { focusRequest, selection } = interaction;
+  const focusRequestIdRef = useRef(0);
+  const updateSelection = (
+    update: DatabaseListSelectionUpdate,
+    requestFocus = false,
+  ): void => {
+    const focusRequestId = requestFocus
+      ? ++focusRequestIdRef.current
+      : undefined;
+    dispatchInteraction({
+      kind: "update-selection",
+      update,
+      focusRequestId,
+    });
+  };
   const allFields = useMemo(
     () => availableListFields(model, sessionListFields),
     [model, sessionListFields],
@@ -671,11 +739,15 @@ export function DatabaseList({
     : selectedPageIds.size;
 
   useEffect(() => {
-    setSelection((current) => syncDatabaseListSelection(
-      current,
-      projection,
-      previousProjectionRef.current,
-    ));
+    dispatchInteraction({
+      kind: "update-selection",
+      update: (current) => syncDatabaseListSelection(
+        current,
+        projection,
+        previousProjectionRef.current,
+      ),
+      preserveFocusRequest: true,
+    });
     previousProjectionRef.current = projection;
   }, [projection]);
 
@@ -765,30 +837,41 @@ export function DatabaseList({
   }, [model.databaseViewId]);
 
   useEffect(() => {
-    const focusedKey = selection.focusedOccurrenceKey;
-    if (!focusedKey) return;
+    if (!focusRequest) return;
     const scroller = scrollerRef.current;
     if (!scroller) return;
     const target = [...(hostRef.current?.querySelectorAll<HTMLElement>(
       "[data-list-key]",
-    ) ?? [])].find((candidate) => candidate.dataset.listKey === focusedKey);
+    ) ?? [])].find(
+      (candidate) => candidate.dataset.listKey === focusRequest.occurrenceKey,
+    );
     if (target) {
       target.focus({ preventScroll: true });
       target.scrollIntoView({ block: "nearest" });
+      dispatchInteraction({
+        kind: "consume-focus-request",
+        focusRequestId: focusRequest.id,
+      });
       return;
     }
     const nextTop = databaseListScrollTopForOccurrence({
       rows: projection,
-      occurrenceKey: focusedKey,
+      occurrenceKey: focusRequest.occurrenceKey,
       viewportTop: scroller.scrollTop,
       viewportHeight: scroller.clientHeight,
     });
-    if (nextTop === null || nextTop === scroller.scrollTop) return;
+    if (nextTop === null || nextTop === scroller.scrollTop) {
+      dispatchInteraction({
+        kind: "consume-focus-request",
+        focusRequestId: focusRequest.id,
+      });
+      return;
+    }
     scroller.scrollTop = nextTop;
     setScrollTop(nextTop);
   }, [
+    focusRequest,
     projection,
-    selection.focusedOccurrenceKey,
     virtualWindow.endIndex,
     virtualWindow.startIndex,
   ]);
@@ -1236,32 +1319,35 @@ export function DatabaseList({
     if ((event.target as HTMLElement).closest(DATABASE_LIST_INTERACTIVE_SELECTOR)) return;
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
-      setSelection((current) => moveDatabaseListActiveOccurrence({
+      updateSelection((current) => moveDatabaseListActiveOccurrence({
         state: current,
         rows: projection,
         direction: event.key === "ArrowDown" ? 1 : -1,
         extendSelection: event.shiftKey,
-      }));
+      }), true);
       return;
     }
     if (event.key === "Home" || event.key === "End") {
       event.preventDefault();
-      setSelection((current) => moveDatabaseListActiveOccurrenceToBoundary({
+      updateSelection((current) => moveDatabaseListActiveOccurrenceToBoundary({
         state: current,
         rows: projection,
         boundary: event.key === "Home" ? "first" : "last",
         extendSelection: event.shiftKey,
-      }));
+      }), true);
       return;
     }
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "a") {
       event.preventDefault();
-      setSelection(selectAllDatabaseListOccurrences(projection));
+      updateSelection((current) => selectAllDatabaseListOccurrences({
+        state: current,
+        rows: projection,
+      }));
       return;
     }
     if (event.key === " " && activePage) {
       event.preventDefault();
-      setSelection((current) => selectDatabaseListOccurrence({
+      updateSelection((current) => selectDatabaseListOccurrence({
         state: current,
         rows: projection,
         occurrenceKey: activePage.key,
@@ -1279,7 +1365,7 @@ export function DatabaseList({
       && (selection.allMatching || selection.selectedOccurrenceKeys.size > 0)
     ) {
       event.preventDefault();
-      setSelection((current) => ({
+      updateSelection((current) => ({
         ...current,
         selectedOccurrenceKeys: new Set(),
         allMatching: false,
@@ -1366,17 +1452,17 @@ export function DatabaseList({
           />
         )}
         ariaRowIndex={logicalIndex + 1}
-        onSelect={(mode) => setSelection((current) => selectDatabaseListOccurrence({
+        onSelect={(mode) => updateSelection((current) => selectDatabaseListOccurrence({
           state: current,
           rows: projection,
           occurrenceKey: item.key,
           mode,
         }))}
-        onActivate={() => setSelection((current) => ({
-          ...current,
-          activeOccurrenceKey: item.key,
-          focusedOccurrenceKey: item.key,
-        }))}
+        onActivate={() => updateSelection((current) =>
+          current.activeOccurrenceKey === item.key
+            ? current
+            : { ...current, activeOccurrenceKey: item.key }
+        )}
         onOpen={(titleSnapshot) => onOpenPage(item.pageId, titleSnapshot)}
         onDragStart={(event) => {
           if (!allMatchingReady) {
@@ -1449,13 +1535,13 @@ export function DatabaseList({
         canMoveUp={canMoveUp}
         canMoveDown={canMoveDown}
         onOpen={() => onOpenPage(item.pageId, item.row.title)}
-        onSelectOnly={() => setSelection((current) => selectDatabaseListOccurrence({
+        onSelectOnly={() => updateSelection((current) => selectDatabaseListOccurrence({
           state: current,
           rows: projection,
           occurrenceKey: item.key,
           mode: "replace",
         }))}
-        onToggleSelection={() => setSelection((current) => selectDatabaseListOccurrence({
+        onToggleSelection={() => updateSelection((current) => selectDatabaseListOccurrence({
           state: current,
           rows: projection,
           occurrenceKey: item.key,
@@ -1774,7 +1860,7 @@ export function DatabaseList({
         canMoveUp={canMoveSelectionUp}
         canMoveDown={canMoveSelectionDown}
         onMove={(direction) => movePages(selectedIds, direction)}
-        onClear={() => setSelection((current) => ({
+        onClear={() => updateSelection((current) => ({
           ...current,
           selectedOccurrenceKeys: new Set(),
           allMatching: false,

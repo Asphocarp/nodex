@@ -675,6 +675,44 @@ describe("DatabaseViewSurface", () => {
     expect(onOpenPage).toHaveBeenCalledWith("page-next", "Next Page");
   });
 
+  test("keeps external editor focus across List projection refreshes and selection", async () => {
+    const renderSurface = (viewModel: DatabaseViewRenderModel) => (
+      <>
+        <input aria-label="Page editor" />
+        <DatabaseViewSurface
+          model={viewModel}
+          presentationLayout="list"
+          searchQuery=""
+          onOpenPage={() => undefined}
+        />
+      </>
+    );
+    const screen = render(renderSurface(listModel()));
+    const row = screen.container.querySelector<HTMLElement>(
+      '[data-database-view-page-id="page-focused"]',
+    );
+    if (!row) throw new Error("Expected the focused List row");
+    await act(async () => {
+      fireEvent.focus(row);
+      await Promise.resolve();
+    });
+
+    const editor = screen.getByRole("textbox", { name: "Page editor" });
+    editor.focus();
+    screen.rerender(renderSurface(listModel()));
+    await waitFor(() => expect(document.activeElement).toBe(editor));
+
+    const checkbox = screen.getByRole("checkbox", {
+      name: "Select Focused Page",
+    });
+    checkbox.focus();
+    await act(async () => {
+      fireEvent.click(checkbox);
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(document.activeElement).toBe(checkbox));
+  });
+
   test("opens a List Page from its title or row surface while selection stays explicit", async () => {
     const onOpenPage = vi.fn();
     const screen = render(
