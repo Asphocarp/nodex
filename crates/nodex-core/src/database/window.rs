@@ -33,7 +33,7 @@ const MAX_SORT_RULES: usize = 4;
 const MAX_DISPLAY_PROPERTIES: usize = 64;
 const MAX_ROWS_BY_ID: usize = 100;
 const MAX_LIST_PROJECTION_MODELS: usize = 100_000;
-const SUMMARY_COLUMN_COUNT: usize = 28;
+const SUMMARY_COLUMN_COUNT: usize = 29;
 const COMPATIBILITY_CARD_PROPERTY_IDS: [&str; 8] = [
     "status",
     "priority",
@@ -1299,8 +1299,11 @@ fn view_window_for(
     let source = bind(&mut parameters, SqlValue::Text(view.data_source_id.clone()));
     let filter = compile_filter(&view.config.filter, &mut parameters, 1, &mut 0)?;
     let completion = compile_completion_predicate(view, &mut parameters)?;
-    let (database_values_projection, property_revisions_projection) =
-        compact_value_projections(&view.config, &mut parameters)?;
+    let (
+        database_values_projection,
+        database_display_values_projection,
+        property_revisions_projection,
+    ) = compact_value_projections(&view.config, &mut parameters)?;
     let effective_group_select = effective_group.as_deref().unwrap_or("NULL");
     let effective_subgroup_select = effective_subgroup.as_deref().unwrap_or("NULL");
     let sort_projection = sort_components
@@ -1339,7 +1342,8 @@ fn view_window_for(
            SELECT model.page_block_id AS page_id, model.lifecycle, model.title, \
              materialization.title_rich_json, model.description_preview, \
              model.description_length, model.has_description, {database_values_projection}, \
-             model.intrinsic_properties_json, {property_revisions_projection}, \
+             {database_display_values_projection}, model.intrinsic_properties_json, \
+             {property_revisions_projection}, \
              model.metadata_revision, model.location_revision, model.document_id, \
              model.document_generation, model.document_projected_seq, membership.id, \
              membership.revision, membership.created_at, model.created_at, model.updated_at, \
@@ -2556,13 +2560,17 @@ fn summary_by_id(
     let view_parameter = bind(&mut parameters, SqlValue::Text(view.view_id.clone()));
     let source_parameter = bind(&mut parameters, SqlValue::Text(view.data_source_id.clone()));
     let page_parameter = bind(&mut parameters, SqlValue::Text(page_id.to_owned()));
-    let (database_values_projection, property_revisions_projection) =
-        compact_value_projections(&view.config, &mut parameters)?;
+    let (
+        database_values_projection,
+        database_display_values_projection,
+        property_revisions_projection,
+    ) = compact_value_projections(&view.config, &mut parameters)?;
     let sql = format!(
         "SELECT model.page_block_id, model.lifecycle, model.title, \
                materialization.title_rich_json, model.description_preview, \
                model.description_length, model.has_description, {database_values_projection}, \
-               model.intrinsic_properties_json, {property_revisions_projection}, \
+               {database_display_values_projection}, model.intrinsic_properties_json, \
+               {property_revisions_projection}, \
                model.metadata_revision, model.location_revision, model.document_id, \
                model.document_generation, model.document_projected_seq, membership.id, \
                membership.revision, membership.created_at, model.created_at, model.updated_at, \
@@ -2627,8 +2635,10 @@ fn summary_by_id(
 fn summary_from_row(row: &Row<'_>, sort_component_count: usize) -> rusqlite::Result<SummaryRow> {
     let page_id = row.get::<_, String>(0)?;
     let database_values = parse_json_map(row.get::<_, String>(7)?, "Database values")?;
-    let intrinsic_properties = parse_json_map(row.get::<_, String>(8)?, "intrinsic properties")?;
-    let property_revisions = parse_json_map(row.get::<_, String>(9)?, "Property revisions")?;
+    let database_display_values =
+        parse_json_map(row.get::<_, String>(8)?, "Database display values")?;
+    let intrinsic_properties = parse_json_map(row.get::<_, String>(9)?, "intrinsic properties")?;
+    let property_revisions = parse_json_map(row.get::<_, String>(10)?, "Property revisions")?;
     let database_value_revisions = property_revisions
         .get("database")
         .and_then(Value::as_object)
@@ -2653,26 +2663,27 @@ fn summary_from_row(row: &Row<'_>, sort_component_count: usize) -> rusqlite::Res
             description_length: row.get(5)?,
             has_description: row.get::<_, i64>(6)? != 0,
             database_values,
+            database_display_values,
             intrinsic_properties,
             database_value_revisions,
-            metadata_revision: row.get(10)?,
-            parent_revision: row.get(11)?,
-            document_id: row.get(12)?,
-            document_generation: row.get(13)?,
-            document_head_seq: row.get(14)?,
-            membership_id: row.get(15)?,
-            membership_revision: row.get(16)?,
-            membership_created_at: row.get(17)?,
-            created_at: row.get(18)?,
-            updated_at: row.get(19)?,
-            effective_group_key: row.get(20)?,
-            effective_subgroup_key: row.get(21)?,
-            rank_key: row.get(22)?,
-            position_revision: row.get(23)?,
-            position_order: row.get(24)?,
-            task_parent_page_id: row.get(25)?,
-            task_sibling_rank: row.get(26)?,
-            task_parent_value_revision: row.get(27)?,
+            metadata_revision: row.get(11)?,
+            parent_revision: row.get(12)?,
+            document_id: row.get(13)?,
+            document_generation: row.get(14)?,
+            document_head_seq: row.get(15)?,
+            membership_id: row.get(16)?,
+            membership_revision: row.get(17)?,
+            membership_created_at: row.get(18)?,
+            created_at: row.get(19)?,
+            updated_at: row.get(20)?,
+            effective_group_key: row.get(21)?,
+            effective_subgroup_key: row.get(22)?,
+            rank_key: row.get(23)?,
+            position_revision: row.get(24)?,
+            position_order: row.get(25)?,
+            task_parent_page_id: row.get(26)?,
+            task_sibling_rank: row.get(27)?,
+            task_parent_value_revision: row.get(28)?,
         },
         coordinate_values,
     })
@@ -2681,10 +2692,14 @@ fn summary_from_row(row: &Row<'_>, sort_component_count: usize) -> rusqlite::Res
 fn compact_value_projections(
     config: &ViewConfig,
     parameters: &mut Vec<SqlValue>,
-) -> Result<(String, String), StoreError> {
+) -> Result<(String, String, String), StoreError> {
     let property_ids = projected_property_ids(config)?;
     if property_ids.is_empty() {
-        return Ok(("'{}'".to_owned(), "'{\"database\":{}}'".to_owned()));
+        return Ok((
+            "'{}'".to_owned(),
+            "'{}'".to_owned(),
+            "'{\"database\":{}}'".to_owned(),
+        ));
     }
     let placeholders = property_ids
         .into_iter()
@@ -2698,17 +2713,15 @@ fn compact_value_projections(
          WHERE value.data_source_id = membership.data_source_id \
            AND value.membership_id = membership.id AND {predicate}), '{{}}')"
     );
-    // The normalized Property table stores tag option identities. Page
-    // summaries expose their user-facing names from the exact-head read model,
-    // without widening this View's configured Property projection. A missing
-    // display projection removes tags instead of leaking opaque option IDs.
-    let values = format!(
+    // The exact-head read model retains names for compatibility Board cards,
+    // but Database module values remain canonical stable option identities.
+    let display_values = format!(
         "json_patch({canonical_values}, CASE \
            WHEN json_type({canonical_values}, '$.tags') IS NOT NULL THEN \
              json_object('tags', CASE \
                WHEN json_type(model.database_values_json, '$.tags') = 'array' THEN \
                  json_extract(model.database_values_json, '$.tags') \
-               ELSE NULL \
+               ELSE json_extract({canonical_values}, '$.tags') \
              END) \
            ELSE '{{}}' \
          END)"
@@ -2721,7 +2734,7 @@ fn compact_value_projections(
              AND value.membership_id = membership.id AND {predicate} \
          ), '{{}}')))"
     );
-    Ok((values, revisions))
+    Ok((canonical_values, display_values, revisions))
 }
 
 fn projected_property_ids(config: &ViewConfig) -> Result<BTreeSet<String>, StoreError> {
@@ -2782,10 +2795,9 @@ fn group_expression(
     group: &ViewGroup,
     parameters: &mut Vec<SqlValue>,
 ) -> Result<String, StoreError> {
-    validate_property_id(&group.property_id)?;
-    let path = bind(parameters, SqlValue::Text(json_path(&group.property_id)));
-    let raw = format!("json_extract(model.database_values_json, {path})");
-    let raw_type = format!("json_type(model.database_values_json, {path})");
+    let raw_json = canonical_property_value_json_expression(&group.property_id, parameters)?;
+    let raw = format!("json_extract({raw_json}, '$')");
+    let raw_type = format!("json_type({raw_json}, '$')");
     Ok(format!(
         "CASE {raw_type} \
            WHEN 'true' THEN 'true' \
@@ -2800,8 +2812,9 @@ fn group_expression(
 }
 
 fn completed_status_expression(parameters: &mut Vec<SqlValue>) -> String {
-    let path = bind(parameters, SqlValue::Text(json_path("status")));
-    format!("json_extract(model.database_values_json, {path}) IS 'ship'")
+    let raw_json = canonical_property_value_json_expression("status", parameters)
+        .expect("built-in status Property identity");
+    format!("json_extract({raw_json}, '$') IS 'ship'")
 }
 
 fn compile_completion_predicate(
@@ -2943,9 +2956,8 @@ fn sort_components(
             ViewSortField::Title => "model.title".to_owned(),
             ViewSortField::Created => "model.created_at".to_owned(),
             ViewSortField::Property { property_id } => {
-                validate_property_id(property_id)?;
-                let path = bind(parameters, SqlValue::Text(json_path(property_id)));
-                format!("json_extract(model.database_values_json, {path})")
+                let raw_json = canonical_property_value_json_expression(property_id, parameters)?;
+                format!("json_extract({raw_json}, '$')")
             }
         });
         let null_rank = match rule.nulls {
@@ -3010,11 +3022,10 @@ fn compile_filter(
             operator,
             value,
         } => {
-            validate_property_id(property_id)?;
-            let path = bind(parameters, SqlValue::Text(json_path(property_id)));
+            let raw_json = canonical_property_value_json_expression(property_id, parameters)?;
             let edge_property = bind(parameters, SqlValue::Text(property_id.clone()));
-            let current = format!("json_extract(model.database_values_json, {path})");
-            let current_type = format!("json_type(model.database_values_json, {path})");
+            let current = format!("json_extract({raw_json}, '$')");
+            let current_type = format!("json_type({raw_json}, '$')");
             let scalar_empty = format!(
                 "({current_type} IS NULL OR {current_type} = 'null' \
                  OR ({current_type} = 'text' AND {current} = '') \
@@ -3158,15 +3169,29 @@ fn validate_property_id(property_id: &str) -> Result<(), StoreError> {
     Err(invalid("Database Property identity is not JSON-path safe"))
 }
 
+/// Correlated scalar expression for one canonical Property JSON value.
+/// `page_read_model.database_values_json` is a display/search projection and
+/// may contain names for select-like values, so query identity never reads it.
+fn canonical_property_value_json_expression(
+    property_id: &str,
+    parameters: &mut Vec<SqlValue>,
+) -> Result<String, StoreError> {
+    validate_property_id(property_id)?;
+    let property = bind(parameters, SqlValue::Text(property_id.to_owned()));
+    Ok(format!(
+        "(SELECT property_value.value_json \
+         FROM data_source_property_values property_value \
+         WHERE property_value.data_source_id = membership.data_source_id \
+           AND property_value.membership_id = membership.id \
+           AND property_value.property_id = {property})"
+    ))
+}
+
 fn validate_identity(value: &str, label: &str) -> Result<(), StoreError> {
     if !value.is_empty() && value.len() <= 512 && value.trim() == value {
         return Ok(());
     }
     Err(invalid(&format!("{label} is invalid")))
-}
-
-fn json_path(property_id: &str) -> String {
-    format!("$.{property_id}")
 }
 
 fn bind(parameters: &mut Vec<SqlValue>, value: SqlValue) -> String {

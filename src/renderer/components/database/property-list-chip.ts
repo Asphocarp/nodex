@@ -1,9 +1,9 @@
 import { useSyncExternalStore } from "react";
 
 export const DATABASE_PROPERTY_LIST_CHIP_CLASS_NAME = [
-  "h-6 min-h-6 max-w-[290px] gap-1.5 overflow-hidden rounded-[48px] border-[0.5px]",
+  "inline-flex h-6 min-h-6 max-w-[290px] items-center gap-1.5 overflow-hidden rounded-[48px] border-[0.5px]",
   "border-[var(--database-list-chip-border)] bg-[var(--database-list-chip-background)] px-2",
-  "text-xs [font-weight:450] leading-normal text-[var(--database-list-text-muted)]",
+  "text-xs/4 [font-weight:450] text-[var(--database-list-text-muted)]",
   "hover:bg-[var(--database-list-chip-hover)] focus-visible:ring-1 focus-visible:ring-[var(--database-list-focus)]",
   "[&_svg]:size-3.5 [&_svg]:shrink-0",
 ].join(" ");

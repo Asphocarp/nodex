@@ -606,6 +606,7 @@ mod tests {
             description_length: 0,
             has_description: false,
             database_values: BTreeMap::from([("status".to_owned(), json!("triage"))]),
+            database_display_values: BTreeMap::from([("status".to_owned(), json!("triage"))]),
             intrinsic_properties: BTreeMap::new(),
             database_value_revisions: BTreeMap::from([("status".to_owned(), 1)]),
             metadata_revision: 1,

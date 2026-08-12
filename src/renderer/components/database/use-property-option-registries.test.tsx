@@ -123,4 +123,33 @@ describe("usePropertyOptionRegistries", () => {
     expect(optionRuntime.readWindow.mock.calls.map(([, current]) => current.dataSourceId))
       .toEqual([parseDataSourceId("source-1"), parseDataSourceId("source-2")]);
   });
+
+  test("preloads a registry whose labels are required by a closed surface", async () => {
+    optionRuntime.readWindow.mockResolvedValueOnce({
+      options: [
+        { id: "o_AAAAAAAA", name: "First" },
+        { id: "o_BBBBBBBB", name: "Second" },
+      ],
+      nextCursor: "page-2",
+      projectionRevision: 1,
+    }).mockResolvedValueOnce({
+      options: [{ id: "o_CCCCCCCC", name: "Third" }],
+      nextCursor: null,
+      projectionRevision: 1,
+    });
+
+    const hook = renderHook(() => usePropertyOptionRegistries({
+      accessContext: { kind: "project", projectId: "project-1" },
+      properties: [property],
+      requiredOptionIds: { [property.propertyId]: ["o_CCCCCCCC"] },
+    }));
+
+    await waitFor(() => expect(hook.result.current.states.tags).toBe("ready"));
+    expect(hook.result.current.options.tags?.map((option) => option.name)).toEqual([
+      "First",
+      "Second",
+      "Third",
+    ]);
+    expect(optionRuntime.readWindow).toHaveBeenCalledTimes(2);
+  });
 });

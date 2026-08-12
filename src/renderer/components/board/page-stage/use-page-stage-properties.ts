@@ -121,9 +121,26 @@ export function usePageStageProperties(input: {
     () => properties.map((item) => item.property),
     [properties],
   );
+  const requiredOptionIds = useMemo<Readonly<Record<string, readonly string[]>>>(() => {
+    const entries: Array<readonly [string, readonly string[]]> = [];
+    for (const item of properties) {
+      const { property, value } = item;
+      if (property.valueType === "select") {
+        if (typeof value === "string") entries.push([property.propertyId, [value]]);
+        continue;
+      }
+      if (property.valueType !== "multi_select" || !Array.isArray(value)) continue;
+      entries.push([
+        property.propertyId,
+        value.filter((entry): entry is string => typeof entry === "string"),
+      ]);
+    }
+    return Object.fromEntries(entries);
+  }, [properties]);
   const optionRegistries = usePropertyOptionRegistries({
     accessContext: contentAccessContext,
     properties: optionProperties,
+    requiredOptionIds,
   });
   const {
     options,

@@ -3156,12 +3156,20 @@ mod tests {
         let kernel = SqliteStoreKernel::open_test(&home).expect("fresh store");
         let module = seed_grouped_fixture(
             &kernel,
-            vec![GroupRowSpec {
-                page_id: "page:multi-group",
-                title: "Two tags",
-                value_json: Some("\"triage\""),
-                rank_key: Some("a"),
-            }],
+            vec![
+                GroupRowSpec {
+                    page_id: "page:multi-group",
+                    title: "Two tags",
+                    value_json: Some("\"triage\""),
+                    rank_key: Some("a"),
+                },
+                GroupRowSpec {
+                    page_id: "page:single-group",
+                    title: "One tag",
+                    value_json: Some("\"triage\""),
+                    rank_key: Some("b"),
+                },
+            ],
         );
         module
             .apply(
@@ -3175,7 +3183,7 @@ mod tests {
                             data_source_id: SOURCE_ID.to_owned(),
                             property_id: "tags".to_owned(),
                             option_id: "o_AAAAAAAA".to_owned(),
-                            name: "Alpha".to_owned(),
+                            name: "Zulu".to_owned(),
                             color: None,
                             expected_property_revision: 1,
                         },
@@ -3183,27 +3191,42 @@ mod tests {
                             data_source_id: SOURCE_ID.to_owned(),
                             property_id: "tags".to_owned(),
                             option_id: "o_BBBBBBBB".to_owned(),
-                            name: "Beta".to_owned(),
+                            name: "Alpha".to_owned(),
                             color: None,
                             expected_property_revision: 2,
                         },
                         DatabaseIntent::EditPropertyValues {
-                            edits: vec![DatabasePropertyValueMutation {
-                                address: DatabasePagePropertyAddress {
-                                    page_id: "page:multi-group".to_owned(),
-                                    data_source_id: SOURCE_ID.to_owned(),
-                                    property_id: "tags".to_owned(),
-                                },
-                                edit: DatabasePropertyValueEdit::Replace {
-                                    expected_value_revision: 0,
-                                    value: DatabasePropertyValueInput::MultiSelect {
-                                        option_ids: vec![
-                                            "o_AAAAAAAA".to_owned(),
-                                            "o_BBBBBBBB".to_owned(),
-                                        ],
+                            edits: vec![
+                                DatabasePropertyValueMutation {
+                                    address: DatabasePagePropertyAddress {
+                                        page_id: "page:multi-group".to_owned(),
+                                        data_source_id: SOURCE_ID.to_owned(),
+                                        property_id: "tags".to_owned(),
+                                    },
+                                    edit: DatabasePropertyValueEdit::Replace {
+                                        expected_value_revision: 0,
+                                        value: DatabasePropertyValueInput::MultiSelect {
+                                            option_ids: vec![
+                                                "o_AAAAAAAA".to_owned(),
+                                                "o_BBBBBBBB".to_owned(),
+                                            ],
+                                        },
                                     },
                                 },
-                            }],
+                                DatabasePropertyValueMutation {
+                                    address: DatabasePagePropertyAddress {
+                                        page_id: "page:single-group".to_owned(),
+                                        data_source_id: SOURCE_ID.to_owned(),
+                                        property_id: "tags".to_owned(),
+                                    },
+                                    edit: DatabasePropertyValueEdit::Replace {
+                                        expected_value_revision: 0,
+                                        value: DatabasePropertyValueInput::MultiSelect {
+                                            option_ids: vec!["o_BBBBBBBB".to_owned()],
+                                        },
+                                    },
+                                },
+                            ],
                         },
                         DatabaseIntent::PutView {
                             database_id: DATABASE_ID.to_owned(),
@@ -3226,9 +3249,32 @@ mod tests {
             .expect("configure multi-value grouping");
 
         let window = read_list_window(&module, 20, None).expect("multi-value List window");
-        assert_eq!(window.total_model_count, 1);
-        assert_eq!(window.total_occurrence_count, 2);
+        assert_eq!(window.total_model_count, 2);
+        assert_eq!(window.total_occurrence_count, 3);
         assert_eq!(window.groups.len(), 2);
+        let summary = window
+            .rows
+            .items
+            .iter()
+            .find_map(|row| match row {
+                DatabaseListProjectionRow::Page { summary, .. } => Some(summary.as_ref()),
+                _ => None,
+            })
+            .expect("multi-value row summary");
+        assert_eq!(
+            summary.database_values.get("tags"),
+            Some(&json!(["o_AAAAAAAA", "o_BBBBBBBB"])),
+        );
+        assert_eq!(
+            summary.database_display_values.get("tags"),
+            Some(&json!(["Zulu", "Alpha"])),
+        );
+        let view_window =
+            read_view_window(&module, 20, None, None).expect("canonical multi-value View window");
+        assert_eq!(
+            view_window.rows.items[0].effective_group_key.as_deref(),
+            Some("[\"o_AAAAAAAA\",\"o_BBBBBBBB\"]"),
+        );
         let occurrences = window
             .rows
             .items
@@ -3243,12 +3289,7 @@ mod tests {
                 _ => None,
             })
             .collect::<Vec<_>>();
-        assert_eq!(occurrences.len(), 2);
-        assert!(
-            occurrences
-                .iter()
-                .all(|(_, page_id, _)| *page_id == "page:multi-group")
-        );
+        assert_eq!(occurrences.len(), 3);
         assert_ne!(occurrences[0].0, occurrences[1].0);
         assert_eq!(
             occurrences
@@ -3297,6 +3338,83 @@ mod tests {
             })
             .collect::<Vec<_>>();
         assert_eq!(group_keys, ["o_BBBBBBBB", "o_AAAAAAAA"]);
+
+        module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    operation_id: "operation:list-filter-canonical-tag".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: vec![DatabaseIntent::PutView {
+                        database_id: DATABASE_ID.to_owned(),
+                        data_source_id: SOURCE_ID.to_owned(),
+                        view_id: VIEW_ID.to_owned(),
+                        expected_revision: 2,
+                        name: "Tag List".to_owned(),
+                        default_layout: "list".to_owned(),
+                        config: view_config(
+                            json!({
+                                "kind": "clause",
+                                "propertyId": "tags",
+                                "operator": "contains",
+                                "value": "o_AAAAAAAA"
+                            }),
+                            Some("tags"),
+                            &["status", "priority", "estimate", "tags"],
+                        ),
+                        is_default: true,
+                        before_view_id: None,
+                    }],
+                },
+            )
+            .expect("filter by canonical tag identity");
+        let filtered = read_list_window(&module, 20, None).expect("filtered tag List window");
+        assert_eq!(filtered.total_model_count, 1);
+        assert_eq!(filtered.total_occurrence_count, 2);
+
+        let mut sorted_config = view_config(
+            json!({ "kind": "group", "operator": "and", "children": [] }),
+            None,
+            &["status", "priority", "estimate", "tags"],
+        );
+        sorted_config["presentation"]["sort"] = json!([{
+            "field": { "kind": "property", "propertyId": "tags" },
+            "direction": "asc",
+            "nulls": "last"
+        }]);
+        module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    operation_id: "operation:list-sort-canonical-tag".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: vec![DatabaseIntent::PutView {
+                        database_id: DATABASE_ID.to_owned(),
+                        data_source_id: SOURCE_ID.to_owned(),
+                        view_id: VIEW_ID.to_owned(),
+                        expected_revision: 3,
+                        name: "Tag List".to_owned(),
+                        default_layout: "list".to_owned(),
+                        config: sorted_config,
+                        is_default: true,
+                        before_view_id: None,
+                    }],
+                },
+            )
+            .expect("sort by canonical tag identity");
+        let sorted =
+            read_view_window(&module, 20, None, None).expect("sorted canonical tag View window");
+        assert_eq!(
+            sorted
+                .rows
+                .items
+                .iter()
+                .map(|row| row.page_id.as_str())
+                .collect::<Vec<_>>(),
+            ["page:multi-group", "page:single-group"],
+        );
     }
 
     #[test]
