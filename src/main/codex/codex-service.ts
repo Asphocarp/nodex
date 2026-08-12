@@ -3155,6 +3155,7 @@ export class CodexService extends EventEmitter {
     });
 
   private accountSnapshot: CodexAccountSnapshot = emptyAccountSnapshot();
+  private accountReadInFlight: Promise<CodexAccountSnapshot> | null = null;
   private lastConnectionStatus: CodexConnectionState["status"] = "disconnected";
   private rateLimitsPollHandle: ReturnType<typeof setInterval> | null = null;
   private rateLimitsPollInFlight = false;
@@ -3407,6 +3408,11 @@ export class CodexService extends EventEmitter {
       this.syncRateLimitsPolling();
       if (connection.status === "connected" && connection.retries > 0 && !wasConnected) {
         this.markConversationsNeedResumeAfterReconnect();
+        void this.readAccountSnapshot().catch((error: unknown) => {
+          this.logger.warn("Could not refresh account state after app-server reconnect", {
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
         void this.syncSidebarThreadsDetailed({
           policy: "stale",
           reason: "app-server-reconnect",
@@ -7886,7 +7892,7 @@ export class CodexService extends EventEmitter {
     this.pendingDynamicToolCalls.clear();
 
     try {
-      await this.client.stop();
+      await this.client.dispose();
     } finally {
       await this.computerUseRuntimeCoordinator.dispose();
     }
@@ -8175,6 +8181,16 @@ export class CodexService extends EventEmitter {
   }
 
   async readAccountSnapshot(): Promise<CodexAccountSnapshot> {
+    if (this.accountReadInFlight) return await this.accountReadInFlight;
+
+    const operation = this.loadAccountSnapshot().finally(() => {
+      if (this.accountReadInFlight === operation) this.accountReadInFlight = null;
+    });
+    this.accountReadInFlight = operation;
+    return await operation;
+  }
+
+  private async loadAccountSnapshot(): Promise<CodexAccountSnapshot> {
     await this.ensureClientReady();
 
     const accountResult = await this.client.request<"account/read", GetAccountResponse>("account/read", {
