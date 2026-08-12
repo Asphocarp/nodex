@@ -10,7 +10,7 @@ import {
   type BlockDocumentSurfaceProps,
   type BlockDocumentSurfaceValue,
 } from "./block-document-surface";
-import { createDocumentSyncAdapter } from "@/lib/api";
+import { createDocumentSyncAdapterForContentAccess } from "@/lib/api";
 import {
   BlockDocumentSurfaceRuntime,
   type BlockDocumentSurfaceRuntimeOptions,
@@ -62,7 +62,6 @@ export function PageEditorSessionSurface({
   sessionKey,
   retainModelOnUnmount = true,
   registry = documentSessionRegistry,
-  projectId,
   descriptor,
   pageTitleIdentity,
   isActive,
@@ -85,7 +84,8 @@ export function PageEditorSessionSurface({
   const onReloadRef = useRef(onReload);
   onReloadRef.current = onReload;
   const identity = makeDocumentSessionIdentity(descriptor);
-  const adapterFactory = dependencies?.createAdapter ?? createDocumentSyncAdapter;
+  const adapterFactory = dependencies?.createAdapter
+    ?? createDocumentSyncAdapterForContentAccess;
   const runtimeFactory = dependencies?.createRuntime ?? createRuntime;
 
   useLayoutEffect(() => {
@@ -96,17 +96,12 @@ export function PageEditorSessionSurface({
 
     try {
       const currentDescriptor = descriptorRef.current;
-      if (currentDescriptor.projectId !== projectId) {
-        throw new TypeError(
-          "Page editor session Project does not match its descriptor",
-        );
-      }
       session = registry.acquire({
         key: sessionKey,
         descriptor: currentDescriptor,
         createRuntime: () => runtimeFactory({
           descriptor: currentDescriptor,
-          adapter: adapterFactory(projectId),
+          adapter: adapterFactory(currentDescriptor.accessContext),
         }),
       });
       viewGeneration = session.claimView();
@@ -140,7 +135,6 @@ export function PageEditorSessionSurface({
   }, [
     adapterFactory,
     identity,
-    projectId,
     registry,
     revision,
     runtimeFactory,
@@ -186,7 +180,6 @@ export function PageEditorSessionSurface({
   return (
     <OwnedBlockDocumentRuntimeSurface
       runtime={session.runtime}
-      projectId={projectId}
       descriptor={descriptor}
       isActive={isActive}
       localAwarenessState={localAwarenessState}

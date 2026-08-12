@@ -8,13 +8,13 @@ export {
 
 export function buildPageSearchText(card: Pick<
   DatabasePageSummary,
-  "id" | "title" | "descriptionPreview" | "tags" | "assignee"
->): string {
+  "id" | "title" | "descriptionPreview" | "assignee"
+>, tagLabels: readonly string[] = []): string {
   return normalizeSearchText([
     card.id,
     card.title,
     card.descriptionPreview,
-    card.tags.join(" "),
+    tagLabels.join(" "),
     card.assignee ?? "",
   ].join(" "));
 }

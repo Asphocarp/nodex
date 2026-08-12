@@ -125,7 +125,7 @@ describe("NodexAgentV3DynamicService", () => {
       mutationId: "mutation-v3",
       storeEpoch: "store-v3",
       input,
-      destination: { kind: "space" },
+      destination: { kind: "library" },
       pages: [{
         input: {
           resource: {
@@ -133,7 +133,7 @@ describe("NodexAgentV3DynamicService", () => {
             title: { kind: "plain", text: "Launch plan" },
             body: { format: "nfm", content: "## Milestones\n\n- [ ] Ship" },
           },
-          destination: { kind: "space" },
+          destination: { kind: "library" },
         },
         pageId: output.data.pages[0]?.pageId ?? "page-created",
         bodyBlockIds: ["block-heading", "block-task"],

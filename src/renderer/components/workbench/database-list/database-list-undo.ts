@@ -85,7 +85,7 @@ const inversePropertyEdits = (input: {
       });
       continue;
     }
-    if (forward.edit.kind === "replace_relation" || property.valueType === "relation") {
+    if (forward.edit.kind === "replace_one_relation" || property.valueType === "relation") {
       return null;
     }
     try {

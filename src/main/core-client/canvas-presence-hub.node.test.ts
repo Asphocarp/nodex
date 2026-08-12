@@ -31,7 +31,8 @@ describe("CanvasPresenceHub", () => {
     const binding = (key: string, targetId: number): CanvasPresenceHubBinding => ({
       key,
       targetId,
-      projectId: "project-1",
+      libraryId: "library-1",
+      accessContext: { kind: "project", projectId: "project-1" },
       documentId: "document-1",
       clientSessionId: `session-${key}`,
       send: (event) => {
@@ -130,7 +131,8 @@ describe("CanvasPresenceHub", () => {
     hub.register({
       key: "a",
       targetId: 1,
-      projectId: "project-1",
+      libraryId: "library-1",
+      accessContext: { kind: "project", projectId: "project-1" },
       documentId: "document-1",
       clientSessionId: "session-a",
       send: () => undefined,
@@ -138,7 +140,8 @@ describe("CanvasPresenceHub", () => {
     hub.register({
       key: "b",
       targetId: 2,
-      projectId: "project-1",
+      libraryId: "library-1",
+      accessContext: { kind: "project", projectId: "project-1" },
       documentId: "document-1",
       clientSessionId: "session-b",
       send: (event) => received.push(event),

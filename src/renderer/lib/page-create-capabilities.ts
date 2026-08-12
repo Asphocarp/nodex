@@ -40,6 +40,6 @@ export function gatePageCreateInputByCapabilities(
     ...input,
     priority: capabilities.priorityProperty ? input.priority : undefined,
     estimate: capabilities.estimateProperty ? input.estimate : undefined,
-    tags: capabilities.tagsProperty ? input.tags : [],
+    tagOptions: capabilities.tagsProperty ? input.tagOptions : [],
   };
 }

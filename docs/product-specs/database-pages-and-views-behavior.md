@@ -30,13 +30,26 @@ restarts that bounded window rather than silently truncating the result.
 
 Filter is durable View query authority and search is window-local. Layout,
 sorting, grouping, subgrouping, completion policy, empty-group visibility, and
-displayed Properties resolve through a sparse Core personal preference keyed by
-durable View ID. Board and List remember separate displayed-Property sets while
-sharing the other presentation rules. Reset removes only the personal override.
+displayed Properties resolve through a sparse Core personal presentation keyed
+by durable View ID. Its monotonic revision applies only to that presentation;
+List disclosure is a separate bounded sparse set changed by idempotent
+per-target patches. The current List exposes disclosure only on group headers;
+Page occurrences remain expanded and do not create personal disclosure state.
+Changing either coordinate never rewrites or conflicts with the other. Board
+and List remember separate displayed-Property sets while sharing the other
+presentation rules. Reset removes only the personal presentation override and
+does not expand collapsed groups.
 `Set default for everyone` publishes the normalized effective presentation with
 View revision compare-and-swap and clears the override only after success; a
 conflict retains the personal state. A valid legacy renderer preference migrates
 once and is removed only after Core accepts the write.
+
+Personal presentation and disclosure changes converge across mounted windows as
+typed deltas authorized by the durable View. They do not claim a shared View,
+Data Source, Database, or Page projection change, so a personal toggle cannot
+refresh Board/List content or invalidate Library navigation. Reconnect replay
+preserves those deltas; a Store-epoch replacement rehydrates both personal
+authorities while retaining the last readable surface until the handover.
 
 Display Options derives valid group fields, finite empty groups, completion
 controls, and visible Properties from the active Source schema. Page ID is an
@@ -57,13 +70,17 @@ Property editors, and mutation receipts.
 Database row authority always carries canonical Property values. In particular,
 select and multi-select values remain stable option IDs through View windows,
 List occurrence windows, optimistic row patches, Page Stage, filtering, sorting,
-and grouping. A compatibility display projection may carry resolved names for
-legacy card presentation, but it is explicit and never substitutes for value
-identity. Closed List and Page Stage controls request bounded option windows for
-their currently selected IDs before the picker opens, continuing across pages
-until every visible label resolves or the authoritative registry proves the ID
-missing. `Loading…` therefore represents an active request only; an idle or
-failed registry cannot leave visible Property chips permanently loading.
+grouping, Page creation, and update commands. Core row contracts do not carry a
+parallel display-value map. Board, List, Page Stage, Filter controls, active-rule
+summaries, and local search derive labels and colors only from bounded option
+registries; a missing registry entry is an explicit unknown option, never a
+fallback display name inferred from the identity. Closed controls request option
+windows for their currently selected IDs before the picker opens, continuing
+across pages until every visible label resolves or the authoritative registry
+proves the ID missing. `Loading…` therefore represents an active request only;
+an idle or failed registry cannot leave visible Property chips permanently
+loading. A Property registry contains at most 100 options; names and colors are
+bounded as canonical UTF-8 metadata at every Core and transport read/write seam.
 
 ### List projection and task hierarchy
 
@@ -92,7 +109,13 @@ self-Relation: every active row, including a root, retains one positive,
 monotonic Relation value revision; a child has one Relation edge whose target is
 its parent and whose edge metadata carries sibling rank. Generic Relation edits,
 List nesting, and batch drag commands all compare and update that same value
-revision. Each parent must be an active row in the same Data Source, cycles are
+revision. Parent and sibling rank form one semantic coordinate on the moved
+Page. Ordered insertion uses fractional ranks: only Pages whose parent or
+logical sibling position changes advance their Parent value and Page metadata
+revisions. A rare order-preserving rank rebalance may rewrite untouched sibling
+rank encodings but must not advance those siblings' semantic revisions. Repeating
+the same ordered Parent command is a no-op. Each parent must be an active row in
+the same Data Source, cycles are
 forbidden, and maximum depth is ten. Removing a parent from the Data Source
 clears its own Parent value, removes its incoming child edges, advances every
 affected value revision, and promotes its direct children to task roots without
@@ -200,8 +223,11 @@ section already identifies the property.
 Estimate uses one half-filled triangular semantic glyph across property labels,
 values, pickers, Page summaries, and View rows.
 Opening or editing the composer creates no Page, option, history, or Database
-row. Submit creates Page identity, title, body, membership, values, and View
-placement atomically. A failed submission keeps the complete draft.
+row. Each selected Tag keeps its preallocated canonical option ID. Its name is
+metadata only when that same submit introduces the option; an existing option's
+identity is never re-resolved from its label. Submit creates Page identity,
+title, body, membership, any new options, values, and View placement atomically.
+A failed submission keeps the complete draft and exact selected identities.
 
 Closing a modified draft provides short-lived reversible recovery using only
 serializable authored data. Live editors, Y.Docs, DOM nodes, and authority
@@ -244,15 +270,18 @@ add/remove intent. Conflicts and collection failures stay on the control or
 popover that owns the action and do not hide unaffected fields.
 
 Relation is a one-way Page-reference Property targeting one Data Source. Its
-schema declares cardinality `one` or `many`: a single Relation stores zero or
-one target and replaces it through value-revision compare-and-swap; a multi
-Relation is an unordered unique set with idempotent edge patches. Both use the
-same normalized edge table and a JSON-null value revision header. Relation never
+schema declares cardinality `one` or `many`, and that cardinality selects the
+mutation grammar. A single Relation stores zero or one target and uses a
+value-revision-fenced replace/clear command. A multi Relation is an unordered
+unique set with idempotent edge patches plus a distinct revision-fenced whole-set
+clear command. A one Relation rejects set patches; a many Relation rejects
+single-target replacement. Both use the same normalized edge table and a
+JSON-null value revision header. Relation never
 changes ownership or grants access. Compact values show visible targets plus
 hidden/restricted counts; inaccessible targets disclose neither identity nor
 title. Candidate and selected lists are bounded and paged. Removal of a
 restricted target uses a Core-authored opaque edge handle rather than a guessed
-Page ID; a revision-fenced empty replacement can clear the whole value without
+Page ID; the many-Relation clear command can remove every edge without
 disclosing targets. Generic Relation references survive target membership and
 lifecycle changes until explicitly removed. The standard `task_parent` Relation
 adds same-Source activity, acyclicity, depth, sibling-order, copy-as-root, and

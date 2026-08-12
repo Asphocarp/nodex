@@ -355,7 +355,8 @@ function resolveTransferBlocks(call: CodexDynamicToolCallView): NodexDynamicTool
   const args = asRecord(call.arguments);
   const mode = args?.mode === "copy" ? "copy" : "move";
   const itemCount = asArray(args?.blockIds).length;
-  const destination = stringValue(asRecord(args?.destination), "kind");
+  const destination = pageDestinationLabel(args?.destination)
+    ?? stringValue(asRecord(args?.destination), "kind");
   const target = plural(itemCount, "block");
   const destinationSuffix = destination ? ` to ${destination}` : "";
   return {

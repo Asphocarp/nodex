@@ -6,7 +6,7 @@ pub mod fractional_rank;
 pub(crate) mod identity;
 pub mod nfm;
 pub mod nfm_parser;
+pub mod ordered_position;
 pub(crate) mod project_appearance;
 pub mod rich_text;
 pub mod subtree;
-pub mod view_position;

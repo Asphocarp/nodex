@@ -15,7 +15,6 @@ mod persistence;
 mod primary_canvas;
 mod realtime;
 mod recovery;
-mod rehome;
 mod retention;
 mod runtime;
 mod semantic;
@@ -78,15 +77,15 @@ pub(crate) use history::{NewDocumentCheckpoint, insert_document_checkpoint};
 #[cfg(test)]
 pub(crate) use persistence::persist_yjs_genesis;
 pub(crate) use persistence::{
-    DocumentAuthorityRow, PersistYjsCommit, PersistYjsGenesis, clear_document_rebuild_projections,
+    DocumentAuthorityRow, PersistYjsCommit, PersistYjsGenesis,
     persist_yjs_commit_with_local_commit, persist_yjs_genesis_with_local_commit,
-    read_document_authority, read_store_epoch, rebuild_legacy_import_projections, sha256,
+    read_document_authority, read_legacy_project_owned_document_authority, read_store_epoch,
+    rebuild_legacy_import_projections, sha256,
 };
 pub(crate) use primary_canvas::{
     PrimaryCanvasIdentity, create_primary_canvas, is_primary_canvas_block_id,
     primary_canvas_block_id, primary_canvas_document_id,
 };
-pub(crate) use rehome::rebuild_rehomed_document_projections;
 pub(crate) use runtime::reconstruct_yjs_engine;
 pub(crate) use semantic::{
     mint_document_projection_etags, mint_document_semantic_etags, mint_etag,

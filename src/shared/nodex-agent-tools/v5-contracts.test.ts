@@ -86,6 +86,27 @@ describe("nodex_app@5 contracts", () => {
         },
       }).success,
     ).toBe(false);
+    expect(
+      queryInput.safeParse({
+        dataSourceId: "source-1",
+        sort: Array.from({ length: 5 }, () => ({
+          field: { kind: "title" },
+          direction: "asc",
+          nulls: "last",
+        })),
+      }).success,
+    ).toBe(false);
+    expect(
+      queryInput.safeParse({
+        dataSourceId: "source-1",
+        select: {
+          propertyIds: Array.from(
+            { length: 201 },
+            (_, index) => `p_${index.toString().padStart(8, "0")}`,
+          ),
+        },
+      }).success,
+    ).toBe(false);
 
     const queryOutput = NODEX_AGENT_V5_TOOL_CONTRACTS.query_data_source.outputSchema;
     const output = {

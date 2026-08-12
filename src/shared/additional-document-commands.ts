@@ -7,7 +7,7 @@ import type {
   BlockTreeValue,
 } from "./block-documents/block-document-codec";
 
-export const ADDITIONAL_DOCUMENT_COMMAND_VERSION = 1 as const;
+export const ADDITIONAL_DOCUMENT_COMMAND_VERSION = 2 as const;
 
 export const MAX_ADDITIONAL_DOCUMENT_COMMAND_LENGTH = 2_000_000;
 export const MAX_ADDITIONAL_DOCUMENT_ACTOR_LENGTH = 64 * 1024;
@@ -40,14 +40,14 @@ export interface AdditionalDocumentOwnerRevision extends AdditionalDocumentRevis
   readonly locationRevision: number;
 }
 
-export interface AdditionalDocumentSpaceAnchor {
+export interface AdditionalDocumentLibraryAnchor {
   readonly blockId: string;
   readonly expectedLocationRevision: number;
 }
 
-export interface AdditionalDocumentSpacePlacement {
-  readonly kind: "space";
-  readonly before?: AdditionalDocumentSpaceAnchor;
+export interface AdditionalDocumentLibraryPlacement {
+  readonly kind: "library";
+  readonly before?: AdditionalDocumentLibraryAnchor;
 }
 
 export type AdditionalDocumentWriteCoordination =
@@ -71,7 +71,7 @@ export interface CreateSyncedSourceOperation {
   readonly documentId: string;
   /** Supplied application Block identities become the source identities. */
   readonly initialBlocks: readonly BlockTreeNode[];
-  readonly placement: AdditionalDocumentSpacePlacement;
+  readonly placement: AdditionalDocumentLibraryPlacement;
 }
 
 export interface PromoteSyncedSourceOperation {
@@ -98,7 +98,7 @@ export interface CreateTemplateOperation {
   readonly displayName: string;
   /** Supplied application Block identities become the template identities. */
   readonly initialBlocks: readonly BlockTreeNode[];
-  readonly placement: AdditionalDocumentSpacePlacement;
+  readonly placement: AdditionalDocumentLibraryPlacement;
 }
 
 export interface InstantiateTemplateOperation {
@@ -474,10 +474,10 @@ const parseOwner = (
   };
 };
 
-const parseSpaceAnchor = (
+const parseLibraryAnchor = (
   value: unknown,
   label: string,
-): AdditionalDocumentSpaceAnchor => {
+): AdditionalDocumentLibraryAnchor => {
   const anchor = readRecord(value, label);
   assertExactKeys(anchor, label, ["blockId", "expectedLocationRevision"]);
   return {
@@ -491,18 +491,18 @@ const parseSpaceAnchor = (
   };
 };
 
-const parseSpacePlacement = (
+const parseLibraryPlacement = (
   value: unknown,
   label: string,
-): AdditionalDocumentSpacePlacement => {
+): AdditionalDocumentLibraryPlacement => {
   const placement = readRecord(value, label);
   assertExactKeys(placement, label, ["kind"], ["before"]);
-  readLiteral(placement, "kind", label, "space");
+  readLiteral(placement, "kind", label, "library");
   const before =
     placement.before === undefined
       ? undefined
-      : parseSpaceAnchor(placement.before, `${label}.before`);
-  return { kind: "space", ...(before === undefined ? {} : { before }) };
+      : parseLibraryAnchor(placement.before, `${label}.before`);
+  return { kind: "library", ...(before === undefined ? {} : { before }) };
 };
 
 interface BlockTreeReadState {
@@ -621,7 +621,7 @@ const parseOperation = (value: unknown): AdditionalDocumentOperation => {
       "placement",
     ]);
     const sourceBlockId = readString(operation, "sourceBlockId", label);
-    const placement = parseSpacePlacement(
+    const placement = parseLibraryPlacement(
       operation.placement,
       `${label}.placement`,
     );
@@ -715,7 +715,7 @@ const parseOperation = (value: unknown): AdditionalDocumentOperation => {
       "placement",
     ]);
     const sourceBlockId = readString(operation, "sourceBlockId", label);
-    const placement = parseSpacePlacement(
+    const placement = parseLibraryPlacement(
       operation.placement,
       `${label}.placement`,
     );

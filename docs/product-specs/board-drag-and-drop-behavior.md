@@ -2,7 +2,7 @@
 
 ## Status
 - Active
-- Last updated: 2026-08-09
+- Last updated: 2026-08-13
 
 ## Scope
 This spec is the detailed source of truth for drag-and-drop behavior across the Board and its directly connected editor surfaces.
@@ -159,6 +159,8 @@ This post-removal contract must stay identical across:
 - Drop-derived property patches must be applied atomically with the move, not through a follow-up card update.
 - Group IDs are globally unique and grouped history lookup is global rather than project-local, so undo/redo of a cross-project move restores every affected project atomically and publishes change notifications for each project.
 - Cross-surface Move/Copy carries stable IDs and logical parents only and commits through one idempotent `BlockTransfer`; source and target authority are never separate renderer mutations.
+- A cross-surface Move relocates the complete selected subtree. Existing Blocks detached from one Document and attached to another remain active and advance their placement revision exactly once at the destination; source detachment must never degrade into deletion or partial child promotion.
+- Every causal Document head is a freshness fence resolved through current Library ownership and the bound Project's effective read access. A Project is an access context, never the physical owner encoded by the causal-head check.
 - The side-menu selection that starts the gesture is authoritative. Container-level `dragstart` listeners may manage visual cleanup but must never infer or replace the selected Block IDs.
 
 ## Non-Goals

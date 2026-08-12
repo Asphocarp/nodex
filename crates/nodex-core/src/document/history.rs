@@ -72,7 +72,7 @@ struct BlockTreeSnapshotV2 {
 struct StoredVersionRow {
     version_id: String,
     document_id: String,
-    project_id: String,
+    actor_project_id: String,
     generation: i64,
     base_head_seq: i64,
     schema_key: String,
@@ -114,6 +114,7 @@ pub(crate) fn insert_document_checkpoint(
     let checkpoint_bytes = canonical_json_bytes(snapshot_value)?;
     let checkpoint_hash = sha256(&checkpoint_bytes);
     let actor = checkpoint_actor(&input)?;
+    let actor_project_id = checkpoint_actor_project_id(&input)?;
     let actor_json = String::from_utf8(canonical_json_bytes(actor.clone())?)
         .map_err(|_| internal("Checkpoint actor encoding is invalid"))?;
     let links_mutation = matches!(input.revision_kind, "operation" | "restore");
@@ -124,7 +125,7 @@ pub(crate) fn insert_document_checkpoint(
     let identity = json!({
         "version": 1,
         "documentId": authority.head.id,
-        "projectId": authority.head.project_id,
+        "actorProjectId": actor_project_id,
         "storeEpoch": read_store_epoch(connection)?,
         "generation": authority.head.generation,
         "baseHeadSeq": authority.head.head_seq,
@@ -159,7 +160,7 @@ pub(crate) fn insert_document_checkpoint(
         params![
             version_id,
             authority.head.id,
-            authority.head.project_id,
+            actor_project_id,
             authority.head.generation,
             authority.head.head_seq,
             authority.head.schema_key,
@@ -178,13 +179,8 @@ pub(crate) fn insert_document_checkpoint(
             input.now,
         ],
     )?;
-    let stored = read_document_version(
-        connection,
-        &authority.head.project_id,
-        &authority.head.id,
-        &version_id,
-    )?
-    .ok_or_else(|| corrupt("Inserted Document checkpoint could not be read"))?;
+    let stored = read_document_version(connection, &authority.head.id, &version_id)?
+        .ok_or_else(|| corrupt("Inserted Document checkpoint could not be read"))?;
     if stored.generation != authority.head.generation
         || stored.base_head_seq != authority.head.head_seq
         || stored.checkpoint_hash != checkpoint_hash
@@ -221,6 +217,7 @@ pub(crate) fn insert_canvas_checkpoint(
     let checkpoint_bytes = canonical_json_bytes(scene.canonical_value())?;
     let checkpoint_hash = sha256(&checkpoint_bytes);
     let actor = checkpoint_actor(&input)?;
+    let actor_project_id = checkpoint_actor_project_id(&input)?;
     let actor_json = String::from_utf8(canonical_json_bytes(actor.clone())?)
         .map_err(|_| internal("Checkpoint actor encoding is invalid"))?;
     let links_mutation = matches!(input.revision_kind, "operation" | "restore");
@@ -233,7 +230,7 @@ pub(crate) fn insert_canvas_checkpoint(
     let identity = json!({
         "version": 1,
         "documentId": authority.head.id,
-        "projectId": authority.head.project_id,
+        "actorProjectId": actor_project_id,
         "storeEpoch": read_store_epoch(connection)?,
         "generation": authority.head.generation,
         "baseHeadSeq": authority.head.head_seq,
@@ -268,7 +265,7 @@ pub(crate) fn insert_canvas_checkpoint(
         params![
             version_id,
             authority.head.id,
-            authority.head.project_id,
+            actor_project_id,
             authority.head.generation,
             authority.head.head_seq,
             authority.head.schema_key,
@@ -287,13 +284,8 @@ pub(crate) fn insert_canvas_checkpoint(
             input.now,
         ],
     )?;
-    let stored = read_document_version(
-        connection,
-        &authority.head.project_id,
-        &authority.head.id,
-        &version_id,
-    )?
-    .ok_or_else(|| corrupt("Inserted Canvas checkpoint could not be read"))?;
+    let stored = read_document_version(connection, &authority.head.id, &version_id)?
+        .ok_or_else(|| corrupt("Inserted Canvas checkpoint could not be read"))?;
     if stored.generation != authority.head.generation
         || stored.base_head_seq != authority.head.head_seq
         || stored.checkpoint_hash != checkpoint_hash
@@ -326,14 +318,9 @@ pub(crate) fn get_document_version(
     version_id: &str,
 ) -> Result<Option<StoredDocumentVersion>, StoreError> {
     validate_identity(version_id, "version_id")?;
-    read_document_version(
-        connection,
-        &authority.head.project_id,
-        &authority.head.id,
-        version_id,
-    )?
-    .map(decode_document_version)
-    .transpose()
+    read_document_version(connection, &authority.head.id, version_id)?
+        .map(decode_document_version)
+        .transpose()
 }
 
 pub(crate) fn list_document_versions(
@@ -351,17 +338,12 @@ pub(crate) fn list_document_versions(
     let before = before
         .map(|cursor| {
             validate_identity(&cursor.version_id, "before.version_id")?;
-            read_document_version(
-                connection,
-                &authority.head.project_id,
-                &authority.head.id,
-                &cursor.version_id,
-            )?
-            .filter(|row| {
-                row.base_head_seq == cursor.base_head_seq && row.created_at == cursor.created_at
-            })
-            .map(|row| (row.base_head_seq, row.created_at, row.version_id))
-            .ok_or_else(|| not_found("Document history cursor was not found"))
+            read_document_version(connection, &authority.head.id, &cursor.version_id)?
+                .filter(|row| {
+                    row.base_head_seq == cursor.base_head_seq && row.created_at == cursor.created_at
+                })
+                .map(|row| (row.base_head_seq, row.created_at, row.version_id))
+                .ok_or_else(|| not_found("Document history cursor was not found"))
         })
         .transpose()?;
     let query_limit = i64::from(limit) + 1;
@@ -371,16 +353,15 @@ pub(crate) fn list_document_versions(
                 source_change_seq, pinned, checkpoint_format, full_update_blob, state_vector, \
                 checkpoint_hash, byte_length, created_at \
          FROM document_versions \
-         WHERE project_id = ?1 AND document_id = ?2 \
-           AND (?3 IS NULL OR base_head_seq < ?4 \
-             OR (base_head_seq = ?4 AND created_at < ?5) \
-             OR (base_head_seq = ?4 AND created_at = ?5 AND version_id < ?3)) \
-         ORDER BY base_head_seq DESC, created_at DESC, version_id DESC LIMIT ?6",
+         WHERE document_id = ?1 \
+           AND (?2 IS NULL OR base_head_seq < ?3 \
+             OR (base_head_seq = ?3 AND created_at < ?4) \
+             OR (base_head_seq = ?3 AND created_at = ?4 AND version_id < ?2)) \
+         ORDER BY base_head_seq DESC, created_at DESC, version_id DESC LIMIT ?5",
     )?;
     let rows = statement
         .query_map(
             params![
-                authority.head.project_id,
                 authority.head.id,
                 before.as_ref().map(|value| &value.2),
                 before.as_ref().map(|value| value.0),
@@ -765,7 +746,6 @@ pub(crate) fn record_document_revision_edit(
 
 fn read_document_version(
     connection: &Connection,
-    project_id: &str,
     document_id: &str,
     version_id: &str,
 ) -> Result<Option<StoredVersionRow>, StoreError> {
@@ -775,8 +755,8 @@ fn read_document_version(
                     schema_version, cause, label, actor_json, revision_kind, source_mutation_id, \
                     source_change_seq, pinned, checkpoint_format, full_update_blob, state_vector, \
                     checkpoint_hash, byte_length, created_at \
-             FROM document_versions WHERE project_id = ?1 AND document_id = ?2 AND version_id = ?3",
-            params![project_id, document_id, version_id],
+             FROM document_versions WHERE document_id = ?1 AND version_id = ?2",
+            params![document_id, version_id],
             decode_row,
         )
         .optional()
@@ -787,7 +767,7 @@ fn decode_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<StoredVersionRow> {
     Ok(StoredVersionRow {
         version_id: row.get(0)?,
         document_id: row.get(1)?,
-        project_id: row.get(2)?,
+        actor_project_id: row.get(2)?,
         generation: row.get(3)?,
         base_head_seq: row.get(4)?,
         schema_key: row.get(5)?,
@@ -943,7 +923,7 @@ fn decode_document_version(row: StoredVersionRow) -> Result<StoredDocumentVersio
     let summary = json!({
         "versionId": row.version_id,
         "documentId": row.document_id,
-        "projectId": row.project_id,
+        "projectId": row.actor_project_id,
         "generation": row.generation,
         "baseHeadSeq": row.base_head_seq,
         "schemaKey": row.schema_key,
@@ -1052,7 +1032,7 @@ fn decode_yjs_checkpoint(
 fn validate_stored_version(row: &StoredVersionRow) -> Result<(), StoreError> {
     validate_identity(&row.version_id, "version_id")?;
     validate_identity(&row.document_id, "document_id")?;
-    validate_identity(&row.project_id, "project_id")?;
+    validate_identity(&row.actor_project_id, "actor_project_id")?;
     if row.generation < 1
         || row.base_head_seq < 0
         || row.schema_version < 1
@@ -1111,6 +1091,17 @@ fn checkpoint_actor(input: &NewDocumentCheckpoint<'_>) -> Result<Value, StoreErr
         ));
     }
     Ok(actor)
+}
+
+fn checkpoint_actor_project_id<'a>(
+    input: &'a NewDocumentCheckpoint<'_>,
+) -> Result<&'a str, StoreError> {
+    input
+        .context
+        .project_id
+        .as_ref()
+        .map(|project_id| project_id.0.as_str())
+        .ok_or_else(|| invalid("Document checkpoint requires a bound Project".to_owned()))
 }
 
 fn block_materialization_hash(

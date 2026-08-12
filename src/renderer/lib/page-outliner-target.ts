@@ -11,7 +11,6 @@ export interface PageOutlinerTargetInput {
   readonly loading: boolean;
   readonly error: Error | null;
   readonly contentAccessContext: ContentAccessContext;
-  readonly documentScopeId: string;
   readonly hostPageId: string | null;
   readonly ancestorPageIds: readonly string[];
 }
@@ -40,7 +39,6 @@ export type PageOutlinerTarget =
       readonly relationship: PageOutlinerRelationship;
       readonly targetBlockId: string;
       readonly contentAccessContext: ContentAccessContext;
-      readonly documentScopeId: string;
       readonly page: Page;
       readonly fallbackTitle: string;
       readonly lifecycle: "active" | "archived";
@@ -54,7 +52,6 @@ export const resolvePageOutlinerTarget = ({
   loading,
   error,
   contentAccessContext,
-  documentScopeId,
   hostPageId,
   ancestorPageIds,
 }: PageOutlinerTargetInput): PageOutlinerTarget => {
@@ -126,7 +123,6 @@ export const resolvePageOutlinerTarget = ({
     relationship,
     targetBlockId: model.page.pageId,
     contentAccessContext,
-    documentScopeId,
     page: model.page,
     fallbackTitle: "Untitled",
     lifecycle: model.page.lifecycle,

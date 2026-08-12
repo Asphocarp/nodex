@@ -687,7 +687,7 @@ export function CommandPaletteSurface({
   });
   const threadSearchBatch = injectedThreadSearchBatch ?? fetchedThreadSearchBatch;
   const availableTags = useMemo(
-    () => Array.from(new Set(pages.flatMap((item) => item.page.tags))).sort((left, right) => left.localeCompare(right)),
+    () => Array.from(new Set(pages.flatMap((item) => item.tagLabels))).sort((left, right) => left.localeCompare(right)),
     [pages],
   );
   const availableAssignees = useMemo(

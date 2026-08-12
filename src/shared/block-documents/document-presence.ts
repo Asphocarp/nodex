@@ -1,3 +1,8 @@
+import {
+  parseContentAccessContext,
+  type ContentAccessContext,
+} from "../content-access-context";
+
 export const DOCUMENT_PRESENCE_VERSION = 1 as const;
 export const MAX_DOCUMENT_PRESENCE_BYTES = 64 * 1024;
 const MAX_CANVAS_PRESENCE_PUBLICATION_BYTES = 56 * 1024;
@@ -46,7 +51,7 @@ export interface CanvasPresenceEvent extends CanvasPresencePublication {
 
 /** Delivery identity is checked against the renderer's active subscription. */
 export interface CanvasPresencePublishRequest {
-  readonly projectId: string;
+  readonly accessContext: ContentAccessContext;
   readonly clientSessionId: string;
   readonly publication: CanvasPresencePublication;
 }
@@ -79,7 +84,8 @@ export type CanvasPresenceRealtimeEvent =
   | {
       readonly type: "canvas_presence_snapshot";
       readonly version: typeof DOCUMENT_PRESENCE_VERSION;
-      readonly projectId: string;
+      readonly libraryId: string;
+      readonly accessContext: ContentAccessContext;
       readonly documentId: string;
       readonly generation: number;
       readonly presences: readonly CanvasPresenceEvent[];
@@ -87,7 +93,8 @@ export type CanvasPresenceRealtimeEvent =
   | {
       readonly type: "canvas_presence_updated";
       readonly version: typeof DOCUMENT_PRESENCE_VERSION;
-      readonly projectId: string;
+      readonly libraryId: string;
+      readonly accessContext: ContentAccessContext;
       readonly presence: CanvasPresenceEvent;
     };
 
@@ -245,12 +252,12 @@ export const canonicalizeCanvasPresencePublishRequest = (
 ): CanvasPresencePublishRequest => {
   if (
     !isRecord(value)
-    || !hasOnlyKeys(value, ["projectId", "clientSessionId", "publication"])
+    || !hasOnlyKeys(value, ["accessContext", "clientSessionId", "publication"])
   ) {
     throw new TypeError("Canvas presence publish request is invalid");
   }
   return {
-    projectId: readIdentity(value.projectId, "Canvas presence Project"),
+    accessContext: parseContentAccessContext(value.accessContext),
     clientSessionId: readIdentity(
       value.clientSessionId,
       "Canvas presence client session",
@@ -331,14 +338,21 @@ export const canonicalizeCanvasPresenceRealtimeEvent = (
   }
   if (value.type === "canvas_presence_updated") {
     if (
-      !hasOnlyKeys(value, ["type", "version", "projectId", "presence"])
+      !hasOnlyKeys(value, [
+        "type",
+        "version",
+        "libraryId",
+        "accessContext",
+        "presence",
+      ])
     ) {
       throw new TypeError("Canvas presence update event is invalid");
     }
     return assertEncodedBound({
       type: value.type,
       version: DOCUMENT_PRESENCE_VERSION,
-      projectId: readIdentity(value.projectId, "Canvas presence Project"),
+      libraryId: readIdentity(value.libraryId, "Canvas presence Library"),
+      accessContext: parseContentAccessContext(value.accessContext),
       presence: canonicalizeCanvasPresenceEvent(value.presence),
     }, MAX_DOCUMENT_PRESENCE_BYTES, "Canvas presence update event");
   }
@@ -347,7 +361,8 @@ export const canonicalizeCanvasPresenceRealtimeEvent = (
     || !hasOnlyKeys(value, [
       "type",
       "version",
-      "projectId",
+      "libraryId",
+      "accessContext",
       "documentId",
       "generation",
       "presences",
@@ -384,7 +399,8 @@ export const canonicalizeCanvasPresenceRealtimeEvent = (
   return assertEncodedBound({
     type: value.type,
     version: DOCUMENT_PRESENCE_VERSION,
-    projectId: readIdentity(value.projectId, "Canvas presence Project"),
+    libraryId: readIdentity(value.libraryId, "Canvas presence Library"),
+    accessContext: parseContentAccessContext(value.accessContext),
     documentId,
     generation,
     presences,

@@ -1,14 +1,4 @@
-import type {
-  DatabaseApply as DatabaseApplyV1,
-  DatabaseContainerRecord as DatabaseContainerRecordV1,
-  DatabaseModuleReadSnapshot as DatabaseModuleReadSnapshotV1,
-  DatabaseModuleReadRequest as DatabaseModuleReadRequestV1,
-  DatabaseModuleError as DatabaseModuleErrorV1,
-  DatabaseViewRecord as DatabaseViewRecordV1,
-  DataSourcePageRow as DataSourcePageRowV1,
-  DataSourcePageValue as DataSourcePageValueV1,
-  DataSourceRecord as DataSourceRecordV1,
-} from "./database-module";
+import type { AuthorizedReadStamp } from "./authorized-read-stamp";
 import type {
   DatabaseId,
   DatabaseViewId,
@@ -25,21 +15,35 @@ import type {
   DatabaseViewLayout,
   DatabaseViewPresentationOverride,
 } from "./database-kernel";
+import type { Page } from "./page";
 
-export const DATABASE_MODULE_V2_CONTRACT_VERSION = 9 as const;
+export const DATABASE_MODULE_V2_CONTRACT_VERSION = 11 as const;
 export const MAX_DATABASE_MODULE_V2_OPERATIONS = 64 as const;
 export const MAX_DATABASE_MODULE_V2_BULK_ENTRIES = 100 as const;
 
-export interface DatabaseContainerRecordV2
-  extends Omit<DatabaseContainerRecordV1, "databaseId" | "defaultViewId"> {
+export interface DatabaseContainerRecordV2 {
   readonly databaseId: DatabaseId;
+  readonly libraryId: string;
+  readonly name: string;
+  readonly lifecycle: "active" | "archived" | "deleted";
   readonly defaultViewId: DatabaseViewId | null;
+  readonly accessRevision: number;
+  readonly metadataRevision: number;
+  readonly createdAt: string;
+  readonly updatedAt: string;
 }
 
-export interface DataSourceRecordV2
-  extends Omit<DataSourceRecordV1, "dataSourceId" | "homeDatabaseId"> {
+export interface DataSourceRecordV2 {
   readonly dataSourceId: DataSourceId;
+  readonly libraryId: string;
   readonly homeDatabaseId: DatabaseId;
+  readonly name: string;
+  readonly schemaKey: string;
+  readonly schemaRevision: number;
+  readonly lifecycle: "active" | "archived" | "deleted";
+  readonly rankKey: string;
+  readonly createdAt: string;
+  readonly updatedAt: string;
 }
 
 export type DatabasePropertySchemaV2 =
@@ -57,8 +61,6 @@ export type DatabasePropertySchemaV2 =
     };
 
 export interface DatabasePropertyCapabilitiesV2 {
-  readonly replace: boolean;
-  readonly patchSetMember: "option" | "page" | null;
   readonly filterOperators: readonly (
     | "equals"
     | "not_equals"
@@ -83,21 +85,25 @@ export interface DataSourcePropertyRecordV2 {
   readonly config: Readonly<Record<string, DatabaseJsonValue>>;
   readonly optionCount: number;
   readonly rankKey: string;
-  readonly lifecycle: "active" | "archived" | "deleted";
+  readonly lifecycle: "active" | "deleted";
   readonly revision: number;
   readonly createdAt: string;
   readonly updatedAt: string;
 }
 
-export interface DatabaseViewRecordV2
-  extends Omit<
-    DatabaseViewRecordV1,
-    "viewId" | "databaseId" | "dataSourceId" | "config"
-  > {
+export interface DatabaseViewRecordV2 {
   readonly viewId: DatabaseViewId;
   readonly databaseId: DatabaseId;
   readonly dataSourceId: DataSourceId;
+  readonly name: string;
+  readonly defaultLayout: DatabaseViewLayout;
   readonly config: DatabaseViewConfigV4;
+  readonly isDefault: boolean;
+  readonly revision: number;
+  readonly rankKey: string;
+  readonly lifecycle: "active" | "deleted";
+  readonly createdAt: string;
+  readonly updatedAt: string;
 }
 
 export interface DatabaseContainerDescriptorV2 {
@@ -111,9 +117,11 @@ export interface DataSourceDescriptorV2 {
   readonly properties: readonly DataSourcePropertyRecordV2[];
 }
 
-export interface DataSourcePageValueV2
-  extends Omit<DataSourcePageValueV1, "propertyId"> {
+export interface DataSourcePageValueV2 {
   readonly propertyId: DataSourcePropertyId;
+  readonly valueType: DatabasePropertyValueType;
+  readonly value: DatabaseJsonValue;
+  readonly revision: number;
 }
 
 export interface PageIntrinsicPropertyValueV2 {
@@ -123,22 +131,26 @@ export interface PageIntrinsicPropertyValueV2 {
   readonly revision: number;
 }
 
-export interface DataSourcePageRowV2
-  extends Omit<DataSourcePageRowV1, "membership" | "values" | "position"> {
-  readonly membership: Omit<
-    DataSourcePageRowV1["membership"],
-    "dataSourceId"
-  > & {
+export interface DataSourcePageRowV2 {
+  readonly page: Page;
+  readonly membership: {
+    readonly membershipId: string;
     readonly dataSourceId: DataSourceId;
+    readonly revision: number;
+    readonly createdAt: string;
   };
   readonly values: Readonly<Record<string, DataSourcePageValueV2>>;
-  readonly position: null | (NonNullable<DataSourcePageRowV1["position"]> & {
+  readonly position: null | {
+    readonly rankKey: string;
+    readonly revision: number;
     /** Zero-based order inside this View group when supplied by native Core. */
     readonly order?: number;
-  });
+  };
+  readonly effectiveGroupKey: string | null;
+  readonly effectiveSubgroupKey: string | null;
   /** Exact-head Page body projection supplied by native Database authority. */
   readonly bodyNfm?: string;
-  /** Page-intrinsic properties needed by compatibility row projections. */
+  /** Exact-head intrinsic values requested by complete Page projections. */
   readonly intrinsicProperties?: readonly PageIntrinsicPropertyValueV2[];
   /** Projection of the standard Parent Relation, independent from structural ownership. */
   readonly taskParent: {
@@ -203,11 +215,18 @@ export interface DatabaseRelationCandidateWindowV2 {
   readonly projectionRevision: number;
 }
 
-export interface DatabaseViewPersonalPreferencesV2 {
+export interface DatabaseViewPersonalPresentationV2 {
   readonly presentationOverride: DatabaseViewPresentationOverride;
-  readonly collapsedGroupKeys: readonly string[];
-  /** Zero means that this Profile has no durable preference row yet. */
+  /** Zero means that this Profile has never changed this View presentation. */
   readonly revision: number;
+}
+
+export type DatabaseViewDisclosureTargetV2 =
+  | { readonly kind: "group"; readonly occurrenceKey: string }
+  | { readonly kind: "page"; readonly occurrenceKey: string };
+
+export interface DatabaseViewCollapsedOccurrencesV2 {
+  readonly targets: readonly DatabaseViewDisclosureTargetV2[];
 }
 
 export type DatabaseReadV2 = (
@@ -255,7 +274,14 @@ export type DatabaseReadV2 = (
         readonly kind: "view";
         readonly viewId: DatabaseViewId;
       };
-      readonly mode: "view_personal_preferences";
+      readonly mode: "view_personal_presentation";
+    }
+  | {
+      readonly target: {
+        readonly kind: "view";
+        readonly viewId: DatabaseViewId;
+      };
+      readonly mode: "view_collapsed_occurrences";
     }
   | {
       readonly target: {
@@ -293,8 +319,12 @@ export type DatabaseReadValueV2 =
   | { readonly kind: "data_source"; readonly value: DataSourceDescriptorV2 }
   | { readonly kind: "view"; readonly value: DatabaseViewRecordV2 }
   | {
-      readonly kind: "view_personal_preferences";
-      readonly value: DatabaseViewPersonalPreferencesV2;
+      readonly kind: "view_personal_presentation";
+      readonly value: DatabaseViewPersonalPresentationV2;
+    }
+  | {
+      readonly kind: "view_collapsed_occurrences";
+      readonly value: DatabaseViewCollapsedOccurrencesV2;
     }
   | { readonly kind: "query"; readonly value: DatabaseViewQueryResultV2 }
   | {
@@ -314,25 +344,42 @@ export type DatabaseReadValueV2 =
       readonly value: DatabaseRelationCandidateWindowV2;
     };
 
-export interface DatabaseModuleReadRequestV2
-  extends Omit<DatabaseModuleReadRequestV1, "version" | "read"> {
+export interface DatabaseModuleReadRequestV2 {
   readonly version: typeof DATABASE_MODULE_V2_CONTRACT_VERSION;
+  readonly projectId: string;
   readonly read: DatabaseReadV2;
 }
 
-export interface DatabaseModuleReadSnapshotV2
-  extends Omit<DatabaseModuleReadSnapshotV1, "version" | "value"> {
+export interface DatabaseModuleReadSnapshotV2 {
   readonly version: typeof DATABASE_MODULE_V2_CONTRACT_VERSION;
+  readonly projectId: string;
+  readonly libraryId: string;
+  readonly storeEpoch: string;
+  readonly commitSeq: number;
+  readonly authorization: AuthorizedReadStamp | null;
   readonly value: DatabaseReadValueV2;
 }
 
 export type DatabaseModuleErrorCodeV2 =
-  | DatabaseModuleErrorV1["code"]
+  | "invalid_request"
+  | "store_not_initialized"
+  | "project_not_found"
+  | "resource_not_found"
+  | "authorization_denied"
+  | "revision_conflict"
+  | "operation_id_collision"
+  | "state_corrupt"
+  | "unsupported_operation"
+  | "unknown"
   | "identity_conflict";
 
-export interface DatabaseModuleErrorV2
-  extends Omit<DatabaseModuleErrorV1, "code"> {
+export interface DatabaseModuleErrorV2 {
   readonly code: DatabaseModuleErrorCodeV2;
+  readonly message: string;
+  readonly retryable: boolean;
+  readonly operationId?: string;
+  readonly expectedRevision?: number;
+  readonly actualRevision?: number;
 }
 
 export type DatabaseModuleReadResultV2 =
@@ -445,9 +492,13 @@ export interface DatabasePropertyValueMutationV2 {
       }
     | { readonly kind: "patch_set"; readonly delta: DatabasePropertySetDeltaV2 }
     | {
-        readonly kind: "replace_relation";
+        readonly kind: "replace_one_relation";
         readonly expectedValueRevision: number;
         readonly targetPageId?: string;
+      }
+    | {
+        readonly kind: "clear_many_relation";
+        readonly expectedValueRevision: number;
       };
 }
 
@@ -519,12 +570,18 @@ export interface SetDatabaseTaskParentOperationV2 {
   readonly beforePageId?: string;
 }
 
-export interface PutDatabaseViewPersonalPreferencesOperationV2 {
-  readonly kind: "put_view_personal_preferences";
+export interface PutDatabaseViewPersonalPresentationOperationV2 {
+  readonly kind: "put_view_personal_presentation";
   readonly viewId: DatabaseViewId;
   readonly expectedRevision: number;
   readonly presentationOverride: DatabaseViewPresentationOverride;
-  readonly collapsedGroupKeys: readonly string[];
+}
+
+export interface SetDatabaseViewOccurrenceDisclosureOperationV2 {
+  readonly kind: "set_view_occurrence_disclosure";
+  readonly viewId: DatabaseViewId;
+  readonly target: DatabaseViewDisclosureTargetV2;
+  readonly collapsed: boolean;
 }
 
 export type DatabaseApplyOperationV2 =
@@ -539,11 +596,15 @@ export type DatabaseApplyOperationV2 =
   | PositionDatabaseViewPageOperationV2
   | PositionDatabaseViewPagesOperationV2
   | SetDatabaseTaskParentOperationV2
-  | PutDatabaseViewPersonalPreferencesOperationV2;
+  | PutDatabaseViewPersonalPresentationOperationV2
+  | SetDatabaseViewOccurrenceDisclosureOperationV2;
 
-export interface DatabaseApplyV2
-  extends Omit<DatabaseApplyV1, "version" | "operations"> {
+export interface DatabaseApplyV2 {
   readonly version: typeof DATABASE_MODULE_V2_CONTRACT_VERSION;
+  readonly operationId: string;
+  readonly projectId: string;
+  readonly storeEpoch: string;
+  readonly actor: Readonly<Record<string, DatabaseJsonValue>>;
   readonly operations: readonly DatabaseApplyOperationV2[];
 }
 

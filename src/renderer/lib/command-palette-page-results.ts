@@ -131,6 +131,7 @@ export function buildCommandPalettePageItemsFromBoardSummaries({
         projectAppearance: project.appearance,
         columnName: column.name,
         page,
+        tagLabels: [],
         inActiveProject: project.id === activeProjectId,
         recentIndex: recentIndexByKey?.get(`${project.id}:${page.id}`) ?? null,
         boardIndex: columnIndex * 100_000 + pageIndex,

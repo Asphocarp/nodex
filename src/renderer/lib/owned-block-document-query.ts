@@ -1,5 +1,5 @@
 import { queryOptions, useQuery } from "@tanstack/react-query";
-import { prepareOwnedBlockDocument } from "./api";
+import { prepareOwnedBlockDocumentForContentAccess } from "./api";
 import {
   fetchOwnedBlockDocumentDescriptor,
   fetchRegisteredOwnedBlockDocumentDescriptor,
@@ -34,10 +34,10 @@ export interface OwnedBlockDocumentQueryDependencies {
 }
 
 const defaultFetcher: OwnedDocumentDescriptorFetcher = (
-  projectId,
+  accessContext,
   ownerBlockId,
 ) =>
-  prepareOwnedBlockDocument(projectId, ownerBlockId).then(
+  prepareOwnedBlockDocumentForContentAccess(accessContext, ownerBlockId).then(
     unwrapOwnedBlockDocumentPreparationResult,
   );
 
@@ -68,7 +68,7 @@ export const ownedBlockDocumentQueryOptions = (
   const fetcher = dependencies.fetchDescriptor ?? defaultFetcher;
   return queryOptions({
     queryKey: queryKeys.blockDocuments.owned(
-      request.projectId,
+      request.accessContext,
       request.ownerBlockId,
     ),
     queryFn: makeOwnedBlockDocumentQueryFn(request, fetcher),
@@ -83,7 +83,7 @@ export const registeredOwnedBlockDocumentQueryOptions = (
   const fetcher = dependencies.fetchDescriptor ?? defaultFetcher;
   return queryOptions({
     queryKey: queryKeys.blockDocuments.owned(
-      request.projectId,
+      request.accessContext,
       request.ownerBlockId,
     ),
     queryFn: makeRegisteredOwnedBlockDocumentQueryFn(request, fetcher),

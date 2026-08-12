@@ -43,7 +43,7 @@ export interface DataSourcePropertyEditorBinding {
     readonly addPageIds: readonly string[];
     readonly removeEdgeIds: readonly string[];
   }) => void;
-  readonly onReplaceRelation?: (targetPageId: string | null) => void;
+  readonly onReplaceOneRelation?: (targetPageId: string | null) => void;
   readonly onLoadRelationTargets?: (after: string | null) => Promise<RelationTargetWindow>;
   readonly onSearchRelationCandidates?: (
     query: string,

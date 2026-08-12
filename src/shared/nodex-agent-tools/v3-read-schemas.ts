@@ -15,6 +15,7 @@ import {
   DatabasePropertyValueTypeSchema,
   DatabaseViewFilterNodeSchema,
   DatabaseViewLayoutSchema,
+  MAX_DATABASE_QUERY_PROPERTY_IDS,
   NonManualDatabaseViewSortSchema,
 } from "./read-schemas";
 import {
@@ -246,7 +247,9 @@ export const SearchV3DataSchema = z.strictObject({
 export const SearchV3OutputSchema = createToolSuccessSchema(SearchV3DataSchema);
 
 const QuerySelectV3Schema = z.strictObject({
-  propertyIds: z.array(PropertyIdSchema).max(512).optional(),
+  propertyIds: z.array(PropertyIdSchema)
+    .max(MAX_DATABASE_QUERY_PROPERTY_IDS)
+    .optional(),
   documentSummary: z.boolean().optional(),
 }).optional();
 
@@ -259,7 +262,7 @@ export const QueryDatabaseViewV3InputSchema = z.strictObject({
 export const QueryDataSourceV3InputSchema = z.strictObject({
   dataSourceId: DataSourceIdSchema,
   filter: DatabaseViewFilterNodeSchema.optional(),
-  sort: z.array(NonManualDatabaseViewSortSchema).max(64).optional(),
+  sort: z.array(NonManualDatabaseViewSortSchema).max(4).optional(),
   select: QuerySelectV3Schema,
   page: createPageInputSchema(200).optional(),
 });

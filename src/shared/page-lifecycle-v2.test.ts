@@ -1,8 +1,4 @@
-import { describe, expect, test, vi } from "vitest";
-import {
-  parseDataSourceOptionId,
-  type DataSourceOptionId,
-} from "./database-identities";
+import { describe, expect, test } from "vitest";
 import {
   canonicalizePageLifecycleMutationRequestV2,
   parsePageLifecycleMutationCommandResultV2,
@@ -15,9 +11,6 @@ import {
   type PageLifecycleCreateDisplayIntent,
 } from "./page-lifecycle-v2-runtime";
 import { committedLocalCommit } from "./testing/local-commit";
-
-const optionId = (value: string): DataSourceOptionId =>
-  parseDataSourceOptionId({ propertyId: "tags", value });
 
 const v2Request = () => ({
   version: 2,
@@ -69,7 +62,11 @@ const createDisplayIntent = (): PageLifecycleCreateDisplayIntent => ({
     status: "triage",
     priority: "p1-high",
     estimate: "m",
-    tags: ["  Cafe\u0301  ", "release", "release"],
+    tagOptions: [
+      { optionId: "o_BBBBBBBB", name: "  Cafe\u0301  " },
+      { optionId: "o_AAAAAAAA", name: "release" },
+      { optionId: "o_AAAAAAAA", name: "release" },
+    ],
     dueDate: "2026-07-31",
     viewPlacement: { kind: "before", pageId: "page-before" },
   },
@@ -301,10 +298,7 @@ describe("Page Lifecycle v2 contract", () => {
 });
 
 describe("Page Lifecycle v2 compiler", () => {
-  test("resolves one existing display name and preallocates missing options", () => {
-    const allocated = [optionId("o_AAAAAAAA"), optionId("o_BBBBBBBB")];
-    const allocateOptionId = vi.fn(() => allocated.shift()!);
-
+  test("preserves one existing option identity and accepts a preallocated new option", () => {
     const compiled = compilePageLifecycleCreateRequestV2({
       request: createDisplayIntent(),
       tagsProperty: {
@@ -317,10 +311,8 @@ describe("Page Lifecycle v2 compiler", () => {
           options: [{ id: "o_AAAAAAAA", name: "release" }],
         },
       },
-      allocateOptionId,
     });
 
-    expect(allocateOptionId).toHaveBeenCalledTimes(2);
     expect(compiled.operation).toMatchObject({
       dataSourceId: "source-1",
       tagOptionIds: ["o_AAAAAAAA", "o_BBBBBBBB"],
@@ -338,7 +330,13 @@ describe("Page Lifecycle v2 compiler", () => {
     const base = createDisplayIntent();
     const request: PageLifecycleCreateDisplayIntent = {
       ...base,
-      operation: { ...base.operation, tags: ["UI", "ui"] },
+      operation: {
+        ...base.operation,
+        tagOptions: [
+          { optionId: "o_AAAAAAAA", name: "UI" },
+          { optionId: "o_BBBBBBBB", name: "ui" },
+        ],
+      },
     };
     const compiled = compilePageLifecycleCreateRequestV2({
       request,
@@ -350,7 +348,6 @@ describe("Page Lifecycle v2 compiler", () => {
         revision: 2,
         config: { options: [{ id: "o_AAAAAAAA", name: "UI" }] },
       },
-      allocateOptionId: () => optionId("o_BBBBBBBB"),
     });
 
     expect(compiled.operation).toMatchObject({
@@ -377,10 +374,10 @@ describe("Page Lifecycle v2 compiler", () => {
           },
         },
       }),
-    ).toThrow('Tag name "release" is ambiguous');
+    ).toThrow('repeats canonical option name "release"');
   });
 
-  test("requires the reserved active tags Property and bounded allocation", () => {
+  test("requires the reserved active tags Property and rejects identity substitution", () => {
     expect(() =>
       compilePageLifecycleCreateRequestV2({
         request: createDisplayIntent(),
@@ -397,18 +394,23 @@ describe("Page Lifecycle v2 compiler", () => {
 
     expect(() =>
       compilePageLifecycleCreateRequestV2({
-        request: createDisplayIntent(),
+        request: {
+          ...createDisplayIntent(),
+          operation: {
+            ...createDisplayIntent().operation,
+            tagOptions: [{ optionId: "o_BBBBBBBB", name: "release" }],
+          },
+        },
         tagsProperty: {
           propertyId: "tags",
           dataSourceId: "source-1",
           valueType: "multi_select",
           lifecycle: "active",
           revision: 1,
-          config: { options: [] },
+          config: { options: [{ id: "o_AAAAAAAA", name: "release" }] },
         },
-        allocateOptionId: () => optionId("o_AAAAAAAA"),
       }),
-    ).toThrow("collided 128 consecutive times");
+    ).toThrow("already belongs to another option identity");
   });
 
   test("surfaces v2 contract failures through one error type", () => {

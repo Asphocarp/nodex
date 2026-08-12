@@ -8,8 +8,8 @@ import {
 } from "./canvas-scene-outbox";
 import type {
   CanvasSceneMutationIntent,
-  CanvasSceneMutationRequest,
 } from "../../shared/block-documents";
+import type { ContentAccessContext } from "../../shared/content-access-context";
 
 beforeAll(() => {
   Object.defineProperty(globalThis, "IDBKeyRange", {
@@ -18,14 +18,24 @@ beforeAll(() => {
   });
 });
 
+const projectAccessContext = {
+  kind: "project",
+  projectId: "project-1",
+} as const satisfies ContentAccessContext;
+const libraryAccessContext = {
+  kind: "library",
+} as const satisfies ContentAccessContext;
+const libraryId = "library-1";
+
 const intent = (
   mutationId: string,
   version: number,
   documentId = "document-1",
+  accessContext: ContentAccessContext = projectAccessContext,
 ): CanvasSceneMutationIntent => ({
   version: 1,
   mutationId,
-  projectId: "project-1",
+  accessContext,
   documentId,
   storeEpoch: "epoch-1",
   generation: 1,
@@ -45,8 +55,13 @@ const intent = (
 const versionOneRequest = (
   mutationId: string,
   version: number,
-): CanvasSceneMutationRequest => ({
-  ...intent(mutationId, version),
+): Readonly<Record<string, unknown>> => ({
+  ...Object.fromEntries(
+    Object.entries(intent(mutationId, version)).filter(
+      ([key]) => key !== "accessContext",
+    ),
+  ),
+  projectId: projectAccessContext.projectId,
   clientSessionId: "dead-window",
 });
 
@@ -59,7 +74,10 @@ const verifyFifoAndIdempotence = async (
   await outbox.put(first);
   await outbox.put(second);
 
-  expect((await outbox.list("document-1")).map((entry) => entry.mutationId))
+  expect((await outbox.list(
+    projectAccessContext,
+    "document-1",
+  )).map((entry) => entry.mutationId))
     .toEqual(["mutation-z", "mutation-a"]);
   await expect(
     outbox.put({
@@ -71,9 +89,12 @@ const verifyFifoAndIdempotence = async (
     }),
   ).rejects.toThrow("already exists");
 
-  await outbox.remove("document-1", "mutation-z");
-  await outbox.remove("document-1", "mutation-z");
-  expect((await outbox.list("document-1")).map((entry) => entry.mutationId))
+  await outbox.remove(projectAccessContext, "document-1", "mutation-z");
+  await outbox.remove(projectAccessContext, "document-1", "mutation-z");
+  expect((await outbox.list(
+    projectAccessContext,
+    "document-1",
+  )).map((entry) => entry.mutationId))
     .toEqual(["mutation-a"]);
 };
 
@@ -90,8 +111,11 @@ const verifyQuarantine = async (
     mutationId: rejected.mutationId,
   }, 123);
 
-  expect(await outbox.list("document-1")).toEqual([]);
-  expect(await outbox.listQuarantined("document-1")).toEqual([{
+  expect(await outbox.list(projectAccessContext, "document-1")).toEqual([]);
+  expect(await outbox.listQuarantined(
+    projectAccessContext,
+    "document-1",
+  )).toEqual([{
     intent: rejected,
     error: {
       code: "invalid_canvas_scene_mutation",
@@ -108,7 +132,34 @@ const verifyQuarantine = async (
     retryable: false,
     resetRequired: false,
   }, 456);
-  expect(await outbox.listQuarantined("document-1")).toHaveLength(1);
+  expect(await outbox.listQuarantined(
+    projectAccessContext,
+    "document-1",
+  )).toHaveLength(1);
+};
+
+const verifyAccessIsolation = async (
+  outbox: CanvasSceneOutbox,
+): Promise<void> => {
+  const projectIntent = intent("shared-mutation", 1);
+  const libraryIntent = intent(
+    "shared-mutation",
+    1,
+    "document-1",
+    libraryAccessContext,
+  );
+  await outbox.put(projectIntent);
+  await outbox.put(libraryIntent);
+
+  expect(await outbox.list(projectAccessContext, "document-1"))
+    .toEqual([projectIntent]);
+  expect(await outbox.list(libraryAccessContext, "document-1"))
+    .toEqual([libraryIntent]);
+
+  await outbox.clear(projectAccessContext, "document-1");
+  expect(await outbox.list(projectAccessContext, "document-1")).toEqual([]);
+  expect(await outbox.list(libraryAccessContext, "document-1"))
+    .toEqual([libraryIntent]);
 };
 
 const openVersionOneDatabase = (
@@ -140,36 +191,142 @@ const openVersionOneDatabase = (
     };
   });
 
+interface VersionThreeQuarantineRow {
+  readonly intent: Readonly<Record<string, unknown>>;
+  readonly error: Readonly<Record<string, unknown>>;
+  readonly rejectedAt: number;
+}
+
+const legacyProjectMutationIntent = (
+  mutationId: string,
+  version: number,
+): Readonly<Record<string, unknown>> => ({
+  ...Object.fromEntries(
+    Object.entries(intent(mutationId, version)).filter(
+      ([key]) => key !== "accessContext",
+    ),
+  ),
+  projectId: projectAccessContext.projectId,
+});
+
+const openVersionThreeDatabase = (
+  factory: IDBFactory,
+  mutationRows: readonly Readonly<Record<string, unknown>>[],
+  quarantineRows: readonly VersionThreeQuarantineRow[],
+): Promise<void> =>
+  new Promise<void>((resolve, reject) => {
+    const request = factory.open(CANVAS_SCENE_OUTBOX_DATABASE_NAME, 3);
+    request.onupgradeneeded = () => {
+      const database = request.result;
+      const mutationStore = database.createObjectStore(
+        "canvas-scene-mutations",
+        { keyPath: "enqueueSequence", autoIncrement: true },
+      );
+      mutationStore.createIndex(
+        "document-mutation",
+        ["documentId", "mutationId"],
+        { unique: true },
+      );
+      mutationStore.createIndex(
+        "document-sequence",
+        ["documentId", "enqueueSequence"],
+        { unique: true },
+      );
+      const quarantineStore = database.createObjectStore(
+        "canvas-scene-quarantine",
+        { keyPath: "rejectedSequence", autoIncrement: true },
+      );
+      quarantineStore.createIndex(
+        "document-mutation",
+        ["documentId", "mutationId"],
+        { unique: true },
+      );
+      quarantineStore.createIndex(
+        "document-sequence",
+        ["documentId", "rejectedSequence"],
+        { unique: true },
+      );
+      for (const row of mutationRows) {
+        mutationStore.add({
+          documentId: row.documentId,
+          mutationId: row.mutationId,
+          intent: row,
+        });
+      }
+      for (const row of quarantineRows) {
+        quarantineStore.add({
+          documentId: row.intent.documentId,
+          mutationId: row.intent.mutationId,
+          ...row,
+        });
+      }
+    };
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => {
+      request.result.close();
+      resolve();
+    };
+  });
+
 describe("CanvasSceneOutbox", () => {
   test("memory storage preserves enqueue order and duplicate position", async () => {
-    await verifyFifoAndIdempotence(new MemoryCanvasSceneOutbox());
+    await verifyFifoAndIdempotence(new MemoryCanvasSceneOutbox(libraryId));
   });
 
   test("memory storage atomically quarantines a rejected mutation", async () => {
-    await verifyQuarantine(new MemoryCanvasSceneOutbox());
+    await verifyQuarantine(new MemoryCanvasSceneOutbox(libraryId));
   });
 
-  test("IndexedDB v3 preserves enqueue order and duplicate position", async () => {
+  test("memory storage isolates identical documents by access context", async () => {
+    await verifyAccessIsolation(new MemoryCanvasSceneOutbox(libraryId));
+  });
+
+  test("IndexedDB v4 preserves enqueue order and duplicate position", async () => {
     await verifyFifoAndIdempotence(
-      new IndexedDbCanvasSceneOutbox(new IDBFactory()),
+      new IndexedDbCanvasSceneOutbox(new IDBFactory(), libraryId),
     );
   });
 
-  test("IndexedDB v3 atomically quarantines a rejected mutation", async () => {
+  test("IndexedDB v4 atomically quarantines a rejected mutation", async () => {
     await verifyQuarantine(
-      new IndexedDbCanvasSceneOutbox(new IDBFactory()),
+      new IndexedDbCanvasSceneOutbox(new IDBFactory(), libraryId),
     );
   });
 
-  test("migrates valid v1 requests to delivery-neutral v2 intents", async () => {
+  test("IndexedDB v4 isolates identical documents by access context", async () => {
+    await verifyAccessIsolation(
+      new IndexedDbCanvasSceneOutbox(new IDBFactory(), libraryId),
+    );
+  });
+
+  test("IndexedDB v4 isolates identical access and document IDs by Library", async () => {
+    const factory = new IDBFactory();
+    const first = new IndexedDbCanvasSceneOutbox(factory, "library-1");
+    const second = new IndexedDbCanvasSceneOutbox(factory, "library-2");
+    const sharedIntent = intent("shared-mutation", 1);
+
+    await first.put(sharedIntent);
+    await second.put(sharedIntent);
+    expect(await first.list(projectAccessContext, "document-1"))
+      .toEqual([sharedIntent]);
+    expect(await second.list(projectAccessContext, "document-1"))
+      .toEqual([sharedIntent]);
+
+    await first.clear(projectAccessContext, "document-1");
+    expect(await first.list(projectAccessContext, "document-1")).toEqual([]);
+    expect(await second.list(projectAccessContext, "document-1"))
+      .toEqual([sharedIntent]);
+  });
+
+  test("migrates valid v1 requests to access-scoped v4 intents", async () => {
     const factory = new IDBFactory();
     await openVersionOneDatabase(factory, [
       versionOneRequest("mutation-1", 1),
       versionOneRequest("mutation-2", 2),
     ]);
 
-    const outbox = new IndexedDbCanvasSceneOutbox(factory);
-    const migrated = await outbox.list("document-1");
+    const outbox = new IndexedDbCanvasSceneOutbox(factory, libraryId);
+    const migrated = await outbox.list(projectAccessContext, "document-1");
 
     expect(migrated.map((entry) => entry.mutationId)).toEqual([
       "mutation-1",
@@ -182,6 +339,52 @@ describe("CanvasSceneOutbox", () => {
     );
   });
 
+  test("migrates active and quarantined v3 rows without losing order or metadata", async () => {
+    const factory = new IDBFactory();
+    const first = legacyProjectMutationIntent("mutation-1", 1);
+    const second = legacyProjectMutationIntent("mutation-2", 2);
+    const rejected = legacyProjectMutationIntent("mutation-rejected", 3);
+    const rejection = {
+      code: "invalid_canvas_scene_mutation",
+      message: "invalid legacy image assertion",
+      retryable: false,
+      resetRequired: false,
+      mutationId: "mutation-rejected",
+    } as const;
+    await openVersionThreeDatabase(factory, [first, second], [{
+      intent: rejected,
+      error: rejection,
+      rejectedAt: 456,
+    }]);
+
+    const outbox = new IndexedDbCanvasSceneOutbox(factory, libraryId);
+    expect((await outbox.list(
+      projectAccessContext,
+      "document-1",
+    )).map((entry) => entry.mutationId)).toEqual([
+      "mutation-1",
+      "mutation-2",
+    ]);
+    expect(await outbox.listQuarantined(
+      projectAccessContext,
+      "document-1",
+    )).toEqual([{
+      intent: {
+        ...intent("mutation-rejected", 3),
+      },
+      error: rejection,
+      rejectedAt: 456,
+    }]);
+    const foreignLibraryOutbox = new IndexedDbCanvasSceneOutbox(
+      factory,
+      "library-foreign",
+    );
+    expect(await foreignLibraryOutbox.list(
+      projectAccessContext,
+      "document-1",
+    )).toEqual([]);
+  });
+
   test("fails a v1 upgrade visibly when a row is invalid", async () => {
     const factory = new IDBFactory();
     await openVersionOneDatabase(factory, [
@@ -189,7 +392,10 @@ describe("CanvasSceneOutbox", () => {
     ]);
 
     await expect(
-      new IndexedDbCanvasSceneOutbox(factory).list("document-1"),
+      new IndexedDbCanvasSceneOutbox(factory, libraryId).list(
+        projectAccessContext,
+        "document-1",
+      ),
     ).rejects.toThrow();
   });
 });

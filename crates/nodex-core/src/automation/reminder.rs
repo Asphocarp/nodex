@@ -46,13 +46,12 @@ struct ReminderCandidate {
     snooze_id: Option<i64>,
 }
 
-type ReminderCoordinate = (String, String, i64, i32);
+type ReminderCoordinate = (String, i64, i32);
 type ReminderCandidates = BTreeMap<ReminderCoordinate, ReminderCandidate>;
 
 impl ReminderCandidate {
     fn coordinate(&self) -> ReminderCoordinate {
         (
-            self.receipt_project_id.clone(),
             self.page_id.clone(),
             self.occurrence_start_ms,
             self.reminder_offset_minutes,
@@ -99,15 +98,17 @@ pub(super) fn read_lease_window(
            reminder_offset_minutes, due_at_ms, title, snooze_id, attempt, status, \
            claimed_at_ms, expires_at_ms, settled_at_ms, retry_at_ms, reason_code \
          FROM core_reminder_leases \
-         WHERE (?1 IS NULL OR project_id = ?1) AND (?2 OR status = 'claimed') \
-           AND (?3 IS NULL OR due_at_ms < ?3 \
-             OR (due_at_ms = ?3 AND attempt < ?4) \
-             OR (due_at_ms = ?3 AND attempt = ?4 AND lease_id < ?5)) \
-         ORDER BY due_at_ms DESC, attempt DESC, lease_id DESC LIMIT ?6",
+         WHERE library_id = ?1 AND (?2 IS NULL OR project_id = ?2) \
+           AND (?3 OR status = 'claimed') \
+           AND (?4 IS NULL OR due_at_ms < ?4 \
+             OR (due_at_ms = ?4 AND attempt < ?5) \
+             OR (due_at_ms = ?4 AND attempt = ?5 AND lease_id < ?6)) \
+         ORDER BY due_at_ms DESC, attempt DESC, lease_id DESC LIMIT ?7",
     )?;
     let rows = statement
         .query_map(
             params![
+                library_id,
                 project_id,
                 include_settled,
                 after.as_ref().map(|value| value.0),
@@ -190,13 +191,15 @@ pub(super) fn read_snooze_window(
     let mut statement = connection.prepare(
         "SELECT id, project_id, page_id, occurrence_start, due_at, created_at, consumed_at \
          FROM reminder_snoozes \
-         WHERE (?1 IS NULL OR project_id = ?1) AND (?2 OR consumed_at IS NULL) \
-           AND (?3 IS NULL OR due_at < ?3 OR (due_at = ?3 AND id < ?4)) \
-         ORDER BY due_at DESC, id DESC LIMIT ?5",
+         WHERE library_id = ?1 AND (?2 IS NULL OR project_id = ?2) \
+           AND (?3 OR consumed_at IS NULL) \
+           AND (?4 IS NULL OR due_at < ?4 OR (due_at = ?4 AND id < ?5)) \
+         ORDER BY due_at DESC, id DESC LIMIT ?6",
     )?;
     let rows = statement
         .query_map(
             params![
+                library_id,
                 project_id,
                 include_consumed,
                 after.as_ref().map(|value| value.0.as_str()),
@@ -345,10 +348,11 @@ fn snooze(
         .ok_or_else(|| invalid("Reminder snooze time exceeds the timestamp range"))?;
     connection.execute(
         "INSERT INTO reminder_snoozes( \
-           project_id, page_id, occurrence_start, due_at, created_at, consumed_at \
-         ) VALUES (?1, ?2, ?3, ?4, ?5, NULL)",
+           project_id, library_id, page_id, occurrence_start, due_at, created_at, consumed_at \
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL)",
         params![
             project_id,
+            library_id,
             page_id,
             timestamp_to_iso(occurrence_start_ms)?,
             timestamp_to_iso(due_at_ms)?,
@@ -410,15 +414,15 @@ fn claim_due(
         if leases.len() >= limit as usize {
             break;
         }
-        if coordinate_is_blocked(connection, &candidate, now_ms)? {
+        if coordinate_is_blocked(connection, library_id, &candidate, now_ms)? {
             continue;
         }
         let attempt: i64 = connection.query_row(
             "SELECT COALESCE(max(attempt), 0) + 1 FROM core_reminder_leases \
-             WHERE receipt_project_id = ?1 AND page_id = ?2 AND occurrence_start_ms = ?3 \
+             WHERE library_id = ?1 AND page_id = ?2 AND occurrence_start_ms = ?3 \
                AND reminder_offset_minutes = ?4",
             params![
-                candidate.receipt_project_id,
+                library_id,
                 candidate.page_id,
                 candidate.occurrence_start_ms,
                 candidate.reminder_offset_minutes,
@@ -430,15 +434,16 @@ fn claim_due(
         let lease_id = lease_id(operation_id, &candidate, attempt);
         connection.execute(
             "INSERT INTO core_reminder_leases( \
-               lease_id, project_id, receipt_project_id, page_id, occurrence_start_ms, \
+               lease_id, project_id, receipt_project_id, library_id, page_id, occurrence_start_ms, \
                reminder_offset_minutes, due_at_ms, title, snooze_id, attempt, status, \
                claimed_at_ms, expires_at_ms, settled_at_ms, retry_at_ms, reason_code \
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 'claimed', \
-               ?11, ?12, NULL, NULL, NULL)",
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 'claimed', \
+               ?12, ?13, NULL, NULL, NULL)",
             params![
                 lease_id,
                 candidate.project_id,
                 candidate.receipt_project_id,
+                library_id,
                 candidate.page_id,
                 candidate.occurrence_start_ms,
                 candidate.reminder_offset_minutes,
@@ -504,8 +509,7 @@ fn collect_regular_candidates(
         )?;
         let mut by_occurrence = BTreeMap::<(String, i64), ReminderCandidate>::new();
         for occurrence in occurrences {
-            let (receipt_project_id, _) =
-                super::occurrence::read_current_page_title(connection, &occurrence.page_id)?;
+            let receipt_project_id = project_id.clone();
             for reminder in &occurrence.reminders {
                 let due_at_ms = occurrence
                     .occurrence_start_ms
@@ -516,7 +520,7 @@ fn collect_regular_candidates(
                 }
                 if receipt_exists(
                     connection,
-                    &receipt_project_id,
+                    library_id,
                     &occurrence.page_id,
                     occurrence.occurrence_start_ms,
                     reminder.offset_minutes,
@@ -542,14 +546,7 @@ fn collect_regular_candidates(
         }
         for candidate in by_occurrence.into_values() {
             let coordinate = candidate.coordinate();
-            let current = global.get(&coordinate);
-            let prefer_owner = candidate.project_id == candidate.receipt_project_id
-                && current.is_some_and(|value: &ReminderCandidate| {
-                    value.project_id != value.receipt_project_id
-                });
-            if current.is_none() || prefer_owner {
-                global.insert(coordinate, candidate);
-            }
+            global.entry(coordinate).or_insert(candidate);
         }
     }
     Ok(global)
@@ -569,7 +566,8 @@ fn collect_snooze_candidates(
              FROM reminder_snoozes snooze \
              JOIN projects project ON project.id = snooze.project_id \
                AND project.library_id = ?1 AND project.lifecycle = 'active' \
-             WHERE snooze.consumed_at IS NULL AND snooze.due_at <= ?2 \
+             WHERE snooze.library_id = ?1 AND snooze.consumed_at IS NULL \
+               AND snooze.due_at <= ?2 \
              ORDER BY snooze.due_at, snooze.id",
         )?;
         statement
@@ -605,15 +603,9 @@ fn collect_snooze_candidates(
         }
         let occurrence_start_ms = parse_timestamp(&occurrence)?;
         let due_at_ms = parse_timestamp(&due)?;
-        let (receipt_project_id, title) =
-            super::occurrence::read_current_page_title(connection, &page_id)?;
-        if receipt_exists(
-            connection,
-            &receipt_project_id,
-            &page_id,
-            occurrence_start_ms,
-            -1,
-        )? {
+        let title = super::occurrence::read_current_page_title(connection, &page_id)?;
+        let receipt_project_id = project_id.clone();
+        if receipt_exists(connection, library_id, &page_id, occurrence_start_ms, -1)? {
             connection.execute(
                 "UPDATE reminder_snoozes SET consumed_at = ?1 WHERE id = ?2",
                 params![now_iso, snooze_id],
@@ -646,6 +638,11 @@ fn settle(
 ) -> Result<ReminderMutationEffects, StoreError> {
     let lease = read_lease(connection, lease_id)?
         .ok_or_else(|| not_found("Reminder lease is unavailable"))?;
+    let library_id = connection.query_row(
+        "SELECT library_id FROM core_reminder_leases WHERE lease_id = ?1",
+        [lease_id],
+        |row| row.get::<_, String>(0),
+    )?;
     if lease.status != ReminderLeaseStatus::Claimed {
         return Err(conflict("Reminder lease is already settled"));
     }
@@ -691,10 +688,11 @@ fn settle(
     if !failed {
         connection.execute(
             "INSERT OR IGNORE INTO reminder_receipts( \
-               project_id, page_id, occurrence_start, reminder_offset_minutes, delivered_at \
-             ) VALUES (?1, ?2, ?3, ?4, ?5)",
+               project_id, library_id, page_id, occurrence_start, reminder_offset_minutes, delivered_at \
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             params![
                 lease.receipt_project_id,
+                library_id,
                 lease.page_id,
                 timestamp_to_iso(lease.occurrence_start_ms)?,
                 lease.reminder_offset_minutes,
@@ -769,17 +767,18 @@ fn expire_claims(connection: &Connection, now_ms: i64) -> Result<Vec<String>, St
 
 fn coordinate_is_blocked(
     connection: &Connection,
+    library_id: &str,
     candidate: &ReminderCandidate,
     now_ms: i64,
 ) -> Result<bool, StoreError> {
     let row = connection
         .query_row(
             "SELECT status, retry_at_ms FROM core_reminder_leases \
-             WHERE receipt_project_id = ?1 AND page_id = ?2 AND occurrence_start_ms = ?3 \
+             WHERE library_id = ?1 AND page_id = ?2 AND occurrence_start_ms = ?3 \
                AND reminder_offset_minutes = ?4 \
              ORDER BY attempt DESC LIMIT 1",
             params![
-                candidate.receipt_project_id,
+                library_id,
                 candidate.page_id,
                 candidate.occurrence_start_ms,
                 candidate.reminder_offset_minutes,
@@ -797,17 +796,17 @@ fn coordinate_is_blocked(
 
 fn receipt_exists(
     connection: &Connection,
-    project_id: &str,
+    library_id: &str,
     page_id: &str,
     occurrence_start_ms: i64,
     offset_minutes: i32,
 ) -> Result<bool, StoreError> {
     Ok(connection
         .query_row(
-            "SELECT 1 FROM reminder_receipts WHERE project_id = ?1 AND page_id = ?2 \
+            "SELECT 1 FROM reminder_receipts WHERE library_id = ?1 AND page_id = ?2 \
                AND occurrence_start = ?3 AND reminder_offset_minutes = ?4",
             params![
-                project_id,
+                library_id,
                 page_id,
                 timestamp_to_iso(occurrence_start_ms)?,
                 offset_minutes,

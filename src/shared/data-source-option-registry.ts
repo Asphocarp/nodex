@@ -9,9 +9,9 @@ import {
   type DataSourcePropertyId,
 } from "./database-identities";
 
-export const MAX_DATA_SOURCE_PROPERTY_OPTIONS = 10_000;
+export const MAX_DATA_SOURCE_PROPERTY_OPTIONS = 100;
 export const MAX_DATA_SOURCE_OPTION_NAME_LENGTH = 256;
-export const MAX_DATA_SOURCE_OPTION_COLOR_LENGTH = 256;
+export const MAX_DATA_SOURCE_OPTION_COLOR_LENGTH = 128;
 
 export type DataSourceOptionRegistryValueType = "select" | "multi_select";
 
@@ -80,6 +80,10 @@ const OPTION_CAPABLE_BUILT_IN_PROPERTIES = new Set([
 const compareStrings = (left: string, right: string): number =>
   left < right ? -1 : left > right ? 1 : 0;
 
+const UTF8_ENCODER = new TextEncoder();
+const utf8ByteLength = (value: string): number =>
+  UTF8_ENCODER.encode(value).byteLength;
+
 const fail = (
   code: DataSourceOptionRegistryErrorCode,
   message: string,
@@ -128,14 +132,14 @@ const requireCanonicalString = (
   if (
     typeof value === "string" &&
     value.length > 0 &&
-    value.length <= maximumLength &&
+    utf8ByteLength(value) <= maximumLength &&
     value === value.trim()
   ) {
     return value;
   }
   return fail(
     "invalid_registry",
-    `${label} must be a canonical non-empty string of at most ${maximumLength} characters`,
+    `${label} must be a canonical non-empty string of at most ${maximumLength} UTF-8 bytes`,
   );
 };
 
@@ -223,9 +227,7 @@ const parseStoredOptionName = (
   }
   let canonical: string;
   try {
-    canonical = canonicalizeTagName(value, {
-      maxLength: MAX_DATA_SOURCE_OPTION_NAME_LENGTH,
-    });
+    canonical = canonicalizeTagName(value);
   } catch (error) {
     return fail(
       "invalid_registry",
@@ -233,10 +235,18 @@ const parseStoredOptionName = (
       error,
     );
   }
-  if (canonical === value) return canonical;
+  if (canonical !== value) {
+    return fail(
+      "invalid_registry",
+      `${label} must already be Unicode NFC with no surrounding whitespace`,
+    );
+  }
+  if (utf8ByteLength(canonical) <= MAX_DATA_SOURCE_OPTION_NAME_LENGTH) {
+    return canonical;
+  }
   return fail(
     "invalid_registry",
-    `${label} must already be Unicode NFC with no surrounding whitespace`,
+    `${label} must contain at most ${MAX_DATA_SOURCE_OPTION_NAME_LENGTH} UTF-8 bytes`,
   );
 };
 
@@ -251,10 +261,9 @@ const canonicalizeMutationOptionName = (
       MAX_DATA_SOURCE_OPTION_NAME_LENGTH,
     );
   }
+  let canonical: string;
   try {
-    return canonicalizeTagName(value, {
-      maxLength: MAX_DATA_SOURCE_OPTION_NAME_LENGTH,
-    });
+    canonical = canonicalizeTagName(value);
   } catch (error) {
     return fail(
       "invalid_registry",
@@ -264,6 +273,13 @@ const canonicalizeMutationOptionName = (
       error,
     );
   }
+  if (utf8ByteLength(canonical) <= MAX_DATA_SOURCE_OPTION_NAME_LENGTH) {
+    return canonical;
+  }
+  return fail(
+    "invalid_registry",
+    `option.name must contain at most ${MAX_DATA_SOURCE_OPTION_NAME_LENGTH} UTF-8 bytes`,
+  );
 };
 
 const parseOption = (

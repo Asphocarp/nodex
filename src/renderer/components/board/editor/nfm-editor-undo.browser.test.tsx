@@ -151,7 +151,8 @@ describe("collaborative NFM undo in Chromium", () => {
     const editorSession = new EditorSurfaceLease({
       key: "session-browser\u0000tab-relative-cursor",
       descriptor: {
-        projectId: "project-browser",
+        libraryId: "library-browser",
+        accessContext: { kind: "project", projectId: "project-browser" },
         ownerBlockId: "page-relative-cursor",
         ownerType: "page",
         ownerLifecycle: "active",

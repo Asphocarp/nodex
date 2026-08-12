@@ -17,15 +17,17 @@ use nodex_core_contracts::document::{
     DocumentMutationEffect, DocumentOptionalValue, DocumentOwnerCommand, DocumentRevisionKind,
     DocumentSemanticAnchor, DocumentSemanticBlockEtags, DocumentSemanticCommand,
     DocumentSemanticEtags, DocumentUpdateResource, DocumentUpdateResourceUnavailable,
-    DocumentUpdateResourceUnavailableReason, OwnedDocumentCommitValue, OwnedDocumentIntent,
-    OwnedDocumentRead, OwnedDocumentReadValue, OwnedDocumentReceipt,
+    DocumentUpdateResourceUnavailableReason, OWNED_DOCUMENT_DESCRIPTOR_VERSION,
+    OwnedDocumentAccessContext, OwnedDocumentCommitValue, OwnedDocumentDescriptor,
+    OwnedDocumentIntent, OwnedDocumentOwnerLifecycle, OwnedDocumentRead, OwnedDocumentReadValue,
+    OwnedDocumentReadiness, OwnedDocumentReceipt, OwnedDocumentSyncDescriptor,
 };
 use nodex_core_contracts::events::ResourceKey;
 use nodex_core_contracts::{
     AdapterKind, ApplyResponse, BoundModuleContext, CommittedCoreModuleEvent, CoreError,
     CoreErrorCode, CoreErrorRecovery, ModuleApplyRequest, ModuleMutationReceipt, ModuleName,
-    ModuleReadRequest, ModuleReadSnapshot, OWNED_DOCUMENT_CONTRACT_VERSION, ProjectionImpact,
-    StoreEpoch,
+    ModuleReadRequest, ModuleReadSnapshot, OWNED_DOCUMENT_CONTRACT_VERSION, ProjectId,
+    ProjectionImpact, StoreEpoch,
 };
 #[cfg(test)]
 use nodex_core_contracts::{CoreModuleEventPayload, document::OwnedDocumentEvent};
@@ -198,7 +200,8 @@ pub(crate) struct RealtimeDocumentBoundary {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CanvasSceneSyncSnapshot {
-    pub project_id: String,
+    pub library_id: String,
+    pub access_context: OwnedDocumentAccessContext,
     pub document_id: String,
     pub store_epoch: String,
     pub generation: i64,
@@ -280,7 +283,8 @@ impl OwnedDocumentModule {
                 authorize_canvas(connection, context, &authority, DocumentAccessKind::Read)?;
                 let loaded = load_canvas_scene(connection, &authority)?;
                 Ok(CanvasSceneSyncSnapshot {
-                    project_id: authority.head.project_id.clone(),
+                    library_id: authority.head.library_id.clone(),
+                    access_context: document_access_context(context),
                     document_id: authority.head.id.clone(),
                     store_epoch: read_store_epoch(connection)?,
                     generation: authority.head.generation,
@@ -337,7 +341,7 @@ impl OwnedDocumentModule {
                         commit_head,
                         authorization: Some(authorization),
                         value: OwnedDocumentReadValue::Descriptor {
-                            descriptor: authority_descriptor(&authority, &store_epoch),
+                            descriptor: authority_descriptor(context, &authority, &store_epoch)?,
                         },
                     })
                 })
@@ -364,7 +368,11 @@ impl OwnedDocumentModule {
                             commit_head: read_local_commit_head(connection)?,
                             authorization: None,
                             value: OwnedDocumentReadValue::YjsSync {
-                                descriptor: authority_descriptor(&authority, &store_epoch),
+                                descriptor: authority_descriptor(
+                                    &context,
+                                    &authority,
+                                    &store_epoch,
+                                )?,
                                 update,
                             },
                         })
@@ -1615,6 +1623,7 @@ impl OwnedDocumentModule {
                                         &transaction,
                                         PersistYjsGenesis {
                                             authority: &authority,
+                                            actor_project_id: bound_actor_project_id(&context)?,
                                             materialization: &prepared.materialization,
                                             update_id: &operation_id,
                                             client_session_id: &context.connection_id,
@@ -1623,6 +1632,9 @@ impl OwnedDocumentModule {
                                             full_state: &prepared.update_v1,
                                             store_epoch: &store_epoch,
                                             operation_id: &operation_id,
+                                            placement_genesis_block_ids: &[],
+                                            placement_preapplied_block_ids: &[],
+                                            placement_mutation_block_ids: &[],
                                             emit_event: true,
                                         },
                                         scope.evidence(),
@@ -1739,6 +1751,7 @@ impl OwnedDocumentModule {
                                         &transaction,
                                         PersistYjsCommit {
                                             authority: &authority,
+                                            actor_project_id: bound_actor_project_id(&context)?,
                                             base_materialization: &base_materialization,
                                             materialization: &materialization,
                                             update_id: &operation_id,
@@ -1754,6 +1767,11 @@ impl OwnedDocumentModule {
                                             write_fence_block_ids: &prepared.write_fence_block_ids,
                                             title_write_fence_required: prepared
                                                 .title_write_fence_required,
+                                            structurally_detached_block_ids: &[],
+                                            placement_genesis_block_ids: &[],
+                                            placement_preapplied_block_ids: &[],
+                                            placement_mutation_block_ids: &prepared
+                                                .write_fence_block_ids,
                                         },
                                         scope.evidence(),
                                     )?;
@@ -1902,6 +1920,27 @@ impl OwnedDocumentModule {
                     &authority,
                     DocumentAccessKind::Write,
                 )?;
+                let actor_project_id = context
+                    .project_id
+                    .as_ref()
+                    .map(|project_id| project_id.0.clone())
+                    .map_or_else(
+                        || {
+                            crate::library::resolve_library_actor_project_id(
+                                &transaction,
+                                &authority.head.library_id,
+                            )
+                        },
+                        Ok,
+                    )?;
+                let actor_context = if context.project_id.is_some() {
+                    context.clone()
+                } else {
+                    BoundModuleContext {
+                        project_id: Some(ProjectId(actor_project_id.clone())),
+                        ..context.clone()
+                    }
+                };
                 if authority.head.generation != generation {
                     return Err(StoreError::new(
                         StoreErrorCode::GenerationConflict,
@@ -1927,7 +1966,7 @@ impl OwnedDocumentModule {
                             intent_hash: &request_hash,
                             store_epoch: &store_epoch,
                             committed_at: &committed_at,
-                            context: &context,
+                            context: &actor_context,
                         },
                         |scope| {
                             let revision_now = sqlite_now(&transaction)?;
@@ -1939,7 +1978,7 @@ impl OwnedDocumentModule {
                                     &transaction,
                                     &authority,
                                     &loaded.scene,
-                                    &context,
+                                    &actor_context,
                                     &revision_now,
                                     &revision,
                                 )?;
@@ -1948,6 +1987,8 @@ impl OwnedDocumentModule {
                                 &transaction,
                                 Some(scope.evidence()),
                                 &authority,
+                                &actor_project_id,
+                                &document_access_context(&context),
                                 &store_epoch,
                                 &operation_id,
                                 base_head_seq,
@@ -1992,6 +2033,8 @@ impl OwnedDocumentModule {
                         &transaction,
                         None,
                         &authority,
+                        &actor_project_id,
+                        &document_access_context(&context),
                         &store_epoch,
                         &operation_id,
                         base_head_seq,
@@ -2012,7 +2055,7 @@ impl OwnedDocumentModule {
                     );
                     insert_typed_receipt(
                         &transaction,
-                        &context,
+                        &actor_context,
                         &operation_id,
                         &request_hash,
                         &store_epoch,
@@ -2115,6 +2158,27 @@ impl OwnedDocumentModule {
                     &authority,
                     DocumentAccessKind::Write,
                 )?;
+                let actor_project_id = context
+                    .project_id
+                    .as_ref()
+                    .map(|project_id| project_id.0.clone())
+                    .map_or_else(
+                        || {
+                            crate::library::resolve_library_actor_project_id(
+                                &transaction,
+                                &authority.head.library_id,
+                            )
+                        },
+                        Ok,
+                    )?;
+                let actor_context = if context.project_id.is_some() {
+                    context.clone()
+                } else {
+                    BoundModuleContext {
+                        project_id: Some(ProjectId(actor_project_id.clone())),
+                        ..context.clone()
+                    }
+                };
                 if authority.head.generation != generation {
                     return Err(StoreError::new(
                         StoreErrorCode::GenerationConflict,
@@ -2143,7 +2207,7 @@ impl OwnedDocumentModule {
                             intent_hash: &request_hash,
                             store_epoch: &store_epoch,
                             committed_at: &now,
-                            context: &context,
+                            context: &actor_context,
                         },
                         |scope| {
                             let checkpoint = insert_canvas_checkpoint(
@@ -2158,7 +2222,7 @@ impl OwnedDocumentModule {
                                     source_mutation_id: None,
                                     source_change_seq: None,
                                     actor: Some(&actor),
-                                    context: &context,
+                                    context: &actor_context,
                                     now: &now,
                                 },
                             )?;
@@ -2217,7 +2281,7 @@ impl OwnedDocumentModule {
                             let event_sequence = append_change_log(
                                 &transaction,
                                 NewChangeLogEntry {
-                                    project_id: &authority.head.project_id,
+                                    project_id: &actor_project_id,
                                     store_epoch: &store_epoch,
                                     kind: "owned_document.canvas_generation_changed",
                                     operation_id: Some(&operation_id),
@@ -2234,7 +2298,8 @@ impl OwnedDocumentModule {
                                 "version": 1,
                                 "kind": "tombstone_compaction",
                                 "operationId": operation_id,
-                                "projectId": authority.head.project_id,
+                                "libraryId": authority.head.library_id,
+                                "accessContext": document_access_context(&context),
                                 "documentId": authority.head.id,
                                 "storeEpoch": store_epoch,
                                 "previousGeneration": authority.head.generation,
@@ -2293,7 +2358,8 @@ impl OwnedDocumentModule {
                         "version": 1,
                         "kind": "tombstone_compaction",
                         "operationId": operation_id,
-                        "projectId": authority.head.project_id,
+                        "libraryId": authority.head.library_id,
+                        "accessContext": document_access_context(&context),
                         "documentId": authority.head.id,
                         "storeEpoch": store_epoch,
                         "previousGeneration": authority.head.generation,
@@ -2319,7 +2385,7 @@ impl OwnedDocumentModule {
                     );
                     insert_typed_receipt(
                         &transaction,
-                        &context,
+                        &actor_context,
                         &operation_id,
                         &request_hash,
                         &store_epoch,
@@ -2381,6 +2447,10 @@ impl OwnedDocumentModule {
         let receipt_document_id = document_id.clone();
         let receipt_update_id = update_id.clone();
         let receipt_client_session_id = client_session_id.to_owned();
+        let requested_actor_project_id = context
+            .project_id
+            .as_ref()
+            .map(|project_id| project_id.0.clone());
         self.apply_document_update(
             DocumentUpdateJob {
                 context: context.clone(),
@@ -2451,10 +2521,20 @@ impl OwnedDocumentModule {
                 } else {
                     None
                 };
+                let actor_project_id = requested_actor_project_id.clone().map_or_else(
+                    || {
+                        crate::library::resolve_library_actor_project_id(
+                            connection,
+                            &authority.head.library_id,
+                        )
+                    },
+                    Ok,
+                )?;
                 if let Some(artifact_id) = persist_recovery_if_barrier_crossed(
                     connection,
                     authority,
                     StaleYjsUpdate {
+                        actor_project_id: &actor_project_id,
                         store_epoch,
                         client_session_id: &receipt_client_session_id,
                         generation,
@@ -2528,14 +2608,23 @@ impl OwnedDocumentModule {
             .map_err(|_| invalid("Owned Document semantic request cannot be fingerprinted"))?
         };
         let allocation_seed = operation_id.clone();
-        let etag_project_id = prepared_agent.as_ref().map(|execution| {
-            execution
-                .authorization
-                .provenance
-                .authority
-                .actor_project_id
-                .clone()
-        });
+        let etag_project_id = prepared_agent
+            .as_ref()
+            .map(|execution| {
+                execution
+                    .authorization
+                    .provenance
+                    .authority
+                    .actor_project_id
+                    .clone()
+            })
+            .or_else(|| {
+                context
+                    .project_id
+                    .as_ref()
+                    .map(|project_id| project_id.0.clone())
+            })
+            .ok_or_else(|| unauthorized_core("Semantic mutation requires a bound Project"))?;
         let mutation_context = if prepared_agent.is_some() {
             BoundModuleContext {
                 adapter: AdapterKind::Agent,
@@ -2584,9 +2673,7 @@ impl OwnedDocumentModule {
                     &commands,
                     &allocation_seed,
                     &operation_id,
-                    etag_project_id
-                        .as_deref()
-                        .unwrap_or(&authority.head.project_id),
+                    &etag_project_id,
                 )
                 .map(|(prepared, _preview_markdown)| prepared)
             },
@@ -3240,6 +3327,8 @@ impl OwnedDocumentModule {
                             &transaction,
                             Some(scope.evidence()),
                             &authority,
+                            bound_actor_project_id(&context)?,
+                            &document_access_context(&context),
                             &store_epoch,
                             &operation_id,
                             authority.head.head_seq,
@@ -3403,6 +3492,28 @@ impl OwnedDocumentModule {
                         DocumentAccessKind::Write,
                     )?;
                     None
+                };
+                let actor_project_id = job
+                    .context
+                    .project_id
+                    .as_ref()
+                    .map(|project_id| project_id.0.clone())
+                    .map_or_else(
+                        || {
+                            crate::library::resolve_library_actor_project_id(
+                                &transaction,
+                                &authority.head.library_id,
+                            )
+                        },
+                        Ok,
+                    )?;
+                let actor_context = if job.context.project_id.is_some() {
+                    job.context.clone()
+                } else {
+                    BoundModuleContext {
+                        project_id: Some(ProjectId(actor_project_id.clone())),
+                        ..job.context.clone()
+                    }
                 };
                 if authority.head.generation != job.generation {
                     return Err(StoreError::new(
@@ -3606,20 +3717,21 @@ impl OwnedDocumentModule {
                         intent_hash: &job.request_hash,
                         store_epoch: &store_epoch,
                         committed_at: &revision_now,
-                        context: &job.context,
+                        context: &actor_context,
                     },
                     |scope| {
                         prepare_document_revision(
                             &transaction,
                             &authority,
                             &base_materialization,
-                            &job.context,
+                            &actor_context,
                             &revision_now,
                         )?;
                         let persisted = persist_yjs_commit_with_local_commit(
                             &transaction,
                             PersistYjsCommit {
                                 authority: &authority,
+                                actor_project_id: &actor_project_id,
                                 base_materialization: &base_materialization,
                                 materialization: &materialization,
                                 update_id: &update_id,
@@ -3640,6 +3752,10 @@ impl OwnedDocumentModule {
                                 },
                                 write_fence_block_ids: &write_fence_block_ids,
                                 title_write_fence_required,
+                                structurally_detached_block_ids: &[],
+                                placement_genesis_block_ids: &[],
+                                placement_preapplied_block_ids: &[],
+                                placement_mutation_block_ids: &write_fence_block_ids,
                             },
                             scope.evidence(),
                         )?;
@@ -3669,7 +3785,7 @@ impl OwnedDocumentModule {
                                     actor: commit_checkpoint
                                         .as_ref()
                                         .map(|checkpoint| &checkpoint.actor),
-                                    context: &job.context,
+                                    context: &actor_context,
                                     now: &persisted.committed_at,
                                 },
                             )?;
@@ -4045,7 +4161,7 @@ fn assert_fresh_document_block_ids(
         if let Some(source) = existing {
             return Err(invalid_store(format!(
                 "Duplicate Block identity {block_id} already exists as {source} in Project {}",
-                authority.head.project_id
+                authority.head.library_id
             )));
         }
     }
@@ -4139,18 +4255,17 @@ fn attach_semantic_etags(
     committed: &mut crate::ModuleWriterResult<OwnedDocumentCommitValue, OwnedDocumentReceipt>,
 ) -> Result<(), StoreError> {
     let project_id = match job.prepared_agent.as_ref() {
-        Some(prepared_agent) => {
-            &prepared_agent
-                .authorization
-                .authorization
-                .provenance
-                .authority
-                .actor_project_id
-        }
+        Some(prepared_agent) => prepared_agent
+            .authorization
+            .authorization
+            .provenance
+            .authority
+            .actor_project_id
+            .as_str(),
         None if job.context.adapter == AdapterKind::NativeCli
             && job.operation_kind == "apply_semantic_mutation" =>
         {
-            &authority.head.project_id
+            bound_actor_project_id(&job.context)?
         }
         None => return Ok(()),
     };
@@ -4359,33 +4474,58 @@ fn insert_typed_receipt(
     )
 }
 
-fn authority_descriptor(authority: &DocumentAuthorityRow, store_epoch: &str) -> Value {
+fn document_access_context(context: &BoundModuleContext) -> OwnedDocumentAccessContext {
+    match context.project_id.as_ref() {
+        Some(project_id) => OwnedDocumentAccessContext::Project {
+            project_id: project_id.0.clone(),
+        },
+        None => OwnedDocumentAccessContext::Library,
+    }
+}
+
+fn authority_descriptor(
+    context: &BoundModuleContext,
+    authority: &DocumentAuthorityRow,
+    store_epoch: &str,
+) -> Result<OwnedDocumentDescriptor, StoreError> {
     let readiness = match authority.head.readiness {
-        DocumentReadiness::PendingGenesis => "pending_genesis",
-        DocumentReadiness::Ready => "ready",
-        DocumentReadiness::Failed => "failed",
+        DocumentReadiness::PendingGenesis => OwnedDocumentReadiness::PendingGenesis,
+        DocumentReadiness::Ready => OwnedDocumentReadiness::Ready,
+        DocumentReadiness::Failed => OwnedDocumentReadiness::Failed,
     };
     let sync = match authority.head.sync_engine {
-        DocumentSyncEngine::Yjs => json!({
-            "kind": "yjs",
-            "stateVector": authority.head.state_vector,
-        }),
-        DocumentSyncEngine::CanvasScene => json!({ "kind": "canvas_scene" }),
+        DocumentSyncEngine::Yjs => OwnedDocumentSyncDescriptor::Yjs {
+            state_vector: authority.head.state_vector.clone(),
+        },
+        DocumentSyncEngine::CanvasScene => OwnedDocumentSyncDescriptor::CanvasScene,
     };
-    json!({
-        "version": 2,
-        "documentId": authority.head.id,
-        "projectId": authority.head.project_id,
-        "ownerBlockId": authority.owner_block_id,
-        "ownerType": authority.owner_type,
-        "ownerLifecycle": authority.owner_lifecycle,
-        "storeEpoch": store_epoch,
-        "generation": authority.head.generation,
-        "headSeq": authority.head.head_seq,
-        "schemaKey": authority.head.schema_key,
-        "schemaVersion": authority.head.schema_version,
-        "readiness": readiness,
-        "sync": sync,
+    let owner_lifecycle = match authority.owner_lifecycle.as_str() {
+        "active" => OwnedDocumentOwnerLifecycle::Active,
+        "archived" => OwnedDocumentOwnerLifecycle::Archived,
+        "deleted" => OwnedDocumentOwnerLifecycle::Deleted,
+        _ => {
+            return Err(StoreError::new(
+                StoreErrorCode::StoreCorrupt,
+                "Owned Document owner lifecycle is invalid",
+                false,
+            ));
+        }
+    };
+    Ok(OwnedDocumentDescriptor {
+        version: OWNED_DOCUMENT_DESCRIPTOR_VERSION,
+        library_id: authority.head.library_id.clone(),
+        access_context: document_access_context(context),
+        owner_block_id: authority.owner_block_id.clone(),
+        owner_type: authority.owner_type.clone(),
+        owner_lifecycle,
+        document_id: authority.head.id.clone(),
+        store_epoch: store_epoch.to_owned(),
+        generation: authority.head.generation,
+        head_seq: authority.head.head_seq,
+        schema_key: authority.head.schema_key.clone(),
+        schema_version: authority.head.schema_version,
+        readiness,
+        sync,
     })
 }
 
@@ -4900,10 +5040,10 @@ fn agent_authority_revisions_hash(
 ) -> Result<String, StoreError> {
     let page_revision = connection
         .query_row(
-            "SELECT page.library_id, page.parent_kind, page.parent_id, page.parent_revision, \
-               page.metadata_revision, block.location_revision, block.metadata_revision, \
-               block.lifecycle \
+            "SELECT page.library_id, page.parent_kind, page.parent_id, \
+               block.placement_revision, block.metadata_revision, block.lifecycle \
              FROM pages page JOIN blocks block ON block.id = page.block_id \
+               AND block.library_id = page.library_id \
              WHERE page.block_id = ?1",
             [&authority.owner_block_id],
             |row| {
@@ -4913,9 +5053,7 @@ fn agent_authority_revisions_hash(
                     row.get::<_, String>(2)?,
                     row.get::<_, i64>(3)?,
                     row.get::<_, i64>(4)?,
-                    row.get::<_, i64>(5)?,
-                    row.get::<_, i64>(6)?,
-                    row.get::<_, String>(7)?,
+                    row.get::<_, String>(5)?,
                 ))
             },
         )
@@ -4941,9 +5079,14 @@ fn agent_authority_revisions_hash(
     for resource_id in resource_ids {
         let revision = connection
             .query_row(
-                "SELECT project_id, lifecycle, location_revision, metadata_revision, \
-                   containing_document_id, containing_database_id \
-                 FROM blocks WHERE id = ?1",
+                "SELECT block.library_id, block.lifecycle, block.placement_revision, \
+                   block.metadata_revision, entry.document_id, entry.parent_block_id, \
+                   entry.ordinal, placement.rank_key, placement.revision \
+                 FROM blocks block \
+                 LEFT JOIN document_block_index entry ON entry.block_id = block.id \
+                 LEFT JOIN library_block_placements placement ON placement.block_id = block.id \
+                   AND placement.library_id = block.library_id \
+                 WHERE block.id = ?1",
                 [&resource_id],
                 |row| {
                     Ok((
@@ -4953,6 +5096,9 @@ fn agent_authority_revisions_hash(
                         row.get::<_, i64>(3)?,
                         row.get::<_, Option<String>>(4)?,
                         row.get::<_, Option<String>>(5)?,
+                        row.get::<_, Option<i64>>(6)?,
+                        row.get::<_, Option<String>>(7)?,
+                        row.get::<_, Option<i64>>(8)?,
                     ))
                 },
             )
@@ -4968,13 +5114,13 @@ fn agent_authority_revisions_hash(
     }
     hash_serializable(
         &(
-            "nodex.agent.authority-revisions.v1",
+            "nodex.agent.authority-revisions.v2",
             turn_authority_fingerprint,
             store_epoch,
             &authority.head.id,
             authority.head.generation,
             authority.head.head_seq,
-            &authority.head.project_id,
+            &authority.head.library_id,
             &authority.owner_block_id,
             &authority.owner_lifecycle,
             page_revision,
@@ -5025,22 +5171,20 @@ fn authorize_document_access(
 ) -> Result<(), StoreError> {
     if let Some(project_id) = context.project_id.as_ref() {
         if authority.owner_type == "canvas" {
-            let host_page_id = connection
+            let (canvas_library_id, host_page_id) = connection
                 .query_row(
-                    "SELECT canvas.library_id, block.project_id, host_page.block_id \
+                    "SELECT canvas.library_id, host_page.block_id \
                      FROM canvas_owners canvas \
                      JOIN blocks block ON block.id = canvas.block_id \
+                       AND block.library_id = canvas.library_id \
+                     LEFT JOIN document_block_index containing \
+                       ON containing.block_id = block.id \
                      LEFT JOIN pages host_page \
-                       ON host_page.document_id = block.containing_document_id \
+                       ON host_page.document_id = containing.document_id \
+                      AND host_page.library_id = block.library_id \
                      WHERE canvas.block_id = ?1",
                     [&authority.owner_block_id],
-                    |row| {
-                        Ok((
-                            row.get::<_, String>(0)?,
-                            row.get::<_, String>(1)?,
-                            row.get::<_, Option<String>>(2)?,
-                        ))
-                    },
+                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
                 )
                 .optional()?
                 .ok_or_else(|| {
@@ -5050,21 +5194,14 @@ fn authorize_document_access(
                         false,
                     )
                 })?;
-            if host_page_id.0 != context.library_id.0 {
+            if canvas_library_id != context.library_id.0 {
                 return Err(StoreError::new(
                     StoreErrorCode::Unauthorized,
                     "Canvas is outside the bound Library",
                     false,
                 ));
             }
-            if project_id.0 != host_page_id.1 {
-                let page_id = host_page_id.2.ok_or_else(|| {
-                    StoreError::new(
-                        StoreErrorCode::Unauthorized,
-                        "Top-level Canvas belongs to another Project",
-                        false,
-                    )
-                })?;
+            if let Some(page_id) = host_page_id {
                 match access {
                     DocumentAccessKind::Read => crate::library::require_page_read_access(
                         connection,
@@ -5077,6 +5214,21 @@ fn authorize_document_access(
                         &context.library_id.0,
                         &project_id.0,
                         &page_id,
+                    )?,
+                }
+            } else {
+                match access {
+                    DocumentAccessKind::Read => crate::library::require_canvas_read_access(
+                        connection,
+                        &context.library_id.0,
+                        &project_id.0,
+                        &authority.owner_block_id,
+                    )?,
+                    DocumentAccessKind::Write => crate::library::require_canvas_write_access(
+                        connection,
+                        &context.library_id.0,
+                        &project_id.0,
+                        &authority.owner_block_id,
                     )?,
                 }
             }
@@ -5097,19 +5249,27 @@ fn authorize_document_access(
                     &authority.owner_block_id,
                 )?,
             }
-        } else if project_id.0 != authority.head.project_id {
-            return Err(StoreError::new(
-                StoreErrorCode::Unauthorized,
-                "Owned Document is outside the bound Project",
-                false,
-            ));
+        } else {
+            let project_is_available = connection
+                .query_row(
+                    "SELECT 1 FROM projects \
+                     WHERE id = ?1 AND library_id = ?2 AND lifecycle = 'active'",
+                    [&project_id.0, &authority.head.library_id],
+                    |_| Ok(()),
+                )
+                .optional()?
+                .is_some();
+            if !project_is_available {
+                return Err(StoreError::new(
+                    StoreErrorCode::Unauthorized,
+                    "Owned Document is outside the bound Library",
+                    false,
+                ));
+            }
         }
         if access == DocumentAccessKind::Write
             && authority.owner_type == "page"
-            && authority
-                .page_lifecycle
-                .as_deref()
-                .is_some_and(|lifecycle| lifecycle != "active")
+            && authority.owner_lifecycle != "active"
         {
             return Err(StoreError::new(
                 StoreErrorCode::Unauthorized,
@@ -5142,7 +5302,7 @@ fn authorize_document_access(
     }
     if authority.owner_type != "page"
         || authority.page_library_id.as_deref() != Some(context.library_id.0.as_str())
-        || authority.page_lifecycle.as_deref() == Some("deleted")
+        || authority.owner_lifecycle == "deleted"
     {
         return Err(StoreError::new(
             StoreErrorCode::NotFound,
@@ -5150,8 +5310,7 @@ fn authorize_document_access(
             false,
         ));
     }
-    if access == DocumentAccessKind::Write && authority.page_lifecycle.as_deref() != Some("active")
-    {
+    if access == DocumentAccessKind::Write && authority.owner_lifecycle != "active" {
         return Err(StoreError::new(
             StoreErrorCode::Unauthorized,
             "Page Document is not writable",
@@ -5433,6 +5592,20 @@ fn unauthorized_core(message: &str) -> CoreError {
     }
 }
 
+fn bound_actor_project_id(context: &BoundModuleContext) -> Result<&str, StoreError> {
+    context
+        .project_id
+        .as_ref()
+        .map(|project_id| project_id.0.as_str())
+        .ok_or_else(|| {
+            StoreError::new(
+                StoreErrorCode::Unauthorized,
+                "Document mutation requires a bound Project",
+                false,
+            )
+        })
+}
+
 fn invalid_store(message: String) -> StoreError {
     StoreError::new(StoreErrorCode::InvalidInput, message, false)
 }
@@ -5605,38 +5778,52 @@ mod tests {
                         )?;
                         transaction.execute(
                             "INSERT INTO blocks(\
-                               id, project_id, type, lifecycle, location_kind, containing_document_id, \
-                               containing_database_id, location_revision, metadata_revision, created_at, updated_at\
-                             ) VALUES (?1, ?2, 'page', 'active', 'space', NULL, NULL, 1, 1, ?3, ?3)",
-                            params![OWNER_BLOCK_ID, PROJECT_ID, NOW],
+                               id, library_id, type, lifecycle, placement_revision, \
+                               metadata_revision, created_at, updated_at\
+                             ) VALUES (?1, ?2, 'page', 'active', 1, 1, ?3, ?3)",
+                            params![OWNER_BLOCK_ID, LIBRARY_ID, NOW],
                         )?;
                         transaction.execute(
                             "INSERT INTO documents(\
-                               id, project_id, generation, head_seq, schema_key, schema_version, \
+                               id, library_id, generation, head_seq, schema_key, schema_version, \
                                state_vector, state_hash, readiness, authority, created_at, updated_at, sync_engine\
                              ) VALUES (?1, ?2, 1, 1, 'nodex.page', 2, ?3, ?4, \
                                'ready', 'ydoc_primary', ?5, ?5, 'yjs')",
-                            params![DOCUMENT_ID, PROJECT_ID, state_vector, "", NOW],
+                            params![DOCUMENT_ID, LIBRARY_ID, state_vector, "", NOW],
                         )?;
                         transaction.execute(
-                            "INSERT INTO block_documents(block_id, document_id, project_id, created_at) \
+                            "INSERT INTO block_documents(block_id, document_id, library_id, created_at) \
                              VALUES (?1, ?2, ?3, ?4)",
-                            params![OWNER_BLOCK_ID, DOCUMENT_ID, PROJECT_ID, NOW],
+                            params![OWNER_BLOCK_ID, DOCUMENT_ID, LIBRARY_ID, NOW],
                         )?;
                         transaction.execute(
                             "INSERT INTO pages(\
-                               block_id, library_id, document_id, parent_kind, parent_id, lifecycle, \
-                               parent_revision, metadata_revision, created_at, updated_at\
-                             ) VALUES (?1, ?2, ?3, 'library', ?2, 'active', 1, 1, ?4, ?4)",
+                               block_id, library_id, document_id, parent_kind, parent_id, \
+                               created_at, updated_at\
+                             ) VALUES (?1, ?2, ?3, 'library', ?2, ?4, ?4)",
                             params![OWNER_BLOCK_ID, LIBRARY_ID, DOCUMENT_ID, NOW],
+                        )?;
+                        transaction.execute(
+                            "INSERT INTO library_block_placements(\
+                               block_id, library_id, rank_key, revision, created_at, updated_at\
+                             ) VALUES (?1, ?2, '7fffffffffffffffffffffffffffffff', 1, ?3, ?3)",
+                            params![OWNER_BLOCK_ID, LIBRARY_ID, NOW],
+                        )?;
+                        transaction.execute(
+                            "INSERT INTO project_resource_grants(\
+                               id, project_id, library_id, root_kind, root_id, access, recursive, \
+                               revision, lifecycle, created_at, updated_at\
+                             ) VALUES ('grant:document-ready-page', ?1, ?2, 'page', ?3, \
+                               'read_write', 1, 1, 'active', ?4, ?4)",
+                            params![PROJECT_ID, LIBRARY_ID, OWNER_BLOCK_ID, NOW],
                         )?;
                         for unit in &materialization.search_units {
                             transaction.execute(
                                 "INSERT INTO blocks(\
-                                   id, project_id, type, lifecycle, location_kind, containing_document_id, \
-                                   containing_database_id, location_revision, metadata_revision, created_at, updated_at\
-                                 ) VALUES (?1, ?2, ?3, 'active', 'document', ?4, NULL, 1, 1, ?5, ?5)",
-                                params![unit.block_id, PROJECT_ID, unit.block_type, DOCUMENT_ID, NOW],
+                                   id, library_id, type, lifecycle, placement_revision, \
+                                   metadata_revision, created_at, updated_at\
+                                 ) VALUES (?1, ?2, ?3, 'active', 1, 1, ?4, ?4)",
+                                params![unit.block_id, LIBRARY_ID, unit.block_type, NOW],
                             )?;
                             transaction.execute(
                                 "INSERT INTO document_block_index(\
@@ -5701,20 +5888,21 @@ mod tests {
                         )?;
                         transaction.execute(
                             "INSERT INTO page_read_model(\
-                               page_block_id, project_id, lifecycle, location_kind, \
-                               containing_document_id, containing_database_id, top_level_rank_key, \
-                               location_revision, metadata_revision, document_id, document_generation, \
+                               page_block_id, library_id, lifecycle, parent_kind, parent_id, \
+                               library_rank_key, placement_revision, metadata_revision, \
+                               document_id, document_generation, \
                                document_projected_seq, document_schema_version, document_authority, \
                                membership_id, database_block_id, view_id, view_group_key, view_rank_key, \
                                title, description_preview, description_length, has_description, \
                                database_values_json, intrinsic_properties_json, property_revisions_json, \
                                projection_version, created_at, updated_at\
-                             ) VALUES (?1, ?2, 'active', 'space', NULL, NULL, NULL, 1, 1, ?3, 1, 1, 2, \
+                             ) VALUES (?1, ?2, 'active', 'library', ?2, \
+                               '7fffffffffffffffffffffffffffffff', 1, 1, ?3, 1, 1, 2, \
                                'ydoc_primary', NULL, NULL, NULL, NULL, NULL, ?4, ?5, ?6, ?7, '{}', '{}', \
                                '{}', 1, ?8, ?8)",
                             params![
                                 OWNER_BLOCK_ID,
-                                PROJECT_ID,
+                                LIBRARY_ID,
                                 DOCUMENT_ID,
                                 materialization.title,
                                 materialization.preview,
@@ -5777,11 +5965,27 @@ mod tests {
             .call(|connection| {
                 with_immediate_transaction(connection, |transaction| {
                     transaction.execute(
+                        "INSERT OR IGNORE INTO profiles(id, created_at, updated_at) \
+                         VALUES (?1, ?2, ?2)",
+                        params![PROFILE_ID, NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT OR IGNORE INTO libraries(id, profile_id, created_at, updated_at) \
+                         VALUES (?1, ?2, ?3, ?3)",
+                        params![LIBRARY_ID, PROFILE_ID, NOW],
+                    )?;
+                    transaction.execute(
                         "INSERT INTO blocks(\
-                           id, project_id, type, lifecycle, location_kind, containing_document_id, \
-                           containing_database_id, location_revision, metadata_revision, created_at, updated_at\
-                         ) VALUES (?1, ?2, 'database', 'active', 'space', NULL, NULL, 1, 1, ?3, ?3)",
-                        params![DATABASE_ID, PROJECT_ID, NOW],
+                           id, library_id, type, lifecycle, placement_revision, metadata_revision, \
+                           created_at, updated_at\
+                         ) VALUES (?1, ?2, 'database', 'active', 1, 1, ?3, ?3)",
+                        params![DATABASE_ID, LIBRARY_ID, NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO library_block_placements(\
+                           block_id, library_id, rank_key, revision, created_at, updated_at\
+                         ) VALUES (?1, ?2, 'b', 1, ?3, ?3)",
+                        params![DATABASE_ID, LIBRARY_ID, NOW],
                     )?;
                     transaction.execute(
                         "INSERT INTO database_containers(\
@@ -5810,6 +6014,7 @@ mod tests {
                             }],
                             "group": null,
                             "subgroup": null,
+                            "groupDirection": "asc",
                             "completion": { "range": "all", "orderByRecency": false },
                             "hierarchy": { "showSubPages": true, "nestedSubPages": false },
                             "layouts": {
@@ -5836,9 +6041,27 @@ mod tests {
                         )?;
                     }
                     transaction.execute(
-                        "UPDATE blocks SET location_kind = 'database', \
-                           containing_database_id = ?1, updated_at = ?2 WHERE id = ?3",
-                        params![DATABASE_ID, NOW, OWNER_BLOCK_ID],
+                        "UPDATE database_containers SET default_view_id = ?1 WHERE block_id = ?2",
+                        params![VIEW_ID_A, DATABASE_ID],
+                    )?;
+                    transaction.execute(
+                        "UPDATE projects SET database_block_id = ?1, binding_revision = binding_revision + 1, \
+                           updated = ?2 WHERE id = ?3 AND library_id = ?4",
+                        params![DATABASE_ID, NOW, PROJECT_ID, LIBRARY_ID],
+                    )?;
+                    transaction.execute(
+                        "DELETE FROM library_block_placements WHERE block_id = ?1 AND library_id = ?2",
+                        params![OWNER_BLOCK_ID, LIBRARY_ID],
+                    )?;
+                    transaction.execute(
+                        "UPDATE blocks SET placement_revision = placement_revision + 1, updated_at = ?1 \
+                         WHERE id = ?2 AND library_id = ?3",
+                        params![NOW, OWNER_BLOCK_ID, LIBRARY_ID],
+                    )?;
+                    transaction.execute(
+                        "UPDATE pages SET parent_kind = 'data_source', parent_id = ?1, updated_at = ?2 \
+                         WHERE block_id = ?3",
+                        params![DATA_SOURCE_ID, NOW, OWNER_BLOCK_ID],
                     )?;
                     transaction.execute(
                         "INSERT INTO data_source_page_memberships(\
@@ -5847,10 +6070,25 @@ mod tests {
                         params![MEMBERSHIP_ID, DATA_SOURCE_ID, OWNER_BLOCK_ID, NOW],
                     )?;
                     transaction.execute(
-                        "UPDATE pages SET parent_kind = 'data_source', parent_id = ?1, \
-                           parent_revision = parent_revision + 1, updated_at = ?2 \
-                         WHERE block_id = ?3",
-                        params![DATA_SOURCE_ID, NOW, OWNER_BLOCK_ID],
+                        "INSERT INTO database_view_page_positions(\
+                           view_id, page_block_id, rank_key, revision, created_at, updated_at\
+                         ) VALUES (?1, ?2, 'a', 1, ?3, ?3)",
+                        params![VIEW_ID_A, OWNER_BLOCK_ID, NOW],
+                    )?;
+                    transaction.execute(
+                        "UPDATE page_read_model SET parent_kind = 'data_source', parent_id = ?1, \
+                           library_rank_key = NULL, placement_revision = 2, membership_id = ?2, \
+                           database_block_id = ?3, view_id = ?4, view_rank_key = 'a', updated_at = ?5 \
+                         WHERE page_block_id = ?6 AND library_id = ?7",
+                        params![
+                            DATA_SOURCE_ID,
+                            MEMBERSHIP_ID,
+                            DATABASE_ID,
+                            VIEW_ID_A,
+                            NOW,
+                            OWNER_BLOCK_ID,
+                            LIBRARY_ID,
+                        ],
                     )?;
                     Ok(())
                 })
@@ -5888,9 +6126,9 @@ mod tests {
                         )?;
                         transaction.execute(
                             "INSERT OR IGNORE INTO pages(\
-                           block_id, library_id, document_id, parent_kind, parent_id, lifecycle, \
-                           parent_revision, metadata_revision, created_at, updated_at\
-                         ) VALUES (?1, ?2, ?3, 'library', ?2, 'active', 1, 1, ?4, ?4)",
+                           block_id, library_id, document_id, parent_kind, parent_id, \
+                           created_at, updated_at\
+                         ) VALUES (?1, ?2, ?3, 'library', ?2, ?4, ?4)",
                             params![OWNER_BLOCK_ID, LIBRARY_ID, DOCUMENT_ID, NOW],
                         )?;
                         if actor_project_id != PROJECT_ID {
@@ -6043,52 +6281,66 @@ mod tests {
                     )?;
                     transaction.execute(
                         "INSERT INTO blocks(\
-                           id, project_id, type, lifecycle, location_kind, containing_document_id, \
-                           containing_database_id, location_revision, metadata_revision, created_at, updated_at\
-                         ) VALUES (?1, ?2, ?3, 'active', 'space', NULL, NULL, 1, 1, ?4, ?4)",
-                        params![OWNER_BLOCK_ID, PROJECT_ID, owner_type, NOW],
+                           id, library_id, type, lifecycle, placement_revision, metadata_revision, \
+                           created_at, updated_at\
+                         ) VALUES (?1, ?2, ?3, 'active', 1, 1, ?4, ?4)",
+                        params![OWNER_BLOCK_ID, LIBRARY_ID, owner_type, NOW],
                     )?;
                     transaction.execute(
                         "INSERT INTO documents(\
-                           id, project_id, generation, head_seq, schema_key, schema_version, \
+                           id, library_id, generation, head_seq, schema_key, schema_version, \
                            state_vector, state_hash, readiness, authority, created_at, updated_at, sync_engine\
                          ) VALUES (?1, ?2, 1, 0, ?3, ?4, X'', '', \
                            'pending_genesis', 'legacy_shadow', ?5, ?5, 'yjs')",
-                        params![DOCUMENT_ID, PROJECT_ID, schema_key, schema_version, NOW],
+                        params![DOCUMENT_ID, LIBRARY_ID, schema_key, schema_version, NOW],
                     )?;
                     transaction.execute(
-                        "INSERT INTO block_documents(block_id, document_id, project_id, created_at) \
+                        "INSERT INTO block_documents(block_id, document_id, library_id, created_at) \
                          VALUES (?1, ?2, ?3, ?4)",
-                        params![OWNER_BLOCK_ID, DOCUMENT_ID, PROJECT_ID, NOW],
+                        params![OWNER_BLOCK_ID, DOCUMENT_ID, LIBRARY_ID, NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO library_block_placements(\
+                           block_id, library_id, rank_key, revision, created_at, updated_at\
+                         ) VALUES (?1, ?2, 'a', 1, ?3, ?3)",
+                        params![OWNER_BLOCK_ID, LIBRARY_ID, NOW],
                     )?;
                     if owner_type == "page" {
                         transaction.execute(
                             "INSERT INTO pages(\
-                               block_id, library_id, document_id, parent_kind, parent_id, lifecycle, \
-                               parent_revision, metadata_revision, created_at, updated_at\
-                             ) VALUES (?1, ?2, ?3, 'library', ?2, 'active', 1, 1, ?4, ?4)",
+                               block_id, library_id, document_id, parent_kind, parent_id, \
+                               created_at, updated_at\
+                             ) VALUES (?1, ?2, ?3, 'library', ?2, ?4, ?4)",
                             params![OWNER_BLOCK_ID, LIBRARY_ID, DOCUMENT_ID, NOW],
                         )?;
                         transaction.execute(
                             "INSERT INTO page_read_model(\
-                               page_block_id, project_id, lifecycle, location_kind, \
-                               containing_document_id, containing_database_id, top_level_rank_key, \
-                               location_revision, metadata_revision, document_id, document_generation, \
+                               page_block_id, library_id, lifecycle, parent_kind, parent_id, \
+                               library_rank_key, placement_revision, metadata_revision, \
+                               document_id, document_generation, \
                                document_projected_seq, document_schema_version, document_authority, \
                                membership_id, database_block_id, view_id, view_group_key, view_rank_key, \
                                title, description_preview, description_length, has_description, \
                                database_values_json, intrinsic_properties_json, property_revisions_json, \
                                projection_version, created_at, updated_at\
-                             ) VALUES (?1, ?2, 'active', 'space', NULL, NULL, NULL, 1, 1, ?3, 1, 0, ?4, \
+                             ) VALUES (?1, ?2, 'active', 'library', ?2, 'a', 1, 1, ?3, 1, 0, ?4, \
                                'legacy_shadow', NULL, NULL, NULL, NULL, NULL, '', '', 0, 0, '{}', '{}', \
                                '{}', 1, ?5, ?5)",
                             params![
                                 OWNER_BLOCK_ID,
-                                PROJECT_ID,
+                                LIBRARY_ID,
                                 DOCUMENT_ID,
                                 schema_version,
                                 NOW,
                             ],
+                        )?;
+                        transaction.execute(
+                            "INSERT INTO project_resource_grants(\
+                               id, project_id, library_id, root_kind, root_id, access, recursive, \
+                               revision, lifecycle, created_at, updated_at\
+                             ) VALUES ('grant:document-test', ?1, ?2, 'page', ?3, \
+                               'read_write', 1, 1, 'active', ?4, ?4)",
+                            params![PROJECT_ID, LIBRARY_ID, OWNER_BLOCK_ID, NOW],
                         )?;
                     }
                     Ok(())
@@ -6114,6 +6366,16 @@ mod tests {
             .writer()
             .call(|connection| {
                 with_immediate_transaction(connection, |transaction| {
+                    transaction.execute(
+                        "INSERT OR IGNORE INTO profiles(id, created_at, updated_at) \
+                         VALUES (?1, ?2, ?2)",
+                        params![PROFILE_ID, NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT OR IGNORE INTO libraries(id, profile_id, created_at, updated_at) \
+                         VALUES (?1, ?2, ?3, ?3)",
+                        params![LIBRARY_ID, PROFILE_ID, NOW],
+                    )?;
                     transaction.execute(
                         "INSERT INTO projects(id, library_id, name, created, updated) \
                          VALUES (?1, ?2, 'Owner command test', ?3, ?3)",
@@ -6195,35 +6457,49 @@ mod tests {
                     )?;
                     transaction.execute(
                         "INSERT INTO blocks(\
-                           id, project_id, type, lifecycle, location_kind, containing_document_id, \
-                           containing_database_id, location_revision, metadata_revision, created_at, updated_at\
-                         ) VALUES (?1, ?2, 'canvas', 'active', 'space', NULL, NULL, 1, 1, ?3, ?3)",
-                        params![OWNER_BLOCK_ID, PROJECT_ID, NOW],
+                           id, library_id, type, lifecycle, placement_revision, metadata_revision, \
+                           created_at, updated_at\
+                         ) VALUES (?1, ?2, 'canvas', 'active', 1, 1, ?3, ?3)",
+                        params![OWNER_BLOCK_ID, LIBRARY_ID, NOW],
                     )?;
                     transaction.execute(
                         "INSERT INTO blocks(\
-                           id, project_id, type, lifecycle, location_kind, containing_document_id, \
-                           containing_database_id, location_revision, metadata_revision, created_at, updated_at\
-                         ) VALUES (?1, ?2, 'page', 'active', 'space', NULL, NULL, 1, 1, ?3, ?3)",
-                        params![TARGET_PAGE_BLOCK_ID, PROJECT_ID, NOW],
+                           id, library_id, type, lifecycle, placement_revision, metadata_revision, \
+                           created_at, updated_at\
+                         ) VALUES (?1, ?2, 'page', 'active', 1, 1, ?3, ?3)",
+                        params![TARGET_PAGE_BLOCK_ID, LIBRARY_ID, NOW],
                     )?;
                     transaction.execute(
                         "INSERT INTO documents(\
-                           id, project_id, generation, head_seq, schema_key, schema_version, \
+                           id, library_id, generation, head_seq, schema_key, schema_version, \
                            state_vector, state_hash, readiness, authority, created_at, updated_at, sync_engine\
                          ) VALUES (?1, ?2, 1, 0, 'nodex.canvas', 1, X'', ?3, \
                            'ready', 'ydoc_primary', ?4, ?4, 'canvas_scene')",
-                        params![DOCUMENT_ID, PROJECT_ID, "0".repeat(64), NOW],
+                        params![DOCUMENT_ID, LIBRARY_ID, "0".repeat(64), NOW],
                     )?;
                     transaction.execute(
-                        "INSERT INTO block_documents(block_id, document_id, project_id, created_at) \
+                        "INSERT INTO block_documents(block_id, document_id, library_id, created_at) \
                          VALUES (?1, ?2, ?3, ?4)",
-                        params![OWNER_BLOCK_ID, DOCUMENT_ID, PROJECT_ID, NOW],
+                        params![OWNER_BLOCK_ID, DOCUMENT_ID, LIBRARY_ID, NOW],
                     )?;
                     transaction.execute(
                         "INSERT INTO canvas_owners(block_id, library_id, created_at, updated_at) \
                          VALUES (?1, ?2, ?3, ?3)",
                         params![OWNER_BLOCK_ID, LIBRARY_ID, NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO library_block_placements(\
+                           block_id, library_id, rank_key, revision, created_at, updated_at\
+                         ) VALUES (?1, ?2, 'a', 1, ?3, ?3)",
+                        params![OWNER_BLOCK_ID, LIBRARY_ID, NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO project_resource_grants(\
+                           id, project_id, library_id, root_kind, root_id, access, recursive, \
+                           revision, lifecycle, created_at, updated_at\
+                         ) VALUES ('grant:canvas-test', ?1, ?2, 'canvas', ?3, \
+                           'read_write', 1, 1, 'active', ?4, ?4)",
+                        params![PROJECT_ID, LIBRARY_ID, OWNER_BLOCK_ID, NOW],
                     )?;
                     Ok(())
                 })
@@ -6523,7 +6799,18 @@ mod tests {
             applied.committed.value.outcome,
             DocumentCommitOutcome::Committed
         );
-        assert!(applied.committed.value.canvas.is_some());
+        let canvas_result = applied
+            .committed
+            .value
+            .canvas
+            .as_ref()
+            .expect("Canvas mutation result");
+        assert_eq!(canvas_result["libraryId"], LIBRARY_ID);
+        assert_eq!(
+            canvas_result["accessContext"],
+            json!({ "kind": "project", "projectId": PROJECT_ID })
+        );
+        assert!(canvas_result.get("projectId").is_none());
         assert!(matches!(
             applied.events.first().map(|event| &event.payload),
             Some(CoreModuleEventPayload::OwnedDocument(
@@ -6986,36 +7273,62 @@ mod tests {
                     )?;
                     transaction.execute(
                         "INSERT INTO documents(\
-                           id, project_id, generation, head_seq, schema_key, schema_version, \
+                           id, library_id, generation, head_seq, schema_key, schema_version, \
                            state_vector, state_hash, readiness, authority, created_at, updated_at, sync_engine\
                          ) VALUES (?1, ?2, 1, 0, 'nodex.page', 2, X'', ?3, \
                            'ready', 'ydoc_primary', ?4, ?4, 'yjs')",
-                        params![HOST_DOCUMENT_ID, PROJECT_ID, "", NOW],
+                        params![HOST_DOCUMENT_ID, LIBRARY_ID, "", NOW],
                     )?;
                     transaction.execute(
-                        "INSERT INTO block_documents(block_id, document_id, project_id, created_at) \
+                        "INSERT INTO block_documents(block_id, document_id, library_id, created_at) \
                          VALUES (?1, ?2, ?3, ?4)",
-                        params![TARGET_PAGE_BLOCK_ID, HOST_DOCUMENT_ID, PROJECT_ID, NOW],
+                        params![TARGET_PAGE_BLOCK_ID, HOST_DOCUMENT_ID, LIBRARY_ID, NOW],
                     )?;
                     transaction.execute(
                         "INSERT INTO pages(\
-                           block_id, library_id, document_id, parent_kind, parent_id, lifecycle, \
-                           parent_revision, metadata_revision, created_at, updated_at\
-                         ) VALUES (?1, ?2, ?3, 'library', ?2, 'active', 1, 1, ?4, ?4)",
+                           block_id, library_id, document_id, parent_kind, parent_id, \
+                           created_at, updated_at\
+                         ) VALUES (?1, ?2, ?3, 'library', ?2, ?4, ?4)",
                         params![TARGET_PAGE_BLOCK_ID, LIBRARY_ID, HOST_DOCUMENT_ID, NOW],
                     )?;
                     transaction.execute(
-                        "UPDATE blocks SET location_kind = 'document', \
-                         containing_document_id = ?1, location_revision = 2 WHERE id = ?2",
+                        "INSERT INTO library_block_placements(\
+                           block_id, library_id, rank_key, revision, created_at, updated_at\
+                         ) VALUES (?1, ?2, '7fffffffffffffffffffffffffffffff', 1, ?3, ?3)",
+                        params![TARGET_PAGE_BLOCK_ID, LIBRARY_ID, NOW],
+                    )?;
+                    transaction.execute(
+                        "DELETE FROM library_block_placements \
+                         WHERE block_id = ?1 AND library_id = ?2",
+                        params![OWNER_BLOCK_ID, LIBRARY_ID],
+                    )?;
+                    transaction.execute(
+                        "UPDATE blocks SET placement_revision = placement_revision + 1, \
+                           updated_at = ?1 WHERE id = ?2 AND library_id = ?3",
+                        params![NOW, OWNER_BLOCK_ID, LIBRARY_ID],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO document_block_index(\
+                           document_id, block_id, parent_block_id, ordinal, block_type, text, projected_seq\
+                         ) VALUES (?1, ?2, NULL, 0, 'canvas', '', 0)",
                         params![HOST_DOCUMENT_ID, OWNER_BLOCK_ID],
                     )?;
                     transaction.execute(
                         "INSERT INTO project_resource_grants(\
                            id, project_id, library_id, root_kind, root_id, access, recursive, \
                            revision, lifecycle, created_at, updated_at\
-                         ) VALUES ('grant:canvas-host', ?1, ?2, 'page', ?3, 'read', 1, 1, \
-                           'active', ?4, ?4)",
-                        params![GRANTED_PROJECT_ID, LIBRARY_ID, TARGET_PAGE_BLOCK_ID, NOW],
+                         ) VALUES \
+                           ('grant:canvas-host-owner', ?1, ?3, 'page', ?4, 'read_write', 1, 1, \
+                            'active', ?5, ?5), \
+                           ('grant:canvas-host-reader', ?2, ?3, 'page', ?4, 'read', 1, 1, \
+                            'active', ?5, ?5)",
+                        params![
+                            PROJECT_ID,
+                            GRANTED_PROJECT_ID,
+                            LIBRARY_ID,
+                            TARGET_PAGE_BLOCK_ID,
+                            NOW,
+                        ],
                     )?;
                     Ok(())
                 })
@@ -7056,7 +7369,7 @@ mod tests {
                 connection.execute(
                     "UPDATE project_resource_grants \
                      SET access = 'read_write', revision = 2 \
-                     WHERE id = 'grant:canvas-host'",
+                     WHERE id = 'grant:canvas-host-reader'",
                     [],
                 )?;
                 Ok(())
@@ -7074,12 +7387,24 @@ mod tests {
             .kernel
             .writer()
             .call(|connection| {
-                connection.execute(
-                    "UPDATE blocks SET location_kind = 'space', \
-                     containing_document_id = NULL, location_revision = 3 WHERE id = ?1",
-                    [OWNER_BLOCK_ID],
-                )?;
-                Ok(())
+                with_immediate_transaction(connection, |transaction| {
+                    transaction.execute(
+                        "DELETE FROM document_block_index WHERE block_id = ?1",
+                        [OWNER_BLOCK_ID],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO library_block_placements(\
+                           block_id, library_id, rank_key, revision, created_at, updated_at\
+                         ) VALUES (?1, ?2, 'bfffffffffffffffffffffffffffffff', 1, ?3, ?3)",
+                        params![OWNER_BLOCK_ID, LIBRARY_ID, NOW],
+                    )?;
+                    transaction.execute(
+                        "UPDATE blocks SET placement_revision = placement_revision + 1, \
+                           updated_at = ?1 WHERE id = ?2 AND library_id = ?3",
+                        params![NOW, OWNER_BLOCK_ID, LIBRARY_ID],
+                    )?;
+                    Ok(())
+                })
             })
             .unwrap();
         seeded
@@ -7384,7 +7709,7 @@ mod tests {
             .read_default(|connection| {
                 let evidence = connection.query_row(
                     "SELECT document.readiness, document.authority, document.head_seq, \
-                            owner.lifecycle, child.lifecycle, child.containing_document_id, \
+                            owner.lifecycle, child.lifecycle, child_placement.document_id, \
                             (SELECT count(*) FROM document_snapshots WHERE document_id = ?1), \
                             (SELECT count(*) FROM document_updates WHERE document_id = ?1), \
                             (SELECT count(*) FROM core_module_receipts \
@@ -7393,6 +7718,9 @@ mod tests {
                      JOIN block_documents ownership ON ownership.document_id = document.id \
                      JOIN blocks owner ON owner.id = ownership.block_id \
                      JOIN blocks child ON child.id = ?3 \
+                     JOIN document_block_index child_placement \
+                       ON child_placement.block_id = child.id \
+                      AND child_placement.document_id = document.id \
                      WHERE document.id = ?1",
                     params![
                         CREATED_SOURCE_DOCUMENT_ID,
@@ -7698,12 +8026,12 @@ mod tests {
             .readers()
             .read_default(|connection| {
                 let copied_document = connection.query_row(
-                    "SELECT containing_document_id FROM blocks WHERE id = ?1",
+                    "SELECT document_id FROM document_block_index WHERE block_id = ?1",
                     [&effect.created_block_ids[0]],
                     |row| row.get::<_, String>(0),
                 )?;
                 let source_document = connection.query_row(
-                    "SELECT containing_document_id FROM blocks WHERE id = ?1",
+                    "SELECT document_id FROM document_block_index WHERE block_id = ?1",
                     [CREATED_TEMPLATE_CONTENT_ID],
                     |row| row.get::<_, String>(0),
                 )?;
@@ -7816,7 +8144,7 @@ mod tests {
             .readers()
             .read_default(|connection| {
                 let evidence = connection.query_row(
-                    "SELECT root.lifecycle, root.containing_document_id, source.lifecycle, \
+                    "SELECT root.lifecycle, root_placement.document_id, source.lifecycle, \
                             reference.lifecycle, host.head_seq, source_document.head_seq, \
                             (SELECT count(*) FROM document_snapshots \
                               WHERE document_id = source_document.id) \
@@ -7824,6 +8152,9 @@ mod tests {
                      JOIN blocks source ON source.id = ?2 \
                      JOIN blocks reference ON reference.id = ?3 \
                      JOIN documents host ON host.id = ?4 \
+                     JOIN document_block_index root_placement \
+                       ON root_placement.block_id = root.id \
+                      AND root_placement.document_id = host.id \
                      JOIN documents source_document ON source_document.id = ?5 \
                      WHERE root.id = ?1",
                     params![
@@ -8090,17 +8421,13 @@ mod tests {
                         [RELATION_SOURCE_PAGE_ID],
                     )?;
                     transaction.execute(
-                        "DELETE FROM top_level_block_placements WHERE block_id = ?1",
-                        [RELATION_SOURCE_PAGE_ID],
-                    )?;
-                    transaction.execute(
-                        "UPDATE blocks SET location_kind = 'database', \
-                           containing_database_id = ?1, updated_at = ?2 WHERE id = ?3",
-                        params![DATABASE_ID, NOW, RELATION_SOURCE_PAGE_ID],
+                        "UPDATE blocks SET placement_revision = placement_revision + 1, \
+                           updated_at = ?1 WHERE id = ?2 AND library_id = ?3",
+                        params![NOW, RELATION_SOURCE_PAGE_ID, LIBRARY_ID],
                     )?;
                     transaction.execute(
                         "UPDATE pages SET parent_kind = 'data_source', parent_id = ?1, \
-                           parent_revision = parent_revision + 1, updated_at = ?2 \
+                           updated_at = ?2 \
                          WHERE block_id = ?3",
                         params![DATA_SOURCE_ID, NOW, RELATION_SOURCE_PAGE_ID],
                     )?;
@@ -8114,6 +8441,13 @@ mod tests {
                             RELATION_SOURCE_PAGE_ID,
                             NOW,
                         ],
+                    )?;
+                    crate::database::refresh_copied_page_projection(
+                        transaction,
+                        RELATION_SOURCE_PAGE_ID,
+                        Some(RELATION_SOURCE_MEMBERSHIP_ID),
+                        Some(DATA_SOURCE_ID),
+                        NOW,
                     )?;
                     transaction.execute(
                         "INSERT INTO data_source_properties(\
@@ -8628,7 +8962,7 @@ mod tests {
     }
 
     #[test]
-    fn trusted_library_realtime_scope_crosses_document_storage_projects() {
+    fn trusted_library_realtime_scope_crosses_project_access_paths() {
         let seeded = seeded_module();
         let adapter = OwnedDocumentRealtimeAdapter::new(seeded.module.clone());
         let library_context = library_context_for("renderer:library", AdapterKind::Test);
@@ -8636,6 +8970,20 @@ mod tests {
         let wrong_project = context_for_project("renderer:wrong", "project:other");
 
         let canvas = canvas_module();
+        canvas
+            .module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
+                    operation_id: "canvas:library-access:prepare".to_owned(),
+                    store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                    intent: OwnedDocumentIntent::PrepareOwner {
+                        owner_block_id: OWNER_BLOCK_ID.to_owned(),
+                    },
+                },
+            )
+            .expect("prepare Library-accessed Canvas");
         let canvas_adapter = OwnedDocumentRealtimeAdapter::new(canvas.module);
         let canvas_subscription = canvas_adapter
             .subscribe(
@@ -8648,6 +8996,25 @@ mod tests {
             canvas_subscription.engine,
             DocumentSubscriptionEngine::CanvasScene
         );
+        let library_canvas_applied = canvas_adapter
+            .apply(
+                &library_context,
+                "client:library-canvas",
+                canvas_mutation_request("canvas:library-access", 0, 1, "Library access"),
+            )
+            .expect("trusted Library scope mutates the registered Canvas");
+        let library_canvas_result = library_canvas_applied
+            .committed
+            .value
+            .canvas
+            .as_ref()
+            .expect("Library Canvas mutation result");
+        assert_eq!(library_canvas_result["libraryId"], LIBRARY_ID);
+        assert_eq!(
+            library_canvas_result["accessContext"],
+            json!({ "kind": "library" })
+        );
+        assert!(library_canvas_result.get("projectId").is_none());
 
         let unauthorized_library = adapter
             .subscribe(
@@ -8709,7 +9076,7 @@ mod tests {
                         [OWNER_BLOCK_ID],
                     )?;
                     transaction.execute(
-                        "UPDATE pages SET lifecycle = 'archived' WHERE block_id = ?1",
+                        "UPDATE page_read_model SET lifecycle = 'archived' WHERE page_block_id = ?1",
                         [OWNER_BLOCK_ID],
                     )?;
                     Ok(())
@@ -9862,7 +10229,12 @@ mod tests {
             .module
             .apply(&context(), request.clone())
             .expect_err("stale structural update requires recovery");
-        assert_eq!(recovery.code, CoreErrorCode::RevisionConflict);
+        assert_eq!(
+            recovery.code,
+            CoreErrorCode::RevisionConflict,
+            "{}",
+            recovery.message
+        );
         assert!(recovery.message.contains("document-recovery:"));
         let repeated = seeded
             .module
@@ -10904,6 +11276,9 @@ mod tests {
     fn prepared_agent_semantic_operation_rejects_a_page_from_another_library() {
         const FOREIGN_PROFILE_ID: &str = "profile:foreign";
         const FOREIGN_LIBRARY_ID: &str = "library:foreign";
+        const FOREIGN_PROJECT_ID: &str = "project:foreign";
+        const FOREIGN_PAGE_ID: &str = "page:foreign";
+        const FOREIGN_DOCUMENT_ID: &str = "document:foreign";
         let seeded = seeded_module();
         let connection_id = "electron:agent-foreign-library";
         let provenance = seed_agent_turn(&seeded, connection_id);
@@ -10922,13 +11297,38 @@ mod tests {
                         params![FOREIGN_LIBRARY_ID, FOREIGN_PROFILE_ID, NOW],
                     )?;
                     transaction.execute(
-                        "UPDATE pages SET library_id = ?1, parent_id = ?1 WHERE block_id = ?2",
-                        params![FOREIGN_LIBRARY_ID, OWNER_BLOCK_ID],
+                        "INSERT INTO projects(id, library_id, name, created, updated) \
+                         VALUES (?1, ?2, 'Foreign Library actor', ?3, ?3)",
+                        params![FOREIGN_PROJECT_ID, FOREIGN_LIBRARY_ID, NOW],
                     )?;
                     Ok(())
                 })
             })
-            .expect("move Page to a foreign Library fixture");
+            .expect("seed foreign Library identity");
+        let foreign_library =
+            LibraryModule::new(FOREIGN_PROFILE_ID, FOREIGN_LIBRARY_ID, &seeded.kernel);
+        foreign_library
+            .apply(
+                &BoundModuleContext {
+                    profile_id: ProfileId(FOREIGN_PROFILE_ID.to_owned()),
+                    library_id: LibraryId(FOREIGN_LIBRARY_ID.to_owned()),
+                    project_id: None,
+                    connection_id: "trusted:foreign-library".to_owned(),
+                    adapter: AdapterKind::Test,
+                },
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "create:foreign-page".to_owned(),
+                    store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                    intent: LibraryIntent::CreatePage {
+                        page_id: FOREIGN_PAGE_ID.to_owned(),
+                        document_id: FOREIGN_DOCUMENT_ID.to_owned(),
+                        title: "Foreign Page".to_owned(),
+                        parent: LibraryWriteParent::Library { before: None },
+                    },
+                },
+            )
+            .expect("create foreign Library Page");
 
         let error = seeded
             .module
@@ -10941,7 +11341,7 @@ mod tests {
                         store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
                         authorization: Box::new(agent_execution_authorization(provenance)),
                         mutation: Box::new(AgentDocumentSemanticMutation {
-                            document_id: DOCUMENT_ID.to_owned(),
+                            document_id: FOREIGN_DOCUMENT_ID.to_owned(),
                             generation: 1,
                             expected_head_seq: 1,
                             allow_deleting_owned_blocks: false,
@@ -11373,7 +11773,7 @@ mod tests {
                 super::super::semantic::mint_etag(
                     connection,
                     "title",
-                    PROJECT_ID,
+                    CLI_PROJECT_ID,
                     STORE_EPOCH,
                     &[DOCUMENT_ID],
                     json!({ "richTitle": materialization.rich_title }),

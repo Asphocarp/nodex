@@ -29,8 +29,8 @@ export const queryKeys = {
   },
   blockDocuments: {
     all: () => ["blockDocuments"] as const,
-    owned: (projectId: string, ownerBlockId: string) =>
-      ["blockDocuments", "owned", projectId, ownerBlockId] as const,
+    owned: (accessContext: ContentAccessContext, ownerBlockId: string) =>
+      ["blockDocuments", "owned", accessContext, ownerBlockId] as const,
   },
   pageTargets: {
     byId: (accessContext: ContentAccessContext, targetBlockId: string) => [

@@ -31,7 +31,7 @@ function buildPagesKey(pages: readonly CommandPalettePage[]): string {
       item.page.title,
       item.page.descriptionPreview,
       item.page.assignee ?? "",
-      item.page.tags.join(","),
+      item.tagLabels.join(","),
     ].join("\u0001"))
     .join("\u0002");
 }

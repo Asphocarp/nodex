@@ -1,6 +1,5 @@
 import {
   canonicalizeTagName,
-  createCustomOptionId,
   parseDataSourceId,
   parseDataSourceOptionId,
   type DataSourceOptionId,
@@ -28,8 +27,6 @@ import type { WorkflowStatus } from "./workflow-status";
 import type { BlockPropertyJsonValue } from "./block-property-mutations";
 import { MAX_PAGE_TAG_LENGTH } from "./page-limits";
 
-const MAX_OPTION_ALLOCATION_ATTEMPTS = 128;
-
 export interface PageLifecycleTagsPropertySnapshotV2 {
   readonly propertyId: string;
   readonly dataSourceId: string;
@@ -40,11 +37,9 @@ export interface PageLifecycleTagsPropertySnapshotV2 {
 }
 
 export interface CompilePageLifecycleCreateRequestV2Input {
-  /** Version-neutral create intent; tags are user-facing display names. */
+  /** Version-neutral create intent with preallocated option identities. */
   readonly request: PageLifecycleCreateDisplayIntent;
   readonly tagsProperty: PageLifecycleTagsPropertySnapshotV2;
-  /** Called only for a missing tag name, before the authority request exists. */
-  readonly allocateOptionId?: () => DataSourceOptionId;
 }
 
 type PageLifecycleCreateDisplayOptionalFields = Omit<
@@ -68,7 +63,7 @@ export type PageLifecycleCreateDisplayOperation = Readonly<{
   nfm: string;
   status: WorkflowStatus;
   viewPlacement: CreatePageOperationV2["viewPlacement"];
-  tags?: readonly string[];
+  tagOptions?: NonNullable<PageCreateInput["tagOptions"]>;
 }> &
   Partial<PageLifecycleCreateDisplayOptionalFields>;
 
@@ -114,6 +109,7 @@ const parseExistingOptions = (
     return fail("The tags Property must define an option registry");
   }
   const seenIds = new Set<string>();
+  const seenNames = new Set<string>();
   return rawOptions.map((candidate, index) => {
     if (
       typeof candidate !== "object" ||
@@ -144,6 +140,10 @@ const parseExistingOptions = (
       option.name,
       `The tags Property option ${optionId} name`,
     );
+    if (seenNames.has(name)) {
+      return fail(`The tags Property repeats canonical option name ${JSON.stringify(name)}`);
+    }
+    seenNames.add(name);
     return { optionId, name, nameKey: name };
   });
 };
@@ -171,39 +171,16 @@ const validateTagsProperty = (
   }
 };
 
-const allocateUniqueOptionId = (
-  allocate: () => DataSourceOptionId,
-  unavailable: ReadonlySet<string>,
-): DataSourceOptionId => {
-  for (let attempt = 0; attempt < MAX_OPTION_ALLOCATION_ATTEMPTS; attempt += 1) {
-    let optionId: DataSourceOptionId;
-    try {
-      optionId = parseDataSourceOptionId({
-        propertyId: "tags",
-        value: allocate(),
-      });
-    } catch (error) {
-      return fail(
-        `The tag option allocator returned an invalid identity: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      );
-    }
-    if (!unavailable.has(optionId)) return optionId;
-  }
-  return fail(
-    `The tag option allocator collided ${MAX_OPTION_ALLOCATION_ATTEMPTS} consecutive times`,
-  );
-};
-
 const compileCreateOperation = (input: {
   readonly operation: PageLifecycleCreateDisplayOperation;
   readonly tagsProperty: PageLifecycleTagsPropertySnapshotV2;
-  readonly allocateOptionId: () => DataSourceOptionId;
 }): CreatePageOperationV2 => {
   validateTagsProperty(input.tagsProperty);
   const dataSourceId = parseDataSourceId(input.tagsProperty.dataSourceId);
   const existingOptions = parseExistingOptions(input.tagsProperty);
+  const optionsById = new Map(
+    existingOptions.map((option) => [option.optionId, option] as const),
+  );
   const optionsByName = new Map<string, ExistingTagOption[]>();
   for (const option of existingOptions) {
     const matches = optionsByName.get(option.nameKey);
@@ -214,36 +191,52 @@ const compileCreateOperation = (input: {
     }
   }
 
-  const requestedNames = new Map<string, string>();
-  for (const rawName of input.operation.tags ?? []) {
-    const name = canonicalName(rawName, "Page tag name");
-    const key = name;
-    if (!requestedNames.has(key)) requestedNames.set(key, name);
+  const requestedById = new Map<DataSourceOptionId, string>();
+  const requestedByName = new Map<string, DataSourceOptionId>();
+  for (const requested of input.operation.tagOptions ?? []) {
+    let optionId: DataSourceOptionId;
+    try {
+      optionId = parseDataSourceOptionId({
+        propertyId: "tags",
+        value: requested.optionId,
+      });
+    } catch (error) {
+      return fail(
+        `Page tag option identity is invalid: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+    const name = canonicalName(requested.name, "Page tag option name");
+    const priorName = requestedById.get(optionId);
+    if (priorName && priorName !== name) {
+      return fail(`Page tag option ${optionId} has conflicting names`);
+    }
+    const priorId = requestedByName.get(name);
+    if (priorId && priorId !== optionId) {
+      return fail(`Page tag name ${JSON.stringify(name)} has conflicting identities`);
+    }
+    requestedById.set(optionId, name);
+    requestedByName.set(name, optionId);
   }
 
-  const unavailableIds = new Set(
-    existingOptions.map((option) => option.optionId),
-  );
   const tagOptionIds: DataSourceOptionId[] = [];
   const newTagOptions: CreatePageTagOptionV2[] = [];
-  const sortedRequestedNames = [...requestedNames.entries()].sort(
+  const sortedRequestedOptions = [...requestedById.entries()].sort(
     ([left], [right]) => left.localeCompare(right),
   );
-  for (const [key, name] of sortedRequestedNames) {
-    const existing = optionsByName.get(key) ?? [];
-    if (existing.length > 1) {
-      return fail(`Tag name ${JSON.stringify(name)} is ambiguous in the tags Property`);
-    }
-    const existingOption = existing[0];
+  for (const [optionId, name] of sortedRequestedOptions) {
+    const existingOption = optionsById.get(optionId);
     if (existingOption) {
       tagOptionIds.push(existingOption.optionId);
       continue;
     }
-    const optionId = allocateUniqueOptionId(
-      input.allocateOptionId,
-      unavailableIds,
-    );
-    unavailableIds.add(optionId);
+    const existingWithName = optionsByName.get(name) ?? [];
+    if (existingWithName.length > 0) {
+      return fail(
+        `Tag name ${JSON.stringify(name)} already belongs to another option identity`,
+      );
+    }
     tagOptionIds.push(optionId);
     newTagOptions.push({ optionId, name });
   }
@@ -284,7 +277,7 @@ const compileCreateOperation = (input: {
 };
 
 /**
- * Compile display-name intent into one self-contained exact-retry request.
+ * Compile preallocated identity intent into one self-contained exact-retry request.
  * The authority boundary validates and persists these preallocated identities;
  * it never allocates or substitutes an option identity itself.
  */
@@ -298,7 +291,6 @@ export const compilePageLifecycleCreateRequestV2 = (
   const operation = compileCreateOperation({
     operation: request.operation,
     tagsProperty: input.tagsProperty,
-    allocateOptionId: input.allocateOptionId ?? (() => createCustomOptionId()),
   });
   const compiled = parsePageLifecycleMutationRequestV2({
     version: 2,
@@ -615,7 +607,7 @@ const createDisplayOperation = (
     viewPlacement,
     priority: input.priority ?? null,
     estimate: input.estimate ?? null,
-    tags: input.tags ?? [],
+    tagOptions: input.tagOptions ?? [],
     dueDate: canonicalDate(input.dueDate),
     scheduledStart: canonicalDateTime(input.scheduledStart),
     scheduledEnd: canonicalDateTime(input.scheduledEnd),

@@ -68,7 +68,7 @@ export const NODEX_AGENT_V3_TOOL_CONTRACTS = {
   }),
   query_data_source: defineV3Contract({
     description:
-      "Run a typed temporary filter and sort against one known Data Source; use a saved Database View query when its persisted behavior is desired.",
+      "Run a typed temporary filter and non-manual sort against one known Data Source without inheriting saved View rules or positions; omitted sort uses stable Page identity order.",
     inputSchema: QueryDataSourceV3InputSchema,
     outputSchema: QueryDatabaseV3OutputSchema,
     deferLoading: true,

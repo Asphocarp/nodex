@@ -3,7 +3,7 @@ import {
   decodeOwnedDocumentDescriptorHttp,
   decodeCanvasSceneSyncHttpRequest,
   decodeCanvasSceneSyncHttpResponse,
-  decodeLibraryOwnedDocumentDescriptorHttp,
+  decodeLibraryAccessedDocumentDescriptorHttp,
   decodeDocumentApplyHttpAck,
   decodeDocumentApplyHttpRequest,
   decodeDocumentAwarenessHttpRequest,
@@ -21,7 +21,7 @@ import {
   encodeDocumentSyncHttpRequest,
   encodeDocumentSyncHttpResponse,
   encodeOwnedDocumentDescriptorHttp,
-  encodeLibraryOwnedDocumentDescriptorHttp,
+  encodeLibraryAccessedDocumentDescriptorHttp,
 } from "./http-contract";
 import {
   CANVAS_SCENE_SYNC_VERSION,
@@ -92,9 +92,10 @@ const documentDelivery = (): AuthorizedDeliveryPacket => ({
 });
 
 describe("Document HTTP contract", () => {
-  test("round-trips Library descriptors without a compatibility Project", () => {
-    const descriptor = decodeLibraryOwnedDocumentDescriptorHttp(
-      encodeLibraryOwnedDocumentDescriptorHttp({
+  test("round-trips Library descriptors without a Project coordinate", () => {
+    const descriptor = decodeLibraryAccessedDocumentDescriptorHttp(
+      encodeLibraryAccessedDocumentDescriptorHttp({
+        libraryId: "library-1",
         accessContext: { kind: "library" },
         ownerBlockId: "page-1",
         ownerType: "page",
@@ -111,16 +112,18 @@ describe("Document HTTP contract", () => {
       }),
     );
     expect(descriptor.accessContext).toEqual({ kind: "library" });
+    expect(descriptor.libraryId).toBe("library-1");
     expect("projectId" in descriptor).toBe(false);
-    expect(() => decodeLibraryOwnedDocumentDescriptorHttp(JSON.stringify({
-      ...JSON.parse(encodeLibraryOwnedDocumentDescriptorHttp(descriptor)),
+    expect(() => decodeLibraryAccessedDocumentDescriptorHttp(JSON.stringify({
+      ...JSON.parse(encodeLibraryAccessedDocumentDescriptorHttp(descriptor)),
       projectId: "forged",
     }))).toThrow("unsupported fields");
   });
 
   test("round-trips engine-neutral Yjs and Canvas descriptors", () => {
     const common = {
-      projectId: "project-1",
+      libraryId: "library-1",
+      accessContext: { kind: "project", projectId: "project-1" },
       ownerLifecycle: "active",
       storeEpoch: "store-1",
       generation: 2,
@@ -160,8 +163,9 @@ describe("Document HTTP contract", () => {
 
   test("rejects Yjs fields on a Canvas engine descriptor", () => {
     const serialized = JSON.stringify({
-      version: 2,
-      projectId: "project-1",
+      version: 3,
+      libraryId: "library-1",
+      accessContext: { kind: "project", projectId: "project-1" },
       ownerBlockId: "canvas-1",
       ownerType: "canvas",
       ownerLifecycle: "active",
@@ -284,7 +288,7 @@ describe("Document HTTP contract", () => {
     const request = {
       version: CANVAS_SCENE_SYNC_VERSION,
       syncRequestId: "sync-1",
-      projectId: "project-1",
+      accessContext: { kind: "project", projectId: "project-1" },
       documentId: "canvas-1",
       clientSessionId: "client-1",
       knownStoreEpoch: "store-1",
@@ -295,7 +299,7 @@ describe("Document HTTP contract", () => {
     expect(
       decodeCanvasSceneSyncHttpRequest(
         request.documentId,
-        request.projectId,
+        request.accessContext,
         encodeCanvasSceneSyncHttpRequest(request),
       ),
     ).toEqual(request);
@@ -304,7 +308,8 @@ describe("Document HTTP contract", () => {
       kind: "snapshot",
       version: CANVAS_SCENE_SYNC_VERSION,
       syncRequestId: request.syncRequestId,
-      projectId: request.projectId,
+      libraryId: "library-1",
+      accessContext: request.accessContext,
       documentId: request.documentId,
       storeEpoch: request.knownStoreEpoch,
       generation: request.knownGeneration,
@@ -324,7 +329,8 @@ describe("Document HTTP contract", () => {
       kind: "snapshot",
       version: CANVAS_SCENE_SYNC_VERSION,
       syncRequestId: request.syncRequestId,
-      projectId: request.projectId,
+      libraryId: "library-1",
+      accessContext: request.accessContext,
       documentId: request.documentId,
       storeEpoch: request.knownStoreEpoch,
       generation: request.knownGeneration,
@@ -337,7 +343,8 @@ describe("Document HTTP contract", () => {
       kind: "up_to_date",
       version: CANVAS_SCENE_SYNC_VERSION,
       syncRequestId: "sync-2",
-      projectId: request.projectId,
+      libraryId: "library-1",
+      accessContext: request.accessContext,
       documentId: request.documentId,
       storeEpoch: request.knownStoreEpoch,
       generation: request.knownGeneration,
@@ -360,7 +367,8 @@ describe("Document HTTP contract", () => {
       engine: "canvas_scene",
       kind: "snapshot",
       syncRequestId: "sync-1",
-      projectId: "project-1",
+      libraryId: "library-1",
+      accessContext: { kind: "project", projectId: "project-1" },
       documentId: "canvas-1",
       storeEpoch: "store-1",
       generation: 1,
@@ -409,7 +417,8 @@ describe("Document HTTP contract", () => {
       engine: "canvas_scene",
       kind: "snapshot",
       syncRequestId: "sync-rust-numbers",
-      projectId: "project-1",
+      libraryId: "library-1",
+      accessContext: { kind: "project", projectId: "project-1" },
       documentId: "canvas-1",
       storeEpoch: "store-1",
       generation: 1,

@@ -29,6 +29,7 @@ declare global {
   }
 
   interface Window {
+    EXCALIDRAW_ASSET_PATH?: string | string[];
     api?: {
       invoke: (channel: string, ...args: unknown[]) => Promise<unknown>;
       on: (event: string, callback: (...args: unknown[]) => void) => () => void;

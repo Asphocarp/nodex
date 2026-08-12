@@ -2,6 +2,7 @@ import type {
   DocumentSyncCommandError,
   OwnedDocumentDescriptor,
 } from "../../shared/block-documents";
+import { contentAccessContextKey } from "../../shared/content-access-context";
 
 export type BlockDocumentSurfaceFailureReason =
   | "access-revoked"
@@ -95,7 +96,12 @@ export const resolveBlockDocumentSurfaceFailure = (
   appendDiagnostic(diagnostics, "Failure", reason);
   appendDiagnostic(diagnostics, "Code", syncError?.code ?? "runtime_error");
   appendDiagnostic(diagnostics, "Message", message || title);
-  appendDiagnostic(diagnostics, "Project", descriptor.projectId);
+  appendDiagnostic(diagnostics, "Library", descriptor.libraryId);
+  appendDiagnostic(
+    diagnostics,
+    "Access",
+    contentAccessContextKey(descriptor.accessContext),
+  );
   appendDiagnostic(diagnostics, "Owner block", descriptor.ownerBlockId);
   appendDiagnostic(diagnostics, "Document", descriptor.documentId);
   appendDiagnostic(diagnostics, "Store epoch", descriptor.storeEpoch);

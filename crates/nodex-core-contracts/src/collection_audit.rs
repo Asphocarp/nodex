@@ -7,7 +7,7 @@
 
 use crate::administration::StoreAdministrationRead;
 use crate::automation::AutomationRead;
-use crate::database::DatabaseReadMode;
+use crate::database::DatabaseRead;
 use crate::document::OwnedDocumentRead;
 use crate::library::LibraryRead;
 use crate::workspace::ProjectWorkspaceRead;
@@ -48,28 +48,30 @@ fn workspace_policy(read: &ProjectWorkspaceRead) -> ReadBudgetPolicy {
     }
 }
 
-fn database_policy(mode: DatabaseReadMode) -> ReadBudgetPolicy {
-    match mode {
-        DatabaseReadMode::CatalogWindow
-        | DatabaseReadMode::DataSourceWindow
-        | DatabaseReadMode::PropertyWindow
-        | DatabaseReadMode::OptionWindow
-        | DatabaseReadMode::ViewDescriptorWindow
-        | DatabaseReadMode::AgentQuery
-        | DatabaseReadMode::ViewWindow
-        | DatabaseReadMode::ListWindow
-        | DatabaseReadMode::ViewContext
-        | DatabaseReadMode::RelationTargetWindow
-        | DatabaseReadMode::RelationCandidateWindow => ReadBudgetPolicy::CollectionWindow,
-        DatabaseReadMode::RowsById => ReadBudgetPolicy::BoundedBatch,
+fn database_policy(read: &DatabaseRead) -> ReadBudgetPolicy {
+    match read {
+        DatabaseRead::CatalogWindow { .. }
+        | DatabaseRead::DataSourceWindow { .. }
+        | DatabaseRead::PropertyWindow { .. }
+        | DatabaseRead::OptionWindow { .. }
+        | DatabaseRead::ViewDescriptorWindow { .. }
+        | DatabaseRead::AgentDataSourceQuery { .. }
+        | DatabaseRead::AgentViewQuery { .. }
+        | DatabaseRead::ViewWindow { .. }
+        | DatabaseRead::ListWindow { .. }
+        | DatabaseRead::ViewContext { .. }
+        | DatabaseRead::RelationTargetWindow { .. }
+        | DatabaseRead::RelationCandidateWindow { .. } => ReadBudgetPolicy::CollectionWindow,
+        DatabaseRead::RowsById { .. } => ReadBudgetPolicy::BoundedBatch,
         // Group summaries are capped at MAX_VIEW_GROUP_SUMMARIES with an
         // explicit truncation flag, so the response cardinality is finite.
-        DatabaseReadMode::ViewGroups => ReadBudgetPolicy::FixedDomain,
-        DatabaseReadMode::Database
-        | DatabaseReadMode::DataSource
-        | DatabaseReadMode::View
-        | DatabaseReadMode::ViewPersonalPreferences
-        | DatabaseReadMode::RowDetail => ReadBudgetPolicy::Identity,
+        DatabaseRead::ViewGroups { .. } => ReadBudgetPolicy::FixedDomain,
+        DatabaseRead::Database { .. }
+        | DatabaseRead::DataSource { .. }
+        | DatabaseRead::View { .. }
+        | DatabaseRead::ViewPersonalPresentation { .. }
+        | DatabaseRead::ViewCollapsedOccurrences { .. }
+        | DatabaseRead::RowDetail { .. } => ReadBudgetPolicy::Identity,
     }
 }
 
@@ -150,7 +152,9 @@ fn library_policy(read: &LibraryRead) -> ReadBudgetPolicy {
 #[test]
 fn every_read_variant_has_an_explicit_budget_policy() {
     assert_eq!(
-        database_policy(DatabaseReadMode::CatalogWindow),
+        database_policy(&DatabaseRead::CatalogWindow {
+            window: Default::default(),
+        }),
         ReadBudgetPolicy::CollectionWindow
     );
     assert_eq!(

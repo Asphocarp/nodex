@@ -3,6 +3,7 @@ import type { ProjectLifecycle, ProjectResourceAccess } from "./library";
 export type LibraryResource =
   | { readonly kind: "page"; readonly pageId: string }
   | { readonly kind: "database"; readonly databaseId: string }
+  | { readonly kind: "canvas"; readonly canvasId: string }
   | { readonly kind: "data_source"; readonly dataSourceId: string }
   | { readonly kind: "view"; readonly viewId: string };
 
@@ -19,6 +20,7 @@ export type ProjectResourceAuthorizationSource =
   | "implicit_database_binding"
   | "explicit_page_grant"
   | "explicit_database_grant"
+  | "explicit_canvas_grant"
   | "thread_resource_consent"
   | "thread_full_access";
 
@@ -51,7 +53,8 @@ export interface PutProjectResourceGrantInput {
   readonly projectId: string;
   readonly root:
     | { readonly kind: "page"; readonly pageId: string }
-    | { readonly kind: "database"; readonly databaseId: string };
+    | { readonly kind: "database"; readonly databaseId: string }
+    | { readonly kind: "canvas"; readonly canvasId: string };
   readonly access: ProjectResourceAccess;
 }
 

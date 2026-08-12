@@ -4,6 +4,13 @@
 - Date: 2026-07-11
 - Owners: Nodex maintainers
 
+## Current applicability
+
+ADR 0017 replaces Project/Space content ownership with Library ownership and
+adopts Page as the durable document-bearing product noun. This ADR remains
+authoritative for one stable Block identity and for references not owning their
+targets; its Project/Space and Card placement vocabulary is historical.
+
 ## Context
 
 The legacy data model makes `cards` a wide storage aggregate: one row owns identity, title, body text, board placement, properties, scheduling fields, and revisions. Editor content also contains paragraph-like objects and embedded Card snapshots, but those objects do not share one stable identity model. This causes duplicated ownership and makes operations such as nested content, references, block-level agent edits, and concurrent editing cross several incompatible seams.

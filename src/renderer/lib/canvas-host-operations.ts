@@ -6,7 +6,10 @@ import {
   readLibraryModule,
 } from "./api";
 import { createUuidV7 } from "../../shared/uuid-v7";
-import type { ContentAccessContext } from "../../shared/content-access-context";
+import type {
+  ContentAccessContext,
+  ContentAccessIdentity,
+} from "../../shared/content-access-context";
 import {
   LIBRARY_MODULE_CONTRACT_VERSION,
   type LibraryModuleApplyReceipt,
@@ -195,6 +198,7 @@ async function readAvailableCanvas(
   accessContext: ContentAccessContext,
   canvasId: string,
 ): Promise<{
+  readonly libraryId: string;
   readonly storeEpoch: string;
   readonly summary: LibraryCanvasSummary;
 }> {
@@ -215,6 +219,7 @@ async function readAvailableCanvas(
     );
   }
   return {
+    libraryId: result.value.libraryId,
     storeEpoch: result.value.storeEpoch,
     summary: target.value.summary,
   };
@@ -303,7 +308,7 @@ export async function deleteCanvasOwner(input: {
   readonly readTarget?: typeof readAvailableCanvas;
   readonly apply?: typeof applyLibraryModule;
   readonly retireOwner?: (
-    projectId: string,
+    identity: ContentAccessIdentity,
     ownerBlockId: string,
   ) => Promise<void>;
 } = {}): Promise<LibraryModuleApplyReceipt> {
@@ -341,7 +346,10 @@ export async function deleteCanvasOwner(input: {
   }, dependencies.apply);
   await (
     dependencies.retireOwner ?? canvasDocumentSessionRegistry.retireOwner
-  )(target.summary.projectId, input.canvasBlockId).catch(() => undefined);
+  )({
+    libraryId: target.libraryId,
+    accessContext: input.accessContext,
+  }, input.canvasBlockId).catch(() => undefined);
   return receipt;
 }
 

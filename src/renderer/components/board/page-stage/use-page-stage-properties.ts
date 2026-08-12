@@ -253,7 +253,7 @@ export function usePageStageProperties(input: {
     property: PageStageDataSourceProperty,
     targetPageId: string | null,
   ) => edit(property, {
-    kind: "replace_relation",
+    kind: "replace_one_relation",
     targetPageId,
     expectedValueRevision: property.valueRevision,
   }), [edit]);
@@ -308,10 +308,10 @@ export function usePageStageProperties(input: {
     property: property.property,
   }), [contentAccessContext]);
   const openRelationPage = useMemo(() => {
-    if (contentAccessContext.kind !== "project" || !onOpenPage) return undefined;
+    if (!onOpenPage) return undefined;
     return (pageId: string, title: string) => {
       void onOpenPage({
-        projectId: contentAccessContext.projectId,
+        accessContext: contentAccessContext,
         pageId,
         titleSnapshot: title,
       });

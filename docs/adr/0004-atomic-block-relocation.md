@@ -4,6 +4,13 @@
 - Date: 2026-07-11
 - Owners: Nodex maintainers
 
+## Current applicability
+
+ADR 0017 replaces Project/Space content ownership with Library ownership and
+renames Card to Page. This ADR remains the low-level atomic cross-Document
+primitive; public `BlockTransfer` is same-Library, and a Project is only an
+authorization, execution, and event-delivery coordinate.
+
 ## Context
 
 Yjs transactions are atomic inside one Y.Doc, but moving a subtree between two Documents produces independent source and target updates. Applying “copy target, update registry, delete source” as separately committed steps can expose duplicates, lose edits, or leave stale windows writing ghost content. Yjs internal struct identifiers cannot be moved between Documents, yet application Block IDs and references must remain stable.
@@ -12,7 +19,7 @@ Cross-Document moves are relatively infrequent, so correctness and recoverabilit
 
 ## Decision
 
-Nodex implements relocation as an idempotent internal `RelocateBlocks` primitive with a stable `relocationId`. It preserves application Block IDs while cloning XML content into new Yjs structs in the target and deleting the source subtree. ADR 0005 makes `BlockTransfer` the sole public same-Project parent-change command; its writer delegates Document-to-Document Move to this primitive inside the broader transaction. No renderer, IPC, or HTTP route may call `RelocateBlocks` directly.
+Nodex implements relocation as an idempotent internal `RelocateBlocks` primitive with a stable `relocationId`. It preserves application Block IDs while cloning XML content into new Yjs structs in the target and deleting the source subtree. ADR 0005 makes `BlockTransfer` the sole public same-Library parent-change command; its writer delegates Document-to-Document Move to this primitive inside the broader transaction. No renderer, IPC, or HTTP route may call `RelocateBlocks` directly.
 
 The writer performs the operation as follows:
 
@@ -21,7 +28,7 @@ The writer performs the operation as follows:
    mutation barrier. The barrier flushes pending updates and returns the exact
    Document generation/head token that Core must recheck. There is no renderer
    lease acknowledgement or UI-wide freeze on the response path.
-3. Validate project scope, source and target heads, root location revisions, target parent and anchor, identity uniqueness, and absence of ancestor cycles.
+3. Validate Library and explicit access context, source and target heads, root location revisions, target parent and anchor, identity uniqueness, and absence of ancestor cycles.
 4. Rebuild source and target working clones from durable state, then use the portable Y.Xml subtree codec to clone into the target and delete from the source. Application IDs, formatting, nested structure, and reference targets are preserved; Yjs internal struct IDs are new.
 5. In one SQLite transaction, append both Document updates, advance both heads, update Block locations and materialized indexes, record the relocation ledger/history/change log, and release durable fences.
 6. After commit, swap live caches, fan out both updates plus a relocation event, and release the ephemeral lease.
@@ -43,7 +50,10 @@ Relocation results are all-old or all-new across persistence, registry, and proj
 
 The XML codec must validate and clone every supported BlockNote Y.Xml node. Fault injection must cover lease timeout, validation failure, each write within the SQLite transaction, commit, cache swap, and fanout. Recovery tests must prove no duplicate identity and no missing subtree at every failure point.
 
-Cross-Space moves additionally validate both Project scopes and apply the destination's ownership/security rules. They remain one writer operation because one SQLite store is authoritative.
+Cross-Library relocation is unsupported. A same-Library move whose source and
+destination are reached through different Project access paths revalidates both
+paths, but it does not move content between Project owners. The relocation
+ledger is Library-scoped evidence for the Document transition.
 
 ## Alternatives considered
 

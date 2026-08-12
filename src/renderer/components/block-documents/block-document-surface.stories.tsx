@@ -11,7 +11,8 @@ import {
 } from "./block-document-surface";
 
 const descriptor: PrimaryPageBlockDocumentDescriptor = {
-  projectId: "project:launch",
+  libraryId: "library:local",
+  accessContext: { kind: "project", projectId: "project:launch" },
   ownerBlockId: "card:sync-design",
   ownerType: "page",
   ownerLifecycle: "active",

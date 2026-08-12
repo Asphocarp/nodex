@@ -239,12 +239,104 @@ pub(crate) fn refresh_authority_relation_triggers(
     validate_trigger_inventory(connection)
 }
 
+/// Reinstalls the content-authority triggers after the v117 ownership cutover.
+/// Historical schema inventories continue to use `AUTHORITY_RELATIONS`; only
+/// the current Library-owned registry has these columns.
+pub(crate) fn refresh_library_content_authority_triggers(
+    connection: &Connection,
+) -> Result<(), StoreError> {
+    let relations = [
+        AuthorityRelation {
+            table: "blocks",
+            watched_columns: &["library_id", "type", "lifecycle"],
+        },
+        AuthorityRelation {
+            table: "documents",
+            watched_columns: &["library_id", "readiness"],
+        },
+        AuthorityRelation {
+            table: "block_documents",
+            watched_columns: &["block_id", "document_id", "library_id"],
+        },
+        AuthorityRelation {
+            table: "pages",
+            watched_columns: &[
+                "block_id",
+                "library_id",
+                "document_id",
+                "parent_kind",
+                "parent_id",
+            ],
+        },
+    ];
+    for relation in &relations {
+        for operation in ["insert", "update", "delete"] {
+            connection.execute_batch(&format!(
+                "DROP TRIGGER IF EXISTS {}",
+                quote_identifier(&trigger_name(relation.table, operation))
+            ))?;
+        }
+        install_relation_triggers(connection, relation)?;
+    }
+    validate_trigger_inventory(connection)
+}
+
 pub(crate) fn is_installed(connection: &Connection) -> Result<bool, StoreError> {
     Ok(connection.query_row(
         "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = ?1)",
         [CONTEXT_TABLE],
         |row| row.get::<_, i64>(0),
     )? == 1)
+}
+
+/// Runs Store maintenance that may touch authorization-bearing rows without
+/// manufacturing a user-visible LocalCommit. A pre-existing maintenance
+/// context is preserved so nested migration helpers compose safely.
+pub(crate) fn with_maintenance_context<T>(
+    connection: &Connection,
+    operation: impl FnOnce(&Connection) -> Result<T, StoreError>,
+) -> Result<T, StoreError> {
+    if !is_installed(connection)? {
+        return operation(connection);
+    }
+
+    let existing = connection
+        .query_row(
+            "SELECT mode FROM local_commit_visibility_context WHERE id = 1",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+    match existing.as_deref() {
+        Some("maintenance") => return operation(connection),
+        Some(_) => {
+            return Err(corrupt(
+                "VisibilityDeltaJournal context is active during Store maintenance",
+            ));
+        }
+        None => {}
+    }
+
+    connection.execute(
+        "INSERT INTO local_commit_visibility_context(id, mode, store_epoch, commit_seq)
+         VALUES (1, 'maintenance', NULL, NULL)",
+        [],
+    )?;
+    let result = operation(connection);
+    let cleanup = connection.execute(
+        "DELETE FROM local_commit_visibility_context WHERE id = 1 AND mode = 'maintenance'",
+        [],
+    );
+    match (result, cleanup) {
+        (Ok(value), Ok(1)) => Ok(value),
+        (Err(error), Ok(1)) => Err(error),
+        (Ok(_), Ok(_)) => Err(corrupt(
+            "VisibilityDeltaJournal maintenance context identity diverged",
+        )),
+        (Err(error), Ok(_)) => Err(error),
+        (Ok(_), Err(error)) => Err(StoreError::from(error)),
+        (Err(error), Err(_)) => Err(error),
+    }
 }
 
 pub(crate) fn rebase_store_epoch(
@@ -937,6 +1029,10 @@ fn candidate_resources(facts: &[DirtyFact]) -> Result<Vec<ResourceKey>, StoreErr
                                 database_id: root_id,
                             },
                         ),
+                        "canvas" => insert_resource(
+                            &mut resources,
+                            ResourceKey::Canvas { canvas_id: root_id },
+                        ),
                         _ => return Err(corrupt("Visibility grant root kind is invalid")),
                     }
                 }
@@ -1191,6 +1287,7 @@ fn fact_is_resource_birth(
                 "database" => born.contains(&ResourceKey::Database {
                     database_id: root_id,
                 }),
+                "canvas" => born.contains(&ResourceKey::Canvas { canvas_id: root_id }),
                 _ => false,
             })
         }

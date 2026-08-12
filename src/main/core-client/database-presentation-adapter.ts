@@ -5,7 +5,7 @@ import type {
 import type { DatabaseRead } from "./types";
 
 export type CoreDatabaseViewPresentationOverride = Extract<
-  DatabaseRead["target"],
+  Extract<DatabaseRead, { readonly kind: "view_window" }>["target"],
   { readonly kind: "presented_view" }
 >["presentation_override"];
 

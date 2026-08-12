@@ -129,7 +129,8 @@ function documentAuthority() {
   return {
     kind: "yjs" as const,
     descriptor: {
-      projectId: "default",
+      libraryId: "library-default",
+      accessContext: { kind: "project" as const, projectId: "default" },
       ownerBlockId: "page-1",
       ownerType: "page" as const,
       ownerLifecycle: "active" as const,
@@ -158,7 +159,6 @@ function renderStage(
         contentAccessContext={projectContentAccess("default")}
         onClose={() => undefined}
         page={page}
-        documentScopeId="default"
         projectName="Default"
         documentAuthority={documentAuthority()}
         onUpdate={async () => ({ status: "updated", didMutate: true })}
@@ -208,7 +208,6 @@ describe("page stage", () => {
       "Mock collaborative editor",
     );
     const source = lastNfmEditorProps?.source as Record<string, unknown>;
-    expect(lastNfmEditorProps?.documentScopeId).toBe("default");
     expect(lastNfmEditorProps?.contentAccessContext).toEqual(
       projectContentAccess("default"),
     );

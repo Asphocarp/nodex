@@ -1,11 +1,15 @@
 import type { CanvasSceneMutationError } from "./canvas-scene-sync";
 import type { LocalCommitCommandSuccess } from "../local-commit-delivery";
+import {
+  parseContentAccessContext,
+  type ContentAccessContext,
+} from "../content-access-context";
 
 export const CANVAS_SCENE_MAINTENANCE_VERSION = 1 as const;
 
 export interface CanvasSceneCompactionReadRequest {
   readonly version: typeof CANVAS_SCENE_MAINTENANCE_VERSION;
-  readonly projectId: string;
+  readonly accessContext: ContentAccessContext;
   readonly documentId: string;
   readonly clientSessionId: string;
 }
@@ -30,7 +34,8 @@ export interface CanvasSceneCompactionResult {
   readonly version: typeof CANVAS_SCENE_MAINTENANCE_VERSION;
   readonly kind: "tombstone_compaction";
   readonly operationId: string;
-  readonly projectId: string;
+  readonly libraryId: string;
+  readonly accessContext: ContentAccessContext;
   readonly documentId: string;
   readonly storeEpoch: string;
   readonly previousGeneration: number;
@@ -127,7 +132,8 @@ export const parseCanvasSceneCompactionResult = (
     version: CANVAS_SCENE_MAINTENANCE_VERSION,
     kind: "tombstone_compaction",
     operationId: identity(value.operationId, "operationId"),
-    projectId: identity(value.projectId, "projectId"),
+    libraryId: identity(value.libraryId, "libraryId"),
+    accessContext: parseContentAccessContext(value.accessContext),
     documentId: identity(value.documentId, "documentId"),
     storeEpoch: identity(value.storeEpoch, "storeEpoch"),
     previousGeneration: safeInteger(

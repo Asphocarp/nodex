@@ -46,6 +46,7 @@ import type {
   Project,
 } from "@/lib/types";
 import { buildPageSearchText, matchesSearchTokens, tokenizeSearchQuery } from "@/lib/page-search";
+import { databasePropertyValueSearchText } from "@/lib/database-property-search-text";
 import {
   buildBoardCardDragData,
   isBoardCardDragData,
@@ -257,6 +258,36 @@ export function Board({
   const [columnLayoutPrefs, setColumnLayoutPrefs] = useState<BoardColumnLayoutPrefs>(
     () => readBoardColumnLayoutPrefs(projectId),
   );
+  const databaseProperties = useMemo(
+    () => databaseView?.query.properties ?? [],
+    [databaseView?.query.properties],
+  );
+  const propertyCapabilities = useMemo(
+    () => resolvePageCreatePropertyCapabilities(databaseProperties),
+    [databaseProperties],
+  );
+  const tagsProperty = propertyCapabilities.tagsProperty;
+  const requiredTagOptionIds = useMemo<Readonly<Record<string, readonly string[]>>>(() => {
+    if (!tagsProperty || !board) return {};
+    return {
+      [tagsProperty.propertyId]: [...new Set(
+        board.columns.flatMap((column) =>
+          column.cards.flatMap((card) => card.tags)
+        ),
+      )],
+    };
+  }, [board, tagsProperty]);
+  const propertyOptionRegistries = usePropertyOptionRegistries({
+    accessContext: { kind: "project", projectId },
+    properties: databaseProperties,
+    requiredOptionIds: requiredTagOptionIds,
+  });
+  const tagOptions = useMemo(
+    () => tagsProperty
+      ? propertyOptionRegistries.options[tagsProperty.propertyId] ?? []
+      : [],
+    [propertyOptionRegistries.options, tagsProperty],
+  );
 
   const searchTokens = useMemo(
     () => tokenizeSearchQuery(deferredSearchQuery),
@@ -289,7 +320,10 @@ export function Board({
         const filteredBySearch = hasSearchFilter
           ? filteredByRules.filter((card) =>
             matchesSearchTokens(
-              `${buildPageSearchText(card)} ${card.columnName.toLowerCase()}`,
+              `${buildPageSearchText(card)} ${databasePropertyValueSearchText(
+                card.tags,
+                { optionBacked: true, options: tagOptions },
+              )} ${card.columnName.toLowerCase()}`,
               searchTokens,
             ))
           : filteredByRules;
@@ -300,7 +334,7 @@ export function Board({
         };
       }),
     };
-  }, [board, hasSearchFilter, searchTokens, viewPrefs.rules]);
+  }, [board, hasSearchFilter, searchTokens, tagOptions, viewPrefs.rules]);
 
   useEffect(() => {
     setCardSelection((current) => {
@@ -382,23 +416,6 @@ export function Board({
   }, [appHandle, pageCreateRegistrationToken, surfaceId]);
 
   const selectedPageIds = cardSelection.pageIds;
-  const databaseProperties = useMemo(
-    () => databaseView?.query.properties ?? [],
-    [databaseView?.query.properties],
-  );
-  const propertyCapabilities = useMemo(
-    () => resolvePageCreatePropertyCapabilities(databaseProperties),
-    [databaseProperties],
-  );
-  const propertyOptionRegistries = usePropertyOptionRegistries({
-    accessContext: { kind: "project", projectId },
-    properties: databaseProperties,
-  });
-  const tagsProperty = propertyCapabilities.tagsProperty;
-  const tagOptions = tagsProperty
-    ? propertyOptionRegistries.options[tagsProperty.propertyId] ?? []
-    : [];
-
   const resolveColumnSurface = useCallback((columnId: string): HTMLElement | null => {
     if (typeof document === "undefined") return null;
 

@@ -54,8 +54,6 @@ const querySnapshot = (input: {
       name: "Status",
       schema: { kind: "select" as const },
       capabilities: {
-        replace: true,
-        patchSetMember: null,
         filterOperators: ["equals", "not_equals", "is_empty", "is_not_empty"] as const,
         sortable: true,
         groupable: true,
@@ -75,8 +73,6 @@ const querySnapshot = (input: {
       name: "Priority",
       schema: { kind: "select" as const },
       capabilities: {
-        replace: true,
-        patchSetMember: null,
         filterOperators: ["equals", "not_equals", "is_empty", "is_not_empty"] as const,
         sortable: true,
         groupable: true,

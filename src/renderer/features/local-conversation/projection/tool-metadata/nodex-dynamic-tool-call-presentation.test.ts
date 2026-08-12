@@ -37,7 +37,7 @@ describe("resolveNodexDynamicToolCallPresentation", () => {
           title: { kind: "plain", text: "Migration plan" },
           body: { format: "nfm", content: "# Plan\nDetails" },
         },
-        destination: { kind: "space" },
+        destination: { kind: "library" },
       },
       {
         data: { resource: { bodyBlockCount: 2 } },
@@ -104,8 +104,8 @@ describe("resolveNodexDynamicToolCallPresentation", () => {
     const transfer = resolveNodexDynamicToolCallPresentation(call("transfer_blocks", {
       mode: "move",
       blockIds: ["a", "b"],
-      from: { kind: "space" },
-      destination: { kind: "database" },
+      from: { kind: "library", libraryId: "library-1" },
+      destination: { kind: "data_source", dataSourceId: "data-source-1" },
     }));
     const database = resolveNodexDynamicToolCallPresentation(call("edit_database", {
       databaseBlockId: "database-1",
@@ -115,7 +115,7 @@ describe("resolveNodexDynamicToolCallPresentation", () => {
       ],
     }));
 
-    expect(transfer?.label).toBe("Moved 2 blocks to database");
+    expect(transfer?.label).toBe("Moved 2 blocks to data source “data-source-1”");
     expect(database?.label).toBe("Updated database · 1 value change, 2 placements");
   });
 
@@ -129,7 +129,7 @@ describe("resolveNodexDynamicToolCallPresentation", () => {
           type: "page",
           title: { markdown: "**Launch** plan" },
           lifecycle: "active",
-          location: { kind: "space" },
+          location: { kind: "library", libraryId: "library-1" },
         },
       },
     }));

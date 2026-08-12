@@ -417,13 +417,13 @@ fn validate_canvas_projection(
     let projected_files = connection
         .prepare(
             "SELECT file_id, mime_type, asset_uri, managed_file_name \
-             FROM canvas_scene_file_refs WHERE document_id = ?1 AND project_id = ?2 \
+             FROM canvas_scene_file_refs WHERE document_id = ?1 AND library_id = ?2 \
                AND document_generation = ?3 ORDER BY file_id",
         )?
         .query_map(
             params![
                 authority.head.id,
-                authority.head.project_id,
+                authority.head.library_id,
                 authority.head.generation
             ],
             |row| {
@@ -454,13 +454,13 @@ fn validate_canvas_projection(
     let projected_references = connection
         .prepare(
             "SELECT source_element_id, target_block_id FROM canvas_page_references \
-             WHERE document_id = ?1 AND project_id = ?2 AND document_generation = ?3 \
+             WHERE document_id = ?1 AND library_id = ?2 AND document_generation = ?3 \
              ORDER BY source_element_id",
         )?
         .query_map(
             params![
                 authority.head.id,
-                authority.head.project_id,
+                authority.head.library_id,
                 authority.head.generation
             ],
             |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
@@ -538,7 +538,7 @@ fn validate_assets(connection: &Connection, assets_root: &Path) -> Result<(), St
         .prepare(
             "SELECT DISTINCT asset.asset_uri, asset.asset_hash FROM block_asset_refs asset \
              JOIN documents document ON document.id = asset.document_id \
-               AND document.project_id = asset.project_id \
+               AND document.library_id = asset.library_id \
              WHERE asset.document_generation = document.generation \
                AND asset.projected_seq = document.head_seq \
                AND asset.asset_uri LIKE 'nodex://assets/%' ORDER BY asset.asset_uri",
@@ -562,7 +562,7 @@ fn validate_assets(connection: &Connection, assets_root: &Path) -> Result<(), St
         .prepare(
             "SELECT asset_uri, managed_file_name, asset_hash, byte_length \
              FROM canvas_scene_file_refs asset JOIN documents document \
-               ON document.id = asset.document_id AND document.project_id = asset.project_id \
+               ON document.id = asset.document_id AND document.library_id = asset.library_id \
              WHERE asset.document_generation = document.generation \
              ORDER BY asset_uri, document_id, file_id",
         )?

@@ -9,10 +9,10 @@ use nodex_core_contracts::library::{
 };
 use nodex_core_contracts::{BoundModuleContext, ModuleName};
 use rusqlite::{Connection, OptionalExtension, params};
-use serde_json::json;
+use serde_json::{Value, json};
 
 use crate::database::{
-    resolve_page_copy_data_source_project, resolve_page_transfer_data_source_destination,
+    resolve_page_transfer_data_source_destination, validate_page_copy_data_source_destination,
 };
 use crate::infrastructure::durable_mutation::{self, OperationIdentity};
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
@@ -88,7 +88,7 @@ fn create_page_in_data_source(
     let requesting_project_id = bound_project_id(context)?;
     let destination = super::page_copy::data_source_destination(destination)
         .ok_or_else(|| corrupt("Created Page lost its Data Source destination"))?;
-    let project_id = resolve_page_copy_data_source_project(
+    validate_page_copy_data_source_destination(
         connection,
         library_id,
         requesting_project_id,
@@ -113,7 +113,6 @@ fn create_page_in_data_source(
                 super::page_genesis::PageGenesisInput {
                     commit_context: scope.evidence(),
                     library_id,
-                    project_id: &project_id,
                     actor_project_id: requesting_project_id,
                     placement_access_project_id: Some(requesting_project_id),
                     operation_id,
@@ -134,7 +133,7 @@ fn create_page_in_data_source(
                 context,
                 operation_id,
                 MutationEffects {
-                    project_id: created.project_id,
+                    project_id: requesting_project_id.to_owned(),
                     operation_kind: "create_page",
                     change_kind: "library.changed",
                     did_mutate: true,
@@ -183,14 +182,17 @@ pub(super) fn duplicate_page(
     super::require_page_read_access(connection, library_id, project_id, source_page_id)?;
     let source = connection
         .query_row(
-            "SELECT block.location_revision, page.parent_revision, COALESCE(membership.revision, 0), \
+            "SELECT block.placement_revision, block.placement_revision, \
+               COALESCE(membership.revision, 0), \
                document.generation, document.head_seq \
-             FROM pages page JOIN blocks block ON block.id = page.block_id AND block.type = 'page' \
+             FROM pages page JOIN blocks block ON block.id = page.block_id \
+               AND block.library_id = page.library_id AND block.type = 'page' \
              JOIN documents document ON document.id = page.document_id \
+               AND document.library_id = page.library_id \
              LEFT JOIN data_source_page_memberships membership \
                ON membership.page_block_id = page.block_id AND membership.removed_at IS NULL \
              WHERE page.block_id = ?1 AND page.library_id = ?2 \
-               AND page.lifecycle = 'active' AND block.lifecycle = 'active' \
+               AND block.lifecycle = 'active' \
                AND document.readiness = 'ready'",
             params![source_page_id, library_id],
             |row| {
@@ -300,26 +302,18 @@ fn read_source(
     library_id: &str,
     page_id: &str,
 ) -> Result<LibraryBlockTransferSource, StoreError> {
-    let (parent_kind, parent_id, lifecycle) = connection
+    let (parent_kind, parent_id) = connection
         .query_row(
-            "SELECT page.parent_kind, page.parent_id, page.lifecycle \
-             FROM pages page JOIN blocks block ON block.id = page.block_id AND block.type = 'page' \
+            "SELECT page.parent_kind, page.parent_id \
+             FROM pages page JOIN blocks block ON block.id = page.block_id \
+               AND block.library_id = page.library_id AND block.type = 'page' \
              WHERE page.block_id = ?1 AND page.library_id = ?2 \
                AND block.lifecycle = 'active'",
             params![page_id, library_id],
-            |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                ))
-            },
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
         )
         .optional()?
         .ok_or_else(|| not_found("Source Page is unavailable"))?;
-    if lifecycle != "active" {
-        return Err(not_found("Source Page is unavailable"));
-    }
     match parent_kind.as_str() {
         "library" if parent_id == library_id => Ok(LibraryBlockTransferSource::Library {
             library_id: library_id.to_owned(),
@@ -345,12 +339,12 @@ fn resolve_destination(
             super::mutation::require_project_in_library(connection, project_id, library_id)?;
             let ids = connection
                 .prepare(
-                    "SELECT placement.block_id FROM top_level_block_placements placement \
+                    "SELECT placement.block_id FROM library_block_placements placement \
                      JOIN blocks block ON block.id = placement.block_id \
-                     WHERE placement.project_id = ?1 AND block.lifecycle = 'active' \
+                     WHERE placement.library_id = ?1 AND block.lifecycle = 'active' \
                      ORDER BY placement.rank_key, placement.block_id",
                 )?
-                .query_map([project_id], |row| row.get::<_, String>(0))?
+                .query_map([library_id], |row| row.get::<_, String>(0))?
                 .collect::<rusqlite::Result<Vec<_>>>()?;
             let before =
                 resolve_before_anchor(connection, ids, at.as_ref(), moving_page_id, "Library")?;
@@ -363,9 +357,11 @@ fn resolve_destination(
                 .query_row(
                     "SELECT page.document_id, document.generation, document.head_seq \
                      FROM pages page JOIN blocks block ON block.id = page.block_id \
+                       AND block.library_id = page.library_id \
                      JOIN documents document ON document.id = page.document_id \
+                       AND document.library_id = page.library_id \
                      WHERE page.block_id = ?1 AND page.library_id = ?2 \
-                       AND page.lifecycle = 'active' AND block.lifecycle = 'active' \
+                       AND block.lifecycle = 'active' \
                        AND document.readiness = 'ready'",
                     params![page_id, library_id],
                     |row| {
@@ -431,27 +427,14 @@ fn resolve_destination(
             let existing_group_key = if group.is_none() {
                 moving_page_id
                     .map(|page_id| {
-                        connection
-                            .query_row(
-                                "SELECT json_extract(model.database_values_json, ?1) \
-                                 FROM data_source_page_memberships membership \
-                                 JOIN page_read_model model \
-                                   ON model.page_block_id = membership.page_block_id \
-                                  AND model.membership_id = membership.id \
-                                 WHERE membership.data_source_id = ?2 \
-                                   AND membership.page_block_id = ?3 \
-                                   AND membership.removed_at IS NULL",
-                                params![
-                                    group_property_id.map(|id| format!("$.\"{id}\"")),
-                                    data_source_id,
-                                    page_id
-                                ],
-                                |row| row.get::<_, Option<String>>(0),
-                            )
-                            .optional()
+                        read_canonical_group_key(
+                            connection,
+                            data_source_id,
+                            page_id,
+                            group_property_id,
+                        )
                     })
                     .transpose()?
-                    .flatten()
                     .flatten()
             } else {
                 None
@@ -479,10 +462,12 @@ fn resolve_destination(
                     "SELECT membership.page_block_id \
                      FROM data_source_page_memberships membership \
                      JOIN pages page ON page.block_id = membership.page_block_id \
+                     JOIN blocks block ON block.id = page.block_id \
+                       AND block.library_id = page.library_id \
                      LEFT JOIN database_view_page_positions position \
                        ON position.view_id = ?1 AND position.page_block_id = membership.page_block_id \
                      WHERE membership.data_source_id = ?2 AND membership.removed_at IS NULL \
-                       AND page.lifecycle = 'active' \
+                       AND block.lifecycle = 'active' \
                      ORDER BY CASE WHEN position.rank_key IS NULL THEN 1 ELSE 0 END, \
                        position.rank_key, membership.page_block_id",
                 )?
@@ -492,7 +477,7 @@ fn resolve_destination(
                 .collect::<rusqlite::Result<Vec<_>>>()?;
             let before_page_id =
                 resolve_before_id(ids, at.as_ref(), moving_page_id, "Destination View")?;
-            let resolved = resolve_page_transfer_data_source_destination(
+            let destination = resolve_page_transfer_data_source_destination(
                 connection,
                 library_id,
                 project_id,
@@ -501,7 +486,6 @@ fn resolve_destination(
                 group_key.as_deref(),
                 before_page_id.as_deref(),
             )?;
-            let destination = resolved.destination;
             Ok(LibraryPageCopyDestination::DataSource {
                 data_source_id: destination.data_source_id,
                 expected_data_source_revision: destination.expected_data_source_revision,
@@ -525,6 +509,52 @@ fn resolve_destination(
             })
         }
     }
+}
+
+fn read_canonical_group_key(
+    connection: &Connection,
+    data_source_id: &str,
+    page_id: &str,
+    property_id: Option<&str>,
+) -> Result<Option<String>, StoreError> {
+    let Some(property_id) = property_id else {
+        return Ok(None);
+    };
+    let value_json = connection
+        .query_row(
+            "SELECT value.value_json \
+             FROM data_source_page_memberships membership \
+             LEFT JOIN data_source_property_values value \
+               ON value.data_source_id = membership.data_source_id \
+              AND value.membership_id = membership.id \
+              AND value.property_id = ?3 \
+             WHERE membership.data_source_id = ?1 \
+               AND membership.page_block_id = ?2 \
+               AND membership.removed_at IS NULL",
+            params![data_source_id, page_id, property_id],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .optional()?
+        .flatten();
+    let Some(value_json) = value_json else {
+        return Ok(None);
+    };
+    let value = serde_json::from_str::<Value>(&value_json)
+        .map_err(|_| corrupt("Grouped Property canonical value is invalid"))?;
+    canonical_group_key(&value)
+}
+
+fn canonical_group_key(value: &Value) -> Result<Option<String>, StoreError> {
+    if value.is_null() || value.as_str() == Some("") || value.as_array().is_some_and(Vec::is_empty)
+    {
+        return Ok(None);
+    }
+    if let Some(value) = value.as_str() {
+        return Ok(Some(value.to_owned()));
+    }
+    serde_json::to_string(value)
+        .map(Some)
+        .map_err(|_| corrupt("Grouped Property canonical value cannot encode"))
 }
 
 fn resolve_before_anchor(

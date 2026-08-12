@@ -38,6 +38,24 @@ arguments/output plus raw app-server evidence. Historical calls remain readable
 after their catalog becomes non-executable. Transcript presentation follows
 [Codex Thread Transcript Behavior](codex-thread-transcript-behavior.md).
 
+### Database queries
+
+`query_database_view` executes one saved View's filter, presentation sort,
+grouping, completion policy, and shared manual positions. `query_data_source`
+instead executes one temporary query over an authorized Data Source. It accepts
+a typed filter and at most four non-manual sort rules, and never inherits a saved
+View's filter, grouping, completion policy, or positions. With no sort rules,
+rows use stable Page-identity order.
+
+Both tools may select up to 200 active canonical Property identities. Selection
+controls both the returned Property descriptors and each row's values, including
+Properties that are not displayed by a saved View. An omitted selection returns
+all active Properties. Core validates filter and sort capabilities against the
+current Data Source schema; Relation operands additionally require current read
+access to the target Data Source and Page. Pagination cursors are bound to the
+exact source or View, query rules, and selected Property set and cannot be reused
+after changing those coordinates.
+
 ## Authorization
 
 Reads follow current Project resource access. Direct `Read & write` authority

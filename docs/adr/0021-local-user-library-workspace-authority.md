@@ -41,9 +41,11 @@ explicit Project resource grant.
 ## Consequences
 
 - Library content remains reachable after its former active Project is archived.
-- A private compatibility `project_id` used by physical storage or the event
-  ledger is resolved by Core and is never a Library caller credential. Its
-  Project lifecycle cannot gate trusted local Library mutations.
+- Project coordinates retained by receipts, change logs, recovery records, or
+  delivery ledgers describe actor/execution/delivery provenance. They are
+  resolved by Core and are never a Library caller credential or a content
+  lifetime owner. Project lifecycle cannot gate trusted local Library
+  mutations.
 - A Project cannot inherit access from the currently visible Library UI.
 - The loopback HTTP boundary and Electron app window can expose Library routes
   only after deriving identity from the local store.

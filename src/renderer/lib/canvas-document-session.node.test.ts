@@ -52,7 +52,8 @@ const input = (
   factory: ReturnType<typeof providerFactory>,
   generation = 1,
 ) => ({
-  projectId: "project-1",
+  libraryId: "library-1",
+  accessContext: { kind: "project" as const, projectId: "project-1" },
   ownerBlockId: "canvas-1",
   documentId: "document-1",
   storeEpoch: "epoch-1",
@@ -117,7 +118,13 @@ describe("CanvasDocumentSessionRegistry", () => {
     const first = registry.acquire(input(factory));
     const second = registry.acquire(input(factory));
 
-    await registry.retireOwner("project-1", "canvas-1");
+    await registry.retireOwner(
+      {
+        libraryId: "library-1",
+        accessContext: { kind: "project", projectId: "project-1" },
+      },
+      "canvas-1",
+    );
 
     expect(factory.provider.retireOwner).toHaveBeenCalledOnce();
     await first.release();
@@ -134,10 +141,31 @@ describe("CanvasDocumentSessionRegistry", () => {
 
     const release = lease.release();
     await Promise.resolve();
-    const retire = registry.retireOwner("project-1", "canvas-1");
+    const retire = registry.retireOwner(
+      {
+        libraryId: "library-1",
+        accessContext: { kind: "project", projectId: "project-1" },
+      },
+      "canvas-1",
+    );
     closing.resolve();
     await Promise.all([release, retire]);
 
     expect(factory.provider.retireOwner).toHaveBeenCalledOnce();
+  });
+
+  test("does not share a session across Library identities", async () => {
+    const registry = createCanvasDocumentSessionRegistry();
+    const firstFactory = providerFactory();
+    const secondFactory = providerFactory();
+    const first = registry.acquire(input(firstFactory));
+    const second = registry.acquire({
+      ...input(secondFactory),
+      libraryId: "library-2",
+    });
+
+    expect(first.provider).not.toBe(second.provider);
+    await first.release();
+    await second.release();
   });
 });

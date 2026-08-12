@@ -15,6 +15,10 @@ import {
   type PortableCanvasScene,
 } from "./canvas-scene";
 import type { LocalCommitCommandSuccess } from "../local-commit-delivery";
+import {
+  parseContentAccessContext,
+  type ContentAccessContext,
+} from "../content-access-context";
 
 export const CANVAS_SCENE_SYNC_VERSION = 1 as const;
 export const MAX_CANVAS_SCENE_MUTATION_BYTES = 2 * 1024 * 1024;
@@ -36,7 +40,7 @@ export type CanvasSceneAppStateIntents = Readonly<
 export interface CanvasSceneMutationIntent {
   readonly version: typeof CANVAS_SCENE_SYNC_VERSION;
   readonly mutationId: string;
-  readonly projectId: string;
+  readonly accessContext: ContentAccessContext;
   readonly documentId: string;
   readonly storeEpoch: string;
   readonly generation: number;
@@ -59,7 +63,8 @@ export interface CanvasSceneMutationRequest extends CanvasSceneMutationIntent {
 export interface CanvasSceneMutationResult {
   readonly version: typeof CANVAS_SCENE_SYNC_VERSION;
   readonly mutationId: string;
-  readonly projectId: string;
+  readonly libraryId: string;
+  readonly accessContext: ContentAccessContext;
   readonly documentId: string;
   readonly storeEpoch: string;
   readonly generation: number;
@@ -87,7 +92,7 @@ export interface CanvasSceneCommittedDelta {
 export type CanvasSceneMutationErrorCode =
   | "invalid_canvas_scene_mutation"
   | "store_epoch_mismatch"
-  | "project_scope_mismatch"
+  | "access_scope_mismatch"
   | "document_not_found"
   | "document_not_ready"
   | "document_engine_mismatch"
@@ -118,7 +123,7 @@ export type CanvasSceneSyncCommandResult =
 
 export interface CanvasSceneSubscribeRequest {
   readonly version: typeof CANVAS_SCENE_SYNC_VERSION;
-  readonly projectId: string;
+  readonly accessContext: ContentAccessContext;
   readonly documentId: string;
   readonly clientSessionId: string;
 }
@@ -141,7 +146,7 @@ export type CanvasSceneSubscriptionCommandResult =
 export interface CanvasSceneSyncRequest {
   readonly version: typeof CANVAS_SCENE_SYNC_VERSION;
   readonly syncRequestId: string;
-  readonly projectId: string;
+  readonly accessContext: ContentAccessContext;
   readonly documentId: string;
   readonly clientSessionId: string;
   readonly knownStoreEpoch?: string;
@@ -153,7 +158,8 @@ export interface CanvasSceneSyncRequest {
 interface CanvasSceneSyncResponseBase {
   readonly version: typeof CANVAS_SCENE_SYNC_VERSION;
   readonly syncRequestId: string;
-  readonly projectId: string;
+  readonly libraryId: string;
+  readonly accessContext: ContentAccessContext;
   readonly documentId: string;
   readonly storeEpoch: string;
   readonly generation: number;
@@ -173,7 +179,8 @@ export type CanvasSceneSyncResponse =
 export interface CanvasSceneCommittedEvent {
   readonly type: "canvas_scene_committed";
   readonly version: typeof CANVAS_SCENE_SYNC_VERSION;
-  readonly projectId: string;
+  readonly libraryId: string;
+  readonly accessContext: ContentAccessContext;
   readonly documentId: string;
   readonly storeEpoch: string;
   readonly generation: number;
@@ -190,7 +197,8 @@ export interface CanvasSceneCommittedEvent {
 export interface CanvasSceneResyncRequiredEvent {
   readonly type: "canvas_scene_resync_required";
   readonly version: typeof CANVAS_SCENE_SYNC_VERSION;
-  readonly projectId: string;
+  readonly libraryId: string;
+  readonly accessContext: ContentAccessContext;
   readonly documentId: string;
   readonly storeEpoch: string;
   readonly generation: number;
@@ -215,6 +223,17 @@ const requireSafeInteger = (
   throw new CanvasSceneContractError(
     `${field} must be a safe integer >= ${minimum}`,
   );
+};
+
+const requireAccessContext = (
+  value: unknown,
+  field: string,
+): ContentAccessContext => {
+  try {
+    return parseContentAccessContext(value);
+  } catch (error) {
+    throw new CanvasSceneContractError(`${field} is invalid`, { cause: error });
+  }
 };
 
 const exactKeys = (
@@ -271,7 +290,7 @@ export const canonicalizeCanvasSceneMutationIntent = (
   exactKeys(input, "Canvas scene mutation intent", [
     "version",
     "mutationId",
-    "projectId",
+    "accessContext",
     "documentId",
     "storeEpoch",
     "generation",
@@ -363,7 +382,7 @@ export const canonicalizeCanvasSceneMutationIntent = (
   const intent: CanvasSceneMutationIntent = {
     version: CANVAS_SCENE_SYNC_VERSION,
     mutationId: requireCanvasSceneIdentity(input.mutationId, "mutationId"),
-    projectId: requireCanvasSceneIdentity(input.projectId, "projectId"),
+    accessContext: requireAccessContext(input.accessContext, "accessContext"),
     documentId: requireCanvasSceneIdentity(input.documentId, "documentId"),
     storeEpoch: requireCanvasSceneIdentity(input.storeEpoch, "storeEpoch"),
     generation: requireSafeInteger(input.generation, "generation", 1),
@@ -394,7 +413,7 @@ export const canonicalizeCanvasSceneMutationRequest = (
   exactKeys(input, "Canvas scene mutation", [
     "version",
     "mutationId",
-    "projectId",
+    "accessContext",
     "documentId",
     "storeEpoch",
     "generation",
@@ -463,7 +482,8 @@ export const canonicalizeCanvasSceneMutationResult = (
   exactKeys(input, "Canvas scene mutation result", [
     "version",
     "mutationId",
-    "projectId",
+    "libraryId",
+    "accessContext",
     "documentId",
     "storeEpoch",
     "generation",
@@ -618,7 +638,8 @@ export const canonicalizeCanvasSceneMutationResult = (
   return {
     version: CANVAS_SCENE_SYNC_VERSION,
     mutationId: requireCanvasSceneIdentity(input.mutationId, "mutationId"),
-    projectId: requireCanvasSceneIdentity(input.projectId, "projectId"),
+    libraryId: requireCanvasSceneIdentity(input.libraryId, "libraryId"),
+    accessContext: requireAccessContext(input.accessContext, "accessContext"),
     documentId: requireCanvasSceneIdentity(input.documentId, "documentId"),
     storeEpoch: requireCanvasSceneIdentity(input.storeEpoch, "storeEpoch"),
     generation: requireSafeInteger(input.generation, "generation", 1),

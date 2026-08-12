@@ -11,7 +11,7 @@ use serde_json::Value;
 
 use crate::document::{
     CANVAS_OWNER_TYPE, CANVAS_SCHEMA_KEY, CANVAS_SCHEMA_VERSION, DocumentBlockOperation,
-    clone_canvas_genesis, ensure_canvas_scene, is_primary_canvas_block_id, read_document_authority,
+    clone_canvas_genesis, ensure_canvas_scene, read_document_authority,
 };
 use crate::domain::block_materialization::MaterializedBlockNode;
 use crate::infrastructure::durable_mutation::{
@@ -21,11 +21,10 @@ use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
 use super::LibraryApplyOutcome;
 use super::mutation::{
-    MutationEffects, ResolvedWriteParent, append_rank, embedded_resource_block,
+    MutationEffects, ResolvedWriteParent, embedded_resource_block, insert_creator_resource_grant,
     insert_library_placement, library_commit_result,
-    persist_parent_operations_detailed_with_local_commit, require_project_in_library,
-    resolve_library_mutation_authority, resolve_write_parent_for_context, seal_mutation,
-    sqlite_now,
+    persist_parent_operations_detailed_with_local_commit, resolve_library_mutation_authority,
+    resolve_write_parent_for_context, seal_mutation, sqlite_now,
 };
 
 struct ResolvedCanvasDestination {
@@ -126,12 +125,7 @@ fn create_internal(
     validate_uuid_v7("document_id", document_id)?;
     let display_name = validate_display_name(display_name)?;
     let resolved = resolve_destination(connection, context, library_id, destination)?;
-    let project_id = resolved.parent.project_id.clone();
-    let containing_document_id = resolved
-        .parent
-        .document
-        .as_ref()
-        .map(|document| document.authority.head.id.clone());
+    let actor_project_id = resolved.parent.actor_project_id.clone();
     let now = sqlite_now(connection)?;
     let commit_result = durable_mutation::run(
         connection,
@@ -147,28 +141,18 @@ fn create_internal(
         |scope| {
             connection.execute(
                 "INSERT INTO blocks(\
-           id, project_id, type, lifecycle, location_kind, containing_document_id, \
-           containing_database_id, location_revision, metadata_revision, created_at, updated_at\
-         ) VALUES (?1, ?2, 'canvas', 'active', ?3, ?4, NULL, 1, 1, ?5, ?5)",
-                params![
-                    canvas_id,
-                    project_id,
-                    if containing_document_id.is_some() {
-                        "document"
-                    } else {
-                        "space"
-                    },
-                    containing_document_id,
-                    now,
-                ],
+           id, library_id, type, lifecycle, placement_revision, metadata_revision, \
+           created_at, updated_at\
+         ) VALUES (?1, ?2, 'canvas', 'active', 1, 1, ?3, ?3)",
+                params![canvas_id, library_id, now],
             )?;
             connection.execute(
                 "INSERT INTO block_properties(\
-           block_id, project_id, property_key, value_type, value_json, revision, updated_at\
+           block_id, library_id, property_key, value_type, value_json, revision, updated_at\
          ) VALUES (?1, ?2, 'document.display_name', 'string', ?3, 1, ?4)",
                 params![
                     canvas_id,
-                    project_id,
+                    library_id,
                     serde_json::to_string(display_name)
                         .map_err(|_| internal("Canvas display name JSON"))?,
                     now,
@@ -176,13 +160,13 @@ fn create_internal(
             )?;
             connection.execute(
                 "INSERT INTO documents(\
-           id, project_id, generation, head_seq, schema_key, schema_version, state_vector, \
+           id, library_id, generation, head_seq, schema_key, schema_version, state_vector, \
            state_hash, readiness, authority, created_at, updated_at, sync_engine\
          ) VALUES (?1, ?2, 1, 0, ?3, ?4, X'', ?5, 'ready', 'ydoc_primary', ?6, ?6, \
            'canvas_scene')",
                 params![
                     document_id,
-                    project_id,
+                    library_id,
                     CANVAS_SCHEMA_KEY,
                     CANVAS_SCHEMA_VERSION,
                     "0".repeat(64),
@@ -190,9 +174,9 @@ fn create_internal(
                 ],
             )?;
             connection.execute(
-                "INSERT INTO block_documents(block_id, document_id, project_id, created_at) \
+                "INSERT INTO block_documents(block_id, document_id, library_id, created_at) \
          VALUES (?1, ?2, ?3, ?4)",
-                params![canvas_id, document_id, project_id, now],
+                params![canvas_id, document_id, library_id, now],
             )?;
             connection.execute(
                 "INSERT INTO canvas_owners(block_id, library_id, created_at, updated_at) \
@@ -201,13 +185,6 @@ fn create_internal(
             )?;
 
             if resolved.parent.document.is_none() {
-                let rank = append_rank(connection, "top_level_block_placements", &project_id)?;
-                connection.execute(
-                    "INSERT INTO top_level_block_placements(\
-               block_id, project_id, rank_key, created_at, updated_at\
-             ) VALUES (?1, ?2, ?3, ?4, ?4)",
-                    params![canvas_id, project_id, rank, now],
-                )?;
                 insert_library_placement(
                     connection,
                     library_id,
@@ -215,8 +192,12 @@ fn create_internal(
                     resolved.library_before.as_ref(),
                     &now,
                 )?;
+                if let Some(project_id) = resolved.parent.creator_project_id.as_deref() {
+                    insert_creator_resource_grant(
+                        connection, project_id, library_id, "canvas", canvas_id, &now,
+                    )?;
+                }
             }
-
             let authority = read_document_authority(connection, document_id)?
                 .ok_or_else(|| corrupt("Created Canvas has no Document authority"))?;
             let document_head_seq = if let Some(source) = source {
@@ -246,11 +227,13 @@ fn create_internal(
                     )?;
                     persist_parent_operations_detailed_with_local_commit(
                         connection,
+                        &actor_project_id,
                         store_epoch,
                         operation_id,
                         "canvas-insert",
                         parent,
                         &operations,
+                        super::mutation::ParentDocumentPlacement::Genesis(&[canvas_id.to_owned()]),
                         scope.evidence(),
                     )
                 })
@@ -296,6 +279,8 @@ pub(super) fn rename(
 ) -> Result<LibraryApplyOutcome, StoreError> {
     let canvas = read_canvas_authority(connection, library_id, canvas_id)?;
     require_canvas_access(connection, context, library_id, &canvas, true)?;
+    let actor_project_id =
+        resolve_library_mutation_authority(connection, context, library_id)?.actor_project_id;
     if canvas.lifecycle != "active" {
         return Err(not_found("Canvas is unavailable"));
     }
@@ -327,14 +312,14 @@ pub(super) fn rename(
             }
             connection.execute(
                 "INSERT INTO block_properties(\
-           block_id, project_id, property_key, value_type, value_json, revision, updated_at\
+           block_id, library_id, property_key, value_type, value_json, revision, updated_at\
          ) VALUES (?1, ?2, 'document.display_name', 'string', ?3, 1, ?4) \
          ON CONFLICT(block_id, property_key) DO UPDATE SET \
            value_type = 'string', value_json = excluded.value_json, \
            revision = block_properties.revision + 1, updated_at = excluded.updated_at",
                 params![
                     canvas_id,
-                    canvas.project_id,
+                    canvas.library_id,
                     serde_json::to_string(display_name)
                         .map_err(|_| internal("Canvas display name JSON"))?,
                     now,
@@ -355,7 +340,7 @@ pub(super) fn rename(
                 None,
                 canvas.location_revision,
                 expected_metadata_revision + 1,
-                &resolved_current_location(connection, library_id, &canvas)?,
+                &resolved_current_location(connection, library_id, &actor_project_id, &canvas)?,
                 canvas.document_head_seq,
                 Vec::new(),
                 now.clone(),
@@ -386,11 +371,7 @@ pub(super) fn move_canvas(
         return Err(conflict("Canvas location changed"));
     }
     let resolved = resolve_destination(connection, context, library_id, destination)?;
-    if resolved.parent.document.is_some() && resolved.parent.project_id != canvas.project_id {
-        return Err(invalid(
-            "Cross-Project Canvas rehome is not available in this mutation",
-        ));
-    }
+    let actor_project_id = resolved.parent.actor_project_id.clone();
     let source_document = canvas
         .containing_document_id
         .as_deref()
@@ -417,49 +398,11 @@ pub(super) fn move_canvas(
         },
         |scope| {
             connection.execute(
-                "DELETE FROM top_level_block_placements WHERE block_id = ?1",
-                [canvas_id],
-            )?;
-            connection.execute(
                 "DELETE FROM library_block_placements WHERE block_id = ?1 AND library_id = ?2",
                 params![canvas_id, library_id],
             )?;
-            let changed = connection.execute(
-                "UPDATE blocks SET location_kind = ?1, containing_document_id = ?2, \
-           containing_database_id = NULL, location_revision = location_revision + 1, \
-           updated_at = ?3 WHERE id = ?4 AND type = 'canvas' AND lifecycle = 'active' \
-           AND location_revision = ?5",
-                params![
-                    if target_document_id.is_some() {
-                        "document"
-                    } else {
-                        "space"
-                    },
-                    target_document_id,
-                    now,
-                    canvas_id,
-                    expected_location_revision,
-                ],
-            )?;
-            if changed != 1 {
-                return Err(conflict("Canvas location changed"));
-            }
-            if resolved.parent.document.is_none() {
-                let rank =
-                    append_rank(connection, "top_level_block_placements", &canvas.project_id)?;
-                connection.execute(
-                    "INSERT INTO top_level_block_placements(\
-               block_id, project_id, rank_key, created_at, updated_at\
-             ) VALUES (?1, ?2, ?3, ?4, ?4)",
-                    params![canvas_id, canvas.project_id, rank, now],
-                )?;
-                insert_library_placement(
-                    connection,
-                    library_id,
-                    canvas_id,
-                    resolved.library_before.as_ref(),
-                    &now,
-                )?;
+            if canvas.containing_document_id.is_none() && target_document_id.is_some() {
+                revoke_canvas_direct_grants(connection, library_id, canvas_id, &now)?;
             }
 
             let mut document_commits = Vec::new();
@@ -476,17 +419,20 @@ pub(super) fn move_canvas(
                 )?;
                 document_commits.push(persist_parent_operations_detailed_with_local_commit(
                     connection,
+                    &actor_project_id,
                     store_epoch,
                     operation_id,
                     "canvas-move",
                     parent,
                     &operations,
+                    super::mutation::ParentDocumentPlacement::Derived,
                     scope.evidence(),
                 )?);
             } else {
                 if let Some(source) = source_document.as_ref() {
                     document_commits.push(persist_parent_operations_detailed_with_local_commit(
                         connection,
+                        &actor_project_id,
                         store_epoch,
                         operation_id,
                         "canvas-source",
@@ -494,6 +440,7 @@ pub(super) fn move_canvas(
                         &[DocumentBlockOperation::DeleteBlock {
                             block_id: canvas_id.to_owned(),
                         }],
+                        super::mutation::ParentDocumentPlacement::Derived,
                         scope.evidence(),
                     )?);
                 }
@@ -508,13 +455,44 @@ pub(super) fn move_canvas(
                     )?;
                     document_commits.push(persist_parent_operations_detailed_with_local_commit(
                         connection,
+                        &actor_project_id,
                         store_epoch,
                         operation_id,
                         "canvas-target",
                         target,
                         &operations,
+                        super::mutation::ParentDocumentPlacement::Derived,
                         scope.evidence(),
                     )?);
+                }
+            }
+            if target_document_id.is_none() {
+                insert_library_placement(
+                    connection,
+                    library_id,
+                    canvas_id,
+                    resolved.library_before.as_ref(),
+                    &now,
+                )?;
+            }
+            if canvas.containing_document_id.is_some()
+                && target_document_id.is_none()
+                && let Some(project_id) = resolved.parent.creator_project_id.as_deref()
+            {
+                insert_creator_resource_grant(
+                    connection, project_id, library_id, "canvas", canvas_id, &now,
+                )?;
+            }
+            if target_document_id.is_none() {
+                let changed = connection.execute(
+                    "UPDATE blocks SET placement_revision = placement_revision + 1, \
+                       updated_at = ?1 \
+                     WHERE id = ?2 AND library_id = ?3 AND type = 'canvas' \
+                       AND lifecycle = 'active' AND placement_revision = ?4",
+                    params![now, canvas_id, library_id, expected_location_revision],
+                )?;
+                if changed != 1 {
+                    return Err(conflict("Canvas location changed"));
                 }
             }
             connection.execute(
@@ -542,6 +520,22 @@ pub(super) fn move_canvas(
     library_commit_result(connection, commit_result)
 }
 
+fn revoke_canvas_direct_grants(
+    connection: &Connection,
+    library_id: &str,
+    canvas_id: &str,
+    now: &str,
+) -> Result<(), StoreError> {
+    connection.execute(
+        "UPDATE project_resource_grants \
+         SET lifecycle = 'revoked', revision = revision + 1, updated_at = ?1 \
+         WHERE library_id = ?2 AND root_kind = 'canvas' AND root_id = ?3 \
+           AND lifecycle = 'active'",
+        params![now, library_id, canvas_id],
+    )?;
+    Ok(())
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn delete(
     connection: &Connection,
@@ -557,6 +551,8 @@ pub(super) fn delete(
 ) -> Result<LibraryApplyOutcome, StoreError> {
     let canvas = read_canvas_authority(connection, library_id, canvas_id)?;
     require_canvas_access(connection, context, library_id, &canvas, true)?;
+    let actor_project_id =
+        resolve_library_mutation_authority(connection, context, library_id)?.actor_project_id;
     if canvas.is_primary {
         return Err(StoreError::new(
             StoreErrorCode::ProtectedOwnerDeletion,
@@ -621,13 +617,14 @@ pub(super) fn delete(
         |scope| {
             let changed = connection.execute(
                 "UPDATE blocks SET lifecycle = 'deleted', \
-           location_revision = location_revision + 1, \
+           placement_revision = placement_revision + 1, \
            metadata_revision = metadata_revision + 1, updated_at = ?1 \
-         WHERE id = ?2 AND type = 'canvas' AND lifecycle = 'active' \
-           AND location_revision = ?3 AND metadata_revision = ?4",
+         WHERE id = ?2 AND library_id = ?3 AND type = 'canvas' AND lifecycle = 'active' \
+           AND placement_revision = ?4 AND metadata_revision = ?5",
                 params![
                     now,
                     canvas_id,
+                    library_id,
                     expected_location_revision,
                     expected_metadata_revision,
                 ],
@@ -635,10 +632,6 @@ pub(super) fn delete(
             if changed != 1 {
                 return Err(conflict("Canvas changed before deletion"));
             }
-            connection.execute(
-                "DELETE FROM top_level_block_placements WHERE block_id = ?1",
-                [canvas_id],
-            )?;
             connection.execute(
                 "DELETE FROM library_block_placements WHERE block_id = ?1 AND library_id = ?2",
                 params![canvas_id, library_id],
@@ -652,6 +645,7 @@ pub(super) fn delete(
                 .map(|source| {
                     persist_parent_operations_detailed_with_local_commit(
                         connection,
+                        &actor_project_id,
                         store_epoch,
                         operation_id,
                         "canvas-delete",
@@ -659,11 +653,21 @@ pub(super) fn delete(
                         &[DocumentBlockOperation::DeleteBlock {
                             block_id: canvas_id.to_owned(),
                         }],
+                        super::mutation::ParentDocumentPlacement::Derived,
                         scope.evidence(),
                     )
                 })
                 .transpose()?;
-            let resolved = resolved_current_location(connection, library_id, &canvas)?;
+            insert_creator_resource_grant(
+                connection,
+                &actor_project_id,
+                library_id,
+                "canvas",
+                canvas_id,
+                &now,
+            )?;
+            let resolved =
+                resolved_current_location(connection, library_id, &actor_project_id, &canvas)?;
             seal_canvas_mutation(
                 scope,
                 context,
@@ -688,7 +692,7 @@ pub(super) fn delete(
 #[derive(Clone)]
 struct CanvasAuthority {
     canvas_id: String,
-    project_id: String,
+    library_id: String,
     lifecycle: String,
     containing_document_id: Option<String>,
     location_revision: i64,
@@ -707,15 +711,23 @@ fn read_canvas_authority(
 ) -> Result<CanvasAuthority, StoreError> {
     connection
         .query_row(
-            "SELECT block.project_id, block.lifecycle, \
-                    block.containing_document_id, block.location_revision, \
+            "SELECT block.library_id, block.lifecycle, containing.document_id, \
+                    block.placement_revision, \
                     block.metadata_revision, document.id, document.generation, \
-                    document.head_seq, property.value_json \
+                    document.head_seq, property.value_json, \
+                    EXISTS(SELECT 1 FROM projects project \
+                      WHERE project.library_id = block.library_id \
+                        AND block.id = 'canvas:primary:' || project.id) \
              FROM blocks block \
              JOIN canvas_owners canvas ON canvas.block_id = block.id \
+               AND canvas.library_id = block.library_id \
              JOIN block_documents ownership ON ownership.block_id = block.id \
+               AND ownership.library_id = block.library_id \
              JOIN documents document ON document.id = ownership.document_id \
+               AND document.library_id = ownership.library_id \
+             LEFT JOIN document_block_index containing ON containing.block_id = block.id \
              LEFT JOIN block_properties property ON property.block_id = block.id \
+               AND property.library_id = block.library_id \
                AND property.property_key = 'document.display_name' \
              WHERE block.id = ?1 AND block.type = 'canvas' \
                AND canvas.library_id = ?2 AND document.sync_engine = 'canvas_scene'",
@@ -726,11 +738,10 @@ fn read_canvas_authority(
                     .as_deref()
                     .and_then(|value| serde_json::from_str::<String>(value).ok())
                     .unwrap_or_else(|| "Canvas".to_owned());
-                let project_id = row.get::<_, String>(0)?;
                 Ok(CanvasAuthority {
                     canvas_id: canvas_id.to_owned(),
-                    is_primary: is_primary_canvas_block_id(canvas_id, &project_id),
-                    project_id,
+                    library_id: row.get(0)?,
+                    is_primary: row.get(9)?,
                     lifecycle: row.get(1)?,
                     containing_document_id: row.get(2)?,
                     location_revision: row.get(3)?,
@@ -757,16 +768,29 @@ fn require_canvas_access(
     let Some(requesting_project_id) = authority.requesting_project_id.as_deref() else {
         return Ok(());
     };
-    if requesting_project_id == canvas.project_id {
-        return require_project_in_library(connection, requesting_project_id, library_id);
-    }
     let Some(document_id) = canvas.containing_document_id.as_deref() else {
-        return Err(unauthorized("Canvas belongs to another Project"));
+        return if write {
+            super::require_canvas_write_access(
+                connection,
+                library_id,
+                requesting_project_id,
+                &canvas.canvas_id,
+            )
+        } else {
+            super::require_canvas_read_access(
+                connection,
+                library_id,
+                requesting_project_id,
+                &canvas.canvas_id,
+            )
+        };
     };
     let page_id = connection
         .query_row(
             "SELECT page.block_id FROM pages page \
-             WHERE page.document_id = ?1 AND page.library_id = ?2 AND page.lifecycle = 'active'",
+             JOIN blocks block ON block.id = page.block_id AND block.library_id = page.library_id \
+             WHERE page.document_id = ?1 AND page.library_id = ?2 \
+               AND block.lifecycle = 'active'",
             params![document_id, library_id],
             |row| row.get::<_, String>(0),
         )
@@ -956,6 +980,7 @@ fn find_block<'a>(
 fn resolved_current_location(
     connection: &Connection,
     library_id: &str,
+    actor_project_id: &str,
     canvas: &CanvasAuthority,
 ) -> Result<ResolvedCanvasDestination, StoreError> {
     let page_id = canvas
@@ -979,7 +1004,8 @@ fn resolved_current_location(
                 .as_ref()
                 .map_or_else(|| "library".to_owned(), |id| format!("page:{id}")),
             page_id,
-            project_id: canvas.project_id.clone(),
+            actor_project_id: actor_project_id.to_owned(),
+            creator_project_id: None,
             document: None,
             before_block_id: None,
         },
@@ -1027,7 +1053,7 @@ fn seal_canvas_mutation(
         context,
         operation_id,
         MutationEffects {
-            project_id: resolved.parent.project_id.clone(),
+            project_id: resolved.parent.actor_project_id.clone(),
             operation_kind,
             change_kind: "library.changed",
             did_mutate: true,
@@ -1099,10 +1125,6 @@ fn invalid(message: &str) -> StoreError {
 
 fn conflict(message: &str) -> StoreError {
     StoreError::new(StoreErrorCode::RevisionConflict, message, true)
-}
-
-fn unauthorized(message: &str) -> StoreError {
-    StoreError::new(StoreErrorCode::Unauthorized, message, false)
 }
 
 fn not_found(message: &str) -> StoreError {

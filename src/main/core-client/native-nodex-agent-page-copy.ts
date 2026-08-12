@@ -102,7 +102,7 @@ const normalizedInput = (
     return TransferBlocksInputSchema.parse({
       mode: "copy",
       blockIds: [request.input.pageId],
-      destination: { kind: "space", ...(destination.at ? { at: destination.at } : {}) },
+      destination: { kind: "library", ...(destination.at ? { at: destination.at } : {}) },
       return: { blockMap: request.input.return?.includes("block_map") ?? false },
     });
   }
@@ -132,8 +132,8 @@ const normalizedInput = (
     mode: "copy",
     blockIds: [request.input.pageId],
     destination: {
-      kind: "database",
-      databaseBlockId: databaseId,
+      kind: "data_source",
+      dataSourceId: destination.dataSourceId,
       values: destination.values,
       ...(destination.view
         ? {

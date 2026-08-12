@@ -57,12 +57,12 @@ describe("Page create property capabilities", () => {
       title: "Schema-safe Page",
       priority: "p1-high",
       estimate: "m",
-      tags: ["Product"],
+      tagOptions: [{ optionId: "o_AAAAAAAA", name: "Product" }],
     }, capabilities)).toEqual({
       title: "Schema-safe Page",
       priority: undefined,
       estimate: undefined,
-      tags: ["Product"],
+      tagOptions: [{ optionId: "o_AAAAAAAA", name: "Product" }],
     });
   });
 });

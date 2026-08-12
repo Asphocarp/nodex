@@ -1,7 +1,8 @@
 use base64::prelude::{BASE64_STANDARD, Engine as _};
 use nodex_core::document::CanvasSceneSyncSnapshot;
 use nodex_core_contracts::document::{
-    OwnedDocumentCommitValue, OwnedDocumentReadValue, OwnedDocumentReceipt,
+    OwnedDocumentAccessContext, OwnedDocumentCommitValue, OwnedDocumentDescriptor,
+    OwnedDocumentReadValue, OwnedDocumentReceipt, OwnedDocumentSyncDescriptor,
 };
 use nodex_core_contracts::{
     ApplyResponse, AuthorizedDeliveryPacket, CommitIdentity, CoreError, ModuleReadSnapshot,
@@ -135,7 +136,8 @@ struct CanvasSyncResponseMetadata<'a> {
     engine: WireEngine,
     kind: CanvasSyncKind,
     sync_request_id: &'a str,
-    project_id: &'a str,
+    library_id: &'a str,
+    access_context: &'a OwnedDocumentAccessContext,
     document_id: &'a str,
     store_epoch: &'a str,
     generation: i64,
@@ -162,7 +164,8 @@ pub(crate) struct YjsSyncValue {
 
 #[derive(Debug)]
 pub(crate) struct CanvasSyncValue {
-    pub(crate) project_id: String,
+    pub(crate) library_id: String,
+    pub(crate) access_context: OwnedDocumentAccessContext,
     pub(crate) document_id: String,
     pub(crate) store_epoch: String,
     pub(crate) generation: i64,
@@ -232,19 +235,23 @@ pub(crate) fn parse_yjs_sync(
     let OwnedDocumentReadValue::YjsSync { descriptor, update } = snapshot.value else {
         return Err(invalid("Core returned a non-Yjs Document sync value"));
     };
-    let sync = descriptor
-        .get("sync")
-        .and_then(Value::as_object)
-        .ok_or_else(|| invalid("Core Yjs descriptor has no sync value"))?;
-    if sync.get("kind").and_then(Value::as_str) != Some("yjs") {
+    let OwnedDocumentDescriptor {
+        document_id,
+        store_epoch,
+        generation,
+        head_seq,
+        sync,
+        ..
+    } = descriptor;
+    let OwnedDocumentSyncDescriptor::Yjs { state_vector } = sync else {
         return Err(invalid("Core Document descriptor is not Yjs"));
-    }
+    };
     Ok(YjsSyncValue {
-        document_id: string_field(&descriptor, "documentId")?,
-        store_epoch: string_field(&descriptor, "storeEpoch")?,
-        generation: integer_field(&descriptor, "generation")?,
-        head_seq: integer_field(&descriptor, "headSeq")?,
-        state_vector: byte_array_field(sync, "stateVector")?,
+        document_id,
+        store_epoch,
+        generation,
+        head_seq,
+        state_vector,
         update,
     })
 }
@@ -272,7 +279,8 @@ pub(crate) fn parse_canvas_sync(
         return Err(invalid("Canvas scene snapshot exceeds its byte bound"));
     }
     Ok(CanvasSyncValue {
-        project_id: snapshot.project_id,
+        library_id: snapshot.library_id,
+        access_context: snapshot.access_context,
         document_id: snapshot.document_id,
         store_epoch: snapshot.store_epoch,
         generation: snapshot.generation,
@@ -300,7 +308,8 @@ pub(crate) fn encode_canvas_sync(
             engine: WireEngine::CanvasScene,
             kind,
             sync_request_id,
-            project_id: &value.project_id,
+            library_id: &value.library_id,
+            access_context: &value.access_context,
             document_id: &value.document_id,
             store_epoch: &value.store_epoch,
             generation: value.generation,
@@ -432,38 +441,6 @@ fn encode_envelope<T: Serialize>(metadata: &T, payload: &[u8]) -> Result<Vec<u8>
     Ok(frame)
 }
 
-fn string_field(value: &Value, name: &str) -> Result<String, CoreError> {
-    value
-        .get(name)
-        .and_then(Value::as_str)
-        .map(str::to_owned)
-        .ok_or_else(|| invalid("Core Yjs descriptor has an invalid string field"))
-}
-
-fn integer_field(value: &Value, name: &str) -> Result<i64, CoreError> {
-    value
-        .get(name)
-        .and_then(Value::as_i64)
-        .ok_or_else(|| invalid("Core Yjs descriptor has an invalid integer field"))
-}
-
-fn byte_array_field(
-    value: &serde_json::Map<String, Value>,
-    name: &str,
-) -> Result<Vec<u8>, CoreError> {
-    value
-        .get(name)
-        .and_then(Value::as_array)
-        .ok_or_else(|| invalid("Core Yjs descriptor has an invalid byte array"))?
-        .iter()
-        .map(|item| {
-            item.as_u64()
-                .and_then(|byte| u8::try_from(byte).ok())
-                .ok_or_else(|| invalid("Core Yjs descriptor has an invalid byte array"))
-        })
-        .collect()
-}
-
 fn invalid(message: &str) -> CoreError {
     CoreError {
         code: nodex_core_contracts::CoreErrorCode::InvalidInput,
@@ -575,7 +552,10 @@ mod tests {
     fn canvas_snapshot_frame_keeps_raw_json_and_up_to_date_is_empty() {
         let scene = br#"{"appState":{},"elements":[],"files":{},"kind":"canvas_scene","pageReferences":[],"plainText":"","preview":"","schemaVersion":1}"#.to_vec();
         let value = CanvasSyncValue {
-            project_id: "project:one".to_owned(),
+            library_id: "library:one".to_owned(),
+            access_context: OwnedDocumentAccessContext::Project {
+                project_id: "project:one".to_owned(),
+            },
             document_id: "canvas:one".to_owned(),
             store_epoch: "epoch:one".to_owned(),
             generation: 1,
@@ -590,6 +570,12 @@ mod tests {
                 .expect("decode snapshot");
         assert_eq!(metadata["engine"], "canvas_scene");
         assert_eq!(metadata["kind"], "snapshot");
+        assert_eq!(metadata["libraryId"], "library:one");
+        assert_eq!(
+            metadata["accessContext"],
+            serde_json::json!({ "kind": "project", "projectId": "project:one" }),
+        );
+        assert!(metadata.get("projectId").is_none());
         assert_eq!(payload, scene);
 
         let current =
@@ -604,7 +590,8 @@ mod tests {
     #[test]
     fn canvas_snapshot_encoder_rejects_limit_plus_one() {
         let value = CanvasSyncValue {
-            project_id: "project:one".to_owned(),
+            library_id: "library:one".to_owned(),
+            access_context: OwnedDocumentAccessContext::Library,
             document_id: "canvas:one".to_owned(),
             store_epoch: "epoch:one".to_owned(),
             generation: 1,

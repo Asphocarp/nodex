@@ -705,14 +705,14 @@ describe("Page Detail metadata runtime", () => {
     });
   });
 
-  test("translates tag display names into source-scoped option IDs", async () => {
+  test("commits source-scoped tag option IDs without display-name inference", async () => {
     const requests: BlockPropertyMutationRequestV2[] = [];
     const databaseRequests: DatabaseApplyV2[] = [];
     const result = await commitPageDetailMetadataPatch({
       projectId: "project-1",
       pageId: "page-1",
       operationId: "set-tags",
-      patch: { tags: ["backend"] },
+      patch: { tags: [backendOptionId] },
       dependencies: dependencies({ requests, databaseRequests }),
     });
 
@@ -733,6 +733,16 @@ describe("Page Detail metadata runtime", () => {
         },
       }),
     ]}]);
+  });
+
+  test("rejects tag display names at the Property identity boundary", async () => {
+    await expect(commitPageDetailMetadataPatch({
+      projectId: "project-1",
+      pageId: "page-1",
+      operationId: "reject-tag-name",
+      patch: { tags: ["backend"] },
+      dependencies: dependencies({ requests: [], databaseRequests: [] }),
+    })).rejects.toThrow("requires canonical option IDs");
   });
 
   test("retries the exact v2 request once after a retryable outage", async () => {

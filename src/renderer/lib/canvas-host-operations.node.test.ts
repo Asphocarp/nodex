@@ -8,7 +8,10 @@ import {
 } from "../../shared/library-module";
 import { bindLibraryModuleApply } from "../../shared/library-module-transport";
 import { createUuidV7FromTimestamp } from "../../shared/uuid-v7";
-import { projectContentAccess } from "../../shared/content-access-context";
+import {
+  projectContentAccess,
+  type ContentAccessContext,
+} from "../../shared/content-access-context";
 import { noOpLocalCommit } from "../../shared/testing/local-commit";
 import {
   applyLibraryModule,
@@ -57,7 +60,8 @@ function makeRuntime(input: {
       reloadRequired: false,
       writeFrozen: false,
       descriptor: {
-        projectId: "project-1",
+        libraryId: "library-1",
+        accessContext,
         documentId,
         authorization: null,
         ownerBlockId,
@@ -99,7 +103,6 @@ function makeRuntime(input: {
 
 const canvasSummary = (canvasId: string): LibraryCanvasSummary => ({
   canvasId,
-  projectId: "project-1",
   title: "Canvas",
   lifecycle: "active",
   isPrimary: false,
@@ -405,7 +408,7 @@ describe("Canvas host operations", () => {
 
   test("deletes a nested Canvas with the mounted host Document barrier", async () => {
     const apply = vi.fn(async (
-      receivedAccessContext: typeof accessContext,
+      receivedAccessContext: ContentAccessContext,
       request: LibraryModuleApplyRequest,
     ): Promise<LibraryModuleApplyResult> => {
       expect(receivedAccessContext).toEqual(accessContext);
@@ -445,10 +448,10 @@ describe("Canvas host operations", () => {
       readTarget: async (receivedAccessContext) => {
         expect(receivedAccessContext).toEqual(accessContext);
         return {
+          libraryId: "library-1",
           storeEpoch: "epoch-1",
           summary: {
             canvasId: "canvas-1",
-            projectId: "project-1",
             title: "Canvas",
             lifecycle: "active",
             isPrimary: false,
@@ -485,7 +488,10 @@ describe("Canvas host operations", () => {
         },
       },
     });
-    expect(retireOwner).toHaveBeenCalledWith("project-1", "canvas-1");
+    expect(retireOwner).toHaveBeenCalledWith({
+      libraryId: "library-1",
+      accessContext,
+    }, "canvas-1");
   });
 
   test("resolves after-position as before-next or append at the same nesting level", () => {

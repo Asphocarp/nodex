@@ -47,8 +47,8 @@ import type {
   CanvasPresencePublishRequest,
 } from "./block-documents/document-presence";
 import type {
-  LibraryOwnedDocumentDescriptor,
-  OwnedDocumentDescriptor,
+  LibraryAccessedDocumentDescriptor,
+  ProjectAccessedDocumentDescriptor,
 } from "./block-documents/contracts";
 import type { BlockTransferCommandResult } from "./block-transfer";
 import type { ProjectionCursor } from "./projection-stream";
@@ -717,15 +717,15 @@ export interface IpcApi {
   };
   "block-document:owned:get": {
     args: [projectId: string, ownerBlockId: string];
-    result: OwnedDocumentDescriptor;
+    result: ProjectAccessedDocumentDescriptor;
   };
   "block-document:owned:prepare": {
     args: [projectId: string, ownerBlockId: string];
-    result: DocumentSyncCommandResult<OwnedDocumentDescriptor>;
+    result: DocumentSyncCommandResult<ProjectAccessedDocumentDescriptor>;
   };
   "library-block-document:owned:prepare": {
     args: [ownerBlockId: string];
-    result: DocumentSyncCommandResult<LibraryOwnedDocumentDescriptor>;
+    result: DocumentSyncCommandResult<LibraryAccessedDocumentDescriptor>;
   };
   "document-sync:subscribe": {
     args: [request: ProjectScopedDocumentSyncSubscribeRequest];

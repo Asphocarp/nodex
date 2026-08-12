@@ -1,4 +1,6 @@
 import type { Awareness } from "y-protocols/awareness";
+import type { ContentAccessContext } from "../../../../shared/content-access-context";
+import { contentAccessContextKey } from "../../../../shared/content-access-context";
 import type * as Y from "yjs";
 
 /**
@@ -87,12 +89,12 @@ function getCollaborativeFragmentId(fragment: Y.XmlFragment): number {
 }
 
 export function getNfmEditorInstanceKey(input: {
-  readonly documentScopeId: string;
+  readonly accessContext: ContentAccessContext;
   readonly source: NfmEditorSource;
 }): string {
   return [
     "collaborative-document",
-    input.documentScopeId,
+    contentAccessContextKey(input.accessContext),
     input.source.documentId,
     input.source.generation,
     getCollaborativeFragmentId(input.source.fragment),

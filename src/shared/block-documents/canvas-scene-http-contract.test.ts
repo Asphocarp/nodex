@@ -26,7 +26,7 @@ describe("Canvas scene HTTP contract", () => {
       encodeCanvasSceneSyncRequestHttp({
         version: 1,
         syncRequestId: "sync-1",
-        projectId: "project-1",
+        accessContext: { kind: "project", projectId: "project-1" },
         documentId: "canvas-1",
         clientSessionId: "client-1",
         knownStoreEpoch: "store-1",
@@ -34,7 +34,7 @@ describe("Canvas scene HTTP contract", () => {
         knownHeadSeq: 2,
         knownSceneHash: "a".repeat(64),
       }),
-      "project-1",
+      { kind: "project", projectId: "project-1" },
       "canvas-1",
     );
     expect(sync.knownHeadSeq).toBe(2);
@@ -42,7 +42,7 @@ describe("Canvas scene HTTP contract", () => {
       encodeCanvasSceneMutationRequestHttp({
         version: 1,
         mutationId: "mutation-1",
-        projectId: "project-1",
+        accessContext: { kind: "project", projectId: "project-1" },
         documentId: "canvas-1",
         storeEpoch: "store-1",
         generation: 1,
@@ -52,7 +52,7 @@ describe("Canvas scene HTTP contract", () => {
         appStateIntents: {},
         fileAdditions: {},
       }),
-      "project-1",
+      { kind: "project", projectId: "project-1" },
       "canvas-1",
     );
     expect(mutation.mutationId).toBe("mutation-1");
@@ -62,12 +62,16 @@ describe("Canvas scene HTTP contract", () => {
     const serialized = encodeCanvasSceneSyncRequestHttp({
       version: 1,
       syncRequestId: "sync-2",
-      projectId: "project-1",
+      accessContext: { kind: "project", projectId: "project-1" },
       documentId: "canvas-1",
       clientSessionId: "client-1",
     });
     expect(() =>
-      decodeCanvasSceneSyncRequestHttp(serialized, "project-2", "canvas-1"),
+      decodeCanvasSceneSyncRequestHttp(
+        serialized,
+        { kind: "project", projectId: "project-2" },
+        "canvas-1",
+      ),
     ).toThrow("does not match its route");
   });
 
@@ -78,7 +82,8 @@ describe("Canvas scene HTTP contract", () => {
         version: 1,
         kind: "snapshot",
         syncRequestId: "sync-1",
-        projectId: "project-1",
+        libraryId: "library-1",
+        accessContext: { kind: "project", projectId: "project-1" },
         documentId: "canvas-1",
         storeEpoch: "store-1",
         generation: 1,
@@ -91,7 +96,8 @@ describe("Canvas scene HTTP contract", () => {
       value: {
         version: 1,
         mutationId: "mutation-1",
-        projectId: "project-1",
+        libraryId: "library-1",
+        accessContext: { kind: "project", projectId: "project-1" },
         documentId: "canvas-1",
         storeEpoch: "store-1",
         generation: 1,
@@ -113,7 +119,8 @@ describe("Canvas scene HTTP contract", () => {
     expect(() => decodeCanvasSceneSseEvent(JSON.stringify({
       type: "canvas_scene_resync_required",
       version: 1,
-      projectId: "project-1",
+      libraryId: "library-1",
+      accessContext: { kind: "project", projectId: "project-1" },
       documentId: "canvas-1",
       storeEpoch: "store-1",
       generation: 1,
@@ -122,7 +129,8 @@ describe("Canvas scene HTTP contract", () => {
     const value = {
       version: 1,
       mutationId: "mutation-1",
-      projectId: "project-1",
+      libraryId: "library-1",
+      accessContext: { kind: "project", projectId: "project-1" },
       documentId: "canvas-1",
       storeEpoch: "store-1",
       generation: 1,
@@ -151,7 +159,8 @@ describe("Canvas scene HTTP contract", () => {
       event: {
         type: "canvas_scene_resync_required",
         version: 1,
-        projectId: "project-1",
+        libraryId: "library-1",
+        accessContext: { kind: "project", projectId: "project-1" },
         documentId: "canvas-1",
         storeEpoch: "store-1",
         generation: 1,

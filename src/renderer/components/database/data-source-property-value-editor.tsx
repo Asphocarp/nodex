@@ -164,7 +164,7 @@ export function DataSourcePropertyValueEditor({
   options = [],
   optionRegistryState = "ready",
   onPatchRelation = () => undefined,
-  onReplaceRelation,
+  onReplaceOneRelation,
   onLoadRelationTargets,
   onSearchRelationCandidates,
   onLoadRelationTargetDescriptor,
@@ -211,7 +211,7 @@ export function DataSourcePropertyValueEditor({
           && property.schema.targetDataSourceId === property.dataSourceId
         }
         onPatch={onPatchRelation}
-        onReplace={onReplaceRelation}
+        onReplace={onReplaceOneRelation}
         onClear={() => onChange([])}
         onLoadMore={onLoadRelationTargets}
         onSearchCandidates={onSearchRelationCandidates}

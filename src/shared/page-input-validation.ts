@@ -7,11 +7,11 @@ import type {
   ReminderConfig,
 } from "./types";
 import { isPriority } from "./priority";
+import { parseDataSourceOptionId } from "./database-identities";
 import {
   MAX_PAGE_ASSIGNEE_LENGTH,
   MAX_PAGE_DESCRIPTION_LENGTH,
   MAX_PAGE_TAG_COUNT,
-  MAX_PAGE_TAG_LENGTH,
   MAX_PAGE_TITLE_LENGTH,
 } from "./page-limits";
 
@@ -126,13 +126,18 @@ function assertOptionalTags(value: unknown): void {
     throw new Error(`tags exceeds ${MAX_PAGE_TAG_COUNT} items`);
   }
 
-  for (const tag of value) {
-    if (typeof tag !== "string") {
-      throw new Error("Invalid tags value");
+  const optionIds = new Set<string>();
+  for (const optionId of value) {
+    let parsed: string;
+    try {
+      parsed = parseDataSourceOptionId({ propertyId: "tags", value: optionId });
+    } catch {
+      throw new Error("Invalid tag option identity");
     }
-    if (tag.length > MAX_PAGE_TAG_LENGTH) {
-      throw new Error(`Tag exceeds ${MAX_PAGE_TAG_LENGTH} characters`);
+    if (optionIds.has(parsed)) {
+      throw new Error("Duplicate tag option identities are not allowed");
     }
+    optionIds.add(parsed);
   }
 }
 

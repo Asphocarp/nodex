@@ -195,7 +195,6 @@ mod tests {
                         }
                     }),
                 )]),
-                database_display_values: BTreeMap::new(),
                 intrinsic_properties: BTreeMap::new(),
                 database_value_revisions: BTreeMap::new(),
                 task_parent_page_id: None,

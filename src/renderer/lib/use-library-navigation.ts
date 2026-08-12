@@ -193,7 +193,7 @@ export const libraryCanvasTargetQueryOptions = (canvasId: string) =>
   });
 
 export const libraryResourceProjectAccessQueryOptions = (
-  target: Exclude<LibraryResourceTarget, { readonly kind: "canvas" }>,
+  target: LibraryResourceTarget,
 ) => queryOptions({
   queryKey: queryKeys.library.resourceProjectAccess(target),
   queryFn: () => requireReadValue({
@@ -205,7 +205,7 @@ export const libraryResourceProjectAccessQueryOptions = (
 });
 
 export const useLibraryResourceProjectAccess = (
-  target: Exclude<LibraryResourceTarget, { readonly kind: "canvas" }>,
+  target: LibraryResourceTarget,
   enabled = true,
 ) => useQuery({
   ...libraryResourceProjectAccessQueryOptions(target),

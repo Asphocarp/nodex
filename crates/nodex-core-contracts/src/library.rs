@@ -13,7 +13,7 @@ use crate::document::DocumentHeadRevision;
 use crate::workspace::{ProjectAppearance, ProjectLifecycle};
 use crate::{ApplyResponse, ModuleMutationReceipt, ModuleName, VersionedModuleContract};
 
-pub const LIBRARY_CONTRACT_VERSION: u32 = 16;
+pub const LIBRARY_CONTRACT_VERSION: u32 = 18;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -224,8 +224,6 @@ pub struct LibraryAgentPageCopyPreparation {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub destination_database_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub destination_project_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub committed: Option<Box<ApplyResponse<LibraryCommitValue, LibraryReceipt>>>,
 }
 
@@ -269,8 +267,6 @@ pub struct LibraryAgentCreatePagesPreparation {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub destination_database_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub destination_project_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub committed: Option<Box<ApplyResponse<LibraryCommitValue, LibraryReceipt>>>,
 }
 
@@ -299,8 +295,6 @@ pub struct LibraryAgentMovePagePreparation {
     pub source_document_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_database_id: Option<String>,
-    pub source_project_id: String,
-    pub target_project_id: String,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
@@ -314,8 +308,6 @@ pub struct LibraryAgentMovePagesPreparation {
     pub destination_document: Option<LibraryAgentDocumentHead>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub destination_database_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub destination_project_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub committed: Option<Box<ApplyResponse<LibraryCommitValue, LibraryReceipt>>>,
 }
@@ -403,7 +395,6 @@ pub struct LibraryBlockTransferDocumentHead {
 pub enum LibraryBlockLocation {
     Library {
         library_id: String,
-        project_id: String,
         rank_key: String,
     },
     Document {
@@ -687,7 +678,6 @@ pub enum LibraryCanvasLocation {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 pub struct LibraryCanvasSummary {
     pub canvas_id: String,
-    pub project_id: String,
     pub title: String,
     pub lifecycle: String,
     pub is_primary: bool,
@@ -764,7 +754,7 @@ pub enum LibraryPageOwnershipPath {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 pub struct LibraryPageLocation {
     pub page_id: String,
-    pub project_id: String,
+    pub access_project_id: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -772,7 +762,7 @@ pub struct LibraryViewLocation {
     pub view_id: String,
     pub data_source_id: String,
     pub database_id: String,
-    pub project_id: String,
+    pub access_project_id: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -1322,7 +1312,6 @@ pub struct LibrarySearchSnapshotFile {
 pub struct LibrarySearchSnapshotPage {
     pub page_id: String,
     pub title_markdown: String,
-    pub storage_project_id: String,
     pub database_id: Option<String>,
     pub data_source_id: Option<String>,
     pub ownership_path: Vec<LibrarySearchSnapshotOwner>,
@@ -1349,7 +1338,7 @@ pub struct LibrarySearchSnapshotManifest {
     pub version: u32,
     pub projection_version: u32,
     pub library_id: String,
-    pub project_id: String,
+    pub access_project_id: String,
     pub store_epoch: String,
     pub commit_head: i64,
     pub scope: LibrarySearchSnapshotScope,
@@ -1525,7 +1514,7 @@ pub enum LibraryAgentSearchResult {
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
 pub struct LibrarySearchHit {
-    pub project_id: String,
+    pub library_id: String,
     pub owner_page_id: String,
     pub document_id: String,
     pub block_id: String,

@@ -63,9 +63,7 @@ export const registerLibraryDatabaseModuleIpcHandler = (
         );
       }
       try {
-        return await dependencies.apply(bindLibraryDatabaseApplyV2(rawRequest, {
-          actor: { kind: "electron_renderer" },
-        }));
+        return await dependencies.apply(bindLibraryDatabaseApplyV2(rawRequest));
       } catch (error) {
         return invalid(error instanceof Error ? error.message : "Library Database write is invalid");
       }

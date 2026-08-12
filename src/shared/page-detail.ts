@@ -534,6 +534,122 @@ const parseDataSourceContext = (
   };
 };
 
+const parsePageDetailBody = (
+  detail: Readonly<Record<string, unknown>>,
+): Omit<PageDetail, "projectId"> => {
+  if (
+    detail.version !== PAGE_DETAIL_CONTRACT_VERSION ||
+    !isRecord(detail.document) ||
+    !Array.isArray(detail.intrinsicProperties) ||
+    !isRecord(detail.dataSourceContext)
+  ) {
+    throw new PageDetailContractError("Page Detail payload is invalid");
+  }
+  exactKeys(detail.document, "pageDetail.document", [
+    "readiness",
+    "schemaKey",
+    "schemaVersion",
+  ]);
+  const page = parsePage(detail.page);
+  const libraryId = identity(detail.libraryId, "pageDetail.libraryId");
+  const storeEpoch = identity(detail.storeEpoch, "pageDetail.storeEpoch");
+  if (page.libraryId !== libraryId) {
+    throw new PageDetailContractError("Page Detail Library coordinate diverges");
+  }
+  if (
+    detail.document.readiness !== "pending_genesis" &&
+    detail.document.readiness !== "ready" &&
+    detail.document.readiness !== "failed"
+  ) {
+    throw new PageDetailContractError("Page Detail readiness is invalid");
+  }
+  const documentReadiness = detail.document.readiness as
+    | "pending_genesis"
+    | "ready"
+    | "failed";
+  const document = {
+    readiness: documentReadiness,
+    schemaKey: identity(
+      detail.document.schemaKey,
+      "pageDetail.document.schemaKey",
+    ),
+    schemaVersion: revision(
+      detail.document.schemaVersion,
+      "pageDetail.document.schemaVersion",
+    ),
+  };
+  const commitSeq = revision(detail.commitSeq, "pageDetail.commitSeq");
+  const authorization = parseAuthorizedReadStamp(detail.authorization, libraryId);
+  if (
+    authorization.store_epoch !== storeEpoch ||
+    authorization.covered_commit_seq !== commitSeq ||
+    authorization.subject.kind !== "page" ||
+    authorization.subject.page_id !== page.pageId
+  ) {
+    throw new PageDetailContractError("Page Detail authorization stamp diverges");
+  }
+  const intrinsicProperties: PageIntrinsicProperty[] = [];
+  for (const [index, property] of detail.intrinsicProperties.entries()) {
+    if (!isRecord(property)) {
+      throw new PageDetailContractError(
+        `pageDetail.intrinsicProperties[${index}] is invalid`,
+      );
+    }
+    const label = `pageDetail.intrinsicProperties[${index}]`;
+    exactKeys(property, label, ["key", "valueType", "value", "revision"]);
+    const intrinsicValueType = property.valueType;
+    const intrinsicValue = portableJson(property.value, `${label}.value`);
+    if (
+      (intrinsicValueType === "null" && intrinsicValue !== null) ||
+      (intrinsicValueType === "boolean" && typeof intrinsicValue !== "boolean") ||
+      (intrinsicValueType === "number" && typeof intrinsicValue !== "number") ||
+      (intrinsicValueType === "string" &&
+        intrinsicValue !== null &&
+        typeof intrinsicValue !== "string") ||
+      (intrinsicValueType === "json" &&
+        intrinsicValue !== null &&
+        !Array.isArray(intrinsicValue) &&
+        typeof intrinsicValue !== "object") ||
+      (intrinsicValueType !== "null" &&
+        intrinsicValueType !== "boolean" &&
+        intrinsicValueType !== "number" &&
+        intrinsicValueType !== "string" &&
+        intrinsicValueType !== "json")
+    ) {
+      throw new PageDetailContractError(`${label}.valueType is invalid`);
+    }
+    intrinsicProperties.push({
+      key: identity(property.key, `${label}.key`),
+      valueType: intrinsicValueType,
+      value: intrinsicValue,
+      revision: revision(property.revision, `${label}.revision`),
+    });
+  }
+  if (
+    new Set(intrinsicProperties.map((property) => property.key)).size !==
+    intrinsicProperties.length
+  ) {
+    throw new PageDetailContractError(
+      "Page Detail intrinsic property keys must be unique",
+    );
+  }
+  return {
+    version: PAGE_DETAIL_CONTRACT_VERSION,
+    libraryId,
+    storeEpoch,
+    commitSeq,
+    authorization,
+    page,
+    document,
+    intrinsicProperties,
+    dataSourceContext: parseDataSourceContext(
+      detail.dataSourceContext,
+      page,
+      libraryId,
+    ),
+  };
+};
+
 const errorCodes = new Set<PageDetailErrorCode>([
   "invalid_request",
   "store_not_initialized",
@@ -590,124 +706,12 @@ export const parsePageDetailResult = (value: unknown): PageDetailResult => {
     "intrinsicProperties",
     "dataSourceContext",
   ]);
-  if (
-    detail.version !== PAGE_DETAIL_CONTRACT_VERSION ||
-    !isRecord(detail.document) ||
-    !Array.isArray(detail.intrinsicProperties) ||
-    !isRecord(detail.dataSourceContext)
-  ) {
-    throw new PageDetailContractError("Page Detail payload is invalid");
-  }
-  exactKeys(detail.document, "pageDetail.document", [
-    "readiness",
-    "schemaKey",
-    "schemaVersion",
-  ]);
-  const page = parsePage(detail.page);
   const projectId = identity(detail.projectId, "pageDetail.projectId");
-  const libraryId = identity(detail.libraryId, "pageDetail.libraryId");
-  const storeEpoch = identity(detail.storeEpoch, "pageDetail.storeEpoch");
-  if (page.libraryId !== libraryId) {
-    throw new PageDetailContractError("Page Detail Library coordinate diverges");
-  }
-  if (
-    detail.document.readiness !== "pending_genesis" &&
-    detail.document.readiness !== "ready" &&
-    detail.document.readiness !== "failed"
-  ) {
-    throw new PageDetailContractError("Page Detail readiness is invalid");
-  }
-  const documentReadiness = detail.document.readiness as
-    | "pending_genesis"
-    | "ready"
-    | "failed";
-  const document = {
-    readiness: documentReadiness,
-    schemaKey: identity(
-      detail.document.schemaKey,
-      "pageDetail.document.schemaKey",
-    ),
-    schemaVersion: revision(
-      detail.document.schemaVersion,
-      "pageDetail.document.schemaVersion",
-    ),
-  };
-  const commitSeq = revision(
-    detail.commitSeq,
-    "pageDetail.commitSeq",
-  );
-  const authorization = parseAuthorizedReadStamp(detail.authorization, libraryId);
-  if (
-    authorization.store_epoch !== storeEpoch
-    || authorization.covered_commit_seq !== commitSeq
-    || authorization.subject.kind !== "page"
-    || authorization.subject.page_id !== page.pageId
-  ) {
-    throw new PageDetailContractError("Page Detail authorization stamp diverges");
-  }
-  const intrinsicProperties: PageIntrinsicProperty[] = [];
-  for (const [index, property] of detail.intrinsicProperties.entries()) {
-    if (!isRecord(property)) {
-      throw new PageDetailContractError(
-        `pageDetail.intrinsicProperties[${index}] is invalid`,
-      );
-    }
-    const label = `pageDetail.intrinsicProperties[${index}]`;
-    exactKeys(property, label, ["key", "valueType", "value", "revision"]);
-    const intrinsicValueType = property.valueType;
-    const intrinsicValue = portableJson(property.value, `${label}.value`);
-    if (
-      (intrinsicValueType === "null" && intrinsicValue !== null) ||
-      (intrinsicValueType === "boolean" && typeof intrinsicValue !== "boolean") ||
-      (intrinsicValueType === "number" && typeof intrinsicValue !== "number") ||
-      (intrinsicValueType === "string" &&
-        intrinsicValue !== null &&
-        typeof intrinsicValue !== "string") ||
-      (intrinsicValueType === "json" &&
-        intrinsicValue !== null &&
-        !Array.isArray(intrinsicValue) &&
-        typeof intrinsicValue !== "object") ||
-      (intrinsicValueType !== "null" &&
-        intrinsicValueType !== "boolean" &&
-        intrinsicValueType !== "number" &&
-        intrinsicValueType !== "string" &&
-        intrinsicValueType !== "json")
-    ) {
-      throw new PageDetailContractError(`${label}.valueType is invalid`);
-    }
-    intrinsicProperties.push({
-      key: identity(property.key, `${label}.key`),
-      valueType: intrinsicValueType,
-      value: intrinsicValue,
-      revision: revision(property.revision, `${label}.revision`),
-    });
-  }
-  if (
-    new Set(intrinsicProperties.map((property) => property.key)).size !==
-    intrinsicProperties.length
-  ) {
-    throw new PageDetailContractError(
-      "Page Detail intrinsic property keys must be unique",
-    );
-  }
-  const dataSourceContext = parseDataSourceContext(
-    detail.dataSourceContext,
-    page,
-    libraryId,
-  );
   return {
     ok: true,
     value: {
-      version: PAGE_DETAIL_CONTRACT_VERSION,
+      ...parsePageDetailBody(detail),
       projectId,
-      libraryId,
-      storeEpoch,
-      commitSeq,
-      authorization,
-      page,
-      document,
-      intrinsicProperties,
-      dataSourceContext,
     },
   };
 };
@@ -749,19 +753,10 @@ export const parseLibraryPageDetailResult = (
   if (detail.accessContext.kind !== "library") {
     throw new PageDetailContractError("Library Page Detail access context must be library");
   }
-  const { accessContext: _accessContext, ...standardDetail } = detail;
-  void _accessContext;
-  const parsed = parsePageDetailResult({
-    ok: true,
-    value: { ...standardDetail, projectId: "local-library" },
-  });
-  if (!parsed.ok) return parsed;
-  const { projectId: _privateProjectId, ...publicDetail } = parsed.value;
-  void _privateProjectId;
   return {
     ok: true,
     value: {
-      ...publicDetail,
+      ...parsePageDetailBody(detail),
       accessContext: { kind: "library" },
     },
   };

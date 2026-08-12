@@ -10,7 +10,7 @@ import {
 } from "./additional-document-command-ipc";
 
 const request: PublicAdditionalDocumentCommandRequest = {
-  version: 1,
+  version: 2,
   operationId: "additional-command-1",
   projectId: "project-1",
   storeEpoch: "epoch-1",
@@ -23,7 +23,7 @@ const request: PublicAdditionalDocumentCommandRequest = {
     documentId: "document-template-1",
     displayName: "Review template",
     initialBlocks: [],
-    placement: { kind: "space" },
+    placement: { kind: "library" },
   },
 };
 
@@ -36,7 +36,7 @@ const committed = (
     observed: { store_epoch: bound.storeEpoch, commit_head: 7 },
   },
   value: {
-    version: 1,
+    version: 2,
     operationId: bound.operationId,
     projectId: bound.projectId,
     storeEpoch: bound.storeEpoch,

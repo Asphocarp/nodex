@@ -21,9 +21,8 @@ const request = (): BlockTransferRequest => ({
   rootBlockIds: ["card-1"],
   expectedLocationRevisions: { "card-1": 3 },
   source: {
-    kind: "database",
-    databaseBlockId: "database-a",
-    dataSourceId: "source-a",
+    kind: "data_source",
+    dataSourceId: "data-source-a",
     memberships: {
       "card-1": { membershipId: "membership-a", revision: 4 },
     },
@@ -63,7 +62,7 @@ describe("BlockTransfer contract", () => {
     expect(parseBlockTransferIntent(fencedLogical)).toEqual(fencedLogical);
     expect(logical.source).toEqual({
       kind: "data_source",
-      dataSourceId: "source-a",
+      dataSourceId: "data-source-a",
     });
     expect(logical.target).toEqual({
       kind: "document",
@@ -103,15 +102,15 @@ describe("BlockTransfer contract", () => {
       parseBlockTransferRequest({
         ...request(),
         source: {
-          kind: "database",
-          databaseBlockId: "database-b",
+          kind: "data_source",
+          dataSourceId: "data-source-b",
           memberships: {
             "card-1": { membershipId: "membership-b", revision: 1 },
           },
         },
         target: {
-          kind: "database",
-          databaseBlockId: "database-b",
+          kind: "data_source",
+          dataSourceId: "data-source-b",
           viewId: "view-b",
           groupKey: null,
         },
@@ -119,19 +118,18 @@ describe("BlockTransfer contract", () => {
     ).toThrow(/reorder within one Data Source/);
   });
 
-  test("allows a parent move between Data Sources in one Database", () => {
+  test("allows a parent move between Data Sources", () => {
     expect(
       parseBlockTransferRequest({
         ...request(),
         target: {
-          kind: "database",
-          databaseBlockId: "database-a",
-          dataSourceId: "source-b",
+          kind: "data_source",
+          dataSourceId: "data-source-b",
           viewId: "view-b",
           groupKey: "plan",
         },
       }).target,
-    ).toMatchObject({ dataSourceId: "source-b" });
+    ).toMatchObject({ dataSourceId: "data-source-b" });
   });
 
   test("rejects transferred roots as target anchors", () => {
@@ -139,7 +137,8 @@ describe("BlockTransfer contract", () => {
       parseBlockTransferRequest({
         ...request(),
         target: {
-          kind: "space",
+          kind: "library",
+          libraryId: "library-a",
           beforeBlockId: "card-1",
         },
       }),
@@ -152,8 +151,8 @@ describe("BlockTransfer contract", () => {
         ...request(),
         mode: "copy",
         target: {
-          kind: "database",
-          databaseBlockId: "database-a",
+          kind: "data_source",
+          dataSourceId: "data-source-a",
           viewId: "view-a",
           groupKey: null,
         },

@@ -105,7 +105,7 @@ const normalizedDestination = (
 ) => {
   const destination = request.input.destination;
   if (destination.kind === "library") {
-    return { kind: "space" as const, ...(destination.at ? { at: destination.at } : {}) };
+    return { kind: "library" as const, ...(destination.at ? { at: destination.at } : {}) };
   }
   if (destination.kind === "page") {
     const target = preparation.destination_document;
@@ -125,8 +125,8 @@ const normalizedDestination = (
   const page = request.input.pages[pageIndex];
   if (!page) throw new Error(`Core Agent Page draft ${pageIndex} is unavailable`);
   return {
-    kind: "database" as const,
-    databaseBlockId: databaseId,
+    kind: "data_source" as const,
+    dataSourceId: destination.dataSourceId,
     ...(page.values ? { values: page.values } : {}),
     ...(destination.view ? { view: destination.view } : {}),
   };

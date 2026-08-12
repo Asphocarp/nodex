@@ -57,7 +57,7 @@ describe("Database List projection", () => {
       grouped: false,
       subgrouped: false,
       nested: false,
-      collapsedGroupKeys: new Set(),
+      collapsedOccurrenceKeys: new Set(),
     });
 
     expect(resolveDatabaseListAuthority({
@@ -82,7 +82,7 @@ describe("Database List projection", () => {
       grouped: true,
       subgrouped: false,
       nested: true,
-      collapsedGroupKeys: new Set(),
+      collapsedOccurrenceKeys: new Set(),
     });
     const pages = projection.filter((item) => item.kind === "page");
 
@@ -100,7 +100,7 @@ describe("Database List projection", () => {
       grouped: true,
       subgrouped: false,
       nested: false,
-      collapsedGroupKeys: new Set([databaseListGroupKey("build")]),
+      collapsedOccurrenceKeys: new Set([databaseListGroupKey("build")]),
     });
 
     expect(projection).toHaveLength(1);
@@ -113,7 +113,7 @@ describe("Database List projection", () => {
       grouped: true,
       subgrouped: false,
       nested: false,
-      collapsedGroupKeys: new Set(),
+      collapsedOccurrenceKeys: new Set(),
     });
     const window = computeDatabaseListVirtualWindow(projection, 2_000, 500, 100);
 
@@ -132,7 +132,7 @@ describe("Database List projection", () => {
       grouped: true,
       subgrouped: false,
       nested: false,
-      collapsedGroupKeys: new Set(),
+      collapsedOccurrenceKeys: new Set(),
     });
     const window = computeDatabaseListVirtualWindow(
       projection,
@@ -151,7 +151,7 @@ describe("Database List projection", () => {
       grouped: true,
       subgrouped: false,
       nested: false,
-      collapsedGroupKeys: new Set(),
+      collapsedOccurrenceKeys: new Set(),
     });
     const firstPage = projection.find((item) => item.kind === "page");
     if (!firstPage) throw new Error("missing active row fixture");
@@ -174,7 +174,7 @@ describe("Database List projection", () => {
       grouped: true,
       subgrouped: false,
       nested: false,
-      collapsedGroupKeys: new Set(),
+      collapsedOccurrenceKeys: new Set(),
     });
     const anchor = captureDatabaseListScrollAnchor(before, 38 + 44 + 11);
     expect(anchor).toMatchObject({ intraRowOffset: 11 });
@@ -184,7 +184,7 @@ describe("Database List projection", () => {
       grouped: true,
       subgrouped: false,
       nested: false,
-      collapsedGroupKeys: new Set(),
+      collapsedOccurrenceKeys: new Set(),
     });
 
     expect(restoreDatabaseListScrollTop(after, anchor)).toBe(38 + 44 * 2 + 11);
@@ -196,7 +196,7 @@ describe("Database List projection", () => {
       grouped: true,
       subgrouped: false,
       nested: false,
-      collapsedGroupKeys: new Set(),
+      collapsedOccurrenceKeys: new Set(),
     });
     const target = projection.find((item) =>
       item.kind === "page" && item.pageId === "p-80"
@@ -227,7 +227,7 @@ describe("Database List projection", () => {
       grouped: true,
       subgrouped: false,
       nested: true,
-      collapsedGroupKeys: new Set(),
+      collapsedOccurrenceKeys: new Set(),
     });
     const parent = before.find((item) =>
       item.kind === "page" && item.pageId === "parent"
@@ -259,7 +259,7 @@ describe("Database List occurrence selection", () => {
     grouped: true,
     subgrouped: false,
     nested: false,
-    collapsedGroupKeys: new Set(),
+    collapsedOccurrenceKeys: new Set(),
   });
   const pages = projection.filter((item) => item.kind === "page");
 

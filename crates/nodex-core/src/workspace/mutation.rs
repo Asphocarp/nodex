@@ -1705,16 +1705,10 @@ fn create_project_records(
     insert_project_sources(connection, project_id, sources, &now)?;
     connection.execute(
         "INSERT INTO blocks(\
-           id, project_id, type, lifecycle, location_kind, containing_document_id, \
-           containing_database_id, location_revision, metadata_revision, created_at, updated_at\
-         ) VALUES (?1, ?2, 'database', 'active', 'space', NULL, NULL, 1, 1, ?3, ?3)",
-        params![identities.database_id, project_id, now],
-    )?;
-    connection.execute(
-        "INSERT INTO top_level_block_placements(\
-           block_id, project_id, rank_key, created_at, updated_at\
-         ) VALUES (?1, ?2, ?3, ?4, ?4)",
-        params![identities.database_id, project_id, INITIAL_RANK_KEY, now],
+           id, library_id, type, lifecycle, placement_revision, metadata_revision, \
+           created_at, updated_at\
+         ) VALUES (?1, ?2, 'database', 'active', 1, 1, ?3, ?3)",
+        params![identities.database_id, library_id, now],
     )?;
     connection.execute(
         "INSERT INTO library_block_placements(\
@@ -1753,7 +1747,6 @@ fn create_project_records(
                 crate::library::page_genesis::PageGenesisInput {
                     commit_context,
                     library_id,
-                    project_id,
                     actor_project_id: project_id,
                     placement_access_project_id: None,
                     operation_id: identity_namespace,
@@ -1762,13 +1755,28 @@ fn create_project_records(
                     document_id: &request.page.document_id,
                     title_markdown: &request.page.title_markdown,
                     nfm: &request.page.nfm,
-                    destination: &destination.destination,
+                    destination: &destination,
                     now: &now,
                 },
             )
         })
         .transpose()?;
-    let canvas = create_primary_canvas(connection, project_id, &canvas_name, &now, assets_root)?;
+    let canvas = create_primary_canvas(
+        connection,
+        library_id,
+        project_id,
+        &canvas_name,
+        &now,
+        assets_root,
+    )?;
+    crate::library::insert_creator_resource_grant(
+        connection,
+        project_id,
+        library_id,
+        "canvas",
+        &canvas.block_id,
+        &now,
+    )?;
     Ok(CreatedProjectAggregate {
         identities,
         canvas,
@@ -2857,8 +2865,8 @@ mod tests {
                             (SELECT count(*) FROM project_sessions \
                              WHERE project_id = 'project:default'), \
                             (SELECT count(*) FROM canvas_scenes scene \
-                             JOIN documents document ON document.id = scene.document_id \
-                             WHERE document.project_id = 'project:default') \
+                             JOIN block_documents owner ON owner.document_id = scene.document_id \
+                             WHERE owner.block_id = 'canvas:primary:project:default') \
                      FROM projects project JOIN project_database_bindings binding \
                        ON binding.project_id = project.id \
                      WHERE project.id = 'project:default'",
@@ -2955,8 +2963,8 @@ mod tests {
                             (SELECT count(*) FROM project_sessions session \
                              WHERE session.project_id = project.id), \
                             (SELECT count(*) FROM canvas_scenes scene \
-                             JOIN documents document ON document.id = scene.document_id \
-                             WHERE document.project_id = project.id), \
+                             JOIN block_documents owner ON owner.document_id = scene.document_id \
+                             WHERE owner.block_id = 'canvas:primary:' || project.id), \
                             (SELECT count(*) FROM change_log \
                              WHERE kind = 'project_workspace.changed' \
                                AND operation_id = 'workspace-create-1'), \
@@ -3965,6 +3973,8 @@ mod tests {
     #[test]
     fn rolls_back_the_complete_project_when_a_nested_canvas_write_fails() {
         let (_directory, kernel, module) = seeded_module();
+        let identities =
+            super::aggregate_identities("workspace-create-rollback", "project-rollback");
         kernel
             .writer()
             .call(|connection| {
@@ -3991,14 +4001,15 @@ mod tests {
                     .query_row(
                         "SELECT \
                        (SELECT count(*) FROM projects WHERE id = 'project-rollback'), \
-                       (SELECT count(*) FROM blocks WHERE project_id = 'project-rollback'), \
+                       (SELECT count(*) FROM blocks \
+                        WHERE id IN (?1, 'canvas:primary:project-rollback')), \
                        (SELECT count(*) FROM project_sessions \
                         WHERE project_id = 'project-rollback'), \
                        (SELECT count(*) FROM core_module_receipts \
                         WHERE operation_id = 'workspace-create-rollback'), \
                        (SELECT count(*) FROM change_log \
                         WHERE operation_id = 'workspace-create-rollback')",
-                        [],
+                        [identities.database_id],
                         |row| {
                             Ok((
                                 row.get::<_, i64>(0)?,

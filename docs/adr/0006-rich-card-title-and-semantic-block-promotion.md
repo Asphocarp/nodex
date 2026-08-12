@@ -6,6 +6,13 @@
 - Extends: ADR 0002 and ADR 0005
 - Corrects: the implemented BP-05 promotion body shape
 
+## Current applicability
+
+ADR 0017 replaces Card with Page and Space/Database parent coordinates with
+Library/Page/Data Source placement. This ADR remains authoritative for rich
+title ownership and lossless promote-or-wrap semantics; its older nouns are
+historical aliases only.
+
 ## Context
 
 Nodex models Card as the Page-like, document-bearing form of a Block. ADR 0002 gives each Card one owned Yjs Document with `Y.Text("title")` and `Y.XmlFragment("body")`. ADR 0005 says a compatible ordinary Block can be promoted in place when moved to Space or Database: the root identity becomes the Card identity, its primary content becomes the Card title, and its children become the Card body.

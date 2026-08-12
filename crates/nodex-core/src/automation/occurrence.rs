@@ -49,7 +49,7 @@ const INTRINSIC_PROPERTY_KEYS: [&str; 9] = [
 #[derive(Clone)]
 struct ScheduledRow {
     page_id: String,
-    storage_project_id: String,
+    library_id: String,
     index_lifecycle: String,
     block_lifecycle: String,
     metadata_revision: i64,
@@ -355,54 +355,53 @@ pub(super) fn read_occurrences_for_reminders(
 pub(super) fn read_current_page_title(
     connection: &Connection,
     page_id: &str,
-) -> Result<(String, String), StoreError> {
+) -> Result<String, StoreError> {
     let row = connection
         .query_row(
-            "SELECT block.project_id, document.generation, document.head_seq, \
+            "SELECT document.generation, document.head_seq, \
                document.schema_version, document.readiness, document.authority, \
                materialization.generation, materialization.projected_seq, \
                materialization.schema_version, materialization.title \
              FROM blocks block \
              LEFT JOIN block_documents ownership ON ownership.block_id = block.id \
-               AND ownership.project_id = block.project_id \
+               AND ownership.library_id = block.library_id \
              LEFT JOIN documents document ON document.id = ownership.document_id \
-               AND document.project_id = ownership.project_id \
+               AND document.library_id = ownership.library_id \
              LEFT JOIN document_materializations materialization \
                ON materialization.document_id = document.id \
              WHERE block.id = ?1 AND block.type = 'page' AND block.lifecycle <> 'deleted'",
             [page_id],
             |row| {
                 Ok((
-                    row.get::<_, String>(0)?,
+                    row.get::<_, Option<i64>>(0)?,
                     row.get::<_, Option<i64>>(1)?,
                     row.get::<_, Option<i64>>(2)?,
-                    row.get::<_, Option<i64>>(3)?,
+                    row.get::<_, Option<String>>(3)?,
                     row.get::<_, Option<String>>(4)?,
-                    row.get::<_, Option<String>>(5)?,
+                    row.get::<_, Option<i64>>(5)?,
                     row.get::<_, Option<i64>>(6)?,
                     row.get::<_, Option<i64>>(7)?,
-                    row.get::<_, Option<i64>>(8)?,
-                    row.get::<_, Option<String>>(9)?,
+                    row.get::<_, Option<String>>(8)?,
                 ))
             },
         )
         .optional()?
         .ok_or_else(|| corrupt("Reminder Page is unavailable"))?;
-    if row.4.as_deref() != Some("ready")
-        || row.5.as_deref() != Some("ydoc_primary")
+    if row.3.as_deref() != Some("ready")
+        || row.4.as_deref() != Some("ydoc_primary")
+        || row.0.is_none()
         || row.1.is_none()
         || row.2.is_none()
-        || row.3.is_none()
+        || row.5 != row.0
         || row.6 != row.1
         || row.7 != row.2
-        || row.8 != row.3
-        || row.9.is_none()
+        || row.8.is_none()
     {
         return Err(corrupt(
             "Reminder Page has no materialization for its current Document head",
         ));
     }
-    Ok((row.0, row.9.expect("validated reminder title")))
+    Ok(row.8.expect("validated reminder title"))
 }
 
 fn read_scheduled_rows(
@@ -450,7 +449,7 @@ fn visit_scheduled_rows(
            JOIN database_view_page_positions position ON position.view_id = view.id \
            WHERE view.default_layout = 'board' AND view.lifecycle = 'active' \
          ) \
-         SELECT schedule.page_block_id, schedule.project_id, schedule.lifecycle, block.lifecycle, \
+         SELECT schedule.page_block_id, schedule.library_id, schedule.lifecycle, block.lifecycle, \
            block.metadata_revision, schedule.source_metadata_revision, schedule.scheduled_start, \
            schedule.scheduled_end, schedule.is_all_day, schedule.recurrence_json, \
            schedule.reminders_json, schedule.schedule_timezone, block.created_at, block.updated_at, \
@@ -461,18 +460,18 @@ fn visit_scheduled_rows(
            membership.id, source.id, position.view_order \
          FROM scheduled_page_index schedule \
          JOIN blocks block ON block.id = schedule.page_block_id \
-           AND block.project_id = schedule.project_id AND block.type = 'page' \
+           AND block.library_id = schedule.library_id AND block.type = 'page' \
          JOIN pages page ON page.block_id = block.id AND page.library_id = ?1 \
          LEFT JOIN block_documents ownership ON ownership.block_id = block.id \
-           AND ownership.project_id = block.project_id \
+           AND ownership.library_id = block.library_id \
          LEFT JOIN documents document ON document.id = ownership.document_id \
-           AND document.project_id = ownership.project_id \
+           AND document.library_id = ownership.library_id \
          LEFT JOIN document_materializations materialization \
            ON materialization.document_id = document.id \
          LEFT JOIN data_source_page_memberships membership \
            ON membership.page_block_id = block.id AND membership.removed_at IS NULL \
          LEFT JOIN data_sources source ON source.id = membership.data_source_id \
-           AND source.home_database_block_id = block.containing_database_id \
+           AND source.library_id = block.library_id \
          LEFT JOIN ranked_positions position \
            ON position.database_block_id = source.home_database_block_id \
            AND position.data_source_id = membership.data_source_id \
@@ -488,7 +487,7 @@ fn visit_scheduled_rows(
     while let Some(row) = rows.next()? {
         visitor(ScheduledRow {
             page_id: row.get(0)?,
-            storage_project_id: row.get(1)?,
+            library_id: row.get(1)?,
             index_lifecycle: row.get(2)?,
             block_lifecycle: row.get(3)?,
             metadata_revision: row.get(4)?,
@@ -573,7 +572,7 @@ fn validate_and_project(
         .as_deref()
         .ok_or_else(|| corrupt("Scheduled Page has no active Data Source"))?;
     let database = read_database_properties(connection, membership_id, data_source_id)?;
-    let intrinsic = read_intrinsic_properties(connection, &row.page_id, &row.storage_project_id)?;
+    let intrinsic = read_intrinsic_properties(connection, &row.page_id, &row.library_id)?;
 
     let status = optional_string(&database, "status")?.unwrap_or_else(|| "triage".to_owned());
     let status_name = status_label(&status)
@@ -722,17 +721,17 @@ fn read_database_properties(
 fn read_intrinsic_properties(
     connection: &Connection,
     page_id: &str,
-    project_id: &str,
+    library_id: &str,
 ) -> Result<BTreeMap<String, PropertyValue>, StoreError> {
     let mut statement = connection.prepare(
         "SELECT property_key, value_json FROM block_properties \
-         WHERE block_id = ?1 AND project_id = ?2 AND property_key IN ( \
+         WHERE block_id = ?1 AND library_id = ?2 AND property_key IN ( \
            'run.target','run.localPath','run.baseBranch','run.worktreePath', \
            'run.environmentPath','schedule.isAllDay','schedule.timezone', \
            'recurrence.config','reminders.config')",
     )?;
     let rows = statement
-        .query_map(params![page_id, project_id], |row| {
+        .query_map(params![page_id, library_id], |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;

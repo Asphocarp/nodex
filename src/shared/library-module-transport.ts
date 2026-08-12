@@ -6,10 +6,10 @@ import {
 import type { DatabaseViewLayout } from "./database-kernel";
 import {
   BLOCK_PROPERTY_MUTATION_V2_CONTRACT_VERSION,
-  parseBlockPropertyMutationRequestV2,
+  parseLibraryBlockPropertyMutationRequestV2,
 } from "./block-property-mutations-v2";
 import { DATABASE_MODULE_V2_CONTRACT_VERSION } from "./database-module-v2";
-import { bindDatabaseApplyV2 } from "./database-module-v2-transport";
+import { bindLibraryDatabaseApplyV2 } from "./database-module-v2-transport";
 import { parseLocalCommitApply } from "./local-commit-delivery";
 import {
   assertExistingCanvasBlockId,
@@ -797,29 +797,21 @@ export const bindLibraryModuleApply = (
       ["kind", "databaseOperations", "intrinsicFields"],
       ["clientSessionId"],
     );
-    const database = bindDatabaseApplyV2(
-      {
-        version: DATABASE_MODULE_V2_CONTRACT_VERSION,
-        operationId,
-        projectId: "library-page-metadata-boundary",
-        storeEpoch,
-        actor: {},
-        operations: operation.databaseOperations,
-      },
-      "library-page-metadata-boundary",
-      { actor: { kind: "page_metadata" } },
-    );
+    const database = bindLibraryDatabaseApplyV2({
+      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+      operationId,
+      storeEpoch,
+      operations: operation.databaseOperations,
+    });
     if (database.operations.some((candidate) => candidate.kind !== "edit_property_values")) {
       throw new TypeError(
         "libraryModuleApply.operation.databaseOperations only supports Page Property value edits",
       );
     }
-    const intrinsic = parseBlockPropertyMutationRequestV2({
+    const intrinsic = parseLibraryBlockPropertyMutationRequestV2({
       version: BLOCK_PROPERTY_MUTATION_V2_CONTRACT_VERSION,
       mutationId: operationId,
-      projectId: "library-page-metadata-boundary",
       storeEpoch,
-      actor: { kind: "page_metadata" },
       ...(operation.clientSessionId === undefined
         ? {}
         : { clientSessionId: operation.clientSessionId }),
@@ -1363,7 +1355,6 @@ const parseCanvasTarget = (
         summary.canvasId,
         `${label}.summary.canvasId`,
       ),
-      projectId: string(summary.projectId, `${label}.summary.projectId`),
       title: string(summary.title, `${label}.summary.title`, 256),
       lifecycle: string(
         summary.lifecycle,

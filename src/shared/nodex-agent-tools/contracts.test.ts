@@ -111,7 +111,7 @@ describe("Nodex Agent tool contracts", () => {
           ].join("\n"),
         },
       },
-      destination: { kind: "space", at: { kind: "end" } },
+      destination: { kind: "library", at: { kind: "end" } },
       return: { blockIds: true },
     });
 
@@ -146,7 +146,7 @@ describe("Nodex Agent tool contracts", () => {
         title: { kind: "plain", text: "Empty" },
         body: { format: "nfm", content: "" },
       },
-      destination: { kind: "space" },
+      destination: { kind: "library" },
     }).success).toBe(true);
     expect(EditDocumentInputSchema.safeParse({
       documentId: "document-1",
@@ -221,13 +221,13 @@ describe("Nodex Agent tool contracts", () => {
     expect(TransferBlocksInputSchema.safeParse({
       mode: "move",
       blockIds: ["block-1", "block-2"],
-      destination: { kind: "space" },
+      destination: { kind: "library" },
     }).success).toBe(false);
     expect(TransferBlocksInputSchema.safeParse({
       mode: "move",
       blockIds: ["block-1", "block-2"],
-      from: { kind: "database", databaseBlockId: "database-1" },
-      destination: { kind: "space" },
+      from: { kind: "data_source", dataSourceId: "data-source-1" },
+      destination: { kind: "library" },
     }).success).toBe(true);
     expect(TransferBlocksInputSchema.safeParse({
       mode: "copy",

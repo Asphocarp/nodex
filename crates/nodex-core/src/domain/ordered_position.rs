@@ -5,52 +5,52 @@ use super::fractional_rank::{
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct LogicalViewPositionItem {
+pub struct LogicalPositionItem {
     pub page_id: String,
     pub rank_key: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ViewSiblingRankWriteKind {
+pub enum SiblingRankWriteKind {
     Materialize,
     Rebalance,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ViewSiblingRankWrite {
-    pub kind: ViewSiblingRankWriteKind,
+pub struct SiblingRankWrite {
+    pub kind: SiblingRankWriteKind,
     pub page_id: String,
     pub rank_key: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ViewPositionRunPlan {
+pub struct PositionRunPlan {
     pub moved_rank_keys: BTreeMap<String, String>,
-    pub sibling_writes: Vec<ViewSiblingRankWrite>,
+    pub sibling_writes: Vec<SiblingRankWrite>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum ViewPositionPlanError {
+pub enum PositionPlanError {
     InvalidInput(String),
     AnchorNotFound(String),
     FractionalRank(FractionalRankError),
 }
 
-pub fn plan_view_position_run(
-    logical_group_order: &[LogicalViewPositionItem],
+pub fn plan_position_run(
+    logical_group_order: &[LogicalPositionItem],
     moved_page_ids: &[String],
     before_page_id: Option<&str>,
     descending: bool,
-) -> Result<ViewPositionRunPlan, ViewPositionPlanError> {
+) -> Result<PositionRunPlan, PositionPlanError> {
     if moved_page_ids.is_empty() {
-        return Err(ViewPositionPlanError::InvalidInput(
-            "A View position run requires at least one Page".to_owned(),
+        return Err(PositionPlanError::InvalidInput(
+            "An ordered Page run requires at least one Page".to_owned(),
         ));
     }
     require_unique(moved_page_ids.iter().map(String::as_str), "Moved Page set")?;
     require_unique(
         logical_group_order.iter().map(|item| item.page_id.as_str()),
-        "Logical View group",
+        "Ordered Page scope",
     )?;
 
     let moved = moved_page_ids
@@ -58,8 +58,8 @@ pub fn plan_view_position_run(
         .map(String::as_str)
         .collect::<HashSet<_>>();
     if before_page_id.is_some_and(|page_id| moved.contains(page_id)) {
-        return Err(ViewPositionPlanError::InvalidInput(
-            "View position anchor must be outside the moved Page set".to_owned(),
+        return Err(PositionPlanError::InvalidInput(
+            "Ordered Page anchor must be outside the moved Page set".to_owned(),
         ));
     }
     let remaining = logical_group_order
@@ -72,8 +72,8 @@ pub fn plan_view_position_run(
             .iter()
             .position(|item| item.page_id == anchor)
             .ok_or_else(|| {
-                ViewPositionPlanError::AnchorNotFound(format!(
-                    "View position anchor does not exist in the target group: {anchor}"
+                PositionPlanError::AnchorNotFound(format!(
+                    "Ordered Page anchor does not exist in the target scope: {anchor}"
                 ))
             })?,
         None => remaining.len(),
@@ -96,7 +96,7 @@ pub fn plan_view_position_run(
         .iter()
         .position(|page_id| moved.contains(page_id.as_str()))
         .ok_or_else(|| {
-            ViewPositionPlanError::InvalidInput("Rank plan omitted the moved Page run".to_owned())
+            PositionPlanError::InvalidInput("Rank plan omitted the moved Page run".to_owned())
         })?;
     let physical_before_page_id = physical_page_ids
         .get(physical_moved_index + physical_moved_page_ids.len())
@@ -115,11 +115,11 @@ pub fn plan_view_position_run(
 fn require_unique<'a>(
     ids: impl Iterator<Item = &'a str>,
     label: &str,
-) -> Result<(), ViewPositionPlanError> {
+) -> Result<(), PositionPlanError> {
     let mut seen = HashSet::new();
     for id in ids {
         if !seen.insert(id) {
-            return Err(ViewPositionPlanError::InvalidInput(format!(
+            return Err(PositionPlanError::InvalidInput(format!(
                 "{label} must contain unique Page IDs"
             )));
         }
@@ -128,12 +128,12 @@ fn require_unique<'a>(
 }
 
 fn plan_materialized_run(
-    remaining: &[LogicalViewPositionItem],
+    remaining: &[LogicalPositionItem],
     moved_page_ids: &[String],
     physical_page_ids: &[String],
-) -> Result<ViewPositionRunPlan, ViewPositionPlanError> {
+) -> Result<PositionRunPlan, PositionPlanError> {
     let rank_keys =
-        materialize_order(physical_page_ids).map_err(ViewPositionPlanError::FractionalRank)?;
+        materialize_order(physical_page_ids).map_err(PositionPlanError::FractionalRank)?;
     let moved_rank_keys = moved_page_ids
         .iter()
         .map(|page_id| {
@@ -142,7 +142,7 @@ fn plan_materialized_run(
                 .cloned()
                 .map(|rank_key| (page_id.clone(), rank_key))
                 .ok_or_else(|| {
-                    ViewPositionPlanError::InvalidInput(format!("Rank plan omitted Page {page_id}"))
+                    PositionPlanError::InvalidInput(format!("Rank plan omitted Page {page_id}"))
                 })
         })
         .collect::<Result<BTreeMap<_, _>, _>>()?;
@@ -150,28 +150,28 @@ fn plan_materialized_run(
         .iter()
         .filter_map(|item| {
             let rank_key = rank_keys.get(&item.page_id)?.clone();
-            (item.rank_key.as_deref() != Some(rank_key.as_str())).then(|| ViewSiblingRankWrite {
+            (item.rank_key.as_deref() != Some(rank_key.as_str())).then(|| SiblingRankWrite {
                 kind: if item.rank_key.is_none() {
-                    ViewSiblingRankWriteKind::Materialize
+                    SiblingRankWriteKind::Materialize
                 } else {
-                    ViewSiblingRankWriteKind::Rebalance
+                    SiblingRankWriteKind::Rebalance
                 },
                 page_id: item.page_id.clone(),
                 rank_key,
             })
         })
         .collect();
-    Ok(ViewPositionRunPlan {
+    Ok(PositionRunPlan {
         moved_rank_keys,
         sibling_writes,
     })
 }
 
 fn plan_ranked_run(
-    remaining: &[LogicalViewPositionItem],
+    remaining: &[LogicalPositionItem],
     moved_page_ids: &[String],
     before_page_id: Option<&str>,
-) -> Result<ViewPositionRunPlan, ViewPositionPlanError> {
+) -> Result<PositionRunPlan, PositionPlanError> {
     let original_ranks = remaining
         .iter()
         .map(|item| {
@@ -179,7 +179,7 @@ fn plan_ranked_run(
                 .clone()
                 .map(|rank_key| (item.page_id.clone(), rank_key))
                 .ok_or_else(|| {
-                    ViewPositionPlanError::InvalidInput(format!(
+                    PositionPlanError::InvalidInput(format!(
                         "Ranked order contains unpositioned Page {}",
                         item.page_id
                     ))
@@ -197,7 +197,7 @@ fn plan_ranked_run(
 
     for page_id in moved_page_ids {
         let plan = plan_fractional_rank(&virtual_items, page_id, before_page_id)
-            .map_err(ViewPositionPlanError::FractionalRank)?;
+            .map_err(PositionPlanError::FractionalRank)?;
         for (sibling_id, rank_key) in plan.rebalanced_rank_keys {
             effective_ranks.insert(sibling_id, rank_key);
         }
@@ -224,7 +224,7 @@ fn plan_ranked_run(
                 .cloned()
                 .map(|rank_key| (page_id.clone(), rank_key))
                 .ok_or_else(|| {
-                    ViewPositionPlanError::InvalidInput(format!("Rank plan omitted Page {page_id}"))
+                    PositionPlanError::InvalidInput(format!("Rank plan omitted Page {page_id}"))
                 })
         })
         .collect::<Result<BTreeMap<_, _>, _>>()?;
@@ -232,14 +232,14 @@ fn plan_ranked_run(
         .iter()
         .filter_map(|(page_id, original_rank_key)| {
             let rank_key = effective_ranks.get(page_id)?;
-            (rank_key != original_rank_key).then(|| ViewSiblingRankWrite {
-                kind: ViewSiblingRankWriteKind::Rebalance,
+            (rank_key != original_rank_key).then(|| SiblingRankWrite {
+                kind: SiblingRankWriteKind::Rebalance,
                 page_id: page_id.clone(),
                 rank_key: rank_key.clone(),
             })
         })
         .collect();
-    Ok(ViewPositionRunPlan {
+    Ok(PositionRunPlan {
         moved_rank_keys,
         sibling_writes,
     })
@@ -249,8 +249,8 @@ fn plan_ranked_run(
 mod tests {
     use super::*;
 
-    fn ranked(page_id: &str, rank_key: &str) -> LogicalViewPositionItem {
-        LogicalViewPositionItem {
+    fn ranked(page_id: &str, rank_key: &str) -> LogicalPositionItem {
+        LogicalPositionItem {
             page_id: page_id.to_owned(),
             rank_key: Some(rank_key.to_owned()),
         }
@@ -262,7 +262,7 @@ mod tests {
             ranked("source", "55555555555555555555555555555555"),
             ranked("anchor", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
         ];
-        let plan = plan_view_position_run(
+        let plan = plan_position_run(
             &items,
             &["source".to_owned(), "anchor".to_owned()],
             None,
@@ -285,23 +285,22 @@ mod tests {
     fn materializes_unpositioned_siblings_in_complete_logical_order() {
         let items = vec![
             ranked("positioned", "40000000000000000000000000000000"),
-            LogicalViewPositionItem {
+            LogicalPositionItem {
                 page_id: "unpositioned".to_owned(),
                 rank_key: None,
             },
-            LogicalViewPositionItem {
+            LogicalPositionItem {
                 page_id: "moved".to_owned(),
                 rank_key: None,
             },
         ];
-        let plan =
-            plan_view_position_run(&items, &["moved".to_owned()], Some("unpositioned"), false)
-                .expect("materialized plan");
+        let plan = plan_position_run(&items, &["moved".to_owned()], Some("unpositioned"), false)
+            .expect("materialized plan");
 
         assert_eq!(
             plan.sibling_writes
                 .iter()
-                .filter(|write| write.kind == ViewSiblingRankWriteKind::Materialize)
+                .filter(|write| write.kind == SiblingRankWriteKind::Materialize)
                 .count(),
             1
         );

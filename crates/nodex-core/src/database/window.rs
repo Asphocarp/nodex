@@ -5,18 +5,24 @@ use nodex_core_contracts::collection::{
     CollectionWindow, CollectionWindowAuthority, CollectionWindowRequest,
 };
 use nodex_core_contracts::database::{
-    DatabaseGroupScope, DatabaseListGroupSummary, DatabaseListProjectionRow,
-    DatabaseListTransientKind, DatabaseListWindow, DatabaseRowDetail, DatabaseRowSummary,
-    DatabaseRowsById, DatabaseViewCompletedRangeInput, DatabaseViewContextRow,
-    DatabaseViewFieldInput, DatabaseViewGroupOverrideInput, DatabaseViewGroupSummary,
-    DatabaseViewGroups, DatabaseViewLayoutInput, DatabaseViewNullOrderInput,
-    DatabaseViewPresentationOverrideInput, DatabaseViewSortDirectionInput,
-    DatabaseViewSortFieldInput, DatabaseViewWindow, MAX_VIEW_GROUP_SUMMARIES,
+    DatabaseAgentDataSourceQuery, DatabaseDataSourceQueryWindow, DatabaseGroupScope,
+    DatabaseListGroupSummary, DatabaseListProjectionRow, DatabaseListTransientKind,
+    DatabaseListWindow, DatabaseRowDetail, DatabaseRowSummary, DatabaseRowsById,
+    DatabaseViewCompletedRange, DatabaseViewCompletedRangeInput, DatabaseViewCompletion,
+    DatabaseViewContextRow, DatabaseViewDefinition, DatabaseViewField, DatabaseViewFieldInput,
+    DatabaseViewFilter, DatabaseViewFilterGroupOperator, DatabaseViewFilterOperator,
+    DatabaseViewGroup, DatabaseViewGroupOverrideInput, DatabaseViewGroupSummary,
+    DatabaseViewGroups, DatabaseViewHierarchy, DatabaseViewIntrinsicField, DatabaseViewLayout,
+    DatabaseViewLayoutDisplay, DatabaseViewLayoutInput, DatabaseViewLayouts, DatabaseViewNullOrder,
+    DatabaseViewNullOrderInput, DatabaseViewPresentation, DatabaseViewPresentationOverrideInput,
+    DatabaseViewSort, DatabaseViewSortDirection, DatabaseViewSortDirectionInput,
+    DatabaseViewSortField, DatabaseViewSortFieldInput, DatabaseViewWindow,
+    MAX_VIEW_GROUP_SUMMARIES,
 };
 use nodex_core_contracts::events::{LocalProjectionScope, ProjectionSnapshotAuthority};
 use rusqlite::types::Value as SqlValue;
 use rusqlite::{Connection, OptionalExtension, Row, params, params_from_iter};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
@@ -33,7 +39,7 @@ const MAX_SORT_RULES: usize = 4;
 const MAX_DISPLAY_PROPERTIES: usize = 64;
 const MAX_ROWS_BY_ID: usize = 100;
 const MAX_LIST_PROJECTION_MODELS: usize = 100_000;
-const SUMMARY_COLUMN_COUNT: usize = 29;
+const SUMMARY_COLUMN_COUNT: usize = 28;
 const COMPATIBILITY_CARD_PROPERTY_IDS: [&str; 8] = [
     "status",
     "priority",
@@ -56,6 +62,14 @@ struct ResolvedView {
     completion_cutoff: Option<String>,
     layout: ViewLayout,
     config: ViewConfig,
+    query_scope: RowQueryScope,
+}
+
+#[derive(Clone, Copy, Debug, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum RowQueryScope {
+    View,
+    DataSource,
 }
 
 pub(super) struct ViewContextProjection {
@@ -89,158 +103,20 @@ pub(super) struct ViewContextRead<'a> {
     pub group_scope: Option<&'a DatabaseGroupScope>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ViewConfig {
-    filter: ViewFilter,
-    presentation: ViewPresentation,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ViewPresentation {
-    sort: Vec<ViewSort>,
-    group: Option<ViewGroup>,
-    subgroup: Option<ViewGroup>,
-    #[serde(default = "default_group_direction")]
-    group_direction: SortDirection,
-    completion: ViewCompletion,
-    hierarchy: ViewHierarchy,
-    layouts: ViewLayouts,
-}
-
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ViewHierarchy {
-    show_sub_pages: bool,
-    nested_sub_pages: bool,
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case")]
-enum ViewCompletedRange {
-    All,
-    PastMonth,
-    PastWeek,
-    PastDay,
-    None,
-}
-
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ViewCompletion {
-    range: ViewCompletedRange,
-    order_by_recency: bool,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-struct ViewLayouts {
-    board: ViewLayoutDisplay,
-    list: ViewLayoutDisplay,
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case")]
-enum ViewLayout {
-    Board,
-    List,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ViewLayoutDisplay {
-    fields: Vec<ViewField>,
-    show_empty_groups: bool,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-enum ViewField {
-    Property {
-        #[serde(rename = "propertyId")]
-        property_id: String,
-    },
-    Intrinsic {
-        #[serde(rename = "field")]
-        field: String,
-    },
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-enum ViewFilter {
-    Group {
-        operator: FilterGroupOperator,
-        children: Vec<ViewFilter>,
-    },
-    Clause {
-        #[serde(rename = "propertyId")]
-        property_id: String,
-        operator: FilterOperator,
-        value: Option<Value>,
-    },
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "snake_case")]
-enum FilterGroupOperator {
-    And,
-    Or,
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "snake_case")]
-enum FilterOperator {
-    Equals,
-    NotEquals,
-    Contains,
-    NotContains,
-    IsEmpty,
-    IsNotEmpty,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-struct ViewSort {
-    field: ViewSortField,
-    direction: SortDirection,
-    nulls: NullOrder,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-enum ViewSortField {
-    Manual,
-    Title,
-    Created,
-    Property {
-        #[serde(rename = "propertyId")]
-        property_id: String,
-    },
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "snake_case")]
-enum SortDirection {
-    Asc,
-    Desc,
-}
-
-fn default_group_direction() -> SortDirection {
-    SortDirection::Asc
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "snake_case")]
-enum NullOrder {
-    First,
-    Last,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ViewGroup {
-    property_id: String,
-}
+type ViewConfig = DatabaseViewDefinition;
+type ViewPresentation = DatabaseViewPresentation;
+type ViewCompletedRange = DatabaseViewCompletedRange;
+type ViewCompletion = DatabaseViewCompletion;
+type ViewLayout = DatabaseViewLayout;
+type ViewField = DatabaseViewField;
+type ViewFilter = DatabaseViewFilter;
+type FilterGroupOperator = DatabaseViewFilterGroupOperator;
+type FilterOperator = DatabaseViewFilterOperator;
+type ViewSort = DatabaseViewSort;
+type ViewSortField = DatabaseViewSortField;
+type SortDirection = DatabaseViewSortDirection;
+type NullOrder = DatabaseViewNullOrder;
+type ViewGroup = DatabaseViewGroup;
 
 #[derive(Clone, Debug)]
 struct SortComponent {
@@ -277,6 +153,80 @@ pub(super) fn view_window(
         read.group_scope,
         projection,
     )
+}
+
+pub(super) fn agent_view_window(
+    connection: &Connection,
+    library_id: &str,
+    view_id: &str,
+    projection_property_ids: Option<&[String]>,
+    read: ViewWindowRead<'_>,
+) -> Result<DatabaseViewWindow, StoreError> {
+    let view = resolve_view(connection, library_id, view_id)?;
+    let projection_property_ids = resolve_agent_projection_property_ids(
+        connection,
+        &view.data_source_id,
+        projection_property_ids,
+    )?;
+    let projection = projection_snapshot_authority(
+        connection,
+        library_id,
+        read.store_epoch,
+        read.commit_head,
+        read.project_id,
+        &view,
+    )?;
+    view_window_for_projecting(
+        connection,
+        library_id,
+        read.commit_head,
+        &view,
+        read.window,
+        None,
+        projection,
+        &projection_property_ids,
+    )
+}
+
+pub(super) fn agent_data_source_window(
+    connection: &Connection,
+    library_id: &str,
+    data_source_id: &str,
+    query: &DatabaseAgentDataSourceQuery,
+    read: ViewWindowRead<'_>,
+) -> Result<DatabaseDataSourceQueryWindow, StoreError> {
+    let project_id = read
+        .project_id
+        .ok_or_else(|| unauthorized("Agent Data Source query requires a bound Project"))?;
+    let view =
+        resolve_agent_data_source_query(connection, library_id, project_id, data_source_id, query)?;
+    let projection_property_ids = resolve_agent_projection_property_ids(
+        connection,
+        data_source_id,
+        query.projection_property_ids.as_deref(),
+    )?;
+    let projection = data_source_projection_snapshot_authority(
+        connection,
+        read.store_epoch,
+        read.commit_head,
+        project_id,
+        &view,
+    )?;
+    let rows = row_window_for(
+        connection,
+        library_id,
+        read.commit_head,
+        &view,
+        read.window,
+        None,
+        &projection_property_ids,
+    )?;
+    Ok(DatabaseDataSourceQueryWindow {
+        database_id: view.database_id,
+        data_source_id: view.data_source_id,
+        projection,
+        rows,
+    })
 }
 
 pub(super) fn presented_view_window(
@@ -717,27 +667,26 @@ fn property_option_ids(
     data_source_id: &str,
     property_id: &str,
 ) -> Result<Vec<String>, StoreError> {
-    let config_json = connection
+    let property = connection
         .query_row(
-            "SELECT config_json FROM data_source_properties \
+            "SELECT value_type, config_json FROM data_source_properties \
              WHERE data_source_id = ?1 AND id = ?2 AND lifecycle = 'active'",
             params![data_source_id, property_id],
-            |row| row.get::<_, String>(0),
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
         )
         .optional()?;
-    let Some(config_json) = config_json else {
+    let Some((value_type, config_json)) = property else {
         return Ok(Vec::new());
     };
-    let config = serde_json::from_str::<Value>(&config_json)
-        .map_err(|_| corrupt("Database Property config is invalid"))?;
-    Ok(config
-        .get("options")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(|option| option.get("id").and_then(Value::as_str))
-        .map(str::to_owned)
-        .collect())
+    Ok(super::property_semantics::option_config_from_storage(
+        property_id,
+        &value_type,
+        &config_json,
+    )?
+    .options
+    .into_iter()
+    .map(|option| option.id)
+    .collect())
 }
 
 fn configured_list_group_paths(
@@ -832,8 +781,6 @@ fn flatten_list_node(
             .get(page_id)
             .is_some_and(|child_page_ids| !child_page_ids.is_empty()),
         transient_kind: node.transient_kind,
-        sibling_rank: node.summary.task_sibling_rank.clone(),
-        task_parent_value_revision: node.summary.task_parent_value_revision,
     });
     ancestors.push(page_id.to_owned());
     for child_page_id in children.get(page_id).into_iter().flatten() {
@@ -874,8 +821,6 @@ fn flatten_list_path(
                     depth: 0,
                     has_children: false,
                     transient_kind: node.transient_kind,
-                    sibling_rank: node.summary.task_sibling_rank.clone(),
-                    task_parent_value_revision: node.summary.task_parent_value_revision,
                 })
             })
             .collect();
@@ -1243,17 +1188,72 @@ fn view_window_for(
     group_scope: Option<&DatabaseGroupScope>,
     projection: ProjectionSnapshotAuthority,
 ) -> Result<DatabaseViewWindow, StoreError> {
+    view_window_for_projecting(
+        connection,
+        library_id,
+        commit_head,
+        view,
+        request,
+        group_scope,
+        projection,
+        &BTreeSet::new(),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn view_window_for_projecting(
+    connection: &Connection,
+    library_id: &str,
+    commit_head: i64,
+    view: &ResolvedView,
+    request: &CollectionWindowRequest,
+    group_scope: Option<&DatabaseGroupScope>,
+    projection: ProjectionSnapshotAuthority,
+    projection_property_ids: &BTreeSet<String>,
+) -> Result<DatabaseViewWindow, StoreError> {
+    let rows = row_window_for(
+        connection,
+        library_id,
+        commit_head,
+        view,
+        request,
+        group_scope,
+        projection_property_ids,
+    )?;
+    Ok(DatabaseViewWindow {
+        database_id: view.database_id.clone(),
+        data_source_id: view.data_source_id.clone(),
+        view_id: view.view_id.clone(),
+        projection,
+        rows,
+    })
+}
+
+fn row_window_for(
+    connection: &Connection,
+    library_id: &str,
+    commit_head: i64,
+    view: &ResolvedView,
+    request: &CollectionWindowRequest,
+    group_scope: Option<&DatabaseGroupScope>,
+    projection_property_ids: &BTreeSet<String>,
+) -> Result<CollectionWindow<DatabaseRowSummary>, StoreError> {
     let normalized = normalize_request(request)?;
     let fingerprint = cursor::query_fingerprint(&(
         "database_view_window_v2",
+        view.query_scope,
         &view.view_id,
         &view.data_source_id,
         &view.config,
         &view.completion_cutoff,
         group_scope,
+        projection_property_ids,
     ))?;
     let subject = CollectionCursorSubject {
-        kind: "database_view_rows",
+        kind: match view.query_scope {
+            RowQueryScope::View => "database_view_rows",
+            RowQueryScope::DataSource => "database_data_source_query_rows",
+        },
         library_id,
         query_fingerprint: &fingerprint,
     };
@@ -1299,11 +1299,8 @@ fn view_window_for(
     let source = bind(&mut parameters, SqlValue::Text(view.data_source_id.clone()));
     let filter = compile_filter(&view.config.filter, &mut parameters, 1, &mut 0)?;
     let completion = compile_completion_predicate(view, &mut parameters)?;
-    let (
-        database_values_projection,
-        database_display_values_projection,
-        property_revisions_projection,
-    ) = compact_value_projections(&view.config, &mut parameters)?;
+    let (database_values_projection, property_revisions_projection) =
+        compact_value_projections_with(&view.config, projection_property_ids, &mut parameters)?;
     let effective_group_select = effective_group.as_deref().unwrap_or("NULL");
     let effective_subgroup_select = effective_subgroup.as_deref().unwrap_or("NULL");
     let sort_projection = sort_components
@@ -1342,9 +1339,9 @@ fn view_window_for(
            SELECT model.page_block_id AS page_id, model.lifecycle, model.title, \
              materialization.title_rich_json, model.description_preview, \
              model.description_length, model.has_description, {database_values_projection}, \
-             {database_display_values_projection}, model.intrinsic_properties_json, \
+             model.intrinsic_properties_json, \
              {property_revisions_projection}, \
-             model.metadata_revision, model.location_revision, model.document_id, \
+             model.metadata_revision, model.placement_revision, model.document_id, \
              model.document_generation, model.document_projected_seq, membership.id, \
              membership.revision, membership.created_at, model.created_at, model.updated_at, \
              {effective_group_select} AS effective_group_key, \
@@ -1425,13 +1422,7 @@ fn view_window_for(
             )
         },
     )?;
-    Ok(DatabaseViewWindow {
-        database_id: view.database_id.clone(),
-        data_source_id: view.data_source_id.clone(),
-        view_id: view.view_id.clone(),
-        projection,
-        rows,
-    })
+    Ok(rows)
 }
 
 fn projection_snapshot_authority(
@@ -1454,6 +1445,29 @@ fn projection_snapshot_authority(
         },
     };
     let scope = crate::infrastructure::projection_scope_head::canonical_scope_key(scope)?;
+    let head = crate::infrastructure::projection_scope_head::read(connection, store_epoch, &scope)?;
+    Ok(ProjectionSnapshotAuthority {
+        scope,
+        revision: head.as_ref().map_or(0, |value| value.revision),
+        covered_commit_seq: commit_head,
+        effect_hash: head.map(|value| value.effect_hash),
+    })
+}
+
+fn data_source_projection_snapshot_authority(
+    connection: &Connection,
+    store_epoch: &str,
+    commit_head: i64,
+    project_id: &str,
+    view: &ResolvedView,
+) -> Result<ProjectionSnapshotAuthority, StoreError> {
+    let scope = crate::infrastructure::projection_scope_head::canonical_scope_key(
+        LocalProjectionScope::PageDetailDataSource {
+            project_id: project_id.to_owned(),
+            database_id: view.database_id.clone(),
+            data_source_id: view.data_source_id.clone(),
+        },
+    )?;
     let head = crate::infrastructure::projection_scope_head::read(connection, store_epoch, &scope)?;
     Ok(ProjectionSnapshotAuthority {
         scope,
@@ -1705,25 +1719,17 @@ fn finite_group_keys(
     if value_type != "select" {
         return Ok(None);
     }
-    let config = serde_json::from_str::<Value>(&config_json)
-        .map_err(|_| corrupt("Property option registry is invalid"))?;
-    let Some(options) = config.get("options").and_then(Value::as_array) else {
-        return Err(corrupt("Select Property option registry is invalid"));
-    };
-    if options.len() > super::MAX_PROPERTY_OPTIONS {
-        return Err(corrupt("Select Property option registry exceeds its bound"));
-    }
-    options
-        .iter()
-        .map(|option| {
-            option
-                .get("id")
-                .and_then(Value::as_str)
-                .map(|id| Some(id.to_owned()))
-                .ok_or_else(|| corrupt("Select Property option identity is invalid"))
-        })
-        .collect::<Result<Vec<_>, _>>()
-        .map(Some)
+    Ok(Some(
+        super::property_semantics::option_config_from_storage(
+            &group.property_id,
+            &value_type,
+            &config_json,
+        )?
+        .options
+        .into_iter()
+        .map(|option| Some(option.id))
+        .collect(),
+    ))
 }
 
 fn compare_optional_group_key(left: &Option<String>, right: &Option<String>) -> std::cmp::Ordering {
@@ -1859,12 +1865,13 @@ pub(crate) fn mint_page_move_etag(
 ) -> Result<String, StoreError> {
     let page = connection
         .query_row(
-            "SELECT page.lifecycle, block.location_revision, page.parent_kind, page.parent_id, \
-               page.parent_revision, page.metadata_revision \
+            "SELECT block.lifecycle, block.placement_revision, page.parent_kind, page.parent_id, \
+               block.placement_revision, block.metadata_revision \
              FROM pages page \
-             JOIN blocks block ON block.id = page.block_id AND block.type = 'page' \
+             JOIN blocks block ON block.id = page.block_id AND block.library_id = page.library_id \
+               AND block.type = 'page' \
              WHERE page.block_id = ?1 AND page.library_id = ?2 \
-               AND page.lifecycle <> 'deleted' AND block.lifecycle <> 'deleted'",
+               AND block.lifecycle <> 'deleted'",
             params![page_id, library_id],
             |row| {
                 Ok(PageMoveAuthority {
@@ -2183,24 +2190,17 @@ fn resolve_view(
             params![library_id, view_id],
             |row| {
                 let config_json = row.get::<_, String>(2)?;
-                let config_value =
-                    serde_json::from_str::<Value>(&config_json).map_err(|error| {
+                let config = super::view_contract::decode_definition_json(&config_json).map_err(
+                    |error| {
                         rusqlite::Error::FromSqlConversionFailure(
                             config_json.len(),
                             rusqlite::types::Type::Text,
-                            error.into(),
+                            std::io::Error::new(std::io::ErrorKind::InvalidData, error).into(),
                         )
-                    })?;
+                    },
+                )?;
                 let exact_primary_board_config =
-                    super::is_exact_primary_board_config(&config_value);
-                let config =
-                    serde_json::from_value::<ViewConfig>(config_value).map_err(|error| {
-                        rusqlite::Error::FromSqlConversionFailure(
-                            config_json.len(),
-                            rusqlite::types::Type::Text,
-                            error.into(),
-                        )
-                    })?;
+                    super::view_contract::is_exact_primary_board_definition(&config);
                 Ok((
                     row.get::<_, String>(0)?,
                     row.get::<_, String>(1)?,
@@ -2257,6 +2257,7 @@ fn resolve_view(
                     completion_cutoff: None,
                     layout,
                     config,
+                    query_scope: RowQueryScope::View,
                 };
                 refresh_effective_presentation(connection, &mut view)?;
                 Ok(view)
@@ -2264,6 +2265,147 @@ fn resolve_view(
         )
         .transpose()?
         .ok_or_else(|| not_found("Database View is unavailable"))
+}
+
+fn resolve_agent_data_source_query(
+    connection: &Connection,
+    library_id: &str,
+    project_id: &str,
+    data_source_id: &str,
+    query: &DatabaseAgentDataSourceQuery,
+) -> Result<ResolvedView, StoreError> {
+    validate_identity(data_source_id, "Data Source identity")?;
+    if query
+        .sort
+        .iter()
+        .any(|rule| matches!(&rule.field, DatabaseViewSortField::Manual))
+    {
+        return Err(invalid(
+            "Transient Data Source queries cannot use View manual order",
+        ));
+    }
+    let source = connection
+        .query_row(
+            "SELECT source.home_database_block_id, source.schema_revision, source.lifecycle, \
+               container.lifecycle, \
+               EXISTS(SELECT 1 FROM data_source_properties status_property \
+                 WHERE status_property.data_source_id = source.id \
+                   AND status_property.id = 'status' \
+                   AND status_property.value_type = 'select' \
+                   AND status_property.lifecycle = 'active') \
+             FROM data_sources source \
+             JOIN database_containers container \
+               ON container.block_id = source.home_database_block_id \
+              AND container.library_id = source.library_id \
+             WHERE source.id = ?1 AND source.library_id = ?2",
+            params![data_source_id, library_id],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, bool>(4)?,
+                ))
+            },
+        )
+        .optional()?
+        .ok_or_else(|| not_found("Data Source is unavailable"))?;
+    let (database_id, revision, source_lifecycle, database_lifecycle, task_status_capable) = source;
+    if source_lifecycle != "active" || database_lifecycle != "active" {
+        return Err(not_found("Data Source is not active"));
+    }
+    let empty_layout = DatabaseViewLayoutDisplay {
+        fields: Vec::new(),
+        show_empty_groups: false,
+    };
+    let definition = DatabaseViewDefinition {
+        filter: query.filter.clone(),
+        presentation: DatabaseViewPresentation {
+            sort: query.sort.clone(),
+            group: None,
+            subgroup: None,
+            group_direction: DatabaseViewSortDirection::Asc,
+            completion: DatabaseViewCompletion {
+                range: DatabaseViewCompletedRange::All,
+                order_by_recency: false,
+            },
+            hierarchy: DatabaseViewHierarchy {
+                show_sub_pages: false,
+                nested_sub_pages: false,
+            },
+            layouts: DatabaseViewLayouts {
+                board: empty_layout.clone(),
+                list: empty_layout,
+            },
+        },
+    };
+    super::mutation::validate_view_definition(
+        connection,
+        library_id,
+        project_id,
+        data_source_id,
+        &definition,
+        false,
+    )?;
+    let mut view = ResolvedView {
+        database_id,
+        data_source_id: data_source_id.to_owned(),
+        view_id: format!(
+            "agent-data-source:{}",
+            hex::encode(Sha256::digest(data_source_id.as_bytes()))
+        ),
+        revision,
+        exact_primary_board_config: false,
+        task_status_capable,
+        completion_cutoff: None,
+        layout: DatabaseViewLayout::List,
+        config: definition,
+        query_scope: RowQueryScope::DataSource,
+    };
+    refresh_effective_presentation(connection, &mut view)?;
+    Ok(view)
+}
+
+fn resolve_agent_projection_property_ids(
+    connection: &Connection,
+    data_source_id: &str,
+    requested: Option<&[String]>,
+) -> Result<BTreeSet<String>, StoreError> {
+    let active = connection
+        .prepare(
+            "SELECT id FROM data_source_properties \
+             WHERE data_source_id = ?1 AND lifecycle = 'active' ORDER BY id",
+        )?
+        .query_map([data_source_id], |row| row.get::<_, String>(0))?
+        .collect::<rusqlite::Result<BTreeSet<_>>>()?;
+    if active
+        .iter()
+        .any(|property_id| !super::property_semantics::is_canonical_property_id(property_id))
+    {
+        return Err(corrupt("Stored Property ID is not canonical"));
+    }
+    let Some(requested) = requested else {
+        return Ok(active);
+    };
+    if requested.len() > super::MAX_DATA_SOURCE_PROPERTIES {
+        return Err(invalid("Agent query projects too many Properties"));
+    }
+    let requested_count = requested.len();
+    let requested = requested.iter().cloned().collect::<BTreeSet<_>>();
+    if requested.len() != requested_count {
+        return Err(invalid("Agent query repeats a projected Property"));
+    }
+    if requested
+        .iter()
+        .any(|property_id| !super::property_semantics::is_canonical_property_id(property_id))
+    {
+        return Err(invalid("Agent query Property ID is not canonical"));
+    }
+    if !requested.is_subset(&active) {
+        return Err(not_found("Agent query references an unavailable Property"));
+    }
+    Ok(requested)
 }
 
 fn normalize_completion_capability(completion: &mut ViewCompletion, supported: bool) {
@@ -2359,11 +2501,11 @@ fn refresh_effective_presentation(
                 ViewField::Property { property_id } if properties.contains_key(property_id) => {
                     format!("property:{property_id}")
                 }
-                ViewField::Intrinsic { field }
-                    if matches!(field.as_str(), "page_id" | "created_at" | "updated_at") =>
-                {
-                    format!("intrinsic:{field}")
-                }
+                ViewField::Intrinsic { field } => match field {
+                    DatabaseViewIntrinsicField::PageId => "intrinsic:page_id".to_owned(),
+                    DatabaseViewIntrinsicField::CreatedAt => "intrinsic:created_at".to_owned(),
+                    DatabaseViewIntrinsicField::UpdatedAt => "intrinsic:updated_at".to_owned(),
+                },
                 _ => return false,
             };
             seen.insert(key)
@@ -2413,16 +2555,18 @@ fn view_field_override(input: &DatabaseViewFieldInput) -> Result<ViewField, Stor
                 property_id: property_id.clone(),
             })
         }
-        DatabaseViewFieldInput::Intrinsic { field }
-            if matches!(field.as_str(), "page_id" | "created_at" | "updated_at") =>
-        {
-            Ok(ViewField::Intrinsic {
-                field: field.clone(),
-            })
-        }
-        DatabaseViewFieldInput::Intrinsic { .. } => {
-            Err(invalid("Database View intrinsic field is unsupported"))
-        }
+        DatabaseViewFieldInput::Intrinsic { field } => match field.as_str() {
+            "page_id" => Ok(ViewField::Intrinsic {
+                field: DatabaseViewIntrinsicField::PageId,
+            }),
+            "created_at" => Ok(ViewField::Intrinsic {
+                field: DatabaseViewIntrinsicField::CreatedAt,
+            }),
+            "updated_at" => Ok(ViewField::Intrinsic {
+                field: DatabaseViewIntrinsicField::UpdatedAt,
+            }),
+            _ => Err(invalid("Database View intrinsic field is unsupported")),
+        },
     }
 }
 
@@ -2560,18 +2704,15 @@ fn summary_by_id(
     let view_parameter = bind(&mut parameters, SqlValue::Text(view.view_id.clone()));
     let source_parameter = bind(&mut parameters, SqlValue::Text(view.data_source_id.clone()));
     let page_parameter = bind(&mut parameters, SqlValue::Text(page_id.to_owned()));
-    let (
-        database_values_projection,
-        database_display_values_projection,
-        property_revisions_projection,
-    ) = compact_value_projections(&view.config, &mut parameters)?;
+    let (database_values_projection, property_revisions_projection) =
+        compact_value_projections(&view.config, &mut parameters)?;
     let sql = format!(
         "SELECT model.page_block_id, model.lifecycle, model.title, \
                materialization.title_rich_json, model.description_preview, \
                model.description_length, model.has_description, {database_values_projection}, \
-               {database_display_values_projection}, model.intrinsic_properties_json, \
+               model.intrinsic_properties_json, \
                {property_revisions_projection}, \
-               model.metadata_revision, model.location_revision, model.document_id, \
+               model.metadata_revision, model.placement_revision, model.document_id, \
                model.document_generation, model.document_projected_seq, membership.id, \
                membership.revision, membership.created_at, model.created_at, model.updated_at, \
                {effective_group_select} AS effective_group_key, \
@@ -2635,10 +2776,8 @@ fn summary_by_id(
 fn summary_from_row(row: &Row<'_>, sort_component_count: usize) -> rusqlite::Result<SummaryRow> {
     let page_id = row.get::<_, String>(0)?;
     let database_values = parse_json_map(row.get::<_, String>(7)?, "Database values")?;
-    let database_display_values =
-        parse_json_map(row.get::<_, String>(8)?, "Database display values")?;
-    let intrinsic_properties = parse_json_map(row.get::<_, String>(9)?, "intrinsic properties")?;
-    let property_revisions = parse_json_map(row.get::<_, String>(10)?, "Property revisions")?;
+    let intrinsic_properties = parse_json_map(row.get::<_, String>(8)?, "intrinsic properties")?;
+    let property_revisions = parse_json_map(row.get::<_, String>(9)?, "Property revisions")?;
     let database_value_revisions = property_revisions
         .get("database")
         .and_then(Value::as_object)
@@ -2663,27 +2802,26 @@ fn summary_from_row(row: &Row<'_>, sort_component_count: usize) -> rusqlite::Res
             description_length: row.get(5)?,
             has_description: row.get::<_, i64>(6)? != 0,
             database_values,
-            database_display_values,
             intrinsic_properties,
             database_value_revisions,
-            metadata_revision: row.get(11)?,
-            parent_revision: row.get(12)?,
-            document_id: row.get(13)?,
-            document_generation: row.get(14)?,
-            document_head_seq: row.get(15)?,
-            membership_id: row.get(16)?,
-            membership_revision: row.get(17)?,
-            membership_created_at: row.get(18)?,
-            created_at: row.get(19)?,
-            updated_at: row.get(20)?,
-            effective_group_key: row.get(21)?,
-            effective_subgroup_key: row.get(22)?,
-            rank_key: row.get(23)?,
-            position_revision: row.get(24)?,
-            position_order: row.get(25)?,
-            task_parent_page_id: row.get(26)?,
-            task_sibling_rank: row.get(27)?,
-            task_parent_value_revision: row.get(28)?,
+            metadata_revision: row.get(10)?,
+            parent_revision: row.get(11)?,
+            document_id: row.get(12)?,
+            document_generation: row.get(13)?,
+            document_head_seq: row.get(14)?,
+            membership_id: row.get(15)?,
+            membership_revision: row.get(16)?,
+            membership_created_at: row.get(17)?,
+            created_at: row.get(18)?,
+            updated_at: row.get(19)?,
+            effective_group_key: row.get(20)?,
+            effective_subgroup_key: row.get(21)?,
+            rank_key: row.get(22)?,
+            position_revision: row.get(23)?,
+            position_order: row.get(24)?,
+            task_parent_page_id: row.get(25)?,
+            task_sibling_rank: row.get(26)?,
+            task_parent_value_revision: row.get(27)?,
         },
         coordinate_values,
     })
@@ -2692,14 +2830,18 @@ fn summary_from_row(row: &Row<'_>, sort_component_count: usize) -> rusqlite::Res
 fn compact_value_projections(
     config: &ViewConfig,
     parameters: &mut Vec<SqlValue>,
-) -> Result<(String, String, String), StoreError> {
-    let property_ids = projected_property_ids(config)?;
+) -> Result<(String, String), StoreError> {
+    compact_value_projections_with(config, &BTreeSet::new(), parameters)
+}
+
+fn compact_value_projections_with(
+    config: &ViewConfig,
+    additional_property_ids: &BTreeSet<String>,
+    parameters: &mut Vec<SqlValue>,
+) -> Result<(String, String), StoreError> {
+    let property_ids = projected_property_ids_with(config, additional_property_ids)?;
     if property_ids.is_empty() {
-        return Ok((
-            "'{}'".to_owned(),
-            "'{}'".to_owned(),
-            "'{\"database\":{}}'".to_owned(),
-        ));
+        return Ok(("'{}'".to_owned(), "'{\"database\":{}}'".to_owned()));
     }
     let placeholders = property_ids
         .into_iter()
@@ -2713,19 +2855,6 @@ fn compact_value_projections(
          WHERE value.data_source_id = membership.data_source_id \
            AND value.membership_id = membership.id AND {predicate}), '{{}}')"
     );
-    // The exact-head read model retains names for compatibility Board cards,
-    // but Database module values remain canonical stable option identities.
-    let display_values = format!(
-        "json_patch({canonical_values}, CASE \
-           WHEN json_type({canonical_values}, '$.tags') IS NOT NULL THEN \
-             json_object('tags', CASE \
-               WHEN json_type(model.database_values_json, '$.tags') = 'array' THEN \
-                 json_extract(model.database_values_json, '$.tags') \
-               ELSE json_extract({canonical_values}, '$.tags') \
-             END) \
-           ELSE '{{}}' \
-         END)"
-    );
     let revisions = format!(
         "json_object('database', json(COALESCE(( \
            SELECT json_group_object(value.property_id, value.revision) \
@@ -2734,10 +2863,17 @@ fn compact_value_projections(
              AND value.membership_id = membership.id AND {predicate} \
          ), '{{}}')))"
     );
-    Ok((canonical_values, display_values, revisions))
+    Ok((canonical_values, revisions))
 }
 
 fn projected_property_ids(config: &ViewConfig) -> Result<BTreeSet<String>, StoreError> {
+    projected_property_ids_with(config, &BTreeSet::new())
+}
+
+fn projected_property_ids_with(
+    config: &ViewConfig,
+    additional_property_ids: &BTreeSet<String>,
+) -> Result<BTreeSet<String>, StoreError> {
     let mut property_ids = BTreeSet::new();
     for layout in [
         &config.presentation.layouts.board,
@@ -2759,6 +2895,7 @@ fn projected_property_ids(config: &ViewConfig) -> Result<BTreeSet<String>, Store
             .into_iter()
             .map(str::to_owned),
     );
+    property_ids.extend(additional_property_ids.iter().cloned());
     for property_id in &property_ids {
         validate_property_id(property_id)?;
     }
@@ -3262,6 +3399,10 @@ fn parse_json_value(value: String, label: &str) -> rusqlite::Result<Value> {
 
 fn invalid(message: &str) -> StoreError {
     StoreError::new(StoreErrorCode::InvalidInput, message, false)
+}
+
+fn unauthorized(message: &str) -> StoreError {
+    StoreError::new(StoreErrorCode::Unauthorized, message, false)
 }
 
 fn not_found(message: &str) -> StoreError {

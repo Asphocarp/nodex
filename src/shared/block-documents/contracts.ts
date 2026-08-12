@@ -1,4 +1,9 @@
 import type { AuthorizedReadStamp } from "../authorized-read-stamp";
+import type {
+  ContentAccessIdentity,
+  LibraryContentAccessContext,
+  ProjectContentAccessContext,
+} from "../content-access-context";
 
 export type BlockId = string;
 export type DocumentId = string;
@@ -10,8 +15,7 @@ export type DocumentReadiness = "pending_genesis" | "ready" | "failed";
  */
 export type BlockLifecycle = "active" | "archived" | "deleted";
 
-export interface OwnedDocumentIdentity {
-  readonly projectId: string;
+export interface OwnedDocumentIdentity extends ContentAccessIdentity {
   readonly ownerBlockId: BlockId;
   readonly ownerType: string;
   readonly ownerLifecycle: BlockLifecycle;
@@ -51,20 +55,40 @@ export interface OwnedDocumentDescriptor
   readonly sync: OwnedDocumentSyncEngine;
 }
 
-export interface LibraryOwnedDocumentDescriptor
-  extends Omit<OwnedDocumentDescriptor, "projectId"> {
-  readonly accessContext: { readonly kind: "library" };
+export interface ProjectAccessedDocumentDescriptor
+  extends OwnedDocumentDescriptor {
+  readonly accessContext: ProjectContentAccessContext;
 }
 
-export const toLibraryOwnedDocumentDescriptor = (
+export interface LibraryAccessedDocumentDescriptor
+  extends OwnedDocumentDescriptor {
+  readonly accessContext: LibraryContentAccessContext;
+}
+
+export const requireLibraryAccessedDocumentDescriptor = (
   descriptor: OwnedDocumentDescriptor,
-): LibraryOwnedDocumentDescriptor => {
-  const { projectId: _privateProjectId, ...publicDescriptor } = descriptor;
-  void _privateProjectId;
-  return {
-    ...publicDescriptor,
-    accessContext: { kind: "library" },
-  };
+): LibraryAccessedDocumentDescriptor => {
+  if (descriptor.accessContext.kind === "library") {
+    return { ...descriptor, accessContext: descriptor.accessContext };
+  }
+  throw new TypeError(
+    "Owned Document descriptor does not use Library access context",
+  );
+};
+
+export const requireProjectAccessedDocumentDescriptor = (
+  descriptor: OwnedDocumentDescriptor,
+  projectId: string,
+): ProjectAccessedDocumentDescriptor => {
+  if (
+    descriptor.accessContext.kind === "project" &&
+    descriptor.accessContext.projectId === projectId
+  ) {
+    return { ...descriptor, accessContext: descriptor.accessContext };
+  }
+  throw new TypeError(
+    "Owned Document descriptor does not match the requested Project access context",
+  );
 };
 
 export const MAX_PAGE_DOCUMENT_UPDATE_BYTES = 2 * 1024 * 1024;
@@ -80,8 +104,8 @@ export const MAX_RELOCATION_ID_LENGTH = 512;
 
 export type BlockLocation =
   | {
-      readonly kind: "space";
-      readonly projectId: string;
+      readonly kind: "library";
+      readonly libraryId: string;
       readonly rankKey: string;
     }
   | {
@@ -89,30 +113,10 @@ export type BlockLocation =
       readonly documentId: DocumentId;
     }
   | {
-      readonly kind: "database";
+      readonly kind: "data_source";
       readonly databaseBlockId: BlockId;
+      readonly dataSourceId: string;
     };
-
-export interface BlockRecord {
-  readonly id: BlockId;
-  readonly projectId: string;
-  readonly type: string;
-  readonly lifecycle: BlockLifecycle;
-  readonly location: BlockLocation;
-  readonly locationRevision: number;
-  readonly metadataRevision: number;
-}
-
-/** @deprecated Yjs-shaped compatibility contract; use `OwnedDocumentHead`. */
-export interface DocumentHead {
-  readonly documentId: DocumentId;
-  readonly ownerBlockId: BlockId;
-  readonly generation: number;
-  readonly headSeq: number;
-  readonly schemaKey: string;
-  readonly schemaVersion: number;
-  readonly stateVector: Uint8Array;
-}
 
 export interface ApplyDocumentUpdate {
   readonly documentId: DocumentId;

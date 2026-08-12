@@ -10,6 +10,7 @@ import type {
   ProjectionStreamMessage,
 } from "../../shared/projection-stream";
 import type { ResourceRevocationMessage } from "../../shared/resource-revocation-stream";
+import type { ContentAccessIdentity } from "../../shared/content-access-context";
 
 export interface RendererTransport {
   sendGitWorkerMessage: (
@@ -41,21 +42,21 @@ export interface RendererTransport {
     projectId: string,
     ownerBlockId: string,
   ) => Promise<
-    import("../../shared/block-documents/contracts").OwnedDocumentDescriptor
+    import("../../shared/block-documents/contracts").ProjectAccessedDocumentDescriptor
   >;
   prepareOwnedBlockDocument: (
     projectId: string,
     ownerBlockId: string,
   ) => Promise<
     import("../../shared/block-documents/document-sync").DocumentSyncCommandResult<
-      import("../../shared/block-documents/contracts").OwnedDocumentDescriptor
+      import("../../shared/block-documents/contracts").ProjectAccessedDocumentDescriptor
     >
   >;
   prepareLibraryOwnedBlockDocument: (
     ownerBlockId: string,
   ) => Promise<
     import("../../shared/block-documents/document-sync").DocumentSyncCommandResult<
-      import("../../shared/block-documents/contracts").LibraryOwnedDocumentDescriptor
+      import("../../shared/block-documents/contracts").LibraryAccessedDocumentDescriptor
     >
   >;
   mutateDocument: (
@@ -113,7 +114,7 @@ export interface RendererTransport {
   createLibraryDocumentSyncAdapter?: () =>
     import("./nodex-y-provider").DocumentSyncAdapter;
   createCanvasSceneSyncAdapter?: (
-    projectId: string,
+    identity: ContentAccessIdentity,
   ) => import("./canvas-scene-provider").CanvasSceneSyncAdapter;
   invoke: (channel: string, ...args: unknown[]) => Promise<unknown>;
   subscribeBoardChanges: (

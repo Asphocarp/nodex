@@ -208,13 +208,13 @@ export const buildDatabaseListProjection = (input: {
   readonly subgrouped: boolean;
   readonly showSubPages?: boolean;
   readonly nested: boolean;
-  readonly collapsedGroupKeys: ReadonlySet<string>;
+  readonly collapsedOccurrenceKeys: ReadonlySet<string>;
   readonly totalRowsByScope?: ReadonlyMap<string, number>;
 }): readonly DatabaseListProjectionRow[] => {
   const projection: DatabaseListProjectionRow[] = [];
   for (const column of input.columns) {
     const groupKey = databaseListGroupKey(column.groupKey);
-    const collapsed = input.collapsedGroupKeys.has(groupKey);
+    const collapsed = input.collapsedOccurrenceKeys.has(groupKey);
     if (input.grouped) {
       projection.push({
         kind: "group",
@@ -290,7 +290,7 @@ export interface CoreDatabaseListProjection {
 export const projectCoreDatabaseListRows = (input: {
   readonly rows: readonly DatabaseListProjectionRowSnapshot[];
   readonly properties: readonly DataSourcePropertyRecordV2[];
-  readonly collapsedGroupKeys: ReadonlySet<string>;
+  readonly collapsedOccurrenceKeys: ReadonlySet<string>;
   readonly groupLabel: (key: string | null) => string;
   readonly subgroupLabel: (key: string | null) => string;
   readonly matchesPage?: (
@@ -349,7 +349,7 @@ export const projectCoreDatabaseListRows = (input: {
   let currentGroupCollapsed = false;
   for (const snapshot of input.rows) {
     if (snapshot.kind === "group") {
-      currentGroupCollapsed = input.collapsedGroupKeys.has(snapshot.occurrenceKey);
+      currentGroupCollapsed = input.collapsedOccurrenceKeys.has(snapshot.occurrenceKey);
       if (
         input.matchesPage
         && !visibleGroupKeys.has(pathKey([snapshot.groupKey]))

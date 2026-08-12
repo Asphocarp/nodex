@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { ContentAccessContext } from "../../../shared/content-access-context";
 import type { DatabasePropertyOption } from "../../../shared/database-kernel";
 import type { DataSourcePropertyRecordV2 } from "../../../shared/database-module-v2";
+import { MAX_DATA_SOURCE_PROPERTY_OPTIONS } from "../../../shared/data-source-option-registry";
 import { readDatabasePropertyOptions } from "@/lib/database-view-authoring";
 import {
   mergePropertyOptionPages,
@@ -130,7 +131,11 @@ export function usePropertyOptionRegistries({
       const options = replace
         ? page.options
         : mergePropertyOptionPages(latest.options, page.options);
-      if (options.length > Math.max(property.optionCount, 10_000)) {
+      // optionCount belongs to the descriptor snapshot; this window may be newer.
+      if (
+        property.optionCount > MAX_DATA_SOURCE_PROPERTY_OPTIONS
+        || options.length > MAX_DATA_SOURCE_PROPERTY_OPTIONS
+      ) {
         throw new Error("Property option registry exceeded its declared bound");
       }
       if (generationRef.current !== generation) return;

@@ -28,10 +28,6 @@ import {
 } from "@/lib/rich-title-editor-dom";
 import { useProjects } from "@/lib/use-projects";
 import { resolveReferencedProjectContext } from "@/lib/referenced-project-context";
-import {
-  blockDocumentSurfaceDependenciesForContentAccess,
-  ownedBlockDocumentQueryDependenciesForContentAccess,
-} from "@/lib/content-access-document-dependencies";
 import { projectIdFromContentAccessContext } from "../../../../shared/content-access-context";
 import type { VerticalArrowDirection } from "./embedded-surface-arrow-navigation";
 import { NfmEditor, type NfmEditorBoundaryHandle } from "./nfm-editor";
@@ -254,7 +250,6 @@ function ActivePageOutlinerContent({
         >
           <NfmEditor
             contentAccessContext={hostRuntime.contentAccessContext}
-            documentScopeId={target.documentScopeId}
             projectName={targetProject.projectName}
             projectWorkspacePath={targetProject.projectWorkspacePath}
             source={{
@@ -316,14 +311,6 @@ export function ActivePageOutlinerDocument({
     executionProjectId ?? "",
     projects,
   );
-  const queryDependencies =
-    ownedBlockDocumentQueryDependenciesForContentAccess(
-      target.contentAccessContext,
-    );
-  const surfaceDependencies =
-    blockDocumentSurfaceDependenciesForContentAccess(
-      target.contentAccessContext,
-    );
   const pending = (
     <ProjectedRow target={target} rowProps={rowProps}>
       <PageOutlinerBodySkeleton />
@@ -332,9 +319,8 @@ export function ActivePageOutlinerDocument({
 
   return (
     <OwnedBlockDocumentBoundary
-      projectId={target.documentScopeId}
+      accessContext={target.contentAccessContext}
       ownerBlockId={target.page.pageId}
-      dependencies={queryDependencies}
     >
       {(model, controls) => {
         if (model.status === "loading") return pending;
@@ -351,13 +337,11 @@ export function ActivePageOutlinerDocument({
         }
         return (
           <BlockDocumentSurface
-            projectId={target.documentScopeId}
             descriptor={model.descriptor}
             pageTitleIdentity={{
               libraryId: target.page.libraryId,
               pageId: target.page.pageId,
             }}
-            dependencies={surfaceDependencies}
             isActive={hostRuntime.isActiveSurface}
             onReload={controls.reload}
             pendingFallback={pending}
