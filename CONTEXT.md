@@ -223,6 +223,10 @@ Priority has four assigned option identities in severity order:
 `p0-critical`, `p1-high`, `p2-medium`, and `p3-low`.
 An unset value is `No priority`; planning horizons such as “later” belong to workflow or scheduling rather than the priority scale.
 
+The standard **Task Parent** is a non-owning cardinality-one self-Relation on a
+Data Source Page. Its children have one shared manual order independent of any
+View's personal sorting or presentation.
+
 ### Database View
 
 A Database View is a durable named query and default presentation belonging to

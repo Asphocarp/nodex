@@ -1025,8 +1025,6 @@ describe("Core Database Module Adapter", () => {
               depth: 1,
               has_children: true,
               transient_kind: "child" as const,
-              sibling_rank: "a",
-              task_parent_value_revision: 3,
             }],
             next_cursor: "list:next",
             authority: { projection_revision: 23 },
@@ -1084,7 +1082,6 @@ describe("Core Database Module Adapter", () => {
         depth: 1,
         hasChildren: true,
         transientKind: "child",
-        taskParentValueRevision: 3,
         row: {
           taskParent: {
             parentPageId: "page:parent",

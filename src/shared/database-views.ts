@@ -129,8 +129,6 @@ export type DatabaseListProjectionRowSnapshot =
       readonly depth: number;
       readonly hasChildren: boolean;
       readonly transientKind: "none" | "ancestor" | "child";
-      readonly siblingRank: string | null;
-      readonly taskParentValueRevision: number;
     };
 
 export interface DatabaseListGroupSummarySnapshot {

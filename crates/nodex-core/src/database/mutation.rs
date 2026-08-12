@@ -21,9 +21,8 @@ use crate::document::{read_store_epoch, sha256};
 use crate::domain::fractional_rank::{
     FractionalRankError, FractionalRankErrorCode, RankedItem, plan as plan_fractional_rank,
 };
-use crate::domain::view_position::{
-    LogicalViewPositionItem, ViewPositionPlanError, ViewSiblingRankWriteKind,
-    plan_view_position_run,
+use crate::domain::ordered_position::{
+    LogicalPositionItem, PositionPlanError, SiblingRankWriteKind, plan_position_run,
 };
 use crate::infrastructure::durable_mutation::{
     self, CommitResult, DurableMutationScope, OperationIdentity, ReceiptMetadata, SealedOutcome,
@@ -3917,7 +3916,7 @@ fn position_pages(
         .iter()
         .map(|page| page.page_id.clone())
         .collect::<Vec<_>>();
-    let rank_plan = plan_view_position_run(&logical, &moved_page_ids, before_page_id, descending)
+    let rank_plan = plan_position_run(&logical, &moved_page_ids, before_page_id, descending)
         .map_err(view_position_plan_error)?;
     let mut put = connection.prepare(
         "INSERT INTO database_view_page_positions(\
@@ -3928,10 +3927,10 @@ fn position_pages(
     )?;
     for write in &rank_plan.sibling_writes {
         match write.kind {
-            ViewSiblingRankWriteKind::Materialize => {
+            SiblingRankWriteKind::Materialize => {
                 put.execute(params![view_id, write.page_id, write.rank_key, 1, now,])?;
             }
-            ViewSiblingRankWriteKind::Rebalance => {
+            SiblingRankWriteKind::Rebalance => {
                 let updated = connection.execute(
                     "UPDATE database_view_page_positions SET rank_key = ?1, updated_at = ?2 \
                      WHERE view_id = ?3 AND page_block_id = ?4",
@@ -4672,7 +4671,7 @@ fn read_logical_view(
     connection: &Connection,
     view: &ViewRow,
     excluded_page_ids: &HashSet<&str>,
-) -> Result<Vec<LogicalViewPositionItem>, StoreError> {
+) -> Result<Vec<LogicalPositionItem>, StoreError> {
     let rows = connection
         .prepare(
             "SELECT membership.id, membership.page_block_id, position.rank_key \
@@ -4699,7 +4698,7 @@ fn read_logical_view(
         if excluded_page_ids.contains(page_id.as_str()) {
             continue;
         }
-        result.push(LogicalViewPositionItem { page_id, rank_key });
+        result.push(LogicalPositionItem { page_id, rank_key });
     }
     if view_manual_direction(&parse_json(&view.config_json, "Database View config")?) == "desc" {
         result.reverse();
@@ -4707,11 +4706,12 @@ fn read_logical_view(
     Ok(result)
 }
 
-fn view_position_plan_error(error: ViewPositionPlanError) -> StoreError {
+fn view_position_plan_error(error: PositionPlanError) -> StoreError {
     match error {
-        ViewPositionPlanError::InvalidInput(message)
-        | ViewPositionPlanError::AnchorNotFound(message) => invalid(message),
-        ViewPositionPlanError::FractionalRank(error) => invalid(error.message),
+        PositionPlanError::InvalidInput(message) | PositionPlanError::AnchorNotFound(message) => {
+            invalid(message)
+        }
+        PositionPlanError::FractionalRank(error) => invalid(error.message),
     }
 }
 

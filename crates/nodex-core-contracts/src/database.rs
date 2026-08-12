@@ -409,8 +409,6 @@ pub enum DatabaseListProjectionRow {
         depth: u32,
         has_children: bool,
         transient_kind: DatabaseListTransientKind,
-        sibling_rank: Option<String>,
-        task_parent_value_revision: i64,
     },
 }
 

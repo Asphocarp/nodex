@@ -8,7 +8,7 @@ use nodex_core_contracts::database::{
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::{Value, json};
 
-use crate::domain::fractional_rank::evenly_spaced_rank;
+use crate::domain::ordered_position::{LogicalPositionItem, PositionPlanError, plan_position_run};
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 use crate::infrastructure::{
     collection_window::{WindowCandidate, assemble, normalize_request},
@@ -654,56 +654,93 @@ pub(crate) fn apply_task_parent_run(
     }
 
     let mut desired = BTreeMap::new();
-    match parent_page_id {
-        None => {
-            for page in pages {
-                desired.insert(
-                    page.page_id.clone(),
-                    DesiredTaskParent {
-                        parent_page_id: None,
-                        sibling_rank: None,
+    if let Some(parent_page_id) = parent_page_id {
+        let mut target_siblings = state
+            .iter()
+            .filter_map(|(page_id, row)| {
+                (row.parent_page_id.as_deref() == Some(parent_page_id)).then_some(
+                    LogicalPositionItem {
+                        page_id: page_id.clone(),
+                        rank_key: row.sibling_rank.clone(),
                     },
-                );
-            }
-        }
-        Some(parent_page_id) => {
-            let mut sibling_ids = state
+                )
+            })
+            .collect::<Vec<_>>();
+        target_siblings.sort_by(|left, right| {
+            left.rank_key
+                .cmp(&right.rank_key)
+                .then_with(|| left.page_id.cmp(&right.page_id))
+        });
+
+        let current_order = target_siblings
+            .iter()
+            .map(|item| item.page_id.clone())
+            .collect::<Vec<_>>();
+        let mut desired_order = current_order
+            .iter()
+            .filter(|page_id| !page_ids.contains(page_id.as_str()))
+            .cloned()
+            .collect::<Vec<_>>();
+        let insert_at = match before_page_id {
+            Some(before_page_id) => desired_order
                 .iter()
-                .filter_map(|(page_id, row)| {
-                    (row.parent_page_id.as_deref() == Some(parent_page_id)
-                        && !page_ids.contains(page_id.as_str()))
-                    .then_some((
-                        row.sibling_rank.clone().unwrap_or_default(),
-                        page_id.clone(),
-                    ))
-                })
-                .collect::<Vec<_>>();
-            sibling_ids.sort();
-            let mut sibling_ids = sibling_ids
-                .into_iter()
-                .map(|(_, page_id)| page_id)
-                .collect::<Vec<_>>();
-            let insert_at = match before_page_id {
-                Some(before_page_id) => sibling_ids
-                    .iter()
-                    .position(|page_id| page_id == before_page_id)
-                    .ok_or_else(|| invalid("Parent Relation anchor is not a target sibling"))?,
-                None => sibling_ids.len(),
-            };
-            sibling_ids.splice(
-                insert_at..insert_at,
-                pages.iter().map(|page| page.page_id.clone()),
+                .position(|page_id| page_id == before_page_id)
+                .ok_or_else(|| invalid("Parent Relation anchor is not a target sibling"))?,
+            None => desired_order.len(),
+        };
+        desired_order.splice(
+            insert_at..insert_at,
+            pages.iter().map(|page| page.page_id.clone()),
+        );
+        let parent_is_unchanged = pages.iter().all(|page| {
+            state
+                .get(&page.page_id)
+                .is_some_and(|current| current.parent_page_id.as_deref() == Some(parent_page_id))
+        });
+        if parent_is_unchanged && desired_order == current_order {
+            return Ok(Vec::new());
+        }
+
+        let moved_page_ids = pages
+            .iter()
+            .map(|page| page.page_id.clone())
+            .collect::<Vec<_>>();
+        let rank_plan = plan_position_run(&target_siblings, &moved_page_ids, before_page_id, false)
+            .map_err(task_parent_position_plan_error)?;
+        for write in rank_plan.sibling_writes {
+            let current = state
+                .get(&write.page_id)
+                .ok_or_else(|| corrupt("Parent rank maintenance lost its sibling Page"))?;
+            write_task_parent_rank_maintenance(
+                connection,
+                data_source_id,
+                current,
+                &write.rank_key,
+            )?;
+        }
+        for page in pages {
+            let sibling_rank = rank_plan
+                .moved_rank_keys
+                .get(&page.page_id)
+                .cloned()
+                .ok_or_else(|| corrupt("Parent rank plan omitted a moved Page"))?;
+            desired.insert(
+                page.page_id.clone(),
+                DesiredTaskParent {
+                    parent_page_id: Some(parent_page_id.to_owned()),
+                    sibling_rank: Some(sibling_rank),
+                },
             );
-            let total = sibling_ids.len();
-            for (index, page_id) in sibling_ids.into_iter().enumerate() {
-                desired.insert(
-                    page_id,
-                    DesiredTaskParent {
-                        parent_page_id: Some(parent_page_id.to_owned()),
-                        sibling_rank: Some(evenly_spaced_rank(index, total)),
-                    },
-                );
-            }
+        }
+    } else {
+        for page in pages {
+            desired.insert(
+                page.page_id.clone(),
+                DesiredTaskParent {
+                    parent_page_id: None,
+                    sibling_rank: None,
+                },
+            );
         }
     }
 
@@ -753,6 +790,40 @@ pub(crate) fn apply_task_parent_run(
         });
     }
     Ok(affected_values)
+}
+
+fn task_parent_position_plan_error(error: PositionPlanError) -> StoreError {
+    match error {
+        PositionPlanError::InvalidInput(message) | PositionPlanError::AnchorNotFound(message) => {
+            invalid(message)
+        }
+        PositionPlanError::FractionalRank(error) => invalid(error.message),
+    }
+}
+
+/// Rank maintenance preserves logical order and therefore must not advance the
+/// sibling's Parent value revision or Page metadata revision.
+fn write_task_parent_rank_maintenance(
+    connection: &Connection,
+    data_source_id: &str,
+    current: &TaskParentState,
+    sibling_rank: &str,
+) -> Result<(), StoreError> {
+    let edge_id = current
+        .edge_id
+        .as_deref()
+        .ok_or_else(|| corrupt("Parent rank maintenance requires an existing edge"))?;
+    let updated = connection.execute(
+        "UPDATE data_source_relation_edges SET sibling_rank = ?1 \
+         WHERE edge_id = ?2 AND source_data_source_id = ?3 AND property_id = 'task_parent'",
+        params![sibling_rank, edge_id, data_source_id],
+    )?;
+    if updated != 1 {
+        return Err(corrupt(
+            "Parent Relation edge disappeared during rank maintenance",
+        ));
+    }
+    Ok(())
 }
 
 fn write_task_parent_edge(

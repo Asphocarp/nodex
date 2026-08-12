@@ -25,11 +25,11 @@ use crate::domain::block_materialization::MaterializedBlockNode;
 use crate::domain::fractional_rank::{
     FractionalRankErrorCode, RankedItem, plan as plan_fractional_rank,
 };
-use crate::domain::rich_text::{RichTextItem, RichTextStyles};
-use crate::domain::view_position::{
-    LogicalViewPositionItem, ViewPositionPlanError, ViewSiblingRankWrite, ViewSiblingRankWriteKind,
-    plan_view_position_run,
+use crate::domain::ordered_position::{
+    LogicalPositionItem, PositionPlanError, SiblingRankWrite, SiblingRankWriteKind,
+    plan_position_run,
 };
+use crate::domain::rich_text::{RichTextItem, RichTextStyles};
 use crate::infrastructure::durable_mutation::{
     self, DurableMutationScope, OperationIdentity, SealedOutcome,
 };
@@ -1002,7 +1002,7 @@ fn database_group_key(value: &(String, Value)) -> Result<Option<String>, StoreEr
 #[derive(Debug)]
 struct CreateViewPositionPlan {
     rank_key: String,
-    sibling_writes: Vec<ViewSiblingRankWrite>,
+    sibling_writes: Vec<SiblingRankWrite>,
 }
 
 fn allocate_create_view_position(
@@ -1038,7 +1038,7 @@ fn allocate_create_view_position(
                position.rank_key, membership.page_block_id",
         )?
         .query_map(params![view_id, data_source_id], |row| {
-            Ok(LogicalViewPositionItem {
+            Ok(LogicalPositionItem {
                 page_id: row.get(0)?,
                 rank_key: row.get(1)?,
             })
@@ -1054,7 +1054,7 @@ fn allocate_create_view_position(
             Some(page_id.as_str())
         }
     };
-    let plan = plan_view_position_run(&items, &[page_id.to_owned()], before_page_id, false)
+    let plan = plan_position_run(&items, &[page_id.to_owned()], before_page_id, false)
         .map_err(create_view_position_plan_error)?;
     let rank_key = plan
         .moved_rank_keys
@@ -1067,24 +1067,25 @@ fn allocate_create_view_position(
     })
 }
 
-fn create_view_position_plan_error(error: ViewPositionPlanError) -> StoreError {
+fn create_view_position_plan_error(error: PositionPlanError) -> StoreError {
     match error {
-        ViewPositionPlanError::InvalidInput(message)
-        | ViewPositionPlanError::AnchorNotFound(message) => invalid(&message),
-        ViewPositionPlanError::FractionalRank(error) => rank_error(error),
+        PositionPlanError::InvalidInput(message) | PositionPlanError::AnchorNotFound(message) => {
+            invalid(&message)
+        }
+        PositionPlanError::FractionalRank(error) => rank_error(error),
     }
 }
 
 fn synchronize_create_view_siblings(
     connection: &Connection,
     view_id: &str,
-    sibling_writes: &[ViewSiblingRankWrite],
+    sibling_writes: &[SiblingRankWrite],
     now: &str,
 ) -> Result<Vec<String>, StoreError> {
     let mut affected_page_ids = Vec::with_capacity(sibling_writes.len());
     for write in sibling_writes {
         match write.kind {
-            ViewSiblingRankWriteKind::Materialize => {
+            SiblingRankWriteKind::Materialize => {
                 connection.execute(
                     "INSERT INTO database_view_page_positions( \
                        view_id, page_block_id, rank_key, revision, created_at, updated_at \
@@ -1092,7 +1093,7 @@ fn synchronize_create_view_siblings(
                     params![view_id, write.page_id, write.rank_key, now],
                 )?;
             }
-            ViewSiblingRankWriteKind::Rebalance => {
+            SiblingRankWriteKind::Rebalance => {
                 let position_changed = connection.execute(
                     "UPDATE database_view_page_positions SET rank_key = ?1, updated_at = ?2 \
                      WHERE view_id = ?3 AND page_block_id = ?4",

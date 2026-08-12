@@ -92,7 +92,13 @@ self-Relation: every active row, including a root, retains one positive,
 monotonic Relation value revision; a child has one Relation edge whose target is
 its parent and whose edge metadata carries sibling rank. Generic Relation edits,
 List nesting, and batch drag commands all compare and update that same value
-revision. Each parent must be an active row in the same Data Source, cycles are
+revision. Parent and sibling rank form one semantic coordinate on the moved
+Page. Ordered insertion uses fractional ranks: only Pages whose parent or
+logical sibling position changes advance their Parent value and Page metadata
+revisions. A rare order-preserving rank rebalance may rewrite untouched sibling
+rank encodings but must not advance those siblings' semantic revisions. Repeating
+the same ordered Parent command is a no-op. Each parent must be an active row in
+the same Data Source, cycles are
 forbidden, and maximum depth is ten. Removing a parent from the Data Source
 clears its own Parent value, removes its incoming child edges, advances every
 affected value revision, and promotes its direct children to task roots without

@@ -1003,10 +1003,7 @@ export interface components {
                 /** @enum {string} */
                 readonly kind: "page";
                 readonly occurrence_key: string;
-                readonly sibling_rank?: string | null;
                 readonly summary: components["schemas"]["DatabaseRowSummary"];
-                /** Format: int64 */
-                readonly task_parent_value_revision: number;
                 readonly transient_kind: components["schemas"]["DatabaseListTransientKind"];
             })[];
             readonly next_cursor?: string | null;

@@ -3645,7 +3645,6 @@
                     "depth",
                     "has_children",
                     "transient_kind",
-                    "task_parent_value_revision",
                     "kind"
                   ],
                   "properties": {
@@ -3681,18 +3680,8 @@
                     "occurrence_key": {
                       "type": "string"
                     },
-                    "sibling_rank": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
                     "summary": {
                       "$ref": "#/components/schemas/DatabaseRowSummary"
-                    },
-                    "task_parent_value_revision": {
-                      "type": "integer",
-                      "format": "int64"
                     },
                     "transient_kind": {
                       "$ref": "#/components/schemas/DatabaseListTransientKind"

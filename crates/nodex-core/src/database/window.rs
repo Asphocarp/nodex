@@ -832,8 +832,6 @@ fn flatten_list_node(
             .get(page_id)
             .is_some_and(|child_page_ids| !child_page_ids.is_empty()),
         transient_kind: node.transient_kind,
-        sibling_rank: node.summary.task_sibling_rank.clone(),
-        task_parent_value_revision: node.summary.task_parent_value_revision,
     });
     ancestors.push(page_id.to_owned());
     for child_page_id in children.get(page_id).into_iter().flatten() {
@@ -874,8 +872,6 @@ fn flatten_list_path(
                     depth: 0,
                     has_children: false,
                     transient_kind: node.transient_kind,
-                    sibling_rank: node.summary.task_sibling_rank.clone(),
-                    task_parent_value_revision: node.summary.task_parent_value_revision,
                 })
             })
             .collect();

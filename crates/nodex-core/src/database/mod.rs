@@ -2524,6 +2524,8 @@ mod tests {
         assert_eq!(child.task_parent_page_id.as_deref(), Some("page:parent"));
         assert_eq!(child.task_parent_value_revision, 2);
         assert!(child.task_sibling_rank.is_some());
+        let child_value_revision_before_peer_insert = child.task_parent_value_revision;
+        let child_metadata_revision_before_peer_insert = child.metadata_revision;
 
         let cycle = apply_task_parent(
             &module,
@@ -2575,6 +2577,23 @@ mod tests {
             .expect("read sibling ordering");
         assert_eq!(ordered, ["page:peer", "page:child"]);
 
+        let after_peer_insert =
+            read_view_window(&module, 20, None, None).expect("read localized sibling insert");
+        let unchanged_child = after_peer_insert
+            .rows
+            .items
+            .iter()
+            .find(|row| row.page_id == "page:child")
+            .expect("unchanged child row");
+        assert_eq!(
+            unchanged_child.task_parent_value_revision, child_value_revision_before_peer_insert,
+            "inserting another sibling must not advance an untouched child's Parent value revision",
+        );
+        assert_eq!(
+            unchanged_child.metadata_revision, child_metadata_revision_before_peer_insert,
+            "inserting another sibling must not invalidate an untouched child's Page metadata",
+        );
+
         let child_revision = kernel
             .readers()
             .read_default(|connection| {
@@ -2619,6 +2638,154 @@ mod tests {
             .expect("unparented child row");
         assert_eq!(child.task_parent_page_id, None);
         assert_eq!(child.task_parent_value_revision, child_revision + 1);
+    }
+
+    #[test]
+    fn task_parent_rank_rebalance_preserves_untouched_sibling_revisions() {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        let kernel = SqliteStoreKernel::open_test(&home).expect("fresh store");
+        let module = seed_grouped_fixture(
+            &kernel,
+            vec![
+                GroupRowSpec {
+                    page_id: "page:parent",
+                    title: "Parent",
+                    value_json: None,
+                    rank_key: Some("a"),
+                },
+                GroupRowSpec {
+                    page_id: "page:left",
+                    title: "Left",
+                    value_json: None,
+                    rank_key: Some("b"),
+                },
+                GroupRowSpec {
+                    page_id: "page:right",
+                    title: "Right",
+                    value_json: None,
+                    rank_key: Some("c"),
+                },
+                GroupRowSpec {
+                    page_id: "page:moved",
+                    title: "Moved",
+                    value_json: None,
+                    rank_key: Some("d"),
+                },
+            ],
+        );
+        apply_task_parent(
+            &module,
+            "operation:rebalance-left",
+            &[("page:left", 1)],
+            Some("page:parent"),
+            None,
+        )
+        .expect("nest left sibling");
+        apply_task_parent(
+            &module,
+            "operation:rebalance-right",
+            &[("page:right", 1)],
+            Some("page:parent"),
+            None,
+        )
+        .expect("nest right sibling");
+
+        kernel
+            .writer()
+            .call(|connection| {
+                connection.execute(
+                    "UPDATE data_source_relation_edges SET sibling_rank = \
+                       CASE source_membership_id \
+                         WHEN 'membership:page:left' THEN '00000000000000000000000000000001' \
+                         WHEN 'membership:page:right' THEN '00000000000000000000000000000002' \
+                       END \
+                     WHERE source_data_source_id = ?1 AND property_id = 'task_parent' \
+                       AND source_membership_id IN (\
+                         'membership:page:left', 'membership:page:right'\
+                       )",
+                    [SOURCE_ID],
+                )?;
+                Ok(())
+            })
+            .expect("exhaust sibling rank gap");
+
+        let before = read_view_window(&module, 20, None, None).expect("read rank exhaustion");
+        let untouched_before = before
+            .rows
+            .items
+            .iter()
+            .filter(|row| row.page_id == "page:left" || row.page_id == "page:right")
+            .map(|row| {
+                (
+                    row.page_id.clone(),
+                    (row.task_parent_value_revision, row.metadata_revision),
+                )
+            })
+            .collect::<BTreeMap<_, _>>();
+
+        apply_task_parent(
+            &module,
+            "operation:rebalance-insert",
+            &[("page:moved", 1)],
+            Some("page:parent"),
+            Some("page:right"),
+        )
+        .expect("insert through exhausted rank gap");
+
+        let after = read_view_window(&module, 20, None, None).expect("read rebalanced siblings");
+        let untouched_after = after
+            .rows
+            .items
+            .iter()
+            .filter(|row| row.page_id == "page:left" || row.page_id == "page:right")
+            .map(|row| {
+                (
+                    row.page_id.clone(),
+                    (row.task_parent_value_revision, row.metadata_revision),
+                )
+            })
+            .collect::<BTreeMap<_, _>>();
+        assert_eq!(untouched_after, untouched_before);
+
+        let ordered = kernel
+            .readers()
+            .read_default(|connection| {
+                connection
+                    .prepare(
+                        "SELECT membership.page_block_id \
+                         FROM data_source_relation_edges edge \
+                         JOIN data_source_page_memberships membership \
+                           ON membership.data_source_id = edge.source_data_source_id \
+                          AND membership.id = edge.source_membership_id \
+                         WHERE edge.source_data_source_id = ?1 \
+                           AND edge.property_id = 'task_parent' \
+                           AND edge.target_page_block_id = 'page:parent' \
+                         ORDER BY edge.sibling_rank, membership.page_block_id",
+                    )?
+                    .query_map([SOURCE_ID], |row| row.get::<_, String>(0))?
+                    .collect::<rusqlite::Result<Vec<_>>>()
+                    .map_err(StoreError::from)
+            })
+            .expect("read order after rank maintenance");
+        assert_eq!(ordered, ["page:left", "page:moved", "page:right"]);
+
+        apply_task_parent(
+            &module,
+            "operation:rebalance-repeat-noop",
+            &[("page:moved", 2)],
+            Some("page:parent"),
+            Some("page:right"),
+        )
+        .expect("repeat the same Parent position");
+        let repeated = read_view_window(&module, 20, None, None).expect("read repeated position");
+        let moved = repeated
+            .rows
+            .items
+            .iter()
+            .find(|row| row.page_id == "page:moved")
+            .expect("moved Page after no-op");
+        assert_eq!(moved.task_parent_value_revision, 2);
     }
 
     #[test]

@@ -413,8 +413,6 @@ const readBoundedDatabaseListWindow = async <
         depth: row.depth,
         hasChildren: row.has_children,
         transientKind: row.transient_kind,
-        siblingRank: row.sibling_rank ?? null,
-        taskParentValueRevision: row.task_parent_value_revision,
       };
     }),
     groups: value.groups.map((group) => ({
