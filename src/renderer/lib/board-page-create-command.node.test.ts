@@ -84,7 +84,7 @@ describe("createBoardPage", () => {
         title: "Created Page",
         priority: "p1-high",
         estimate: "m",
-        tags: ["Product"],
+        tagOptions: [{ optionId: "o_AAAAAAAA", name: "Product" }],
       },
       placement: "top",
     });
@@ -100,7 +100,7 @@ describe("createBoardPage", () => {
         title: "Created Page",
         priority: undefined,
         estimate: undefined,
-        tags: [],
+        tagOptions: [],
       }),
     }));
     const optimisticMutation = state.runOptimisticMutation.mock.calls[0]?.[0] as {

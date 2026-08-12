@@ -352,7 +352,7 @@ export function createOptimisticCard(input: PageCreateInput): DatabasePageSummar
     ...summarizePageDescription(input.description ?? ""),
     priority: input.priority ?? undefined,
     estimate: input.estimate ?? undefined,
-    tags: input.tags ?? [],
+    tags: input.tagOptions?.map((option) => option.optionId) ?? [],
     dueDate: input.dueDate ?? undefined,
     scheduledStart: input.scheduledStart ?? undefined,
     scheduledEnd: input.scheduledEnd ?? undefined,

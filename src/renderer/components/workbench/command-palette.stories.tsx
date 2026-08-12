@@ -50,6 +50,7 @@ function makePalettePage(
     projectAppearance: overrides.projectAppearance ?? DEFAULT_PROJECT_APPEARANCE,
     columnName: overrides.columnName ?? "Build",
     page,
+    tagLabels: overrides.tagLabels ?? page.tags,
     inActiveProject: overrides.inActiveProject ?? true,
     recentIndex: overrides.recentIndex ?? null,
     boardIndex: overrides.boardIndex ?? 0,

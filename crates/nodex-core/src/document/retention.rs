@@ -1411,14 +1411,14 @@ mod tests {
                     "INSERT INTO data_source_properties(\
                        data_source_id, id, name, value_type, config_json, rank_key, lifecycle, \
                        schema_revision, created_at, updated_at\
-                     ) VALUES ('source:relation-retention', 'blocked_by', 'Blocked by', \
+                     ) VALUES ('source:relation-retention', 'p_blocked0', 'Blocked by', \
                        'relation', '{}', 'z', 'active', 1, ?1, ?1)",
                     [old],
                 )?;
                 connection.execute(
                     "INSERT INTO data_source_relation_properties(\
                        data_source_id, property_id, target_data_source_id\
-                     ) VALUES ('source:relation-retention', 'blocked_by', \
+                     ) VALUES ('source:relation-retention', 'p_blocked0', \
                        'source:relation-retention')",
                     [],
                 )?;
@@ -1427,7 +1427,7 @@ mod tests {
                        data_source_id, membership_id, property_id, value_type, value_json, \
                        revision, updated_at\
                      ) VALUES ('source:relation-retention', 'membership:relation-source', \
-                       'blocked_by', 'relation', 'null', 1, ?1)",
+                       'p_blocked0', 'relation', 'null', 1, ?1)",
                     [old],
                 )?;
                 connection.execute(
@@ -1435,7 +1435,7 @@ mod tests {
                        edge_id, source_data_source_id, source_membership_id, property_id, \
                        target_page_block_id, created_at\
                      ) VALUES (?1, 'source:relation-retention', 'membership:relation-source', \
-                       'blocked_by', 'page:relation-target', ?2)",
+                       'p_blocked0', 'page:relation-target', ?2)",
                     params!["b".repeat(64), old],
                 )?;
                 connection.execute(

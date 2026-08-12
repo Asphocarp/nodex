@@ -301,7 +301,7 @@ function PageCreateDialogContent({
       if (continueCreating) {
         pendingRef.current = false;
         setSaving(false);
-        resetForNextPage(input.tags ?? []);
+        resetForNextPage(input.tagOptions?.map((option) => option.optionId) ?? []);
         return;
       }
       pendingRef.current = false;

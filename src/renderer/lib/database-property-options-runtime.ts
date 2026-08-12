@@ -1,4 +1,5 @@
 import type { DatabasePropertyOption } from "../../shared/database-kernel";
+import { MAX_DATA_SOURCE_PROPERTY_OPTIONS } from "../../shared/data-source-option-registry";
 import type {
   DataSourcePropertyRecordV2,
   DatabaseModuleReadResultV2,
@@ -75,6 +76,9 @@ export const readPropertyOptionRegistry = async (
   if (property.valueType !== "select" && property.valueType !== "multi_select") {
     return [];
   }
+  if (property.optionCount > MAX_DATA_SOURCE_PROPERTY_OPTIONS) {
+    throw new Error("Property option registry exceeded its declared bound");
+  }
   let restartCount = 0;
   let totalPageCount = 0;
   while (restartCount <= 3) {
@@ -96,6 +100,9 @@ export const readPropertyOptionRegistry = async (
       }
       projectionRevision = page.projectionRevision;
       options = mergePropertyOptionPages(options, page.options);
+      if (options.length > MAX_DATA_SOURCE_PROPERTY_OPTIONS) {
+        throw new Error("Property option registry exceeded its fixed bound");
+      }
       after = page.nextCursor;
       if (!after) return options;
       if (seenCursors.has(after)) {
@@ -104,7 +111,7 @@ export const readPropertyOptionRegistry = async (
       seenCursors.add(after);
     } while (
       totalPageCount < 100
-      && options.length <= Math.max(property.optionCount, 10_000)
+      && options.length <= MAX_DATA_SOURCE_PROPERTY_OPTIONS
     );
     if (shouldRestart) continue;
     break;

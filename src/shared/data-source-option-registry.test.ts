@@ -132,6 +132,71 @@ describe("Data Source option registry", () => {
     expect(registry.options.map((option) => option.name)).toEqual(["Ops", "ops"]);
   });
 
+  test("shares Core's 100-option and UTF-8 byte bounds", () => {
+    const options = Array.from({ length: 100 }, (_, index) => ({
+      id: `o_${index.toString(36).padStart(8, "0")}`,
+      name: `Option ${index}`,
+    }));
+    const registry = parseDataSourceOptionRegistry({
+      dataSourceId: "source-a",
+      propertyId: CUSTOM_PROPERTY,
+      valueType: "select",
+      config: { options },
+    });
+    expect(registry.options).toHaveLength(100);
+    expectRegistryError(
+      () =>
+        parseDataSourceOptionRegistry({
+          dataSourceId: "source-a",
+          propertyId: CUSTOM_PROPERTY,
+          valueType: "select",
+          config: {
+            options: [
+              ...options,
+              { id: "o_overflow", name: "Overflow" },
+            ],
+          },
+        }),
+      "invalid_registry",
+    );
+    expectRegistryError(
+      () =>
+        putDataSourceOption(registry, {
+          optionId: "o_overflow",
+          name: "Overflow",
+        }),
+      "invalid_registry",
+    );
+    expectRegistryError(
+      () =>
+        parseDataSourceOptionRegistry({
+          dataSourceId: "source-a",
+          propertyId: "tags",
+          valueType: "multi_select",
+          config: {
+            options: [{ id: TAG_ONE, name: "界".repeat(86) }],
+          },
+        }),
+      "invalid_registry",
+    );
+    expectRegistryError(
+      () =>
+        parseDataSourceOptionRegistry({
+          dataSourceId: "source-a",
+          propertyId: CUSTOM_PROPERTY,
+          valueType: "select",
+          config: {
+            options: [{
+              id: TAG_ONE,
+              name: "Name",
+              color: "界".repeat(43),
+            }],
+          },
+        }),
+      "invalid_registry",
+    );
+  });
+
   test("resolves tag names after canonicalization but remains case-sensitive", () => {
     const registry = tagsRegistry();
 

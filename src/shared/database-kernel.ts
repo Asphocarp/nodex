@@ -3,6 +3,11 @@ import {
   type BlockPropertyJsonValue,
 } from "./block-property-mutations";
 import { parseDataSourcePropertyId } from "./database-identities";
+import {
+  MAX_DATA_SOURCE_OPTION_COLOR_LENGTH,
+  MAX_DATA_SOURCE_OPTION_NAME_LENGTH,
+  MAX_DATA_SOURCE_PROPERTY_OPTIONS,
+} from "./data-source-option-registry";
 
 export const DATABASE_MUTATION_CONTRACT_VERSION = 3 as const;
 export const MAX_DATABASE_MUTATION_OPERATIONS = 64;
@@ -11,11 +16,12 @@ export const MAX_DATABASE_MUTATION_BULK_ENTRIES = 4_096;
 const MAX_ID_LENGTH = 512;
 const MAX_KEY_LENGTH = 128;
 const MAX_NAME_LENGTH = 256;
-const MAX_OPTIONS = 10_000;
+const MAX_COLLECTION_ENTRIES = 10_000;
 const MAX_CANONICAL_REQUEST_LENGTH = 2_000_000;
 const MAX_VIEW_CONFIG_LENGTH = 262_144;
 const MAX_VIEW_FILTER_DEPTH = 8;
 const MAX_VIEW_FILTER_NODES = 1_024;
+const UTF8_ENCODER = new TextEncoder();
 
 export type DatabaseJsonValue = BlockPropertyJsonValue;
 export type DatabasePropertyValueType =
@@ -530,13 +536,26 @@ const readOptionalString = (
   return readString(record, key, label, maximumLength);
 };
 
+const readUtf8String = (
+  record: Readonly<Record<string, unknown>>,
+  key: string,
+  label: string,
+  maximumBytes: number,
+): string => {
+  const value = readString(record, key, label, maximumBytes);
+  if (UTF8_ENCODER.encode(value).byteLength <= maximumBytes) return value;
+  throw new DatabaseMutationContractError(
+    `${label}.${key} must contain at most ${maximumBytes} UTF-8 bytes`,
+  );
+};
+
 const readCanonicalStringArray = (
   record: Readonly<Record<string, unknown>>,
   key: string,
   label: string,
 ): readonly string[] => {
   const value = record[key];
-  if (!Array.isArray(value) || value.length > MAX_OPTIONS) {
+  if (!Array.isArray(value) || value.length > MAX_COLLECTION_ENTRIES) {
     throw new DatabaseMutationContractError(
       `${label}.${key} must be a bounded string array`,
     );
@@ -618,7 +637,10 @@ const readOptions = (
   label: string,
 ): readonly DatabasePropertyOption[] | undefined => {
   if (config.options === undefined) return undefined;
-  if (!Array.isArray(config.options) || config.options.length > MAX_OPTIONS) {
+  if (
+    !Array.isArray(config.options)
+    || config.options.length > MAX_DATA_SOURCE_PROPERTY_OPTIONS
+  ) {
     throw new DatabaseMutationContractError(
       `${label}.options must be a bounded array`,
     );
@@ -641,20 +663,20 @@ const readOptions = (
     seen.add(id);
     return {
       id,
-      name: readString(
+      name: readUtf8String(
         option,
         "name",
         `${label}.options[${index}]`,
-        MAX_NAME_LENGTH,
+        MAX_DATA_SOURCE_OPTION_NAME_LENGTH,
       ),
       ...(option.color === undefined
         ? {}
         : {
-            color: readString(
+            color: readUtf8String(
               option,
               "color",
               `${label}.options[${index}]`,
-              MAX_NAME_LENGTH,
+              MAX_DATA_SOURCE_OPTION_COLOR_LENGTH,
             ),
           }),
     };
@@ -2031,7 +2053,7 @@ const parseOperation = (value: unknown): DatabaseMutationOperation => {
     ]);
     const readMembers = (key: "add" | "remove"): readonly string[] => {
       const value = operation[key];
-      if (!Array.isArray(value) || value.length > MAX_OPTIONS) {
+      if (!Array.isArray(value) || value.length > MAX_COLLECTION_ENTRIES) {
         throw new DatabaseMutationContractError(
           `${label}.${key} must be a bounded array`,
         );

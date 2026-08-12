@@ -14,6 +14,7 @@ use rusqlite::{Connection, params_from_iter, types::Value as SqlValue};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
+use crate::database;
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
 use super::{agent_authorization, cursor};
@@ -599,16 +600,16 @@ fn read_property_values(
                 ))
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?;
-        for (page_id, property_id, property_name, value_type, config, value) in rows {
+        for (page_id, property_id, property_name, value_type, config_json, value) in rows {
             let current = values.entry(page_id.clone()).or_default();
             if current.len() >= MAX_PROPERTY_VALUES_PER_PAGE {
                 continue;
             }
-            let config = serde_json::from_str::<Value>(&config)
-                .map_err(|_| corrupt("Agent search property config is invalid"))?;
             let value = serde_json::from_str::<Value>(&value)
                 .map_err(|_| corrupt("Agent search property value is invalid"))?;
-            let Some(text) = property_display_value(&value_type, &config, &value) else {
+            let Some(text) =
+                property_display_value(&property_id, &value_type, &config_json, &value)?
+            else {
                 continue;
             };
             if text.is_empty() {
@@ -629,50 +630,92 @@ fn read_property_values(
     Ok(values)
 }
 
-fn property_display_value(value_type: &str, config: &Value, value: &Value) -> Option<String> {
-    let truncate = |value: &str| value.chars().take(MAX_PROPERTY_DISPLAY_CHARS).collect();
-    let option_names = || {
-        config
-            .get("options")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .filter_map(|option| {
-                Some((
-                    option.get("id")?.as_str()?.to_owned(),
-                    option.get("name")?.as_str()?.to_owned(),
-                ))
-            })
-            .collect::<HashMap<_, _>>()
-    };
-    match value_type {
-        "select" => value
-            .as_str()
-            .map(|id| truncate(option_names().get(id).map(String::as_str).unwrap_or(id))),
-        "multi_select" => value.as_array().map(|items| {
-            let names = option_names();
-            truncate(
-                &items
-                    .iter()
-                    .filter_map(Value::as_str)
-                    .map(|id| names.get(id).map(String::as_str).unwrap_or(id))
-                    .collect::<Vec<_>>()
-                    .join(" "),
-            )
-        }),
-        "checkbox" => value.as_bool().map(|value| value.to_string()),
-        "number" => value
-            .as_f64()
-            .filter(|value| value.is_finite())
-            .map(|value| {
-                if value.fract() == 0.0 {
-                    format!("{value:.0}")
-                } else {
-                    value.to_string()
-                }
-            }),
-        _ => value.as_str().map(truncate),
+fn property_display_value(
+    property_id: &str,
+    value_type: &str,
+    config_json: &str,
+    value: &Value,
+) -> Result<Option<String>, StoreError> {
+    if value.is_null() {
+        return Ok(None);
     }
+    let truncate = |value: &str| value.chars().take(MAX_PROPERTY_DISPLAY_CHARS).collect();
+    if matches!(value_type, "select" | "multi_select") {
+        let config = database::property_semantics::option_config_from_storage(
+            property_id,
+            value_type,
+            config_json,
+        )?;
+        let names = config
+            .options
+            .iter()
+            .map(|option| (option.id.as_str(), option.name.as_str()))
+            .collect::<HashMap<_, _>>();
+        if value_type == "select" {
+            let id = value
+                .as_str()
+                .ok_or_else(|| corrupt("Agent search select Property value is invalid"))?;
+            let name = names
+                .get(id)
+                .ok_or_else(|| corrupt("Agent search select Property option is not registered"))?;
+            return Ok(Some(truncate(name)));
+        }
+        let items = value
+            .as_array()
+            .ok_or_else(|| corrupt("Agent search multi-select Property value is invalid"))?;
+        let mut selected = HashSet::new();
+        let names = items
+            .iter()
+            .map(|item| {
+                let id = item.as_str().ok_or_else(|| {
+                    corrupt("Agent search multi-select Property contains a non-string option")
+                })?;
+                if !selected.insert(id) {
+                    return Err(corrupt(
+                        "Agent search multi-select Property repeats an option",
+                    ));
+                }
+                names.get(id).copied().ok_or_else(|| {
+                    corrupt("Agent search multi-select Property option is not registered")
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        return Ok(Some(truncate(&names.join(" "))));
+    }
+
+    let config = serde_json::from_str::<Value>(config_json)
+        .map_err(|_| corrupt("Agent search property config is invalid"))?;
+    if !config.is_object() {
+        return Err(corrupt("Agent search property config is not an object"));
+    }
+    let display = match value_type {
+        "checkbox" => Some(
+            value
+                .as_bool()
+                .ok_or_else(|| corrupt("Agent search checkbox Property value is invalid"))?
+                .to_string(),
+        ),
+        "number" => {
+            let value = value
+                .as_f64()
+                .filter(|value| value.is_finite())
+                .ok_or_else(|| corrupt("Agent search number Property value is invalid"))?;
+            let value = if value.fract() == 0.0 {
+                format!("{value:.0}")
+            } else {
+                value.to_string()
+            };
+            Some(truncate(&value))
+        }
+        "text" | "date" | "datetime" => {
+            Some(truncate(value.as_str().ok_or_else(|| {
+                corrupt("Agent search textual Property value is invalid")
+            })?))
+        }
+        "relation" => None,
+        _ => return Err(corrupt("Agent search Property type is unsupported")),
+    };
+    Ok(display)
 }
 
 fn metadata_evidence(
@@ -1085,21 +1128,28 @@ mod tests {
     fn resolves_select_option_ids_for_searchable_property_display_text() {
         let config = json!({
             "options": [
-                { "id": "status:todo", "name": "To do" },
-                { "id": "status:progress", "name": "In progress" }
+                { "id": "o_todo0000", "name": "To do" },
+                { "id": "o_progr000", "name": "In progress" }
             ]
-        });
+        })
+        .to_string();
         assert_eq!(
-            property_display_value("select", &config, &json!("status:progress")),
+            property_display_value("p_status00", "select", &config, &json!("o_progr000"),)
+                .expect("select display should resolve"),
             Some("In progress".to_owned())
         );
         assert_eq!(
             property_display_value(
+                "p_labels00",
                 "multi_select",
                 &config,
-                &json!(["status:todo", "status:progress"]),
-            ),
+                &json!(["o_todo0000", "o_progr000"]),
+            )
+            .expect("multi-select display should resolve"),
             Some("To do In progress".to_owned())
+        );
+        assert!(
+            property_display_value("p_status00", "select", &config, &json!("o_missing0"),).is_err()
         );
     }
 
@@ -1113,7 +1163,7 @@ mod tests {
                 parent_id: "library:test".to_owned(),
             },
             &[PropertyValue {
-                property_id: "p_status".to_owned(),
+                property_id: "p_status00".to_owned(),
                 property_name: "Status".to_owned(),
                 text: "Integration".to_owned(),
             }],
@@ -1122,7 +1172,7 @@ mod tests {
         assert_eq!(evidence.len(), 1);
         assert!(matches!(
             &evidence[0].kind,
-            EvidenceKind::Property { property_id, .. } if property_id == "p_status"
+            EvidenceKind::Property { property_id, .. } if property_id == "p_status00"
         ));
         assert_eq!(evidence[0].quality, LibraryAgentSearchMatchQuality::Fuzzy);
     }

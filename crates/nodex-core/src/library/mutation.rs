@@ -6434,11 +6434,56 @@ mod tests {
             .value
             .block_transfer
             .expect("Data Source transfer result");
-        let move_within_view_etag = moved_to_data_source
+        let preserve_group_etag = moved_to_data_source
             .move_etags
             .get(&copied.page_id)
             .cloned()
             .expect("post-Data-Source move ETag");
+        let projection_page_id = copied.page_id.clone();
+        kernel
+            .writer()
+            .call(move |connection| {
+                connection.execute(
+                    "UPDATE page_read_model SET database_values_json = \
+                       json_set(database_values_json, '$.status', 'display-only') \
+                     WHERE page_block_id = ?1",
+                    [projection_page_id],
+                )?;
+                Ok(())
+            })
+            .expect("diverge the compatibility display projection");
+        let preserved_group_move = module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "native-cli:move-page-preserving-group".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::MovePage {
+                        page_id: copied.page_id.clone(),
+                        destination: LibraryPageWriteDestination::DataSource {
+                            data_source_id: "018f0000-0000-7000-8000-000000000002".to_owned(),
+                            view_id: Some("018f0000-0000-7000-8000-000000000003".to_owned()),
+                            group: None,
+                            at: Some(LibraryAgentSiblingAnchor::Start),
+                        },
+                        expected_etag: preserve_group_etag,
+                    },
+                },
+            )
+            .expect("preserve the canonical group despite a divergent display projection")
+            .committed
+            .value
+            .block_transfer
+            .expect("canonical-group transfer result");
+        let preserved_state = read_page_view_state(&kernel, &copied.page_id);
+        assert_eq!(preserved_state.4, "\"triage\"");
+        assert_eq!(preserved_state.6.as_deref(), Some("triage"));
+        let move_within_view_etag = preserved_group_move
+            .move_etags
+            .get(&copied.page_id)
+            .cloned()
+            .expect("post-canonical-group move ETag");
         let move_within_view_request = ModuleApplyRequest {
             contract_version: LIBRARY_CONTRACT_VERSION,
             operation_id: "native-cli:move-page-to-build".to_owned(),

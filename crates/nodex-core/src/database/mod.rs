@@ -440,6 +440,30 @@ mod tests {
             .expect("bind Project Database");
 
         let module = DatabaseModule::new("profile-1", "library-1", &kernel);
+        let noncanonical_custom_property = module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    operation_id: "operation:reject-noncanonical-property".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: vec![DatabaseIntent::PutProperty {
+                        data_source_id: SOURCE_ID.to_owned(),
+                        property_id: "risk".to_owned(),
+                        expected_data_source_revision: 1,
+                        expected_property_revision: 0,
+                        name: "Risk".to_owned(),
+                        schema: DatabasePropertySchema::Select,
+                        before_property_id: None,
+                    }],
+                },
+            )
+            .expect_err("reject a noncanonical custom Property identity");
+        assert_eq!(
+            noncanonical_custom_property.code,
+            CoreErrorCode::InvalidInput
+        );
+
         let invalid_priority_schema = module
             .apply(
                 &context(),
@@ -555,7 +579,7 @@ mod tests {
                         DatabaseIntent::PutOption {
                             data_source_id: SOURCE_ID.to_owned(),
                             property_id: "tags".to_owned(),
-                            option_id: "o_atomic1".to_owned(),
+                            option_id: "o_atomic01".to_owned(),
                             name: "Atomic".to_owned(),
                             color: Some("blue".to_owned()),
                             expected_property_revision: 1,
@@ -569,7 +593,7 @@ mod tests {
                                 },
                                 edit: DatabasePropertyValueEdit::PatchSet {
                                     delta: DatabasePropertySetDelta::MultiSelect {
-                                        add_option_ids: vec!["o_atomic1".to_owned()],
+                                        add_option_ids: vec!["o_atomic01".to_owned()],
                                         remove_option_ids: Vec::new(),
                                     },
                                 },
@@ -592,7 +616,7 @@ mod tests {
                         DatabaseIntent::PutOption {
                             data_source_id: SOURCE_ID.to_owned(),
                             property_id: "tags".to_owned(),
-                            option_id: "o_atomic1".to_owned(),
+                            option_id: "o_atomic01".to_owned(),
                             name: "Atomic".to_owned(),
                             color: Some("blue".to_owned()),
                             expected_property_revision: 1,
@@ -606,7 +630,7 @@ mod tests {
                                 },
                                 edit: DatabasePropertyValueEdit::PatchSet {
                                     delta: DatabasePropertySetDelta::MultiSelect {
-                                        add_option_ids: vec!["o_atomic1".to_owned()],
+                                        add_option_ids: vec!["o_atomic01".to_owned()],
                                         remove_option_ids: Vec::new(),
                                     },
                                 },
@@ -618,16 +642,36 @@ mod tests {
             .expect("replay the atomic operation receipt");
         assert_eq!(replayed.committed.value.operation_count, 2);
 
-        let noncanonical_tag = module.apply(
+        let noncanonical_tag_identity = module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    operation_id: "operation:reject-noncanonical-tag-identity".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: vec![DatabaseIntent::PutOption {
+                        data_source_id: SOURCE_ID.to_owned(),
+                        property_id: "tags".to_owned(),
+                        option_id: "tag:legacy".to_owned(),
+                        name: "Legacy".to_owned(),
+                        color: None,
+                        expected_property_revision: 2,
+                    }],
+                },
+            )
+            .expect_err("reject a noncanonical tags option identity");
+        assert_eq!(noncanonical_tag_identity.code, CoreErrorCode::InvalidInput);
+
+        let noncanonical_tag_name = module.apply(
             &context(),
             ModuleApplyRequest {
                 contract_version: DATABASE_CONTRACT_VERSION,
-                operation_id: "operation:reject-noncanonical-tag".to_owned(),
+                operation_id: "operation:reject-noncanonical-tag-name".to_owned(),
                 store_epoch: StoreEpoch("epoch-1".to_owned()),
                 intent: vec![DatabaseIntent::PutOption {
                     data_source_id: SOURCE_ID.to_owned(),
                     property_id: "tags".to_owned(),
-                    option_id: "o_noncanonical".to_owned(),
+                    option_id: "o_name0001".to_owned(),
                     name: "Cafe\u{301}".to_owned(),
                     color: None,
                     expected_property_revision: 2,
@@ -635,7 +679,7 @@ mod tests {
             },
         );
         assert!(
-            noncanonical_tag.is_err(),
+            noncanonical_tag_name.is_err(),
             "Tags option names must already be Unicode NFC"
         );
 
@@ -649,7 +693,7 @@ mod tests {
                     DatabaseIntent::PutOption {
                         data_source_id: SOURCE_ID.to_owned(),
                         property_id: "tags".to_owned(),
-                        option_id: "o_atomic2".to_owned(),
+                        option_id: "o_atomic02".to_owned(),
                         name: "Must roll back".to_owned(),
                         color: None,
                         expected_property_revision: 2,
@@ -663,7 +707,7 @@ mod tests {
                             },
                             edit: DatabasePropertyValueEdit::PatchSet {
                                 delta: DatabasePropertySetDelta::MultiSelect {
-                                    add_option_ids: vec!["o_atomic2".to_owned()],
+                                    add_option_ids: vec!["o_atomic02".to_owned()],
                                     remove_option_ids: Vec::new(),
                                 },
                             },
@@ -694,9 +738,9 @@ mod tests {
                     [SOURCE_ID],
                     |row| row.get::<_, String>(0),
                 )?;
-                assert!(config.contains("o_atomic1"));
-                assert!(!config.contains("o_atomic2"));
-                assert_eq!(value, "[\"o_atomic1\"]");
+                assert!(config.contains("o_atomic01"));
+                assert!(!config.contains("o_atomic02"));
+                assert_eq!(value, "[\"o_atomic01\"]");
                 Ok(())
             })
             .expect("option registry and value commit together");
@@ -1374,7 +1418,7 @@ mod tests {
             intent: vec![
                 DatabaseIntent::PutProperty {
                     data_source_id: SOURCE_ID.to_owned(),
-                    property_id: "risk".to_owned(),
+                    property_id: "p_risk0000".to_owned(),
                     expected_data_source_revision: 1,
                     expected_property_revision: 0,
                     name: "Risk".to_owned(),
@@ -1383,8 +1427,8 @@ mod tests {
                 },
                 DatabaseIntent::PutOption {
                     data_source_id: SOURCE_ID.to_owned(),
-                    property_id: "risk".to_owned(),
-                    option_id: "high".to_owned(),
+                    property_id: "p_risk0000".to_owned(),
+                    option_id: "o_high0000".to_owned(),
                     name: "High".to_owned(),
                     color: Some("red".to_owned()),
                     expected_property_revision: 1,
@@ -1394,12 +1438,12 @@ mod tests {
                         address: DatabasePagePropertyAddress {
                             page_id: "page:database-row".to_owned(),
                             data_source_id: SOURCE_ID.to_owned(),
-                            property_id: "risk".to_owned(),
+                            property_id: "p_risk0000".to_owned(),
                         },
                         edit: DatabasePropertyValueEdit::Replace {
                             expected_value_revision: 0,
                             value: DatabasePropertyValueInput::Select {
-                                option_id: "high".to_owned(),
+                                option_id: "o_high0000".to_owned(),
                             },
                         },
                     }],
@@ -1427,8 +1471,8 @@ mod tests {
             applied.committed.receipt.committed_revisions,
             BTreeMap::from([
                 (format!("source:{SOURCE_ID}"), 3),
-                (format!("property:{SOURCE_ID}:risk"), 2),
-                (format!("value:{SOURCE_ID}:membership:row:risk"), 1),
+                (format!("property:{SOURCE_ID}:p_risk0000"), 2),
+                (format!("value:{SOURCE_ID}:membership:row:p_risk0000"), 1),
                 ("page:page:database-row:metadata".to_owned(), 2),
             ])
         );
@@ -1477,6 +1521,46 @@ mod tests {
             })
             .expect("Page metadata projections stay synchronized after value writes");
 
+        let noncanonical_custom_option = module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    operation_id: "operation:reject-noncanonical-custom-option".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: vec![DatabaseIntent::PutOption {
+                        data_source_id: SOURCE_ID.to_owned(),
+                        property_id: "p_risk0000".to_owned(),
+                        option_id: "high".to_owned(),
+                        name: "High".to_owned(),
+                        color: None,
+                        expected_property_revision: 2,
+                    }],
+                },
+            )
+            .expect_err("reject a noncanonical custom option identity");
+        assert_eq!(noncanonical_custom_option.code, CoreErrorCode::InvalidInput);
+
+        let noncanonical_option_name = module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    operation_id: "operation:reject-noncanonical-option-name".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: vec![DatabaseIntent::PutOption {
+                        data_source_id: SOURCE_ID.to_owned(),
+                        property_id: "p_risk0000".to_owned(),
+                        option_id: "o_other000".to_owned(),
+                        name: " Other ".to_owned(),
+                        color: None,
+                        expected_property_revision: 2,
+                    }],
+                },
+            )
+            .expect_err("reject a noncanonical option name");
+        assert_eq!(noncanonical_option_name.code, CoreErrorCode::InvalidInput);
+
         let replayed = module
             .apply(&context(), request.clone())
             .expect("replay exact Database batch");
@@ -1501,7 +1585,7 @@ mod tests {
                 address: DatabasePagePropertyAddress {
                     page_id: "page:database-row".to_owned(),
                     data_source_id: SOURCE_ID.to_owned(),
-                    property_id: "risk".to_owned(),
+                    property_id: "p_risk0000".to_owned(),
                 },
                 edit: DatabasePropertyValueEdit::Replace {
                     expected_value_revision: 1,
@@ -1524,7 +1608,7 @@ mod tests {
                     intent: vec![
                         DatabaseIntent::PutProperty {
                             data_source_id: SOURCE_ID.to_owned(),
-                            property_id: "score".to_owned(),
+                            property_id: "p_score000".to_owned(),
                             expected_data_source_revision: 3,
                             expected_property_revision: 0,
                             name: "Score".to_owned(),
@@ -1587,7 +1671,7 @@ mod tests {
             properties
                 .items
                 .iter()
-                .all(|value| value.property_id != "score")
+                .all(|value| value.property_id != "p_score000")
         );
         let status = properties
             .items
@@ -1665,7 +1749,7 @@ mod tests {
         let ungrouped_config = view_config(
             json!({ "kind": "group", "operator": "and", "children": [] }),
             None,
-            &["status", "risk"],
+            &["status", "p_risk0000"],
         );
         let view_and_position = module
             .apply(
@@ -1703,8 +1787,8 @@ mod tests {
         );
         let grouped_config = view_config(
             json!({ "kind": "group", "operator": "and", "children": [] }),
-            Some("risk"),
-            &["status", "risk"],
+            Some("p_risk0000"),
+            &["status", "p_risk0000"],
         );
         module
             .apply(
@@ -1755,7 +1839,7 @@ mod tests {
         };
         assert_eq!(
             grouped.rows.items[0].effective_group_key.as_deref(),
-            Some("high")
+            Some("o_high0000")
         );
         assert_eq!(grouped.rows.items[0].position_revision, Some(1));
         let personally_ungrouped = module
@@ -1984,7 +2068,7 @@ mod tests {
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: vec![DatabaseIntent::PutProperty {
                         data_source_id: SOURCE_ID.to_owned(),
-                        property_id: "library-note".to_owned(),
+                        property_id: "p_libnote0".to_owned(),
                         expected_data_source_revision: 3,
                         expected_property_revision: 0,
                         name: "Library note".to_owned(),
@@ -1998,7 +2082,7 @@ mod tests {
             library_write.committed.receipt.committed_revisions,
             BTreeMap::from([
                 (format!("source:{SOURCE_ID}"), 4),
-                (format!("property:{SOURCE_ID}:library-note"), 1),
+                (format!("property:{SOURCE_ID}:p_libnote0"), 1),
             ])
         );
         let library_event = library_write.event.expect("Library Database event");
@@ -3405,10 +3489,6 @@ mod tests {
             summary.database_values.get("tags"),
             Some(&json!(["o_AAAAAAAA", "o_BBBBBBBB"])),
         );
-        assert_eq!(
-            summary.database_display_values.get("tags"),
-            Some(&json!(["Zulu", "Alpha"])),
-        );
         let view_window =
             read_view_window(&module, 20, None, None).expect("canonical multi-value View window");
         assert_eq!(
@@ -3864,7 +3944,7 @@ mod tests {
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: vec![DatabaseIntent::PutProperty {
                         data_source_id: SOURCE_ID.to_owned(),
-                        property_id: "blocked_by".to_owned(),
+                        property_id: "p_blocked0".to_owned(),
                         expected_data_source_revision: source_revision,
                         expected_property_revision: 0,
                         name: "Blocked by".to_owned(),
@@ -3890,7 +3970,7 @@ mod tests {
                             address: DatabasePagePropertyAddress {
                                 page_id: "page:relation-row".to_owned(),
                                 data_source_id: SOURCE_ID.to_owned(),
-                                property_id: "blocked_by".to_owned(),
+                                property_id: "p_blocked0".to_owned(),
                             },
                             edit: DatabasePropertyValueEdit::ReplaceOneRelation {
                                 expected_value_revision: 0,
@@ -3914,7 +3994,7 @@ mod tests {
                             address: DatabasePagePropertyAddress {
                                 page_id: "page:relation-row".to_owned(),
                                 data_source_id: SOURCE_ID.to_owned(),
-                                property_id: "blocked_by".to_owned(),
+                                property_id: "p_blocked0".to_owned(),
                             },
                             edit: DatabasePropertyValueEdit::PatchSet {
                                 delta: nodex_core_contracts::database::DatabasePropertySetDelta::Relation {
@@ -3956,7 +4036,7 @@ mod tests {
                        ON edge.source_data_source_id = value.data_source_id \
                        AND edge.source_membership_id = value.membership_id \
                        AND edge.property_id = value.property_id \
-                     WHERE value.data_source_id = ?1 AND value.property_id = 'blocked_by'",
+                     WHERE value.data_source_id = ?1 AND value.property_id = 'p_blocked0'",
                     [SOURCE_ID],
                     |row| {
                         Ok((
@@ -3982,7 +4062,7 @@ mod tests {
                             address: DatabasePagePropertyAddress {
                                 page_id: "page:relation-row".to_owned(),
                                 data_source_id: SOURCE_ID.to_owned(),
-                                property_id: "blocked_by".to_owned(),
+                                property_id: "p_blocked0".to_owned(),
                             },
                             edit: DatabasePropertyValueEdit::PatchSet {
                                 delta: nodex_core_contracts::database::DatabasePropertySetDelta::Relation {
@@ -4002,7 +4082,7 @@ mod tests {
                 connection
                     .query_row(
                         "SELECT revision FROM data_source_property_values \
-                         WHERE data_source_id = ?1 AND property_id = 'blocked_by'",
+                         WHERE data_source_id = ?1 AND property_id = 'p_blocked0'",
                         [SOURCE_ID],
                         |row| row.get::<_, i64>(0),
                     )
@@ -4022,7 +4102,7 @@ mod tests {
                             address: DatabasePagePropertyAddress {
                                 page_id: "page:relation-row".to_owned(),
                                 data_source_id: SOURCE_ID.to_owned(),
-                                property_id: "blocked_by".to_owned(),
+                                property_id: "p_blocked0".to_owned(),
                             },
                             edit: DatabasePropertyValueEdit::PatchSet {
                                 delta: nodex_core_contracts::database::DatabasePropertySetDelta::Relation {
@@ -4052,7 +4132,7 @@ mod tests {
                             address: DatabasePagePropertyAddress {
                                 page_id: "page:relation-row".to_owned(),
                                 data_source_id: SOURCE_ID.to_owned(),
-                                property_id: "blocked_by".to_owned(),
+                                property_id: "p_blocked0".to_owned(),
                             },
                             edit: DatabasePropertyValueEdit::ClearManyRelation {
                                 expected_value_revision: 0,
@@ -4091,7 +4171,7 @@ mod tests {
             .expect("read Relation filter View");
         view_config["filter"] = json!({
             "kind": "clause",
-            "propertyId": "blocked_by",
+            "propertyId": "p_blocked0",
             "operator": "contains",
             "value": "page:relation-row"
         });
@@ -4135,7 +4215,7 @@ mod tests {
             panic!("Relation filtered View");
         };
         assert_eq!(filtered.rows.items.len(), 1);
-        let preview = &filtered.rows.items[0].database_values["blocked_by"]["value"];
+        let preview = &filtered.rows.items[0].database_values["p_blocked0"]["value"];
         assert_eq!(preview["total_count"], 5);
         assert_eq!(preview["targets"].as_array().map(Vec::len), Some(3));
         assert_eq!(preview["restricted_count"], 0);
@@ -4149,7 +4229,7 @@ mod tests {
                         address: DatabasePagePropertyAddress {
                             page_id: "page:relation-row".to_owned(),
                             data_source_id: SOURCE_ID.to_owned(),
-                            property_id: "blocked_by".to_owned(),
+                            property_id: "p_blocked0".to_owned(),
                         },
                         window: CollectionWindowRequest {
                             after: None,
@@ -4226,7 +4306,7 @@ mod tests {
                             address: DatabasePagePropertyAddress {
                                 page_id: "page:relation-row".to_owned(),
                                 data_source_id: SOURCE_ID.to_owned(),
-                                property_id: "blocked_by".to_owned(),
+                                property_id: "p_blocked0".to_owned(),
                             },
                             edit: DatabasePropertyValueEdit::PatchSet {
                                 delta: nodex_core_contracts::database::DatabasePropertySetDelta::Relation {
@@ -4251,7 +4331,7 @@ mod tests {
                             address: DatabasePagePropertyAddress {
                                 page_id: "page:relation-row".to_owned(),
                                 data_source_id: SOURCE_ID.to_owned(),
-                                property_id: "blocked_by".to_owned(),
+                                property_id: "p_blocked0".to_owned(),
                             },
                             edit: DatabasePropertyValueEdit::ClearManyRelation {
                                 expected_value_revision: 2,
@@ -4267,7 +4347,7 @@ mod tests {
                 connection
                     .query_row(
                         "SELECT count(*) FROM data_source_relation_edges \
-                         WHERE source_data_source_id = ?1 AND property_id = 'blocked_by'",
+                         WHERE source_data_source_id = ?1 AND property_id = 'p_blocked0'",
                         [SOURCE_ID],
                         |row| row.get::<_, i64>(0),
                     )
@@ -5187,36 +5267,59 @@ mod tests {
         kernel
             .writer()
             .call(|connection| {
-                let options = |prefix: &str, pinned: &[&str]| {
+                let options = |discriminator: char| {
                     (0..15)
                         .map(|index| {
-                            let id = pinned
-                                .get(index)
-                                .map_or_else(|| format!("{prefix}-{index}"), |id| (*id).to_owned());
+                            let id = format!("o_{discriminator}{index:07}");
                             json!({ "id": id, "name": format!("Option {index}") })
                         })
                         .collect::<Vec<_>>()
                 };
                 connection.execute(
-                    "UPDATE data_source_properties SET config_json = ?1 \
-                     WHERE data_source_id = ?2 AND id = 'status'",
+                    "INSERT INTO data_source_properties(\
+                       data_source_id, id, name, value_type, config_json, rank_key, lifecycle, \
+                       schema_revision, created_at, updated_at\
+                     ) VALUES (?1, 'p_group000', 'Group', 'select', ?2, 'y1', 'active', 1, ?3, ?3)",
                     params![
-                        json!({ "options": options("status", &["triage", "ship"]) }).to_string(),
-                        SOURCE_ID
+                        SOURCE_ID,
+                        json!({ "options": options('g') }).to_string(),
+                        NOW
                     ],
                 )?;
                 connection.execute(
-                    "UPDATE data_source_properties SET config_json = ?1 \
-                     WHERE data_source_id = ?2 AND id = 'priority'",
+                    "INSERT INTO data_source_properties(\
+                       data_source_id, id, name, value_type, config_json, rank_key, lifecycle, \
+                       schema_revision, created_at, updated_at\
+                     ) VALUES (?1, 'p_subgr000', 'Subgroup', 'select', ?2, 'y2', 'active', 1, ?3, ?3)",
                     params![
-                        json!({ "options": options("priority", &["p1-high", "p2-medium"]) })
-                            .to_string(),
-                        SOURCE_ID
+                        SOURCE_ID,
+                        json!({ "options": options('s') }).to_string(),
+                        NOW
                     ],
                 )?;
                 Ok(())
             })
-            .expect("expand finite option domains");
+            .expect("seed large custom option domains");
+        let bounded_override = DatabaseViewPresentationOverrideInput {
+            layout: Some(DatabaseViewLayoutInput::Board),
+            sort: None,
+            group: Some(DatabaseViewGroupOverrideInput::Property {
+                property_id: "p_group000".to_owned(),
+            }),
+            subgroup: Some(DatabaseViewGroupOverrideInput::Property {
+                property_id: "p_subgr000".to_owned(),
+            }),
+            group_direction: None,
+            completion: None,
+            hierarchy: None,
+            layouts: Some(DatabaseViewLayoutsOverrideInput {
+                board: Some(DatabaseViewLayoutDisplayOverrideInput {
+                    fields: None,
+                    show_empty_groups: Some(true),
+                }),
+                list: None,
+            }),
+        };
         let bounded = module
             .read(
                 &context(),
@@ -5225,7 +5328,7 @@ mod tests {
                     read: DatabaseRead::ViewGroups {
                         target: DatabaseViewReadTarget::PresentedView {
                             view_id: VIEW_ID.to_owned(),
-                            presentation_override,
+                            presentation_override: bounded_override,
                         },
                     },
                 },
@@ -5236,7 +5339,8 @@ mod tests {
         };
         assert!(bounded.truncated);
         assert_eq!(bounded.group_limit, 200);
-        assert_eq!(bounded.total_groups, 225);
+        // The 15×15 configured combinations plus the encountered empty path.
+        assert_eq!(bounded.total_groups, 226);
         assert_eq!(bounded.groups.len(), 200);
 
         let invalid_override = DatabaseViewPresentationOverrideInput {
@@ -5244,7 +5348,7 @@ mod tests {
             sort: None,
             group: None,
             subgroup: Some(DatabaseViewGroupOverrideInput::Property {
-                property_id: "deleted-property".to_owned(),
+                property_id: "p_deleted0".to_owned(),
             }),
             group_direction: None,
             completion: None,

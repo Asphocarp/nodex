@@ -914,7 +914,7 @@ properties:
     value:
       id: "o_triage"
       name: "Triage"
-  "score":
+  "p_score000":
     name: "Score"
     type: "number"
     value: 1.25
@@ -936,7 +936,7 @@ schedule:
   end: "2026-07-20T10:00:00+08:00"
   start: "2026-07-20T09:00:00+08:00"
 properties:
-  score: { value: 1.25, type: number, name: Score }
+  p_score000: { value: 1.25, type: number, name: Score }
   status:
     value: { name: Triage, id: o_triage }
     type: select
@@ -968,7 +968,7 @@ id: page_1
             br#"id: "page_1"
 title: "Blocked task"
 properties:
-  "blocked_by":
+  "p_blocked0":
     name: "Blocked by"
     type: relation
     value:
@@ -998,7 +998,7 @@ schedule: null
         let inconsistent = br#"id: page
 title: title
 properties:
-  blocked_by:
+  p_blocked0:
     name: Blocked by
     type: relation
     value:
@@ -1035,7 +1035,7 @@ schedule: null
 
         let mismatch = META.replace("value: 1.25", "value: true");
         let error = parse(mismatch.as_bytes()).expect_err("number property must reject bool");
-        assert_eq!(error.path.as_deref(), Some("properties.score.value"));
+        assert_eq!(error.path.as_deref(), Some("properties.p_score000.value"));
     }
 
     #[test]
@@ -1055,13 +1055,13 @@ schedule: null
         property
             .properties
             .iter_mut()
-            .find(|property| property.property_id == "score")
-            .expect("score property")
+            .find(|property| property.property_id == "p_score000")
+            .expect("p_score000 property")
             .value = ProjectedPropertyValueV1::Number(2.0);
         let error = compare_draft_metadata(&base, &property)
             .expect_err("read-only property change must fail");
         assert_eq!(error.code, CliErrorCode::DraftReadOnlyFieldChanged);
-        assert_eq!(error.path.as_deref(), Some("properties.score"));
+        assert_eq!(error.path.as_deref(), Some("properties.p_score000"));
     }
 
     #[test]

@@ -12,7 +12,6 @@ use nodex_core_contracts::library::{
 };
 use nodex_core_contracts::{BoundModuleContext, ModuleName};
 use rusqlite::{Connection, OptionalExtension, params};
-use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
 use crate::database;
@@ -115,21 +114,6 @@ struct CreateProperty {
     value_type: String,
     config_json: String,
     schema_revision: i64,
-}
-
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(deny_unknown_fields)]
-struct PropertyOption {
-    id: String,
-    name: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    color: Option<String>,
-}
-
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(deny_unknown_fields)]
-struct PropertyOptionConfig {
-    options: Vec<PropertyOption>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -766,42 +750,34 @@ fn read_create_properties(
             })
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
+    if properties.iter().any(|property| {
+        !database::property_semantics::is_canonical_property_id(&property.property_id)
+    }) {
+        return Err(corrupt("Stored Property ID is not canonical"));
+    }
     Ok(properties
         .into_iter()
         .map(|property| (property.property_id.clone(), property))
         .collect())
 }
 
-fn parse_option_config(property: &CreateProperty) -> Result<PropertyOptionConfig, StoreError> {
-    if !matches!(property.value_type.as_str(), "select" | "multi_select") {
-        return Err(corrupt("Option-backed Property has the wrong value type"));
-    }
-    let config = serde_json::from_str::<PropertyOptionConfig>(&property.config_json)
-        .map_err(|_| corrupt("Property option registry is invalid"))?;
-    let mut ids = BTreeSet::new();
-    let mut names = BTreeSet::new();
-    for option in &config.options {
-        if option.id.trim().is_empty()
-            || option.name.trim().is_empty()
-            || !ids.insert(option.id.as_str())
-            || !names.insert(option.name.as_str())
-        {
-            return Err(corrupt(
-                "Property option registry repeats an identity or name",
-            ));
-        }
-    }
-    Ok(config)
+fn parse_option_config(
+    property: &CreateProperty,
+) -> Result<database::property_semantics::PropertyOptionConfig, StoreError> {
+    database::property_semantics::option_config_from_storage(
+        &property.property_id,
+        &property.value_type,
+        &property.config_json,
+    )
 }
 
 fn add_tag_options(
-    config: &mut PropertyOptionConfig,
+    config: &mut database::property_semantics::PropertyOptionConfig,
     new_options: &[nodex_core_contracts::library::LibraryPageLifecycleTagOption],
 ) -> Result<(), StoreError> {
     for option in new_options {
-        if option.option_id.trim().is_empty()
-            || option.name.trim().is_empty()
-            || option.name != option.name.trim()
+        if !database::property_semantics::is_canonical_option_id("tags", &option.option_id)
+            || !database::property_semantics::is_canonical_option_name("tags", &option.name)
             || config
                 .options
                 .iter()
@@ -809,17 +785,22 @@ fn add_tag_options(
         {
             return Err(invalid("New tag option identity or name conflicts"));
         }
-        config.options.push(PropertyOption {
-            id: option.option_id.clone(),
-            name: option.name.clone(),
-            color: None,
-        });
+        if config.options.len() >= database::MAX_PROPERTY_OPTIONS {
+            return Err(invalid("Tags Property option registry exceeds its bound"));
+        }
+        config
+            .options
+            .push(database::property_semantics::PropertyOption {
+                id: option.option_id.clone(),
+                name: option.name.clone(),
+                color: None,
+            });
     }
     Ok(())
 }
 
 fn normalize_selected_options(
-    config: &PropertyOptionConfig,
+    config: &database::property_semantics::PropertyOptionConfig,
     selected: &[String],
 ) -> Result<Value, StoreError> {
     let known = config
@@ -3127,22 +3108,15 @@ fn project_tag_names(value: &Value, config_json: &str) -> Result<Value, StoreErr
     let selected = value
         .as_array()
         .ok_or_else(|| corrupt("Restored Page tags are not an array"))?;
-    let config = serde_json::from_str::<Value>(config_json)
-        .map_err(|_| corrupt("Restored tags Property config is invalid JSON"))?;
-    let options = config
-        .get("options")
-        .and_then(Value::as_array)
-        .ok_or_else(|| corrupt("Restored tags Property has no option registry"))?;
-    let names = options
+    let config = database::property_semantics::option_config_from_storage(
+        "tags",
+        "multi_select",
+        config_json,
+    )?;
+    let names = config
+        .options
         .iter()
-        .filter_map(|option| {
-            let id = option
-                .get("optionId")
-                .or_else(|| option.get("id"))?
-                .as_str()?;
-            let name = option.get("name")?.as_str()?;
-            Some((id, name))
-        })
+        .map(|option| (option.id.as_str(), option.name.as_str()))
         .collect::<BTreeMap<_, _>>();
     selected
         .iter()
@@ -3598,6 +3572,7 @@ mod tests {
                 }],
                 "group": { "propertyId": "status" },
                 "subgroup": null,
+                "groupDirection": "asc",
                 "completion": { "range": "all", "orderByRecency": false },
                 "hierarchy": { "showSubPages": true, "nestedSubPages": false },
                 "layouts": {
@@ -3911,9 +3886,9 @@ mod tests {
                 },
             ),
             (
-                "confidence".to_owned(),
+                "p_confid00".to_owned(),
                 CreateProperty {
-                    property_id: "confidence".to_owned(),
+                    property_id: "p_confid00".to_owned(),
                     value_type: "number".to_owned(),
                     config_json: "{}".to_owned(),
                     schema_revision: 1,

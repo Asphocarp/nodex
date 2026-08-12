@@ -77,7 +77,6 @@ const databaseRowEffect = (
       description_length: 0,
       has_description: false,
       database_values: { status: "ship" },
-      database_display_values: { status: "ship" },
       intrinsic_properties: {
         "run.target": "localProject",
         "run.localPath": null,

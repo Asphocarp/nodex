@@ -37,7 +37,7 @@ const MAX_SORT_RULES: usize = 4;
 const MAX_DISPLAY_PROPERTIES: usize = 64;
 const MAX_ROWS_BY_ID: usize = 100;
 const MAX_LIST_PROJECTION_MODELS: usize = 100_000;
-const SUMMARY_COLUMN_COUNT: usize = 29;
+const SUMMARY_COLUMN_COUNT: usize = 28;
 const COMPATIBILITY_CARD_PROPERTY_IDS: [&str; 8] = [
     "status",
     "priority",
@@ -583,27 +583,26 @@ fn property_option_ids(
     data_source_id: &str,
     property_id: &str,
 ) -> Result<Vec<String>, StoreError> {
-    let config_json = connection
+    let property = connection
         .query_row(
-            "SELECT config_json FROM data_source_properties \
+            "SELECT value_type, config_json FROM data_source_properties \
              WHERE data_source_id = ?1 AND id = ?2 AND lifecycle = 'active'",
             params![data_source_id, property_id],
-            |row| row.get::<_, String>(0),
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
         )
         .optional()?;
-    let Some(config_json) = config_json else {
+    let Some((value_type, config_json)) = property else {
         return Ok(Vec::new());
     };
-    let config = serde_json::from_str::<Value>(&config_json)
-        .map_err(|_| corrupt("Database Property config is invalid"))?;
-    Ok(config
-        .get("options")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(|option| option.get("id").and_then(Value::as_str))
-        .map(str::to_owned)
-        .collect())
+    Ok(super::property_semantics::option_config_from_storage(
+        property_id,
+        &value_type,
+        &config_json,
+    )?
+    .options
+    .into_iter()
+    .map(|option| option.id)
+    .collect())
 }
 
 fn configured_list_group_paths(
@@ -1161,11 +1160,8 @@ fn view_window_for(
     let source = bind(&mut parameters, SqlValue::Text(view.data_source_id.clone()));
     let filter = compile_filter(&view.config.filter, &mut parameters, 1, &mut 0)?;
     let completion = compile_completion_predicate(view, &mut parameters)?;
-    let (
-        database_values_projection,
-        database_display_values_projection,
-        property_revisions_projection,
-    ) = compact_value_projections(&view.config, &mut parameters)?;
+    let (database_values_projection, property_revisions_projection) =
+        compact_value_projections(&view.config, &mut parameters)?;
     let effective_group_select = effective_group.as_deref().unwrap_or("NULL");
     let effective_subgroup_select = effective_subgroup.as_deref().unwrap_or("NULL");
     let sort_projection = sort_components
@@ -1204,7 +1200,7 @@ fn view_window_for(
            SELECT model.page_block_id AS page_id, model.lifecycle, model.title, \
              materialization.title_rich_json, model.description_preview, \
              model.description_length, model.has_description, {database_values_projection}, \
-             {database_display_values_projection}, model.intrinsic_properties_json, \
+             model.intrinsic_properties_json, \
              {property_revisions_projection}, \
              model.metadata_revision, model.location_revision, model.document_id, \
              model.document_generation, model.document_projected_seq, membership.id, \
@@ -1567,25 +1563,17 @@ fn finite_group_keys(
     if value_type != "select" {
         return Ok(None);
     }
-    let config = serde_json::from_str::<Value>(&config_json)
-        .map_err(|_| corrupt("Property option registry is invalid"))?;
-    let Some(options) = config.get("options").and_then(Value::as_array) else {
-        return Err(corrupt("Select Property option registry is invalid"));
-    };
-    if options.len() > super::MAX_PROPERTY_OPTIONS {
-        return Err(corrupt("Select Property option registry exceeds its bound"));
-    }
-    options
-        .iter()
-        .map(|option| {
-            option
-                .get("id")
-                .and_then(Value::as_str)
-                .map(|id| Some(id.to_owned()))
-                .ok_or_else(|| corrupt("Select Property option identity is invalid"))
-        })
-        .collect::<Result<Vec<_>, _>>()
-        .map(Some)
+    Ok(Some(
+        super::property_semantics::option_config_from_storage(
+            &group.property_id,
+            &value_type,
+            &config_json,
+        )?
+        .options
+        .into_iter()
+        .map(|option| Some(option.id))
+        .collect(),
+    ))
 }
 
 fn compare_optional_group_key(left: &Option<String>, right: &Option<String>) -> std::cmp::Ordering {
@@ -2417,16 +2405,13 @@ fn summary_by_id(
     let view_parameter = bind(&mut parameters, SqlValue::Text(view.view_id.clone()));
     let source_parameter = bind(&mut parameters, SqlValue::Text(view.data_source_id.clone()));
     let page_parameter = bind(&mut parameters, SqlValue::Text(page_id.to_owned()));
-    let (
-        database_values_projection,
-        database_display_values_projection,
-        property_revisions_projection,
-    ) = compact_value_projections(&view.config, &mut parameters)?;
+    let (database_values_projection, property_revisions_projection) =
+        compact_value_projections(&view.config, &mut parameters)?;
     let sql = format!(
         "SELECT model.page_block_id, model.lifecycle, model.title, \
                materialization.title_rich_json, model.description_preview, \
                model.description_length, model.has_description, {database_values_projection}, \
-               {database_display_values_projection}, model.intrinsic_properties_json, \
+               model.intrinsic_properties_json, \
                {property_revisions_projection}, \
                model.metadata_revision, model.location_revision, model.document_id, \
                model.document_generation, model.document_projected_seq, membership.id, \
@@ -2492,10 +2477,8 @@ fn summary_by_id(
 fn summary_from_row(row: &Row<'_>, sort_component_count: usize) -> rusqlite::Result<SummaryRow> {
     let page_id = row.get::<_, String>(0)?;
     let database_values = parse_json_map(row.get::<_, String>(7)?, "Database values")?;
-    let database_display_values =
-        parse_json_map(row.get::<_, String>(8)?, "Database display values")?;
-    let intrinsic_properties = parse_json_map(row.get::<_, String>(9)?, "intrinsic properties")?;
-    let property_revisions = parse_json_map(row.get::<_, String>(10)?, "Property revisions")?;
+    let intrinsic_properties = parse_json_map(row.get::<_, String>(8)?, "intrinsic properties")?;
+    let property_revisions = parse_json_map(row.get::<_, String>(9)?, "Property revisions")?;
     let database_value_revisions = property_revisions
         .get("database")
         .and_then(Value::as_object)
@@ -2520,27 +2503,26 @@ fn summary_from_row(row: &Row<'_>, sort_component_count: usize) -> rusqlite::Res
             description_length: row.get(5)?,
             has_description: row.get::<_, i64>(6)? != 0,
             database_values,
-            database_display_values,
             intrinsic_properties,
             database_value_revisions,
-            metadata_revision: row.get(11)?,
-            parent_revision: row.get(12)?,
-            document_id: row.get(13)?,
-            document_generation: row.get(14)?,
-            document_head_seq: row.get(15)?,
-            membership_id: row.get(16)?,
-            membership_revision: row.get(17)?,
-            membership_created_at: row.get(18)?,
-            created_at: row.get(19)?,
-            updated_at: row.get(20)?,
-            effective_group_key: row.get(21)?,
-            effective_subgroup_key: row.get(22)?,
-            rank_key: row.get(23)?,
-            position_revision: row.get(24)?,
-            position_order: row.get(25)?,
-            task_parent_page_id: row.get(26)?,
-            task_sibling_rank: row.get(27)?,
-            task_parent_value_revision: row.get(28)?,
+            metadata_revision: row.get(10)?,
+            parent_revision: row.get(11)?,
+            document_id: row.get(12)?,
+            document_generation: row.get(13)?,
+            document_head_seq: row.get(14)?,
+            membership_id: row.get(15)?,
+            membership_revision: row.get(16)?,
+            membership_created_at: row.get(17)?,
+            created_at: row.get(18)?,
+            updated_at: row.get(19)?,
+            effective_group_key: row.get(20)?,
+            effective_subgroup_key: row.get(21)?,
+            rank_key: row.get(22)?,
+            position_revision: row.get(23)?,
+            position_order: row.get(24)?,
+            task_parent_page_id: row.get(25)?,
+            task_sibling_rank: row.get(26)?,
+            task_parent_value_revision: row.get(27)?,
         },
         coordinate_values,
     })
@@ -2549,14 +2531,10 @@ fn summary_from_row(row: &Row<'_>, sort_component_count: usize) -> rusqlite::Res
 fn compact_value_projections(
     config: &ViewConfig,
     parameters: &mut Vec<SqlValue>,
-) -> Result<(String, String, String), StoreError> {
+) -> Result<(String, String), StoreError> {
     let property_ids = projected_property_ids(config)?;
     if property_ids.is_empty() {
-        return Ok((
-            "'{}'".to_owned(),
-            "'{}'".to_owned(),
-            "'{\"database\":{}}'".to_owned(),
-        ));
+        return Ok(("'{}'".to_owned(), "'{\"database\":{}}'".to_owned()));
     }
     let placeholders = property_ids
         .into_iter()
@@ -2570,19 +2548,6 @@ fn compact_value_projections(
          WHERE value.data_source_id = membership.data_source_id \
            AND value.membership_id = membership.id AND {predicate}), '{{}}')"
     );
-    // The exact-head read model retains names for compatibility Board cards,
-    // but Database module values remain canonical stable option identities.
-    let display_values = format!(
-        "json_patch({canonical_values}, CASE \
-           WHEN json_type({canonical_values}, '$.tags') IS NOT NULL THEN \
-             json_object('tags', CASE \
-               WHEN json_type(model.database_values_json, '$.tags') = 'array' THEN \
-                 json_extract(model.database_values_json, '$.tags') \
-               ELSE json_extract({canonical_values}, '$.tags') \
-             END) \
-           ELSE '{{}}' \
-         END)"
-    );
     let revisions = format!(
         "json_object('database', json(COALESCE(( \
            SELECT json_group_object(value.property_id, value.revision) \
@@ -2591,7 +2556,7 @@ fn compact_value_projections(
              AND value.membership_id = membership.id AND {predicate} \
          ), '{{}}')))"
     );
-    Ok((canonical_values, display_values, revisions))
+    Ok((canonical_values, revisions))
 }
 
 fn projected_property_ids(config: &ViewConfig) -> Result<BTreeSet<String>, StoreError> {

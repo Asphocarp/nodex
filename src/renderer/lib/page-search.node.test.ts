@@ -19,7 +19,7 @@ function makeCard(overrides: Partial<DatabasePageSummary> = {}): DatabasePageSum
     descriptionLength: "Use token based matching for board search.".length,
     hasDescription: true,
     priority: "p2-medium",
-    tags: ["editor", "search"],
+    tags: ["o_AAAAAAAA", "o_BBBBBBBB"],
     assignee: "alice",
     created: new Date("2026-02-10T00:00:00.000Z"),
     order: 0,
@@ -42,12 +42,13 @@ describe("card search", () => {
 
   test("buildPageSearchText includes searchable card fields", () => {
     const card = makeCard();
-    const searchable = buildPageSearchText(card);
+    const searchable = buildPageSearchText(card, ["Editor", "Search"]);
 
     expect(searchable.includes("abc1234")).toBe(true);
     expect(searchable.includes("improve nfm search")).toBe(true);
     expect(searchable.includes("token based matching")).toBe(true);
     expect(searchable.includes("editor search")).toBe(true);
+    expect(searchable.includes("o_aaaaaaaa")).toBe(false);
     expect(searchable.includes("alice")).toBe(true);
   });
 });

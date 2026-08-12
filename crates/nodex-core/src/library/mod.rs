@@ -1851,9 +1851,9 @@ mod tests {
                     before_block_id: None,
                     view_placement: LibraryPageLifecycleViewPlacement::End,
                     data_source_id: SOURCE.to_owned(),
-                    tag_option_ids: vec!["tag:native".to_owned()],
+                    tag_option_ids: vec!["o_CCCCCCCC".to_owned()],
                     new_tag_options: vec![LibraryPageLifecycleTagOption {
-                        option_id: "tag:native".to_owned(),
+                        option_id: "o_CCCCCCCC".to_owned(),
                         name: "Native".to_owned(),
                     }],
                     expected_tags_property_revision: 1,
@@ -1874,7 +1874,7 @@ mod tests {
         assert_eq!(receipt.data_source_id.as_deref(), Some(SOURCE));
         assert_eq!(receipt.view_id.as_deref(), Some(VIEW));
         assert!(!receipt.created_block_ids.is_empty());
-        assert_eq!(receipt.created_tag_option_ids, vec!["tag:native"]);
+        assert_eq!(receipt.created_tag_option_ids, vec!["o_CCCCCCCC"]);
         let create_commit = kernel
             .readers()
             .read_default(|connection| {
@@ -1900,7 +1900,7 @@ mod tests {
         assert_eq!(row.position_order, Some(0));
         assert_eq!(
             row.database_values.get("tags"),
-            Some(&serde_json::json!(["Native"]))
+            Some(&serde_json::json!(["o_CCCCCCCC"]))
         );
         assert!(create_commit.projection_effects.iter().any(|effect| {
             matches!(

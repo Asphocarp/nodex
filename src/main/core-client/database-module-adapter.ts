@@ -24,6 +24,7 @@ import type { DatabaseViewConfigV4 } from "../../shared/database-kernel";
 import {
   parseDatabaseApplyResultV2,
   parseDatabaseModuleReadResultV2,
+  parseDataSourcePropertyRecordV2,
   parseLibraryDatabaseApplyResultV2,
   parseLibraryDatabaseModuleReadResultV2,
 } from "../../shared/database-module-v2-transport";
@@ -647,7 +648,7 @@ export const mapCorePropertyDescriptor = (
     property.capabilities,
     "Core Property capabilities",
   );
-  return {
+  return parseDataSourcePropertyRecordV2({
     propertyId: requireString(property, "property_id", "Core Property"),
     dataSourceId: requireString(property, "data_source_id", "Core Property"),
     name: requireString(property, "name", "Core Property"),
@@ -677,7 +678,7 @@ export const mapCorePropertyDescriptor = (
     revision: Number(property.revision),
     createdAt: requireString(property, "created_at", "Core Property"),
     updatedAt: requireString(property, "updated_at", "Core Property"),
-  } as unknown as DataSourcePropertyRecordV2;
+  });
 };
 
 const hydrateCoreProperty = async (

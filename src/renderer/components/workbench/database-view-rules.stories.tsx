@@ -25,6 +25,7 @@ const dataSourceId = parseDataSourceId("source:rules-story");
 const viewId = parseDatabaseViewId("view:rules-story");
 const statusId = parseDataSourcePropertyId("status");
 const priorityId = parseDataSourcePropertyId("priority");
+const tagsId = parseDataSourcePropertyId("tags");
 
 const property = (
   propertyId: typeof statusId,
@@ -50,7 +51,19 @@ const property = (
 const properties = [
   property(statusId, "Status"),
   property(priorityId, "Priority"),
+  {
+    ...property(tagsId, "Tags"),
+    ...testPropertySemantics("multi_select", 2),
+    valueType: "multi_select" as const,
+    config: {},
+  },
 ] as const;
+const optionRegistries = {
+  tags: [
+    { id: "o_AAAAAAAA", name: "Product", color: "blue" },
+    { id: "o_BBBBBBBB", name: "Polish", color: "gray" },
+  ],
+} as const;
 
 const config: DatabaseViewConfigV4 = upgradeDatabaseViewConfigV2({
   schemaKey: "nodex.database-view",
@@ -63,6 +76,11 @@ const config: DatabaseViewConfigV4 = upgradeDatabaseViewConfigV2({
       propertyId: statusId,
       operator: "not_equals",
       value: "backlog",
+    }, {
+      kind: "clause",
+      propertyId: tagsId,
+      operator: "contains",
+      value: "o_AAAAAAAA",
     }],
   },
   sort: [{ field: { kind: "property", propertyId: priorityId }, direction: "desc", nulls: "last" }],
@@ -138,7 +156,12 @@ function RulesReference({ panel }: { readonly panel: "filter" | "sort" | "summar
     <div className="min-h-[560px] bg-token-main-surface-primary p-4">
       <div className="ml-auto flex w-fit items-center gap-1">
         {panel === "filter" ? (
-          <DatabaseViewFilter model={model} open onOpenChange={() => undefined} />
+          <DatabaseViewFilter
+            model={model}
+            optionRegistries={optionRegistries}
+            open
+            onOpenChange={() => undefined}
+          />
         ) : null}
         {panel === "sort" ? (
           <DatabaseViewSort
@@ -156,6 +179,7 @@ function RulesReference({ panel }: { readonly panel: "filter" | "sort" | "summar
             filter={config.filter}
             effective={effective}
             properties={properties}
+            optionRegistries={optionRegistries}
             onOpenFilter={() => undefined}
             onOpenSort={() => undefined}
           />

@@ -56,7 +56,6 @@ export function filterCards<T extends ToggleListFilterableCard>(
       id: card.id,
       title: card.title,
       descriptionPreview: card.descriptionPreview ?? "",
-      tags: card.tags,
       assignee: card.assignee,
     })} ${card.columnName.toLowerCase()}`;
     return matchesSearchTokens(searchable, searchTokens);

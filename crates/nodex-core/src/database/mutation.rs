@@ -16,9 +16,8 @@ use nodex_core_contracts::{
     ModuleName, StoreEpoch,
 };
 use rusqlite::{Connection, OptionalExtension, params};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::{Map, Value, json};
-use unicode_normalization::UnicodeNormalization;
 
 use crate::document::{read_store_epoch, sha256};
 use crate::domain::fractional_rank::{
@@ -110,21 +109,6 @@ struct ViewRow {
     lifecycle: String,
     revision: i64,
     created_at: String,
-}
-
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(deny_unknown_fields)]
-struct PropertyOption {
-    id: String,
-    name: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    color: Option<String>,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-struct OptionConfig {
-    options: Vec<PropertyOption>,
 }
 
 pub(super) fn apply(
@@ -653,25 +637,17 @@ fn put_property(
 ) -> Result<(), StoreError> {
     validate_id(data_source_id, "data_source_id", MAX_ID_LENGTH)?;
     validate_id(property_id, "property_id", MAX_PROPERTY_ID_LENGTH)?;
+    if !super::property_semantics::is_canonical_property_id(property_id) {
+        return Err(invalid("Property ID is not canonical"));
+    }
     let name = validate_name(name, "Property name")?;
     let value_type = super::property_semantics::value_type(schema);
-    if property_id == super::property_semantics::PRIORITY_PROPERTY_ID
-        && !matches!(schema, DatabasePropertySchema::Select)
-    {
-        return Err(invalid("Priority Property must use the select schema"));
-    }
-    if property_id == super::property_semantics::TASK_PARENT_PROPERTY_ID
-        && !matches!(
-            schema,
-            DatabasePropertySchema::Relation {
-                target_data_source_id,
-                cardinality: DatabaseRelationCardinality::One,
-            } if target_data_source_id == data_source_id
-        )
-    {
-        return Err(invalid(
-            "Task Parent Property must be a cardinality-one self Relation",
-        ));
+    if !super::property_semantics::schema_matches_canonical_property(
+        property_id,
+        data_source_id,
+        schema,
+    ) {
+        return Err(invalid("Reserved Property schema is not canonical"));
     }
     if let DatabasePropertySchema::Relation {
         target_data_source_id,
@@ -732,7 +708,7 @@ fn put_property(
             "Data Source Property collection",
         )?;
     }
-    let config = property_config_for_put(value_type, existing.as_ref())?;
+    let config = property_config_for_put(property_id, value_type, existing.as_ref())?;
     let preserve_rank = existing
         .as_ref()
         .filter(|property| property.lifecycle == "active" && before_property_id.is_none())
@@ -926,14 +902,15 @@ fn put_option(
     library_scope: bool,
 ) -> Result<(), StoreError> {
     validate_id(option_id, "option_id", MAX_PROPERTY_ID_LENGTH)?;
-    if property_id == super::property_semantics::PRIORITY_PROPERTY_ID
-        && !super::property_semantics::is_priority_option_id(option_id)
-    {
-        return Err(invalid("Priority option ID is not canonical"));
+    if !super::property_semantics::is_canonical_option_id(property_id, option_id) {
+        return Err(invalid("Property option ID is not canonical"));
     }
-    let raw_name = name;
-    let name = validate_name(raw_name, "Option name")?;
-    if color.is_some_and(|value| value.is_empty() || value.len() > 128) {
+    if !super::property_semantics::is_canonical_option_name(property_id, name) {
+        return Err(invalid(
+            "Option name must be canonical Unicode with no surrounding whitespace and at most 256 bytes",
+        ));
+    }
+    if color.is_some_and(|value| !super::property_semantics::is_canonical_option_color(value)) {
         return Err(invalid("Option color must contain between 1 and 128 bytes"));
     }
     let source = require_source(connection, library_id, data_source_id)?;
@@ -945,11 +922,6 @@ fn put_option(
         library_scope,
     )?;
     let property = active_property(connection, data_source_id, property_id)?;
-    if property_id == "tags" && (name != raw_name || !name.nfc().eq(name.chars())) {
-        return Err(invalid(
-            "Tags option names must already be Unicode NFC with no surrounding whitespace",
-        ));
-    }
     require_revision(
         expected_property_revision,
         property.revision,
@@ -968,7 +940,7 @@ fn put_option(
             false,
         ));
     }
-    let next = PropertyOption {
+    let next = super::property_semantics::PropertyOption {
         id: option_id.to_owned(),
         name: name.to_owned(),
         color: color.map(str::to_owned),
@@ -1815,10 +1787,14 @@ fn resolve_page_transfer_data_source_destination_with_access(
     let definition =
         super::view_contract::decode_definition_json(&view.config_json).map_err(corrupt)?;
     let values = view_group_property(&definition)
-        .map(|property_id| PageCopyValueDraft {
-            property_id: property_id.to_owned(),
-            value: group_key.map_or(Value::Null, |value| Value::String(value.to_owned())),
+        .map(|property_id| {
+            let property = active_property(connection, data_source_id, property_id)?;
+            Ok::<_, StoreError>(PageCopyValueDraft {
+                property_id: property_id.to_owned(),
+                value: database_group_value_from_key(&property.value_type, group_key),
+            })
         })
+        .transpose()?
         .into_iter()
         .collect();
     let before = before_page_id
@@ -2781,10 +2757,16 @@ fn database_group_value_from_key(value_type: &str, group_key: Option<&str>) -> V
     let Some(group_key) = group_key else {
         return Value::Null;
     };
-    if !matches!(value_type, "number" | "checkbox" | "multi_select") {
-        return Value::String(group_key.to_owned());
+    match value_type {
+        "number" | "checkbox" => {
+            serde_json::from_str(group_key).unwrap_or_else(|_| Value::String(group_key.to_owned()))
+        }
+        "multi_select" => match serde_json::from_str(group_key) {
+            Ok(Value::Array(values)) => Value::Array(values),
+            _ => Value::Array(vec![Value::String(group_key.to_owned())]),
+        },
+        _ => Value::String(group_key.to_owned()),
     }
-    serde_json::from_str(group_key).unwrap_or_else(|_| Value::String(group_key.to_owned()))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -4892,6 +4874,7 @@ fn view_row(connection: &Connection, view_id: &str) -> Result<Option<ViewRow>, S
 }
 
 fn property_config_for_put(
+    property_id: &str,
     value_type: &str,
     existing: Option<&PropertyRow>,
 ) -> Result<Value, StoreError> {
@@ -4903,7 +4886,19 @@ fn property_config_for_put(
                 false,
             ));
         }
-        return parse_json(&existing.config_json, "Property config");
+        if matches!(value_type, "select" | "multi_select") {
+            return serde_json::to_value(super::property_semantics::option_config_from_storage(
+                property_id,
+                value_type,
+                &existing.config_json,
+            )?)
+            .map_err(|_| internal("Property option registry"));
+        }
+        let config = parse_json(&existing.config_json, "Property config")?;
+        if config.as_object().is_none_or(|config| !config.is_empty()) {
+            return Err(corrupt("Property config is not the canonical empty object"));
+        }
+        return Ok(config);
     }
     if matches!(value_type, "select" | "multi_select") {
         return Ok(json!({ "options": [] }));
@@ -5057,40 +5052,21 @@ fn refresh_scheduled_page_indexes(
     Ok(())
 }
 
-fn option_config(property: &PropertyRow) -> Result<OptionConfig, StoreError> {
-    if !matches!(property.value_type.as_str(), "select" | "multi_select") {
-        return Err(invalid("Property is not option-backed"));
-    }
-    let config = serde_json::from_str::<OptionConfig>(&property.config_json)
-        .map_err(|_| corrupt("Property option registry is invalid"))?;
-    if config.options.len() > super::MAX_PROPERTY_OPTIONS {
-        return Err(corrupt("Property option registry exceeds its bound"));
-    }
-    let mut ids = HashSet::new();
-    for option in &config.options {
-        validate_id(&option.id, "option.id", MAX_PROPERTY_ID_LENGTH)
-            .map_err(|_| corrupt("Stored Property option ID is invalid"))?;
-        validate_name(&option.name, "option.name")
-            .map_err(|_| corrupt("Stored Property option name is invalid"))?;
-        if !ids.insert(option.id.as_str()) {
-            return Err(corrupt("Property option registry repeats an ID"));
-        }
-        if property.id == super::property_semantics::PRIORITY_PROPERTY_ID
-            && !super::property_semantics::is_priority_option_id(&option.id)
-        {
-            return Err(corrupt(
-                "Stored Priority option registry contains a noncanonical ID",
-            ));
-        }
-    }
-    Ok(config)
+fn option_config(
+    property: &PropertyRow,
+) -> Result<super::property_semantics::PropertyOptionConfig, StoreError> {
+    super::property_semantics::option_config_from_storage(
+        &property.id,
+        &property.value_type,
+        &property.config_json,
+    )
 }
 
 fn persist_option_config(
     connection: &Connection,
     source: &SourceRow,
     property: &PropertyRow,
-    config: &OptionConfig,
+    config: &super::property_semantics::PropertyOptionConfig,
     now: &str,
 ) -> Result<(), StoreError> {
     connection.execute(
@@ -5268,7 +5244,7 @@ fn refresh_value_projection(
 fn refresh_tag_projections(
     connection: &Connection,
     data_source_id: &str,
-    config: &OptionConfig,
+    config: &super::property_semantics::PropertyOptionConfig,
     now: &str,
     effects: &mut MutationEffects,
 ) -> Result<(), StoreError> {

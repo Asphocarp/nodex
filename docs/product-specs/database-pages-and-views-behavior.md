@@ -70,13 +70,17 @@ Property editors, and mutation receipts.
 Database row authority always carries canonical Property values. In particular,
 select and multi-select values remain stable option IDs through View windows,
 List occurrence windows, optimistic row patches, Page Stage, filtering, sorting,
-and grouping. A compatibility display projection may carry resolved names for
-legacy card presentation, but it is explicit and never substitutes for value
-identity. Closed List and Page Stage controls request bounded option windows for
-their currently selected IDs before the picker opens, continuing across pages
-until every visible label resolves or the authoritative registry proves the ID
-missing. `Loading…` therefore represents an active request only; an idle or
-failed registry cannot leave visible Property chips permanently loading.
+grouping, Page creation, and update commands. Core row contracts do not carry a
+parallel display-value map. Board, List, Page Stage, Filter controls, active-rule
+summaries, and local search derive labels and colors only from bounded option
+registries; a missing registry entry is an explicit unknown option, never a
+fallback display name inferred from the identity. Closed controls request option
+windows for their currently selected IDs before the picker opens, continuing
+across pages until every visible label resolves or the authoritative registry
+proves the ID missing. `Loading…` therefore represents an active request only;
+an idle or failed registry cannot leave visible Property chips permanently
+loading. A Property registry contains at most 100 options; names and colors are
+bounded as canonical UTF-8 metadata at every Core and transport read/write seam.
 
 ### List projection and task hierarchy
 
@@ -219,8 +223,11 @@ section already identifies the property.
 Estimate uses one half-filled triangular semantic glyph across property labels,
 values, pickers, Page summaries, and View rows.
 Opening or editing the composer creates no Page, option, history, or Database
-row. Submit creates Page identity, title, body, membership, values, and View
-placement atomically. A failed submission keeps the complete draft.
+row. Each selected Tag keeps its preallocated canonical option ID. Its name is
+metadata only when that same submit introduces the option; an existing option's
+identity is never re-resolved from its label. Submit creates Page identity,
+title, body, membership, any new options, values, and View placement atomically.
+A failed submission keeps the complete draft and exact selected identities.
 
 Closing a modified draft provides short-lived reversible recovery using only
 serializable authored data. Live editors, Y.Docs, DOM nodes, and authority

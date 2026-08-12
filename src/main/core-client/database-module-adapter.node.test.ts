@@ -14,6 +14,7 @@ import {
 import {
   createCoreDatabaseModuleAdapter,
   createCoreLibraryDatabaseModuleAdapter,
+  mapCorePropertyDescriptor,
 } from "./database-module-adapter";
 import {
   createDesktopDatabaseModuleBridge,
@@ -498,6 +499,26 @@ describe("Core Database Module Adapter", () => {
       "property_window",
       "property_window",
     ]);
+  });
+
+  test("rejects a noncanonical Core Property identity at the adapter boundary", () => {
+    expect(() => mapCorePropertyDescriptor({
+      property_id: "risk",
+      data_source_id: "source:test",
+      name: "Risk",
+      schema: { kind: "select" },
+      capabilities: {
+        filter_operators: ["equals"],
+        sortable: true,
+        groupable: true,
+      },
+      option_count: 0,
+      rank_key: "a",
+      lifecycle: "active",
+      revision: 1,
+      created_at: "2026-07-25T00:00:00.000Z",
+      updated_at: "2026-07-25T00:00:00.000Z",
+    })).toThrow(/propertyId is invalid/u);
   });
 
   test("maps ordered mutation semantics and validates the atomic Core receipt", async () => {
@@ -993,7 +1014,6 @@ describe("Core Database Module Adapter", () => {
                 description_length: 0,
                 has_description: false,
                 database_values: {},
-                database_display_values: {},
                 intrinsic_properties: {},
                 database_value_revisions: {},
                 metadata_revision: 1,

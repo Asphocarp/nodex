@@ -1630,15 +1630,15 @@ mod tests {
                  INSERT INTO data_source_page_memberships VALUES ( \
                    'source:secret', 'page:secret', NULL); \
                  INSERT INTO data_source_properties VALUES ( \
-                   'source:tasks', 'blocked_by', 'relation', 'active'); \
+                   'source:tasks', 'p_blocked0', 'relation', 'active'); \
                  INSERT INTO data_source_relation_properties VALUES ( \
-                   'source:tasks', 'blocked_by', 'source:secret'); \
+                   'source:tasks', 'p_blocked0', 'source:secret'); \
                  INSERT INTO project_resource_grants VALUES ( \
                    'project:reader', 'database', 'database:secret', 'active');",
             )
             .expect("Relation authorization rows");
         let filter = DatabaseViewFilter::Clause {
-            property_id: "blocked_by".to_owned(),
+            property_id: "p_blocked0".to_owned(),
             operator: DatabaseViewFilterOperator::Contains,
             value: Some(json!("page:secret")),
         };

@@ -10,6 +10,7 @@ import {
   parseDatabaseModuleReadResultV2,
   parseLibraryDatabaseApplyResultV2,
   parseLibraryDatabaseModuleReadResultV2,
+  parseDataSourcePropertyRecordV2,
 } from "./database-module-v2-transport";
 
 const CUSTOM_PROPERTY_ID = "p_abcdefgh";
@@ -95,6 +96,21 @@ const propertyRecord = () => ({
 describe("Database Module v2 transport boundary", () => {
   test("exposes the View-global ordering contract version", () => {
     expect(DATABASE_MODULE_V2_CONTRACT_VERSION).toBe(11);
+  });
+
+  test("rejects Property option counts outside the canonical schema bound", () => {
+    expect(() =>
+      parseDataSourcePropertyRecordV2({
+        ...propertyRecord(),
+        optionCount: 101,
+      })).toThrow("optionCount diverges from its Property schema");
+    expect(() =>
+      parseDataSourcePropertyRecordV2({
+        ...propertyRecord(),
+        schema: { kind: "text" },
+        valueType: "text",
+        optionCount: 1,
+      })).toThrow("optionCount diverges from its Property schema");
   });
 
   test("binds ordered option creation and value writes under one apply", () => {

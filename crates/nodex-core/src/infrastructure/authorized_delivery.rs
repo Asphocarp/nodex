@@ -810,7 +810,6 @@ mod tests {
                         }
                     }
                 },
-                "database_display_values": {},
                 "intrinsic_properties": {},
                 "database_value_revisions": {},
                 "task_parent_value_revision": 1,

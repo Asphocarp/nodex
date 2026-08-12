@@ -48,6 +48,7 @@ function makePalettePage(): CommandPalettePage {
       created: new Date("2026-06-24T00:00:00.000Z"),
       order: 0,
     },
+    tagLabels: [],
     inActiveProject: true,
     recentIndex: null,
     boardIndex: 0,

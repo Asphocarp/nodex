@@ -5,7 +5,7 @@ import {
   ListFilter,
   Trash2,
 } from "@/components/shared/icons/generic-icons";
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import type {
   DatabaseJsonValue,
   DatabaseViewFilterClause,
@@ -14,6 +14,7 @@ import type {
   DatabaseViewLayout,
   DatabaseViewSort,
   DatabaseViewConfigV4,
+  DatabasePropertyOption,
 } from "../../../shared/database-kernel";
 import type { DataSourcePropertyRecordV2 } from "../../../shared/database-module-v2";
 import { NodexButton, NodexIconButton, NodexSwitch } from "@/components/ui/button";
@@ -37,6 +38,8 @@ interface DatabaseViewConfigEditorProps {
   readonly config: DatabaseViewConfigV4;
   readonly layout: DatabaseViewLayout;
   readonly properties: readonly DataSourcePropertyRecordV2[];
+  readonly optionRegistries?: Readonly<Record<string, readonly DatabasePropertyOption[]>>;
+  readonly onRequestPropertyOptions?: (property: DataSourcePropertyRecordV2) => void;
   readonly disabled?: boolean;
   readonly onlyFilter?: boolean;
   readonly onChange: (config: DatabaseViewConfigV4) => void;
@@ -83,14 +86,22 @@ const datetimeLocalValue = (value: DatabaseJsonValue | undefined): string => {
 function FilterValueField({
   clause,
   property,
+  options,
+  onRequestOptions,
   disabled,
   onChange,
 }: {
   readonly clause: DatabaseViewFilterClause;
   readonly property: DataSourcePropertyRecordV2;
+  readonly options: readonly DatabasePropertyOption[];
+  readonly onRequestOptions?: (property: DataSourcePropertyRecordV2) => void;
   readonly disabled: boolean;
   readonly onChange: (value: DatabaseJsonValue) => void;
 }) {
+  useEffect(() => {
+    if (property.valueType !== "select" && property.valueType !== "multi_select") return;
+    onRequestOptions?.(property);
+  }, [onRequestOptions, property]);
   if (clause.operator === "is_empty" || clause.operator === "is_not_empty") {
     return null;
   }
@@ -112,7 +123,6 @@ function FilterValueField({
     );
   }
   if (property.valueType === "select" || property.valueType === "multi_select") {
-    const options = readDatabasePropertyOptions(property);
     const isMembershipOperator =
       clause.operator === "contains" || clause.operator === "not_contains";
     const rawValue = property.valueType === "multi_select" && !isMembershipOperator
@@ -180,6 +190,8 @@ function FilterNodeEditor({
   path,
   depth,
   properties,
+  optionRegistries,
+  onRequestPropertyOptions,
   disabled,
   onUpdate,
   onRemove,
@@ -189,6 +201,8 @@ function FilterNodeEditor({
   readonly path: DatabaseViewFilterPath;
   readonly depth: number;
   readonly properties: readonly DataSourcePropertyRecordV2[];
+  readonly optionRegistries: Readonly<Record<string, readonly DatabasePropertyOption[]>>;
+  readonly onRequestPropertyOptions?: (property: DataSourcePropertyRecordV2) => void;
   readonly disabled: boolean;
   readonly onUpdate: (path: DatabaseViewFilterPath, node: DatabaseViewFilterNode) => void;
   readonly onRemove: (path: DatabaseViewFilterPath) => void;
@@ -254,6 +268,9 @@ function FilterNodeEditor({
         <FilterValueField
           clause={node}
           property={property}
+          options={optionRegistries[property.propertyId]
+            ?? readDatabasePropertyOptions(property)}
+          onRequestOptions={onRequestPropertyOptions}
           disabled={disabled}
           onChange={(value) => onUpdate(path, { ...node, value })}
         />
@@ -337,6 +354,8 @@ function FilterNodeEditor({
             path={[...path, index]}
             depth={depth + 1}
             properties={properties}
+            optionRegistries={optionRegistries}
+            onRequestPropertyOptions={onRequestPropertyOptions}
             disabled={disabled}
             onUpdate={onUpdate}
             onRemove={onRemove}
@@ -506,6 +525,8 @@ export function DatabaseViewConfigEditor({
   config,
   layout,
   properties: allProperties,
+  optionRegistries = {},
+  onRequestPropertyOptions,
   disabled = false,
   onlyFilter = false,
   onChange,
@@ -548,6 +569,8 @@ export function DatabaseViewConfigEditor({
             path={[]}
             depth={0}
             properties={properties}
+            optionRegistries={optionRegistries}
+            onRequestPropertyOptions={onRequestPropertyOptions}
             disabled={disabled}
             onUpdate={updateFilter}
             onRemove={removeFilter}
@@ -560,6 +583,8 @@ export function DatabaseViewConfigEditor({
               path={[]}
               depth={0}
               properties={properties}
+              optionRegistries={optionRegistries}
+              onRequestPropertyOptions={onRequestPropertyOptions}
               disabled={disabled}
               onUpdate={updateFilter}
               onRemove={removeFilter}

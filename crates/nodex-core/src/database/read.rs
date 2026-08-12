@@ -42,7 +42,7 @@ struct PropertyDescriptorRow {
     data_source_id: String,
     name: String,
     value_type: String,
-    option_count: usize,
+    config_json: String,
     rank_key: String,
     lifecycle: String,
     revision: i64,
@@ -54,19 +54,47 @@ fn property_descriptor(
     connection: &Connection,
     row: PropertyDescriptorRow,
 ) -> Result<DatabasePropertyDescriptor, StoreError> {
+    if !super::property_semantics::is_canonical_property_id(&row.property_id) {
+        return Err(corrupt("Stored Property ID is not canonical"));
+    }
     let schema = super::property_semantics::schema_from_storage(
         connection,
         &row.data_source_id,
         &row.property_id,
         &row.value_type,
     )?;
+    if !super::property_semantics::schema_matches_canonical_property(
+        &row.property_id,
+        &row.data_source_id,
+        &schema,
+    ) {
+        return Err(corrupt("Stored reserved Property schema is not canonical"));
+    }
+    let option_count = if matches!(row.value_type.as_str(), "select" | "multi_select") {
+        super::property_semantics::option_config_from_storage(
+            &row.property_id,
+            &row.value_type,
+            &row.config_json,
+        )?
+        .options
+        .len()
+    } else {
+        let config = serde_json::from_str::<Value>(&row.config_json)
+            .map_err(|_| corrupt("Stored Property config is invalid"))?;
+        if config.as_object().is_none_or(|config| !config.is_empty()) {
+            return Err(corrupt(
+                "Stored Property config is not the canonical empty object",
+            ));
+        }
+        0
+    };
     Ok(DatabasePropertyDescriptor {
         property_id: row.property_id,
         data_source_id: row.data_source_id,
         name: row.name,
         capabilities: super::property_semantics::capabilities(&schema),
         schema,
-        option_count: u32::try_from(row.option_count)
+        option_count: u32::try_from(option_count)
             .map_err(|_| corrupt("Property option count overflowed"))?,
         rank_key: row.rank_key,
         lifecycle: row.lifecycle,
@@ -1141,8 +1169,6 @@ fn property_window(
             |row| {
                 let id = row.get::<_, String>(0)?;
                 let value_type = row.get::<_, String>(3)?;
-                let config = parse_json(row.get::<_, String>(4)?, "Property config")?;
-                let (_, option_count) = compact_property_config(config, &value_type)?;
                 let rank = row.get::<_, String>(5)?;
                 let bucket = row.get::<_, i64>(10)?;
                 Ok((
@@ -1151,7 +1177,7 @@ fn property_window(
                         data_source_id: row.get::<_, String>(1)?,
                         name: row.get::<_, String>(2)?,
                         value_type,
-                        option_count,
+                        config_json: row.get::<_, String>(4)?,
                         rank_key: rank.clone(),
                         lifecycle: row.get::<_, String>(6)?,
                         revision: row.get::<_, i64>(7)?,
@@ -1195,6 +1221,9 @@ fn option_window(
     property_id: &str,
     request: &CollectionWindowRequest,
 ) -> Result<CollectionWindow<DatabasePropertyOption>, StoreError> {
+    if !super::property_semantics::is_canonical_property_id(property_id) {
+        return Err(invalid("Property ID is not canonical"));
+    }
     let normalized = normalize_request(request)?;
     let (value_type, config_json, property_revision) = connection
         .query_row(
@@ -1240,21 +1269,23 @@ fn option_window(
             usize::try_from(*ordinal).map_err(|_| invalid("Property option cursor is incompatible"))
         })
         .transpose()?;
-    let options = parse_json(config_json, "Property config")?
-        .get("options")
-        .and_then(Value::as_array)
-        .cloned()
-        .ok_or_else(|| corrupt("Property option registry is invalid"))?;
-    if options.len() > super::MAX_PROPERTY_OPTIONS {
-        return Err(corrupt("Property option registry exceeds its bound"));
-    }
-    let candidates = options
+    let config = super::property_semantics::option_config_from_storage(
+        property_id,
+        &value_type,
+        &config_json,
+    )?;
+    let candidates = config
+        .options
         .into_iter()
         .enumerate()
         .filter(|(ordinal, _)| after.is_none_or(|after| *ordinal > after))
         .take(normalized.first.saturating_add(1))
-        .map(|(ordinal, value)| {
-            let option = property_option(value)?;
+        .map(|(ordinal, option)| {
+            let option = DatabasePropertyOption {
+                id: option.id,
+                name: option.name,
+                color: option.color,
+            };
             let id = option.id.clone();
             Ok(WindowCandidate {
                 item: option,
@@ -1336,51 +1367,6 @@ fn decode_rank_cursor(
         bucket: Some(*bucket),
         rank: Some(rank.clone()),
         stable_id: Some(coordinate.stable_id),
-    })
-}
-
-fn compact_property_config(
-    mut config: Value,
-    value_type: &str,
-) -> rusqlite::Result<(Value, usize)> {
-    if !matches!(value_type, "select" | "multi_select") {
-        return Ok((config, 0));
-    }
-    let options = config
-        .get_mut("options")
-        .and_then(Value::as_array_mut)
-        .ok_or(rusqlite::Error::InvalidQuery)?;
-    let option_count = options.len();
-    options.clear();
-    Ok((config, option_count))
-}
-
-fn property_option(value: Value) -> Result<DatabasePropertyOption, StoreError> {
-    let object = value
-        .as_object()
-        .ok_or_else(|| corrupt("Property option is invalid"))?;
-    let id = object
-        .get("id")
-        .and_then(Value::as_str)
-        .filter(|id| !id.is_empty())
-        .ok_or_else(|| corrupt("Property option identity is invalid"))?;
-    let name = object
-        .get("name")
-        .and_then(Value::as_str)
-        .ok_or_else(|| corrupt("Property option name is invalid"))?;
-    let color = object
-        .get("color")
-        .map(|color| {
-            color
-                .as_str()
-                .map(str::to_owned)
-                .ok_or_else(|| corrupt("Property option color is invalid"))
-        })
-        .transpose()?;
-    Ok(DatabasePropertyOption {
-        id: id.to_owned(),
-        name: name.to_owned(),
-        color,
     })
 }
 
@@ -1626,14 +1612,12 @@ fn property_records(
         .query_map([data_source_id], |row| {
             let property_id = row.get::<_, String>(0)?;
             let value_type = row.get::<_, String>(3)?;
-            let config = parse_json(row.get::<_, String>(4)?, "Property config")?;
-            let (_, option_count) = compact_property_config(config, &value_type)?;
             Ok(PropertyDescriptorRow {
                 property_id,
                 data_source_id: row.get::<_, String>(1)?,
                 name: row.get::<_, String>(2)?,
                 value_type,
-                option_count,
+                config_json: row.get::<_, String>(4)?,
                 rank_key: row.get::<_, String>(5)?,
                 lifecycle: row.get::<_, String>(6)?,
                 revision: row.get::<_, i64>(7)?,
@@ -1680,14 +1664,12 @@ fn property_record(
             |row| {
                 let property_id = row.get::<_, String>(0)?;
                 let value_type = row.get::<_, String>(3)?;
-                let config = parse_json(row.get::<_, String>(4)?, "Property config")?;
-                let (_, option_count) = compact_property_config(config, &value_type)?;
                 Ok(PropertyDescriptorRow {
                     property_id,
                     data_source_id: row.get::<_, String>(1)?,
                     name: row.get::<_, String>(2)?,
                     value_type,
-                    option_count,
+                    config_json: row.get::<_, String>(4)?,
                     rank_key: row.get::<_, String>(5)?,
                     lifecycle: row.get::<_, String>(6)?,
                     revision: row.get::<_, i64>(7)?,

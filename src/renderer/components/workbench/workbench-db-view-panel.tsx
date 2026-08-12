@@ -39,6 +39,8 @@ import { DatabaseViewDisplayOptions } from "./database-view-display-options";
 import { DatabaseViewFilter } from "./database-view-filter";
 import { DatabaseViewSort } from "./database-view-sort";
 import { DatabaseViewRulesSummaryRow } from "./database-view-rules-summary-row";
+import { usePropertyOptionRegistries } from "@/components/database/use-property-option-registries";
+import { collectRequiredPropertyOptionIds } from "@/lib/database-option-registry-requirements";
 import { useDatabaseViewPresentationPreference } from "@/lib/database-view-presentation-preferences";
 import { commitDatabaseViewOperations } from "@/lib/database-view-row-mutations";
 import type { OpenPageTabHandler } from "./workbench-page-stage-panel";
@@ -70,6 +72,8 @@ const DB_VIEW_TABS: Array<{
   { id: "board", label: "Board", icon: BoardIcon },
   { id: "list", label: "List", icon: DatabaseIcon },
 ];
+
+const EMPTY_DATABASE_PROPERTIES = [] as const;
 
 const durableDatabaseToolbarItem = (
   model: DatabaseViewRenderModel,
@@ -286,6 +290,21 @@ export function DbViewSessionTab({
   const [openViewPanel, setOpenViewPanel] = useState<
     "filter" | "sort" | "display" | null
   >(null);
+  const ruleOptionRequirements = useMemo(
+    () => databaseView
+      ? collectRequiredPropertyOptionIds({
+          properties: databaseView.query.properties,
+          rows: databaseView.query.rows,
+          filter: databaseView.query.view.config.filter,
+        })
+      : {},
+    [databaseView],
+  );
+  const ruleOptionRegistries = usePropertyOptionRegistries({
+    accessContext: databaseView?.accessContext ?? { kind: "project", projectId },
+    properties: databaseView?.query.properties ?? EMPTY_DATABASE_PROPERTIES,
+    requiredOptionIds: ruleOptionRequirements,
+  });
   const [selectedPageIds, setSelectedPageIds] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
@@ -569,6 +588,8 @@ export function DbViewSessionTab({
         <>
           <DatabaseViewFilter
             model={databaseView}
+            optionRegistries={ruleOptionRegistries.options}
+            onRequestPropertyOptions={ruleOptionRegistries.requestOptions}
             onCommitted={runtime.refresh}
             open={openViewPanel === "filter"}
             onOpenChange={(open) => setOpenViewPanel(open ? "filter" : null)}
@@ -601,6 +622,7 @@ export function DbViewSessionTab({
           filter={databaseView.query.view.config.filter}
           effective={effectivePresentation}
           properties={databaseView.query.properties}
+          optionRegistries={ruleOptionRegistries.options}
           onOpenFilter={() => setOpenViewPanel("filter")}
           onOpenSort={() => setOpenViewPanel("sort")}
         />

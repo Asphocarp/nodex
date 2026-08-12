@@ -11,6 +11,7 @@ import {
 } from "@/lib/database-view-rule-summary";
 import { cn } from "@/lib/utils";
 import type {
+  DatabasePropertyOption,
   DatabaseViewFilterNode,
   EffectiveDatabaseViewPresentation,
 } from "../../../shared/database-kernel";
@@ -20,6 +21,7 @@ interface DatabaseViewRulesSummaryRowProps {
   readonly filter: DatabaseViewFilterNode;
   readonly effective: EffectiveDatabaseViewPresentation;
   readonly properties: readonly DataSourcePropertyRecordV2[];
+  readonly optionRegistries?: Readonly<Record<string, readonly DatabasePropertyOption[]>>;
   readonly onOpenFilter: () => void;
   readonly onOpenSort: () => void;
 }
@@ -35,10 +37,11 @@ export function DatabaseViewRulesSummaryRow({
   filter,
   effective,
   properties,
+  optionRegistries = {},
   onOpenFilter,
   onOpenSort,
 }: DatabaseViewRulesSummaryRowProps) {
-  const filters = summarizeDatabaseViewFilter(filter, properties);
+  const filters = summarizeDatabaseViewFilter(filter, properties, optionRegistries);
   const customSort = hasCustomDatabaseViewSort(effective.presentation.sort);
   const primarySort = effective.presentation.sort[0] ?? null;
   if (filters.length === 0 && !customSort) return null;

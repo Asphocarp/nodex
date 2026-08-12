@@ -274,6 +274,7 @@ export interface DatabasePage {
   description: string;
   priority?: Priority;
   estimate?: Estimate;
+  /** Canonical IDs of options owned by the built-in `tags` Property. */
   tags: string[];
   dueDate?: Date;
   scheduledStart?: Date;
@@ -336,6 +337,7 @@ export interface PageInput {
   description?: string;
   priority?: Priority | null;
   estimate?: Estimate | null;
+  /** Canonical IDs of options owned by the built-in `tags` Property. */
   tags?: string[];
   dueDate?: Date | null;
   scheduledStart?: Date | null;
@@ -352,9 +354,19 @@ export interface PageInput {
   runInEnvironmentPath?: string | null;
 }
 
-export interface PageCreateInput extends PageInput {
-  id?: string;
+export interface PageCreateTagOptionInput {
+  readonly optionId: string;
+  readonly name: string;
 }
+
+export type PageCreateInput = Omit<PageInput, "tags"> & {
+  readonly id?: string;
+  /**
+   * Selected option identities. `name` is metadata only when this exact create
+   * also introduces an option; existing selections remain identity-driven.
+   */
+  readonly tagOptions?: readonly PageCreateTagOptionInput[];
+};
 
 export type PageUpdateField = keyof PageInput;
 

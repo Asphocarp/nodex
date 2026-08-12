@@ -35,7 +35,6 @@ import {
 import { isWorkflowStatus } from "../../shared/workflow-status";
 import type {
   DatabaseJsonValue,
-  DatabasePropertyOption,
   DatabasePropertyValueType,
 } from "../../shared/database-kernel";
 import type {
@@ -57,8 +56,6 @@ import {
   mutateLibraryBlockProperties,
   readLibraryPageDetail,
 } from "./api";
-import { readPropertyOptionRegistry } from "./database-property-options-runtime";
-import { readDatabasePropertyOptions } from "./database-view-authoring";
 import { fetchPageDetail } from "./page-detail-store";
 import type { PageStageMetadataMutationResult } from "./page-stage-page";
 import {
@@ -323,30 +320,19 @@ const intrinsicValue = (
 
 const resolveTagOptionIds = (
   property: DataSourceProperty,
-  tagNames: readonly string[],
-  options: readonly DatabasePropertyOption[],
+  requestedOptionIds: readonly string[],
 ): readonly DataSourceOptionId[] => {
   const propertyId = parseDataSourcePropertyId(property.propertyId);
-  const byName = new Map<string, string>();
-  const optionIds = new Set<string>();
-  for (const option of options) {
-    if (byName.has(option.name)) {
-      throw new Error(
-        `Data Source Property ${property.propertyId} has ambiguous option name ${option.name}`,
-      );
-    }
-    byName.set(option.name, option.id);
-    optionIds.add(option.id);
+  try {
+    return [...new Set(requestedOptionIds.map((optionId) =>
+      parseDataSourceOptionId({ propertyId, value: optionId })
+    ))].sort();
+  } catch (cause) {
+    throw new Error(
+      `Data Source Property ${property.propertyId} requires canonical option IDs`,
+      { cause },
+    );
   }
-  return [...new Set(tagNames.map((tagName) => {
-    const optionId = byName.get(tagName) ?? (optionIds.has(tagName) ? tagName : null);
-    if (!optionId) {
-      throw new Error(
-        `Data Source Property ${property.propertyId} has no option named ${tagName}`,
-      );
-    }
-    return parseDataSourceOptionId({ propertyId, value: optionId });
-  }))].sort();
 };
 
 type PagePropertyValueOperation = Extract<
@@ -354,12 +340,10 @@ type PagePropertyValueOperation = Extract<
   { readonly kind: "edit_property_values" }
 >;
 
-const compileDataSourceFields = async (
+const compileDataSourceFields = (
   detail: PageDetailMetadataSource,
   patch: MetadataPatch,
-  accessContext: { readonly kind: "project"; readonly projectId: string }
-    | { readonly kind: "library" },
-): Promise<readonly PagePropertyValueOperation[]> => {
+): readonly PagePropertyValueOperation[] => {
   const entries = Object.entries(DATABASE_FIELDS) as Array<
     [
       keyof typeof DATABASE_FIELDS,
@@ -397,13 +381,9 @@ const compileDataSourceFields = async (
     const dataSourceId = parseDataSourceId(context.dataSource.dataSourceId);
     if (property.valueType === "multi_select") {
       if (!Array.isArray(requestedValue)) {
-        throw new Error(`Data Source Property ${property.propertyId} requires option names`);
+        throw new Error(`Data Source Property ${property.propertyId} requires option IDs`);
       }
-      const embeddedOptions = readDatabasePropertyOptions(property);
-      const options = embeddedOptions.length >= property.optionCount
-        ? embeddedOptions
-        : await readPropertyOptionRegistry(accessContext, property);
-      const value = resolveTagOptionIds(property, requestedValue, options);
+      const value = resolveTagOptionIds(property, requestedValue);
       if (!Array.isArray(currentValue) || !currentValue.every((entry) => typeof entry === "string")) {
         throw new Error(`Data Source Property ${property.propertyId} has a corrupt value`);
       }
@@ -563,11 +543,7 @@ export const commitPageDetailMetadataPatchWithReceipt = async (input: {
   }
   const detail = await dependencies.readDetail(input.projectId, input.pageId);
   if (!detail) return mutationEnvelope({ status: "not_found" });
-  const dataSourceOperations = await compileDataSourceFields(
-    detail,
-    input.patch,
-    { kind: "project", projectId: input.projectId },
-  );
+  const dataSourceOperations = compileDataSourceFields(detail, input.patch);
   const intrinsicFields = compileIntrinsicFields(detail, input.patch);
   if (dataSourceOperations.length === 0 && intrinsicFields.length === 0) {
     await refreshPageDetailBestEffort(input.projectId, input.pageId, dependencies);
@@ -883,11 +859,7 @@ export const commitLibraryPageDetailMetadataPatch = async (input: {
   }
   const detail = await dependencies.readDetail(input.pageId);
   if (!detail) return { status: "not_found" };
-  const dataSourceOperations = await compileDataSourceFields(
-    detail,
-    input.patch,
-    { kind: "library" },
-  );
+  const dataSourceOperations = compileDataSourceFields(detail, input.patch);
   const intrinsicFields = compileIntrinsicFields(detail, input.patch);
   if (dataSourceOperations.length === 0 && intrinsicFields.length === 0) {
     await dependencies.refreshDetail(input.pageId);

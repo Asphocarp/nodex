@@ -123,8 +123,13 @@ fn read_tags_property(connection: &Connection, default_view: &Value) -> Result<V
         )
         .optional()?
         .ok_or_else(|| corrupt("Project default Data Source has no active tags Property"))?;
-    let config = serde_json::from_str::<Value>(&config_json)
-        .map_err(|_| corrupt("Project default tags Property config is invalid"))?;
+    let config = database::property_semantics::option_config_from_storage(
+        "tags",
+        "multi_select",
+        &config_json,
+    )?;
+    let config = serde_json::to_value(config)
+        .map_err(|_| corrupt("Project default tags Property config cannot encode"))?;
     Ok(json!({
         "propertyId": "tags",
         "dataSourceId": data_source_id,

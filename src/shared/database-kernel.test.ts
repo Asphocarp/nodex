@@ -360,7 +360,7 @@ describe("general Database mutation contract", () => {
               },
               {
                 kind: "clause",
-                propertyId: "score",
+                propertyId: "p_score000",
                 operator: "equals",
                 value: 3,
               },
@@ -388,7 +388,7 @@ describe("general Database mutation contract", () => {
     }).filter;
     const values = new Map<string, string | number | readonly string[]>([
       ["stage", "plan"],
-      ["score", 3],
+      ["p_score000", 3],
       ["tags", ["urgent", "customer"]],
       ["owner", "person-1"],
     ]);

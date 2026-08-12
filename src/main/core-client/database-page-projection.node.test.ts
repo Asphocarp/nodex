@@ -59,21 +59,10 @@ const property = (
 });
 
 const properties: readonly DataSourcePropertyRecordV2[] = [
-  property("status", "select", {
-    options: [
-      { id: "triage", name: "Triage" },
-      { id: "build", name: "Build" },
-    ],
-  }),
-  property("priority", "select", {
-    options: [{ id: "p1-high", name: "P1 - High" }],
-  }),
-  property("estimate", "select", {
-    options: [{ id: "m", name: "M" }],
-  }),
-  property("tags", "multi_select", {
-    options: [{ id: "tag:api", name: "API" }],
-  }),
+  property("status", "select"),
+  property("priority", "select"),
+  property("estimate", "select"),
+  property("tags", "multi_select"),
   property("due_date", "date"),
   property("scheduled_start", "datetime"),
   property("scheduled_end", "datetime"),
@@ -122,7 +111,7 @@ const makeRow = (
     status: databaseValue("status", "select", status),
     priority: databaseValue("priority", "select", "p1-high"),
     estimate: databaseValue("estimate", "select", "m"),
-    tags: databaseValue("tags", "multi_select", ["tag:legacy", "tag:api"]),
+    tags: databaseValue("tags", "multi_select", ["o_BBBBBBBB", "o_AAAAAAAA"]),
     due_date: databaseValue("due_date", "date", "2026-07-25"),
     scheduled_start: databaseValue(
       "scheduled_start",
@@ -223,7 +212,7 @@ const makeQuery = (
 });
 
 describe("native Database Page projections", () => {
-  test("keeps canonical option identities separate from compatibility display values", () => {
+  test("keeps canonical option identities in the shared Board projection", () => {
     const row: CoreDatabaseRowSummary = {
       page_id: "page:defaults",
       lifecycle: "active",
@@ -232,8 +221,7 @@ describe("native Database Page projections", () => {
       description_preview: "",
       description_length: 0,
       has_description: false,
-      database_values: { status: "triage", tags: ["tag:api"] },
-      database_display_values: { status: "triage", tags: ["API"] },
+      database_values: { status: "triage", tags: ["o_AAAAAAAA"] },
       intrinsic_properties: {
         "run.target": "localProject",
         "run.localPath": null,
@@ -264,7 +252,7 @@ describe("native Database Page projections", () => {
     expect(projectCoreDatabaseRowSummary(row)).toMatchObject({
       id: "page:defaults",
       status: "triage",
-      tags: ["API"],
+      tags: ["o_AAAAAAAA"],
       priority: undefined,
       estimate: undefined,
       dueDate: undefined,
@@ -276,11 +264,11 @@ describe("native Database Page projections", () => {
       libraryId: "library:test",
       dataSourceId,
       properties,
-    }).values.tags?.value).toEqual(["tag:api"]);
+    }).values.tags?.value).toEqual(["o_AAAAAAAA"]);
   });
 
   test("builds the complete compatibility Page from one native query row", () => {
-    const page = projectDatabasePage(makeRow("page:one"), properties, 3);
+    const page = projectDatabasePage(makeRow("page:one"), 3);
 
     expect(page).toMatchObject({
       id: "page:one",
@@ -289,7 +277,7 @@ describe("native Database Page projections", () => {
       description: "# Detail\n\nA body with **structure**.",
       priority: "p1-high",
       estimate: "m",
-      tags: ["API", "tag:legacy"],
+      tags: ["o_AAAAAAAA", "o_BBBBBBBB"],
       isAllDay: false,
       recurrence: { frequency: "weekly", interval: 1, byWeekdays: [1, 3] },
       reminders: [{ offsetMinutes: 30 }],
@@ -311,10 +299,10 @@ describe("native Database Page projections", () => {
     const withoutBody = { ...row, bodyNfm: undefined };
     const withoutIntrinsic = { ...row, intrinsicProperties: undefined };
 
-    expect(() => projectDatabasePage(withoutBody, properties)).toThrowError(
+    expect(() => projectDatabasePage(withoutBody)).toThrowError(
       DatabasePageProjectionError,
     );
-    expect(() => projectDatabasePage(withoutIntrinsic, properties)).toThrow(
+    expect(() => projectDatabasePage(withoutIntrinsic)).toThrow(
       "missing intrinsic Property evidence",
     );
   });
@@ -330,7 +318,7 @@ describe("native Database Page projections", () => {
         : propertyValue
     );
 
-    expect(() => projectDatabasePage({ ...row, intrinsicProperties }, properties))
+    expect(() => projectDatabasePage({ ...row, intrinsicProperties }))
       .toThrow("invalid relational metadata");
   });
 

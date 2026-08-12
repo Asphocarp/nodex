@@ -440,7 +440,13 @@ fn project_properties(
                 property_id: property_id.to_owned(),
                 name: name.to_owned(),
                 value_type,
-                value: project_property_value(value_type, config, raw_value)?,
+                value: project_property_value(
+                    property_id,
+                    raw_type,
+                    value_type,
+                    config,
+                    raw_value,
+                )?,
             })
         })
         .collect()
@@ -461,6 +467,8 @@ fn property_type(value: &str) -> Result<ProjectedPropertyTypeV1, StoreError> {
 }
 
 fn project_property_value(
+    property_id: &str,
+    storage_value_type: &str,
     value_type: ProjectedPropertyTypeV1,
     config: &Value,
     value: &Value,
@@ -488,20 +496,24 @@ fn project_property_value(
             let id = value
                 .as_str()
                 .ok_or_else(|| corrupt("Select Property value is not an option ID"))?;
-            option_identity(config, id).map(ProjectedPropertyValueV1::Identity)
+            let config = validated_option_config(property_id, storage_value_type, config)?;
+            option_identity(&config.options, id).map(ProjectedPropertyValueV1::Identity)
         }
-        ProjectedPropertyTypeV1::MultiSelect => value
-            .as_array()
-            .ok_or_else(|| corrupt("Multi-select Property value is not a sequence"))?
-            .iter()
-            .map(|value| {
-                value
-                    .as_str()
-                    .ok_or_else(|| corrupt("Multi-select Property contains a non-string ID"))
-                    .and_then(|id| option_identity(config, id))
-            })
-            .collect::<Result<Vec<_>, _>>()
-            .map(ProjectedPropertyValueV1::Identities),
+        ProjectedPropertyTypeV1::MultiSelect => {
+            let config = validated_option_config(property_id, storage_value_type, config)?;
+            value
+                .as_array()
+                .ok_or_else(|| corrupt("Multi-select Property value is not a sequence"))?
+                .iter()
+                .map(|value| {
+                    value
+                        .as_str()
+                        .ok_or_else(|| corrupt("Multi-select Property contains a non-string ID"))
+                        .and_then(|id| option_identity(&config.options, id))
+                })
+                .collect::<Result<Vec<_>, _>>()
+                .map(ProjectedPropertyValueV1::Identities)
+        }
         ProjectedPropertyTypeV1::Date => {
             let value = value
                 .as_str()
@@ -572,21 +584,33 @@ fn project_property_value(
     }
 }
 
-fn option_identity(config: &Value, id: &str) -> Result<ProjectedIdentityV1, StoreError> {
+fn validated_option_config(
+    property_id: &str,
+    value_type: &str,
+    config: &Value,
+) -> Result<crate::database::property_semantics::PropertyOptionConfig, StoreError> {
+    let config_json = serde_json::to_string(config)
+        .map_err(|_| corrupt("Property option registry cannot encode"))?;
+    crate::database::property_semantics::option_config_from_storage(
+        property_id,
+        value_type,
+        &config_json,
+    )
+}
+
+fn option_identity(
+    options: &[crate::database::property_semantics::PropertyOption],
+    id: &str,
+) -> Result<ProjectedIdentityV1, StoreError> {
     bounded_identity(id, "Property option identity")?;
-    let options = config
-        .get("options")
-        .and_then(Value::as_array)
-        .ok_or_else(|| corrupt("Select Property config has no option registry"))?;
     let option = options
         .iter()
-        .find(|option| option.get("id").and_then(Value::as_str) == Some(id))
+        .find(|option| option.id == id)
         .ok_or_else(|| corrupt("Select Property references an unknown option"))?;
-    let name = required_string(option, "name", "Property option name")?;
-    bounded_name(name, "Property option name")?;
+    bounded_name(&option.name, "Property option name")?;
     Ok(ProjectedIdentityV1 {
         id: id.to_owned(),
-        name: name.to_owned(),
+        name: option.name.clone(),
     })
 }
 
@@ -1021,7 +1045,7 @@ mod tests {
                     }]),
                 },
                 ProjectedPropertyV1 {
-                    property_id: "blocked_by".to_owned(),
+                    property_id: "p_blocked0".to_owned(),
                     name: "Blocked by".to_owned(),
                     value_type: ProjectedPropertyTypeV1::Relation,
                     value: ProjectedPropertyValueV1::Relation(ProjectedRelationSummaryV1 {
@@ -1061,7 +1085,7 @@ mod tests {
                 "    value:\n",
                 "      - id: \"native\"\n",
                 "        name: \"Native\"\n",
-                "  \"blocked_by\":\n",
+                "  \"p_blocked0\":\n",
                 "    name: \"Blocked by\"\n",
                 "    type: relation\n",
                 "    value:\n",
@@ -1089,7 +1113,7 @@ mod tests {
                 property_id: "priority".to_owned(),
                 name: "Priority".to_owned(),
                 value_type: ProjectedPropertyTypeV1::Select,
-                value: ProjectedPropertyValueV1::Text("high".to_owned()),
+                value: ProjectedPropertyValueV1::Text("o_high0000".to_owned()),
             }],
             schedule: None,
         };

@@ -9,7 +9,7 @@ use nodex_core_contracts::library::{
 };
 use nodex_core_contracts::{BoundModuleContext, ModuleName};
 use rusqlite::{Connection, OptionalExtension, params};
-use serde_json::json;
+use serde_json::{Value, json};
 
 use crate::database::{
     resolve_page_copy_data_source_project, resolve_page_transfer_data_source_destination,
@@ -431,27 +431,14 @@ fn resolve_destination(
             let existing_group_key = if group.is_none() {
                 moving_page_id
                     .map(|page_id| {
-                        connection
-                            .query_row(
-                                "SELECT json_extract(model.database_values_json, ?1) \
-                                 FROM data_source_page_memberships membership \
-                                 JOIN page_read_model model \
-                                   ON model.page_block_id = membership.page_block_id \
-                                  AND model.membership_id = membership.id \
-                                 WHERE membership.data_source_id = ?2 \
-                                   AND membership.page_block_id = ?3 \
-                                   AND membership.removed_at IS NULL",
-                                params![
-                                    group_property_id.map(|id| format!("$.\"{id}\"")),
-                                    data_source_id,
-                                    page_id
-                                ],
-                                |row| row.get::<_, Option<String>>(0),
-                            )
-                            .optional()
+                        read_canonical_group_key(
+                            connection,
+                            data_source_id,
+                            page_id,
+                            group_property_id,
+                        )
                     })
                     .transpose()?
-                    .flatten()
                     .flatten()
             } else {
                 None
@@ -525,6 +512,52 @@ fn resolve_destination(
             })
         }
     }
+}
+
+fn read_canonical_group_key(
+    connection: &Connection,
+    data_source_id: &str,
+    page_id: &str,
+    property_id: Option<&str>,
+) -> Result<Option<String>, StoreError> {
+    let Some(property_id) = property_id else {
+        return Ok(None);
+    };
+    let value_json = connection
+        .query_row(
+            "SELECT value.value_json \
+             FROM data_source_page_memberships membership \
+             LEFT JOIN data_source_property_values value \
+               ON value.data_source_id = membership.data_source_id \
+              AND value.membership_id = membership.id \
+              AND value.property_id = ?3 \
+             WHERE membership.data_source_id = ?1 \
+               AND membership.page_block_id = ?2 \
+               AND membership.removed_at IS NULL",
+            params![data_source_id, page_id, property_id],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .optional()?
+        .flatten();
+    let Some(value_json) = value_json else {
+        return Ok(None);
+    };
+    let value = serde_json::from_str::<Value>(&value_json)
+        .map_err(|_| corrupt("Grouped Property canonical value is invalid"))?;
+    canonical_group_key(&value)
+}
+
+fn canonical_group_key(value: &Value) -> Result<Option<String>, StoreError> {
+    if value.is_null() || value.as_str() == Some("") || value.as_array().is_some_and(Vec::is_empty)
+    {
+        return Ok(None);
+    }
+    if let Some(value) = value.as_str() {
+        return Ok(Some(value.to_owned()));
+    }
+    serde_json::to_string(value)
+        .map(Some)
+        .map_err(|_| corrupt("Grouped Property canonical value cannot encode"))
 }
 
 fn resolve_before_anchor(

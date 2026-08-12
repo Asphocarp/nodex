@@ -29,6 +29,8 @@ import {
   searchDataSourceRelationCandidates,
 } from "@/lib/data-source-relation-runtime";
 import { readDatabasePropertyOptions } from "@/lib/database-view-authoring";
+import { collectRequiredPropertyOptionIds } from "@/lib/database-option-registry-requirements";
+import { databasePropertyValueSearchText } from "@/lib/database-property-search-text";
 import { resolveDatabaseTaskFilterCapabilities } from "@/lib/database-view-task-filter";
 import {
   buildDatabaseViewColumns,
@@ -46,11 +48,11 @@ import {
 } from "@/lib/database-view-row-mutations";
 import { matchesSearchTokens, tokenizeSearchQuery } from "@/lib/page-search";
 import { normalizeSearchText } from "@/lib/search-text";
-import { resolveDataSourcePropertyPresentationRole } from "@/lib/data-source-property-presentation-role";
 import { cn } from "@/lib/utils";
 import { StatusIcon } from "@/lib/status-presentation";
 import type {
   DatabaseJsonValue,
+  DatabasePropertyOption,
   DatabaseViewField,
   EffectiveDatabaseViewPresentation,
 } from "../../../../shared/database-kernel";
@@ -277,17 +279,44 @@ const readDatabaseListDragPayload = (
 const searchablePropertyValues = (
   model: DatabaseViewRenderModel,
   pageId: string,
+  optionRegistries: Readonly<Record<string, readonly DatabasePropertyOption[]>>,
 ): string => {
   const row = model.query.rows.find((candidate) => candidate.page.pageId === pageId);
   if (!row) return "";
-  return Object.values(row.values).map((entry) => JSON.stringify(entry.value)).join(" ");
+  const propertyById = new Map(
+    model.query.properties.map((property) => [String(property.propertyId), property] as const),
+  );
+  return Object.values(row.values)
+    .map((entry) => {
+      const property = propertyById.get(entry.propertyId);
+      return databasePropertyValueSearchText(entry.value, {
+        optionBacked: property?.valueType === "select"
+          || property?.valueType === "multi_select",
+        options: optionRegistries[entry.propertyId],
+      });
+    })
+    .join(" ");
 };
 
 const searchableAuthorityValues = (
   authority: DataSourcePageRowV2,
-): string => Object.values(authority.values)
-  .map((entry) => JSON.stringify(entry.value))
-  .join(" ");
+  properties: readonly DataSourcePropertyRecordV2[],
+  optionRegistries: Readonly<Record<string, readonly DatabasePropertyOption[]>>,
+): string => {
+  const propertyById = new Map(
+    properties.map((property) => [String(property.propertyId), property] as const),
+  );
+  return Object.values(authority.values)
+    .map((entry) => {
+      const property = propertyById.get(entry.propertyId);
+      return databasePropertyValueSearchText(entry.value, {
+        optionBacked: property?.valueType === "select"
+          || property?.valueType === "multi_select",
+        options: optionRegistries[entry.propertyId],
+      });
+    })
+    .join(" ");
+};
 
 const availableListFields = (
   model: DatabaseViewRenderModel,
@@ -422,37 +451,14 @@ export function DatabaseList({
     const displayedPropertyIds = new Set(sessionListFields.flatMap((field) =>
       field.kind === "property" ? [String(field.propertyId)] : []
     ));
-    const optionProperties = new Map(model.query.properties.flatMap((property) => {
-      if (!displayedPropertyIds.has(property.propertyId)) return [];
-      if (property.lifecycle !== "active") return [];
-      if (property.valueType !== "select" && property.valueType !== "multi_select") return [];
-      const role = resolveDataSourcePropertyPresentationRole(property);
-      if (role.kind === "status" || role.kind === "priority" || role.kind === "estimate") {
-        return [];
-      }
-      return [[property.propertyId, property] as const];
-    }));
-    const selected = new Map<string, Set<string>>(
-      [...optionProperties.keys()].map((propertyId) => [propertyId, new Set()]),
-    );
-    const rows = [
-      ...model.query.rows,
-      ...coreWindow.rows.flatMap((item) => item.kind === "page" ? [item.row] : []),
-    ];
-    for (const row of rows) {
-      for (const [propertyId, property] of optionProperties) {
-        const value = row.values[propertyId]?.value;
-        const values = property.valueType === "multi_select"
-          ? Array.isArray(value) ? value : []
-          : typeof value === "string" ? [value] : [];
-        for (const optionId of values) {
-          if (typeof optionId === "string") selected.get(propertyId)?.add(optionId);
-        }
-      }
-    }
-    return Object.fromEntries(
-      [...selected].map(([propertyId, optionIds]) => [propertyId, [...optionIds]]),
-    );
+    return collectRequiredPropertyOptionIds({
+      properties: model.query.properties,
+      rows: [
+        ...model.query.rows,
+        ...coreWindow.rows.flatMap((item) => item.kind === "page" ? [item.row] : []),
+      ],
+      propertyIds: displayedPropertyIds,
+    });
   }, [coreWindow.rows, model.query.properties, model.query.rows, sessionListFields]);
   const propertyOptionRegistries = usePropertyOptionRegistries({
     accessContext: model.accessContext,
@@ -508,7 +514,7 @@ export function DatabaseList({
         ? column.rows
         : column.rows.filter((row) => matchesSearchTokens(
             normalizeSearchText(
-              `${row.title} ${row.preview} ${row.plainText} ${row.tags.join(" ")} ${searchablePropertyValues(model, row.pageId)}`,
+              `${row.title} ${row.preview} ${row.plainText} ${searchablePropertyValues(model, row.pageId, propertyOptionRegistries.options)}`,
             ),
             searchTokens,
           )),
@@ -521,6 +527,7 @@ export function DatabaseList({
     model,
     presentation.group?.propertyId,
     presentation.groupDirection,
+    propertyOptionRegistries.options,
     searchTokens,
   ]);
   const totalRowsByScope = useMemo(() => new Map(columns.map((column) => [
@@ -572,7 +579,7 @@ export function DatabaseList({
             authority: DataSourcePageRowV2,
           ) => matchesSearchTokens(
             normalizeSearchText(
-              `${row.title} ${row.preview} ${row.plainText} ${row.tags.join(" ")} ${searchableAuthorityValues(authority)}`,
+              `${row.title} ${row.preview} ${row.plainText} ${searchableAuthorityValues(authority, model.query.properties, propertyOptionRegistries.options)}`,
             ),
             searchTokens,
           ),
@@ -583,6 +590,7 @@ export function DatabaseList({
     model,
     presentation.group?.propertyId,
     presentation.subgroup?.propertyId,
+    propertyOptionRegistries.options,
     searchTokens,
   ]);
   // Authorized runtime Views have exactly one ordering authority: Core's List

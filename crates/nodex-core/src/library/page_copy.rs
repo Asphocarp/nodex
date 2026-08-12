@@ -3794,7 +3794,7 @@ mod tests {
             .writer()
             .call(move |connection| {
                 let data_source_id = "018f0000-0000-7000-8000-000000000102";
-                let property_id = "blocked_by";
+                let property_id = "p_blocked0";
                 connection.execute(
                     "INSERT INTO data_source_properties(\
                        data_source_id, id, name, value_type, config_json, rank_key, lifecycle, \
@@ -3987,7 +3987,7 @@ mod tests {
                      FROM data_source_page_memberships membership \
                      JOIN data_source_property_values value ON value.membership_id = membership.id \
                        AND value.data_source_id = membership.data_source_id \
-                       AND value.property_id = 'blocked_by' \
+                       AND value.property_id = 'p_blocked0' \
                      JOIN data_source_relation_edges edge \
                        ON edge.source_data_source_id = membership.data_source_id \
                       AND edge.source_membership_id = membership.id \

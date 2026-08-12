@@ -17,6 +17,11 @@ import {
 } from "./database-identities";
 import { BUILT_IN_DATA_SOURCE_PROPERTY_DEFINITIONS } from "./data-source-built-ins";
 import {
+  MAX_DATA_SOURCE_OPTION_COLOR_LENGTH,
+  MAX_DATA_SOURCE_OPTION_NAME_LENGTH,
+  MAX_DATA_SOURCE_PROPERTY_OPTIONS,
+} from "./data-source-option-registry";
+import {
   DATABASE_MODULE_V2_CONTRACT_VERSION,
   MAX_DATABASE_MODULE_V2_BULK_ENTRIES,
   MAX_DATABASE_MODULE_V2_OPERATIONS,
@@ -1467,6 +1472,13 @@ const parsePropertyRecord = (
   }
   const optionCount = readRevision(record.optionCount, `${label}.optionCount`);
   validateBuiltInPropertyValueType(propertyId, valueType, label);
+  const isOptionBacked = valueType === "select" || valueType === "multi_select";
+  if (
+    (isOptionBacked && optionCount > MAX_DATA_SOURCE_PROPERTY_OPTIONS)
+    || (!isOptionBacked && optionCount !== 0)
+  ) {
+    throw new TypeError(`${label}.optionCount diverges from its Property schema`);
+  }
   if (propertyId === TASK_PARENT_PROPERTY_ID && (
     schema.kind !== "relation"
     || schema.targetDataSourceId !== dataSourceId
@@ -1504,6 +1516,12 @@ const parsePropertyRecord = (
     updatedAt: readTimestamp(record.updatedAt, `${label}.updatedAt`),
   };
 };
+
+/** Validates one renderer-facing Property projection at its transport boundary. */
+export const parseDataSourcePropertyRecordV2 = (
+  value: unknown,
+): DataSourcePropertyRecordV2 =>
+  parsePropertyRecord(value, "Data Source Property");
 
 const parseViewRecord = (
   value: unknown,
@@ -1936,7 +1954,10 @@ const parseReadValue = (value: unknown): DatabaseReadValueV2 => {
     assertExactKeys(window, "databaseModuleReadV2.value.value", [
       "options", "nextCursor", "projectionRevision",
     ]);
-    if (!Array.isArray(window.options) || window.options.length > 100) {
+    if (
+      !Array.isArray(window.options)
+      || window.options.length > MAX_DATA_SOURCE_PROPERTY_OPTIONS
+    ) {
       throw new TypeError("Property option window options must be a bounded array");
     }
     const options = window.options.map((rawOption, index) => {
@@ -1944,10 +1965,18 @@ const parseReadValue = (value: unknown): DatabaseReadValueV2 => {
       assertExactKeys(option, `optionWindow.options[${index}]`, ["id", "name"], ["color"]);
       const color = option.color === undefined
         ? undefined
-        : readString(option.color, `optionWindow.options[${index}].color`, MAX_NAME_LENGTH);
+        : readUtf8String(
+            option.color,
+            `optionWindow.options[${index}].color`,
+            MAX_DATA_SOURCE_OPTION_COLOR_LENGTH,
+          );
       return {
         id: readString(option.id, `optionWindow.options[${index}].id`),
-        name: readString(option.name, `optionWindow.options[${index}].name`, MAX_NAME_LENGTH),
+        name: readUtf8String(
+          option.name,
+          `optionWindow.options[${index}].name`,
+          MAX_DATA_SOURCE_OPTION_NAME_LENGTH,
+        ),
         ...(color === undefined ? {} : { color }),
       };
     });
