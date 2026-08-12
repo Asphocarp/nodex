@@ -10884,13 +10884,22 @@ export function useCodexAppServerControl(activeProjectId: string | null) {
   const startTurn = useCallback(async (
     threadId: string,
     prompt: string,
-    opts?: { projectId?: string; collaborationMode?: CodexCollaborationModeKind; serviceTier?: CodexServiceTier; promptInput?: CodexTurnStartOptions["promptInput"] },
+    opts?: {
+      projectId?: string;
+      collaborationMode?: CodexCollaborationModeKind;
+      model?: string;
+      reasoningEffort?: CodexReasoningEffort;
+      serviceTier?: CodexServiceTier;
+      promptInput?: CodexTurnStartOptions["promptInput"];
+    },
   ) => {
     const resolvedProjectId = opts?.projectId ?? activeProjectId;
     await manager.loadPermissionState(resolvedProjectId);
     const turnOpts: CodexTurnStartOptions = {
       permissionMode: manager.readPermissionMode(resolvedProjectId),
       collaborationMode: opts?.collaborationMode,
+      model: opts?.model,
+      reasoningEffort: opts?.reasoningEffort,
       ...(opts?.promptInput ? { promptInput: opts.promptInput } : {}),
       ...buildCodexServiceTierRequestOverride(opts?.serviceTier ?? null),
     };

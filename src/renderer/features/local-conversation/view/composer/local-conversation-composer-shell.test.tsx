@@ -335,6 +335,32 @@ describe("LocalConversationComposerShell", () => {
     expect(view.queryByLabelText("Stop generating") === null).toBe(true);
   });
 
+  test("gives only the active implement-plan request one sibling intelligence footer", async () => {
+    installComposerShellWindowApi();
+    const controls: ThreadStageStoryControls = {
+      ...STORY_CONTROLS,
+      preset: "implement-plan",
+    };
+    const scenario = buildThreadStageStoryScenario(controls);
+    const model = buildThreadStageStorySurfaceModels(
+      scenario,
+      controls,
+      scenario.runtime,
+    ).footerModel;
+    const view = renderComposerShell(model, buildActions({
+      onIntelligenceSelectionChange: async () => {},
+    }));
+    await settleAsyncRender();
+
+    expect(view.getByText("Implement this plan?") !== null).toBe(true);
+    expect(view.getAllByLabelText("Select model")).toHaveLength(1);
+    expect(view.container.querySelector('[data-implement-plan-intelligence-footer="true"]')).not.toBeNull();
+    expect(view.queryByLabelText("Add files and more")).toBeNull();
+    expect(view.queryByLabelText("Permission mode")).toBeNull();
+    expect(view.queryByLabelText(/Context window/)).toBeNull();
+    expect(view.queryByLabelText("Send prompt")).toBeNull();
+  });
+
   test("gives the idle auto-review nudge exclusive ownership and restores requests after enabling it", async () => {
     installComposerShellWindowApi();
     const baseModel = buildComposerShellModel();

@@ -122,6 +122,7 @@ function matchesCommandShortcut(
 }
 
 const CONTEXTUAL_COMMAND_IDS = [
+  "openModelPicker",
   "workOnPage",
   "boardFocusNext",
   "boardFocusPrevious",
@@ -266,7 +267,12 @@ export function handleWorkbenchShortcut(
     return actions.onRequestCreatePageExpanded?.() ?? false;
   }
 
+  if (matchesCommandShortcut(e, actions, "openModelPicker", isMac)) {
+    return executeContextualKeyboardAction("openModelPicker");
+  }
+
   for (const commandId of CONTEXTUAL_COMMAND_IDS) {
+    if (commandId === "openModelPicker") continue;
     if (!matchesCommandShortcut(e, actions, commandId, isMac)) continue;
     if (!keyboardActionMayRun(actionEvent, CREATE_PAGE_COMMAND_POLICY)) return false;
     return executeContextualKeyboardAction(commandId);

@@ -5,6 +5,7 @@ import {
 import type {
   CodexCollaborationModeKind,
   CodexReasoningEffort,
+  CodexServiceTier,
   CodexThreadGoalMaterializedDraft,
   ProjectSession,
 } from "@/lib/types";
@@ -112,13 +113,14 @@ export function createThreadStageActions(input: ThreadActionControllerInput): Th
     );
   };
 
-  const updateThreadSettingsOrDraft = (patch: {
+  const updateThreadSettingsOrDraft = async (patch: {
     collaborationMode?: CodexCollaborationModeKind;
     model?: string;
     reasoningEffort?: CodexReasoningEffort;
-  }) => {
+    serviceTier?: CodexServiceTier;
+  }): Promise<void> => {
     if (input.activeThreadId) {
-      void input.codexControl.setConversationThreadSettings(input.activeThreadId, patch);
+      await input.codexControl.setConversationThreadSettings(input.activeThreadId, patch);
       return;
     }
 
@@ -131,17 +133,46 @@ export function createThreadStageActions(input: ThreadActionControllerInput): Th
     if (patch.reasoningEffort) {
       input.codexControl.setThreadReasoningEffort(patch.reasoningEffort);
     }
+    if (patch.serviceTier !== undefined) {
+      input.codexControl.setDefaultServiceTier(patch.serviceTier);
+    }
   };
 
   const actions = {
     onCollaborationModeChange: (collaborationMode) => {
-      updateThreadSettingsOrDraft({ collaborationMode });
+      return updateThreadSettingsOrDraft({ collaborationMode });
     },
     onModelChange: (model) => {
-      updateThreadSettingsOrDraft({ model });
+      return updateThreadSettingsOrDraft({ model });
     },
     onReasoningEffortChange: (reasoningEffort) => {
-      updateThreadSettingsOrDraft({ reasoningEffort });
+      return updateThreadSettingsOrDraft({ reasoningEffort });
+    },
+    onIntelligenceSelectionChange: async (selection, options) => {
+      if (selection.kind === "codex") {
+        await updateThreadSettingsOrDraft({
+          ...options,
+          model: selection.model,
+          reasoningEffort: selection.reasoningEffort,
+          serviceTier: selection.serviceTier,
+        });
+        return;
+      }
+
+      if (input.activeThreadId) {
+        await input.codexControl.setConversationThreadSettings(input.activeThreadId, {
+          ...options,
+          executionProfile: selection.profile,
+          executionProfileChange: selection.change,
+        });
+        return;
+      }
+
+      if (options?.collaborationMode) {
+        input.setSelectedCollaborationMode(options.collaborationMode);
+      }
+      input.codexControl.setExecutionProfile(selection.profile);
+      input.codexControl.setDefaultServiceTier(selection.profile.serviceTier);
     },
     onExecutionProfileChange: async (profile, change) => {
       if (input.activeThreadId) {
@@ -321,6 +352,9 @@ export function createThreadStageActions(input: ThreadActionControllerInput): Th
         ...(input.projectId === null ? {} : { projectId: input.projectId }),
         collaborationMode: opts?.collaborationMode,
         promptInput: opts?.promptInput,
+        model: opts?.model,
+        reasoningEffort: opts?.reasoningEffort,
+        serviceTier: opts?.serviceTier,
       });
     },
     onSteerPrompt: async (steerInput) => {

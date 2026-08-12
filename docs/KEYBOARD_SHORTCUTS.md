@@ -123,6 +123,7 @@ unless a separately listed app command owns an accelerator.
 | `⌘/Ctrl+Enter` | Submit or alternate submit | In default `Enter` mode this submits idle prompts and is the running-thread alternate queue/steer shortcut; in `Cmd/Ctrl+Enter to send long prompts` mode it is primary submit only for multiline drafts |
 | `⌘/Ctrl+Shift+Enter` | Alternate queue/steer submit | Running-thread composer only, when `Cmd/Ctrl+Enter to send long prompts` is enabled |
 | `Shift+Tab` | Toggle Plan mode | Thread composer only when the prompt editor is focused, Plan mode is available, and slash/mention menus are not handling the key |
+| `Ctrl+Shift+M` | Select model | Opens the model, effort, and speed picker for the active normal composer or `Implement this plan?` request; uses literal Control on macOS |
 | `↑` | Recall queued follow-up or prompt history | Thread composer only when the cursor is at the end and no modifier is pressed. Empty drafts first edit the latest visible queued follow-up; otherwise the empty composer recalls the newest persisted prompt history entry. |
 | `↓` | Walk prompt history forward or clear recall | Thread composer only when traversing recalled history. It walks toward newer entries; pressing from the newest recalled entry clears the composer and exits traversal. |
 | `Ctrl+M` | Hold to dictate | Electron-only thread composer dictation. Keydown starts recording; keyup stops and inserts the transcript. Button click also starts dictation, and the active dictation footer exposes `Stop dictation` and `Transcribe and send`. |

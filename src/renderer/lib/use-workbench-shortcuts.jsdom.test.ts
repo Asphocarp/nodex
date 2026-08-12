@@ -71,6 +71,35 @@ function ShortcutHarness({ actions }: { actions: WorkbenchShortcutActions }) {
 }
 
 describe("handleWorkbenchShortcut", () => {
+  test("routes literal Ctrl+Shift+M once to the active composer from editable focus", () => {
+    const captured: string[] = [];
+    resetContextualKeyboardActionRegistryForTests();
+    registerContextualKeyboardActionTarget("composer", {
+      surfaceId: "composer",
+      presentationId: "thread-tab",
+      canExecute: (commandId) => commandId === "openModelPicker",
+      execute: (commandId) => {
+        captured.push(commandId);
+        return true;
+      },
+    });
+    markContextualKeyboardActionTargetActive("composer");
+
+    const handled = handleWorkbenchShortcut({
+      key: "m",
+      code: "KeyM",
+      ctrlKey: true,
+      metaKey: false,
+      shiftKey: true,
+      altKey: false,
+      target: makeComposerTarget(),
+    }, makeActions(), true);
+
+    expect(handled).toBe(true);
+    expect(captured).toEqual(["openModelPicker"]);
+    resetContextualKeyboardActionRegistryForTests();
+  });
+
   test("routes every Board navigation, selection, and move binding", () => {
     const captured: string[] = [];
     resetContextualKeyboardActionRegistryForTests();

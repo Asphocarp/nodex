@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useEffect, useLayoutEffect } from "react";
-import { fireEvent, getByRole, waitFor } from "@testing-library/dom";
+import { MotionConfig } from "motion/react";
+import { fireEvent, getByRole, getByText, waitFor } from "@testing-library/dom";
 import type { ThreadGoal } from "@nodex/codex-app-server-protocol/v2";
 import { NodexTooltipProvider as TooltipProvider } from "@/components/ui/tooltip";
 import { CODEX_DEFAULT_SERVICE_TIER_STORAGE_KEY } from "@/lib/codex-service-tier-settings";
@@ -41,7 +42,7 @@ interface ComposerSendButtonStoryProps {
   permissionMode: CodexPermissionMode;
   selectedModel: string;
   selectedModelDisplayName: string;
-  modelCatalog: "default" | "expanded";
+  modelCatalog: "default" | "expanded" | "power" | "loading";
   selectedModelReasoningSupport: "default" | "highOnly";
   selectedCollaborationMode: CodexCollaborationModeKind;
   threadState: "existingThread" | "interruptedThread" | "newChat";
@@ -209,6 +210,42 @@ function resolveStoryAvailableModels(input: {
   footerModel: ThreadFooterModel;
   selectedModelOption: CodexModelOption;
 }): CodexModelOption[] {
+  if (input.args.modelCatalog === "loading") {
+    return [];
+  }
+
+  if (input.args.modelCatalog === "power") {
+    const efforts = ["low", "medium", "high", "xhigh", "ultra"] as const;
+    return [
+      {
+        id: "gpt-5.6-terra",
+        model: "gpt-5.6-terra",
+        displayName: "GPT-5.6 Terra",
+        description: "Fast, efficient reasoning for everyday work.",
+        hidden: false,
+        isDefault: false,
+        defaultReasoningEffort: "low",
+        supportedReasoningEfforts: efforts.slice(0, 4).map((reasoningEffort) => ({
+          reasoningEffort,
+          description: "",
+        })),
+      },
+      {
+        id: "gpt-5.6-sol",
+        model: "gpt-5.6-sol",
+        displayName: "GPT-5.6 Sol",
+        description: "Frontier reasoning for demanding work.",
+        hidden: false,
+        isDefault: true,
+        defaultReasoningEffort: "low",
+        supportedReasoningEfforts: efforts.map((reasoningEffort) => ({
+          reasoningEffort,
+          description: "",
+        })),
+      },
+    ];
+  }
+
   const baseModels = [
     input.selectedModelOption,
     ...input.footerModel.availableModels.filter((model) => model.id !== input.args.selectedModel),
@@ -767,7 +804,7 @@ const meta = {
     },
     modelCatalog: {
       control: "radio",
-      options: ["default", "expanded"],
+      options: ["default", "expanded", "power", "loading"],
     },
     selectedModelReasoningSupport: {
       control: "radio",
@@ -1030,6 +1067,115 @@ export const DefaultModelSelector: Story = {
     isQueueingEnabled: false,
     composerEnterBehavior: "enter",
     draftPrompt: "",
+  },
+};
+
+export const PowerPickerSimple: Story = {
+  args: {
+    modelCatalog: "power",
+    selectedModel: "gpt-5.6-sol",
+    selectedModelDisplayName: "GPT-5.6 Sol",
+  },
+  play: async ({ canvasElement }) => {
+    const trigger = getByRole(canvasElement, "button", { name: "Select model" });
+    fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
+    fireEvent.click(trigger);
+    const simple = await waitFor(() => getByRole(document.body, "tab", { name: "Simple" }));
+    fireEvent.click(simple);
+    await waitFor(() => getByRole(document.body, "slider", { name: "Power" }));
+  },
+  parameters: {
+    docs: {
+      description: {
+        story: "The runtime-supported Terra/Sol catalog resolves to the compact Power picker, including Speed in the same next-turn selection surface.",
+      },
+    },
+  },
+};
+
+export const PowerPickerAdvanced: Story = {
+  ...PowerPickerSimple,
+  play: async (context) => {
+    await PowerPickerSimple.play?.(context);
+    const advanced = getByRole(document.body, "tab", { name: "Advanced" });
+    fireEvent.click(advanced);
+    await waitFor(() => getByRole(document.body, "menuitem", { name: /Model/ }));
+  },
+};
+
+export const ClassicPickerFallback: Story = {
+  args: {
+    modelCatalog: "expanded",
+    selectedModel: "gpt-5.5",
+    selectedModelDisplayName: "GPT-5.5",
+  },
+  play: async ({ canvasElement }) => {
+    const trigger = getByRole(canvasElement, "button", { name: "Select model" });
+    fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
+    fireEvent.click(trigger);
+    await waitFor(() => getByRole(document.body, "menuitem", { name: /Model/ }));
+  },
+};
+
+export const PowerPickerForcedAdvanced: Story = {
+  args: {
+    modelCatalog: "power",
+    selectedModel: "gpt-5.5",
+    selectedModelDisplayName: "GPT-5.5",
+  },
+  play: async ({ canvasElement }) => {
+    const trigger = getByRole(canvasElement, "button", { name: "Select model" });
+    fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
+    fireEvent.click(trigger);
+    await waitFor(() => getByRole(document.body, "menuitem", { name: /Model/ }));
+  },
+};
+
+export const PowerPickerUltraWarning: Story = {
+  ...PowerPickerSimple,
+  play: async (context) => {
+    await PowerPickerSimple.play?.(context);
+    const slider = getByRole(document.body, "slider", { name: "Power" });
+    fireEvent.keyDown(slider, { key: "End" });
+    await waitFor(() => getByText(document.body, "Ultra uses significantly more model capacity"));
+  },
+};
+
+export const PowerPickerFast: Story = {
+  ...PowerPickerSimple,
+  args: {
+    ...PowerPickerSimple.args,
+    initialServiceTier: "fast",
+  },
+};
+
+export const PowerPickerNarrow: Story = {
+  ...PowerPickerSimple,
+  args: {
+    ...PowerPickerSimple.args,
+    surfaceWidth: "narrow",
+  },
+};
+
+export const PowerPickerReducedMotion: Story = {
+  ...PowerPickerSimple,
+  render: (args) => (
+    <MotionConfig reducedMotion="always">
+      <ComposerSendButtonStory {...args} />
+    </MotionConfig>
+  ),
+};
+
+export const ModelPickerLoading: Story = {
+  args: {
+    modelCatalog: "loading",
+  },
+  parameters: {
+    docs: {
+      description: {
+        story: "The composer stays stable while runtime model options are unavailable and does not invent a selector default.",
+      },
+    },
   },
 };
 

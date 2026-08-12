@@ -79,4 +79,25 @@ describe("CodexImplementPlanRequestCard", () => {
 
     expect(responses).toEqual(["followUp:Revise step two"]);
   });
+
+  test("keeps a failed dismissal retryable with plan-specific guidance", async () => {
+    const view = render(
+      <CodexImplementPlanRequestCard
+        request={request}
+        onRespond={async () => {
+          throw new Error("Internal settings failure");
+        }}
+      />,
+    );
+
+    await act(async () => {
+      const form = view.container.querySelector("form");
+      if (!form) throw new Error("Expected plan request form");
+      fireEvent.keyDown(form, { key: "Escape" });
+      await Promise.resolve();
+    });
+
+    expect(await view.findByText("Could not dismiss plan — try again")).toBeTruthy();
+    expect(view.getByRole("radio", { name: "Yes, implement this plan" })).toBeTruthy();
+  });
 });

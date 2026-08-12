@@ -22,6 +22,7 @@ import { AnimatePresence, motion } from "motion/react";
 import {
   useEffect,
   useLayoutEffect,
+  useMemo,
   useState,
   type FormEvent,
   type ReactNode,
@@ -50,7 +51,15 @@ import type {
   ThreadStageActions,
 } from "../../thread-stage-types";
 import { getThreadGoalMessage } from "../../thread-goal-copy";
-import { ThreadComposer } from "./local-conversation-thread-composer";
+import {
+  ModelSelectorDropdown,
+  ThreadComposer,
+} from "./local-conversation-thread-composer";
+import { ComposerAdaptiveFooter } from "./composer-adaptive-footer";
+import {
+  useComposerIntelligenceController,
+  type ComposerIntelligenceController,
+} from "./use-composer-intelligence-controller";
 import {
   shouldShowThreadComposerStatusStrip,
   ThreadComposerStatusStrip,
@@ -91,6 +100,8 @@ import {
   useScopedAtom,
 } from "@/lib/maitai";
 import { activeComposerFocusNonceAtom } from "./composer-draft-state";
+import { useContextualKeyboardActionTarget } from "@/lib/use-contextual-keyboard-action-target";
+import { markContextualKeyboardActionTargetActive } from "@/lib/contextual-keyboard-actions";
 
 interface LocalConversationComposerShellProps {
   model: ThreadFooterModel;
@@ -813,10 +824,12 @@ function BackgroundAgentPanel({
 function RequestCardStack({
   model,
   actions,
+  intelligenceController,
   onManualApproval,
 }: {
   model: ThreadFooterModel;
   actions: ThreadStageActions;
+  intelligenceController: ComposerIntelligenceController;
   onManualApproval: (conversationId: string) => Promise<void>;
 }) {
   const entries = [
@@ -838,11 +851,28 @@ function RequestCardStack({
             <CodexPendingRequestCard
               entry={entry}
               actions={actions}
+              intelligenceController={intelligenceController}
               onManualApproval={onManualApproval}
             />
           </div>
         );
       })}
+      {model.composerShell.activeRequest?.request.type === "implementPlan" ? (
+        <div data-implement-plan-intelligence-footer="true">
+          <ComposerAdaptiveFooter
+            input={null}
+            layout="multiline"
+            leadingControls={(
+              <ModelSelectorDropdown
+                model={model}
+                controller={intelligenceController}
+                actions={actions}
+              />
+            )}
+            trailingControls={null}
+          />
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -996,6 +1026,7 @@ function ScopedLocalConversationComposerShell({
   contextRailLeadingContent,
   hasFixedPortalContent = false,
 }: LocalConversationComposerShellProps) {
+  const intelligenceController = useComposerIntelligenceController(model, actions);
   const permissionState = model.permissionState;
   const autoReviewNudgeState = useAutoReviewApprovalNudgeState();
   const {
@@ -1016,6 +1047,41 @@ function ScopedLocalConversationComposerShell({
     isResponseInProgress: model.isThreadRunning,
     hasRequestCards: model.composerShell.showRequestCards,
   });
+  const selectorAvailable = model.agentProviderCatalog && model.executionProfile
+    ? true
+    : model.availableModels.some((candidate) => !candidate.hidden);
+  const selectorOwnedBySurface = replacementOwner === "normal"
+    || (
+      replacementOwner === "requestStack"
+      && model.composerShell.activeRequest?.request.type === "implementPlan"
+    );
+  const selectorSurfaceId = `composer-model-picker:${model.composerScopeIdentity?.trim() || model.threadId || "new-thread"}`;
+  const selectorPresentationId = model.composerScopeIdentity?.trim()
+    || model.threadId
+    || selectorSurfaceId;
+  const contextualSelectorTarget = useMemo(() => ({
+    surfaceId: selectorSurfaceId,
+    presentationId: selectorPresentationId,
+    canExecute: (commandId: import("../../../../../shared/command-keybindings").CommandId) => (
+      commandId === "openModelPicker"
+      && selectorAvailable
+      && selectorOwnedBySurface
+    ),
+    execute: (commandId: import("../../../../../shared/command-keybindings").CommandId) => {
+      if (commandId !== "openModelPicker" || !selectorAvailable || !selectorOwnedBySurface) {
+        return false;
+      }
+      intelligenceController.open();
+      return true;
+    },
+  }), [
+    intelligenceController,
+    selectorAvailable,
+    selectorOwnedBySurface,
+    selectorPresentationId,
+    selectorSurfaceId,
+  ]);
+  useContextualKeyboardActionTarget(contextualSelectorTarget);
   useEffect(() => {
     if (!model.threadId || permissionState?.mode === "auto") return;
     resolveNudge(model.threadId);
@@ -1086,6 +1152,8 @@ function ScopedLocalConversationComposerShell({
     <div
       data-local-conversation-composer-shell="true"
       className="relative flex w-full flex-col gap-2 pb-0"
+      onFocusCapture={() => markContextualKeyboardActionTargetActive(selectorSurfaceId)}
+      onPointerDownCapture={() => markContextualKeyboardActionTargetActive(selectorSurfaceId)}
     >
       <ThreadGoalResumeConfirmationDialog model={model} actions={actions} />
       {queuePortalHost && auxiliaryLaneStack ? createPortal(auxiliaryLaneStack, queuePortalHost) : null}
@@ -1114,6 +1182,7 @@ function ScopedLocalConversationComposerShell({
           <RequestCardStack
             model={model}
             actions={actions}
+            intelligenceController={intelligenceController}
             onManualApproval={recordManualApproval}
           />
         </>
@@ -1124,6 +1193,7 @@ function ScopedLocalConversationComposerShell({
           errorMessage={errorMessage}
           onErrorMessage={onErrorMessage}
           contextRailLeadingContent={contextRailLeadingContent}
+          intelligenceController={intelligenceController}
         />
       )}
     </div>

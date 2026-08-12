@@ -16,6 +16,7 @@ import type {
   ThreadComposerShellPendingRequestModel,
   ThreadStageActions,
 } from "../../../thread-stage-types";
+import type { ComposerIntelligenceController } from "../use-composer-intelligence-controller";
 
 vi.mock("./codex-implement-plan-request-card", () => ({
   CodexImplementPlanRequestCard: ({ onRespond }: {
@@ -232,7 +233,7 @@ describe("CodexPendingRequestCard", () => {
     ]));
   });
 
-  test("implementing a plan resets collaboration mode before sending the follow-up", async () => {
+  test("implementing a plan preserves the request while starting the Default-mode turn", async () => {
     const { CodexPendingRequestCard } = await import("./codex-pending-request-card");
     const log: string[] = [];
     const entry: ThreadComposerShellPendingRequestModel = {
@@ -253,9 +254,65 @@ describe("CodexPendingRequestCard", () => {
       await settleAsyncRender();
     });
 
-    expect(log[0]).toBe("resolve:thread_1:turn_plan");
-    expect(log[1]).toBe("mode:default");
-    expect(log[2]).toBe("send:PLEASE IMPLEMENT THIS PLAN:\n1. Review\n2. Ship:default");
+    expect(log).toEqual([
+      "mode:default",
+      "send:PLEASE IMPLEMENT THIS PLAN:\n1. Review\n2. Ship:default",
+    ]);
+  });
+
+  test("flushes the displayed selection before using the same values for the implementation turn", async () => {
+    const { CodexPendingRequestCard } = await import("./codex-pending-request-card");
+    const log: string[] = [];
+    const selection = {
+      kind: "codex" as const,
+      model: "gpt-5.6-sol",
+      reasoningEffort: "xhigh" as const,
+      serviceTier: "fast" as const,
+    };
+    const controller: ComposerIntelligenceController = {
+      selection,
+      isOpen: false,
+      isPending: true,
+      select: () => {},
+      setOpen: () => {},
+      open: () => {},
+      flush: async () => {
+        log.push("flush");
+      },
+      getSelection: () => selection,
+      turnOverrides: {
+        model: selection.model,
+        reasoningEffort: selection.reasoningEffort,
+        serviceTier: selection.serviceTier,
+      },
+      triggerRef: () => {},
+    };
+    const actions = createActions(log);
+    actions.onIntelligenceSelectionChange = async (next, options) => {
+      if (next.kind !== "codex") throw new Error("Expected Codex selection");
+      log.push(`selection:${next.model}:${next.reasoningEffort}:${next.serviceTier}:${options?.collaborationMode}`);
+    };
+    actions.onSendPrompt = async (prompt, options) => {
+      log.push(`send:${prompt}:${options?.collaborationMode}:${options?.model}:${options?.reasoningEffort}:${options?.serviceTier}`);
+    };
+
+    const view = render(
+      <CodexPendingRequestCard
+        entry={{ request: PLAN_REQUEST, conversationId: "thread_1", surface: "activeThread" }}
+        actions={actions}
+        intelligenceController={controller}
+      />,
+    );
+    await act(async () => {
+      fireEvent.click(view.getByText("implement"));
+      await settleAsyncRender();
+    });
+
+    expect(log).toEqual([
+      "flush",
+      "selection:gpt-5.6-sol:xhigh:fast:default",
+      "send:PLEASE IMPLEMENT THIS PLAN:\n1. Review\n2. Ship:default:gpt-5.6-sol:xhigh:fast",
+    ]);
   });
 
   test("routes canonical option and setup cards through their owning conversation", async () => {
@@ -346,8 +403,7 @@ describe("CodexPendingRequestCard", () => {
       await settleAsyncRender();
     });
 
-    expect(log[0]).toBe("resolve:thread_1:turn_plan");
-    expect(log[1]).toBe("send:Revise step 2 and retry.:none");
+    expect(log).toEqual(["send:Revise step 2 and retry.:none"]);
   });
 
   test("dismissing a plan implementation request resolves without sending a follow-up", async () => {
@@ -371,7 +427,9 @@ describe("CodexPendingRequestCard", () => {
       await settleAsyncRender();
     });
 
-    expect(log[0]).toBe("resolve:thread_1:turn_plan");
-    expect(log.length).toBe(1);
+    expect(log).toEqual([
+      "mode:default",
+      "resolve:thread_1:turn_plan",
+    ]);
   });
 });
