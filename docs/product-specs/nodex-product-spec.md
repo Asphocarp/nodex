@@ -50,7 +50,7 @@ saved presentation over one Data Source.
 
 The canonical vocabulary, invariants, and authority table live in
 [CONTEXT.md](../../CONTEXT.md). Runtime owners and dependency directions live in
-[ARCHITECTURE.md](../../ARCHITECTURE.md).
+[ARCHITECTURE.md](../ARCHITECTURE.md).
 
 ## Core experiences
 
@@ -206,7 +206,7 @@ Use the narrowest owner:
 | Product promise or top-level capability boundary | This document |
 | Feature behavior, labels, action rules, or acceptance | Focused document in [Product Specifications](index.md) |
 | Domain vocabulary and ownership | [CONTEXT.md](../../CONTEXT.md) |
-| Runtime Module, dependency direction, or cross-runtime flow | [ARCHITECTURE.md](../../ARCHITECTURE.md) and ADRs |
+| Runtime Module, dependency direction, or cross-runtime flow | [ARCHITECTURE.md](../ARCHITECTURE.md) and ADRs |
 | Sync, durability, recovery, backup, and operations | [RELIABILITY.md](../RELIABILITY.md) |
 | Security and trust boundaries | [SECURITY.md](../SECURITY.md) |
 | Cross-feature renderer construction | [FRONTEND.md](../FRONTEND.md) |

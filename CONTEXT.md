@@ -19,9 +19,7 @@ roots, sessions, terminals, Codex Threads, and approval policy, binds one
 primary Database, and receives grants to Library resources. Project lifecycle
 never owns or deletes Library content.
 
-Accepted system-wide decisions live in `docs/adr/`. The Library/Page/Data
-Source cutover is tracked in
-`docs/plans/library-page-data-source-architecture.md`.
+Accepted system-wide decisions live in `docs/adr/`.
 
 ## Canonical terms
 
@@ -569,7 +567,7 @@ idempotency, projections, and post-commit events behind `read` and `apply`.
 
 ## Decision index
 
-- `docs/adr/0036-dedicated-git-read-worker.md`: one rebuildable,
+- `docs/adr/0042-dedicated-git-read-worker.md`: one rebuildable,
   generation-bound Git repository read plane in a dedicated worker, with Main
   and renderer Adapters and mutation-driven invalidation.
 - `docs/adr/0017-library-pages-data-sources-and-project-resource-grants.md`:

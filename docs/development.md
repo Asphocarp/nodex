@@ -321,7 +321,7 @@ paths. Rust Core tests and binaries are independent of this Node ABI boundary.
 
 ## Related Technical Docs
 
-- [Architecture](../ARCHITECTURE.md)
+- [Architecture](ARCHITECTURE.md)
 - [Engineering learnings](ENGINEERING_LEARNINGS.md)
 - [Product specification](product-specs/nodex-product-spec.md)
 - [Cross-feature frontend engineering conventions](FRONTEND.md)

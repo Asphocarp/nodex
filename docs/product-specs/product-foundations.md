@@ -11,7 +11,7 @@ primary Database binding, and they may receive access to other Library content.
 Project lifecycle never owns or deletes Library content. The canonical domain
 language and complete ownership invariants live in [CONTEXT.md](../../CONTEXT.md).
 System Modules and runtime boundaries live in
-[ARCHITECTURE.md](../../ARCHITECTURE.md).
+[ARCHITECTURE.md](../ARCHITECTURE.md).
 
 User-facing interactive conversations are **Chats**. `Session` and `Thread` are
 persistence and protocol terms. **Task** names real work items, scheduled tasks,
