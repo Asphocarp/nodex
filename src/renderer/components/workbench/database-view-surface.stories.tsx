@@ -150,6 +150,7 @@ const model: DatabaseViewRenderModel = {
         [statusPropertyId]: { propertyId: statusPropertyId, valueType: "select", value: "build", revision: 1 },
         [tagsPropertyId]: { propertyId: tagsPropertyId, valueType: "multi_select", value: ["o_AAAAAAAA"], revision: 1 },
       },
+      taskParent: { parentPageId: null, siblingRank: null, valueRevision: 1 },
       position: { rankKey: "a", revision: 1 },
       effectiveGroupKey: "build",
       effectiveSubgroupKey: null,
@@ -170,6 +171,7 @@ const model: DatabaseViewRenderModel = {
         preview: "",
         plainText: "",
         tags: ["page-first"],
+        taskParentValueRevision: 1,
         metadataRevision: 1,
         createdAt: new Date(timestamp),
       }],
@@ -330,13 +332,11 @@ const withNestedList = (): DatabaseViewRenderModel => {
       richTitle: plainTextToPortableRichText(page.title),
     },
     position: { rankKey: String.fromCharCode(97 + index), revision: 1 },
-    ...(page.parentId ? {
-      taskHierarchy: {
-        parentPageId: page.parentId,
-        siblingRank: String.fromCharCode(97 + index),
-        revision: 1,
-      },
-    } : {}),
+    taskParent: {
+      parentPageId: page.parentId ?? null,
+      siblingRank: page.parentId ? String.fromCharCode(97 + index) : null,
+      valueRevision: 1,
+    },
   }));
   return {
     ...base,

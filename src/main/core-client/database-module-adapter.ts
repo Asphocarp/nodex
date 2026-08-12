@@ -260,6 +260,7 @@ export const toCoreDatabaseIntent = (
           ? {
               kind: "relation",
               target_data_source_id: operation.schema.targetDataSourceId,
+              cardinality: operation.schema.cardinality,
             }
           : operation.schema,
         before_property_id: operation.beforePropertyId ?? null,
@@ -314,10 +315,11 @@ export const toCoreDatabaseIntent = (
                   return value;
                 })(),
               }
-            : mutation.edit.kind === "clear_relation"
+            : mutation.edit.kind === "replace_relation"
               ? {
-                  kind: "clear_relation" as const,
+                  kind: "replace_relation" as const,
                   expected_value_revision: mutation.edit.expectedValueRevision,
+                  target_page_id: mutation.edit.targetPageId ?? null,
                 }
             : {
                 kind: "patch_set" as const,
@@ -388,7 +390,7 @@ export const toCoreDatabaseIntent = (
         data_source_id: operation.dataSourceId,
         pages: operation.pages.map((page) => ({
           page_id: page.pageId,
-          expected_hierarchy_revision: page.expectedHierarchyRevision,
+          expected_value_revision: page.expectedValueRevision,
         })),
         parent_page_id: operation.parentPageId ?? null,
         before_page_id: operation.beforePageId ?? null,
@@ -492,6 +494,18 @@ const requireString = (
   throw new Error(`${label} has no ${key}`);
 };
 
+const requireRelationCardinality = (
+  value: Readonly<Record<string, unknown>>,
+): "one" | "many" => {
+  const cardinality = requireString(
+    value,
+    "cardinality",
+    "Core Relation schema",
+  );
+  if (cardinality === "one" || cardinality === "many") return cardinality;
+  throw new Error("Core Relation schema has invalid cardinality");
+};
+
 export const mapCorePropertyDescriptor = (
   input: unknown,
 ): DataSourcePropertyRecordV2 => {
@@ -526,6 +540,7 @@ export const mapCorePropertyDescriptor = (
             "target_data_source_id",
             "Core Relation schema",
           ),
+          cardinality: requireRelationCardinality(schema),
         }
       : { kind: schemaKind },
     capabilities: {

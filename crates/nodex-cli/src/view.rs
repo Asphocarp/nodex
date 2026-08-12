@@ -625,7 +625,7 @@ mod tests {
             position_order: Some(0),
             task_parent_page_id: None,
             task_sibling_rank: None,
-            task_hierarchy_revision: 0,
+            task_parent_value_revision: 1,
         }
     }
 }

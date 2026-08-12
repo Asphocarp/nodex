@@ -2262,6 +2262,7 @@ fn upgrade_owned_store(
         109 => validate_exact_v109_schema(connection)?,
         110 | 111 => validate_exact_v110_schema(connection)?,
         112 | 113 => validate_exact_v113_schema(connection)?,
+        114 => validate_exact_v114_schema(connection)?,
         _ => return Err(corrupt("Rust Core forward-migration source is unsupported")),
     }
 
@@ -2377,10 +2378,19 @@ fn upgrade_owned_store(
                 },
             )?;
         }
-        ensure_v111_priority_contract(transaction, migration_now)?;
-        ensure_v112_database_view_contract(transaction, migration_now)?;
-        ensure_v113_view_global_rank(transaction)?;
-        ensure_v114_database_list_authority(transaction)?;
+        if source_version < 111 {
+            ensure_v111_priority_contract(transaction, migration_now)?;
+        }
+        if source_version < 112 {
+            ensure_v112_database_view_contract(transaction, migration_now)?;
+        }
+        if source_version < 113 {
+            ensure_v113_view_global_rank(transaction)?;
+        }
+        if source_version < 114 {
+            ensure_v114_database_list_authority(transaction)?;
+        }
+        ensure_v115_task_parent_relation_authority(transaction, migration_now)?;
         let updated = transaction.execute(
             "UPDATE core_store_metadata SET store_format_version = ?1 \
              WHERE id = 1 AND schema_owner = ?2 AND store_format_version = ?3",
@@ -2837,6 +2847,7 @@ fn publish_current_store(
         ensure_v112_database_view_contract(transaction, now)?;
         ensure_v113_view_global_rank(transaction)?;
         ensure_v114_database_list_authority(transaction)?;
+        ensure_v115_task_parent_relation_authority(transaction, now)?;
         ensure_v107_block_project_cascade_indexes(transaction)?;
         import_legacy_writable_roots(transaction, profile_home, now)?;
         import_automation_jitter_salt(transaction, profile_home, now)
@@ -2883,6 +2894,7 @@ fn create_fresh_store(
         ensure_v112_database_view_contract(transaction, now)?;
         ensure_v113_view_global_rank(transaction)?;
         ensure_v114_database_list_authority(transaction)?;
+        ensure_v115_task_parent_relation_authority(transaction, now)?;
         ensure_v107_block_project_cascade_indexes(transaction)?;
         import_legacy_writable_roots(transaction, profile_home, now)?;
         import_automation_jitter_salt(transaction, profile_home, now)
@@ -3970,6 +3982,336 @@ fn ensure_v114_database_list_authority(connection: &Connection) -> Result<(), St
     validate_database_view_layout_invariants(connection)
 }
 
+fn ensure_v115_task_parent_relation_authority(
+    connection: &Connection,
+    now: u64,
+) -> Result<(), StoreError> {
+    let updated_at = priority_migration_timestamp(now)?;
+    if !table_has_column(connection, "data_source_relation_properties", "cardinality")? {
+        connection.execute_batch(
+            "ALTER TABLE data_source_relation_properties \
+               ADD COLUMN cardinality TEXT NOT NULL DEFAULT 'many' \
+               CHECK (cardinality IN ('one', 'many'));",
+        )?;
+    }
+    if !table_has_column(connection, "data_source_relation_edges", "sibling_rank")? {
+        connection.execute_batch(
+            "ALTER TABLE data_source_relation_edges \
+               ADD COLUMN sibling_rank TEXT \
+               CHECK (sibling_rank IS NULL OR length(sibling_rank) BETWEEN 1 AND 512);",
+        )?;
+    }
+
+    let data_source_ids = connection
+        .prepare("SELECT id FROM data_sources WHERE lifecycle = 'active' ORDER BY id")?
+        .query_map([], |row| row.get::<_, String>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    for data_source_id in data_source_ids {
+        let existing = connection
+            .query_row(
+                "SELECT value_type, config_json, lifecycle FROM data_source_properties \
+                 WHERE data_source_id = ?1 AND id = 'task_parent'",
+                [&data_source_id],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
+                },
+            )
+            .optional()?;
+        match existing {
+            Some((value_type, config_json, lifecycle))
+                if value_type == "relation" && config_json == "{}" && lifecycle == "active" => {}
+            Some(_) => {
+                return Err(corrupt(format!(
+                    "Data Source {data_source_id} has a conflicting task_parent Property"
+                )));
+            }
+            None => {
+                connection.execute(
+                    "INSERT INTO data_source_properties(\
+                       data_source_id, id, name, value_type, config_json, rank_key, lifecycle, \
+                       schema_revision, created_at, updated_at\
+                     ) VALUES (?1, 'task_parent', 'Parent', 'relation', '{}', \
+                               '00000000000000000000000000000000', 'active', 1, ?2, ?2)",
+                    params![data_source_id, updated_at],
+                )?;
+            }
+        }
+
+        let relation = connection
+            .query_row(
+                "SELECT target_data_source_id, cardinality \
+                 FROM data_source_relation_properties \
+                 WHERE data_source_id = ?1 AND property_id = 'task_parent'",
+                [&data_source_id],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            )
+            .optional()?;
+        match relation {
+            Some((target_data_source_id, cardinality))
+                if target_data_source_id == data_source_id && cardinality == "one" => {}
+            Some(_) => {
+                return Err(corrupt(format!(
+                    "Data Source {data_source_id} has a conflicting task_parent Relation definition"
+                )));
+            }
+            None => {
+                connection.execute(
+                    "INSERT INTO data_source_relation_properties(\
+                       data_source_id, property_id, target_data_source_id, cardinality\
+                     ) VALUES (?1, 'task_parent', ?1, 'one')",
+                    [&data_source_id],
+                )?;
+            }
+        }
+
+        let property_ids = connection
+            .prepare(
+                "SELECT id FROM data_source_properties \
+                 WHERE data_source_id = ?1 AND lifecycle = 'active' \
+                 ORDER BY id = 'task_parent', rank_key, id",
+            )?
+            .query_map([&data_source_id], |row| row.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        let total = property_ids.len();
+        let mut update_rank = connection.prepare(
+            "UPDATE data_source_properties SET rank_key = ?1 \
+             WHERE data_source_id = ?2 AND id = ?3",
+        )?;
+        for (index, property_id) in property_ids.into_iter().enumerate() {
+            update_rank.execute(params![
+                evenly_spaced_rank(index, total),
+                data_source_id,
+                property_id
+            ])?;
+        }
+        let source_changed = connection.execute(
+            "UPDATE data_sources SET schema_revision = schema_revision + 1, updated_at = ?1 \
+             WHERE id = ?2 AND lifecycle = 'active'",
+            params![updated_at, data_source_id],
+        )?;
+        if source_changed != 1 {
+            return Err(corrupt(format!(
+                "Data Source {data_source_id} disappeared during Parent migration"
+            )));
+        }
+    }
+
+    connection.execute(
+        "INSERT INTO data_source_property_values(\
+           data_source_id, membership_id, property_id, value_type, value_json, revision, updated_at\
+         ) \
+         SELECT membership.data_source_id, membership.id, 'task_parent', 'relation', 'null', \
+                COALESCE(hierarchy.revision, 1), COALESCE(hierarchy.updated_at, ?1) \
+         FROM data_source_page_memberships membership \
+         JOIN data_source_properties property \
+           ON property.data_source_id = membership.data_source_id \
+          AND property.id = 'task_parent' AND property.lifecycle = 'active' \
+         LEFT JOIN database_task_hierarchy_edges hierarchy \
+           ON hierarchy.data_source_id = membership.data_source_id \
+          AND hierarchy.child_page_id = membership.page_block_id \
+         WHERE membership.removed_at IS NULL \
+           AND NOT EXISTS (\
+             SELECT 1 FROM data_source_property_values value \
+             WHERE value.data_source_id = membership.data_source_id \
+               AND value.membership_id = membership.id \
+               AND value.property_id = 'task_parent'\
+           )",
+        [&updated_at],
+    )?;
+    connection.execute(
+        "INSERT INTO data_source_relation_edges(\
+           edge_id, source_data_source_id, source_membership_id, property_id, \
+           target_page_block_id, created_at, sibling_rank\
+         ) \
+         SELECT lower(hex(randomblob(32))), hierarchy.data_source_id, membership.id, \
+                'task_parent', hierarchy.parent_page_id, hierarchy.created_at, \
+                hierarchy.sibling_rank \
+         FROM database_task_hierarchy_edges hierarchy \
+         JOIN data_source_page_memberships membership \
+           ON membership.data_source_id = hierarchy.data_source_id \
+          AND membership.page_block_id = hierarchy.child_page_id \
+          AND membership.removed_at IS NULL \
+         ORDER BY hierarchy.data_source_id, hierarchy.parent_page_id, \
+                  hierarchy.sibling_rank, hierarchy.child_page_id",
+        [],
+    )?;
+
+    connection.execute_batch(
+        r#"
+        DROP TRIGGER IF EXISTS database_task_hierarchy_remove_inactive_membership;
+        DROP TRIGGER IF EXISTS database_task_hierarchy_require_memberships_insert;
+        DROP TRIGGER IF EXISTS database_task_hierarchy_require_memberships_update;
+        DROP INDEX IF EXISTS idx_database_task_hierarchy_parent_order;
+        DROP TABLE database_task_hierarchy_edges;
+
+        DROP TRIGGER data_source_relation_edges_are_immutable;
+        CREATE TRIGGER data_source_relation_edges_are_immutable
+        BEFORE UPDATE OF edge_id, source_data_source_id, source_membership_id,
+                         property_id, target_page_block_id, created_at
+        ON data_source_relation_edges
+        BEGIN
+          SELECT RAISE(ABORT, 'Relation edge identity is immutable');
+        END;
+
+        CREATE UNIQUE INDEX idx_data_source_task_parent_single_target
+          ON data_source_relation_edges(
+            source_data_source_id, source_membership_id, property_id
+          ) WHERE property_id = 'task_parent';
+
+        CREATE INDEX idx_data_source_task_parent_children_order
+          ON data_source_relation_edges(
+            source_data_source_id, property_id, target_page_block_id,
+            sibling_rank, source_membership_id
+          ) WHERE property_id = 'task_parent';
+
+        CREATE TRIGGER data_source_relation_edge_rank_validate_insert
+        BEFORE INSERT ON data_source_relation_edges
+        WHEN (
+          NEW.property_id = 'task_parent'
+          AND (
+            NEW.sibling_rank IS NULL
+            OR length(NEW.sibling_rank) <> 32
+            OR NEW.sibling_rank GLOB '*[^0-9a-f]*'
+            OR NEW.target_page_block_id = (
+              SELECT membership.page_block_id
+              FROM data_source_page_memberships membership
+              WHERE membership.data_source_id = NEW.source_data_source_id
+                AND membership.id = NEW.source_membership_id
+            )
+          )
+        ) OR (NEW.property_id <> 'task_parent' AND NEW.sibling_rank IS NOT NULL)
+        BEGIN
+          SELECT RAISE(ABORT, 'Relation edge rank does not match Property semantics');
+        END;
+
+        CREATE TRIGGER data_source_relation_edge_rank_validate_update
+        BEFORE UPDATE OF sibling_rank ON data_source_relation_edges
+        WHEN (
+          NEW.property_id = 'task_parent'
+          AND (
+            NEW.sibling_rank IS NULL
+            OR length(NEW.sibling_rank) <> 32
+            OR NEW.sibling_rank GLOB '*[^0-9a-f]*'
+          )
+        ) OR (NEW.property_id <> 'task_parent' AND NEW.sibling_rank IS NOT NULL)
+        BEGIN
+          SELECT RAISE(ABORT, 'Relation edge rank does not match Property semantics');
+        END;
+
+        CREATE TRIGGER data_source_relation_edge_cardinality_validate_insert
+        BEFORE INSERT ON data_source_relation_edges
+        WHEN EXISTS (
+          SELECT 1 FROM data_source_relation_properties relation
+          WHERE relation.data_source_id = NEW.source_data_source_id
+            AND relation.property_id = NEW.property_id
+            AND relation.cardinality = 'one'
+        ) AND EXISTS (
+          SELECT 1 FROM data_source_relation_edges existing
+          WHERE existing.source_data_source_id = NEW.source_data_source_id
+            AND existing.source_membership_id = NEW.source_membership_id
+            AND existing.property_id = NEW.property_id
+        )
+        BEGIN
+          SELECT RAISE(ABORT, 'Cardinality-one Relation accepts at most one target');
+        END;
+
+        CREATE TRIGGER data_source_task_parent_relation_is_standard
+        BEFORE INSERT ON data_source_relation_properties
+        WHEN NEW.property_id = 'task_parent'
+          AND (
+            NEW.target_data_source_id <> NEW.data_source_id
+            OR NEW.cardinality <> 'one'
+          )
+        BEGIN
+          SELECT RAISE(ABORT, 'Task Parent must be a cardinality-one self Relation');
+        END;
+
+        CREATE TRIGGER data_source_task_parent_property_is_standard
+        BEFORE UPDATE OF data_source_id, id, value_type, config_json, lifecycle
+        ON data_source_properties
+        WHEN OLD.id = 'task_parent'
+          AND (
+            NEW.data_source_id <> OLD.data_source_id
+            OR NEW.id <> OLD.id
+            OR NEW.value_type <> 'relation'
+            OR NEW.config_json <> '{}'
+            OR NEW.lifecycle <> 'active'
+          )
+        BEGIN
+          SELECT RAISE(ABORT, 'Task Parent is a required standard Relation Property');
+        END;
+
+        CREATE TRIGGER data_source_task_parent_property_validate_insert
+        BEFORE INSERT ON data_source_properties
+        WHEN NEW.id = 'task_parent'
+          AND (
+            NEW.value_type <> 'relation'
+            OR NEW.config_json <> '{}'
+            OR NEW.lifecycle <> 'active'
+          )
+        BEGIN
+          SELECT RAISE(ABORT, 'Task Parent is a required standard Relation Property');
+        END;
+
+        CREATE TRIGGER data_source_task_parent_property_prevent_delete
+        BEFORE DELETE ON data_source_properties
+        WHEN OLD.id = 'task_parent'
+          AND EXISTS (
+            SELECT 1 FROM data_sources source
+            WHERE source.id = OLD.data_source_id AND source.lifecycle = 'active'
+          )
+        BEGIN
+          SELECT RAISE(ABORT, 'Task Parent is a required standard Relation Property');
+        END;
+
+        CREATE TRIGGER data_source_task_parent_relation_prevent_delete
+        BEFORE DELETE ON data_source_relation_properties
+        WHEN OLD.property_id = 'task_parent'
+          AND EXISTS (
+            SELECT 1 FROM data_sources source
+            WHERE source.id = OLD.data_source_id AND source.lifecycle = 'active'
+          )
+        BEGIN
+          SELECT RAISE(ABORT, 'Task Parent Relation definition is required');
+        END;
+
+        CREATE TRIGGER data_source_task_parent_remove_inactive_membership
+        AFTER UPDATE OF removed_at ON data_source_page_memberships
+        WHEN OLD.removed_at IS NULL AND NEW.removed_at IS NOT NULL
+        BEGIN
+          UPDATE data_source_property_values
+          SET revision = revision + 1, updated_at = CURRENT_TIMESTAMP
+          WHERE data_source_id = NEW.data_source_id
+            AND property_id = 'task_parent'
+            AND EXISTS (
+            SELECT 1 FROM data_source_relation_edges edge
+            WHERE edge.source_data_source_id = NEW.data_source_id
+              AND edge.property_id = 'task_parent'
+              AND edge.source_data_source_id = data_source_property_values.data_source_id
+              AND edge.source_membership_id = data_source_property_values.membership_id
+              AND edge.property_id = data_source_property_values.property_id
+              AND (
+                edge.source_membership_id = NEW.id
+                OR edge.target_page_block_id = NEW.page_block_id
+              )
+          );
+          DELETE FROM data_source_relation_edges
+          WHERE source_data_source_id = NEW.data_source_id
+            AND property_id = 'task_parent'
+            AND (
+              source_membership_id = NEW.id
+              OR target_page_block_id = NEW.page_block_id
+            );
+        END;
+        "#,
+    )?;
+    validate_database_relation_invariants(connection)
+}
+
 fn validate_database_view_global_rank_invariants(
     connection: &Connection,
 ) -> Result<(), StoreError> {
@@ -4011,7 +4353,199 @@ fn validate_database_relation_invariants(connection: &Connection) -> Result<(), 
     if relation_table_count != 2 {
         return Err(corrupt("Relation Property authority tables are incomplete"));
     }
+    if !table_has_column(connection, "data_source_relation_properties", "cardinality")?
+        || !table_has_column(connection, "data_source_relation_edges", "sibling_rank")?
+    {
+        return validate_legacy_database_relation_invariants(connection);
+    }
 
+    let invalid_definitions: i64 = connection.query_row(
+        "SELECT count(*) \
+         FROM data_source_relation_properties relation \
+         LEFT JOIN data_source_properties property \
+           ON property.data_source_id = relation.data_source_id \
+           AND property.id = relation.property_id \
+         LEFT JOIN data_sources source ON source.id = relation.data_source_id \
+         LEFT JOIN data_sources target ON target.id = relation.target_data_source_id \
+         WHERE property.value_type IS NOT 'relation' \
+           OR property.config_json <> '{}' \
+           OR relation.cardinality NOT IN ('one', 'many') \
+           OR source.library_id IS NULL \
+           OR target.library_id IS NULL \
+           OR source.library_id <> target.library_id",
+        [],
+        |row| row.get(0),
+    )?;
+    let missing_definitions: i64 = connection.query_row(
+        "SELECT count(*) FROM data_source_properties property \
+         WHERE property.value_type = 'relation' \
+           AND NOT EXISTS (\
+             SELECT 1 FROM data_source_relation_properties relation \
+             WHERE relation.data_source_id = property.data_source_id \
+               AND relation.property_id = property.id\
+           )",
+        [],
+        |row| row.get(0),
+    )?;
+    let invalid_headers: i64 = connection.query_row(
+        "SELECT count(*) FROM data_source_property_values value \
+         WHERE value.value_type = 'relation' \
+           AND json_type(value.value_json) IS NOT 'null'",
+        [],
+        |row| row.get(0),
+    )?;
+    let invalid_edges: i64 = connection.query_row(
+        "SELECT count(*) \
+         FROM data_source_relation_edges edge \
+         JOIN data_source_relation_properties relation \
+           ON relation.data_source_id = edge.source_data_source_id \
+           AND relation.property_id = edge.property_id \
+         LEFT JOIN data_source_property_values value \
+           ON value.data_source_id = edge.source_data_source_id \
+           AND value.membership_id = edge.source_membership_id \
+           AND value.property_id = edge.property_id \
+         LEFT JOIN blocks target_block ON target_block.id = edge.target_page_block_id \
+         LEFT JOIN pages target_page ON target_page.block_id = edge.target_page_block_id \
+         WHERE value.value_type IS NOT 'relation' \
+           OR json_type(value.value_json) IS NOT 'null' \
+           OR target_block.type IS NOT 'page' \
+           OR target_page.block_id IS NULL \
+           OR NOT EXISTS (\
+             SELECT 1 FROM data_source_page_memberships target_membership \
+             WHERE target_membership.page_block_id = edge.target_page_block_id \
+               AND target_membership.data_source_id = relation.target_data_source_id\
+           )",
+        [],
+        |row| row.get(0),
+    )?;
+    let cardinality_violations: i64 = connection.query_row(
+        "SELECT count(*) FROM (\
+           SELECT edge.source_data_source_id, edge.source_membership_id, edge.property_id \
+           FROM data_source_relation_edges edge \
+           JOIN data_source_relation_properties relation \
+             ON relation.data_source_id = edge.source_data_source_id \
+            AND relation.property_id = edge.property_id \
+           WHERE relation.cardinality = 'one' \
+           GROUP BY edge.source_data_source_id, edge.source_membership_id, edge.property_id \
+           HAVING count(*) > 1\
+         )",
+        [],
+        |row| row.get(0),
+    )?;
+    let invalid_task_parent_definitions: i64 = connection.query_row(
+        "SELECT count(*) FROM data_sources source \
+         LEFT JOIN data_source_properties property \
+           ON property.data_source_id = source.id AND property.id = 'task_parent' \
+         LEFT JOIN data_source_relation_properties relation \
+           ON relation.data_source_id = source.id AND relation.property_id = 'task_parent' \
+         WHERE source.lifecycle = 'active' \
+           AND (\
+             property.value_type IS NOT 'relation' \
+             OR property.config_json <> '{}' \
+             OR property.lifecycle IS NOT 'active' \
+             OR relation.target_data_source_id IS NOT source.id \
+             OR relation.cardinality IS NOT 'one'\
+           )",
+        [],
+        |row| row.get(0),
+    )?;
+    let missing_task_parent_headers: i64 = connection.query_row(
+        "SELECT count(*) FROM data_source_page_memberships membership \
+         JOIN data_sources source \
+           ON source.id = membership.data_source_id AND source.lifecycle = 'active' \
+         LEFT JOIN data_source_property_values value \
+           ON value.data_source_id = membership.data_source_id \
+          AND value.membership_id = membership.id \
+          AND value.property_id = 'task_parent' \
+         WHERE membership.removed_at IS NULL \
+           AND (\
+             value.value_type IS NOT 'relation' \
+             OR json_type(value.value_json) IS NOT 'null' \
+             OR value.revision IS NULL OR value.revision < 1\
+           )",
+        [],
+        |row| row.get(0),
+    )?;
+    let invalid_task_parent_edges: i64 = connection.query_row(
+        "SELECT count(*) FROM data_source_relation_edges edge \
+         JOIN data_source_page_memberships child \
+           ON child.data_source_id = edge.source_data_source_id \
+          AND child.id = edge.source_membership_id \
+         WHERE edge.property_id = 'task_parent' \
+           AND (\
+             child.removed_at IS NOT NULL \
+             OR child.page_block_id = edge.target_page_block_id \
+             OR edge.sibling_rank IS NULL \
+             OR length(edge.sibling_rank) <> 32 \
+             OR edge.sibling_rank GLOB '*[^0-9a-f]*' \
+             OR NOT EXISTS (\
+               SELECT 1 FROM data_source_page_memberships parent \
+               WHERE parent.data_source_id = edge.source_data_source_id \
+                 AND parent.page_block_id = edge.target_page_block_id \
+                 AND parent.removed_at IS NULL\
+             )\
+           )",
+        [],
+        |row| row.get(0),
+    )?;
+    let ranked_non_task_edges: i64 = connection.query_row(
+        "SELECT count(*) FROM data_source_relation_edges \
+         WHERE property_id <> 'task_parent' AND sibling_rank IS NOT NULL",
+        [],
+        |row| row.get(0),
+    )?;
+    let invalid = invalid_definitions
+        .checked_add(missing_definitions)
+        .and_then(|count| count.checked_add(invalid_headers))
+        .and_then(|count| count.checked_add(invalid_edges))
+        .and_then(|count| count.checked_add(cardinality_violations))
+        .and_then(|count| count.checked_add(invalid_task_parent_definitions))
+        .and_then(|count| count.checked_add(missing_task_parent_headers))
+        .and_then(|count| count.checked_add(invalid_task_parent_edges))
+        .and_then(|count| count.checked_add(ranked_non_task_edges))
+        .ok_or_else(|| corrupt("Relation Property invariant count overflowed"))?;
+    if invalid != 0 {
+        return Err(corrupt(format!(
+            "Relation Property authority contains {invalid} inconsistent records"
+        )));
+    }
+
+    let parents = connection
+        .prepare(
+            "SELECT child.page_block_id, edge.target_page_block_id \
+             FROM data_source_relation_edges edge \
+             JOIN data_source_page_memberships child \
+               ON child.data_source_id = edge.source_data_source_id \
+              AND child.id = edge.source_membership_id \
+             WHERE edge.property_id = 'task_parent' \
+             ORDER BY child.page_block_id",
+        )?
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?
+        .collect::<rusqlite::Result<BTreeMap<_, _>>>()?;
+    for page_id in parents.keys() {
+        let mut cursor = Some(page_id.as_str());
+        let mut visited = BTreeSet::new();
+        let mut depth = 0usize;
+        while let Some(current) = cursor {
+            if !visited.insert(current) {
+                return Err(corrupt("Task Parent Relation contains a cycle"));
+            }
+            cursor = parents.get(current).map(String::as_str);
+            if cursor.is_none() {
+                continue;
+            }
+            depth += 1;
+            if depth > 10 {
+                return Err(corrupt("Task Parent Relation exceeds depth 10"));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_legacy_database_relation_invariants(connection: &Connection) -> Result<(), StoreError> {
     let invalid_definitions: i64 = connection.query_row(
         "SELECT count(*) \
          FROM data_source_relation_properties relation \
@@ -5987,6 +6521,10 @@ fn validate_exact_v113_schema(connection: &Connection) -> Result<(), StoreError>
     validate_exact_core_schema(connection, true, true, true, true, true, true, true, 113)
 }
 
+fn validate_exact_v114_schema(connection: &Connection) -> Result<(), StoreError> {
+    validate_exact_core_schema(connection, true, true, true, true, true, true, true, 114)
+}
+
 fn validate_exact_current_schema(connection: &Connection) -> Result<(), StoreError> {
     validate_exact_core_schema(
         connection,
@@ -6146,6 +6684,9 @@ fn build_expected_core_schema_inventory(
     if schema_version >= 114 {
         ensure_v114_database_list_authority(&expected)?;
     }
+    if schema_version >= 115 {
+        ensure_v115_task_parent_relation_authority(&expected, 0)?;
+    }
 
     read_schema_inventory(&expected)
 }
@@ -6271,6 +6812,9 @@ pub fn expected_store_schema_fingerprint(version: i64) -> Result<String, StoreEr
     }
     if version >= 114 {
         ensure_v114_database_list_authority(&expected)?;
+    }
+    if version >= 115 {
+        ensure_v115_task_parent_relation_authority(&expected, 0)?;
     }
     read_schema_inventory(&expected).map(|inventory| schema_inventory_fingerprint(&inventory))
 }
@@ -6686,6 +7230,112 @@ mod tests {
         })
         .expect("seed v111 Database View Store");
         validate_exact_v110_schema(&connection).expect("exact v111 physical Store");
+    }
+
+    fn seed_owned_v114_task_hierarchy_store(home: &Path) {
+        seed_owned_v111_database_view_store(home);
+        let mut connection = open_writer(&home.join("nodex.db")).expect("v114 writer");
+        with_immediate_transaction(&mut connection, |transaction| {
+            let migration_now = 1_765_000_000_000;
+            crate::infrastructure::visibility_delta_journal::install_test_maintenance_context(
+                transaction,
+            )?;
+            ensure_v112_database_view_contract(transaction, migration_now)?;
+            ensure_v113_view_global_rank(transaction)?;
+            ensure_v114_database_list_authority(transaction)?;
+            transaction.execute_batch(
+                r#"
+                INSERT INTO documents(
+                  id, project_id, generation, head_seq, schema_key, schema_version,
+                  state_vector, state_hash, readiness, authority, created_at, updated_at,
+                  sync_engine
+                )
+                SELECT 'document:v114-child', project_id, generation, head_seq, schema_key,
+                       schema_version, state_vector, state_hash, readiness, authority,
+                       created_at, updated_at, sync_engine
+                FROM documents WHERE id = 'document:v110-priority';
+
+                INSERT INTO blocks(
+                  id, project_id, type, lifecycle, location_kind, containing_database_id,
+                  location_revision, metadata_revision, created_at, updated_at
+                )
+                SELECT 'page:v114-child', project_id, 'page', lifecycle, 'database',
+                       containing_database_id, location_revision, metadata_revision,
+                       created_at, updated_at
+                FROM blocks WHERE id = 'page:v110-priority';
+
+                INSERT INTO block_documents(block_id, document_id, project_id, created_at)
+                SELECT 'page:v114-child', 'document:v114-child', project_id, created_at
+                FROM block_documents WHERE block_id = 'page:v110-priority';
+
+                INSERT INTO pages(
+                  block_id, library_id, document_id, parent_kind, parent_id, lifecycle,
+                  parent_revision, metadata_revision, created_at, updated_at
+                )
+                SELECT 'page:v114-child', library_id, 'document:v114-child', parent_kind,
+                       parent_id, lifecycle, parent_revision, metadata_revision,
+                       created_at, updated_at
+                FROM pages WHERE block_id = 'page:v110-priority';
+
+                INSERT INTO data_source_page_memberships(
+                  id, data_source_id, page_block_id, revision, created_at, removed_at
+                )
+                SELECT 'membership:v114-child', data_source_id, 'page:v114-child', revision,
+                       created_at, NULL
+                FROM data_source_page_memberships WHERE id = 'membership:v110-priority';
+
+                INSERT INTO page_read_model(
+                  page_block_id, project_id, lifecycle, location_kind,
+                  containing_document_id, containing_database_id, top_level_rank_key,
+                  location_revision, metadata_revision, document_id, document_generation,
+                  document_projected_seq, document_schema_version, document_authority,
+                  membership_id, database_block_id, view_id, view_group_key, view_rank_key,
+                  title, description_preview, description_length, has_description,
+                  database_values_json, intrinsic_properties_json, property_revisions_json,
+                  projection_version, created_at, updated_at
+                )
+                SELECT 'page:v114-child', project_id, lifecycle, location_kind,
+                       containing_document_id, containing_database_id, top_level_rank_key,
+                       location_revision, metadata_revision, 'document:v114-child',
+                       document_generation, document_projected_seq, document_schema_version,
+                       document_authority, 'membership:v114-child', database_block_id,
+                       NULL, NULL, NULL, 'Child', description_preview, description_length,
+                       has_description, '{}', intrinsic_properties_json, '{}',
+                       projection_version, created_at, updated_at
+                FROM page_read_model WHERE page_block_id = 'page:v110-priority';
+
+                INSERT INTO database_task_hierarchy_edges(
+                  data_source_id, child_page_id, parent_page_id, sibling_rank, revision,
+                  created_at, updated_at
+                ) VALUES (
+                  'source:v110-priority', 'page:v114-child', 'page:v110-priority',
+                  '7fffffffffffffffffffffffffffffff', 7,
+                  '2026-08-11T10:00:00.000Z', '2026-08-11T11:00:00.000Z'
+                );
+
+                INSERT INTO data_source_properties(
+                  data_source_id, id, name, value_type, config_json, rank_key, lifecycle,
+                  schema_revision, created_at, updated_at
+                ) VALUES (
+                  'source:v110-priority', 'related', 'Related', 'relation', '{}',
+                  'rank:related', 'active', 1,
+                  '2026-08-11T10:00:00.000Z', '2026-08-11T10:00:00.000Z'
+                );
+                INSERT INTO data_source_relation_properties(
+                  data_source_id, property_id, target_data_source_id
+                ) VALUES ('source:v110-priority', 'related', 'source:v110-priority');
+                "#,
+            )?;
+            transaction.execute("DELETE FROM local_commit_visibility_context", [])?;
+            transaction.execute(
+                "UPDATE core_store_metadata SET store_format_version = 114 WHERE id = 1",
+                [],
+            )?;
+            transaction.pragma_update(None, "user_version", 114)?;
+            Ok(())
+        })
+        .expect("seed v114 task hierarchy Store");
+        validate_exact_v114_schema(&connection).expect("exact v114 Store");
     }
 
     fn seed_owned_v99_store_with_property_value(home: &Path) {
@@ -7482,7 +8132,106 @@ mod tests {
     }
 
     #[test]
-    fn v111_database_views_migrate_to_v113_view_contract_once() {
+    fn v114_task_hierarchy_migrates_to_the_standard_parent_relation_once() {
+        fn snapshot(
+            connection: &Connection,
+        ) -> Result<(i64, String, String, i64, i64, String, String, String), StoreError> {
+            let retired_table = connection.query_row(
+                "SELECT count(*) FROM sqlite_schema \
+                 WHERE type = 'table' AND name = 'database_task_hierarchy_edges'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )?;
+            let (target_source, cardinality) = connection.query_row(
+                "SELECT target_data_source_id, cardinality \
+                 FROM data_source_relation_properties \
+                 WHERE data_source_id = 'source:v110-priority' \
+                   AND property_id = 'task_parent'",
+                [],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            )?;
+            let root_revision = connection.query_row(
+                "SELECT value.revision \
+                 FROM data_source_property_values value \
+                 WHERE value.data_source_id = 'source:v110-priority' \
+                   AND value.membership_id = 'membership:v110-priority' \
+                   AND value.property_id = 'task_parent'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )?;
+            let child_revision = connection.query_row(
+                "SELECT value.revision \
+                 FROM data_source_property_values value \
+                 WHERE value.data_source_id = 'source:v110-priority' \
+                   AND value.membership_id = 'membership:v114-child' \
+                   AND value.property_id = 'task_parent'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )?;
+            let (parent_page_id, sibling_rank) = connection.query_row(
+                "SELECT edge.target_page_block_id, edge.sibling_rank \
+                 FROM data_source_relation_edges edge \
+                 WHERE edge.source_data_source_id = 'source:v110-priority' \
+                   AND edge.source_membership_id = 'membership:v114-child' \
+                   AND edge.property_id = 'task_parent'",
+                [],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            )?;
+            let generic_cardinality = connection.query_row(
+                "SELECT cardinality FROM data_source_relation_properties \
+                 WHERE data_source_id = 'source:v110-priority' \
+                   AND property_id = 'related'",
+                [],
+                |row| row.get::<_, String>(0),
+            )?;
+            Ok((
+                retired_table,
+                target_source,
+                cardinality,
+                root_revision,
+                child_revision,
+                parent_page_id,
+                sibling_rank,
+                generic_cardinality,
+            ))
+        }
+
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        seed_owned_v114_task_hierarchy_store(&home);
+
+        let upgraded = SqliteStoreKernel::open(&home).expect("upgrade v114 task hierarchy");
+        assert_eq!(upgraded.preparation().migrated_from_version, Some(114));
+        let first = upgraded
+            .readers()
+            .read_default(snapshot)
+            .expect("read migrated Parent Relation");
+        assert_eq!(
+            first,
+            (
+                0,
+                "source:v110-priority".to_owned(),
+                "one".to_owned(),
+                1,
+                7,
+                "page:v110-priority".to_owned(),
+                "7fffffffffffffffffffffffffffffff".to_owned(),
+                "many".to_owned(),
+            )
+        );
+
+        drop(upgraded);
+        let reopened = SqliteStoreKernel::open(&home).expect("reopen v115 Parent Relation");
+        assert_eq!(reopened.preparation().migrated_from_version, None);
+        let second = reopened
+            .readers()
+            .read_default(snapshot)
+            .expect("read idempotent Parent Relation");
+        assert_eq!(second, first);
+    }
+
+    #[test]
+    fn v111_database_views_migrate_to_the_current_view_contract_once() {
         fn snapshot(
             connection: &Connection,
         ) -> Result<(Value, Option<String>, i64, i64, String), StoreError> {
@@ -7554,7 +8303,7 @@ mod tests {
                 {
                     "id": "view:v110-priority",
                     "layout": "board",
-                    "schema": 3,
+                    "schema": 4,
                     "boardFields": 4,
                     "listFields": 4,
                     "revision": 8
@@ -7562,7 +8311,7 @@ mod tests {
                 {
                     "id": "view:v111-calendar",
                     "layout": "list",
-                    "schema": 3,
+                    "schema": 4,
                     "boardFields": 4,
                     "listFields": 4,
                     "revision": 5
@@ -7570,7 +8319,7 @@ mod tests {
                 {
                     "id": "view:v111-list",
                     "layout": "list",
-                    "schema": 3,
+                    "schema": 4,
                     "boardFields": 4,
                     "listFields": 4,
                     "revision": 4
@@ -7583,7 +8332,7 @@ mod tests {
         assert_eq!(first.4, "7fffffffffffffffffffffffffffffff");
 
         drop(upgraded);
-        let reopened = SqliteStoreKernel::open(&home).expect("reopen v113 Database Views");
+        let reopened = SqliteStoreKernel::open(&home).expect("reopen current Database Views");
         assert_eq!(reopened.preparation().migrated_from_version, None);
         let second = reopened
             .readers()
@@ -7719,7 +8468,7 @@ mod tests {
                         ))
                     },
                 )?;
-                assert_eq!(revisions, (6, 10, 8, 5, 4, 4));
+                assert_eq!(revisions, (6, 11, 8, 5, 4, 4));
 
                 let view_config = connection.query_row(
                     "SELECT config_json FROM database_views \
@@ -7937,7 +8686,7 @@ mod tests {
                         ))
                     },
                 )?;
-                assert_eq!(dormant, (4, 5, "\"p3-low\"".to_owned(), 12));
+                assert_eq!(dormant, (4, 6, "\"p3-low\"".to_owned(), 12));
                 let page = connection.query_row(
                     "SELECT block.metadata_revision, page.metadata_revision, \
                             projection.metadata_revision, projection.projection_version \
@@ -9223,7 +9972,7 @@ mod tests {
                      JOIN data_sources source
                        ON source.home_database_block_id = container.block_id
                      JOIN data_source_properties property
-                       ON property.data_source_id = source.id
+                       ON property.data_source_id = source.id AND property.id = 'title'
                      JOIN database_views view
                        ON view.database_block_id = container.block_id
                      JOIN blocks block ON block.id = container.block_id
@@ -9243,9 +9992,11 @@ mod tests {
                     },
                 )?;
                 let canonical = "2026-02-06T20:37:07.873Z";
-                for index in [0, 1, 2, 4, 5] {
+                for index in [0, 2, 4, 5] {
                     assert_eq!(timestamps[index], canonical);
                 }
+                assert!(timestamps[1].ends_with('Z'));
+                assert_ne!(timestamps[1], canonical);
                 assert!(timestamps[3].ends_with('Z'));
                 assert_ne!(timestamps[3], canonical);
                 assert_eq!(

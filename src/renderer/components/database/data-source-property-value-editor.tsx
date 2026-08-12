@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils";
 import {
   createCustomOptionId,
   isCustomDataSourcePropertyId,
+  TASK_PARENT_PROPERTY_ID,
 } from "../../../shared/database-identities";
 import type {
   DatabaseJsonValue,
@@ -159,9 +160,11 @@ export function DataSourcePropertyValueEditor({
   onRequestMoreOptions,
   onPatchOptions,
   relationCandidates = [],
+  relationSourcePageId,
   options = [],
   optionRegistryState = "ready",
   onPatchRelation = () => undefined,
+  onReplaceRelation,
   onLoadRelationTargets,
   onSearchRelationCandidates,
   onLoadRelationTargetDescriptor,
@@ -191,6 +194,16 @@ export function DataSourcePropertyValueEditor({
         label={property.name}
         value={value}
         candidates={relationCandidates}
+        excludedPageId={
+          property.propertyId === TASK_PARENT_PROPERTY_ID
+            ? relationSourcePageId
+            : undefined
+        }
+        cardinality={
+          property.schema.kind === "relation"
+            ? property.schema.cardinality
+            : "many"
+        }
         disabled={disabled}
         pending={pending}
         targetMatchesCurrentSource={
@@ -198,6 +211,7 @@ export function DataSourcePropertyValueEditor({
           && property.schema.targetDataSourceId === property.dataSourceId
         }
         onPatch={onPatchRelation}
+        onReplace={onReplaceRelation}
         onClear={() => onChange([])}
         onLoadMore={onLoadRelationTargets}
         onSearchCandidates={onSearchRelationCandidates}

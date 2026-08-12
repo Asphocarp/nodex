@@ -57,7 +57,8 @@ result.
 ### Database List occurrence windows
 
 Database List reads use a projection-identity-bound occurrence cursor over the
-effective Filter, sort, grouping, subgrouping, presentation, and task hierarchy.
+effective Filter, sort, grouping, subgrouping, presentation, and standard Parent
+Relation projection.
 Every response reports its logical start, total model count, total projection-row
 count, and stable group, subgroup, Page, and transient-ancestor occurrence keys.
 The renderer accepts a continuation only when identity, generation, start, and
@@ -67,7 +68,7 @@ visible and offers retry.
 
 Selection-all remains sparse until all windows are admitted, and drag is disabled
 while selected Page authority is incomplete. A List drop commits Property,
-hierarchy, and position intent in one transaction. The renderer may recompile
+Parent-Relation, and position intent in one transaction. The renderer may recompile
 once after a typed revision conflict; otherwise it discards optimism and
 converges from Core. Session Undo exists only when exact acknowledged before-
 values and committed revisions make the inverse lossless.

@@ -41,6 +41,8 @@ export interface InitialDatabaseIdentities {
 export type DatabaseIdentityByteSource = (length: number) => Uint8Array;
 export type DatabaseUuidV7Source = () => string;
 
+export const TASK_PARENT_PROPERTY_ID = "task_parent" as const;
+
 export const BUILT_IN_DATA_SOURCE_PROPERTY_IDS = [
   "status",
   "priority",
@@ -50,6 +52,7 @@ export const BUILT_IN_DATA_SOURCE_PROPERTY_IDS = [
   "scheduled_start",
   "scheduled_end",
   "assignee",
+  TASK_PARENT_PROPERTY_ID,
 ] as const;
 
 export type BuiltInDataSourcePropertyId =

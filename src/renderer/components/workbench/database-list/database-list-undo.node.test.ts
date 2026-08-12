@@ -39,10 +39,10 @@ const model = {
     },
     properties: [],
     rows: [
-      { page: { pageId: "parent" }, membership: { membershipId: "m-parent" }, position: { revision: 1 }, effectiveGroupKey: null, effectiveSubgroupKey: null },
-      { page: { pageId: "child-a" }, membership: { membershipId: "m-a" }, position: { revision: 2 }, taskHierarchy: { parentPageId: "parent", siblingRank: "a", revision: 4 }, effectiveGroupKey: null, effectiveSubgroupKey: null },
-      { page: { pageId: "child-b" }, membership: { membershipId: "m-b" }, position: { revision: 3 }, taskHierarchy: { parentPageId: "parent", siblingRank: "b", revision: 2 }, effectiveGroupKey: null, effectiveSubgroupKey: null },
-      { page: { pageId: "root-b" }, membership: { membershipId: "m-root" }, position: { revision: 4 }, effectiveGroupKey: null, effectiveSubgroupKey: null },
+      { page: { pageId: "parent" }, membership: { membershipId: "m-parent" }, position: { revision: 1 }, taskParent: { parentPageId: null, siblingRank: null, valueRevision: 1 }, effectiveGroupKey: null, effectiveSubgroupKey: null },
+      { page: { pageId: "child-a" }, membership: { membershipId: "m-a" }, position: { revision: 2 }, taskParent: { parentPageId: "parent", siblingRank: "a", valueRevision: 4 }, effectiveGroupKey: null, effectiveSubgroupKey: null },
+      { page: { pageId: "child-b" }, membership: { membershipId: "m-b" }, position: { revision: 3 }, taskParent: { parentPageId: "parent", siblingRank: "b", valueRevision: 2 }, effectiveGroupKey: null, effectiveSubgroupKey: null },
+      { page: { pageId: "root-b" }, membership: { membershipId: "m-root" }, position: { revision: 4 }, taskParent: { parentPageId: null, siblingRank: null, valueRevision: 1 }, effectiveGroupKey: null, effectiveSubgroupKey: null },
     ],
   },
 } as unknown as DatabaseViewRenderModel;
@@ -61,7 +61,7 @@ describe("Database List drop undo", () => {
     if (!compiled.ok) throw new Error(compiled.reason);
     const receipt = {
       committedRevisions: {
-        "task_hierarchy:child-a": 0,
+        "value:source-1:m-a:task_parent": 5,
         "position:view-1:child-a": 5,
       },
     } as unknown as DatabaseViewMutationReceipt;
@@ -74,7 +74,7 @@ describe("Database List drop undo", () => {
       {
         kind: "set_task_parent",
         dataSourceId: "source-1",
-        pages: [{ pageId: "child-a", expectedHierarchyRevision: 0 }],
+        pages: [{ pageId: "child-a", expectedValueRevision: 5 }],
         parentPageId: "parent",
         beforePageId: "child-b",
       },
@@ -93,11 +93,11 @@ describe("Database List drop undo", () => {
       query: {
         ...model.query,
         rows: [
-          { page: { pageId: "one" }, membership: { membershipId: "m-one" }, position: { revision: 1 }, effectiveGroupKey: null, effectiveSubgroupKey: null },
-          { page: { pageId: "two" }, membership: { membershipId: "m-two" }, position: { revision: 2 }, effectiveGroupKey: null, effectiveSubgroupKey: null },
-          { page: { pageId: "three" }, membership: { membershipId: "m-three" }, position: { revision: 3 }, effectiveGroupKey: null, effectiveSubgroupKey: null },
-          { page: { pageId: "four" }, membership: { membershipId: "m-four" }, position: { revision: 4 }, effectiveGroupKey: null, effectiveSubgroupKey: null },
-          { page: { pageId: "target" }, membership: { membershipId: "m-target" }, position: { revision: 5 }, effectiveGroupKey: null, effectiveSubgroupKey: null },
+          { page: { pageId: "one" }, membership: { membershipId: "m-one" }, taskParent: { parentPageId: null, siblingRank: null, valueRevision: 1 }, position: { revision: 1 }, effectiveGroupKey: null, effectiveSubgroupKey: null },
+          { page: { pageId: "two" }, membership: { membershipId: "m-two" }, taskParent: { parentPageId: null, siblingRank: null, valueRevision: 1 }, position: { revision: 2 }, effectiveGroupKey: null, effectiveSubgroupKey: null },
+          { page: { pageId: "three" }, membership: { membershipId: "m-three" }, taskParent: { parentPageId: null, siblingRank: null, valueRevision: 1 }, position: { revision: 3 }, effectiveGroupKey: null, effectiveSubgroupKey: null },
+          { page: { pageId: "four" }, membership: { membershipId: "m-four" }, taskParent: { parentPageId: null, siblingRank: null, valueRevision: 1 }, position: { revision: 4 }, effectiveGroupKey: null, effectiveSubgroupKey: null },
+          { page: { pageId: "target" }, membership: { membershipId: "m-target" }, taskParent: { parentPageId: null, siblingRank: null, valueRevision: 1 }, position: { revision: 5 }, effectiveGroupKey: null, effectiveSubgroupKey: null },
         ],
       },
     } as unknown as DatabaseViewRenderModel;

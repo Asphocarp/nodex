@@ -91,7 +91,7 @@ const databaseRowEffect = (
       database_value_revisions: { status: 2 },
       task_parent_page_id: null,
       task_sibling_rank: null,
-      task_hierarchy_revision: 0,
+      task_parent_value_revision: 1,
       metadata_revision: 2,
       parent_revision: 1,
       document_id: "document-1",

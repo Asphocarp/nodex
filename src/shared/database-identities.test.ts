@@ -94,6 +94,7 @@ describe("database identities", () => {
       "scheduled_start",
       "scheduled_end",
       "assignee",
+      "task_parent",
     ]);
     for (const propertyId of BUILT_IN_DATA_SOURCE_PROPERTY_IDS) {
       expect(parseDataSourcePropertyId(propertyId)).toBe(propertyId);

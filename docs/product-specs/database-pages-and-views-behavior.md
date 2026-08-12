@@ -61,14 +61,23 @@ View session restores a logical row anchor, continues bounded windows near the
 viewport end, keeps field widths monotonic, and hides trailing low-value fields
 before compressing the title column.
 
-A Data Source task hierarchy is independent of Page structural ownership. Each
-active row has at most one task parent in the same Data Source, sibling rank is
-scoped to that parent, cycles are forbidden, and maximum depth is ten. Removing
-a parent from the Data Source removes its hierarchy edge and promotes its direct
-child tree to task roots without moving or rewriting Page Documents. Search and
-filtering may include transient ancestors needed to explain matching descendants,
-so the same Page can have multiple visible occurrences while selection and
-mutations deduplicate by Page ID.
+A Data Source task hierarchy is the projection of its fixed `task_parent`
+Property, not a second graph. `task_parent` is a required cardinality-one
+self-Relation: every active row, including a root, retains one positive,
+monotonic Relation value revision; a child has one Relation edge whose target is
+its parent and whose edge metadata carries sibling rank. Generic Relation edits,
+List nesting, and batch drag commands all compare and update that same value
+revision. Each parent must be an active row in the same Data Source, cycles are
+forbidden, and maximum depth is ten. Removing a parent from the Data Source
+clears its own Parent value, removes its incoming child edges, advances every
+affected value revision, and promotes its direct children to task roots without
+moving or rewriting Page Documents. Archiving retains the Relation so restore
+recovers the hierarchy, but the active List projection temporarily treats a
+child of an archived parent as a root instead of hiding it beneath an invisible
+row. Search and filtering may include transient
+ancestors needed to explain matching descendants, so the same Page can have
+multiple visible occurrences while selection and mutations deduplicate by Page
+ID.
 
 List selection supports replace, toggle, contiguous range, all matching with
 sparse exclusions, a roving keyboard cursor, context actions, and a bulk action
@@ -81,7 +90,7 @@ keep their canonical options available when a bounded option window is not
 embedded in the current projection. Reorder, cross-group Property adoption,
 nest, un-nest, and eligible
 multi-Page drops compile from occurrence context into one atomic Database apply
-with Property, hierarchy, and position compare-and-swap. The renderer may apply
+with Property, Parent-value, and position compare-and-swap. The renderer may apply
 a conservative optimistic occurrence projection and recompile once after a
 typed revision conflict; otherwise it rolls back and converges from Core. A
 successful lossless move offers a session Undo whose inverse carries the exact
@@ -173,13 +182,22 @@ Scalar changes use their captured field revision; set-like changes preserve
 add/remove intent. Conflicts and collection failures stay on the control or
 popover that owns the action and do not hide unaffected fields.
 
-Relation is a one-way, unordered set of Page references targeting one Data
-Source. It never changes ownership or grants access. Compact values show visible
-targets plus hidden/restricted counts; inaccessible targets disclose neither
-identity nor title. Candidate and selected lists are bounded and paged. Removal
-of a restricted target uses a Core-authored opaque edge handle rather than a
-guessed Page ID. Relation supports contains/not-contains/empty/not-empty filters
-and is not sortable or groupable in this release.
+Relation is a one-way Page-reference Property targeting one Data Source. Its
+schema declares cardinality `one` or `many`: a single Relation stores zero or
+one target and replaces it through value-revision compare-and-swap; a multi
+Relation is an unordered unique set with idempotent edge patches. Both use the
+same normalized edge table and a JSON-null value revision header. Relation never
+changes ownership or grants access. Compact values show visible targets plus
+hidden/restricted counts; inaccessible targets disclose neither identity nor
+title. Candidate and selected lists are bounded and paged. Removal of a
+restricted target uses a Core-authored opaque edge handle rather than a guessed
+Page ID; a revision-fenced empty replacement can clear the whole value without
+disclosing targets. Generic Relation references survive target membership and
+lifecycle changes until explicitly removed. The standard `task_parent` Relation
+adds same-Source activity, acyclicity, depth, sibling-order, copy-as-root, and
+parent-removal promotion policy without creating another storage authority.
+Relation supports contains/not-contains/empty/not-empty filters and is not
+sortable or groupable in this release.
 
 Deleting a Property requires explicit confirmation and is blocked while a View
 still references it. Core rechecks the current schema and View references at

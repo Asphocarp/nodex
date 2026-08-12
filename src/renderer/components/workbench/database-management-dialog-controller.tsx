@@ -220,6 +220,7 @@ export function DatabaseManagementDialogController({
               targetDataSourceId: parseDataSourceId(
                 draft.targetDataSourceId ?? draft.dataSourceId,
               ),
+              cardinality: "many",
             }
           : { kind: draft.valueType },
       }];

@@ -13,6 +13,7 @@ export const BUILT_IN_DATA_SOURCE_PROPERTY_DEFINITIONS = {
   scheduled_start: { valueType: "datetime" },
   scheduled_end: { valueType: "datetime" },
   assignee: { valueType: "text" },
+  task_parent: { valueType: "relation" },
 } as const satisfies Readonly<
   Record<BuiltInDataSourcePropertyId, { readonly valueType: DatabasePropertyValueType }>
 >;

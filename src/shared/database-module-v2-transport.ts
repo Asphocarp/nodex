@@ -7,6 +7,7 @@ import {
   parseDataSourceOptionId,
   parseDataSourcePropertyId,
   isBuiltInDataSourcePropertyId,
+  TASK_PARENT_PROPERTY_ID,
   type DatabaseId,
   type DatabaseViewId,
   type DataSourceId,
@@ -298,13 +299,17 @@ const parsePropertySchema = (
   const schema = readRecord(value, label);
   const kind = schema.kind;
   if (kind === "relation") {
-    assertExactKeys(schema, label, ["kind", "targetDataSourceId"]);
+    assertExactKeys(schema, label, ["kind", "targetDataSourceId", "cardinality"]);
+    if (schema.cardinality !== "one" && schema.cardinality !== "many") {
+      throw new TypeError(`${label}.cardinality is invalid`);
+    }
     return {
       kind,
       targetDataSourceId: readDataSourceId(
         schema.targetDataSourceId,
         `${label}.targetDataSourceId`,
       ),
+      cardinality: schema.cardinality,
     };
   }
   if (
@@ -406,15 +411,25 @@ const parseApplyOperation = (
       ],
       ["beforePropertyId"],
     );
+    const dataSourceId = readDataSourceId(operation.dataSourceId, `${label}.dataSourceId`);
     const propertyId = readPropertyId(operation.propertyId, `${label}.propertyId`);
     const schema = parsePropertySchema(operation.schema, `${label}.schema`);
     validateBuiltInPropertyValueType(propertyId, schema.kind, label);
+    if (propertyId === TASK_PARENT_PROPERTY_ID && (
+      schema.kind !== "relation"
+      || schema.targetDataSourceId !== dataSourceId
+      || schema.cardinality !== "one"
+    )) {
+      throw new TypeError(
+        `${label} reserved Property task_parent must be a cardinality-one self Relation`,
+      );
+    }
     const beforePropertyId = operation.beforePropertyId === undefined
       ? undefined
       : readPropertyId(operation.beforePropertyId, `${label}.beforePropertyId`);
     return {
       kind: "put_property",
-      dataSourceId: readDataSourceId(operation.dataSourceId, `${label}.dataSourceId`),
+      dataSourceId,
       propertyId,
       expectedDataSourceRevision: readRevision(
         operation.expectedDataSourceRevision,
@@ -529,18 +544,31 @@ const parseApplyOperation = (
           },
         };
       }
-      if (edit.kind === "clear_relation") {
-        assertExactKeys(edit, `${editLabel}.edit`, ["kind", "expectedValueRevision"]);
+      if (edit.kind === "replace_relation") {
+        assertExactKeys(
+          edit,
+          `${editLabel}.edit`,
+          ["kind", "expectedValueRevision"],
+          ["targetPageId"],
+        );
         return {
           pageId: readString(mutation.pageId, `${editLabel}.pageId`),
           dataSourceId: readDataSourceId(mutation.dataSourceId, `${editLabel}.dataSourceId`),
           propertyId,
           edit: {
-            kind: "clear_relation" as const,
+            kind: "replace_relation" as const,
             expectedValueRevision: readRevision(
               edit.expectedValueRevision,
               `${editLabel}.edit.expectedValueRevision`,
             ),
+            ...(edit.targetPageId === undefined
+              ? {}
+              : {
+                  targetPageId: readString(
+                    edit.targetPageId,
+                    `${editLabel}.edit.targetPageId`,
+                  ),
+                }),
           },
         };
       }
@@ -795,12 +823,12 @@ const parseApplyOperation = (
     const pages = operation.pages.map((entry, pageIndex) => {
       const pageLabel = `${label}.pages[${pageIndex}]`;
       const record = readRecord(entry, pageLabel);
-      assertExactKeys(record, pageLabel, ["pageId", "expectedHierarchyRevision"]);
+      assertExactKeys(record, pageLabel, ["pageId", "expectedValueRevision"]);
       return {
         pageId: readString(record.pageId, `${pageLabel}.pageId`),
-        expectedHierarchyRevision: readRevision(
-          record.expectedHierarchyRevision,
-          `${pageLabel}.expectedHierarchyRevision`,
+        expectedValueRevision: readRevision(
+          record.expectedValueRevision,
+          `${pageLabel}.expectedValueRevision`,
         ),
       };
     });
@@ -1377,6 +1405,7 @@ const parsePropertyRecord = (
     "updatedAt",
   ]);
   const propertyId = readPropertyId(record.propertyId, `${label}.propertyId`);
+  const dataSourceId = readDataSourceId(record.dataSourceId, `${label}.dataSourceId`);
   const valueType = readPropertyValueType(record.valueType, `${label}.valueType`);
   const schema = parsePropertySchema(record.schema, `${label}.schema`);
   if (schema.kind !== valueType) {
@@ -1402,9 +1431,18 @@ const parsePropertyRecord = (
   }
   const optionCount = readRevision(record.optionCount, `${label}.optionCount`);
   validateBuiltInPropertyValueType(propertyId, valueType, label);
+  if (propertyId === TASK_PARENT_PROPERTY_ID && (
+    schema.kind !== "relation"
+    || schema.targetDataSourceId !== dataSourceId
+    || schema.cardinality !== "one"
+  )) {
+    throw new TypeError(
+      `${label} reserved Property task_parent must be a cardinality-one self Relation`,
+    );
+  }
   return {
     propertyId,
-    dataSourceId: readDataSourceId(record.dataSourceId, `${label}.dataSourceId`),
+    dataSourceId,
     name: readString(record.name, `${label}.name`, MAX_NAME_LENGTH),
     schema,
     capabilities: {
@@ -1575,7 +1613,8 @@ const parsePageRow = (value: unknown, label: string): DataSourcePageRowV2 => {
     "position",
     "effectiveGroupKey",
     "effectiveSubgroupKey",
-  ], ["bodyNfm", "intrinsicProperties", "taskHierarchy"]);
+    "taskParent",
+  ], ["bodyNfm", "intrinsicProperties"]);
   const page = parsePage(row.page);
   const membership = readRecord(row.membership, `${label}.membership`);
   assertExactKeys(membership, `${label}.membership`, [
@@ -1621,34 +1660,24 @@ const parsePageRow = (value: unknown, label: string): DataSourcePageRowV2 => {
         : { order: readRevision(candidate.order, `${label}.position.order`) }),
     };
   }
-  let taskHierarchy: DataSourcePageRowV2["taskHierarchy"];
-  if (row.taskHierarchy === undefined) {
-    taskHierarchy = undefined;
-  } else if (row.taskHierarchy === null) {
-    taskHierarchy = null;
-  } else {
-    const hierarchy = readRecord(row.taskHierarchy, `${label}.taskHierarchy`);
-    assertExactKeys(hierarchy, `${label}.taskHierarchy`, [
-      "parentPageId",
-      "siblingRank",
-      "revision",
-    ]);
-    taskHierarchy = {
-      parentPageId: readString(
-        hierarchy.parentPageId,
-        `${label}.taskHierarchy.parentPageId`,
-      ),
-      siblingRank: readString(
-        hierarchy.siblingRank,
-        `${label}.taskHierarchy.siblingRank`,
-        512,
-      ),
-      revision: readPositiveRevision(
-        hierarchy.revision,
-        `${label}.taskHierarchy.revision`,
-      ),
-    };
-  }
+  const parent = readRecord(row.taskParent, `${label}.taskParent`);
+  assertExactKeys(parent, `${label}.taskParent`, [
+    "parentPageId",
+    "siblingRank",
+    "valueRevision",
+  ]);
+  const taskParent: DataSourcePageRowV2["taskParent"] = {
+    parentPageId: parent.parentPageId === null
+      ? null
+      : readString(parent.parentPageId, `${label}.taskParent.parentPageId`),
+    siblingRank: parent.siblingRank === null
+      ? null
+      : readString(parent.siblingRank, `${label}.taskParent.siblingRank`, 512),
+    valueRevision: readPositiveRevision(
+      parent.valueRevision,
+      `${label}.taskParent.valueRevision`,
+    ),
+  };
   return {
     page,
     membership: {
@@ -1663,7 +1692,7 @@ const parsePageRow = (value: unknown, label: string): DataSourcePageRowV2 => {
     values,
     ...(bodyNfm === undefined ? {} : { bodyNfm }),
     ...(intrinsicProperties === undefined ? {} : { intrinsicProperties }),
-    ...(taskHierarchy === undefined ? {} : { taskHierarchy }),
+    taskParent,
     position,
     effectiveGroupKey: row.effectiveGroupKey === null
       ? null

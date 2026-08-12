@@ -8,6 +8,7 @@ import type {
   DatabasePropertyValueMutationV2,
   SetDatabaseTaskParentOperationV2,
 } from "../../../../shared/database-module-v2";
+import { TASK_PARENT_PROPERTY_ID } from "../../../../shared/database-identities";
 import type { CompiledDatabaseListDrop } from "./compile-list-drop-intent";
 
 const revision = (
@@ -84,7 +85,7 @@ const inversePropertyEdits = (input: {
       });
       continue;
     }
-    if (forward.edit.kind === "clear_relation" || property.valueType === "relation") {
+    if (forward.edit.kind === "replace_relation" || property.valueType === "relation") {
       return null;
     }
     try {
@@ -125,17 +126,17 @@ const inverseHierarchy = (input: {
   });
   if (movedRows.length !== movedPageIds.size) return null;
   const parentPageIds = [...new Set(movedRows.map((row) =>
-    row.taskHierarchy?.parentPageId ?? null
+    row.taskParent.parentPageId
   ))];
   const operations: SetDatabaseTaskParentOperationV2[] = [];
   for (const parentPageId of parentPageIds) {
     const movedInParent = new Set(movedRows.flatMap((row) =>
-      (row.taskHierarchy?.parentPageId ?? null) === parentPageId
+      row.taskParent.parentPageId === parentPageId
         ? [row.page.pageId]
         : []
     ));
     const siblings = input.model.query.rows.filter((row) =>
-      (row.taskHierarchy?.parentPageId ?? null) === parentPageId
+      row.taskParent.parentPageId === parentPageId
     );
     const runs = contiguousRuns(
       siblings.map((row) => row.page.pageId),
@@ -148,11 +149,16 @@ const inverseHierarchy = (input: {
         dataSourceId: input.model.dataSourceId,
         pages: run.pageIds.map((pageId) => ({
           pageId,
-          expectedHierarchyRevision: revision(
-            input.receipt,
-            `task_hierarchy:${pageId}`,
-            (rowsById.get(pageId)?.taskHierarchy?.revision ?? 0) + 1,
-          ),
+          expectedValueRevision: (() => {
+            const row = rowsById.get(pageId);
+            return revision(
+              input.receipt,
+              row
+                ? `value:${input.model.dataSourceId}:${row.membership.membershipId}:${TASK_PARENT_PROPERTY_ID}`
+                : "",
+              (row?.taskParent.valueRevision ?? 0) + 1,
+            );
+          })(),
         })),
         ...(parentPageId ? { parentPageId } : {}),
         ...(run.beforePageId ? { beforePageId: run.beforePageId } : {}),

@@ -2851,7 +2851,7 @@ mod tests {
         );
         assert_eq!(stored.5, stored.6);
         assert_eq!(stored.7, 2);
-        assert_eq!(stored.8, 8);
+        assert_eq!(stored.8, 9);
         assert_eq!(stored.9, 0);
         assert_eq!(stored.10, 1);
         assert_eq!(stored.11, 1);

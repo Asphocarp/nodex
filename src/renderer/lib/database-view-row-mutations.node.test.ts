@@ -141,6 +141,7 @@ const model = (): DatabaseViewRenderModel => {
             [tagsPropertyId]: { propertyId: tagsPropertyId, valueType: "multi_select" as const, value: ["o_AAAAAAAA"], revision: 2 },
           }
         : {},
+      taskParent: { parentPageId: null, siblingRank: null, valueRevision: 1 },
       position: index === 2
         ? null
         : { rankKey: String(index), revision: index + 1 },
@@ -174,6 +175,7 @@ const model = (): DatabaseViewRenderModel => {
         preview: "",
         plainText: "",
         tags: [],
+        taskParentValueRevision: 1,
         metadataRevision: 1,
         createdAt: new Date(timestamp),
       })),

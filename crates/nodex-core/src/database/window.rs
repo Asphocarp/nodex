@@ -540,9 +540,28 @@ fn list_hierarchy_edges(
 ) -> Result<ListHierarchyIndexes, StoreError> {
     let edges = connection
         .prepare(
-            "SELECT child_page_id, parent_page_id, sibling_rank \
-             FROM database_task_hierarchy_edges WHERE data_source_id = ?1 \
-             ORDER BY parent_page_id, sibling_rank, child_page_id",
+            "SELECT membership.page_block_id, edge.target_page_block_id, edge.sibling_rank \
+             FROM data_source_relation_edges edge \
+             JOIN data_source_page_memberships membership \
+               ON membership.data_source_id = edge.source_data_source_id \
+              AND membership.id = edge.source_membership_id \
+              AND membership.removed_at IS NULL \
+             JOIN page_read_model child_model \
+               ON child_model.page_block_id = membership.page_block_id \
+              AND child_model.membership_id = membership.id \
+              AND child_model.lifecycle = 'active' \
+             JOIN data_source_page_memberships parent_membership \
+               ON parent_membership.data_source_id = edge.source_data_source_id \
+              AND parent_membership.page_block_id = edge.target_page_block_id \
+              AND parent_membership.removed_at IS NULL \
+             JOIN page_read_model parent_model \
+               ON parent_model.page_block_id = parent_membership.page_block_id \
+              AND parent_model.membership_id = parent_membership.id \
+              AND parent_model.lifecycle = 'active' \
+             WHERE edge.source_data_source_id = ?1 \
+               AND edge.property_id = 'task_parent' \
+             ORDER BY edge.target_page_block_id, edge.sibling_rank, \
+                      membership.page_block_id",
         )?
         .query_map([data_source_id], |row| {
             Ok((
@@ -579,6 +598,7 @@ fn list_summary(
         return Ok(Some(summary.clone()));
     }
     let summary = summary_by_id(connection, view, page_id)?;
+    let summary = summary.filter(|summary| summary.lifecycle == "active");
     if let Some(summary) = &summary {
         summaries.insert(page_id.to_owned(), summary.clone());
     }
@@ -813,7 +833,7 @@ fn flatten_list_node(
             .is_some_and(|child_page_ids| !child_page_ids.is_empty()),
         transient_kind: node.transient_kind,
         sibling_rank: node.summary.task_sibling_rank.clone(),
-        hierarchy_revision: node.summary.task_hierarchy_revision,
+        task_parent_value_revision: node.summary.task_parent_value_revision,
     });
     ancestors.push(page_id.to_owned());
     for child_page_id in children.get(page_id).into_iter().flatten() {
@@ -855,7 +875,7 @@ fn flatten_list_path(
                     has_children: false,
                     transient_kind: node.transient_kind,
                     sibling_rank: node.summary.task_sibling_rank.clone(),
-                    hierarchy_revision: node.summary.task_hierarchy_revision,
+                    task_parent_value_revision: node.summary.task_parent_value_revision,
                 })
             })
             .collect();
@@ -1325,8 +1345,8 @@ fn view_window_for(
              membership.revision, membership.created_at, model.created_at, model.updated_at, \
              {effective_group_select} AS effective_group_key, \
              {effective_subgroup_select} AS effective_subgroup_key, position.rank_key, \
-             position.revision, NULL AS position_order, hierarchy.parent_page_id, \
-             hierarchy.sibling_rank, COALESCE(hierarchy.revision, 0), {sort_projection} \
+             position.revision, NULL AS position_order, hierarchy.target_page_block_id, \
+             hierarchy.sibling_rank, parent_value.revision, {sort_projection} \
            FROM data_source_page_memberships membership \
            JOIN page_read_model model \
              ON model.page_block_id = membership.page_block_id \
@@ -1343,9 +1363,26 @@ fn view_window_for(
            LEFT JOIN database_view_page_positions position \
              ON position.view_id = {position_view} \
              AND position.page_block_id = membership.page_block_id \
-           LEFT JOIN database_task_hierarchy_edges hierarchy \
-             ON hierarchy.data_source_id = membership.data_source_id \
-             AND hierarchy.child_page_id = membership.page_block_id \
+           JOIN data_source_property_values parent_value \
+             ON parent_value.data_source_id = membership.data_source_id \
+             AND parent_value.membership_id = membership.id \
+             AND parent_value.property_id = 'task_parent' \
+             AND parent_value.value_type = 'relation' \
+             AND json_type(parent_value.value_json) = 'null' \
+           LEFT JOIN data_source_relation_edges hierarchy \
+             ON hierarchy.source_data_source_id = membership.data_source_id \
+             AND hierarchy.source_membership_id = membership.id \
+             AND hierarchy.property_id = 'task_parent' \
+             AND EXISTS (\
+               SELECT 1 FROM data_source_page_memberships parent_membership \
+               JOIN page_read_model parent_model \
+                 ON parent_model.page_block_id = parent_membership.page_block_id \
+                AND parent_model.membership_id = parent_membership.id \
+               WHERE parent_membership.data_source_id = membership.data_source_id \
+                 AND parent_membership.page_block_id = hierarchy.target_page_block_id \
+                 AND parent_membership.removed_at IS NULL \
+                 AND parent_model.lifecycle = 'active'\
+             ) \
            WHERE membership.data_source_id = {source} \
              AND membership.removed_at IS NULL \
              AND model.lifecycle = 'active' \
@@ -2537,8 +2574,8 @@ fn summary_by_id(
                   AND (peer.rank_key < position.rank_key \
                     OR (peer.rank_key = position.rank_key \
                       AND peer.page_block_id < position.page_block_id))), \
-               hierarchy.parent_page_id, hierarchy.sibling_rank, \
-               COALESCE(hierarchy.revision, 0) \
+               hierarchy.target_page_block_id, hierarchy.sibling_rank, \
+               parent_value.revision \
              FROM data_source_page_memberships membership \
              JOIN page_read_model model \
                ON model.page_block_id = membership.page_block_id \
@@ -2555,9 +2592,26 @@ fn summary_by_id(
              LEFT JOIN database_view_page_positions position \
                ON position.view_id = {view_parameter} \
                  AND position.page_block_id = model.page_block_id \
-             LEFT JOIN database_task_hierarchy_edges hierarchy \
-               ON hierarchy.data_source_id = membership.data_source_id \
-               AND hierarchy.child_page_id = membership.page_block_id \
+             JOIN data_source_property_values parent_value \
+               ON parent_value.data_source_id = membership.data_source_id \
+               AND parent_value.membership_id = membership.id \
+               AND parent_value.property_id = 'task_parent' \
+               AND parent_value.value_type = 'relation' \
+               AND json_type(parent_value.value_json) = 'null' \
+             LEFT JOIN data_source_relation_edges hierarchy \
+               ON hierarchy.source_data_source_id = membership.data_source_id \
+               AND hierarchy.source_membership_id = membership.id \
+               AND hierarchy.property_id = 'task_parent' \
+               AND EXISTS (\
+                 SELECT 1 FROM data_source_page_memberships parent_membership \
+                 JOIN page_read_model parent_model \
+                   ON parent_model.page_block_id = parent_membership.page_block_id \
+                  AND parent_model.membership_id = parent_membership.id \
+                 WHERE parent_membership.data_source_id = membership.data_source_id \
+                   AND parent_membership.page_block_id = hierarchy.target_page_block_id \
+                   AND parent_membership.removed_at IS NULL \
+                   AND parent_model.lifecycle = 'active'\
+               ) \
              WHERE membership.data_source_id = {source_parameter} \
                AND membership.removed_at IS NULL \
                AND model.lifecycle <> 'deleted' AND model.page_block_id = {page_parameter}"
@@ -2618,7 +2672,7 @@ fn summary_from_row(row: &Row<'_>, sort_component_count: usize) -> rusqlite::Res
             position_order: row.get(24)?,
             task_parent_page_id: row.get(25)?,
             task_sibling_rank: row.get(26)?,
-            task_hierarchy_revision: row.get(27)?,
+            task_parent_value_revision: row.get(27)?,
         },
         coordinate_values,
     })

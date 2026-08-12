@@ -73,6 +73,11 @@ export interface DatabaseListPropertyRuntime {
       readonly removeEdgeIds: readonly string[];
     },
   ) => void;
+  readonly onReplaceRelation: (
+    pageId: string,
+    property: DataSourcePropertyRecordV2,
+    targetPageId: string | null,
+  ) => void;
   readonly onCreateOption: (
     pageId: string,
     property: DataSourcePropertyRecordV2,
@@ -226,12 +231,18 @@ function PropertyEditor({
         onRequestOptions={() => runtime.onRequestOptions(property)}
         onRequestMoreOptions={() => runtime.onRequestMoreOptions(property)}
         relationCandidates={runtime.relationCandidates}
+        relationSourcePageId={pageId}
         onChange={(value) => runtime.onSetValue(pageId, property.propertyId, value)}
         onPatchOptions={(delta) => runtime.onPatchOptions(pageId, property, delta)}
         onPatchRelation={(delta) => runtime.onPatchRelation(
           pageId,
           property.propertyId,
           delta,
+        )}
+        onReplaceRelation={(targetPageId) => runtime.onReplaceRelation(
+          pageId,
+          property,
+          targetPageId,
         )}
         onCreateOption={(option) => runtime.onCreateOption(pageId, property, option)}
         onLoadRelationTargets={(after) => runtime.onLoadRelationTargets(

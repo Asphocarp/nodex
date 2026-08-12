@@ -24,6 +24,7 @@ import type {
 } from "./types";
 
 export interface PageStagePropertyControls {
+  readonly pageId: string | null;
   readonly properties: readonly PageStageDataSourceProperty[];
   readonly primaryProperties: readonly PageStageDataSourceProperty[];
   readonly sectionProperties: readonly PageStageDataSourceProperty[];
@@ -50,6 +51,10 @@ export interface PageStagePropertyControls {
       readonly addPageIds: readonly string[];
       readonly removeEdgeIds: readonly string[];
     },
+  ) => Promise<PageStageMetadataMutationResult>;
+  readonly replaceRelation: (
+    property: PageStageDataSourceProperty,
+    targetPageId: string | null,
   ) => Promise<PageStageMetadataMutationResult>;
   readonly patchMultiSelect: (
     property: PageStageDataSourceProperty,
@@ -227,6 +232,15 @@ export function usePageStageProperties(input: {
     },
   ) => edit(property, { kind: "patch_relation", ...delta }), [edit]);
 
+  const replaceRelation = useCallback((
+    property: PageStageDataSourceProperty,
+    targetPageId: string | null,
+  ) => edit(property, {
+    kind: "replace_relation",
+    targetPageId,
+    expectedValueRevision: property.valueRevision,
+  }), [edit]);
+
   const patchMultiSelect = useCallback((
     property: PageStageDataSourceProperty,
     delta: {
@@ -305,6 +319,7 @@ export function usePageStageProperties(input: {
   );
 
   return useMemo(() => ({
+    pageId: pageModel?.page.id ?? null,
     properties,
     primaryProperties: properties.filter(isPageStagePrimaryProperty),
     sectionProperties: semantic
@@ -324,6 +339,7 @@ export function usePageStageProperties(input: {
     errors,
     edit,
     patchRelation,
+    replaceRelation,
     patchMultiSelect,
     createOptionAndSelect,
     loadRelationTargets,
@@ -343,9 +359,11 @@ export function usePageStageProperties(input: {
     optionRegistryHasMore,
     optionRegistryLoadingMore,
     patchRelation,
+    replaceRelation,
     patchMultiSelect,
     createOptionAndSelect,
     properties,
+    pageModel?.page.id,
     searchRelationCandidates,
     loadRelationTargetDescriptor,
     refreshRelationValue,

@@ -31,6 +31,7 @@ export function PageStageDataSourcePropertyControl({
         pending={pending}
         showLabel={showLabel}
         presentation="page"
+        relationSourcePageId={controls.pageId ?? undefined}
         options={controls.options[propertyId] ?? []}
         optionRegistryState={controls.optionRegistryStates[propertyId] ?? "ready"}
         optionRegistryHasMore={controls.optionRegistryHasMore[propertyId] ?? false}
@@ -55,6 +56,9 @@ export function PageStageDataSourcePropertyControl({
         }}
         onPatchRelation={(delta) => {
           void controls.patchRelation(item, delta);
+        }}
+        onReplaceRelation={(targetPageId) => {
+          void controls.replaceRelation(item, targetPageId);
         }}
         onPatchOptions={(delta) => {
           void controls.patchMultiSelect(item, delta);
