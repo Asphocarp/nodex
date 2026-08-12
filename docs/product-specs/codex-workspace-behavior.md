@@ -120,6 +120,13 @@ credentials and authenticated account state remain Main-owned and never enter
 renderer persistence. Import of external-agent data is explicit, selective,
 and never imports credentials, approval policy, or another product database.
 
+Within one Profile, Main owns one generation-fenced app-server lifecycle.
+Concurrent consumers join the same cold start; stop, failed initialization, and
+reconnect retire the previous generation before another process can become
+authoritative. A recovered connection refreshes and republishes the canonical
+account snapshot. Until that snapshot is known, renderer account controls stay
+unresolved rather than treating a transport failure as a signed-out account.
+
 ## Task actions and export
 
 Chat actions support the applicable Pin/Unpin, Rename, Archive, Side chat,
