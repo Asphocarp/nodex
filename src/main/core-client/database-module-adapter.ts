@@ -6,6 +6,7 @@ import type {
   DatabaseModuleReadRequestV2,
   DatabaseModuleReadResultV2,
   DatabaseReadV2,
+  DatabaseReadValueV2,
   DatabaseContainerDescriptorV2,
   DataSourceDescriptorV2,
   DataSourcePropertyRecordV2,
@@ -16,8 +17,15 @@ import type {
 } from "../../shared/database-module-v2";
 import { DATABASE_MODULE_V2_CONTRACT_VERSION } from "../../shared/database-module-v2";
 import {
+  parseDatabaseId,
+  parseDatabaseViewId,
+  parseDataSourceId,
+} from "../../shared/database-identities";
+import type { DatabaseViewConfigV4 } from "../../shared/database-kernel";
+import {
   parseDatabaseApplyResultV2,
   parseDatabaseModuleReadResultV2,
+  parseDataSourcePropertyRecordV2,
   parseLibraryDatabaseApplyResultV2,
   parseLibraryDatabaseModuleReadResultV2,
 } from "../../shared/database-module-v2-transport";
@@ -76,56 +84,67 @@ export interface CoreLibraryDatabaseModuleAdapter {
   apply(request: LibraryDatabaseApplyV2): Promise<LibraryDatabaseApplyResultV2>;
 }
 
-const toCoreTarget = (target: DatabaseReadV2["target"]): DatabaseRead["target"] => {
-  if (target.kind === "project_default") return target;
-  if (target.kind === "database") {
-    return { kind: target.kind, database_id: target.databaseId };
-  }
-  if (target.kind === "data_source") {
-    return { kind: target.kind, data_source_id: target.dataSourceId };
-  }
-  if (target.kind === "property") {
-    return {
-      kind: target.kind,
-      data_source_id: target.dataSourceId,
-      property_id: target.propertyId,
-    };
-  }
-  if (target.kind === "page_property") {
-    return {
-      kind: target.kind,
-      page_id: target.pageId,
-      data_source_id: target.dataSourceId,
-      property_id: target.propertyId,
-    };
-  }
-  return { kind: target.kind, view_id: target.viewId };
-};
-
-const toCoreFilter = (read: DatabaseReadV2): DatabaseRead["filter"] => {
-  if (read.mode !== "relation_candidate_window") return null;
-  if (read.query === undefined) return null;
-  return { query: read.query };
-};
-
-const toCoreRead = (read: DatabaseReadV2): DatabaseRead => ({
-  target: toCoreTarget(read.target),
-  mode: read.mode,
-  filter: toCoreFilter(read),
-  sort: null,
-  ...(
-    read.mode === "relation_target_window"
-    || read.mode === "relation_candidate_window"
-    || read.mode === "option_window"
-    || read.mode === "catalog_window"
-    ? {
-        window: {
-          after: read.window?.after ?? null,
-          first: read.window?.first ?? 100,
-        },
-      }
-    : {}),
+const coreWindow = (
+  window: { readonly after?: string | null; readonly first?: number } | undefined,
+) => ({
+  after: window?.after ?? null,
+  first: window?.first ?? 100,
 });
+
+const toCoreRead = (read: DatabaseReadV2): DatabaseRead => {
+  switch (read.mode) {
+    case "catalog_window":
+      return { kind: "catalog_window", window: coreWindow(read.window) };
+    case "database":
+      return {
+        kind: "database",
+        target: read.target.kind === "project_default"
+          ? { kind: "project_default" }
+          : { kind: "database", database_id: read.target.databaseId },
+      };
+    case "data_source":
+      return {
+        kind: "data_source",
+        data_source_id: read.target.dataSourceId,
+      };
+    case "relation_candidate_window":
+      return {
+        kind: "relation_candidate_window",
+        data_source_id: read.target.dataSourceId,
+        query: read.query ?? null,
+        window: coreWindow(read.window),
+      };
+    case "view":
+      return { kind: "view", view_id: read.target.viewId };
+    case "view_personal_presentation":
+      return {
+        kind: "view_personal_presentation",
+        view_id: read.target.viewId,
+      };
+    case "view_collapsed_occurrences":
+      return {
+        kind: "view_collapsed_occurrences",
+        view_id: read.target.viewId,
+      };
+    case "relation_target_window":
+      return {
+        kind: "relation_target_window",
+        address: {
+          page_id: read.target.pageId,
+          data_source_id: read.target.dataSourceId,
+          property_id: read.target.propertyId,
+        },
+        window: coreWindow(read.window),
+      };
+    case "option_window":
+      return {
+        kind: "option_window",
+        data_source_id: read.target.dataSourceId,
+        property_id: read.target.propertyId,
+        window: coreWindow(read.window),
+      };
+  }
+};
 
 const MINIMUM_COMMIT_READ_ATTEMPTS = 40;
 const MINIMUM_COMMIT_READ_DELAY_MS = 5;
@@ -315,11 +334,16 @@ export const toCoreDatabaseIntent = (
                   return value;
                 })(),
               }
-            : mutation.edit.kind === "replace_relation"
+            : mutation.edit.kind === "replace_one_relation"
               ? {
-                  kind: "replace_relation" as const,
+                  kind: "replace_one_relation" as const,
                   expected_value_revision: mutation.edit.expectedValueRevision,
                   target_page_id: mutation.edit.targetPageId ?? null,
+                }
+            : mutation.edit.kind === "clear_many_relation"
+              ? {
+                  kind: "clear_many_relation" as const,
+                  expected_value_revision: mutation.edit.expectedValueRevision,
                 }
             : {
                 kind: "patch_set" as const,
@@ -354,8 +378,11 @@ export const toCoreDatabaseIntent = (
         view_id: operation.viewId,
         expected_revision: operation.expectedRevision,
         name: operation.name,
-        default_layout: operation.defaultLayout,
-        config: operation.config,
+        layout: operation.defaultLayout,
+        definition: {
+          filter: operation.config.filter,
+          presentation: operation.config.presentation,
+        },
         is_default: operation.isDefault,
         before_view_id: operation.beforeViewId ?? null,
       };
@@ -395,7 +422,7 @@ export const toCoreDatabaseIntent = (
         parent_page_id: operation.parentPageId ?? null,
         before_page_id: operation.beforePageId ?? null,
       };
-    case "put_view_personal_preferences":
+    case "put_view_personal_presentation":
       return {
         kind: operation.kind,
         view_id: operation.viewId,
@@ -403,7 +430,16 @@ export const toCoreDatabaseIntent = (
         presentation_override: toCoreDatabaseViewPresentationOverride(
           operation.presentationOverride,
         ),
-        collapsed_group_keys: operation.collapsedGroupKeys,
+      };
+    case "set_view_occurrence_disclosure":
+      return {
+        kind: operation.kind,
+        view_id: operation.viewId,
+        target: {
+          kind: operation.target.kind,
+          occurrence_key: operation.target.occurrenceKey,
+        },
+        collapsed: operation.collapsed,
       };
   }
 };
@@ -449,18 +485,18 @@ const coreReceiptEvidence = (
   committedAt: committed.receipt.committed_at,
 });
 
-interface CoreWindowSlice {
-  readonly items: readonly unknown[];
+interface CoreWindowSlice<Item> {
+  readonly items: readonly Item[];
   readonly next_cursor?: string | null;
 }
 
-const readAllCoreWindow = async (
+const readAllCoreWindow = async <Item>(
   client: CoreClientPort,
   maximumItems: number,
   createRead: (after: string | null) => DatabaseRead,
-  selectWindow: (snapshot: DatabaseReadSnapshot) => CoreWindowSlice,
-): Promise<readonly unknown[]> => {
-  const items: unknown[] = [];
+  selectWindow: (snapshot: DatabaseReadSnapshot) => CoreWindowSlice<Item>,
+): Promise<readonly Item[]> => {
+  const items: Item[] = [];
   let after: string | null = null;
   do {
     const snapshot = await client.databaseRead(createRead(after));
@@ -506,6 +542,91 @@ const requireRelationCardinality = (
   throw new Error("Core Relation schema has invalid cardinality");
 };
 
+type CoreDatabaseReadValue = DatabaseReadSnapshot["value"];
+type CoreDatabaseDescriptor = Extract<
+  CoreDatabaseReadValue,
+  { readonly kind: "database" }
+>["value"];
+type CoreDatabaseRecord = CoreDatabaseDescriptor["database"];
+type CoreDataSourceDescriptor = Extract<
+  CoreDatabaseReadValue,
+  { readonly kind: "data_source" }
+>["value"];
+type CoreDataSourceRecord = CoreDataSourceDescriptor["data_source"];
+type CoreViewRecord = Extract<
+  CoreDatabaseReadValue,
+  { readonly kind: "view" }
+>["value"];
+
+const databaseLifecycle = (
+  lifecycle: string,
+): "active" | "archived" | "deleted" => {
+  if (
+    lifecycle === "active"
+    || lifecycle === "archived"
+    || lifecycle === "deleted"
+  ) return lifecycle;
+  throw new Error(`Core Database lifecycle is invalid: ${lifecycle}`);
+};
+
+const viewLifecycle = (lifecycle: string): "active" | "deleted" => {
+  if (lifecycle === "active" || lifecycle === "deleted") return lifecycle;
+  throw new Error(`Core Database View lifecycle is invalid: ${lifecycle}`);
+};
+
+const mapCoreDatabaseRecord = (
+  record: CoreDatabaseRecord,
+): DatabaseContainerDescriptorV2["database"] => ({
+  databaseId: parseDatabaseId(record.database_id),
+  libraryId: record.library_id,
+  name: record.name,
+  lifecycle: databaseLifecycle(record.lifecycle),
+  defaultViewId: record.default_view_id == null
+    ? null
+    : parseDatabaseViewId(record.default_view_id),
+  accessRevision: record.access_revision,
+  metadataRevision: record.metadata_revision,
+  createdAt: record.created_at,
+  updatedAt: record.updated_at,
+});
+
+const mapCoreDataSourceRecord = (
+  record: CoreDataSourceRecord,
+): DataSourceDescriptorV2["dataSource"] => ({
+  dataSourceId: parseDataSourceId(record.data_source_id),
+  libraryId: record.library_id,
+  homeDatabaseId: parseDatabaseId(record.home_database_id),
+  name: record.name,
+  schemaKey: record.schema_key,
+  schemaRevision: record.schema_revision,
+  lifecycle: databaseLifecycle(record.lifecycle),
+  rankKey: record.rank_key,
+  createdAt: record.created_at,
+  updatedAt: record.updated_at,
+});
+
+const mapCoreViewRecord = (
+  record: CoreViewRecord,
+): DatabaseContainerDescriptorV2["views"][number] => ({
+  viewId: parseDatabaseViewId(record.view_id),
+  databaseId: parseDatabaseId(record.database_id),
+  dataSourceId: parseDataSourceId(record.data_source_id),
+  name: record.name,
+  defaultLayout: record.layout,
+  config: {
+    schemaKey: "nodex.database-view",
+    schemaVersion: 4,
+    filter: record.definition.filter,
+    presentation: record.definition.presentation,
+  } as DatabaseViewConfigV4,
+  isDefault: record.is_default,
+  revision: record.revision,
+  rankKey: record.rank_key,
+  lifecycle: viewLifecycle(record.lifecycle),
+  createdAt: record.created_at,
+  updatedAt: record.updated_at,
+});
+
 export const mapCorePropertyDescriptor = (
   input: unknown,
 ): DataSourcePropertyRecordV2 => {
@@ -528,7 +649,7 @@ export const mapCorePropertyDescriptor = (
     property.capabilities,
     "Core Property capabilities",
   );
-  return {
+  return parseDataSourcePropertyRecordV2({
     propertyId: requireString(property, "property_id", "Core Property"),
     dataSourceId: requireString(property, "data_source_id", "Core Property"),
     name: requireString(property, "name", "Core Property"),
@@ -544,11 +665,6 @@ export const mapCorePropertyDescriptor = (
         }
       : { kind: schemaKind },
     capabilities: {
-      replace: capabilities.replace === true,
-      patchSetMember: capabilities.patch_set_member === "option"
-          || capabilities.patch_set_member === "page"
-        ? capabilities.patch_set_member
-        : null,
       filterOperators: Array.isArray(capabilities.filter_operators)
         ? capabilities.filter_operators as NonNullable<DataSourcePropertyRecordV2["capabilities"]>["filterOperators"]
         : [],
@@ -563,7 +679,7 @@ export const mapCorePropertyDescriptor = (
     revision: Number(property.revision),
     createdAt: requireString(property, "created_at", "Core Property"),
     updatedAt: requireString(property, "updated_at", "Core Property"),
-  } as unknown as DataSourcePropertyRecordV2;
+  });
 };
 
 const hydrateCoreProperty = async (
@@ -573,27 +689,16 @@ const hydrateCoreProperty = async (
 
 const hydrateCoreDataSource = async (
   client: CoreClientPort,
-  compact: unknown,
+  descriptor: CoreDataSourceDescriptor,
 ): Promise<DataSourceDescriptorV2> => {
-  const descriptor = requireRecord(compact, "Core Data Source descriptor");
-  const dataSource = requireRecord(
-    descriptor.dataSource,
-    "Core Data Source record",
-  );
-  const dataSourceId = requireString(
-    dataSource,
-    "dataSourceId",
-    "Core Data Source",
-  );
+  const dataSource = descriptor.data_source;
+  const dataSourceId = dataSource.data_source_id;
   const compactProperties = await readAllCoreWindow(
     client,
     200,
     (after) => ({
-      target: { kind: "data_source", data_source_id: dataSourceId },
-      mode: "property_window",
-      filter: null,
-      sort: null,
-      page_ids: null,
+      kind: "property_window",
+      data_source_id: dataSourceId,
       window: { after, first: 200 },
     }),
     (snapshot) => {
@@ -608,28 +713,24 @@ const hydrateCoreDataSource = async (
     properties.push(await hydrateCoreProperty(client, property));
   }
   return {
-    dataSource: dataSource as unknown as DataSourceDescriptorV2["dataSource"],
+    dataSource: mapCoreDataSourceRecord(dataSource),
     properties,
   };
 };
 
 const hydrateCoreDatabase = async (
   client: CoreClientPort,
-  compact: unknown,
+  descriptor: CoreDatabaseDescriptor,
 ): Promise<DatabaseContainerDescriptorV2> => {
-  const descriptor = requireRecord(compact, "Core Database descriptor");
-  const database = requireRecord(descriptor.database, "Core Database record");
-  const databaseId = requireString(database, "databaseId", "Core Database");
+  const database = descriptor.database;
+  const databaseId = database.database_id;
   const [dataSources, views] = await Promise.all([
     readAllCoreWindow(
       client,
       200,
       (after) => ({
-        target: { kind: "database", database_id: databaseId },
-        mode: "data_source_window",
-        filter: null,
-        sort: null,
-        page_ids: null,
+        kind: "data_source_window",
+        database_id: databaseId,
         window: { after, first: 200 },
       }),
       (snapshot) => {
@@ -643,11 +744,8 @@ const hydrateCoreDatabase = async (
       client,
       200,
       (after) => ({
-        target: { kind: "database", database_id: databaseId },
-        mode: "view_descriptor_window",
-        filter: null,
-        sort: null,
-        page_ids: null,
+        kind: "view_descriptor_window",
+        database_id: databaseId,
         window: { after, first: 200 },
       }),
       (snapshot) => {
@@ -659,18 +757,16 @@ const hydrateCoreDatabase = async (
     ),
   ]);
   return {
-    database:
-      database as unknown as DatabaseContainerDescriptorV2["database"],
-    dataSources:
-      dataSources as unknown as DatabaseContainerDescriptorV2["dataSources"],
-    views: views as unknown as DatabaseContainerDescriptorV2["views"],
+    database: mapCoreDatabaseRecord(database),
+    dataSources: dataSources.map(mapCoreDataSourceRecord),
+    views: views.map(mapCoreViewRecord),
   };
 };
 
 const hydrateCoreReadValue = async (
   client: CoreClientPort,
   value: DatabaseReadSnapshot["value"],
-): Promise<unknown> => {
+): Promise<DatabaseReadValueV2> => {
   if (value.kind === "catalog_window") {
     const databases: DatabaseContainerDescriptorV2[] = [];
     for (const compact of value.databases.items) {
@@ -697,15 +793,31 @@ const hydrateCoreReadValue = async (
       value: await hydrateCoreDataSource(client, value.value),
     };
   }
-  if (value.kind === "view_personal_preferences") {
+  if (value.kind === "view") {
+    return {
+      kind: value.kind,
+      value: mapCoreViewRecord(value.value),
+    };
+  }
+  if (value.kind === "view_personal_presentation") {
     return {
       kind: value.kind,
       value: {
         presentationOverride: fromCoreDatabaseViewPresentationOverride(
           value.value.presentation_override,
         ),
-        collapsedGroupKeys: value.value.collapsed_group_keys,
         revision: value.value.revision,
+      },
+    };
+  }
+  if (value.kind === "view_collapsed_occurrences") {
+    return {
+      kind: value.kind,
+      value: {
+        targets: value.value.targets.map((target) => ({
+          kind: target.kind,
+          occurrenceKey: target.occurrence_key,
+        })),
       },
     };
   }
@@ -734,18 +846,11 @@ const hydrateCoreReadValue = async (
     return {
       kind: value.kind,
       value: {
-        options: value.options.items.map((candidate) => {
-          const option = requireRecord(candidate, "Core Property option");
-          const color = option.color;
-          if (color !== undefined && color !== null && typeof color !== "string") {
-            throw new Error("Core Property option color is invalid");
-          }
-          return {
-            id: requireString(option, "id", "Core Property option"),
-            name: requireString(option, "name", "Core Property option"),
-            ...(typeof color === "string" ? { color } : {}),
-          };
-        }),
+        options: value.options.items.map((option) => ({
+          id: option.id,
+          name: option.name,
+          ...(option.color == null ? {} : { color: option.color }),
+        })),
         nextCursor: value.options.next_cursor ?? null,
         projectionRevision: value.options.authority.projection_revision,
       },
@@ -764,7 +869,7 @@ const hydrateCoreReadValue = async (
       },
     };
   }
-  return value;
+  throw new Error(`Core returned unsupported Database read kind ${value.kind}`);
 };
 
 export const createCoreDatabaseModuleAdapter = (

@@ -102,6 +102,7 @@ interface CardProps {
 interface CardBodyProps {
   card: CardType;
   columnId: string;
+  tagOptions: readonly DatabasePropertyOption[];
   displayPrefs?: DbViewDisplayPrefs;
   position: CardPropertyPosition;
   activeProperty: CardEditableProperty | null;
@@ -116,6 +117,7 @@ interface CardBodyProps {
 function CardPropertyBadges({
   card,
   columnId,
+  tagOptions,
   displayPrefs,
   layout = "stacked",
   className,
@@ -125,6 +127,7 @@ function CardPropertyBadges({
 }: {
   card: CardType;
   columnId: string;
+  tagOptions: readonly DatabasePropertyOption[];
   displayPrefs?: DbViewDisplayPrefs;
   layout?: CardPropertyBadgeLayout;
   className?: string;
@@ -158,6 +161,7 @@ function CardPropertyBadges({
   );
   const showEmptyEstimate = displayPrefs?.showEmptyEstimate ?? false;
   const showEmptyPriority = displayPrefs?.showEmptyPriority ?? false;
+  const tagOptionById = new Map(tagOptions.map((option) => [option.id, option]));
 
   const renderEditableChip = (
     property: CardBadgeEditableProperty,
@@ -250,9 +254,9 @@ function CardPropertyBadges({
 
     if (property === "tags") {
       if (card.tags.length === 0) return null;
-      return card.tags.map((tag) => (
-        <Fragment key={tag}>
-          {renderTagChip(tag)}
+      return card.tags.map((optionId) => (
+        <Fragment key={optionId}>
+          {renderTagChip(tagOptionById.get(optionId)?.name ?? "Unknown option")}
         </Fragment>
       ));
     }
@@ -291,6 +295,7 @@ function CardPropertyBadges({
 const CardBody = memo(function CardBody({
   card,
   columnId,
+  tagOptions,
   displayPrefs,
   position,
   activeProperty,
@@ -307,6 +312,7 @@ const CardBody = memo(function CardBody({
         <CardPropertyBadges
           card={card}
           columnId={columnId}
+          tagOptions={tagOptions}
           displayPrefs={displayPrefs}
           layout="stacked"
           className="mx-1.5 pt-2 pb-1"
@@ -322,6 +328,7 @@ const CardBody = memo(function CardBody({
             <CardPropertyBadges
               card={card}
               columnId={columnId}
+              tagOptions={tagOptions}
               displayPrefs={displayPrefs}
               layout="inline"
               activeProperty={activeProperty}
@@ -347,6 +354,7 @@ const CardBody = memo(function CardBody({
         <CardPropertyBadges
           card={card}
           columnId={columnId}
+          tagOptions={tagOptions}
           displayPrefs={displayPrefs}
           layout="stacked"
           className="mx-1.5 pb-2"
@@ -368,6 +376,7 @@ const ResolvedCardBody = memo(function ResolvedCardBody({
   projectId,
   card,
   columnId,
+  tagOptions,
   displayPrefs,
   position,
   activeProperty,
@@ -394,6 +403,7 @@ const ResolvedCardBody = memo(function ResolvedCardBody({
     <CardBody
       card={resolvedCard}
       columnId={columnId}
+      tagOptions={tagOptions}
       displayPrefs={displayPrefs}
       position={position}
       activeProperty={activeProperty}
@@ -407,6 +417,7 @@ interface CardSurfaceProps extends React.HTMLAttributes<HTMLDivElement> {
   projectId?: string;
   card: CardType;
   columnId: string;
+  tagOptions: readonly DatabasePropertyOption[];
   displayPrefs?: DbViewDisplayPrefs;
   showStaticDragGhost?: boolean;
   fixedWidth?: number;
@@ -429,6 +440,7 @@ const CardSurface = forwardRef<HTMLDivElement, CardSurfaceProps>(function CardSu
   projectId,
   card,
   columnId,
+  tagOptions,
   displayPrefs,
   showStaticDragGhost = false,
   fixedWidth,
@@ -495,6 +507,7 @@ const CardSurface = forwardRef<HTMLDivElement, CardSurfaceProps>(function CardSu
         projectId={projectId}
         card={card}
         columnId={columnId}
+        tagOptions={tagOptions}
         displayPrefs={displayPrefs}
         position={position}
         activeProperty={activeProperty}
@@ -513,7 +526,8 @@ export function CardPreview({
   isSelected = false,
   fixedWidth,
   fixedHeight,
-}: Pick<CardProps, "projectId" | "card" | "columnId" | "displayPrefs" | "isSelected"> & {
+  tagOptions = [],
+}: Pick<CardProps, "projectId" | "card" | "columnId" | "displayPrefs" | "isSelected" | "tagOptions"> & {
   fixedWidth?: number;
   fixedHeight?: number;
 }) {
@@ -524,6 +538,7 @@ export function CardPreview({
       projectId={projectId}
       card={card}
       columnId={columnId}
+      tagOptions={tagOptions}
       displayPrefs={displayPrefs}
       isSelected={isSelected}
       fixedWidth={fixedWidth}
@@ -606,9 +621,9 @@ export function Card({
       if (propertyType === "tag") {
         const option = tagOptions.find((candidate) => candidate.id === value);
         if (!option) return;
-        const nextTags = card.tags.includes(option.name)
-          ? card.tags.filter((tag) => tag !== option.name)
-          : [...card.tags, option.name];
+        const nextTags = card.tags.includes(option.id)
+          ? card.tags.filter((optionId) => optionId !== option.id)
+          : [...card.tags, option.id];
         void onUpdateProperty({
           pageId: card.id,
           columnId,
@@ -759,6 +774,7 @@ export function Card({
       projectId={projectId}
       card={card}
       columnId={columnId}
+      tagOptions={tagOptions}
       displayPrefs={displayPrefs}
       className="bn-drag-exclude"
       showStaticDragGhost={showStaticDragGhost}
@@ -809,6 +825,7 @@ export function Card({
                 projectId={projectId}
                 card={card}
                 columnId={columnId}
+                tagOptions={tagOptions}
                 displayPrefs={displayPrefs}
                 isSelected={dragState.itemCount > 1}
                 fixedWidth={dragState.rect.width}
@@ -831,9 +848,7 @@ export function Card({
             : activeChipEdit.property}
           currentToken={activeChipEdit.currentToken}
           selectedValues={activeChipEdit.property === "tags"
-            ? tagOptions
-                .filter((option) => card.tags.includes(option.name))
-                .map((option) => option.id)
+            ? card.tags
             : undefined}
           options={activeChipEdit.property === "tags" ? tagOptions : undefined}
           pageId={card.id}

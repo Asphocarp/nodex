@@ -25,12 +25,14 @@ pub(crate) use mutation::{
     place_copied_page_in_data_source, place_copied_page_in_data_source_prevalidated,
     place_staged_page_in_data_source, place_staged_page_in_data_source_prevalidated,
     refresh_transferred_page_projection as refresh_copied_page_projection,
-    resolve_page_copy_data_source_project, resolve_page_copy_data_source_project_prevalidated,
-    resolve_page_copy_data_source_source, resolve_page_transfer_data_source_destination,
+    resolve_page_transfer_data_source_destination,
     resolve_page_transfer_data_source_destination_prevalidated,
-    resolve_page_transfer_data_source_source, synchronize_membership_completion_timestamp,
-    synchronize_relation_value_projections, transfer_existing_page_for_agent_move_prevalidated,
-    transfer_existing_page_for_block_transfer,
+    synchronize_membership_completion_timestamp, synchronize_relation_value_projections,
+    transfer_existing_page_for_agent_move_prevalidated, transfer_existing_page_for_block_transfer,
+    validate_page_copy_data_source_destination,
+    validate_page_copy_data_source_destination_prevalidated, validate_page_copy_data_source_source,
+    validate_page_transfer_data_source_source,
+    validate_page_transfer_data_source_source_prevalidated,
 };
 pub(crate) use projection_delta::{
     record_local_projection_delta, record_page_detail_projection_delta,
@@ -268,15 +270,18 @@ mod tests {
     use nodex_core_contracts::agent::{AgentExecutionAuthorization, AgentTurnProvenance};
     use nodex_core_contracts::collection::CollectionWindowRequest;
     use nodex_core_contracts::database::{
-        DatabaseAgentQuery, DatabaseGroupScope, DatabaseIntent, DatabaseListProjectionRow,
-        DatabaseListTransientKind, DatabasePagePropertyAddress, DatabasePropertySchema,
-        DatabasePropertySetDelta, DatabasePropertyValueEdit, DatabasePropertyValueInput,
-        DatabasePropertyValueMutation, DatabaseReadMode, DatabaseTarget, DatabaseTaskParentPage,
-        DatabaseTransferTarget, DatabaseViewCompletedRangeInput,
-        DatabaseViewCompletionOverrideInput, DatabaseViewFieldInput,
-        DatabaseViewGroupOverrideInput, DatabaseViewLayoutDisplayOverrideInput,
-        DatabaseViewLayoutInput, DatabaseViewLayoutsOverrideInput,
-        DatabaseViewPresentationOverrideInput, DatabaseViewSortDirectionInput,
+        DatabaseAgentDataSourceQuery, DatabaseAgentViewQuery, DatabaseGroupScope, DatabaseIntent,
+        DatabaseListProjectionRow, DatabaseListTransientKind, DatabasePagePropertyAddress,
+        DatabasePropertySchema, DatabasePropertySetDelta, DatabasePropertyValueEdit,
+        DatabasePropertyValueInput, DatabasePropertyValueMutation, DatabaseRowsTarget,
+        DatabaseTaskParentPage, DatabaseTransferTarget, DatabaseViewCompletedRangeInput,
+        DatabaseViewCompletionOverrideInput, DatabaseViewDefinition, DatabaseViewDisclosureTarget,
+        DatabaseViewFieldInput, DatabaseViewFilter, DatabaseViewFilterGroupOperator,
+        DatabaseViewFilterOperator, DatabaseViewGroupOverrideInput, DatabaseViewLayout,
+        DatabaseViewLayoutDisplayOverrideInput, DatabaseViewLayoutInput,
+        DatabaseViewLayoutsOverrideInput, DatabaseViewNullOrder, DatabaseViewPersonalPresentation,
+        DatabaseViewPresentationOverrideInput, DatabaseViewReadTarget, DatabaseViewSort,
+        DatabaseViewSortDirection, DatabaseViewSortDirectionInput, DatabaseViewSortField,
     };
     use nodex_core_contracts::library::{
         LIBRARY_CONTRACT_VERSION, LibraryIntent, LibraryPageLifecycleMutation, LibraryWriteParent,
@@ -333,6 +338,11 @@ mod tests {
                 }
             }
         })
+    }
+
+    fn view_definition(config: Value) -> DatabaseViewDefinition {
+        super::view_contract::decode_definition_value(config)
+            .expect("test View config must satisfy the durable definition contract")
     }
 
     fn context() -> BoundModuleContext {
@@ -433,6 +443,30 @@ mod tests {
             .expect("bind Project Database");
 
         let module = DatabaseModule::new("profile-1", "library-1", &kernel);
+        let noncanonical_custom_property = module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    operation_id: "operation:reject-noncanonical-property".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: vec![DatabaseIntent::PutProperty {
+                        data_source_id: SOURCE_ID.to_owned(),
+                        property_id: "risk".to_owned(),
+                        expected_data_source_revision: 1,
+                        expected_property_revision: 0,
+                        name: "Risk".to_owned(),
+                        schema: DatabasePropertySchema::Select,
+                        before_property_id: None,
+                    }],
+                },
+            )
+            .expect_err("reject a noncanonical custom Property identity");
+        assert_eq!(
+            noncanonical_custom_property.code,
+            CoreErrorCode::InvalidInput
+        );
+
         let invalid_priority_schema = module
             .apply(
                 &context(),
@@ -499,8 +533,8 @@ mod tests {
                         view_id: VIEW_ID.to_owned(),
                         expected_revision: view_revision,
                         name: "Product work".to_owned(),
-                        default_layout: "board".to_owned(),
-                        config: view_config(
+                        layout: DatabaseViewLayout::Board,
+                        definition: view_definition(view_config(
                             json!({
                                 "kind": "clause",
                                 "propertyId": "priority",
@@ -509,7 +543,7 @@ mod tests {
                             }),
                             Some("status"),
                             &["status", "priority", "estimate", "tags"],
-                        ),
+                        )),
                         is_default: true,
                         before_view_id: None,
                     }],
@@ -548,7 +582,7 @@ mod tests {
                         DatabaseIntent::PutOption {
                             data_source_id: SOURCE_ID.to_owned(),
                             property_id: "tags".to_owned(),
-                            option_id: "o_atomic1".to_owned(),
+                            option_id: "o_atomic01".to_owned(),
                             name: "Atomic".to_owned(),
                             color: Some("blue".to_owned()),
                             expected_property_revision: 1,
@@ -562,7 +596,7 @@ mod tests {
                                 },
                                 edit: DatabasePropertyValueEdit::PatchSet {
                                     delta: DatabasePropertySetDelta::MultiSelect {
-                                        add_option_ids: vec!["o_atomic1".to_owned()],
+                                        add_option_ids: vec!["o_atomic01".to_owned()],
                                         remove_option_ids: Vec::new(),
                                     },
                                 },
@@ -585,7 +619,7 @@ mod tests {
                         DatabaseIntent::PutOption {
                             data_source_id: SOURCE_ID.to_owned(),
                             property_id: "tags".to_owned(),
-                            option_id: "o_atomic1".to_owned(),
+                            option_id: "o_atomic01".to_owned(),
                             name: "Atomic".to_owned(),
                             color: Some("blue".to_owned()),
                             expected_property_revision: 1,
@@ -599,7 +633,7 @@ mod tests {
                                 },
                                 edit: DatabasePropertyValueEdit::PatchSet {
                                     delta: DatabasePropertySetDelta::MultiSelect {
-                                        add_option_ids: vec!["o_atomic1".to_owned()],
+                                        add_option_ids: vec!["o_atomic01".to_owned()],
                                         remove_option_ids: Vec::new(),
                                     },
                                 },
@@ -611,16 +645,36 @@ mod tests {
             .expect("replay the atomic operation receipt");
         assert_eq!(replayed.committed.value.operation_count, 2);
 
-        let noncanonical_tag = module.apply(
+        let noncanonical_tag_identity = module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    operation_id: "operation:reject-noncanonical-tag-identity".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: vec![DatabaseIntent::PutOption {
+                        data_source_id: SOURCE_ID.to_owned(),
+                        property_id: "tags".to_owned(),
+                        option_id: "tag:legacy".to_owned(),
+                        name: "Legacy".to_owned(),
+                        color: None,
+                        expected_property_revision: 2,
+                    }],
+                },
+            )
+            .expect_err("reject a noncanonical tags option identity");
+        assert_eq!(noncanonical_tag_identity.code, CoreErrorCode::InvalidInput);
+
+        let noncanonical_tag_name = module.apply(
             &context(),
             ModuleApplyRequest {
                 contract_version: DATABASE_CONTRACT_VERSION,
-                operation_id: "operation:reject-noncanonical-tag".to_owned(),
+                operation_id: "operation:reject-noncanonical-tag-name".to_owned(),
                 store_epoch: StoreEpoch("epoch-1".to_owned()),
                 intent: vec![DatabaseIntent::PutOption {
                     data_source_id: SOURCE_ID.to_owned(),
                     property_id: "tags".to_owned(),
-                    option_id: "o_noncanonical".to_owned(),
+                    option_id: "o_name0001".to_owned(),
                     name: "Cafe\u{301}".to_owned(),
                     color: None,
                     expected_property_revision: 2,
@@ -628,7 +682,7 @@ mod tests {
             },
         );
         assert!(
-            noncanonical_tag.is_err(),
+            noncanonical_tag_name.is_err(),
             "Tags option names must already be Unicode NFC"
         );
 
@@ -642,7 +696,7 @@ mod tests {
                     DatabaseIntent::PutOption {
                         data_source_id: SOURCE_ID.to_owned(),
                         property_id: "tags".to_owned(),
-                        option_id: "o_atomic2".to_owned(),
+                        option_id: "o_atomic02".to_owned(),
                         name: "Must roll back".to_owned(),
                         color: None,
                         expected_property_revision: 2,
@@ -656,7 +710,7 @@ mod tests {
                             },
                             edit: DatabasePropertyValueEdit::PatchSet {
                                 delta: DatabasePropertySetDelta::MultiSelect {
-                                    add_option_ids: vec!["o_atomic2".to_owned()],
+                                    add_option_ids: vec!["o_atomic02".to_owned()],
                                     remove_option_ids: Vec::new(),
                                 },
                             },
@@ -687,9 +741,9 @@ mod tests {
                     [SOURCE_ID],
                     |row| row.get::<_, String>(0),
                 )?;
-                assert!(config.contains("o_atomic1"));
-                assert!(!config.contains("o_atomic2"));
-                assert_eq!(value, "[\"o_atomic1\"]");
+                assert!(config.contains("o_atomic01"));
+                assert!(!config.contains("o_atomic02"));
+                assert_eq!(value, "[\"o_atomic01\"]");
                 Ok(())
             })
             .expect("option registry and value commit together");
@@ -786,17 +840,16 @@ mod tests {
                         [DATABASE_ID],
                     )?;
                     transaction.execute(
+                        "INSERT INTO data_source_properties(\
+                           data_source_id, id, name, value_type, config_json, rank_key, lifecycle, \
+                           schema_revision, created_at, updated_at\
+                         ) VALUES (?1, 'p_agent000', 'Agent note', 'text', '{}', \
+                           'zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz', 'active', 1, ?2, ?2)",
+                        params![SOURCE_ID, NOW],
+                    )?;
+                    transaction.execute(
                         "DELETE FROM library_block_placements WHERE block_id = 'page:database-row'",
                         [],
-                    )?;
-                    transaction.execute(
-                        "DELETE FROM top_level_block_placements WHERE block_id = 'page:database-row'",
-                        [],
-                    )?;
-                    transaction.execute(
-                        "UPDATE blocks SET location_kind = 'database', containing_document_id = NULL, \
-                           containing_database_id = ?1 WHERE id = 'page:database-row'",
-                        [DATABASE_ID],
                     )?;
                     transaction.execute(
                         "UPDATE pages SET parent_kind = 'data_source', parent_id = ?1 \
@@ -820,6 +873,13 @@ mod tests {
                         "INSERT INTO data_source_property_values(\
                            data_source_id, membership_id, property_id, value_type, value_json, \
                            revision, updated_at\
+                         ) VALUES (?1, 'membership:row', 'p_agent000', 'text', '\"alpha\"', 1, ?2)",
+                        params![SOURCE_ID, NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO data_source_property_values(\
+                           data_source_id, membership_id, property_id, value_type, value_json, \
+                           revision, updated_at\
                          ) VALUES (?1, 'membership:row', 'task_parent', 'relation', 'null', 1, ?2)",
                         params![SOURCE_ID, NOW],
                     )?;
@@ -830,29 +890,17 @@ mod tests {
                         params![VIEW_ID, NOW],
                     )?;
                     transaction.execute(
-                        "UPDATE page_read_model SET location_kind = 'database', \
-                           containing_document_id = NULL, containing_database_id = ?1, \
-                           top_level_rank_key = NULL, membership_id = 'membership:row', \
-                           database_block_id = ?1, view_id = ?2, view_group_key = 'triage', \
+                        "UPDATE page_read_model SET parent_kind = 'data_source', parent_id = ?1, \
+                           library_rank_key = NULL, membership_id = 'membership:row', \
+                           database_block_id = ?2, view_id = ?3, view_group_key = 'triage', \
                            view_rank_key = 'a', database_values_json = '{\"status\":\"triage\"}' \
                          WHERE page_block_id = 'page:database-row'",
-                        params![DATABASE_ID, VIEW_ID],
+                        params![SOURCE_ID, DATABASE_ID, VIEW_ID],
                     )?;
                     transaction.execute(
                         "DELETE FROM library_block_placements \
                          WHERE block_id = 'page:database-row-2'",
                         [],
-                    )?;
-                    transaction.execute(
-                        "DELETE FROM top_level_block_placements \
-                         WHERE block_id = 'page:database-row-2'",
-                        [],
-                    )?;
-                    transaction.execute(
-                        "UPDATE blocks SET location_kind = 'database', \
-                           containing_document_id = NULL, containing_database_id = ?1 \
-                         WHERE id = 'page:database-row-2'",
-                        [DATABASE_ID],
                     )?;
                     transaction.execute(
                         "UPDATE pages SET parent_kind = 'data_source', parent_id = ?1 \
@@ -873,13 +921,19 @@ mod tests {
                         params![SOURCE_ID, NOW],
                     )?;
                     transaction.execute(
-                        "UPDATE page_read_model SET location_kind = 'database', \
-                           containing_document_id = NULL, containing_database_id = ?1, \
-                           top_level_rank_key = NULL, membership_id = 'membership:row-2', \
-                           database_block_id = ?1, view_id = NULL, view_group_key = NULL, \
+                        "INSERT INTO data_source_property_values(\
+                           data_source_id, membership_id, property_id, value_type, value_json, \
+                           revision, updated_at\
+                         ) VALUES (?1, 'membership:row-2', 'p_agent000', 'text', '\"beta\"', 1, ?2)",
+                        params![SOURCE_ID, NOW],
+                    )?;
+                    transaction.execute(
+                        "UPDATE page_read_model SET parent_kind = 'data_source', parent_id = ?1, \
+                           library_rank_key = NULL, membership_id = 'membership:row-2', \
+                           database_block_id = ?2, view_id = NULL, view_group_key = NULL, \
                            view_rank_key = NULL, database_values_json = '{}' \
                          WHERE page_block_id = 'page:database-row-2'",
-                        [DATABASE_ID],
+                        params![SOURCE_ID, DATABASE_ID],
                     )?;
                     Ok(())
                 })
@@ -962,16 +1016,12 @@ mod tests {
                 &context(),
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead {
-                        target: DatabaseTarget::ProjectDefault,
-                        mode: DatabaseReadMode::ViewWindow,
-                        filter: None,
-                        sort: None,
-                        window: Some(CollectionWindowRequest {
+                    read: DatabaseRead::ViewWindow {
+                        target: DatabaseViewReadTarget::ProjectDefault,
+                        window: CollectionWindowRequest {
                             after: None,
                             first: Some(1),
-                        }),
-                        page_ids: None,
+                        },
                         group_scope: None,
                     },
                 },
@@ -1027,16 +1077,12 @@ mod tests {
                 &context(),
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead {
-                        target: DatabaseTarget::ProjectDefault,
-                        mode: DatabaseReadMode::ViewWindow,
-                        filter: None,
-                        sort: None,
-                        window: Some(CollectionWindowRequest {
+                    read: DatabaseRead::ViewWindow {
+                        target: DatabaseViewReadTarget::ProjectDefault,
+                        window: CollectionWindowRequest {
                             after: Some(next_cursor),
                             first: Some(1),
-                        }),
-                        page_ids: None,
+                        },
                         group_scope: None,
                     },
                 },
@@ -1061,14 +1107,9 @@ mod tests {
                 &context(),
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead {
-                        target: DatabaseTarget::ProjectDefault,
-                        mode: DatabaseReadMode::RowsById,
-                        filter: None,
-                        sort: None,
-                        window: None,
-                        page_ids: Some(vec!["page:database-row-2".to_owned()]),
-                        group_scope: None,
+                    read: DatabaseRead::RowsById {
+                        target: DatabaseRowsTarget::ProjectDefault,
+                        page_ids: vec!["page:database-row-2".to_owned()],
                     },
                 },
             )
@@ -1084,16 +1125,8 @@ mod tests {
                 &context(),
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead {
-                        target: DatabaseTarget::Page {
-                            page_id: "page:database-row".to_owned(),
-                        },
-                        mode: DatabaseReadMode::RowDetail,
-                        filter: None,
-                        sort: None,
-                        window: None,
-                        page_ids: None,
-                        group_scope: None,
+                    read: DatabaseRead::RowDetail {
+                        page_id: "page:database-row".to_owned(),
                     },
                 },
             )
@@ -1109,26 +1142,24 @@ mod tests {
                 &context(),
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead {
-                        target: DatabaseTarget::AgentDataSource {
-                            data_source_id: SOURCE_ID.to_owned(),
-                            query: Box::new(DatabaseAgentQuery {
-                                authorization: agent_authorization.clone(),
-                                cursor: None,
-                                limit: Some(1),
-                            }),
+                    read: DatabaseRead::AgentDataSourceQuery {
+                        data_source_id: SOURCE_ID.to_owned(),
+                        query: DatabaseAgentDataSourceQuery {
+                            authorization: agent_authorization.clone(),
+                            cursor: None,
+                            limit: Some(1),
+                            projection_property_ids: None,
+                            filter: DatabaseViewFilter::Group {
+                                operator: DatabaseViewFilterGroupOperator::And,
+                                children: Vec::new(),
+                            },
+                            sort: Vec::new(),
                         },
-                        mode: DatabaseReadMode::AgentQuery,
-                        filter: None,
-                        sort: None,
-                        window: None,
-                        page_ids: None,
-                        group_scope: None,
                     },
                 },
             )
             .expect("query primary Data Source with exact Agent Turn authority");
-        let DatabaseReadValue::AgentQuery { value } = agent_query.value else {
+        let DatabaseReadValue::AgentDataSourceQuery { value } = agent_query.value else {
             panic!("Agent Database query snapshot");
         };
         assert_eq!(value.rows.items[0].page_id, "page:database-row");
@@ -1145,30 +1176,170 @@ mod tests {
                 &context(),
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead {
-                        target: DatabaseTarget::AgentDataSource {
-                            data_source_id: SOURCE_ID.to_owned(),
-                            query: Box::new(DatabaseAgentQuery {
-                                authorization: continuation_authorization,
-                                cursor: Some(next_cursor),
-                                limit: Some(1),
-                            }),
+                    read: DatabaseRead::AgentDataSourceQuery {
+                        data_source_id: SOURCE_ID.to_owned(),
+                        query: DatabaseAgentDataSourceQuery {
+                            authorization: continuation_authorization,
+                            cursor: Some(next_cursor),
+                            limit: Some(1),
+                            projection_property_ids: None,
+                            filter: DatabaseViewFilter::Group {
+                                operator: DatabaseViewFilterGroupOperator::And,
+                                children: Vec::new(),
+                            },
+                            sort: Vec::new(),
                         },
-                        mode: DatabaseReadMode::AgentQuery,
-                        filter: None,
-                        sort: None,
-                        window: None,
-                        page_ids: None,
-                        group_scope: None,
                     },
                 },
             )
             .expect("continue exact Agent Database query");
-        let DatabaseReadValue::AgentQuery { value } = next_agent_query.value else {
+        let DatabaseReadValue::AgentDataSourceQuery { value } = next_agent_query.value else {
             panic!("next Agent Database query snapshot");
         };
         assert_eq!(value.rows.items[0].page_id, "page:database-row-2");
         assert!(value.rows.next_cursor.is_none());
+
+        let mut sorted_authorization = agent_authorization.clone();
+        sorted_authorization.call_id = "call:database-agent-sorted".to_owned();
+        let sorted_agent_query = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    read: DatabaseRead::AgentDataSourceQuery {
+                        data_source_id: SOURCE_ID.to_owned(),
+                        query: DatabaseAgentDataSourceQuery {
+                            authorization: sorted_authorization,
+                            cursor: None,
+                            limit: Some(2),
+                            projection_property_ids: Some(vec!["p_agent000".to_owned()]),
+                            filter: DatabaseViewFilter::Group {
+                                operator: DatabaseViewFilterGroupOperator::And,
+                                children: Vec::new(),
+                            },
+                            sort: vec![DatabaseViewSort {
+                                field: DatabaseViewSortField::Title,
+                                direction: DatabaseViewSortDirection::Desc,
+                                nulls: DatabaseViewNullOrder::Last,
+                            }],
+                        },
+                    },
+                },
+            )
+            .expect("run a sorted transient Data Source query");
+        let DatabaseReadValue::AgentDataSourceQuery { value } = sorted_agent_query.value else {
+            panic!("sorted Agent Data Source query snapshot");
+        };
+        assert_eq!(
+            value
+                .rows
+                .items
+                .iter()
+                .map(|row| row.page_id.as_str())
+                .collect::<Vec<_>>(),
+            ["page:database-row-2", "page:database-row"]
+        );
+        assert_eq!(
+            value.rows.items[0].database_values.get("p_agent000"),
+            Some(&json!("beta"))
+        );
+        assert_eq!(value.rows.items[0].effective_group_key, None);
+        assert_eq!(value.rows.items[0].rank_key, None);
+
+        let mut manual_sort_authorization = agent_authorization.clone();
+        manual_sort_authorization.call_id = "call:database-agent-manual-sort".to_owned();
+        let manual_sort_error = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    read: DatabaseRead::AgentDataSourceQuery {
+                        data_source_id: SOURCE_ID.to_owned(),
+                        query: DatabaseAgentDataSourceQuery {
+                            authorization: manual_sort_authorization,
+                            cursor: None,
+                            limit: Some(2),
+                            projection_property_ids: None,
+                            filter: DatabaseViewFilter::Group {
+                                operator: DatabaseViewFilterGroupOperator::And,
+                                children: Vec::new(),
+                            },
+                            sort: vec![DatabaseViewSort {
+                                field: DatabaseViewSortField::Manual,
+                                direction: DatabaseViewSortDirection::Asc,
+                                nulls: DatabaseViewNullOrder::Last,
+                            }],
+                        },
+                    },
+                },
+            )
+            .expect_err("transient Data Source query rejects View manual order");
+        assert_eq!(manual_sort_error.code, CoreErrorCode::InvalidInput);
+
+        let mut view_authorization = agent_authorization.clone();
+        view_authorization.call_id = "call:database-agent-view-projection".to_owned();
+        let agent_view_query = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    read: DatabaseRead::AgentViewQuery {
+                        view_id: VIEW_ID.to_owned(),
+                        query: DatabaseAgentViewQuery {
+                            authorization: view_authorization,
+                            cursor: None,
+                            limit: Some(1),
+                            projection_property_ids: Some(vec!["p_agent000".to_owned()]),
+                        },
+                    },
+                },
+            )
+            .expect("project a hidden Property through a saved View query");
+        let DatabaseReadValue::AgentViewQuery { value } = agent_view_query.value else {
+            panic!("Agent View query snapshot");
+        };
+        assert_eq!(
+            value.rows.items[0].database_values.get("p_agent000"),
+            Some(&json!("alpha"))
+        );
+
+        let mut filtered_authorization = agent_authorization.clone();
+        filtered_authorization.call_id = "call:database-agent-filtered".to_owned();
+        let filtered_agent_query = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    read: DatabaseRead::AgentDataSourceQuery {
+                        data_source_id: SOURCE_ID.to_owned(),
+                        query: DatabaseAgentDataSourceQuery {
+                            authorization: filtered_authorization,
+                            cursor: None,
+                            limit: Some(10),
+                            projection_property_ids: Some(Vec::new()),
+                            filter: DatabaseViewFilter::Clause {
+                                property_id: "status".to_owned(),
+                                operator: DatabaseViewFilterOperator::IsEmpty,
+                                value: None,
+                            },
+                            sort: Vec::new(),
+                        },
+                    },
+                },
+            )
+            .expect("run a filtered transient Data Source query");
+        let DatabaseReadValue::AgentDataSourceQuery { value } = filtered_agent_query.value else {
+            panic!("filtered Agent Data Source query snapshot");
+        };
+        assert_eq!(
+            value
+                .rows
+                .items
+                .iter()
+                .map(|row| row.page_id.as_str())
+                .collect::<Vec<_>>(),
+            ["page:database-row-2"]
+        );
         kernel
             .writer()
             .call(|connection| {
@@ -1250,26 +1421,24 @@ mod tests {
                 &context(),
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead {
-                        target: DatabaseTarget::AgentDataSource {
-                            data_source_id: SOURCE_ID.to_owned(),
-                            query: Box::new(DatabaseAgentQuery {
-                                authorization: agent_authorization,
-                                cursor: Some(cursor_before_change),
-                                limit: Some(1),
-                            }),
+                    read: DatabaseRead::AgentDataSourceQuery {
+                        data_source_id: SOURCE_ID.to_owned(),
+                        query: DatabaseAgentDataSourceQuery {
+                            authorization: agent_authorization,
+                            cursor: Some(cursor_before_change),
+                            limit: Some(1),
+                            projection_property_ids: None,
+                            filter: DatabaseViewFilter::Group {
+                                operator: DatabaseViewFilterGroupOperator::And,
+                                children: Vec::new(),
+                            },
+                            sort: Vec::new(),
                         },
-                        mode: DatabaseReadMode::AgentQuery,
-                        filter: None,
-                        sort: None,
-                        window: None,
-                        page_ids: None,
-                        group_scope: None,
                     },
                 },
             )
             .expect("Agent Database cursor survives a concurrent commit");
-        let DatabaseReadValue::AgentQuery { value } = continued_after_change.value else {
+        let DatabaseReadValue::AgentDataSourceQuery { value } = continued_after_change.value else {
             panic!("continued Agent Database query snapshot");
         };
         assert!(value.rows.items.is_empty());
@@ -1280,14 +1449,8 @@ mod tests {
                 &context(),
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead {
-                        target: DatabaseTarget::ProjectDefault,
-                        mode: DatabaseReadMode::CatalogWindow,
-                        filter: None,
-                        sort: None,
-                        window: Some(Default::default()),
-                        page_ids: None,
-                        group_scope: None,
+                    read: DatabaseRead::CatalogWindow {
+                        window: Default::default(),
                     },
                 },
             )
@@ -1296,22 +1459,15 @@ mod tests {
             panic!("catalog snapshot");
         };
         assert_eq!(databases.items.len(), 1);
-        assert_eq!(databases.items[0]["database"]["databaseId"], DATABASE_ID);
+        assert_eq!(databases.items[0].database.database_id, DATABASE_ID);
         let data_sources = module
             .read(
                 &context(),
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead {
-                        target: DatabaseTarget::Database {
-                            database_id: DATABASE_ID.to_owned(),
-                        },
-                        mode: DatabaseReadMode::DataSourceWindow,
-                        filter: None,
-                        sort: None,
-                        window: Some(Default::default()),
-                        page_ids: None,
-                        group_scope: None,
+                    read: DatabaseRead::DataSourceWindow {
+                        database_id: DATABASE_ID.to_owned(),
+                        window: Default::default(),
                     },
                 },
             )
@@ -1319,22 +1475,15 @@ mod tests {
         let DatabaseReadValue::DataSourceWindow { data_sources } = data_sources.value else {
             panic!("Data Source descriptor window");
         };
-        assert_eq!(data_sources.items[0]["dataSourceId"], SOURCE_ID);
+        assert_eq!(data_sources.items[0].data_source_id, SOURCE_ID);
         let views = module
             .read(
                 &context(),
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead {
-                        target: DatabaseTarget::Database {
-                            database_id: DATABASE_ID.to_owned(),
-                        },
-                        mode: DatabaseReadMode::ViewDescriptorWindow,
-                        filter: None,
-                        sort: None,
-                        window: Some(Default::default()),
-                        page_ids: None,
-                        group_scope: None,
+                    read: DatabaseRead::ViewDescriptorWindow {
+                        database_id: DATABASE_ID.to_owned(),
+                        window: Default::default(),
                     },
                 },
             )
@@ -1342,23 +1491,15 @@ mod tests {
         let DatabaseReadValue::ViewDescriptorWindow { views } = views.value else {
             panic!("View descriptor window");
         };
-        assert_eq!(views.items[0]["isDefault"], true);
+        assert!(views.items[0].is_default);
 
         let page_row = module
             .read(
                 &context(),
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead {
-                        target: DatabaseTarget::Page {
-                            page_id: "page:database-row".to_owned(),
-                        },
-                        mode: DatabaseReadMode::RowDetail,
-                        filter: None,
-                        sort: None,
-                        window: None,
-                        page_ids: None,
-                        group_scope: None,
+                    read: DatabaseRead::RowDetail {
+                        page_id: "page:database-row".to_owned(),
                     },
                 },
             )
@@ -1378,11 +1519,6 @@ mod tests {
                         [],
                     )?;
                     transaction.execute(
-                        "UPDATE pages SET lifecycle = 'archived' \
-                         WHERE block_id = 'page:database-row'",
-                        [],
-                    )?;
-                    transaction.execute(
                         "UPDATE page_read_model SET lifecycle = 'archived' \
                          WHERE page_block_id = 'page:database-row'",
                         [],
@@ -1396,16 +1532,8 @@ mod tests {
                 &context(),
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead {
-                        target: DatabaseTarget::Page {
-                            page_id: "page:database-row".to_owned(),
-                        },
-                        mode: DatabaseReadMode::RowDetail,
-                        filter: None,
-                        sort: None,
-                        window: None,
-                        page_ids: None,
-                        group_scope: None,
+                    read: DatabaseRead::RowDetail {
+                        page_id: "page:database-row".to_owned(),
                     },
                 },
             )
@@ -1427,11 +1555,6 @@ mod tests {
                         [],
                     )?;
                     transaction.execute(
-                        "UPDATE pages SET lifecycle = 'active' \
-                         WHERE block_id = 'page:database-row'",
-                        [],
-                    )?;
-                    transaction.execute(
                         "UPDATE page_read_model SET lifecycle = 'active' \
                          WHERE page_block_id = 'page:database-row'",
                         [],
@@ -1448,7 +1571,7 @@ mod tests {
             intent: vec![
                 DatabaseIntent::PutProperty {
                     data_source_id: SOURCE_ID.to_owned(),
-                    property_id: "risk".to_owned(),
+                    property_id: "p_risk0000".to_owned(),
                     expected_data_source_revision: 1,
                     expected_property_revision: 0,
                     name: "Risk".to_owned(),
@@ -1457,8 +1580,8 @@ mod tests {
                 },
                 DatabaseIntent::PutOption {
                     data_source_id: SOURCE_ID.to_owned(),
-                    property_id: "risk".to_owned(),
-                    option_id: "high".to_owned(),
+                    property_id: "p_risk0000".to_owned(),
+                    option_id: "o_high0000".to_owned(),
                     name: "High".to_owned(),
                     color: Some("red".to_owned()),
                     expected_property_revision: 1,
@@ -1468,12 +1591,12 @@ mod tests {
                         address: DatabasePagePropertyAddress {
                             page_id: "page:database-row".to_owned(),
                             data_source_id: SOURCE_ID.to_owned(),
-                            property_id: "risk".to_owned(),
+                            property_id: "p_risk0000".to_owned(),
                         },
                         edit: DatabasePropertyValueEdit::Replace {
                             expected_value_revision: 0,
                             value: DatabasePropertyValueInput::Select {
-                                option_id: "high".to_owned(),
+                                option_id: "o_high0000".to_owned(),
                             },
                         },
                     }],
@@ -1501,8 +1624,8 @@ mod tests {
             applied.committed.receipt.committed_revisions,
             BTreeMap::from([
                 (format!("source:{SOURCE_ID}"), 3),
-                (format!("property:{SOURCE_ID}:risk"), 2),
-                (format!("value:{SOURCE_ID}:membership:row:risk"), 1),
+                (format!("property:{SOURCE_ID}:p_risk0000"), 2),
+                (format!("value:{SOURCE_ID}:membership:row:p_risk0000"), 1),
                 ("page:page:database-row:metadata".to_owned(), 2),
             ])
         );
@@ -1532,24 +1655,57 @@ mod tests {
             .writer()
             .call(|connection| {
                 let revisions = connection.query_row(
-                    "SELECT block.metadata_revision, page.metadata_revision, \
-                       projection.metadata_revision FROM blocks block \
-                     JOIN pages page ON page.block_id = block.id \
+                    "SELECT block.metadata_revision, projection.metadata_revision \
+                     FROM blocks block \
                      JOIN page_read_model projection ON projection.page_block_id = block.id \
                      WHERE block.id = 'page:database-row'",
                     [],
-                    |row| {
-                        Ok((
-                            row.get::<_, i64>(0)?,
-                            row.get::<_, i64>(1)?,
-                            row.get::<_, i64>(2)?,
-                        ))
-                    },
+                    |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
                 )?;
-                assert_eq!(revisions, (2, 2, 2));
+                assert_eq!(revisions, (2, 2));
                 Ok(())
             })
             .expect("Page metadata projections stay synchronized after value writes");
+
+        let noncanonical_custom_option = module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    operation_id: "operation:reject-noncanonical-custom-option".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: vec![DatabaseIntent::PutOption {
+                        data_source_id: SOURCE_ID.to_owned(),
+                        property_id: "p_risk0000".to_owned(),
+                        option_id: "high".to_owned(),
+                        name: "High".to_owned(),
+                        color: None,
+                        expected_property_revision: 2,
+                    }],
+                },
+            )
+            .expect_err("reject a noncanonical custom option identity");
+        assert_eq!(noncanonical_custom_option.code, CoreErrorCode::InvalidInput);
+
+        let noncanonical_option_name = module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    operation_id: "operation:reject-noncanonical-option-name".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: vec![DatabaseIntent::PutOption {
+                        data_source_id: SOURCE_ID.to_owned(),
+                        property_id: "p_risk0000".to_owned(),
+                        option_id: "o_other000".to_owned(),
+                        name: " Other ".to_owned(),
+                        color: None,
+                        expected_property_revision: 2,
+                    }],
+                },
+            )
+            .expect_err("reject a noncanonical option name");
+        assert_eq!(noncanonical_option_name.code, CoreErrorCode::InvalidInput);
 
         let replayed = module
             .apply(&context(), request.clone())
@@ -1575,7 +1731,7 @@ mod tests {
                 address: DatabasePagePropertyAddress {
                     page_id: "page:database-row".to_owned(),
                     data_source_id: SOURCE_ID.to_owned(),
-                    property_id: "risk".to_owned(),
+                    property_id: "p_risk0000".to_owned(),
                 },
                 edit: DatabasePropertyValueEdit::Replace {
                     expected_value_revision: 1,
@@ -1598,7 +1754,7 @@ mod tests {
                     intent: vec![
                         DatabaseIntent::PutProperty {
                             data_source_id: SOURCE_ID.to_owned(),
-                            property_id: "score".to_owned(),
+                            property_id: "p_score000".to_owned(),
                             expected_data_source_revision: 3,
                             expected_property_revision: 0,
                             name: "Score".to_owned(),
@@ -1631,16 +1787,8 @@ mod tests {
                 &context(),
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead {
-                        target: DatabaseTarget::DataSource {
-                            data_source_id: SOURCE_ID.to_owned(),
-                        },
-                        mode: DatabaseReadMode::DataSource,
-                        filter: None,
-                        sort: None,
-                        window: None,
-                        page_ids: None,
-                        group_scope: None,
+                    read: DatabaseRead::DataSource {
+                        data_source_id: SOURCE_ID.to_owned(),
                     },
                 },
             )
@@ -1648,22 +1796,15 @@ mod tests {
         let DatabaseReadValue::DataSource { value: source } = source.value else {
             panic!("Data Source descriptor snapshot");
         };
-        assert_eq!(source["dataSource"]["schemaRevision"], 3);
+        assert_eq!(source.data_source.schema_revision, 3);
         let properties = module
             .read(
                 &context(),
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead {
-                        target: DatabaseTarget::DataSource {
-                            data_source_id: SOURCE_ID.to_owned(),
-                        },
-                        mode: DatabaseReadMode::PropertyWindow,
-                        filter: None,
-                        sort: None,
-                        window: Some(Default::default()),
-                        page_ids: None,
-                        group_scope: None,
+                    read: DatabaseRead::PropertyWindow {
+                        data_source_id: SOURCE_ID.to_owned(),
+                        window: Default::default(),
                     },
                 },
             )
@@ -1671,12 +1812,12 @@ mod tests {
         let DatabaseReadValue::PropertyWindow { properties } = properties.value else {
             panic!("Property window");
         };
-        assert_eq!(properties.items.len(), 10);
+        assert_eq!(properties.items.len(), 11);
         assert!(
             properties
                 .items
                 .iter()
-                .all(|value| value.property_id != "score")
+                .all(|value| value.property_id != "p_score000")
         );
         let status = properties
             .items
@@ -1691,20 +1832,13 @@ mod tests {
                 &context(),
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead {
-                        target: DatabaseTarget::Property {
-                            data_source_id: SOURCE_ID.to_owned(),
-                            property_id: "status".to_owned(),
-                        },
-                        mode: DatabaseReadMode::OptionWindow,
-                        filter: None,
-                        sort: None,
-                        window: Some(CollectionWindowRequest {
+                    read: DatabaseRead::OptionWindow {
+                        data_source_id: SOURCE_ID.to_owned(),
+                        property_id: "status".to_owned(),
+                        window: CollectionWindowRequest {
                             after: None,
                             first: Some(1),
-                        }),
-                        page_ids: None,
-                        group_scope: None,
+                        },
                     },
                 },
             )
@@ -1713,26 +1847,19 @@ mod tests {
             panic!("Property option window");
         };
         assert_eq!(options.items.len(), 1);
-        assert_eq!(options.items[0]["id"], "triage");
+        assert_eq!(options.items[0].id, "triage");
         let second_option = module
             .read(
                 &context(),
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead {
-                        target: DatabaseTarget::Property {
-                            data_source_id: SOURCE_ID.to_owned(),
-                            property_id: "status".to_owned(),
-                        },
-                        mode: DatabaseReadMode::OptionWindow,
-                        filter: None,
-                        sort: None,
-                        window: Some(CollectionWindowRequest {
+                    read: DatabaseRead::OptionWindow {
+                        data_source_id: SOURCE_ID.to_owned(),
+                        property_id: "status".to_owned(),
+                        window: CollectionWindowRequest {
                             after: options.next_cursor,
                             first: Some(1),
-                        }),
-                        page_ids: None,
-                        group_scope: None,
+                        },
                     },
                 },
             )
@@ -1743,21 +1870,17 @@ mod tests {
         else {
             panic!("second Property option window");
         };
-        assert_eq!(second_option.items[0]["id"], "plan");
+        assert_eq!(second_option.items[0].id, "plan");
         let row_window = module
             .read(
                 &context(),
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead {
-                        target: DatabaseTarget::View {
+                    read: DatabaseRead::ViewWindow {
+                        target: DatabaseViewReadTarget::View {
                             view_id: VIEW_ID.to_owned(),
                         },
-                        mode: DatabaseReadMode::ViewWindow,
-                        filter: None,
-                        sort: None,
-                        window: Some(Default::default()),
-                        page_ids: None,
+                        window: Default::default(),
                         group_scope: None,
                     },
                 },
@@ -1772,7 +1895,7 @@ mod tests {
         let ungrouped_config = view_config(
             json!({ "kind": "group", "operator": "and", "children": [] }),
             None,
-            &["status", "risk"],
+            &["status", "p_risk0000"],
         );
         let view_and_position = module
             .apply(
@@ -1788,8 +1911,8 @@ mod tests {
                             view_id: SECOND_VIEW_ID.to_owned(),
                             expected_revision: 0,
                             name: "Risk list".to_owned(),
-                            default_layout: "list".to_owned(),
-                            config: ungrouped_config.clone(),
+                            layout: DatabaseViewLayout::List,
+                            definition: view_definition(ungrouped_config.clone()),
                             is_default: true,
                             before_view_id: Some(VIEW_ID.to_owned()),
                         },
@@ -1810,8 +1933,8 @@ mod tests {
         );
         let grouped_config = view_config(
             json!({ "kind": "group", "operator": "and", "children": [] }),
-            Some("risk"),
-            &["status", "risk"],
+            Some("p_risk0000"),
+            &["status", "p_risk0000"],
         );
         module
             .apply(
@@ -1827,8 +1950,8 @@ mod tests {
                             view_id: SECOND_VIEW_ID.to_owned(),
                             expected_revision: 1,
                             name: "Risk board".to_owned(),
-                            default_layout: "board".to_owned(),
-                            config: grouped_config,
+                            layout: DatabaseViewLayout::Board,
+                            definition: view_definition(grouped_config),
                             is_default: true,
                             before_view_id: None,
                         },
@@ -1847,15 +1970,11 @@ mod tests {
                 &context(),
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead {
-                        target: DatabaseTarget::View {
+                    read: DatabaseRead::ViewWindow {
+                        target: DatabaseViewReadTarget::View {
                             view_id: SECOND_VIEW_ID.to_owned(),
                         },
-                        mode: DatabaseReadMode::ViewWindow,
-                        filter: None,
-                        sort: None,
-                        window: Some(Default::default()),
-                        page_ids: None,
+                        window: Default::default(),
                         group_scope: None,
                     },
                 },
@@ -1866,7 +1985,7 @@ mod tests {
         };
         assert_eq!(
             grouped.rows.items[0].effective_group_key.as_deref(),
-            Some("high")
+            Some("o_high0000")
         );
         assert_eq!(grouped.rows.items[0].position_revision, Some(1));
         let personally_ungrouped = module
@@ -1874,8 +1993,8 @@ mod tests {
                 &context(),
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead {
-                        target: DatabaseTarget::PresentedView {
+                    read: DatabaseRead::ViewWindow {
+                        target: DatabaseViewReadTarget::PresentedView {
                             view_id: SECOND_VIEW_ID.to_owned(),
                             presentation_override: DatabaseViewPresentationOverrideInput {
                                 layout: None,
@@ -1888,11 +2007,7 @@ mod tests {
                                 layouts: None,
                             },
                         },
-                        mode: DatabaseReadMode::ViewWindow,
-                        filter: None,
-                        sort: None,
-                        window: Some(Default::default()),
-                        page_ids: None,
+                        window: Default::default(),
                         group_scope: None,
                     },
                 },
@@ -1909,22 +2024,14 @@ mod tests {
             .writer()
             .call(|connection| {
                 let revisions = connection.query_row(
-                    "SELECT block.metadata_revision, page.metadata_revision, \
-                       projection.metadata_revision FROM blocks block \
-                     JOIN pages page ON page.block_id = block.id \
+                    "SELECT block.metadata_revision, projection.metadata_revision \
+                     FROM blocks block \
                      JOIN page_read_model projection ON projection.page_block_id = block.id \
                      WHERE block.id = 'page:database-row'",
                     [],
-                    |row| {
-                        Ok((
-                            row.get::<_, i64>(0)?,
-                            row.get::<_, i64>(1)?,
-                            row.get::<_, i64>(2)?,
-                        ))
-                    },
+                    |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
                 )?;
                 assert_eq!(revisions.0, revisions.1);
-                assert_eq!(revisions.0, revisions.2);
                 Ok(())
             })
             .expect("Page metadata projections stay synchronized after positioning");
@@ -1949,16 +2056,8 @@ mod tests {
                 &context(),
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead {
-                        target: DatabaseTarget::View {
-                            view_id: VIEW_ID.to_owned(),
-                        },
-                        mode: DatabaseReadMode::View,
-                        filter: None,
-                        sort: None,
-                        window: None,
-                        page_ids: None,
-                        group_scope: None,
+                    read: DatabaseRead::View {
+                        view_id: VIEW_ID.to_owned(),
                     },
                 },
             )
@@ -1966,8 +2065,8 @@ mod tests {
         let DatabaseReadValue::View { value: old_view } = old_view.value else {
             panic!("View descriptor snapshot");
         };
-        assert_eq!(old_view["lifecycle"], "deleted");
-        assert_eq!(old_view["revision"], 2);
+        assert_eq!(old_view.lifecycle, "deleted");
+        assert_eq!(old_view.revision, 2);
 
         module
             .apply(
@@ -1992,15 +2091,11 @@ mod tests {
                 &context(),
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead {
-                        target: DatabaseTarget::View {
+                    read: DatabaseRead::ViewWindow {
+                        target: DatabaseViewReadTarget::View {
                             view_id: SECOND_VIEW_ID.to_owned(),
                         },
-                        mode: DatabaseReadMode::ViewWindow,
-                        filter: None,
-                        sort: None,
-                        window: Some(Default::default()),
-                        page_ids: None,
+                        window: Default::default(),
                         group_scope: None,
                     },
                 },
@@ -2037,15 +2132,11 @@ mod tests {
                 &context(),
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead {
-                        target: DatabaseTarget::View {
+                    read: DatabaseRead::ViewWindow {
+                        target: DatabaseViewReadTarget::View {
                             view_id: SECOND_VIEW_ID.to_owned(),
                         },
-                        mode: DatabaseReadMode::ViewWindow,
-                        filter: None,
-                        sort: None,
-                        window: Some(Default::default()),
-                        page_ids: None,
+                        window: Default::default(),
                         group_scope: None,
                     },
                 },
@@ -2080,16 +2171,8 @@ mod tests {
                 &library_context(AdapterKind::Test),
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead {
-                        target: DatabaseTarget::DataSource {
-                            data_source_id: SOURCE_ID.to_owned(),
-                        },
-                        mode: DatabaseReadMode::DataSource,
-                        filter: None,
-                        sort: None,
-                        window: None,
-                        page_ids: None,
-                        group_scope: None,
+                    read: DatabaseRead::DataSource {
+                        data_source_id: SOURCE_ID.to_owned(),
                     },
                 },
             )
@@ -2100,22 +2183,14 @@ mod tests {
         else {
             panic!("Library Data Source descriptor");
         };
-        assert_eq!(library_source["dataSource"]["dataSourceId"], SOURCE_ID);
+        assert_eq!(library_source.data_source.data_source_id, SOURCE_ID);
         let untrusted_library_read = module
             .read(
                 &library_context(AdapterKind::Agent),
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead {
-                        target: DatabaseTarget::DataSource {
-                            data_source_id: SOURCE_ID.to_owned(),
-                        },
-                        mode: DatabaseReadMode::DataSource,
-                        filter: None,
-                        sort: None,
-                        window: None,
-                        page_ids: None,
-                        group_scope: None,
+                    read: DatabaseRead::DataSource {
+                        data_source_id: SOURCE_ID.to_owned(),
                     },
                 },
             )
@@ -2131,7 +2206,7 @@ mod tests {
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: vec![DatabaseIntent::PutProperty {
                         data_source_id: SOURCE_ID.to_owned(),
-                        property_id: "library-note".to_owned(),
+                        property_id: "p_libnote0".to_owned(),
                         expected_data_source_revision: 3,
                         expected_property_revision: 0,
                         name: "Library note".to_owned(),
@@ -2145,7 +2220,7 @@ mod tests {
             library_write.committed.receipt.committed_revisions,
             BTreeMap::from([
                 (format!("source:{SOURCE_ID}"), 4),
-                (format!("property:{SOURCE_ID}:library-note"), 1),
+                (format!("property:{SOURCE_ID}:p_libnote0"), 1),
             ])
         );
         let library_event = library_write.event.expect("Library Database event");
@@ -2255,16 +2330,6 @@ mod tests {
                             [row.page_id],
                         )?;
                         transaction.execute(
-                            "DELETE FROM top_level_block_placements WHERE block_id = ?1",
-                            [row.page_id],
-                        )?;
-                        transaction.execute(
-                            "UPDATE blocks SET location_kind = 'database', \
-                               containing_document_id = NULL, containing_database_id = ?1 \
-                             WHERE id = ?2",
-                            params![DATABASE_ID, row.page_id],
-                        )?;
-                        transaction.execute(
                             "UPDATE pages SET parent_kind = 'data_source', parent_id = ?1 \
                              WHERE block_id = ?2",
                             params![SOURCE_ID, row.page_id],
@@ -2305,12 +2370,17 @@ mod tests {
                             .map(|value| format!("{{\"status\":{value}}}"))
                             .unwrap_or_else(|| "{}".to_owned());
                         transaction.execute(
-                            "UPDATE page_read_model SET location_kind = 'database', \
-                               containing_document_id = NULL, containing_database_id = ?1, \
-                               top_level_rank_key = NULL, membership_id = ?2, \
-                               database_block_id = ?1, database_values_json = ?3 \
-                             WHERE page_block_id = ?4",
-                            params![DATABASE_ID, membership_id, values_json, row.page_id],
+                            "UPDATE page_read_model SET parent_kind = 'data_source', \
+                               parent_id = ?1, library_rank_key = NULL, membership_id = ?2, \
+                               database_block_id = ?3, database_values_json = ?4 \
+                             WHERE page_block_id = ?5",
+                            params![
+                                SOURCE_ID,
+                                membership_id,
+                                DATABASE_ID,
+                                values_json,
+                                row.page_id,
+                            ],
                         )?;
                     }
                     Ok(())
@@ -2320,32 +2390,40 @@ mod tests {
         DatabaseModule::new("profile-1", "library-1", kernel)
     }
 
-    fn read_personal_preferences(
-        module: &DatabaseModule,
-    ) -> nodex_core_contracts::database::DatabaseViewPersonalPreferences {
+    fn read_personal_presentation(module: &DatabaseModule) -> DatabaseViewPersonalPresentation {
         let snapshot = module
             .read(
                 &context(),
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead {
-                        target: DatabaseTarget::View {
-                            view_id: VIEW_ID.to_owned(),
-                        },
-                        mode: DatabaseReadMode::ViewPersonalPreferences,
-                        filter: None,
-                        sort: None,
-                        window: None,
-                        page_ids: None,
-                        group_scope: None,
+                    read: DatabaseRead::ViewPersonalPresentation {
+                        view_id: VIEW_ID.to_owned(),
                     },
                 },
             )
             .expect("read personal View preferences");
-        let DatabaseReadValue::ViewPersonalPreferences { value } = snapshot.value else {
-            panic!("View personal preferences value");
+        let DatabaseReadValue::ViewPersonalPresentation { value } = snapshot.value else {
+            panic!("View personal presentation value");
         };
         value
+    }
+
+    fn read_collapsed_occurrences(module: &DatabaseModule) -> Vec<DatabaseViewDisclosureTarget> {
+        let snapshot = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    read: DatabaseRead::ViewCollapsedOccurrences {
+                        view_id: VIEW_ID.to_owned(),
+                    },
+                },
+            )
+            .expect("read collapsed View occurrences");
+        let DatabaseReadValue::ViewCollapsedOccurrences { value } = snapshot.value else {
+            panic!("View collapsed occurrences value");
+        };
+        value.targets
     }
 
     fn apply_task_parent(
@@ -2380,56 +2458,78 @@ mod tests {
     }
 
     #[test]
-    fn personal_view_preferences_round_trip_reset_and_reject_stale_writes() {
+    fn personal_presentation_and_occurrence_disclosure_have_independent_conflict_scopes() {
         let directory = tempdir().expect("Profile");
         let home = directory.path().canonicalize().expect("absolute Profile");
         let kernel = SqliteStoreKernel::open_test(&home).expect("fresh store");
         let module = seed_grouped_fixture(&kernel, Vec::new());
 
-        assert_eq!(read_personal_preferences(&module).revision, 0);
+        assert_eq!(read_personal_presentation(&module).revision, 0);
+        assert!(read_collapsed_occurrences(&module).is_empty());
         module
             .apply(
                 &context(),
                 ModuleApplyRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    operation_id: "operation:put-personal-view-preferences".to_owned(),
+                    operation_id: "operation:put-personal-view-presentation".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
-                    intent: vec![DatabaseIntent::PutViewPersonalPreferences {
+                    intent: vec![DatabaseIntent::PutViewPersonalPresentation {
                         view_id: VIEW_ID.to_owned(),
                         expected_revision: 0,
                         presentation_override: DatabaseViewPresentationOverrideInput {
                             layout: Some(DatabaseViewLayoutInput::List),
                             ..Default::default()
                         },
-                        collapsed_group_keys: vec!["GROUP_\"triage\"".to_owned()],
                     }],
                 },
             )
-            .expect("persist personal View preferences");
-        let stored = read_personal_preferences(&module);
+            .expect("persist personal View presentation");
+        let stored = read_personal_presentation(&module);
         assert_eq!(stored.revision, 1);
         assert_eq!(
             stored.presentation_override.layout,
             Some(DatabaseViewLayoutInput::List)
         );
-        assert_eq!(stored.collapsed_group_keys, ["GROUP_\"triage\""]);
+
+        module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    operation_id: "operation:collapse-view-group".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: vec![DatabaseIntent::SetViewOccurrenceDisclosure {
+                        view_id: VIEW_ID.to_owned(),
+                        target: DatabaseViewDisclosureTarget::Group {
+                            occurrence_key: "GROUP_\"triage\"".to_owned(),
+                        },
+                        collapsed: true,
+                    }],
+                },
+            )
+            .expect("collapse independently of presentation revision");
+        assert_eq!(
+            read_collapsed_occurrences(&module),
+            [DatabaseViewDisclosureTarget::Group {
+                occurrence_key: "GROUP_\"triage\"".to_owned(),
+            }],
+        );
 
         let stale = module
             .apply(
                 &context(),
                 ModuleApplyRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    operation_id: "operation:stale-personal-view-preferences".to_owned(),
+                    operation_id: "operation:stale-personal-view-presentation".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
-                    intent: vec![DatabaseIntent::PutViewPersonalPreferences {
+                    intent: vec![DatabaseIntent::PutViewPersonalPresentation {
                         view_id: VIEW_ID.to_owned(),
                         expected_revision: 0,
                         presentation_override: DatabaseViewPresentationOverrideInput::default(),
-                        collapsed_group_keys: Vec::new(),
                     }],
                 },
             )
-            .expect_err("stale personal View preference revision");
+            .expect_err("stale personal View presentation revision");
         assert_eq!(stale.code, CoreErrorCode::RevisionConflict);
 
         let reset = module
@@ -2437,29 +2537,92 @@ mod tests {
                 &context(),
                 ModuleApplyRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    operation_id: "operation:reset-personal-view-preferences".to_owned(),
+                    operation_id: "operation:reset-personal-view-presentation".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
-                    intent: vec![DatabaseIntent::PutViewPersonalPreferences {
+                    intent: vec![DatabaseIntent::PutViewPersonalPresentation {
                         view_id: VIEW_ID.to_owned(),
                         expected_revision: 1,
                         presentation_override: DatabaseViewPresentationOverrideInput::default(),
-                        collapsed_group_keys: Vec::new(),
                     }],
                 },
             )
-            .expect("reset personal View preferences");
+            .expect("reset personal View presentation");
         assert_eq!(
             reset
                 .committed
                 .receipt
                 .committed_revisions
-                .get(&format!("view_preferences:profile-1:{VIEW_ID}")),
-            Some(&0),
+                .get(&format!("view_presentation:profile-1:{VIEW_ID}")),
+            Some(&2),
         );
-        let reset_value = read_personal_preferences(&module);
-        assert_eq!(reset_value.revision, 0);
+        let reset_value = read_personal_presentation(&module);
+        assert_eq!(reset_value.revision, 2);
         assert_eq!(reset_value.presentation_override, Default::default());
-        assert!(reset_value.collapsed_group_keys.is_empty());
+        assert_eq!(read_collapsed_occurrences(&module).len(), 1);
+
+        module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    operation_id: "operation:put-personal-group-direction".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: vec![DatabaseIntent::PutViewPersonalPresentation {
+                        view_id: VIEW_ID.to_owned(),
+                        expected_revision: 2,
+                        presentation_override: DatabaseViewPresentationOverrideInput {
+                            group_direction: Some(DatabaseViewSortDirectionInput::Desc),
+                            ..Default::default()
+                        },
+                    }],
+                },
+            )
+            .expect("persist a group-direction-only presentation override");
+        let direction_only = read_personal_presentation(&module);
+        assert_eq!(direction_only.revision, 3);
+        assert_eq!(
+            direction_only.presentation_override.group_direction,
+            Some(DatabaseViewSortDirectionInput::Desc),
+        );
+        assert_eq!(read_collapsed_occurrences(&module).len(), 1);
+
+        let idempotent = module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    operation_id: "operation:collapse-view-group-again".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: vec![DatabaseIntent::SetViewOccurrenceDisclosure {
+                        view_id: VIEW_ID.to_owned(),
+                        target: DatabaseViewDisclosureTarget::Group {
+                            occurrence_key: "GROUP_\"triage\"".to_owned(),
+                        },
+                        collapsed: true,
+                    }],
+                },
+            )
+            .expect("repeat disclosure patch is idempotent");
+        assert!(idempotent.committed.receipt.affected_view_ids.is_empty());
+
+        module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    operation_id: "operation:expand-view-group".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: vec![DatabaseIntent::SetViewOccurrenceDisclosure {
+                        view_id: VIEW_ID.to_owned(),
+                        target: DatabaseViewDisclosureTarget::Group {
+                            occurrence_key: "GROUP_\"triage\"".to_owned(),
+                        },
+                        collapsed: false,
+                    }],
+                },
+            )
+            .expect("expand occurrence");
+        assert!(read_collapsed_occurrences(&module).is_empty());
     }
 
     #[test]
@@ -2524,6 +2687,8 @@ mod tests {
         assert_eq!(child.task_parent_page_id.as_deref(), Some("page:parent"));
         assert_eq!(child.task_parent_value_revision, 2);
         assert!(child.task_sibling_rank.is_some());
+        let child_value_revision_before_peer_insert = child.task_parent_value_revision;
+        let child_metadata_revision_before_peer_insert = child.metadata_revision;
 
         let cycle = apply_task_parent(
             &module,
@@ -2575,6 +2740,23 @@ mod tests {
             .expect("read sibling ordering");
         assert_eq!(ordered, ["page:peer", "page:child"]);
 
+        let after_peer_insert =
+            read_view_window(&module, 20, None, None).expect("read localized sibling insert");
+        let unchanged_child = after_peer_insert
+            .rows
+            .items
+            .iter()
+            .find(|row| row.page_id == "page:child")
+            .expect("unchanged child row");
+        assert_eq!(
+            unchanged_child.task_parent_value_revision, child_value_revision_before_peer_insert,
+            "inserting another sibling must not advance an untouched child's Parent value revision",
+        );
+        assert_eq!(
+            unchanged_child.metadata_revision, child_metadata_revision_before_peer_insert,
+            "inserting another sibling must not invalidate an untouched child's Page metadata",
+        );
+
         let child_revision = kernel
             .readers()
             .read_default(|connection| {
@@ -2622,6 +2804,189 @@ mod tests {
     }
 
     #[test]
+    fn task_parent_rank_rebalance_preserves_untouched_sibling_revisions() {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        let kernel = SqliteStoreKernel::open_test(&home).expect("fresh store");
+        let module = seed_grouped_fixture(
+            &kernel,
+            vec![
+                GroupRowSpec {
+                    page_id: "page:parent",
+                    title: "Parent",
+                    value_json: None,
+                    rank_key: Some("a"),
+                },
+                GroupRowSpec {
+                    page_id: "page:left",
+                    title: "Left",
+                    value_json: None,
+                    rank_key: Some("b"),
+                },
+                GroupRowSpec {
+                    page_id: "page:right",
+                    title: "Right",
+                    value_json: None,
+                    rank_key: Some("c"),
+                },
+                GroupRowSpec {
+                    page_id: "page:moved",
+                    title: "Moved",
+                    value_json: None,
+                    rank_key: Some("d"),
+                },
+            ],
+        );
+        apply_task_parent(
+            &module,
+            "operation:rebalance-left",
+            &[("page:left", 1)],
+            Some("page:parent"),
+            None,
+        )
+        .expect("nest left sibling");
+        apply_task_parent(
+            &module,
+            "operation:rebalance-right",
+            &[("page:right", 1)],
+            Some("page:parent"),
+            None,
+        )
+        .expect("nest right sibling");
+
+        kernel
+            .writer()
+            .call(|connection| {
+                let edges = connection
+                    .prepare(
+                        "SELECT edge_id, source_membership_id, target_page_block_id, created_at \
+                         FROM data_source_relation_edges \
+                         WHERE source_data_source_id = ?1 AND property_id = 'task_parent' \
+                           AND source_membership_id IN (\
+                             'membership:page:left', 'membership:page:right'\
+                           )",
+                    )?
+                    .query_map([SOURCE_ID], |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, String>(2)?,
+                            row.get::<_, String>(3)?,
+                        ))
+                    })?
+                    .collect::<rusqlite::Result<Vec<_>>>()?;
+                connection.execute(
+                    "DELETE FROM data_source_relation_edges \
+                     WHERE source_data_source_id = ?1 AND property_id = 'task_parent' \
+                       AND source_membership_id IN (\
+                         'membership:page:left', 'membership:page:right'\
+                       )",
+                    [SOURCE_ID],
+                )?;
+                for (edge_id, membership_id, target_page_id, created_at) in edges {
+                    let sibling_rank = match membership_id.as_str() {
+                        "membership:page:left" => "00000000000000000000000000000001",
+                        "membership:page:right" => "00000000000000000000000000000002",
+                        _ => unreachable!("query bounds the rewritten memberships"),
+                    };
+                    connection.execute(
+                        "INSERT INTO data_source_relation_edges(\
+                           edge_id, source_data_source_id, source_membership_id, property_id, \
+                           target_page_block_id, created_at, sibling_rank\
+                         ) VALUES (?1, ?2, ?3, 'task_parent', ?4, ?5, ?6)",
+                        params![
+                            edge_id,
+                            SOURCE_ID,
+                            membership_id,
+                            target_page_id,
+                            created_at,
+                            sibling_rank,
+                        ],
+                    )?;
+                }
+                Ok(())
+            })
+            .expect("exhaust sibling rank gap");
+
+        let before = read_view_window(&module, 20, None, None).expect("read rank exhaustion");
+        let untouched_before = before
+            .rows
+            .items
+            .iter()
+            .filter(|row| row.page_id == "page:left" || row.page_id == "page:right")
+            .map(|row| {
+                (
+                    row.page_id.clone(),
+                    (row.task_parent_value_revision, row.metadata_revision),
+                )
+            })
+            .collect::<BTreeMap<_, _>>();
+
+        apply_task_parent(
+            &module,
+            "operation:rebalance-insert",
+            &[("page:moved", 1)],
+            Some("page:parent"),
+            Some("page:right"),
+        )
+        .expect("insert through exhausted rank gap");
+
+        let after = read_view_window(&module, 20, None, None).expect("read rebalanced siblings");
+        let untouched_after = after
+            .rows
+            .items
+            .iter()
+            .filter(|row| row.page_id == "page:left" || row.page_id == "page:right")
+            .map(|row| {
+                (
+                    row.page_id.clone(),
+                    (row.task_parent_value_revision, row.metadata_revision),
+                )
+            })
+            .collect::<BTreeMap<_, _>>();
+        assert_eq!(untouched_after, untouched_before);
+
+        let ordered = kernel
+            .readers()
+            .read_default(|connection| {
+                connection
+                    .prepare(
+                        "SELECT membership.page_block_id \
+                         FROM data_source_relation_edges edge \
+                         JOIN data_source_page_memberships membership \
+                           ON membership.data_source_id = edge.source_data_source_id \
+                          AND membership.id = edge.source_membership_id \
+                         WHERE edge.source_data_source_id = ?1 \
+                           AND edge.property_id = 'task_parent' \
+                           AND edge.target_page_block_id = 'page:parent' \
+                         ORDER BY edge.sibling_rank, membership.page_block_id",
+                    )?
+                    .query_map([SOURCE_ID], |row| row.get::<_, String>(0))?
+                    .collect::<rusqlite::Result<Vec<_>>>()
+                    .map_err(StoreError::from)
+            })
+            .expect("read order after rank maintenance");
+        assert_eq!(ordered, ["page:left", "page:moved", "page:right"]);
+
+        apply_task_parent(
+            &module,
+            "operation:rebalance-repeat-noop",
+            &[("page:moved", 2)],
+            Some("page:parent"),
+            Some("page:right"),
+        )
+        .expect("repeat the same Parent position");
+        let repeated = read_view_window(&module, 20, None, None).expect("read repeated position");
+        let moved = repeated
+            .rows
+            .items
+            .iter()
+            .find(|row| row.page_id == "page:moved")
+            .expect("moved Page after no-op");
+        assert_eq!(moved.task_parent_value_revision, 2);
+    }
+
+    #[test]
     fn task_parent_relation_edits_and_hierarchy_intents_share_one_revision_authority() {
         let directory = tempdir().expect("Profile");
         let home = directory.path().canonicalize().expect("absolute Profile");
@@ -2644,6 +3009,33 @@ mod tests {
             ],
         );
 
+        let patch_one = module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    operation_id: "operation:reject-patch-one-relation".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: vec![DatabaseIntent::EditPropertyValues {
+                        edits: vec![DatabasePropertyValueMutation {
+                            address: DatabasePagePropertyAddress {
+                                page_id: "page:child".to_owned(),
+                                data_source_id: SOURCE_ID.to_owned(),
+                                property_id: "task_parent".to_owned(),
+                            },
+                            edit: DatabasePropertyValueEdit::PatchSet {
+                                delta: nodex_core_contracts::database::DatabasePropertySetDelta::Relation {
+                                    add_page_ids: vec!["page:parent".to_owned()],
+                                    remove_edge_ids: Vec::new(),
+                                },
+                            },
+                        }],
+                    }],
+                },
+            )
+            .expect_err("cardinality-one Relation rejects set patches");
+        assert_eq!(patch_one.code, CoreErrorCode::InvalidInput);
+
         let related = module
             .apply(
                 &context(),
@@ -2658,7 +3050,7 @@ mod tests {
                                 data_source_id: SOURCE_ID.to_owned(),
                                 property_id: "task_parent".to_owned(),
                             },
-                            edit: DatabasePropertyValueEdit::ReplaceRelation {
+                            edit: DatabasePropertyValueEdit::ReplaceOneRelation {
                                 expected_value_revision: 1,
                                 target_page_id: Some("page:parent".to_owned()),
                             },
@@ -2706,7 +3098,7 @@ mod tests {
                                 data_source_id: SOURCE_ID.to_owned(),
                                 property_id: "task_parent".to_owned(),
                             },
-                            edit: DatabasePropertyValueEdit::ReplaceRelation {
+                            edit: DatabasePropertyValueEdit::ReplaceOneRelation {
                                 expected_value_revision: 2,
                                 target_page_id: Some("page:parent".to_owned()),
                             },
@@ -2758,10 +3150,6 @@ mod tests {
                         [],
                     )?;
                     transaction.execute(
-                        "UPDATE pages SET lifecycle = 'archived' WHERE block_id = 'page:parent'",
-                        [],
-                    )?;
-                    transaction.execute(
                         "UPDATE page_read_model SET lifecycle = 'archived' \
                          WHERE page_block_id = 'page:parent'",
                         [],
@@ -2804,7 +3192,6 @@ mod tests {
             .call(|connection| {
                 connection.execute_batch(
                     "UPDATE blocks SET lifecycle = 'active' WHERE id = 'page:parent'; \
-                     UPDATE pages SET lifecycle = 'active' WHERE block_id = 'page:parent'; \
                      UPDATE page_read_model SET lifecycle = 'active' \
                        WHERE page_block_id = 'page:parent';",
                 )?;
@@ -2994,8 +3381,8 @@ mod tests {
             .read_default(|connection| {
                 connection
                     .query_row(
-                        "SELECT metadata_revision, parent_revision FROM pages \
-                         WHERE block_id = 'page:deleted-parent'",
+                        "SELECT metadata_revision, placement_revision FROM blocks \
+                         WHERE id = 'page:deleted-parent'",
                         [],
                         |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
                     )
@@ -3102,8 +3489,8 @@ mod tests {
                         view_id: VIEW_ID.to_owned(),
                         expected_revision: 1,
                         name: "Nested List".to_owned(),
-                        default_layout: "list".to_owned(),
-                        config,
+                        layout: DatabaseViewLayout::List,
+                        definition: view_definition(config),
                         is_default: true,
                         before_view_id: None,
                     }],
@@ -3234,12 +3621,12 @@ mod tests {
                             view_id: VIEW_ID.to_owned(),
                             expected_revision: 1,
                             name: "Tag List".to_owned(),
-                            default_layout: "list".to_owned(),
-                            config: view_config(
+                            layout: DatabaseViewLayout::List,
+                            definition: view_definition(view_config(
                                 json!({ "kind": "group", "operator": "and", "children": [] }),
                                 Some("tags"),
                                 &["status", "priority", "estimate", "tags"],
-                            ),
+                            )),
                             is_default: true,
                             before_view_id: None,
                         },
@@ -3264,10 +3651,6 @@ mod tests {
         assert_eq!(
             summary.database_values.get("tags"),
             Some(&json!(["o_AAAAAAAA", "o_BBBBBBBB"])),
-        );
-        assert_eq!(
-            summary.database_display_values.get("tags"),
-            Some(&json!(["Zulu", "Alpha"])),
         );
         let view_window =
             read_view_window(&module, 20, None, None).expect("canonical multi-value View window");
@@ -3304,23 +3687,18 @@ mod tests {
                 &context(),
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead {
-                        target: DatabaseTarget::PresentedView {
+                    read: DatabaseRead::ListWindow {
+                        target: DatabaseViewReadTarget::PresentedView {
                             view_id: VIEW_ID.to_owned(),
                             presentation_override: DatabaseViewPresentationOverrideInput {
                                 group_direction: Some(DatabaseViewSortDirectionInput::Desc),
                                 ..Default::default()
                             },
                         },
-                        mode: DatabaseReadMode::ListWindow,
-                        filter: None,
-                        sort: None,
-                        window: Some(CollectionWindowRequest {
+                        window: CollectionWindowRequest {
                             after: None,
                             first: Some(20),
-                        }),
-                        page_ids: None,
-                        group_scope: None,
+                        },
                     },
                 },
             )
@@ -3352,8 +3730,8 @@ mod tests {
                         view_id: VIEW_ID.to_owned(),
                         expected_revision: 2,
                         name: "Tag List".to_owned(),
-                        default_layout: "list".to_owned(),
-                        config: view_config(
+                        layout: DatabaseViewLayout::List,
+                        definition: view_definition(view_config(
                             json!({
                                 "kind": "clause",
                                 "propertyId": "tags",
@@ -3362,7 +3740,7 @@ mod tests {
                             }),
                             Some("tags"),
                             &["status", "priority", "estimate", "tags"],
-                        ),
+                        )),
                         is_default: true,
                         before_view_id: None,
                     }],
@@ -3396,8 +3774,8 @@ mod tests {
                         view_id: VIEW_ID.to_owned(),
                         expected_revision: 3,
                         name: "Tag List".to_owned(),
-                        default_layout: "list".to_owned(),
-                        config: sorted_config,
+                        layout: DatabaseViewLayout::List,
+                        definition: view_definition(sorted_config),
                         is_default: true,
                         before_view_id: None,
                     }],
@@ -3438,8 +3816,8 @@ mod tests {
                         view_id: SECOND_VIEW_ID.to_owned(),
                         expected_revision: 0,
                         name: "Secondary list".to_owned(),
-                        default_layout: "list".to_owned(),
-                        config: view_config(
+                        layout: DatabaseViewLayout::List,
+                        definition: view_definition(view_config(
                             json!({
                                 "kind": "group",
                                 "operator": "and",
@@ -3447,7 +3825,7 @@ mod tests {
                             }),
                             None,
                             &["status"],
-                        ),
+                        )),
                         is_default: false,
                         before_view_id: None,
                     }],
@@ -3534,10 +3912,10 @@ mod tests {
             .call(|connection| {
                 connection.execute(
                     "INSERT INTO scheduled_page_index( \
-                       page_block_id, project_id, lifecycle, scheduled_start, scheduled_end, \
+                       page_block_id, library_id, lifecycle, scheduled_start, scheduled_end, \
                        is_all_day, recurrence_json, reminders_json, schedule_timezone, \
                        source_metadata_revision, updated_at \
-                     ) VALUES ('page:schedule-row', 'project-1', 'active', NULL, NULL, 0, \
+                     ) VALUES ('page:schedule-row', 'library-1', 'active', NULL, NULL, 0, \
                        'null', '[]', NULL, 1, ?1)",
                     [NOW],
                 )?;
@@ -3729,7 +4107,7 @@ mod tests {
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: vec![DatabaseIntent::PutProperty {
                         data_source_id: SOURCE_ID.to_owned(),
-                        property_id: "blocked_by".to_owned(),
+                        property_id: "p_blocked0".to_owned(),
                         expected_data_source_revision: source_revision,
                         expected_property_revision: 0,
                         name: "Blocked by".to_owned(),
@@ -3743,6 +4121,30 @@ mod tests {
                 },
             )
             .expect("create Relation Property");
+        let replace_many = module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    operation_id: "operation:reject-replace-many-relation".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: vec![DatabaseIntent::EditPropertyValues {
+                        edits: vec![DatabasePropertyValueMutation {
+                            address: DatabasePagePropertyAddress {
+                                page_id: "page:relation-row".to_owned(),
+                                data_source_id: SOURCE_ID.to_owned(),
+                                property_id: "p_blocked0".to_owned(),
+                            },
+                            edit: DatabasePropertyValueEdit::ReplaceOneRelation {
+                                expected_value_revision: 0,
+                                target_page_id: Some("page:target-a".to_owned()),
+                            },
+                        }],
+                    }],
+                },
+            )
+            .expect_err("cardinality-many Relation rejects single-target replacement");
+        assert_eq!(replace_many.code, CoreErrorCode::InvalidInput);
         let write = module
             .apply(
                 &context(),
@@ -3755,7 +4157,7 @@ mod tests {
                             address: DatabasePagePropertyAddress {
                                 page_id: "page:relation-row".to_owned(),
                                 data_source_id: SOURCE_ID.to_owned(),
-                                property_id: "blocked_by".to_owned(),
+                                property_id: "p_blocked0".to_owned(),
                             },
                             edit: DatabasePropertyValueEdit::PatchSet {
                                 delta: nodex_core_contracts::database::DatabasePropertySetDelta::Relation {
@@ -3797,7 +4199,7 @@ mod tests {
                        ON edge.source_data_source_id = value.data_source_id \
                        AND edge.source_membership_id = value.membership_id \
                        AND edge.property_id = value.property_id \
-                     WHERE value.data_source_id = ?1 AND value.property_id = 'blocked_by'",
+                     WHERE value.data_source_id = ?1 AND value.property_id = 'p_blocked0'",
                     [SOURCE_ID],
                     |row| {
                         Ok((
@@ -3823,7 +4225,7 @@ mod tests {
                             address: DatabasePagePropertyAddress {
                                 page_id: "page:relation-row".to_owned(),
                                 data_source_id: SOURCE_ID.to_owned(),
-                                property_id: "blocked_by".to_owned(),
+                                property_id: "p_blocked0".to_owned(),
                             },
                             edit: DatabasePropertyValueEdit::PatchSet {
                                 delta: nodex_core_contracts::database::DatabasePropertySetDelta::Relation {
@@ -3843,7 +4245,7 @@ mod tests {
                 connection
                     .query_row(
                         "SELECT revision FROM data_source_property_values \
-                         WHERE data_source_id = ?1 AND property_id = 'blocked_by'",
+                         WHERE data_source_id = ?1 AND property_id = 'p_blocked0'",
                         [SOURCE_ID],
                         |row| row.get::<_, i64>(0),
                     )
@@ -3863,7 +4265,7 @@ mod tests {
                             address: DatabasePagePropertyAddress {
                                 page_id: "page:relation-row".to_owned(),
                                 data_source_id: SOURCE_ID.to_owned(),
-                                property_id: "blocked_by".to_owned(),
+                                property_id: "p_blocked0".to_owned(),
                             },
                             edit: DatabasePropertyValueEdit::PatchSet {
                                 delta: nodex_core_contracts::database::DatabasePropertySetDelta::Relation {
@@ -3881,30 +4283,29 @@ mod tests {
             CoreErrorCode::NotFound,
             "{guessed_remove:?}"
         );
-        let stale_replace = module
+        let stale_clear = module
             .apply(
                 &context(),
                 ModuleApplyRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    operation_id: "operation:replace-relation-stale".to_owned(),
+                    operation_id: "operation:clear-many-relation-stale".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: vec![DatabaseIntent::EditPropertyValues {
                         edits: vec![DatabasePropertyValueMutation {
                             address: DatabasePagePropertyAddress {
                                 page_id: "page:relation-row".to_owned(),
                                 data_source_id: SOURCE_ID.to_owned(),
-                                property_id: "blocked_by".to_owned(),
+                                property_id: "p_blocked0".to_owned(),
                             },
-                            edit: DatabasePropertyValueEdit::ReplaceRelation {
+                            edit: DatabasePropertyValueEdit::ClearManyRelation {
                                 expected_value_revision: 0,
-                                target_page_id: None,
                             },
                         }],
                     }],
                 },
             )
-            .expect_err("stale Relation replacement");
-        assert_eq!(stale_replace.code, CoreErrorCode::RevisionConflict);
+            .expect_err("stale cardinality-many Relation clear");
+        assert_eq!(stale_clear.code, CoreErrorCode::RevisionConflict);
         let (view_revision, mut view_config) = kernel
             .readers()
             .read_default(|connection| {
@@ -3933,7 +4334,7 @@ mod tests {
             .expect("read Relation filter View");
         view_config["filter"] = json!({
             "kind": "clause",
-            "propertyId": "blocked_by",
+            "propertyId": "p_blocked0",
             "operator": "contains",
             "value": "page:relation-row"
         });
@@ -3950,8 +4351,8 @@ mod tests {
                         view_id: VIEW_ID.to_owned(),
                         expected_revision: view_revision,
                         name: "Workflow".to_owned(),
-                        default_layout: "board".to_owned(),
-                        config: view_config,
+                        layout: DatabaseViewLayout::Board,
+                        definition: view_definition(view_config),
                         is_default: true,
                         before_view_id: None,
                     }],
@@ -3963,15 +4364,11 @@ mod tests {
                 &context(),
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead {
-                        target: DatabaseTarget::View {
+                    read: DatabaseRead::ViewWindow {
+                        target: DatabaseViewReadTarget::View {
                             view_id: VIEW_ID.to_owned(),
                         },
-                        mode: DatabaseReadMode::ViewWindow,
-                        filter: None,
-                        sort: None,
-                        window: Some(Default::default()),
-                        page_ids: None,
+                        window: Default::default(),
                         group_scope: None,
                     },
                 },
@@ -3981,7 +4378,7 @@ mod tests {
             panic!("Relation filtered View");
         };
         assert_eq!(filtered.rows.items.len(), 1);
-        let preview = &filtered.rows.items[0].database_values["blocked_by"]["value"];
+        let preview = &filtered.rows.items[0].database_values["p_blocked0"]["value"];
         assert_eq!(preview["total_count"], 5);
         assert_eq!(preview["targets"].as_array().map(Vec::len), Some(3));
         assert_eq!(preview["restricted_count"], 0);
@@ -3991,21 +4388,16 @@ mod tests {
                 &context(),
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead {
-                        target: DatabaseTarget::PageProperty {
+                    read: DatabaseRead::RelationTargetWindow {
+                        address: DatabasePagePropertyAddress {
                             page_id: "page:relation-row".to_owned(),
                             data_source_id: SOURCE_ID.to_owned(),
-                            property_id: "blocked_by".to_owned(),
+                            property_id: "p_blocked0".to_owned(),
                         },
-                        mode: DatabaseReadMode::RelationTargetWindow,
-                        filter: None,
-                        sort: None,
-                        window: Some(CollectionWindowRequest {
+                        window: CollectionWindowRequest {
                             after: None,
                             first: Some(1),
-                        }),
-                        page_ids: None,
-                        group_scope: None,
+                        },
                     },
                 },
             )
@@ -4048,19 +4440,13 @@ mod tests {
                 &context(),
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead {
-                        target: DatabaseTarget::DataSource {
-                            data_source_id: SOURCE_ID.to_owned(),
-                        },
-                        mode: DatabaseReadMode::RelationCandidateWindow,
-                        filter: Some(json!({ "query": "define" })),
-                        sort: None,
-                        window: Some(CollectionWindowRequest {
+                    read: DatabaseRead::RelationCandidateWindow {
+                        data_source_id: SOURCE_ID.to_owned(),
+                        query: Some("define".to_owned()),
+                        window: CollectionWindowRequest {
                             after: None,
                             first: Some(10),
-                        }),
-                        page_ids: None,
-                        group_scope: None,
+                        },
                     },
                 },
             )
@@ -4083,7 +4469,7 @@ mod tests {
                             address: DatabasePagePropertyAddress {
                                 page_id: "page:relation-row".to_owned(),
                                 data_source_id: SOURCE_ID.to_owned(),
-                                property_id: "blocked_by".to_owned(),
+                                property_id: "p_blocked0".to_owned(),
                             },
                             edit: DatabasePropertyValueEdit::PatchSet {
                                 delta: nodex_core_contracts::database::DatabasePropertySetDelta::Relation {
@@ -4108,11 +4494,10 @@ mod tests {
                             address: DatabasePagePropertyAddress {
                                 page_id: "page:relation-row".to_owned(),
                                 data_source_id: SOURCE_ID.to_owned(),
-                                property_id: "blocked_by".to_owned(),
+                                property_id: "p_blocked0".to_owned(),
                             },
-                            edit: DatabasePropertyValueEdit::ReplaceRelation {
+                            edit: DatabasePropertyValueEdit::ClearManyRelation {
                                 expected_value_revision: 2,
-                                target_page_id: None,
                             },
                         }],
                     }],
@@ -4125,7 +4510,7 @@ mod tests {
                 connection
                     .query_row(
                         "SELECT count(*) FROM data_source_relation_edges \
-                         WHERE source_data_source_id = ?1 AND property_id = 'blocked_by'",
+                         WHERE source_data_source_id = ?1 AND property_id = 'p_blocked0'",
                         [SOURCE_ID],
                         |row| row.get::<_, i64>(0),
                     )
@@ -4145,18 +4530,14 @@ mod tests {
             &context(),
             ModuleReadRequest {
                 contract_version: DATABASE_CONTRACT_VERSION,
-                read: DatabaseRead {
-                    target: DatabaseTarget::View {
+                read: DatabaseRead::ViewWindow {
+                    target: DatabaseViewReadTarget::View {
                         view_id: VIEW_ID.to_owned(),
                     },
-                    mode: DatabaseReadMode::ViewWindow,
-                    filter: None,
-                    sort: None,
-                    window: Some(CollectionWindowRequest {
+                    window: CollectionWindowRequest {
                         after,
                         first: Some(first),
-                    }),
-                    page_ids: None,
+                    },
                     group_scope,
                 },
             },
@@ -4176,19 +4557,14 @@ mod tests {
             &context(),
             ModuleReadRequest {
                 contract_version: DATABASE_CONTRACT_VERSION,
-                read: DatabaseRead {
-                    target: DatabaseTarget::View {
+                read: DatabaseRead::ListWindow {
+                    target: DatabaseViewReadTarget::View {
                         view_id: VIEW_ID.to_owned(),
                     },
-                    mode: DatabaseReadMode::ListWindow,
-                    filter: None,
-                    sort: None,
-                    window: Some(CollectionWindowRequest {
+                    window: CollectionWindowRequest {
                         after,
                         first: Some(first),
-                    }),
-                    page_ids: None,
-                    group_scope: None,
+                    },
                 },
             },
         )?;
@@ -4209,18 +4585,12 @@ mod tests {
             &context(),
             ModuleReadRequest {
                 contract_version: DATABASE_CONTRACT_VERSION,
-                read: DatabaseRead {
-                    target: DatabaseTarget::View {
-                        view_id: view_id.to_owned(),
-                    },
-                    mode: DatabaseReadMode::ViewContext,
-                    filter: None,
-                    sort: None,
-                    window: Some(CollectionWindowRequest {
+                read: DatabaseRead::ViewContext {
+                    view_id: view_id.to_owned(),
+                    window: CollectionWindowRequest {
                         after,
                         first: Some(first),
-                    }),
-                    page_ids: None,
+                    },
                     group_scope,
                 },
             },
@@ -4303,30 +4673,37 @@ mod tests {
             .expect("read diverged heads");
         assert!(physical_head > semantic_head);
 
-        for mode in [
-            DatabaseReadMode::ViewWindow,
-            DatabaseReadMode::ViewGroups,
-            DatabaseReadMode::ViewContext,
+        for read in [
+            DatabaseRead::ViewWindow {
+                target: DatabaseViewReadTarget::View {
+                    view_id: VIEW_ID.to_owned(),
+                },
+                window: CollectionWindowRequest {
+                    after: None,
+                    first: Some(10),
+                },
+                group_scope: None,
+            },
+            DatabaseRead::ViewGroups {
+                target: DatabaseViewReadTarget::View {
+                    view_id: VIEW_ID.to_owned(),
+                },
+            },
+            DatabaseRead::ViewContext {
+                view_id: VIEW_ID.to_owned(),
+                window: CollectionWindowRequest {
+                    after: None,
+                    first: Some(10),
+                },
+                group_scope: None,
+            },
         ] {
             let snapshot = module
                 .read(
                     &context(),
                     ModuleReadRequest {
                         contract_version: DATABASE_CONTRACT_VERSION,
-                        read: DatabaseRead {
-                            target: DatabaseTarget::View {
-                                view_id: VIEW_ID.to_owned(),
-                            },
-                            mode,
-                            filter: None,
-                            sort: None,
-                            window: Some(CollectionWindowRequest {
-                                after: None,
-                                first: Some(10),
-                            }),
-                            page_ids: None,
-                            group_scope: None,
-                        },
+                        read,
                     },
                 )
                 .expect("read View authority");
@@ -4373,12 +4750,18 @@ mod tests {
         );
 
         let first = read_view_context(&module, VIEW_ID, 1, None, None).expect("first context");
-        assert_eq!(first.database["databaseId"], DATABASE_ID);
-        assert_eq!(first.data_source["dataSourceId"], SOURCE_ID);
-        assert_eq!(first.view["viewId"], VIEW_ID);
+        assert_eq!(first.database.database_id, DATABASE_ID);
+        assert_eq!(first.data_source.data_source_id, SOURCE_ID);
+        assert_eq!(first.view.view_id, VIEW_ID);
         assert_eq!(
-            first.view["config"]["presentation"]["group"]["propertyId"],
-            "status"
+            first
+                .view
+                .definition
+                .presentation
+                .group
+                .as_ref()
+                .map(|group| group.property_id.as_str()),
+            Some("status")
         );
         assert!(
             first
@@ -4494,15 +4877,9 @@ mod tests {
                 &unauthorized_context,
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead {
-                        target: DatabaseTarget::View {
-                            view_id: VIEW_ID.to_owned(),
-                        },
-                        mode: DatabaseReadMode::ViewContext,
-                        filter: None,
-                        sort: None,
-                        window: Some(Default::default()),
-                        page_ids: None,
+                    read: DatabaseRead::ViewContext {
+                        view_id: VIEW_ID.to_owned(),
+                        window: Default::default(),
                         group_scope: None,
                     },
                 },
@@ -4584,16 +4961,10 @@ mod tests {
                 &context(),
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead {
-                        target: DatabaseTarget::View {
+                    read: DatabaseRead::ViewGroups {
+                        target: DatabaseViewReadTarget::View {
                             view_id: VIEW_ID.to_owned(),
                         },
-                        mode: DatabaseReadMode::ViewGroups,
-                        filter: None,
-                        sort: None,
-                        window: None,
-                        page_ids: None,
-                        group_scope: None,
                     },
                 },
             )
@@ -4709,30 +5080,18 @@ mod tests {
         .expect_err("cross-scope cursor must be rejected");
         assert_eq!(cross_scope.code, CoreErrorCode::InvalidInput);
 
-        // Group scope is only meaningful for view_window reads.
-        let wrong_mode = module
-            .read(
-                &context(),
-                ModuleReadRequest {
-                    contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead {
-                        target: DatabaseTarget::View {
-                            view_id: VIEW_ID.to_owned(),
-                        },
-                        mode: DatabaseReadMode::ViewGroups,
-                        filter: None,
-                        sort: None,
-                        window: None,
-                        page_ids: None,
-                        group_scope: Some(DatabaseGroupScope::Path {
-                            group_key: None,
-                            subgroup_key: None,
-                        }),
-                    },
-                },
-            )
-            .expect_err("group scope outside view_window must be rejected");
-        assert_eq!(wrong_mode.code, CoreErrorCode::InvalidInput);
+        // The discriminated read contract rejects coordinates that do not
+        // belong to a read before they can reach Database authorization.
+        let wrong_mode = serde_json::from_value::<DatabaseRead>(json!({
+            "kind": "view_groups",
+            "target": { "kind": "view", "view_id": VIEW_ID },
+            "group_scope": {
+                "kind": "path",
+                "group_key": null,
+                "subgroup_key": null
+            }
+        }));
+        assert!(wrong_mode.is_err());
     }
 
     #[test]
@@ -4859,8 +5218,8 @@ mod tests {
                     &context(),
                     ModuleReadRequest {
                         contract_version: DATABASE_CONTRACT_VERSION,
-                        read: DatabaseRead {
-                            target: DatabaseTarget::PresentedView {
+                        read: DatabaseRead::ViewWindow {
+                            target: DatabaseViewReadTarget::PresentedView {
                                 view_id: VIEW_ID.to_owned(),
                                 presentation_override: DatabaseViewPresentationOverrideInput {
                                     layout: None,
@@ -4876,11 +5235,7 @@ mod tests {
                                     layouts: None,
                                 },
                             },
-                            mode: DatabaseReadMode::ViewWindow,
-                            filter: None,
-                            sort: None,
-                            window: Some(Default::default()),
-                            page_ids: None,
+                            window: Default::default(),
                             group_scope: None,
                         },
                     },
@@ -5002,17 +5357,11 @@ mod tests {
                 &context(),
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead {
-                        target: DatabaseTarget::PresentedView {
+                    read: DatabaseRead::ViewGroups {
+                        target: DatabaseViewReadTarget::PresentedView {
                             view_id: VIEW_ID.to_owned(),
                             presentation_override: presentation_override.clone(),
                         },
-                        mode: DatabaseReadMode::ViewGroups,
-                        filter: None,
-                        sort: None,
-                        window: None,
-                        page_ids: None,
-                        group_scope: None,
                     },
                 },
             )
@@ -5054,16 +5403,12 @@ mod tests {
                 &context(),
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead {
-                        target: DatabaseTarget::PresentedView {
+                    read: DatabaseRead::ViewWindow {
+                        target: DatabaseViewReadTarget::PresentedView {
                             view_id: VIEW_ID.to_owned(),
                             presentation_override: presentation_override.clone(),
                         },
-                        mode: DatabaseReadMode::ViewWindow,
-                        filter: None,
-                        sort: None,
-                        window: Some(Default::default()),
-                        page_ids: None,
+                        window: Default::default(),
                         group_scope: Some(DatabaseGroupScope::Path {
                             group_key: Some("triage".to_owned()),
                             subgroup_key: Some("p2-medium".to_owned()),
@@ -5085,52 +5430,69 @@ mod tests {
         kernel
             .writer()
             .call(|connection| {
-                let options = |prefix: &str, pinned: &[&str]| {
+                let options = |discriminator: char| {
                     (0..15)
                         .map(|index| {
-                            let id = pinned
-                                .get(index)
-                                .map_or_else(|| format!("{prefix}-{index}"), |id| (*id).to_owned());
+                            let id = format!("o_{discriminator}{index:07}");
                             json!({ "id": id, "name": format!("Option {index}") })
                         })
                         .collect::<Vec<_>>()
                 };
                 connection.execute(
-                    "UPDATE data_source_properties SET config_json = ?1 \
-                     WHERE data_source_id = ?2 AND id = 'status'",
+                    "INSERT INTO data_source_properties(\
+                       data_source_id, id, name, value_type, config_json, rank_key, lifecycle, \
+                       schema_revision, created_at, updated_at\
+                     ) VALUES (?1, 'p_group000', 'Group', 'select', ?2, 'y1', 'active', 1, ?3, ?3)",
                     params![
-                        json!({ "options": options("status", &["triage", "ship"]) }).to_string(),
-                        SOURCE_ID
+                        SOURCE_ID,
+                        json!({ "options": options('g') }).to_string(),
+                        NOW
                     ],
                 )?;
                 connection.execute(
-                    "UPDATE data_source_properties SET config_json = ?1 \
-                     WHERE data_source_id = ?2 AND id = 'priority'",
+                    "INSERT INTO data_source_properties(\
+                       data_source_id, id, name, value_type, config_json, rank_key, lifecycle, \
+                       schema_revision, created_at, updated_at\
+                     ) VALUES (?1, 'p_subgr000', 'Subgroup', 'select', ?2, 'y2', 'active', 1, ?3, ?3)",
                     params![
-                        json!({ "options": options("priority", &["p1-high", "p2-medium"]) })
-                            .to_string(),
-                        SOURCE_ID
+                        SOURCE_ID,
+                        json!({ "options": options('s') }).to_string(),
+                        NOW
                     ],
                 )?;
                 Ok(())
             })
-            .expect("expand finite option domains");
+            .expect("seed large custom option domains");
+        let bounded_override = DatabaseViewPresentationOverrideInput {
+            layout: Some(DatabaseViewLayoutInput::Board),
+            sort: None,
+            group: Some(DatabaseViewGroupOverrideInput::Property {
+                property_id: "p_group000".to_owned(),
+            }),
+            subgroup: Some(DatabaseViewGroupOverrideInput::Property {
+                property_id: "p_subgr000".to_owned(),
+            }),
+            group_direction: None,
+            completion: None,
+            hierarchy: None,
+            layouts: Some(DatabaseViewLayoutsOverrideInput {
+                board: Some(DatabaseViewLayoutDisplayOverrideInput {
+                    fields: None,
+                    show_empty_groups: Some(true),
+                }),
+                list: None,
+            }),
+        };
         let bounded = module
             .read(
                 &context(),
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead {
-                        target: DatabaseTarget::PresentedView {
+                    read: DatabaseRead::ViewGroups {
+                        target: DatabaseViewReadTarget::PresentedView {
                             view_id: VIEW_ID.to_owned(),
-                            presentation_override,
+                            presentation_override: bounded_override,
                         },
-                        mode: DatabaseReadMode::ViewGroups,
-                        filter: None,
-                        sort: None,
-                        window: None,
-                        page_ids: None,
-                        group_scope: None,
                     },
                 },
             )
@@ -5140,7 +5502,8 @@ mod tests {
         };
         assert!(bounded.truncated);
         assert_eq!(bounded.group_limit, 200);
-        assert_eq!(bounded.total_groups, 225);
+        // The 15×15 configured combinations plus the encountered empty path.
+        assert_eq!(bounded.total_groups, 226);
         assert_eq!(bounded.groups.len(), 200);
 
         let invalid_override = DatabaseViewPresentationOverrideInput {
@@ -5148,7 +5511,7 @@ mod tests {
             sort: None,
             group: None,
             subgroup: Some(DatabaseViewGroupOverrideInput::Property {
-                property_id: "deleted-property".to_owned(),
+                property_id: "p_deleted0".to_owned(),
             }),
             group_direction: None,
             completion: None,
@@ -5160,17 +5523,11 @@ mod tests {
                 &context(),
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead {
-                        target: DatabaseTarget::PresentedView {
+                    read: DatabaseRead::ViewGroups {
+                        target: DatabaseViewReadTarget::PresentedView {
                             view_id: VIEW_ID.to_owned(),
                             presentation_override: invalid_override,
                         },
-                        mode: DatabaseReadMode::ViewGroups,
-                        filter: None,
-                        sort: None,
-                        window: None,
-                        page_ids: None,
-                        group_scope: None,
                     },
                 },
             )
@@ -5218,15 +5575,11 @@ mod tests {
                 &context(),
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead {
-                        target: DatabaseTarget::View {
+                    read: DatabaseRead::ViewWindow {
+                        target: DatabaseViewReadTarget::View {
                             view_id: FLAT_VIEW_ID.to_owned(),
                         },
-                        mode: DatabaseReadMode::ViewWindow,
-                        filter: None,
-                        sort: None,
-                        window: Some(Default::default()),
-                        page_ids: None,
+                        window: Default::default(),
                         group_scope: Some(DatabaseGroupScope::Path {
                             group_key: None,
                             subgroup_key: None,
@@ -5242,16 +5595,10 @@ mod tests {
                 &context(),
                 ModuleReadRequest {
                     contract_version: DATABASE_CONTRACT_VERSION,
-                    read: DatabaseRead {
-                        target: DatabaseTarget::View {
+                    read: DatabaseRead::ViewGroups {
+                        target: DatabaseViewReadTarget::View {
                             view_id: FLAT_VIEW_ID.to_owned(),
                         },
-                        mode: DatabaseReadMode::ViewGroups,
-                        filter: None,
-                        sort: None,
-                        window: None,
-                        page_ids: None,
-                        group_scope: None,
                     },
                 },
             )

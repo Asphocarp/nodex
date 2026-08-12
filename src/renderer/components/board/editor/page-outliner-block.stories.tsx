@@ -77,7 +77,7 @@ function PageOutlinerStory({
               >
                 <PageOutlinerRow
                   targetBlockId="page-outliner-story"
-                  projectId="nodex"
+                  accessKind="project"
                   plainTitle="Ship Page-as-Page outliner"
                   title={
                     (expanded || editing) && state === "available" ? (
@@ -117,7 +117,7 @@ function PageOutlinerStory({
                       {showNestedPage ? (
                         <PageOutlinerRow
                           targetBlockId="nested-page-outliner-story"
-                          projectId="nodex"
+                          accessKind="project"
                           plainTitle="Nested Page"
                           title="Nested Page"
                           expanded={nestedExpanded}

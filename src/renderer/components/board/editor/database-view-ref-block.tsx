@@ -32,13 +32,13 @@ function DatabaseViewRefBlock({
       referenceKey={`database-view-ref:${blockId}`}
       displayHint={displayHint}
       model={view.data}
-      documentScopeId={host?.documentScopeId ?? ""}
+      accessContext={host?.contentAccessContext}
       loading={view.loading}
       error={view.error}
       hostPageId={host?.hostPageId}
       ancestorPageIds={host?.ancestorPageIds}
       onOpenPage={host?.openPage}
-      renderDocument={({ projectId, card, isActive }) => (
+      renderDocument={({ card, isActive }) => (
         <Suspense
           fallback={
             <div className="py-2 text-sm text-token-description-foreground">
@@ -47,7 +47,6 @@ function DatabaseViewRefBlock({
           }
         >
           <EmbeddedReferencedPageDocument
-            documentScopeId={host?.documentScopeId ?? projectId}
             card={card}
             isActive={isActive && (host?.isActiveSurface ?? true)}
             hostRuntime={host}

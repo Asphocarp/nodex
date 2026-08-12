@@ -14,10 +14,11 @@ behavior for a Turn. Treating Full access only as a process sandbox setting
 left `nodex_app` confined to Project grants, while treating it as a durable
 grant would leak authority into later Turns.
 
-Some Library content still carries a Project compatibility owner in the Block
-and Document storage kernels. Complete Full-access support therefore also
-requires Page create, move, and duplicate operations to cross compatibility
-owners without weakening Library ownership or leaving split closures.
+Library content keeps one Library-scoped physical lifetime even when an Agent
+reaches its source and destination through different Project access paths.
+Complete Full-access support therefore requires Page create, move, and
+duplicate operations to preserve Library ownership while recording the actor
+Project only as authorization and event-delivery context.
 
 ## Decision
 
@@ -77,21 +78,19 @@ Agent call receipts bind exact Turn ID, authority fingerprint, and provenance
 version. Historical committed receipts may replay their existing result;
 historical prepared receipts without provenance cannot execute.
 
-### Compatibility-owner transitions are typed and atomic
+### Library ownership stays stable across Agent writes
 
-Library-scope Page creation uses the destination content's compatibility owner;
-Library-top-level creation uses the actor Project. Cross-owner Page moves stage
-the root at the source Library boundary, rehome the complete owned
-Block/Document closure with stable IDs, and place it under the target owner in
-one `IMMEDIATE` transaction. Duplicate allocates fresh identities and rehomes
-the copied closure before target placement in that same transaction.
+Library-scope Page creation, move, and duplicate delegate to the same typed
+Library kernels as other callers. Create and duplicate allocate fresh content
+identities in the target Library; move preserves the existing Block and
+Document identities and changes only the logical parent, membership, View
+position, or host shell required by the destination.
 
-Deferred foreign-key checking is enabled only for the transaction. Derived
-search, asset, read, schedule, membership, and View projections are rebuilt or
-updated before `foreign_key_check` and ownership-closure validation. An
-immutable Library relocation ledger records actor, source owner, final owner,
-store epoch, operation hash, and every Block/Document member. Faults at any
-transition boundary roll back content, projections, ledger, and Agent receipt.
+The actor Project is frozen into authorization, receipts, changes, automation,
+and delivery evidence. It is never copied into Block or Document ownership and
+never selects a physical ownership transition. Search, asset, read, schedule,
+membership, and View projections update inside the same transaction as the
+logical mutation; faults roll back content, projections, and the Agent receipt.
 
 ## Consequences
 
@@ -105,5 +104,6 @@ transition boundary roll back content, projections, ledger, and Agent receipt.
   retain their exact Turn authority.
 - Restoring the store changes its epoch and invalidates all earlier Turn
   authority and approval evidence.
-- Compatibility `project_id` remains an internal storage coordinate, but its
-  cross-owner transition now has one typed, audited transaction boundary.
+- Project identity remains an actor/execution/delivery coordinate on mutation
+  evidence; all durable content lifetime and storage authority remains scoped
+  to the Library.

@@ -209,6 +209,10 @@ uses local state and a submit-time guard.
 - A mounted primary Page/Card/Canvas surface renders from its owned Document
   session. Metadata summaries and read-model caches never seed or overwrite the
   collaborative title, body, or scene authority.
+- Key shared Document sessions and durable client queues by the Core-authored
+  `libraryId + accessContext + documentId` identity. Renderer-local scope IDs
+  and arbitrary routable Projects are presentation or navigation state, never
+  substitutes for content authority.
 - Keep each editor source explicit and discriminated. Legacy serialized content,
   collaborative Documents, templates, and read-only projections have different
   hydration, replacement, and save rules.

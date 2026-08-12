@@ -41,11 +41,11 @@ describe("Page create draft", () => {
       descriptionDraft: draft,
       priority: "p1-high",
       estimate: "m",
-      selectedTagIds: ["tag-ui", "tag-shared-name", "tag-shared-name-2"],
+      selectedTagIds: ["o_AAAAAAAA", "o_BBBBBBBB", "o_CCCCCCCC"],
       tagOptions: [
-        { id: "tag-ui", name: "UI", color: "blue" },
-        { id: "tag-shared-name", name: "Polish", color: "green" },
-        { id: "tag-shared-name-2", name: "Polish", color: "yellow" },
+        { id: "o_AAAAAAAA", name: "UI", color: "blue" },
+        { id: "o_BBBBBBBB", name: "Polish", color: "green" },
+        { id: "o_CCCCCCCC", name: "Polish", color: "yellow" },
       ],
     });
 
@@ -54,7 +54,10 @@ describe("Page create draft", () => {
       description: "## Context\nKeep the creation draft local until submit.",
       priority: "p1-high",
       estimate: "m",
-      tags: ["UI", "Polish"],
+      tagOptions: [
+        { optionId: "o_AAAAAAAA", name: "UI" },
+        { optionId: "o_BBBBBBBB", name: "Polish" },
+      ],
     });
     draft.document.destroy();
   });

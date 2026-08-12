@@ -108,7 +108,6 @@ export function DocumentBearingShellBlock({
             }
           >
             <EmbeddedOwnedBlockDocument
-              documentScopeId={host.documentScopeId}
               ownerBlockId={ownerBlockId}
               isActive={isActive && host.isActiveSurface}
               hostRuntime={host}

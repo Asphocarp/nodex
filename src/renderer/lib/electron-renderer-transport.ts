@@ -21,6 +21,7 @@ import type {
   ProjectionStreamMessage,
 } from "../../shared/projection-stream";
 import type { ResourceRevocationMessage } from "../../shared/resource-revocation-stream";
+import type { ContentAccessIdentity } from "../../shared/content-access-context";
 import {
   RECIPIENT_DELIVERY_VERSION,
   deliveryAddressKey,
@@ -34,8 +35,8 @@ import {
 } from "./electron-document-sync-adapter";
 import { createElectronCanvasSceneSyncAdapter } from "./electron-canvas-scene-sync-adapter";
 import type {
-  LibraryOwnedDocumentDescriptor,
-  OwnedDocumentDescriptor,
+  LibraryAccessedDocumentDescriptor,
+  ProjectAccessedDocumentDescriptor,
 } from "../../shared/block-documents/contracts";
 import type { DocumentSyncCommandResult } from "../../shared/block-documents/document-sync";
 import type {
@@ -216,20 +217,20 @@ export function createElectronRendererTransport(
         "block-document:owned:get",
         projectId,
         ownerBlockId,
-      ) as Promise<OwnedDocumentDescriptor>;
+      ) as Promise<ProjectAccessedDocumentDescriptor>;
     },
     prepareOwnedBlockDocument(projectId: string, ownerBlockId: string) {
       return bridge.invoke(
         "block-document:owned:prepare",
         projectId,
         ownerBlockId,
-      ) as Promise<DocumentSyncCommandResult<OwnedDocumentDescriptor>>;
+      ) as Promise<DocumentSyncCommandResult<ProjectAccessedDocumentDescriptor>>;
     },
     prepareLibraryOwnedBlockDocument(ownerBlockId: string) {
       return bridge.invoke(
         "library-block-document:owned:prepare",
         ownerBlockId,
-      ) as Promise<DocumentSyncCommandResult<LibraryOwnedDocumentDescriptor>>;
+      ) as Promise<DocumentSyncCommandResult<LibraryAccessedDocumentDescriptor>>;
     },
     createDocumentSyncAdapter(projectId: string) {
       return createElectronDocumentSyncAdapter(bridge, projectId);
@@ -237,8 +238,8 @@ export function createElectronRendererTransport(
     createLibraryDocumentSyncAdapter() {
       return createElectronLibraryDocumentSyncAdapter(bridge);
     },
-    createCanvasSceneSyncAdapter(projectId: string) {
-      return createElectronCanvasSceneSyncAdapter(bridge, projectId);
+    createCanvasSceneSyncAdapter(identity: ContentAccessIdentity) {
+      return createElectronCanvasSceneSyncAdapter(bridge, identity);
     },
     mutateDocument(
       projectId: string,

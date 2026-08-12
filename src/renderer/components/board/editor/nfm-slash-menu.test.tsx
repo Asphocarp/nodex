@@ -170,6 +170,7 @@ function makePalettePage(overrides: Partial<CommandPalettePage> = {}): CommandPa
     projectAppearance: overrides.projectAppearance ?? DEFAULT_PROJECT_APPEARANCE,
     columnName: overrides.columnName ?? "Doing",
     page,
+    tagLabels: overrides.tagLabels ?? page.tags,
     inActiveProject: overrides.inActiveProject ?? true,
     recentIndex: overrides.recentIndex ?? null,
     boardIndex: overrides.boardIndex ?? 0,

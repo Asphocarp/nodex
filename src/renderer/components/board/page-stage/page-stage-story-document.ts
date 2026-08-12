@@ -89,7 +89,8 @@ export function createPageStageStoryDocument(input: {
     authority: {
       kind: "yjs",
       descriptor: {
-        projectId: input.projectId,
+        libraryId: "storybook-library",
+        accessContext: { kind: "project", projectId: input.projectId },
         ownerBlockId: input.pageId,
         ownerType: "page",
         ownerLifecycle: "active",

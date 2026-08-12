@@ -10,7 +10,7 @@ use nodex_core_contracts::administration::{
 };
 use nodex_core_contracts::collection::CollectionWindowRequest;
 use nodex_core_contracts::database::{
-    DatabaseRead, DatabaseReadMode, DatabaseReadValue, DatabaseTarget,
+    DatabaseIdentityTarget, DatabaseRead, DatabaseReadValue, DatabaseViewReadTarget,
 };
 use nodex_core_contracts::library::{
     LibraryCatalogKind, LibraryLifecycle, LibraryNavigationNode, LibraryNavigationParent,
@@ -454,16 +454,10 @@ fn resolve_search_scope(
     let database = client
         .database_read(
             Some(&project.id),
-            DatabaseRead {
-                target: DatabaseTarget::Database {
+            DatabaseRead::Database {
+                target: DatabaseIdentityTarget::Database {
                     database_id: identity.to_owned(),
                 },
-                mode: DatabaseReadMode::Database,
-                filter: None,
-                sort: None,
-                window: None,
-                page_ids: None,
-                group_scope: None,
             },
         )
         .map_err(map_client_error)?;
@@ -482,16 +476,8 @@ fn resolve_search_scope(
     let source = client
         .database_read(
             Some(&project.id),
-            DatabaseRead {
-                target: DatabaseTarget::DataSource {
-                    data_source_id: identity.to_owned(),
-                },
-                mode: DatabaseReadMode::DataSource,
-                filter: None,
-                sort: None,
-                window: None,
-                page_ids: None,
-                group_scope: None,
+            DatabaseRead::DataSource {
+                data_source_id: identity.to_owned(),
             },
         )
         .map_err(map_client_error)?;
@@ -711,16 +697,10 @@ fn read_database_name(
 ) -> Result<String, CliError> {
     let snapshot = unwrap_database(client.database_read(
         Some(project_id),
-        DatabaseRead {
-            target: DatabaseTarget::Database {
+        DatabaseRead::Database {
+            target: DatabaseIdentityTarget::Database {
                 database_id: database_id.to_owned(),
             },
-            mode: DatabaseReadMode::Database,
-            filter: None,
-            sort: None,
-            window: None,
-            page_ids: None,
-            group_scope: None,
         },
     ))?;
     let DatabaseReadValue::Database { value } = snapshot.value else {
@@ -728,11 +708,7 @@ fn read_database_name(
             "Core returned the wrong Database selector snapshot",
         ));
     };
-    value
-        .pointer("/database/name")
-        .and_then(Value::as_str)
-        .map(str::to_owned)
-        .ok_or_else(|| internal("Core Database selector has no name"))
+    Ok(value.database.name)
 }
 
 fn read_page(
@@ -1195,49 +1171,34 @@ fn database_tree(
 ) -> Result<(String, Vec<TreeNode>), CliError> {
     let database = unwrap_database(client.database_read(
         Some(project_id),
-        DatabaseRead {
-            target: DatabaseTarget::Database {
+        DatabaseRead::Database {
+            target: DatabaseIdentityTarget::Database {
                 database_id: database_id.to_owned(),
             },
-            mode: DatabaseReadMode::Database,
-            filter: None,
-            sort: None,
-            window: None,
-            page_ids: None,
-            group_scope: None,
         },
     ))?;
     budget.observe(database.commit_head)?;
     let DatabaseReadValue::Database { value: database } = database.value else {
         return Err(internal("Core returned the wrong Database tree descriptor"));
     };
-    let name = database
-        .pointer("/database/name")
-        .and_then(Value::as_str)
-        .ok_or_else(|| internal("Core Database tree has no name"))?
-        .to_owned();
+    let name = database.database.name;
     let view_id = database
-        .pointer("/database/defaultViewId")
-        .and_then(Value::as_str)
-        .ok_or_else(|| internal("Core Database tree has no default View"))?
-        .to_owned();
+        .database
+        .default_view_id
+        .ok_or_else(|| internal("Core Database tree has no default View"))?;
     let mut pages = Vec::new();
     let mut cursor = None;
     loop {
         let window = unwrap_database(client.database_read(
             Some(project_id),
-            DatabaseRead {
-                target: DatabaseTarget::View {
+            DatabaseRead::ViewWindow {
+                target: DatabaseViewReadTarget::View {
                     view_id: view_id.clone(),
                 },
-                mode: DatabaseReadMode::ViewWindow,
-                filter: None,
-                sort: None,
-                window: Some(CollectionWindowRequest {
+                window: CollectionWindowRequest {
                     after: cursor,
                     first: Some(200),
-                }),
-                page_ids: None,
+                },
                 group_scope: None,
             },
         ))?;

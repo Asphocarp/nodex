@@ -132,8 +132,6 @@ const preflight = (
         name: "Tags",
         schema: { kind: "multi_select" },
         capabilities: {
-          replace: true,
-          patchSetMember: "option",
           filterOperators: ["contains", "not_contains", "is_empty", "is_not_empty"],
           sortable: true,
           groupable: true,
@@ -196,7 +194,7 @@ const canonicalPage = (archived = false): DatabasePage => ({
 });
 
 describe("Page lifecycle v2 runtime", () => {
-  test("compiles display names and semantic View placement without reading row anchors", () => {
+  test("compiles preallocated option identities and semantic View placement without reading row anchors", () => {
     const request = compilePageLifecycleRequestV2({
       intent: {
         kind: "create",
@@ -204,7 +202,13 @@ describe("Page lifecycle v2 runtime", () => {
         operationId: "operation-1",
         pageId: "page-1",
         status: "triage",
-        input: { title: "Page", tags: ["Release", " 新标签 "] },
+        input: {
+          title: "Page",
+          tagOptions: [
+            { optionId: "o_AAAAAAAA", name: "Release" },
+            { optionId: "o_BBBBBBBB", name: " 新标签 " },
+          ],
+        },
         placement: "top",
       },
       preflight: preflight(null),
@@ -217,9 +221,7 @@ describe("Page lifecycle v2 runtime", () => {
     expect(request.operation.tagOptionIds).toContain("o_AAAAAAAA");
     expect(request.operation.newTagOptions).toHaveLength(1);
     expect(request.operation.newTagOptions[0]?.name).toBe("新标签");
-    expect(request.operation.newTagOptions[0]?.optionId).toMatch(
-      /^o_[A-Za-z0-9_-]{8}$/u,
-    );
+    expect(request.operation.newTagOptions[0]?.optionId).toBe("o_BBBBBBBB");
 
     const endRequest = compilePageLifecycleRequestV2({
       intent: {

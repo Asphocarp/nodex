@@ -9,6 +9,8 @@ import { commitDatabaseViewOperations } from "@/lib/database-view-row-mutations"
 import type { DatabaseViewRenderModel } from "@/lib/database-view-render-model";
 import { useEffect, useState } from "react";
 import type { DatabaseViewConfigV4 } from "../../../shared/database-kernel";
+import type { DatabasePropertyOption } from "../../../shared/database-kernel";
+import type { DataSourcePropertyRecordV2 } from "../../../shared/database-module-v2";
 import { DatabaseViewConfigEditor } from "./database-view-config-editor";
 import {
   decodeDatabaseTaskFilter,
@@ -23,6 +25,8 @@ interface DatabaseViewFilterProps {
   readonly commitOperations?: typeof commitDatabaseViewOperations;
   readonly open?: boolean;
   readonly onOpenChange?: (open: boolean) => void;
+  readonly optionRegistries?: Readonly<Record<string, readonly DatabasePropertyOption[]>>;
+  readonly onRequestPropertyOptions?: (property: DataSourcePropertyRecordV2) => void;
 }
 
 const hasFilter = (config: DatabaseViewConfigV4): boolean =>
@@ -34,6 +38,8 @@ export function DatabaseViewFilter({
   commitOperations = commitDatabaseViewOperations,
   open: controlledOpen,
   onOpenChange,
+  optionRegistries = {},
+  onRequestPropertyOptions,
 }: DatabaseViewFilterProps) {
   const [internalOpen, setInternalOpen] = useState(false);
   const [draft, setDraft] = useState(model.query.view.config);
@@ -48,16 +54,19 @@ export function DatabaseViewFilter({
     setDraft(model.query.view.config);
     setError(null);
   }, [model.query.view.config, model.query.view.revision]);
+  useEffect(() => {
+    if (!open || !onRequestPropertyOptions) return;
+    const tagsProperty = model.query.properties.find(
+      (property) => property.lifecycle === "active" && property.propertyId === "tags",
+    );
+    if (tagsProperty) onRequestPropertyOptions(tagsProperty);
+  }, [model.query.properties, onRequestPropertyOptions, open]);
   const changed = JSON.stringify(draft.filter)
     !== JSON.stringify(model.query.view.config.filter);
   const taskFilterCapabilities = resolveDatabaseTaskFilterCapabilities(
     model.query.properties,
     {
-      tags: Array.from(new Set(
-        model.columns.flatMap((column) =>
-          column.rows.flatMap((row) => row.tags)
-        ),
-      )).map((tag) => ({ id: tag, name: tag })),
+      tags: optionRegistries.tags ?? [],
     },
   );
   const taskFilterState = decodeDatabaseTaskFilter(
@@ -132,6 +141,8 @@ export function DatabaseViewFilter({
                 config={draft}
                 layout={model.query.view.defaultLayout}
                 properties={model.query.properties}
+                optionRegistries={optionRegistries}
+                onRequestPropertyOptions={onRequestPropertyOptions}
                 disabled={busy}
                 onlyFilter
                 onChange={setDraft}

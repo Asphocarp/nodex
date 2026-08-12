@@ -1,5 +1,6 @@
 use nodex_core_contracts::database::{
-    DatabaseRead, DatabaseReadValue, DatabaseRelationTargetItem, DatabaseTarget,
+    DatabaseIdentityTarget, DatabaseRead, DatabaseReadValue, DatabaseRelationTargetItem,
+    DatabaseRowsTarget, DatabaseViewReadTarget,
 };
 use nodex_core_contracts::events::{AuthorizedReadStamp, ResourceKey};
 use nodex_core_contracts::{BoundModuleContext, StoreEpoch};
@@ -22,16 +23,16 @@ pub(super) fn issue(
     ) {
         return Ok(None);
     }
-    if matches!(
-        value,
-        DatabaseReadValue::Database { value }
-            | DatabaseReadValue::DataSource { value }
-            | DatabaseReadValue::View { value }
-            if value.get("lifecycle").and_then(serde_json::Value::as_str) != Some("active")
-    ) {
+    let inactive_identity = match value {
+        DatabaseReadValue::Database { value } => value.database.lifecycle != "active",
+        DatabaseReadValue::DataSource { value } => value.data_source.lifecycle != "active",
+        DatabaseReadValue::View { value } => value.lifecycle != "active",
+        _ => false,
+    };
+    if inactive_identity {
         return Ok(None);
     }
-    let Some(subject) = read_subject(context, &read.target) else {
+    let Some(subject) = read_subject(context, read) else {
         return Ok(None);
     };
     let mut authorization_dependencies = vec![subject.clone()];
@@ -48,46 +49,106 @@ pub(super) fn issue(
     .map(Some)
 }
 
-fn read_subject(context: &BoundModuleContext, target: &DatabaseTarget) -> Option<ResourceKey> {
-    match target {
-        DatabaseTarget::ProjectDefault => Some(match &context.project_id {
-            Some(project_id) => ResourceKey::Project {
-                project_id: project_id.0.clone(),
-            },
-            None => ResourceKey::Library {
-                library_id: context.library_id.0.clone(),
+fn read_subject(context: &BoundModuleContext, read: &DatabaseRead) -> Option<ResourceKey> {
+    match read {
+        DatabaseRead::CatalogWindow { .. } => Some(context_subject(context)),
+        DatabaseRead::Database { target } => Some(match target {
+            DatabaseIdentityTarget::ProjectDefault => context_subject(context),
+            DatabaseIdentityTarget::Database { database_id } => ResourceKey::Database {
+                database_id: database_id.clone(),
             },
         }),
-        DatabaseTarget::Database { database_id } => Some(ResourceKey::Database {
+        DatabaseRead::DataSourceWindow { database_id, .. }
+        | DatabaseRead::ViewDescriptorWindow { database_id, .. } => Some(ResourceKey::Database {
             database_id: database_id.clone(),
         }),
-        DatabaseTarget::DataSource { data_source_id }
-        | DatabaseTarget::Property { data_source_id, .. } => Some(ResourceKey::DataSource {
-            data_source_id: data_source_id.clone(),
+        DatabaseRead::DataSource { data_source_id }
+        | DatabaseRead::PropertyWindow { data_source_id, .. }
+        | DatabaseRead::OptionWindow { data_source_id, .. }
+        | DatabaseRead::RelationCandidateWindow { data_source_id, .. } => {
+            Some(ResourceKey::DataSource {
+                data_source_id: data_source_id.clone(),
+            })
+        }
+        DatabaseRead::View { view_id }
+        | DatabaseRead::ViewPersonalPresentation { view_id }
+        | DatabaseRead::ViewCollapsedOccurrences { view_id }
+        | DatabaseRead::ViewContext { view_id, .. } => Some(ResourceKey::View {
+            view_id: view_id.clone(),
         }),
-        DatabaseTarget::View { view_id } | DatabaseTarget::PresentedView { view_id, .. } => {
-            Some(ResourceKey::View {
+        DatabaseRead::ViewWindow { target, .. }
+        | DatabaseRead::ListWindow { target, .. }
+        | DatabaseRead::ViewGroups { target } => Some(view_target_subject(context, target)),
+        DatabaseRead::RowsById { target, .. } => Some(match target {
+            DatabaseRowsTarget::ProjectDefault => context_subject(context),
+            DatabaseRowsTarget::View { view_id } => ResourceKey::View {
                 view_id: view_id.clone(),
-            })
-        }
-        DatabaseTarget::Page { page_id } | DatabaseTarget::PageProperty { page_id, .. } => {
-            Some(ResourceKey::Page {
-                page_id: page_id.clone(),
-            })
-        }
-        DatabaseTarget::AgentDataSource { .. } | DatabaseTarget::AgentView { .. } => None,
+            },
+        }),
+        DatabaseRead::RowDetail { page_id }
+        | DatabaseRead::RelationTargetWindow {
+            address: nodex_core_contracts::database::DatabasePagePropertyAddress { page_id, .. },
+            ..
+        } => Some(ResourceKey::Page {
+            page_id: page_id.clone(),
+        }),
+        DatabaseRead::AgentDataSourceQuery { .. } | DatabaseRead::AgentViewQuery { .. } => None,
+    }
+}
+
+fn context_subject(context: &BoundModuleContext) -> ResourceKey {
+    match &context.project_id {
+        Some(project_id) => ResourceKey::Project {
+            project_id: project_id.0.clone(),
+        },
+        None => ResourceKey::Library {
+            library_id: context.library_id.0.clone(),
+        },
+    }
+}
+
+fn view_target_subject(
+    context: &BoundModuleContext,
+    target: &DatabaseViewReadTarget,
+) -> ResourceKey {
+    match target {
+        DatabaseViewReadTarget::ProjectDefault => context_subject(context),
+        DatabaseViewReadTarget::Database { database_id } => ResourceKey::Database {
+            database_id: database_id.clone(),
+        },
+        DatabaseViewReadTarget::View { view_id }
+        | DatabaseViewReadTarget::PresentedView { view_id, .. } => ResourceKey::View {
+            view_id: view_id.clone(),
+        },
     }
 }
 
 fn append_value_dependencies(value: &DatabaseReadValue, output: &mut Vec<ResourceKey>) {
     match value {
-        DatabaseReadValue::ViewWindow { value } | DatabaseReadValue::AgentQuery { value } => {
+        DatabaseReadValue::ViewWindow { value } | DatabaseReadValue::AgentViewQuery { value } => {
             append_view_coordinates(
                 &value.database_id,
                 &value.data_source_id,
                 &value.view_id,
                 output,
             );
+            append_rows(
+                value
+                    .rows
+                    .items
+                    .iter()
+                    .filter(|row| row.lifecycle == "active")
+                    .map(|row| row.page_id.as_str()),
+                output,
+            );
+        }
+        DatabaseReadValue::AgentDataSourceQuery { value } => {
+            output.push(ResourceKey::Database {
+                database_id: value.database_id.clone(),
+            });
+            output.push(ResourceKey::DataSource {
+                data_source_id: value.data_source_id.clone(),
+            });
             append_rows(
                 value
                     .rows

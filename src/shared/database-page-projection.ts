@@ -3,7 +3,7 @@ import type {
   DatabaseViewRecordV2,
   DataSourcePageRowV2,
   DataSourceDescriptorV2,
-  DataSourcePropertyRecordV2,
+  DataSourceQueryResultV2,
   DatabaseViewQueryResultV2,
   PageIntrinsicPropertyValueV2,
 } from "./database-module-v2";
@@ -34,10 +34,13 @@ import {
 import { isPriority } from "./priority";
 import { assertValidPageInput } from "./page-input-validation";
 import { projectCoreDatabaseQueryRow } from "./core-database-row-projection";
+import { parseDataSourceOptionId } from "./database-identities";
 
 type CoreDatabaseRowDetail = components["schemas"]["DatabaseRowDetail"];
 type CoreDatabaseRowSummary = components["schemas"]["DatabaseRowSummary"];
 type CoreDatabaseViewWindow = components["schemas"]["DatabaseViewWindow"];
+type CoreDataSourceQueryWindow =
+  components["schemas"]["DatabaseDataSourceQueryWindow"];
 
 const INTRINSIC_PROPERTY_KEYS = [
   "run.target",
@@ -160,43 +163,18 @@ const requireStringArray = (
   return fail(row.page.pageId, `${label} must be an array of strings`);
 };
 
-const readTagNames = (
-  row: DataSourcePageRowV2,
-  properties: readonly DataSourcePropertyRecordV2[],
-): string[] => {
-  const optionIds = requireStringArray(
+const readTagOptionIds = (row: DataSourcePageRowV2): string[] =>
+  [...requireStringArray(
     row,
     "Database Property tags",
     requireDatabaseValue(row, "tags"),
-  );
-  const definition = properties.find(
-    (property) => property.propertyId === "tags",
-  );
-  if (!definition) {
-    return fail(row.page.pageId, "is missing the tags Property definition");
-  }
-  const options = definition.config.options;
-  if (!Array.isArray(options)) {
-    return fail(row.page.pageId, "has an invalid tags Property definition");
-  }
-  const namesById = new Map<string, string>();
-  for (const option of options) {
-    if (
-      typeof option === "object"
-      && option !== null
-      && !Array.isArray(option)
-      && typeof option.id === "string"
-      && typeof option.name === "string"
-    ) {
-      namesById.set(option.id, option.name);
-      continue;
+  )].map((optionId) => {
+    try {
+      return parseDataSourceOptionId({ propertyId: "tags", value: optionId });
+    } catch (cause) {
+      return fail(row.page.pageId, "has an invalid tag option identity", { cause });
     }
-    return fail(row.page.pageId, "has an invalid tags option definition");
-  }
-  return optionIds
-    .map((optionId) => namesById.get(optionId) ?? optionId)
-    .sort((left, right) => left.localeCompare(right));
-};
+  }).sort((left, right) => left.localeCompare(right));
 
 const readPriority = (
   row: DataSourcePageRowV2,
@@ -285,17 +263,6 @@ const coreDatabaseValueOr = (
   return fallback;
 };
 
-const coreDatabaseDisplayValueOr = (
-  row: CoreDatabaseRowSummary,
-  propertyId: Exclude<DatabasePropertyId, "status">,
-  fallback: null | readonly never[],
-): unknown => {
-  if (Object.prototype.hasOwnProperty.call(row.database_display_values, propertyId)) {
-    return row.database_display_values[propertyId];
-  }
-  return coreDatabaseValueOr(row, propertyId, fallback);
-};
-
 const requireCoreIntrinsicValue = (
   row: CoreDatabaseRowSummary,
   key: IntrinsicPropertyKey,
@@ -338,6 +305,21 @@ const coreStringArray = (
   }
   return fail(row.page_id, `${label} must be an array of strings`);
 };
+
+const coreTagOptionIds = (
+  row: CoreDatabaseRowSummary,
+  value: unknown,
+): string[] => coreStringArray(
+  row,
+  "Database Property tags",
+  value,
+).map((optionId) => {
+  try {
+    return parseDataSourceOptionId({ propertyId: "tags", value: optionId });
+  } catch (cause) {
+    return fail(row.page_id, "has an invalid tag option identity", { cause });
+  }
+});
 
 const corePriority = (
   row: CoreDatabaseRowSummary,
@@ -446,11 +428,7 @@ export const projectCoreDatabaseRowSummary = (
     hasDescription: row.has_description,
     priority: corePriority(row, coreDatabaseValueOr(row, "priority", null)),
     estimate: coreEstimate(row, coreDatabaseValueOr(row, "estimate", null)),
-    tags: coreStringArray(
-      row,
-      "Database Property tags",
-      coreDatabaseDisplayValueOr(row, "tags", []),
-    ),
+    tags: coreTagOptionIds(row, coreDatabaseValueOr(row, "tags", [])),
     dueDate: coreOptionalDate(
       row,
       "Database Property due_date",
@@ -580,6 +558,23 @@ export const projectCoreDatabaseViewQuery = (
   };
 };
 
+/** Adapts a bounded transient Data Source query without inventing a View. */
+export const projectCoreDataSourceQuery = (
+  window: CoreDataSourceQueryWindow,
+  libraryId: string,
+  databaseDescriptor: DatabaseContainerDescriptorV2,
+  sourceDescriptor: DataSourceDescriptorV2,
+): DataSourceQueryResultV2 => ({
+  database: databaseDescriptor.database,
+  dataSource: sourceDescriptor.dataSource,
+  properties: sourceDescriptor.properties,
+  rows: window.rows.items.map((row) => projectCoreDatabaseQueryRow(row, {
+    libraryId,
+    dataSourceId: sourceDescriptor.dataSource.dataSourceId,
+    properties: sourceDescriptor.properties,
+  })),
+});
+
 export const projectCoreDatabaseViewBoard = (
   rows: readonly CoreDatabaseRowSummary[],
 ): BoardSummary => {
@@ -601,7 +596,6 @@ export const projectCoreDatabaseRowDetail = (
 
 export const projectDatabasePage = (
   row: DataSourcePageRowV2,
-  properties: readonly DataSourcePropertyRecordV2[],
   order = row.position?.order ?? UNPOSITIONED_PAGE_ORDER,
 ): DatabasePage => {
   if (row.bodyNfm === undefined) {
@@ -636,7 +630,7 @@ export const projectDatabasePage = (
     description: row.bodyNfm,
     priority: readPriority(row, requireDatabaseValue(row, "priority")),
     estimate: readEstimate(row, requireDatabaseValue(row, "estimate")),
-    tags: readTagNames(row, properties),
+    tags: readTagOptionIds(row),
     dueDate: optionalDate(
       row,
       "Database Property due_date",
@@ -738,7 +732,7 @@ export const projectDatabaseQueryPages = (
     if (typeof status === "string") {
       nextOrderByStatus.set(status, order + 1);
     }
-    return projectDatabasePage(row, query.properties, order);
+    return projectDatabasePage(row, order);
   });
 };
 

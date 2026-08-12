@@ -851,7 +851,8 @@ pub(super) fn seal(connection: &Connection, context: &CommitContext) -> Result<i
         commit_seq: context.commit_seq,
     };
     if projection.requires_read_at_least.is_empty() && projection.patches.is_empty() {
-        projection.requires_read_at_least = default_projection_scopes(connection, &impact)?;
+        projection.requires_read_at_least =
+            default_projection_scopes(connection, &impact, &audience.project_ids)?;
     }
     canonicalize_projection(&mut projection);
     projection.effects = seal_projection_effects(connection, context, &projection)?;
@@ -2893,6 +2894,7 @@ fn parse_revocation_reason(value: &str) -> Result<ResourceRevocationReason, Stor
 fn default_projection_scopes(
     connection: &Connection,
     impact: &ProjectionImpact,
+    actor_project_ids: &[String],
 ) -> Result<Vec<LocalProjectionScope>, StoreError> {
     let ProjectionImpact::Resources {
         page_ids, view_ids, ..
@@ -2902,16 +2904,9 @@ fn default_projection_scopes(
     };
     let mut scopes = Vec::new();
     for page_id in page_ids {
-        if let Some(project_id) = connection
-            .query_row(
-                "SELECT project_id FROM blocks WHERE id = ?1",
-                [page_id],
-                |row| row.get::<_, String>(0),
-            )
-            .optional()?
-        {
+        for project_id in actor_project_ids {
             scopes.push(LocalProjectionScope::Page {
-                project_id,
+                project_id: project_id.clone(),
                 page_id: page_id.clone(),
             });
         }
@@ -2919,27 +2914,22 @@ fn default_projection_scopes(
     for view_id in view_ids {
         let coordinates = connection
             .query_row(
-                "SELECT block.project_id, view.database_block_id, view.data_source_id
+                "SELECT view.database_block_id, view.data_source_id
                  FROM database_views view
-                 JOIN blocks block ON block.id = view.database_block_id
                  WHERE view.id = ?1",
                 [view_id],
-                |row| {
-                    Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, String>(2)?,
-                    ))
-                },
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
             )
             .optional()?;
-        if let Some((project_id, database_id, data_source_id)) = coordinates {
-            scopes.push(LocalProjectionScope::DatabaseView {
-                project_id,
-                database_id,
-                data_source_id,
-                view_id: view_id.clone(),
-            });
+        if let Some((database_id, data_source_id)) = coordinates {
+            for project_id in actor_project_ids {
+                scopes.push(LocalProjectionScope::DatabaseView {
+                    project_id: project_id.clone(),
+                    database_id: database_id.clone(),
+                    data_source_id: data_source_id.clone(),
+                    view_id: view_id.clone(),
+                });
+            }
         }
     }
     canonicalize_projection_scopes(&mut scopes);
@@ -3237,16 +3227,27 @@ fn enrich_migrated_documents(
             .query_row(
                 "SELECT receipt.update_hash, receipt.update_byte_length,
                         receipt.base_head_seq,
-                        document.project_id, owner.id,
+                        local_document.project_id, owner.id,
                         CASE WHEN owner.type = 'page' THEN owner.id ELSE NULL END
                  FROM document_update_receipts receipt
-                 JOIN documents document ON document.id = receipt.document_id
+                 JOIN local_commit_documents local_document
+                   ON local_document.store_epoch = ?5 AND local_document.commit_seq = ?6
+                  AND local_document.document_id = receipt.document_id
+                  AND local_document.generation = receipt.generation
+                  AND local_document.head_seq = receipt.seq
                  LEFT JOIN block_documents ownership
                    ON ownership.document_id = receipt.document_id
                  LEFT JOIN blocks owner ON owner.id = ownership.block_id
                  WHERE receipt.document_id = ?1 AND receipt.generation = ?2
                    AND receipt.seq = ?3 AND receipt.update_id = ?4",
-                params![document_id, generation, head_seq, update_id],
+                params![
+                    document_id,
+                    generation,
+                    head_seq,
+                    update_id,
+                    coordinate.store_epoch,
+                    coordinate.commit_seq,
+                ],
                 |query_row| {
                     Ok((
                         query_row.get::<_, String>(0)?,
@@ -3863,17 +3864,21 @@ mod tests {
                      ) VALUES (1, ?1, '2026-08-08', '2026-08-08')",
                     [&store_epoch],
                 )?;
-                connection.execute(
-                    "INSERT INTO projects(id, name, created, updated)
-                     VALUES ('project:compacted', 'Compacted', '2026-08-08', '2026-08-08')",
-                    [],
+                connection.execute_batch(
+                    "INSERT INTO profiles(id, created_at, updated_at)
+                     VALUES ('profile:compacted', '2026-08-08', '2026-08-08');
+                     INSERT INTO libraries(id, profile_id, created_at, updated_at)
+                     VALUES ('library:compacted', 'profile:compacted', '2026-08-08', '2026-08-08');
+                     INSERT INTO projects(id, library_id, name, created, updated)
+                     VALUES ('project:compacted', 'library:compacted', 'Compacted',
+                       '2026-08-08', '2026-08-08');",
                 )?;
                 connection.execute(
                     "INSERT INTO documents(
-                       id, project_id, generation, head_seq, schema_key, schema_version,
+                       id, library_id, generation, head_seq, schema_key, schema_version,
                        state_vector, readiness, authority, created_at, updated_at
                      ) VALUES (
-                       'document:compacted', 'project:compacted', 1, 101,
+                       'document:compacted', 'library:compacted', 1, 101,
                        'nodex.page', 2, X'', 'ready', 'ydoc_primary',
                        '2026-08-08', '2026-08-08'
                      )",
@@ -4022,21 +4027,6 @@ mod tests {
         kernel
             .writer()
             .call(|connection| {
-                connection.execute(
-                    "INSERT INTO projects(id, name, created, updated)
-                     VALUES ('project:exact-fallback', 'Exact fallback', '2026-08-11', '2026-08-11')",
-                    [],
-                )?;
-                connection.execute(
-                    "INSERT INTO blocks(
-                       id, project_id, type, lifecycle, location_kind,
-                       location_revision, metadata_revision, created_at, updated_at
-                     ) VALUES (
-                       'page:exact-fallback', 'project:exact-fallback', 'page', 'active', 'space',
-                       1, 1, '2026-08-11', '2026-08-11'
-                     )",
-                    [],
-                )?;
                 let scopes = default_projection_scopes(
                     connection,
                     &ProjectionImpact::Resources {
@@ -4046,6 +4036,7 @@ mod tests {
                         view_ids: Vec::new(),
                         document_heads: Vec::new(),
                     },
+                    &["project:exact-fallback".to_owned()],
                 )?;
                 assert_eq!(
                     scopes,

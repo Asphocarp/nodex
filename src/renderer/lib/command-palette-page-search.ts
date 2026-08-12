@@ -126,7 +126,7 @@ function buildSearchDocument(item: CommandPalettePage): CommandPalettePageSearch
     id: item.id,
     title: normalizeCommandPaletteSearchText(item.page.title),
     description: normalizeCommandPaletteSearchText(item.page.descriptionPreview),
-    tags: normalizeCommandPaletteSearchText(item.page.tags.join(" ")),
+    tags: normalizeCommandPaletteSearchText(item.tagLabels.join(" ")),
     assignee: normalizeCommandPaletteSearchText(item.page.assignee ?? ""),
     columnName: normalizeCommandPaletteSearchText(item.columnName),
     projectName: normalizeCommandPaletteSearchText(item.projectName),
@@ -250,7 +250,7 @@ function buildSearchDecorations(
 
   const tagTerms = collectMatchedTermsForField(result, "tags");
   if (tagTerms.length > 0) {
-    item.page.tags.forEach((tag) => {
+    item.tagLabels.forEach((tag) => {
       const badge = buildBadge(`tag:${tag}`, "tag", tag, tagTerms);
       if (badge) {
         badges.push(badge);
@@ -390,7 +390,7 @@ function buildFastSearchDecorations(
 
   const tagTerms = collectFastMatchedTerms(record.document.tags, terms);
   if (tagTerms.length > 0) {
-    item.page.tags.forEach((tag) => {
+    item.tagLabels.forEach((tag) => {
       const badge = buildBadge(`tag:${tag}`, "tag", tag, tagTerms);
       if (badge) badges.push(badge);
     });

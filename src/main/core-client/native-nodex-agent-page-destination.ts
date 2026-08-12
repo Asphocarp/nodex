@@ -42,7 +42,6 @@ export interface NativeAgentPageDestinationPreparation {
   readonly destination?: CoreResolvedDestination | null;
   readonly destination_document?: CoreDocumentHead | null;
   readonly destination_database_id?: string | null;
-  readonly destination_project_id?: string | null;
 }
 
 const siblingAnchor = (
@@ -87,17 +86,12 @@ export const preparedAgentPageDestination = (
   preparation: NativeAgentPageDestinationPreparation,
 ): PreparedNodexAgentCreateDestination => {
   const destination = preparation.destination;
-  const destinationProjectId = preparation.destination_project_id;
   if (!destination) {
     throw new Error("Core Agent Page preparation omitted its destination");
   }
-  if (!destinationProjectId) {
-    throw new Error("Core Agent Page preparation omitted its target Project");
-  }
   if (destination.kind === "library") {
     return {
-      kind: "space",
-      contentProjectId: destinationProjectId,
+      kind: "library",
       ...(destination.before ? { beforeBlockId: destination.before.block_id } : {}),
     };
   }
@@ -108,7 +102,6 @@ export const preparedAgentPageDestination = (
     }
     return {
       kind: "document",
-      contentProjectId: destinationProjectId,
       documentId: target.document_id,
       generation: target.generation,
       expectedHeadSeq: target.expected_head_seq,
@@ -120,9 +113,7 @@ export const preparedAgentPageDestination = (
     throw new Error("Core Agent Page preparation omitted its target Database");
   }
   return {
-    kind: "database",
-    contentProjectId: destinationProjectId,
-    databaseBlockId: databaseId,
+    kind: "data_source",
     dataSourceId: destination.data_source_id,
     schemaRevision: destination.expected_data_source_revision,
     ...(destination.view

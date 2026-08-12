@@ -20,6 +20,7 @@ import { plainTextToPortableRichText } from "../../../shared/block-documents/por
 import { MemoryCanvasSceneOutbox } from "@/lib/canvas-scene-outbox";
 import type { CanvasSceneSyncAdapter } from "@/lib/canvas-scene-provider";
 import { noOpLocalCommit } from "../../../shared/testing/local-commit";
+import type { ContentAccessContext } from "../../../shared/content-access-context";
 import {
   readCanvasViewportPreference,
   writeCanvasViewportPreference,
@@ -67,7 +68,7 @@ let maintenanceEligible = false;
 let maintenanceReadCount = 0;
 let maintenanceApplyCount = 0;
 let openedCards: Array<{
-  readonly projectId: string;
+  readonly accessContext: ContentAccessContext;
   readonly pageId: string;
   readonly title?: string;
 }> = [];
@@ -139,7 +140,8 @@ const syncResponse = (syncRequestId: string) => ({
   kind: "snapshot" as const,
   version: CANVAS_SCENE_SYNC_VERSION,
   syncRequestId,
-  projectId: "project-1",
+  libraryId: "library-1",
+  accessContext: { kind: "project" as const, projectId: "project-1" },
   documentId: descriptor.documentId,
   storeEpoch: descriptor.storeEpoch,
   generation: descriptor.generation,
@@ -196,7 +198,8 @@ const adapter: CanvasSceneSyncAdapter = {
       value: {
         version: CANVAS_SCENE_SYNC_VERSION,
         mutationId: request.mutationId,
-        projectId: request.projectId,
+        libraryId: descriptor.libraryId,
+        accessContext: request.accessContext,
         documentId: request.documentId,
         storeEpoch: request.storeEpoch,
         generation: request.generation,
@@ -308,7 +311,8 @@ function MockExcalidraw(props: {
 }
 
 const descriptor = {
-  projectId: "project-1",
+  libraryId: "library-1",
+  accessContext: { kind: "project", projectId: "project-1" },
   ownerBlockId: "019f7399-7676-70ae-b2aa-168692b64d20",
   ownerType: "canvas",
   ownerLifecycle: "active",
@@ -361,13 +365,14 @@ vi.mock("./canvas-view-deps", () => ({
     requestedOwnerBlockIds.push(ownerBlockId);
     return children({
     status: "ydoc_primary",
-    projectId: "project-1",
+    accessContext: descriptor.accessContext,
     ownerBlockId,
     descriptor: { ...descriptor, ownerBlockId },
   }, { reload: async () => undefined });
   },
   createCanvasSceneSyncAdapter: () => adapter,
-  createDefaultCanvasSceneOutbox: () => new MemoryCanvasSceneOutbox(),
+  createDefaultCanvasSceneOutbox: (libraryId: string) =>
+    new MemoryCanvasSceneOutbox(libraryId),
   readCanvasSceneCompaction: async () => {
     maintenanceReadCount += 1;
     return {
@@ -407,7 +412,7 @@ async function renderCanvas(strict = false) {
     "../canvas/canvas-document-surface"
   );
   const canvas = createElement(CanvasDocumentSurface, {
-    projectId: "project-1",
+    accessContext: descriptor.accessContext,
     canvasBlockId: descriptor.ownerBlockId,
     surfaceKey: "canvas:test",
     viewportPreferenceScope: "stage:test",
@@ -417,8 +422,8 @@ async function renderCanvas(strict = false) {
       board: mockBoard,
       createPage: async () => makeCardSummary("card-new", "New Card"),
     },
-    onOpenPage: ({ projectId, pageId, titleSnapshot }) => {
-      openedCards.push({ projectId, pageId, title: titleSnapshot });
+    onOpenPage: ({ accessContext, pageId, titleSnapshot }) => {
+      openedCards.push({ accessContext, pageId, title: titleSnapshot });
     },
     activePageId: undefined,
     onCloseActivePage: async () => undefined,
@@ -481,7 +486,7 @@ describe("CanvasDocumentSurface", () => {
     );
     const canvasId = "019f7399-7676-70ae-b2aa-168692b64d21";
     const view = render(createElement(CanvasDocumentSurface, {
-      projectId: "project-1",
+      accessContext: descriptor.accessContext,
       canvasBlockId: canvasId,
       surfaceKey: "canvas:standalone",
       viewportPreferenceScope: "stage:standalone",
@@ -564,7 +569,7 @@ describe("CanvasDocumentSurface", () => {
     await view.findByTestId("excalidraw");
     fireEvent.click(view.getByRole("button", { name: "open first card" }));
     expect(openedCards).toEqual([{
-      projectId: "project-1",
+      accessContext: descriptor.accessContext,
       pageId: "standalone-card",
       title: "Standalone",
     }]);
@@ -619,7 +624,8 @@ describe("CanvasDocumentSurface", () => {
     act(() => realtimeListener?.({
       type: "canvas_scene_resync_required",
       version: CANVAS_SCENE_SYNC_VERSION,
-      projectId: "project-1",
+      libraryId: descriptor.libraryId,
+      accessContext: descriptor.accessContext,
       documentId: descriptor.documentId,
       storeEpoch: descriptor.storeEpoch,
       generation: descriptor.generation,
@@ -645,7 +651,8 @@ describe("CanvasDocumentSurface", () => {
     act(() => presenceListener?.({
       type: "canvas_presence_updated",
       version: 1,
-      projectId: "project-1",
+      libraryId: descriptor.libraryId,
+      accessContext: descriptor.accessContext,
       presence: {
         version: 1,
         engine: "canvas_scene",

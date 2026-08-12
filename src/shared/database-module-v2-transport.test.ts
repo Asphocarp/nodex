@@ -1,16 +1,18 @@
 import { describe, expect, test } from "vitest";
-import { DATABASE_MODULE_CONTRACT_VERSION } from "./database-module";
 import { DATABASE_MODULE_V2_CONTRACT_VERSION } from "./database-module-v2";
 import { noOpLocalCommit } from "./testing/local-commit";
 import {
   bindDatabaseApplyV2,
   bindDatabaseModuleReadV2,
+  bindLibraryDatabaseApplyV2,
+  bindLibraryDatabaseModuleReadV2,
   databaseModuleFailureV2,
   databaseModuleHttpStatusV2,
   parseDatabaseApplyResultV2,
   parseDatabaseModuleReadResultV2,
   parseLibraryDatabaseApplyResultV2,
   parseLibraryDatabaseModuleReadResultV2,
+  parseDataSourcePropertyRecordV2,
 } from "./database-module-v2-transport";
 
 const CUSTOM_PROPERTY_ID = "p_abcdefgh";
@@ -79,8 +81,6 @@ const propertyRecord = () => ({
   name: "Teams",
   schema: { kind: "multi_select" },
   capabilities: {
-    replace: true,
-    patchSetMember: "option",
     filterOperators: ["contains", "not_contains", "is_empty", "is_not_empty"],
     sortable: true,
     groupable: true,
@@ -96,9 +96,23 @@ const propertyRecord = () => ({
 });
 
 describe("Database Module v2 transport boundary", () => {
-  test("exposes the View-global ordering contract versions", () => {
-    expect(DATABASE_MODULE_CONTRACT_VERSION).toBe(3);
-    expect(DATABASE_MODULE_V2_CONTRACT_VERSION).toBe(9);
+  test("exposes the View-global ordering contract version", () => {
+    expect(DATABASE_MODULE_V2_CONTRACT_VERSION).toBe(11);
+  });
+
+  test("rejects Property option counts outside the canonical schema bound", () => {
+    expect(() =>
+      parseDataSourcePropertyRecordV2({
+        ...propertyRecord(),
+        optionCount: 101,
+      })).toThrow("optionCount diverges from its Property schema");
+    expect(() =>
+      parseDataSourcePropertyRecordV2({
+        ...propertyRecord(),
+        schema: { kind: "text" },
+        valueType: "text",
+        optionCount: 1,
+      })).toThrow("optionCount diverges from its Property schema");
   });
 
   test("binds ordered option creation and value writes under one apply", () => {
@@ -266,6 +280,74 @@ describe("Database Module v2 transport boundary", () => {
     ).toThrow("databaseApplyV2.databaseBlockId is not supported");
   });
 
+  test("keeps presentation conflicts separate from per-occurrence disclosure", () => {
+    const bound = bindDatabaseApplyV2({
+      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+      operationId: "personal-view-state",
+      projectId: "project-1",
+      storeEpoch: "epoch-1",
+      actor: {},
+      operations: [
+        {
+          kind: "put_view_personal_presentation",
+          viewId: "view-1",
+          expectedRevision: 4,
+          presentationOverride: { layout: "list" },
+        },
+        {
+          kind: "set_view_occurrence_disclosure",
+          viewId: "view-1",
+          target: { kind: "page", occurrenceKey: "ITEM_parent/child" },
+          collapsed: true,
+        },
+      ],
+    }, "project-1", { actor: { kind: "test" } });
+    expect(bound.operations).toEqual([
+      {
+        kind: "put_view_personal_presentation",
+        viewId: "view-1",
+        expectedRevision: 4,
+        presentationOverride: { layout: "list" },
+      },
+      {
+        kind: "set_view_occurrence_disclosure",
+        viewId: "view-1",
+        target: { kind: "page", occurrenceKey: "ITEM_parent/child" },
+        collapsed: true,
+      },
+    ]);
+
+    for (const mode of [
+      "view_personal_presentation",
+      "view_collapsed_occurrences",
+    ] as const) {
+      expect(bindDatabaseModuleReadV2({
+        version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+        projectId: "project-1",
+        read: {
+          target: { kind: "view", viewId: "view-1" },
+          mode,
+        },
+      }, "project-1").read.mode).toBe(mode);
+    }
+
+    expect(() => bindDatabaseApplyV2({
+      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+      operationId: "bad-disclosure-target",
+      projectId: "project-1",
+      storeEpoch: "epoch-1",
+      actor: {},
+      operations: [{
+        kind: "set_view_occurrence_disclosure",
+        viewId: "view-1",
+        target: { kind: "group", occurrenceKey: "ITEM_parent/child" },
+        collapsed: true,
+      }],
+    }, "project-1", { actor: { kind: "test" } })).toThrow(
+      "does not match its occurrence kind",
+    );
+  });
+
   test("rejects removed ad hoc query reads at the transport boundary", () => {
     expect(() =>
       bindDatabaseModuleReadV2(
@@ -320,8 +402,12 @@ describe("Database Module v2 transport boundary", () => {
         target: { kind: "project_default" },
         mode: "catalog_window",
         window: { first: 100 },
+        minimumCommitSeq: 7,
       },
-    }, "project-1").read.mode).toBe("catalog_window");
+    }, "project-1").read).toMatchObject({
+      mode: "catalog_window",
+      minimumCommitSeq: 7,
+    });
 
     expect(bindDatabaseModuleReadV2({
       version: DATABASE_MODULE_V2_CONTRACT_VERSION,
@@ -401,7 +487,7 @@ describe("Database Module v2 transport boundary", () => {
       "databaseApplyV2.operations[0].edits[0].edit.value.kind is unsupported",
     );
 
-    const clear = bindDatabaseApplyV2({
+    const replaceOne = bindDatabaseApplyV2({
       version: DATABASE_MODULE_V2_CONTRACT_VERSION,
       operationId: "relation-clear",
       projectId: "project-1",
@@ -414,7 +500,7 @@ describe("Database Module v2 transport boundary", () => {
           dataSourceId: "source-1",
           propertyId: CUSTOM_PROPERTY_ID,
           edit: {
-            kind: "replace_relation",
+            kind: "replace_one_relation",
             expectedValueRevision: 7,
             targetPageId: "page:parent",
           },
@@ -422,14 +508,39 @@ describe("Database Module v2 transport boundary", () => {
       }],
     }, "project-1", { actor: { kind: "test" } });
     expect(
-      clear.operations[0]?.kind === "edit_property_values"
-        ? clear.operations[0].edits[0]?.edit
+      replaceOne.operations[0]?.kind === "edit_property_values"
+        ? replaceOne.operations[0].edits[0]?.edit
         : null,
     ).toEqual({
-      kind: "replace_relation",
+      kind: "replace_one_relation",
       expectedValueRevision: 7,
       targetPageId: "page:parent",
     });
+
+    const clearMany = bindDatabaseApplyV2({
+      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+      operationId: "relation-clear-many",
+      projectId: "project-1",
+      storeEpoch: "epoch-1",
+      actor: {},
+      operations: [{
+        kind: "edit_property_values",
+        edits: [{
+          pageId: "page-source",
+          dataSourceId: "source-1",
+          propertyId: CUSTOM_PROPERTY_ID,
+          edit: {
+            kind: "clear_many_relation",
+            expectedValueRevision: 8,
+          },
+        }],
+      }],
+    }, "project-1", { actor: { kind: "test" } });
+    expect(
+      clearMany.operations[0]?.kind === "edit_property_values"
+        ? clearMany.operations[0].edits[0]?.edit
+        : null,
+    ).toEqual({ kind: "clear_many_relation", expectedValueRevision: 8 });
 
     expect(() => bindDatabaseApplyV2({
       version: DATABASE_MODULE_V2_CONTRACT_VERSION,
@@ -530,6 +641,75 @@ describe("Database Module v2 transport boundary", () => {
         },
       }),
     ).toThrow(".key is not supported");
+
+    expect(() =>
+      parseDatabaseModuleReadResultV2({
+        ...result,
+        value: {
+          ...result.value,
+          value: {
+            kind: "data_source",
+            value: {
+              dataSource: dataSourceRecord(),
+              properties: [{ ...propertyRecord(), lifecycle: "archived" }],
+            },
+          },
+        },
+      }),
+    ).toThrow(".lifecycle is unsupported");
+  });
+
+  test("parses independently versioned presentation and sparse disclosure reads", () => {
+    const envelope = (value: unknown) => ({
+      ok: true,
+      value: {
+        version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+        projectId: "project-1",
+        libraryId: "library-1",
+        storeEpoch: "epoch-1",
+        commitSeq: 4,
+        authorization: null,
+        value,
+      },
+    });
+    expect(parseDatabaseModuleReadResultV2(envelope({
+      kind: "view_personal_presentation",
+      value: { presentationOverride: { layout: "list" }, revision: 5 },
+    }))).toMatchObject({
+      ok: true,
+      value: {
+        value: {
+          kind: "view_personal_presentation",
+          value: { revision: 5 },
+        },
+      },
+    });
+    expect(parseDatabaseModuleReadResultV2(envelope({
+      kind: "view_collapsed_occurrences",
+      value: {
+        targets: [
+          { kind: "group", occurrenceKey: "GROUP_\"ship\"" },
+          { kind: "page", occurrenceKey: "ITEM_parent/child" },
+        ],
+      },
+    }))).toMatchObject({
+      ok: true,
+      value: {
+        value: {
+          kind: "view_collapsed_occurrences",
+          value: { targets: [{ kind: "group" }, { kind: "page" }] },
+        },
+      },
+    });
+    expect(() => parseDatabaseModuleReadResultV2(envelope({
+      kind: "view_collapsed_occurrences",
+      value: {
+        targets: [
+          { kind: "page", occurrenceKey: "ITEM_parent/child" },
+          { kind: "page", occurrenceKey: "ITEM_parent/child" },
+        ],
+      },
+    }))).toThrow("must contain unique targets");
   });
 
   test("admits only unique opaque handles in Relation target windows", () => {
@@ -640,7 +820,54 @@ describe("Database Module v2 transport boundary", () => {
     ).toThrow("must contain unique identities");
   });
 
-  test("keeps compatibility Project identity out of Library read and write receipts", () => {
+  test("binds and parses Library reads and writes without a Project coordinate", () => {
+    const boundRead = bindLibraryDatabaseModuleReadV2({
+      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+      read: {
+        target: { kind: "data_source", dataSourceId: "source-1" },
+        mode: "data_source",
+        minimumCommitSeq: 4,
+      },
+    });
+    expect(boundRead).toEqual({
+      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+      read: {
+        target: { kind: "data_source", dataSourceId: "source-1" },
+        mode: "data_source",
+        minimumCommitSeq: 4,
+      },
+    });
+    expect(() => bindLibraryDatabaseModuleReadV2({
+      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+      read: { target: { kind: "project_default" }, mode: "database" },
+    })).toThrow("require a concrete Database");
+
+    expect(bindLibraryDatabaseApplyV2({
+      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+      operationId: "library-operation-1",
+      storeEpoch: "epoch-1",
+      operations: [{
+        kind: "put_option",
+        dataSourceId: "source-1",
+        propertyId: CUSTOM_PROPERTY_ID,
+        optionId: CUSTOM_OPTION_ID,
+        name: "Platform",
+        expectedPropertyRevision: 2,
+      }],
+    })).toEqual({
+      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+      operationId: "library-operation-1",
+      storeEpoch: "epoch-1",
+      operations: [{
+        kind: "put_option",
+        dataSourceId: "source-1",
+        propertyId: CUSTOM_PROPERTY_ID,
+        optionId: CUSTOM_OPTION_ID,
+        name: "Platform",
+        expectedPropertyRevision: 2,
+      }],
+    });
+
     const read = parseLibraryDatabaseModuleReadResultV2({
       ok: true,
       value: {

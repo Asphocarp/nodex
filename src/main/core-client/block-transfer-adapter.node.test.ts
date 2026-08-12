@@ -186,8 +186,9 @@ describe("Core Block Transfer Adapter", () => {
         operationId: dataSourceIntent.operationId,
         finalLocations: {
           "page:wrapper": {
-            kind: "database",
+            kind: "data_source",
             databaseBlockId: "database:target",
+            dataSourceId: "source:target",
           },
         },
         affectedDatabaseBlockIds: ["database:target"],

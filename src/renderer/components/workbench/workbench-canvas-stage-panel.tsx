@@ -57,16 +57,16 @@ export function WorkbenchCanvasStagePanel({
   }, [onTitleChange, summary?.title, surface.titleSnapshot]);
 
   const targetStatus = target.data?.value.status;
+  const targetLibraryId = target.data?.libraryId;
   useEffect(() => {
-    if (targetStatus !== "deleted") return;
-    if (surface.config.accessContext.kind !== "project") return;
+    if (targetStatus !== "deleted" || !targetLibraryId) return;
     void canvasDocumentSessionRegistry
-      .retireOwner(
-        surface.config.accessContext.projectId,
-        surface.config.canvasBlockId,
-      )
+      .retireOwner({
+        libraryId: targetLibraryId,
+        accessContext: surface.config.accessContext,
+      }, surface.config.canvasBlockId)
       .catch(() => undefined);
-  }, [surface.config, targetStatus]);
+  }, [surface.config, targetLibraryId, targetStatus]);
 
   if (target.isPending) {
     return <CanvasDocumentState status="loading" label="Opening Canvas…" />;
@@ -108,7 +108,7 @@ export function WorkbenchCanvasStagePanel({
       fallback={<CanvasDocumentState status="loading" label="Opening Canvas…" />}
     >
       <CanvasDocumentSurface
-        projectId={summary.projectId}
+        accessContext={surface.config.accessContext}
         canvasBlockId={surface.config.canvasBlockId}
         surfaceKey={makeCanvasSceneSurfaceKey(
           windowSessionId,

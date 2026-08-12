@@ -56,6 +56,7 @@ function makePalettePage(overrides: Partial<CommandPalettePage> = {}): CommandPa
     projectAppearance: overrides.projectAppearance ?? DEFAULT_PROJECT_APPEARANCE,
     columnName: overrides.columnName ?? "In progress",
     page,
+    tagLabels: overrides.tagLabels ?? page.tags,
     inActiveProject: overrides.inActiveProject ?? true,
     recentIndex: overrides.recentIndex ?? null,
     boardIndex: overrides.boardIndex ?? 0,
@@ -208,9 +209,10 @@ describe("command palette page search index", () => {
           id: "tag-hit",
           title: "General task",
           descriptionPreview: "No search terms in the body.",
-          tags: ["telemetry", "search"],
-          assignee: "telemetry-owner",
+          tags: ["o_AAAAAAAA"],
+          assignee: "alex",
         }),
+        tagLabels: ["Telemetry"],
       }),
     ]);
 
@@ -218,7 +220,8 @@ describe("command palette page search index", () => {
 
     expect(results.length).toBe(1);
     expect(results[0]?.item.searchDecorations?.badges.some((badge) => badge.label === "tag")).toBe(true);
-    expect(results[0]?.item.searchDecorations?.badges.some((badge) => badge.label === "assignee")).toBe(true);
+    expect(results[0]?.item.searchDecorations?.badges.some((badge) => badge.label === "assignee")).toBe(false);
+    expect(index.search("o_AAAAAAAA")).toHaveLength(0);
   });
 
   test("rebuilds version 1 cache snapshots without retired Page search fields", async () => {

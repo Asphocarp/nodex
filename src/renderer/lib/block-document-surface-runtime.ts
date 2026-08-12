@@ -19,6 +19,7 @@ import {
   type NodexYProviderStatus,
 } from "./nodex-y-provider";
 import { BlockDocumentSurfaceError } from "./block-document-surface-failure";
+import { parseContentAccessContext } from "../../shared/content-access-context";
 
 const DEFAULT_CLOSE_TIMEOUT_MS = 2_000;
 
@@ -143,6 +144,10 @@ const requirePositiveTimeout = (value: number | undefined): number => {
 const validateDescriptor = (
   descriptor: OwnedDocumentDescriptor,
 ): OwnedDocumentDescriptor => {
+  if (!descriptor.libraryId || descriptor.libraryId !== descriptor.libraryId.trim()) {
+    throw new TypeError("Block Document descriptor has an invalid libraryId");
+  }
+  parseContentAccessContext(descriptor.accessContext);
   if (!descriptor.documentId || descriptor.documentId !== descriptor.documentId.trim()) {
     throw new TypeError("Block Document descriptor has an invalid documentId");
   }

@@ -2,6 +2,7 @@ use nodex_core_contracts::document::{
     DeletableOwnedSourceKind, DocumentHeadRevision, DocumentInvalidationReason,
     DocumentOwnerCommand, DocumentOwnerEffect, DocumentOwnerRevision, DocumentSpaceAnchor,
 };
+use nodex_core_contracts::library::LibraryPlacementAnchor;
 use nodex_core_contracts::{BoundModuleContext, CommittedCoreModuleEvent};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::{Value, json};
@@ -34,8 +35,7 @@ use super::runtime::reconstruct_yjs_engine;
 use super::{
     BlockDocumentSchema, DocumentMaterialization, REUSABLE_TEMPLATE_SCHEMA_KEY,
     REUSABLE_TEMPLATE_SCHEMA_VERSION, SYNCED_BLOCK_SCHEMA_KEY, SYNCED_BLOCK_SCHEMA_VERSION,
-    YrsDocumentEngine, decode_block_document, is_primary_canvas_block_id,
-    materialize_decoded_document,
+    YrsDocumentEngine, decode_block_document, materialize_decoded_document,
 };
 
 const SYNCED_OWNER_TYPE: &str = "synced_block_source";
@@ -52,6 +52,12 @@ pub(crate) struct OwnerCommandExecution {
     pub(crate) invalidate_document_ids: Vec<String>,
 }
 
+#[derive(Clone, Copy)]
+struct OwnerCommandScope<'a> {
+    actor_project_id: &'a str,
+    library_id: &'a str,
+}
+
 pub(crate) fn execute_owner_command(
     connection: &Connection,
     context: &BoundModuleContext,
@@ -60,10 +66,19 @@ pub(crate) fn execute_owner_command(
     operation_id: &str,
     command: &DocumentOwnerCommand,
 ) -> Result<OwnerCommandExecution, StoreError> {
-    let project_id = context
+    let actor_project_id = context
         .project_id
         .as_ref()
         .ok_or_else(|| unauthorized("Document owner command requires a bound Project"))?;
+    crate::library::require_project_in_library(
+        connection,
+        &actor_project_id.0,
+        &context.library_id.0,
+    )?;
+    let scope = OwnerCommandScope {
+        actor_project_id: &actor_project_id.0,
+        library_id: &context.library_id.0,
+    };
     if read_store_epoch(connection)? != store_epoch {
         return Err(StoreError::new(
             StoreErrorCode::StaleStoreEpoch,
@@ -83,7 +98,7 @@ pub(crate) fn execute_owner_command(
             commit_context,
             store_epoch,
             operation_id,
-            &project_id.0,
+            scope,
             NewYjsOwner {
                 block_id: source_block_id,
                 document_id,
@@ -108,7 +123,7 @@ pub(crate) fn execute_owner_command(
             commit_context,
             store_epoch,
             operation_id,
-            &project_id.0,
+            scope,
             NewYjsOwner {
                 block_id: source_block_id,
                 document_id,
@@ -132,10 +147,9 @@ pub(crate) fn execute_owner_command(
                 commit_context,
                 store_epoch,
                 operation_id,
-                &project_id.0,
+                scope,
                 owner,
                 expected_type,
-                false,
             )
         }
         DocumentOwnerCommand::PromoteSyncedSource {
@@ -150,7 +164,7 @@ pub(crate) fn execute_owner_command(
             commit_context,
             store_epoch,
             operation_id,
-            &project_id.0,
+            scope,
             host,
             root_block_id,
             reference_block_id,
@@ -168,7 +182,7 @@ pub(crate) fn execute_owner_command(
             commit_context,
             store_epoch,
             operation_id,
-            &project_id.0,
+            scope,
             host,
             source,
             reference_block_id,
@@ -186,7 +200,7 @@ pub(crate) fn execute_owner_command(
             commit_context,
             store_epoch,
             operation_id,
-            &project_id.0,
+            scope,
             source_block_id,
             source,
             target,
@@ -208,6 +222,14 @@ struct PersistedPreparedUpdate {
     event: CommittedCoreModuleEvent,
 }
 
+#[derive(Clone, Copy, Default)]
+enum OwnerDocumentPlacement<'a> {
+    #[default]
+    Derived,
+    Detached(&'a [String]),
+    Preapplied(&'a [String]),
+}
+
 #[allow(clippy::too_many_arguments)]
 fn promote_synced_source(
     connection: &Connection,
@@ -215,7 +237,7 @@ fn promote_synced_source(
     commit_context: &CommitContext,
     store_epoch: &str,
     operation_id: &str,
-    project_id: &str,
+    scope: OwnerCommandScope<'_>,
     host: &DocumentHeadRevision,
     root_block_id: &str,
     reference_block_id: &str,
@@ -228,7 +250,7 @@ fn promote_synced_source(
             "New Synced Block reference identity must be UUID-v7",
         ));
     }
-    let host_loaded = load_exact_yjs_head(connection, project_id, host, None)?;
+    let host_loaded = load_exact_yjs_head(connection, scope.library_id, host, None)?;
     let root = find_materialized_block(&host_loaded.materialization.block_tree, root_block_id)
         .cloned()
         .ok_or_else(|| not_found("Promotion root Block was not found"))?;
@@ -238,7 +260,7 @@ fn promote_synced_source(
     let moved_block_ids = flatten_block_ids(std::slice::from_ref(&root))?;
     stage_owner(
         connection,
-        project_id,
+        scope.library_id,
         source_block_id,
         SYNCED_OWNER_TYPE,
         source_document_id,
@@ -246,7 +268,6 @@ fn promote_synced_source(
         i64::from(SYNCED_BLOCK_SCHEMA_VERSION),
         None,
         None,
-        false,
     )?;
     let reference = MaterializedBlockNode {
         id: reference_block_id.to_owned(),
@@ -285,14 +306,9 @@ fn promote_synced_source(
         &host_operation_id,
         host_loaded,
         host_prepared,
+        OwnerDocumentPlacement::Detached(&moved_block_ids),
     )?;
-    relocate_document_blocks(
-        connection,
-        project_id,
-        &moved_block_ids,
-        &host.document_id,
-        source_document_id,
-    )?;
+    relocate_document_blocks(connection, scope.library_id, &moved_block_ids)?;
     let source_authority = read_document_authority(connection, source_document_id)?
         .ok_or_else(|| corrupt("Staged Synced Block source has no Document authority"))?;
     let source_prepared = prepare_yjs_genesis_with_blocks(
@@ -307,6 +323,7 @@ fn promote_synced_source(
         connection,
         PersistYjsGenesis {
             authority: &source_authority,
+            actor_project_id: scope.actor_project_id,
             materialization: &source_prepared.materialization,
             update_id: &source_operation_id,
             client_session_id: &context.connection_id,
@@ -315,6 +332,9 @@ fn promote_synced_source(
             full_state: &source_full_state,
             store_epoch,
             operation_id: &source_operation_id,
+            placement_genesis_block_ids: &[],
+            placement_preapplied_block_ids: &moved_block_ids,
+            placement_mutation_block_ids: &[],
             emit_event: true,
         },
         commit_context,
@@ -353,23 +373,23 @@ fn demote_synced_source(
     commit_context: &CommitContext,
     store_epoch: &str,
     operation_id: &str,
-    project_id: &str,
+    scope: OwnerCommandScope<'_>,
     host: &DocumentHeadRevision,
     source: &DocumentHeadRevision,
     reference_block_id: &str,
     source_block_id: &str,
 ) -> Result<OwnerCommandExecution, StoreError> {
-    if count_synced_references(connection, project_id, source_block_id)? != 1 {
+    if count_synced_references(connection, scope.library_id, source_block_id)? != 1 {
         return Err(StoreError::new(
             StoreErrorCode::Conflict,
             "Synced Block source can be demoted only from its sole instance",
             false,
         ));
     }
-    let host_loaded = load_exact_yjs_head(connection, project_id, host, None)?;
+    let host_loaded = load_exact_yjs_head(connection, scope.library_id, host, None)?;
     let source_loaded = load_exact_yjs_head(
         connection,
-        project_id,
+        scope.library_id,
         source,
         Some((source_block_id, SYNCED_OWNER_TYPE)),
     )?;
@@ -438,7 +458,9 @@ fn demote_synced_source(
         &host_delete_operation_id,
         host_loaded,
         host_delete,
+        OwnerDocumentPlacement::Derived,
     )?;
+    let moved_block_ids = transfer.inserted_forest.block_ids.clone();
     let source_operation_id = format!("{operation_id}:source:retire");
     let source_after_delete = persist_prepared_update(
         connection,
@@ -448,15 +470,9 @@ fn demote_synced_source(
         &source_operation_id,
         source_loaded,
         source_delete,
+        OwnerDocumentPlacement::Detached(&moved_block_ids),
     )?;
-    let moved_block_ids = transfer.inserted_forest.block_ids.clone();
-    relocate_document_blocks(
-        connection,
-        project_id,
-        &moved_block_ids,
-        &source.document_id,
-        &host.document_id,
-    )?;
+    relocate_document_blocks(connection, scope.library_id, &moved_block_ids)?;
     let host_insert_operation_id = format!("{operation_id}:host:insert-source");
     let host_final = persist_prepared_update(
         connection,
@@ -466,17 +482,18 @@ fn demote_synced_source(
         &host_insert_operation_id,
         host_after_delete.loaded,
         transfer.target,
+        OwnerDocumentPlacement::Preapplied(&moved_block_ids),
     )?;
     let now = sqlite_now(connection)?;
     connection.execute(
-        "DELETE FROM top_level_block_placements WHERE block_id = ?1",
-        [source_block_id],
+        "DELETE FROM library_block_placements WHERE block_id = ?1 AND library_id = ?2",
+        params![source_block_id, scope.library_id],
     )?;
     let retired = connection.execute(
-        "UPDATE blocks SET lifecycle = 'deleted', location_revision = location_revision + 1, \
+        "UPDATE blocks SET lifecycle = 'deleted', placement_revision = placement_revision + 1, \
            metadata_revision = metadata_revision + 1, updated_at = ?1 \
-         WHERE id = ?2 AND project_id = ?3 AND type = ?4 AND lifecycle = 'active'",
-        params![now, source_block_id, project_id, SYNCED_OWNER_TYPE],
+         WHERE id = ?2 AND library_id = ?3 AND type = ?4 AND lifecycle = 'active'",
+        params![now, source_block_id, scope.library_id, SYNCED_OWNER_TYPE],
     )?;
     if retired != 1 {
         return Err(corrupt("Synced Block source retirement lost its owner"));
@@ -485,7 +502,7 @@ fn demote_synced_source(
     let invalidation_operation_id = format!("{operation_id}:source:invalidate");
     let invalidation = persist_invalidation(PersistInvalidationInput {
         connection,
-        project_id,
+        project_id: scope.actor_project_id,
         store_epoch,
         operation_id: &invalidation_operation_id,
         head: &source_head,
@@ -525,7 +542,7 @@ fn instantiate_template(
     commit_context: &CommitContext,
     store_epoch: &str,
     operation_id: &str,
-    project_id: &str,
+    scope: OwnerCommandScope<'_>,
     source_block_id: &str,
     source: &DocumentHeadRevision,
     target: &DocumentHeadRevision,
@@ -539,11 +556,11 @@ fn instantiate_template(
     }
     let source_loaded = load_exact_yjs_head(
         connection,
-        project_id,
+        scope.library_id,
         source,
         Some((source_block_id, TEMPLATE_OWNER_TYPE)),
     )?;
-    let target_loaded = load_exact_yjs_head(connection, project_id, target, None)?;
+    let target_loaded = load_exact_yjs_head(connection, scope.library_id, target, None)?;
     let root_block_ids = source_loaded
         .materialization
         .block_tree
@@ -577,6 +594,7 @@ fn instantiate_template(
         &target_operation_id,
         target_loaded,
         transfer.target,
+        OwnerDocumentPlacement::Derived,
     )?;
     Ok(OwnerCommandExecution {
         primary_document_id: target.document_id.clone(),
@@ -599,13 +617,13 @@ fn instantiate_template(
 
 fn load_exact_yjs_head(
     connection: &Connection,
-    project_id: &str,
+    library_id: &str,
     expected: &DocumentHeadRevision,
     expected_owner: Option<(&str, &str)>,
 ) -> Result<LoadedYjsHead, StoreError> {
     let authority = read_document_authority(connection, &expected.document_id)?
         .ok_or_else(|| not_found("Owned Document was not found"))?;
-    if authority.head.project_id != project_id || authority.owner_lifecycle != "active" {
+    if authority.head.library_id != library_id || authority.owner_lifecycle != "active" {
         return Err(not_found("Owned Document is unavailable"));
     }
     if authority.head.generation != expected.generation
@@ -684,6 +702,7 @@ fn persist_prepared_update(
     operation_id: &str,
     loaded: LoadedYjsHead,
     prepared: PreparedDocumentOperationUpdate,
+    placement: OwnerDocumentPlacement<'_>,
 ) -> Result<PersistedPreparedUpdate, StoreError> {
     let next_engine = apply_prepared_update(&loaded.engine, &prepared)?;
     if next_engine.state_vector_v1() != prepared.state_vector_v1 {
@@ -699,10 +718,20 @@ fn persist_prepared_update(
         context,
         &now,
     )?;
+    let (structurally_detached_block_ids, placement_preapplied_block_ids) = match placement {
+        OwnerDocumentPlacement::Derived => (&[][..], &[][..]),
+        OwnerDocumentPlacement::Detached(block_ids) => (block_ids, &[][..]),
+        OwnerDocumentPlacement::Preapplied(block_ids) => (&[][..], block_ids),
+    };
     let persisted = persist_yjs_commit_with_local_commit(
         connection,
         PersistYjsCommit {
             authority: &loaded.authority,
+            actor_project_id: context
+                .project_id
+                .as_ref()
+                .map(|project_id| project_id.0.as_str())
+                .ok_or_else(|| unauthorized("Document owner command requires a bound Project"))?,
             base_materialization: &loaded.materialization,
             materialization: &prepared.materialization,
             update_id: operation_id,
@@ -717,6 +746,10 @@ fn persist_prepared_update(
             event_kind: "document_updated",
             write_fence_block_ids: &prepared.write_fence_block_ids,
             title_write_fence_required: prepared.title_write_fence_required,
+            structurally_detached_block_ids,
+            placement_genesis_block_ids: &[],
+            placement_preapplied_block_ids,
+            placement_mutation_block_ids: &[],
         },
         commit_context,
     )?;
@@ -746,25 +779,21 @@ fn persist_prepared_update(
 
 fn relocate_document_blocks(
     connection: &Connection,
-    project_id: &str,
+    library_id: &str,
     block_ids: &[String],
-    source_document_id: &str,
-    target_document_id: &str,
 ) -> Result<(), StoreError> {
     let now = sqlite_now(connection)?;
     for block_id in block_ids {
         let moved = connection.execute(
-            "UPDATE blocks SET lifecycle = 'active', containing_document_id = ?1, \
-               location_revision = location_revision + 1, updated_at = ?2 \
-             WHERE id = ?3 AND project_id = ?4 AND lifecycle = 'deleted' \
-               AND location_kind = 'document' AND containing_document_id = ?5",
-            params![
-                target_document_id,
-                now,
-                block_id,
-                project_id,
-                source_document_id,
-            ],
+            "UPDATE blocks SET placement_revision = placement_revision + 1, updated_at = ?1 \
+             WHERE id = ?2 AND library_id = ?3 AND lifecycle = 'active' \
+               AND NOT EXISTS ( \
+                 SELECT 1 FROM document_block_index entry WHERE entry.block_id = blocks.id \
+               ) \
+               AND NOT EXISTS ( \
+                 SELECT 1 FROM library_block_placements root WHERE root.block_id = blocks.id \
+               )",
+            params![now, block_id, library_id],
         )?;
         if moved != 1 {
             return Err(corrupt(
@@ -823,7 +852,7 @@ fn find_materialized_block<'a>(
 
 fn count_synced_references(
     connection: &Connection,
-    project_id: &str,
+    library_id: &str,
     source_block_id: &str,
 ) -> Result<usize, StoreError> {
     fn count(blocks: &[MaterializedBlockNode], source_block_id: &str) -> usize {
@@ -844,11 +873,13 @@ fn count_synced_references(
              FROM document_materializations materialization \
              JOIN documents document ON document.id = materialization.document_id \
              JOIN block_documents ownership ON ownership.document_id = document.id \
+               AND ownership.library_id = document.library_id \
              JOIN blocks owner ON owner.id = ownership.block_id \
-             WHERE document.project_id = ?1 AND owner.lifecycle = 'active' \
+               AND owner.library_id = document.library_id \
+             WHERE document.library_id = ?1 AND owner.lifecycle = 'active' \
              ORDER BY document.id",
         )?
-        .query_map([project_id], |row| row.get::<_, String>(0))?
+        .query_map([library_id], |row| row.get::<_, String>(0))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     let mut total = 0usize;
     for row in rows {
@@ -908,7 +939,7 @@ fn create_yjs_owner(
     commit_context: &CommitContext,
     store_epoch: &str,
     operation_id: &str,
-    project_id: &str,
+    scope: OwnerCommandScope<'_>,
     input: NewYjsOwner<'_>,
 ) -> Result<OwnerCommandExecution, StoreError> {
     let blocks = parse_initial_blocks(input.initial_blocks)?;
@@ -920,7 +951,7 @@ fn create_yjs_owner(
     }
     stage_owner(
         connection,
-        project_id,
+        scope.library_id,
         input.block_id,
         input.owner_type,
         input.document_id,
@@ -928,7 +959,6 @@ fn create_yjs_owner(
         input.schema_version,
         input.display_name,
         input.before,
-        false,
     )?;
     let authority = read_document_authority(connection, input.document_id)?
         .ok_or_else(|| corrupt("Staged Yjs owner has no Document authority"))?;
@@ -944,6 +974,7 @@ fn create_yjs_owner(
         connection,
         PersistYjsGenesis {
             authority: &authority,
+            actor_project_id: scope.actor_project_id,
             materialization: &prepared.materialization,
             update_id: &update_id,
             client_session_id: &context.connection_id,
@@ -952,6 +983,9 @@ fn create_yjs_owner(
             full_state: &full_state,
             store_epoch,
             operation_id: &update_id,
+            placement_genesis_block_ids: &[],
+            placement_preapplied_block_ids: &[],
+            placement_mutation_block_ids: &[],
             emit_event: true,
         },
         commit_context,
@@ -988,13 +1022,12 @@ fn delete_owner(
     commit_context: &CommitContext,
     store_epoch: &str,
     operation_id: &str,
-    project_id: &str,
+    scope: OwnerCommandScope<'_>,
     owner: &DocumentOwnerRevision,
     expected_owner_type: &str,
-    canvas: bool,
 ) -> Result<OwnerCommandExecution, StoreError> {
-    validate_owner_revision(connection, project_id, owner, expected_owner_type, canvas)?;
-    let closure = collect_owned_closure(connection, project_id, &owner.owner_block_id)?;
+    validate_owner_revision(connection, scope.library_id, owner, expected_owner_type)?;
+    let closure = collect_owned_closure(connection, scope.library_id, &owner.owner_block_id)?;
     if !closure
         .document_heads
         .iter()
@@ -1006,15 +1039,16 @@ fn delete_owner(
     let now = sqlite_now(connection)?;
     for block_id in &closure.block_ids {
         connection.execute(
-            "DELETE FROM top_level_block_placements WHERE block_id = ?1",
-            [block_id],
+            "DELETE FROM library_block_placements \
+             WHERE block_id = ?1 AND library_id = ?2",
+            params![block_id, scope.library_id],
         )?;
         connection.execute(
             "UPDATE blocks SET lifecycle = 'deleted', \
-               location_revision = location_revision + CASE WHEN id = ?1 THEN 1 ELSE 0 END, \
+               placement_revision = placement_revision + CASE WHEN id = ?1 THEN 1 ELSE 0 END, \
                metadata_revision = metadata_revision + 1, updated_at = ?2 \
-             WHERE id = ?1 AND project_id = ?3 AND lifecycle <> 'deleted'",
-            params![block_id, now, project_id],
+             WHERE id = ?1 AND library_id = ?3 AND lifecycle <> 'deleted'",
+            params![block_id, now, scope.library_id],
         )?;
     }
     let mut events = Vec::new();
@@ -1023,7 +1057,7 @@ fn delete_owner(
         let event_operation_id = format!("{operation_id}:invalidate:{index}");
         let event = persist_invalidation(PersistInvalidationInput {
             connection,
-            project_id,
+            project_id: scope.actor_project_id,
             store_epoch,
             operation_id: &event_operation_id,
             head,
@@ -1057,7 +1091,7 @@ fn delete_owner(
 #[allow(clippy::too_many_arguments)]
 fn stage_owner(
     connection: &Connection,
-    project_id: &str,
+    library_id: &str,
     block_id: &str,
     owner_type: &str,
     document_id: &str,
@@ -1065,7 +1099,6 @@ fn stage_owner(
     schema_version: i64,
     display_name: Option<&str>,
     before: Option<&DocumentSpaceAnchor>,
-    canvas: bool,
 ) -> Result<(), StoreError> {
     validate_identity(block_id, "Document owner Block")?;
     validate_identity(document_id, "Owned Document")?;
@@ -1077,16 +1110,18 @@ fn stage_owner(
     if display_name.is_some_and(|name| name.trim().is_empty() || name.len() > 512) {
         return Err(invalid("Document display name is invalid"));
     }
-    let project_exists = connection
-        .query_row("SELECT 1 FROM projects WHERE id = ?1", [project_id], |_| {
-            Ok(())
-        })
+    let library_exists = connection
+        .query_row(
+            "SELECT 1 FROM libraries WHERE id = ?1",
+            [library_id],
+            |_| Ok(()),
+        )
         .optional()?
         .is_some();
-    if !project_exists {
+    if !library_exists {
         return Err(StoreError::new(
             StoreErrorCode::NotFound,
-            "Bound Project does not exist",
+            "Bound Library does not exist",
             false,
         ));
     }
@@ -1104,133 +1139,111 @@ fn stage_owner(
             ));
         }
     }
-    validate_space_anchor(connection, project_id, before)?;
     let now = sqlite_now(connection)?;
     connection.execute(
         "INSERT INTO blocks (\
-           id, project_id, type, lifecycle, location_kind, containing_document_id, \
-           containing_database_id, location_revision, metadata_revision, created_at, updated_at\
-         ) VALUES (?1, ?2, ?3, 'active', 'space', NULL, NULL, 1, 1, ?4, ?4)",
-        params![block_id, project_id, owner_type, now],
+           id, library_id, type, lifecycle, placement_revision, metadata_revision, \
+           created_at, updated_at\
+         ) VALUES (?1, ?2, ?3, 'active', 1, 1, ?4, ?4)",
+        params![block_id, library_id, owner_type, now],
     )?;
     if let Some(display_name) = display_name {
         connection.execute(
             "INSERT INTO block_properties (\
-               block_id, project_id, property_key, value_type, value_json, revision, updated_at\
+               block_id, library_id, property_key, value_type, value_json, revision, updated_at\
              ) VALUES (?1, ?2, 'document.display_name', 'string', ?3, 1, ?4)",
             params![
                 block_id,
-                project_id,
+                library_id,
                 serde_json::to_string(display_name)
                     .map_err(|_| internal("Document display name JSON"))?,
                 now,
             ],
         )?;
     }
-    let rank = allocate_space_rank(
+    let before = before.map(|anchor| LibraryPlacementAnchor {
+        block_id: anchor.block_id.clone(),
+        expected_location_revision: anchor.expected_location_revision,
+    });
+    crate::library::insert_library_placement(
         connection,
-        project_id,
+        library_id,
         block_id,
-        before.map(|value| value.block_id.as_str()),
-    )?;
-    connection.execute(
-        "INSERT INTO top_level_block_placements (block_id, project_id, rank_key, created_at, updated_at) \
-         VALUES (?1, ?2, ?3, ?4, ?4)",
-        params![block_id, project_id, rank, now],
+        before.as_ref(),
+        &now,
     )?;
     connection.execute(
         "INSERT INTO documents (\
-           id, project_id, generation, head_seq, schema_key, schema_version, state_vector, \
+           id, library_id, generation, head_seq, schema_key, schema_version, state_vector, \
            state_hash, readiness, authority, created_at, updated_at, sync_engine\
-         ) VALUES (?1, ?2, 1, 0, ?3, ?4, X'', ?5, ?6, ?7, ?8, ?8, ?9)",
-        params![
-            document_id,
-            project_id,
-            schema_key,
-            schema_version,
-            if canvas {
-                "0".repeat(64)
-            } else {
-                String::new()
-            },
-            if canvas { "ready" } else { "pending_genesis" },
-            if canvas {
-                "ydoc_primary"
-            } else {
-                "legacy_shadow"
-            },
-            now,
-            if canvas { "canvas_scene" } else { "yjs" },
-        ],
+         ) VALUES (?1, ?2, 1, 0, ?3, ?4, X'', '', 'pending_genesis', \
+           'legacy_shadow', ?5, ?5, 'yjs')",
+        params![document_id, library_id, schema_key, schema_version, now,],
     )?;
     connection.execute(
-        "INSERT INTO block_documents(block_id, document_id, project_id, created_at) \
+        "INSERT INTO block_documents(block_id, document_id, library_id, created_at) \
          VALUES (?1, ?2, ?3, ?4)",
-        params![block_id, document_id, project_id, now],
+        params![block_id, document_id, library_id, now],
     )?;
     Ok(())
 }
 
 fn validate_owner_revision(
     connection: &Connection,
-    project_id: &str,
+    library_id: &str,
     owner: &DocumentOwnerRevision,
     expected_owner_type: &str,
-    canvas: bool,
 ) -> Result<(), StoreError> {
     let row = connection
         .query_row(
-            "SELECT block.type, block.lifecycle, block.location_kind, \
-                    block.containing_document_id, block.location_revision, block.metadata_revision, \
+            "SELECT block.type, block.lifecycle, block.placement_revision, \
+                    block.metadata_revision, placement.block_id IS NOT NULL, \
                     document.id, document.generation, document.head_seq, document.readiness \
-             FROM blocks block JOIN block_documents ownership ON ownership.block_id = block.id \
+             FROM blocks block \
+             JOIN block_documents ownership ON ownership.block_id = block.id \
+               AND ownership.library_id = block.library_id \
              JOIN documents document ON document.id = ownership.document_id \
-             WHERE block.id = ?1 AND block.project_id = ?2",
-            params![owner.owner_block_id, project_id],
+               AND document.library_id = block.library_id \
+             LEFT JOIN library_block_placements placement ON placement.block_id = block.id \
+               AND placement.library_id = block.library_id \
+             WHERE block.id = ?1 AND block.library_id = ?2",
+            params![owner.owner_block_id, library_id],
             |row| {
                 Ok((
                     row.get::<_, String>(0)?,
                     row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, Option<String>>(3)?,
-                    row.get::<_, i64>(4)?,
-                    row.get::<_, i64>(5)?,
-                    row.get::<_, String>(6)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, bool>(4)?,
+                    row.get::<_, String>(5)?,
+                    row.get::<_, i64>(6)?,
                     row.get::<_, i64>(7)?,
-                    row.get::<_, i64>(8)?,
-                    row.get::<_, String>(9)?,
+                    row.get::<_, String>(8)?,
                 ))
             },
         )
         .optional()
         .map_err(|_| corrupt("Owned source boundary has invalid column types"))?
         .ok_or_else(|| not_found("Owned source was not found"))?;
-    if row.0 != expected_owner_type || row.1 == "deleted" || row.2 != "space" || row.3.is_some() {
+    if row.0 != expected_owner_type || row.1 == "deleted" || !row.4 {
         return Err(not_found("Owned source is unavailable for deletion"));
     }
-    if row.4 != owner.location_revision || row.5 != owner.metadata_revision {
+    if row.2 != owner.location_revision || row.3 != owner.metadata_revision {
         return Err(StoreError::new(
             StoreErrorCode::RevisionConflict,
             "Owned source Block revision changed before deletion",
             false,
         ));
     }
-    if row.6 != owner.document_id
-        || row.7 != owner.generation
-        || row.8 != owner.head_seq
-        || row.9 != "ready"
-        || (!canvas && owner.head_seq < 1)
+    if row.5 != owner.document_id
+        || row.6 != owner.generation
+        || row.7 != owner.head_seq
+        || row.8 != "ready"
+        || owner.head_seq < 1
     {
         return Err(StoreError::new(
             StoreErrorCode::HeadConflict,
             "Owned source Document changed before deletion",
-            false,
-        ));
-    }
-    if canvas && is_primary_canvas_block_id(&owner.owner_block_id, project_id) {
-        return Err(StoreError::new(
-            StoreErrorCode::AlreadyOwned,
-            "A Project's primary Canvas cannot be deleted",
             false,
         ));
     }
@@ -1245,7 +1258,7 @@ struct OwnedClosure {
 
 fn collect_owned_closure(
     connection: &Connection,
-    project_id: &str,
+    library_id: &str,
     root_block_id: &str,
 ) -> Result<OwnedClosure, StoreError> {
     let mut block_ids = BTreeSet::from([root_block_id.to_owned()]);
@@ -1257,10 +1270,12 @@ fn collect_owned_closure(
                 "SELECT document.id, document.generation, document.head_seq, document.readiness, \
                         document.authority, owner.lifecycle \
                  FROM block_documents ownership JOIN documents document \
-                   ON document.id = ownership.document_id AND document.project_id = ownership.project_id \
+                   ON document.id = ownership.document_id \
+                  AND document.library_id = ownership.library_id \
                  JOIN blocks owner ON owner.id = ownership.block_id \
-                 WHERE ownership.block_id = ?1 AND ownership.project_id = ?2",
-                params![owner_block_id, project_id],
+                  AND owner.library_id = ownership.library_id \
+                 WHERE ownership.block_id = ?1 AND ownership.library_id = ?2",
+                params![owner_block_id, library_id],
                 |row| {
                     Ok((
                         row.get::<_, String>(0)?,
@@ -1296,10 +1311,12 @@ fn collect_owned_closure(
         }
         let children = connection
             .prepare(
-                "SELECT id FROM blocks WHERE project_id = ?1 AND containing_document_id = ?2 \
-                 ORDER BY id",
+                "SELECT block.id FROM document_block_index entry \
+                 JOIN blocks block ON block.id = entry.block_id \
+                 WHERE entry.document_id = ?1 AND block.library_id = ?2 \
+                 ORDER BY block.id",
             )?
-            .query_map(params![project_id, document_id], |row| {
+            .query_map(params![document_id, library_id], |row| {
                 row.get::<_, String>(0)
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -1489,127 +1506,6 @@ fn flatten_block_ids(blocks: &[MaterializedBlockNode]) -> Result<Vec<String>, St
         visit(block, &mut ids)?;
     }
     Ok(ids.into_iter().collect())
-}
-
-fn validate_space_anchor(
-    connection: &Connection,
-    project_id: &str,
-    before: Option<&DocumentSpaceAnchor>,
-) -> Result<(), StoreError> {
-    let Some(before) = before else {
-        return Ok(());
-    };
-    validate_identity(&before.block_id, "Space placement anchor")?;
-    let revision = connection
-        .query_row(
-            "SELECT block.location_revision FROM blocks block \
-             JOIN top_level_block_placements placement ON placement.block_id = block.id \
-             WHERE block.id = ?1 AND block.project_id = ?2 AND block.lifecycle <> 'deleted' \
-               AND block.location_kind = 'space'",
-            params![before.block_id, project_id],
-            |row| row.get::<_, i64>(0),
-        )
-        .optional()?;
-    if revision == Some(before.expected_location_revision) && before.expected_location_revision >= 1
-    {
-        return Ok(());
-    }
-    Err(StoreError::new(
-        StoreErrorCode::RevisionConflict,
-        "Space placement anchor changed or is unavailable",
-        false,
-    ))
-}
-
-fn allocate_space_rank(
-    connection: &Connection,
-    project_id: &str,
-    target_id: &str,
-    before_id: Option<&str>,
-) -> Result<String, StoreError> {
-    let mut items = connection
-        .prepare(
-            "SELECT block_id, rank_key FROM top_level_block_placements \
-             WHERE project_id = ?1 ORDER BY rank_key, block_id",
-        )?
-        .query_map([project_id], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    items.retain(|(id, _)| id != target_id);
-    let anchor = before_id
-        .map(|before| {
-            items
-                .iter()
-                .position(|(id, _)| id == before)
-                .ok_or_else(|| invalid("Space placement anchor does not exist"))
-        })
-        .transpose()?
-        .unwrap_or(items.len());
-    if items.len() > MAX_OWNER_BLOCKS {
-        return Err(invalid("Space placement rank exceeds its rebalance bound"));
-    }
-    let canonical = items.iter().enumerate().all(|(index, (_, rank))| {
-        parse_rank(rank).is_some() && (index == 0 || items[index - 1].1.as_str() < rank.as_str())
-    });
-    if !canonical {
-        rebalance_ranks(connection, project_id, &mut items)?;
-    }
-    if let Some(rank) = rank_between(
-        anchor
-            .checked_sub(1)
-            .and_then(|index| items.get(index))
-            .and_then(|(_, rank)| parse_rank(rank)),
-        items.get(anchor).and_then(|(_, rank)| parse_rank(rank)),
-    ) {
-        return Ok(format!("{rank:032x}"));
-    }
-    rebalance_ranks(connection, project_id, &mut items)?;
-    rank_between(
-        anchor
-            .checked_sub(1)
-            .and_then(|index| items.get(index))
-            .and_then(|(_, rank)| parse_rank(rank)),
-        items.get(anchor).and_then(|(_, rank)| parse_rank(rank)),
-    )
-    .map(|rank| format!("{rank:032x}"))
-    .ok_or_else(|| internal("Fractional rank space remained exhausted"))
-}
-
-fn rebalance_ranks(
-    connection: &Connection,
-    project_id: &str,
-    items: &mut [(String, String)],
-) -> Result<(), StoreError> {
-    let divisor = u128::try_from(items.len() + 1)
-        .map_err(|_| internal("Fractional rank divisor overflowed"))?;
-    for (index, (id, rank)) in items.iter_mut().enumerate() {
-        let numerator =
-            u128::try_from(index + 1).map_err(|_| internal("Fractional rank index overflowed"))?;
-        *rank = format!("{:032x}", u128::MAX / divisor * numerator);
-        connection.execute(
-            "UPDATE top_level_block_placements SET rank_key = ?1 \
-             WHERE block_id = ?2 AND project_id = ?3",
-            params![&*rank, &*id, project_id],
-        )?;
-    }
-    Ok(())
-}
-
-fn rank_between(left: Option<u128>, right: Option<u128>) -> Option<u128> {
-    let left = left.unwrap_or(0);
-    let right = right.unwrap_or(u128::MAX);
-    let gap = right.checked_sub(left)?;
-    (gap > 1).then_some(left + gap / 2)
-}
-
-fn parse_rank(value: &str) -> Option<u128> {
-    (value.len() == 32
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)))
-    .then(|| u128::from_str_radix(value, 16).ok())
-    .flatten()
 }
 
 fn is_uuid_v7(value: &str) -> bool {

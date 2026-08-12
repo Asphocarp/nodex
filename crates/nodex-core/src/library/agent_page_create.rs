@@ -68,7 +68,7 @@ struct CreatePreflight {
     destination: LibraryPageCopyDestination,
     destination_document: Option<LibraryAgentDocumentHead>,
     destination_database_id: Option<String>,
-    destination_project_id: String,
+    actor_project_id: String,
     destination_authority_hash: String,
     pages: Vec<PreparedPage>,
     batch_documents: Option<PreparedAgentPageDocumentBatch>,
@@ -215,7 +215,6 @@ pub(super) fn prepare_create_pages(
                         destination: None,
                         destination_document: None,
                         destination_database_id: None,
-                        destination_project_id: None,
                         committed: Some(committed),
                     }),
                 },
@@ -247,7 +246,6 @@ pub(super) fn prepare_create_pages(
                         destination: Some(preflight.destination),
                         destination_document: preflight.destination_document,
                         destination_database_id: preflight.destination_database_id,
-                        destination_project_id: Some(preflight.destination_project_id),
                         committed: None,
                     }),
                 },
@@ -402,7 +400,7 @@ pub(super) fn execute_create_pages(
                     &agent_context,
                     &operation_id,
                     MutationEffects {
-                        project_id: preflight.destination_project_id,
+                        project_id: preflight.actor_project_id,
                         operation_kind: "agent_create_pages",
                         change_kind: "library.changed",
                         did_mutate: true,
@@ -497,7 +495,7 @@ fn apply_pages(
             connection,
             scope.evidence(),
             library_id,
-            &preflight.destination_project_id,
+            &preflight.actor_project_id,
             &page.page_operation_id,
             store_epoch,
             &page.page_id,
@@ -534,7 +532,7 @@ fn apply_pages(
                 let placement = place_staged_page_in_data_source_prevalidated(
                     connection,
                     library_id,
-                    &preflight.destination_project_id,
+                    &preflight.actor_project_id,
                     &page.page_id,
                     &destination,
                     StagedPagePlacementRevisions {
@@ -590,7 +588,7 @@ fn apply_pages(
                 let placement = transfer_existing_page_for_agent_move_prevalidated(
                     connection,
                     library_id,
-                    &preflight.destination_project_id,
+                    &preflight.actor_project_id,
                     &page.page_id,
                     1,
                     0,
@@ -642,6 +640,11 @@ fn apply_pages(
     let document_batch = super::block_transfer::apply_agent_page_document_batch(
         connection,
         scope,
+        context
+            .project_id
+            .as_ref()
+            .map(|project_id| project_id.0.as_str())
+            .ok_or_else(|| unauthorized("Agent Page create requires a bound Project"))?,
         operation_id,
         store_epoch,
         preflight
@@ -696,7 +699,7 @@ fn compile_preflight(
         authorization_fingerprint,
         mut document_heads,
         database_id: destination_database_id,
-        project_id: destination_project_id,
+        actor_project_id,
     } = resolve_destination(
         connection,
         context,
@@ -715,7 +718,7 @@ fn compile_preflight(
         &destination,
         &document_heads,
         &destination_database_id,
-        &destination_project_id,
+        &actor_project_id,
     ))?;
     let mut pages = Vec::with_capacity(request.pages.len());
     let mut created_roots = Vec::new();
@@ -818,7 +821,7 @@ fn compile_preflight(
         authorization_fingerprint,
         store_epoch,
         &destination,
-        &destination_project_id,
+        &actor_project_id,
         &document_heads,
         pages
             .iter()
@@ -838,7 +841,7 @@ fn compile_preflight(
         destination,
         destination_document,
         destination_database_id,
-        destination_project_id,
+        actor_project_id,
         destination_authority_hash,
         pages,
         batch_documents: Some(batch_documents),
@@ -862,7 +865,7 @@ fn revalidate_preflight(
         authorization_fingerprint,
         document_heads,
         database_id: destination_database_id,
-        project_id: destination_project_id,
+        actor_project_id,
     } = resolve_destination(
         connection,
         context,
@@ -875,10 +878,10 @@ fn revalidate_preflight(
         destination,
         document_heads,
         destination_database_id,
-        &destination_project_id,
+        &actor_project_id,
     ))?;
     if destination_authority_hash != preflight.destination_authority_hash
-        || destination_project_id != preflight.destination_project_id
+        || actor_project_id != preflight.actor_project_id
     {
         return Err(StoreError::new(
             StoreErrorCode::RevisionConflict,

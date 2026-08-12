@@ -4,6 +4,7 @@ import {
   BlockIdSchema,
   BlockLocationSchema,
   createToolSuccessSchema,
+  DataSourceIdSchema,
   DocumentAnchorSchema,
   DocumentIdSchema,
   ETagSchema,
@@ -37,7 +38,7 @@ const DatabaseDestinationViewSchema = z.strictObject({
 
 export const CreateDestinationSchema = z.discriminatedUnion("kind", [
   z.strictObject({
-    kind: z.literal("space"),
+    kind: z.literal("library"),
     at: SiblingAnchorSchema.optional(),
   }),
   z.strictObject({
@@ -46,8 +47,8 @@ export const CreateDestinationSchema = z.discriminatedUnion("kind", [
     at: DocumentAnchorSchema,
   }),
   z.strictObject({
-    kind: z.literal("database"),
-    databaseBlockId: BlockIdSchema,
+    kind: z.literal("data_source"),
+    dataSourceId: DataSourceIdSchema,
     values: z.array(DatabaseValueDraftSchema).max(512).optional(),
     view: DatabaseDestinationViewSchema.optional(),
   }),
@@ -224,7 +225,7 @@ export const EditDocumentOutputSchema = createToolSuccessSchema(EditDocumentData
 
 export const TransferDestinationSchema = z.discriminatedUnion("kind", [
   z.strictObject({
-    kind: z.literal("space"),
+    kind: z.literal("library"),
     at: SiblingAnchorSchema.optional(),
   }),
   z.strictObject({
@@ -233,8 +234,8 @@ export const TransferDestinationSchema = z.discriminatedUnion("kind", [
     at: DocumentAnchorSchema,
   }),
   z.strictObject({
-    kind: z.literal("database"),
-    databaseBlockId: BlockIdSchema,
+    kind: z.literal("data_source"),
+    dataSourceId: DataSourceIdSchema,
     values: z.array(DatabaseValueDraftSchema).max(512).optional(),
     view: DatabaseDestinationViewSchema.optional(),
   }),

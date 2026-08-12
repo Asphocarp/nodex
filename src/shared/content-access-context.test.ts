@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 
 import {
   contentAccessContextKey,
+  contentAccessIdentityKey,
   libraryContentAccess,
   parseContentAccessContext,
   projectIdFromContentAccessContext,
@@ -40,5 +41,15 @@ describe("ContentAccessContext", () => {
       "project:project-1",
     );
     expect(contentAccessContextKey(libraryContentAccess)).toBe("library");
+    expect(() =>
+      contentAccessContextKey({ kind: "forged" } as never)
+    ).toThrow("kind is unsupported");
+    expect(contentAccessIdentityKey({
+      libraryId: "library-1",
+      accessContext: libraryContentAccess,
+    })).not.toBe(contentAccessIdentityKey({
+      libraryId: "library-2",
+      accessContext: libraryContentAccess,
+    }));
   });
 });

@@ -180,29 +180,12 @@ export type ExecuteNodexAgentDuplicatePageResult =
 
 export interface NodexAgentMovePageTransferStep {
   readonly pageId: string;
-  readonly sourceProjectId?: string;
-  readonly targetProjectId?: string;
   readonly normalizedInput: NodexAgentTransferCommand["input"];
   readonly transfer: NodexAgentTransferCommand["transfer"] | null;
-  /** Frozen v81 authority coordinates for the canonical transfer path. */
+  /** Frozen structural concurrency coordinates for the canonical transfer path. */
   readonly canonical?: {
     readonly expectedParentRevision: number;
     readonly expectedActiveMembershipRevision: number;
-  };
-  readonly rehome?: {
-    readonly operationId: string;
-    readonly callIdentity: string;
-    readonly requestHash: string;
-    readonly actorProjectId: string;
-    readonly sourceProjectId: string;
-    readonly targetProjectId: string;
-    readonly libraryId: string;
-    readonly storeEpoch: string;
-    readonly rootPageIds: readonly string[];
-    readonly blockIds: readonly string[];
-    readonly documentIds: readonly string[];
-    readonly databaseBlockIds: readonly string[];
-    readonly databaseViewIds: readonly string[];
   };
 }
 

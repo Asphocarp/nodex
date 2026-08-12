@@ -41,7 +41,7 @@ function ActivationHarness({
     <>
       <PageOutlinerRow
         targetBlockId="target"
-        projectId="project"
+        accessKind="project"
         plainTitle={title}
         title={titleNode ?? (
           <PortableRichTitle value={plainTextToPortableRichText(title)} />

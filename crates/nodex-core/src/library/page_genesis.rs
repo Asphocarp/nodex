@@ -18,7 +18,6 @@ const MAX_PAGE_TITLE_BYTES: usize = 10_000;
 pub(crate) struct PageGenesisInput<'a> {
     pub(crate) commit_context: &'a CommitContext,
     pub(crate) library_id: &'a str,
-    pub(crate) project_id: &'a str,
     pub(crate) actor_project_id: &'a str,
     pub(crate) placement_access_project_id: Option<&'a str>,
     pub(crate) operation_id: &'a str,
@@ -33,7 +32,6 @@ pub(crate) struct PageGenesisInput<'a> {
 
 pub(crate) struct CreatedPageGenesis {
     pub(crate) page_create: LibraryPageCreateResult,
-    pub(crate) project_id: String,
     pub(crate) database_id: String,
     pub(crate) data_source_id: String,
     pub(crate) affected_view_ids: Vec<String>,
@@ -56,7 +54,7 @@ pub(crate) fn create_page_in_data_source(
         connection,
         input.commit_context,
         input.library_id,
-        input.project_id,
+        input.actor_project_id,
         input.operation_id,
         input.store_epoch,
         input.page_id,
@@ -87,7 +85,7 @@ pub(crate) fn create_page_in_data_source(
         place_staged_page_in_data_source_prevalidated(
             connection,
             input.library_id,
-            input.project_id,
+            input.actor_project_id,
             input.page_id,
             input.destination,
             expected,
@@ -158,7 +156,6 @@ pub(crate) fn create_page_in_data_source(
     }
     Ok(CreatedPageGenesis {
         page_create,
-        project_id: input.project_id.to_owned(),
         database_id: placement.database_id,
         data_source_id: placement.data_source_id,
         affected_view_ids: placement.affected_view_ids,

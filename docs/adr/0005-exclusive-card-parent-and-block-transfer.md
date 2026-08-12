@@ -6,6 +6,16 @@
 - Supersedes: the placement-independent membership decision in ADR 0003
 - Extends: ADR 0004
 
+## Current applicability
+
+ADR 0017 supersedes this ADR's Project-owned Space, Card, Database-parent, and
+storage-coordinate vocabulary. The current model uses Library-owned Page,
+Database Container, Data Source, View, and explicit Library/Page/Data Source
+placement. This ADR remains authoritative only for exclusive parent semantics,
+stable application identity, recursive copy versus non-owning references, and
+one atomic transfer command; ADR 0017 and `CONTEXT.md` own the current nouns and
+coordinates.
+
 ## Context
 
 Nodex currently gives a Card two independent placement coordinates. The Block registry says that the Card is either directly in a Space or inside a Document, while `database_memberships` may simultaneously say that the same Card is a row in a Database. A newly created board Card is therefore both a top-level Space Block and a Database member.

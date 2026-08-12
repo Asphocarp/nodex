@@ -203,7 +203,7 @@ const pageLocationSnapshot = () => ({
   authorization: null,
   value: {
     kind: "page_location" as const,
-    value: { page_id: "page:one", project_id: "project:test" },
+    value: { page_id: "page:one", access_project_id: "project:test" },
   },
 });
 
@@ -218,7 +218,7 @@ const viewLocationSnapshot = () => ({
       view_id: "view:test",
       data_source_id: "source:test",
       database_id: "database:test",
-      project_id: "project:test",
+      access_project_id: "project:test",
     },
   },
 });
@@ -229,8 +229,6 @@ const lifecycleTagsProperty = () => ({
   name: "Tags",
   schema: { kind: "multi_select" as const },
   capabilities: {
-    replace: true,
-    patchSetMember: "option" as const,
     filterOperators: ["contains", "not_contains", "is_empty", "is_not_empty"] as const,
     sortable: true,
     groupable: true,
@@ -253,8 +251,6 @@ const lifecycleCoreTagsProperty = () => ({
   name: "Tags",
   schema: { kind: "multi_select" as const },
   capabilities: {
-    replace: true,
-    patch_set_member: "option" as const,
     filter_operators: ["contains", "not_contains", "is_empty", "is_not_empty"] as const,
     sortable: true,
     groupable: true,
@@ -1277,7 +1273,7 @@ describe("Core Library Module Adapter", () => {
   test("maps move destination authority and exact Document heads", async () => {
     const client = new FakeCoreClient();
     client.enqueueRead({
-      contract_version: 11,
+      contract_version: 12,
       store_epoch: identity.storeEpoch,
       commit_head: 8,
       authorization: null,
@@ -1531,7 +1527,6 @@ describe("Core Library Module Adapter", () => {
           status: "available",
           summary: {
             canvas_id: canvasId,
-            project_id: "project:test",
             title: "Design map",
             lifecycle: "active",
             is_primary: false,
@@ -1640,7 +1635,6 @@ describe("Core Library Module Adapter", () => {
           status: "available",
           summary: {
             canvas_id: canvasId,
-            project_id: "project:test",
             title: "Canvas",
             lifecycle: "active",
             is_primary: true,

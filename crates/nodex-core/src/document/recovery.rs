@@ -7,6 +7,7 @@ use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 use super::persistence::{DocumentAuthorityRow, sha256};
 
 pub(crate) struct StaleYjsUpdate<'a> {
+    pub(crate) actor_project_id: &'a str,
     pub(crate) store_epoch: &'a str,
     pub(crate) client_session_id: &'a str,
     pub(crate) generation: i64,
@@ -120,7 +121,7 @@ pub(crate) fn persist_recovery_if_barrier_crossed(
                    'unsafe_stale_update', '[]', 'pending', ?14, ?15, NULL)",
         params![
             artifact_id,
-            authority.head.project_id,
+            input.actor_project_id,
             input.store_epoch,
             authority.head.id,
             input.generation,
@@ -146,7 +147,7 @@ fn read_artifact(
 ) -> Result<Option<String>, StoreError> {
     let stored = connection
         .query_row(
-            "SELECT id, store_epoch, client_session_id, base_head_seq, \
+            "SELECT id, project_id, store_epoch, client_session_id, base_head_seq, \
                     touched_block_ids_json, update_blob, update_hash, update_byte_length \
              FROM document_recovery_artifacts \
              WHERE document_id = ?1 AND generation = ?2 AND update_id = ?3",
@@ -156,11 +157,12 @@ fn read_artifact(
                     row.get::<_, String>(0)?,
                     row.get::<_, String>(1)?,
                     row.get::<_, String>(2)?,
-                    row.get::<_, i64>(3)?,
-                    row.get::<_, String>(4)?,
-                    row.get::<_, Vec<u8>>(5)?,
-                    row.get::<_, String>(6)?,
-                    row.get::<_, i64>(7)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, i64>(4)?,
+                    row.get::<_, String>(5)?,
+                    row.get::<_, Vec<u8>>(6)?,
+                    row.get::<_, String>(7)?,
+                    row.get::<_, i64>(8)?,
                 ))
             },
         )
@@ -168,15 +170,16 @@ fn read_artifact(
     let Some(stored) = stored else {
         return Ok(None);
     };
-    let touched = serde_json::from_str::<Vec<String>>(&stored.4)
+    let touched = serde_json::from_str::<Vec<String>>(&stored.5)
         .map_err(|_| corrupt("Stored recovery artifact touched Block IDs are invalid"))?;
-    let exact = stored.1 == input.store_epoch
-        && stored.2 == input.client_session_id
-        && stored.3 == input.base_head_seq
+    let exact = stored.1 == input.actor_project_id
+        && stored.2 == input.store_epoch
+        && stored.3 == input.client_session_id
+        && stored.4 == input.base_head_seq
         && touched == input.touched_block_ids
-        && stored.5 == input.update
-        && stored.6 == sha256(input.update)
-        && stored.7 == i64::try_from(input.update.len()).unwrap_or(-1);
+        && stored.6 == input.update
+        && stored.7 == sha256(input.update)
+        && stored.8 == i64::try_from(input.update.len()).unwrap_or(-1);
     if exact {
         return Ok(Some(stored.0));
     }

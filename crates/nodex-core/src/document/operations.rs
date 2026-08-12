@@ -458,7 +458,7 @@ pub fn prepare_nfm_replacement_update(
         &target_blocks,
         &target_tree,
         rich_title,
-        false,
+        DocumentBodyReplacementKind::NfmReplacement,
     )
 }
 
@@ -479,7 +479,7 @@ pub(crate) fn prepare_document_snapshot_restore_update(
         target_blocks,
         &target_tree,
         rich_title,
-        true,
+        DocumentBodyReplacementKind::SnapshotRestore,
     )
 }
 
@@ -850,7 +850,7 @@ fn prepare_document_body_replacement_update(
     target_blocks: &[MaterializedBlockNode],
     target_tree: &BlockTree,
     rich_title: Option<&[RichTextItem]>,
-    allow_reused_block_ids: bool,
+    replacement_kind: DocumentBodyReplacementKind,
 ) -> Result<PreparedDocumentOperationUpdate, DocumentOperationError> {
     let source = load_document(document_id, full_state_v1)?;
     let expected = decode_state_vector_v1(expected_state_vector_v1)
@@ -859,7 +859,7 @@ fn prepare_document_body_replacement_update(
     if source_vector != expected {
         return Err(operation_error(
             DocumentOperationErrorCode::StaleStateVector,
-            "NFM replacement was prepared from a stale structural state",
+            replacement_kind.stale_state_message(),
             None,
             None,
         ));
@@ -869,7 +869,7 @@ fn prepare_document_body_replacement_update(
     let old_ids: BTreeSet<_> = current_ids(&source_decoded.block_tree.blocks)
         .into_iter()
         .collect();
-    if let Some(reused) = (!allow_reused_block_ids)
+    if let Some(reused) = (!replacement_kind.allows_reused_block_ids())
         .then(|| flatten_materialized_ids(target_blocks))
         .into_iter()
         .flatten()
@@ -912,8 +912,8 @@ fn prepare_document_body_replacement_update(
     let materialization = materialize_decoded_document(&decoded)?;
     if materialization.block_tree != target_blocks {
         return Err(operation_error(
-            DocumentOperationErrorCode::InvalidNfm,
-            "NFM replacement did not reproduce its validated target Block tree",
+            replacement_kind.target_mismatch_code(),
+            replacement_kind.target_mismatch_message(),
             None,
             None,
         ));
@@ -923,19 +923,72 @@ fn prepare_document_body_replacement_update(
     {
         return Err(operation_error(
             DocumentOperationErrorCode::NoChange,
-            "NFM replacement produced no semantic change",
+            replacement_kind.no_change_message(),
             None,
             None,
         ));
     }
+    let write_fence_block_ids = match replacement_kind {
+        DocumentBodyReplacementKind::NfmReplacement => old_ids,
+        DocumentBodyReplacementKind::SnapshotRestore => old_ids
+            .into_iter()
+            .chain(flatten_materialized_ids(target_blocks))
+            .collect(),
+    };
     let transaction = working.transact();
     Ok(PreparedDocumentOperationUpdate {
         update_v1: transaction.encode_state_as_update_v1(&source_vector),
         state_vector_v1: transaction.state_vector().encode_v1(),
         materialization,
-        write_fence_block_ids: old_ids.into_iter().collect(),
+        write_fence_block_ids: write_fence_block_ids.into_iter().collect(),
         title_write_fence_required,
     })
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DocumentBodyReplacementKind {
+    NfmReplacement,
+    SnapshotRestore,
+}
+
+impl DocumentBodyReplacementKind {
+    fn allows_reused_block_ids(self) -> bool {
+        matches!(self, Self::SnapshotRestore)
+    }
+
+    fn stale_state_message(self) -> &'static str {
+        match self {
+            Self::NfmReplacement => "NFM replacement was prepared from a stale structural state",
+            Self::SnapshotRestore => {
+                "Document snapshot restore was prepared from a stale structural state"
+            }
+        }
+    }
+
+    fn target_mismatch_code(self) -> DocumentOperationErrorCode {
+        match self {
+            Self::NfmReplacement => DocumentOperationErrorCode::InvalidNfm,
+            Self::SnapshotRestore => DocumentOperationErrorCode::DocumentStateCorrupt,
+        }
+    }
+
+    fn target_mismatch_message(self) -> &'static str {
+        match self {
+            Self::NfmReplacement => {
+                "NFM replacement did not reproduce its validated target Block tree"
+            }
+            Self::SnapshotRestore => {
+                "Document snapshot restore did not reproduce its validated target Block tree"
+            }
+        }
+    }
+
+    fn no_change_message(self) -> &'static str {
+        match self {
+            Self::NfmReplacement => "NFM replacement produced no semantic change",
+            Self::SnapshotRestore => "Document snapshot restore produced no semantic change",
+        }
+    }
 }
 
 fn finalize_page_references(
@@ -1868,6 +1921,88 @@ mod tests {
         )
         .expect("consumer materialization");
         assert_eq!(actual, prepared.materialization);
+    }
+
+    #[test]
+    fn snapshot_restore_fences_current_and_historical_block_identities() {
+        let (checkpoint_state, checkpoint_vector) = matrix_state();
+        let checkpoint_document =
+            load_document("operations-matrix", &checkpoint_state).expect("checkpoint document");
+        let checkpoint_materialization = materialize_decoded_document(
+            &decode_block_document(&checkpoint_document, BlockDocumentSchema::PageV2)
+                .expect("checkpoint decode"),
+        )
+        .expect("checkpoint materialization");
+        let extra_block_id = "01981e00-0000-7000-8000-000000000099";
+        let changed = prepare_document_operation_update(
+            "operations-matrix",
+            BlockDocumentSchema::PageV2,
+            &checkpoint_state,
+            &checkpoint_vector,
+            &[
+                DocumentBlockOperation::InsertBlock {
+                    block: paragraph(extra_block_id, "Added after checkpoint"),
+                    parent_block_id: None,
+                    before_block_id: None,
+                },
+                DocumentBlockOperation::DeleteBlock {
+                    block_id: "matrix-divider".to_owned(),
+                },
+            ],
+            false,
+        )
+        .expect("post-checkpoint mutation");
+        let current_document =
+            load_document("operations-matrix", &checkpoint_state).expect("current document");
+        current_document
+            .transact_mut()
+            .apply_update(Update::decode_v1(&changed.update_v1).expect("changed update"))
+            .expect("apply changed update");
+        let (current_state, current_vector) = {
+            let transaction = current_document.transact();
+            (
+                transaction.encode_state_as_update_v1(&StateVector::default()),
+                transaction.state_vector().encode_v1(),
+            )
+        };
+
+        let restored = prepare_document_snapshot_restore_update(
+            "operations-matrix",
+            BlockDocumentSchema::PageV2,
+            &current_state,
+            &current_vector,
+            &checkpoint_materialization.block_tree,
+            Some(&checkpoint_materialization.rich_title),
+        )
+        .expect("snapshot restore");
+        let expected_fences = flatten_materialized_ids(&checkpoint_materialization.block_tree)
+            .into_iter()
+            .chain([extra_block_id.to_owned()])
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>();
+        assert_eq!(restored.write_fence_block_ids, expected_fences);
+        assert!(
+            restored
+                .write_fence_block_ids
+                .contains(&"matrix-divider".to_owned())
+        );
+        assert!(
+            restored
+                .write_fence_block_ids
+                .contains(&extra_block_id.to_owned())
+        );
+
+        current_document
+            .transact_mut()
+            .apply_update(Update::decode_v1(&restored.update_v1).expect("restore update"))
+            .expect("apply restore update");
+        let actual = materialize_decoded_document(
+            &decode_block_document(&current_document, BlockDocumentSchema::PageV2)
+                .expect("restored document"),
+        )
+        .expect("restored materialization");
+        assert_eq!(actual, checkpoint_materialization);
     }
 
     #[test]

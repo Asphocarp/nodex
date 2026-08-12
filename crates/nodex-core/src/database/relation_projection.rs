@@ -75,7 +75,7 @@ target_facts AS MATERIALIZED (
   SELECT
     candidate.target_data_source_id,
     candidate.page_id,
-    page.lifecycle,
+    block.lifecycle,
     materialization.title,
     EXISTS(
       SELECT 1
@@ -93,8 +93,7 @@ target_facts AS MATERIALIZED (
           AND project.library_id = ?4
           AND project.lifecycle = 'active'
       ) AND (
-        block.project_id = ?3
-        OR EXISTS(
+        EXISTS(
           SELECT 1
           FROM ancestors terminal
           JOIN data_sources source
@@ -476,9 +475,11 @@ mod tests {
                  ) WITHOUT ROWID;
                  CREATE TABLE pages(\
                    block_id TEXT PRIMARY KEY, library_id TEXT, parent_kind TEXT, parent_id TEXT, \
-                   lifecycle TEXT, document_id TEXT\
+                   document_id TEXT\
                  );
-                 CREATE TABLE blocks(id TEXT PRIMARY KEY, type TEXT, project_id TEXT);
+                 CREATE TABLE blocks(\
+                   id TEXT PRIMARY KEY, type TEXT, library_id TEXT, lifecycle TEXT\
+                 );
                  CREATE TABLE documents(\
                    id TEXT PRIMARY KEY, generation INTEGER, head_seq INTEGER, schema_version INTEGER\
                  );
@@ -521,7 +522,7 @@ mod tests {
                    ('source:data', 'library:relation', 'database:owner'), \
                    ('target:data', 'library:relation', 'database:owner');
                  INSERT INTO data_source_relation_properties VALUES \
-                   ('source:data', 'blocked_by', 'target:data');",
+                   ('source:data', 'p_blocked0', 'target:data');",
             )
             .expect("create Relation projection fixture schema");
         connection
@@ -530,7 +531,7 @@ mod tests {
                    SELECT 1 UNION ALL SELECT value + 1 FROM source WHERE value < ?1\
                  )
                  INSERT INTO data_source_property_values
-                 SELECT 'source:data', printf('source:%03d', value), 'blocked_by', \
+                 SELECT 'source:data', printf('source:%03d', value), 'p_blocked0', \
                    'relation', 'null', 1 FROM source",
                 [source_count],
             )
@@ -541,7 +542,8 @@ mod tests {
                    SELECT 1 UNION ALL SELECT value + 1 FROM target WHERE value < ?1\
                  )
                  INSERT INTO blocks
-                 SELECT printf('target:%05d', value), 'page', 'project:owner' FROM target",
+                 SELECT printf('target:%05d', value), 'page', 'library:relation', 'active' \
+                 FROM target",
                 [target_count],
             )
             .expect("seed target Blocks");
@@ -573,7 +575,7 @@ mod tests {
                  )
                  INSERT INTO pages
                  SELECT printf('target:%05d', value), 'library:relation', 'data_source', \
-                   'target:data', 'active', printf('document:%05d', value) FROM target",
+                   'target:data', printf('document:%05d', value) FROM target",
                 [target_count],
             )
             .expect("seed target Pages");
@@ -596,7 +598,7 @@ mod tests {
                  )
                  INSERT INTO data_source_relation_edges
                  SELECT printf('%064x', (source.value - 1) * ?2 + target.value), \
-                   'source:data', printf('source:%03d', source.value), 'blocked_by', \
+                   'source:data', printf('source:%03d', source.value), 'p_blocked0', \
                    printf('target:%05d', target.value)
                  FROM source CROSS JOIN target",
                 params![source_count, target_count],

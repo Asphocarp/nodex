@@ -17,7 +17,8 @@ import type {
 } from "../../../shared/block-documents";
 import type { OwnedDocumentEnvelope } from "../../../shared/block-documents/document-schema-adapters";
 import { NodexButton } from "@/components/ui/button";
-import { createDocumentSyncAdapter } from "@/lib/api";
+import { createDocumentSyncAdapterForContentAccess } from "@/lib/api";
+import type { ContentAccessContext } from "../../../shared/content-access-context";
 import {
   isBlockDocumentAccessRevoked,
   resolveBlockDocumentSurfaceFailure,
@@ -72,14 +73,15 @@ export type OwnedBlockDocumentSurfaceValue = OwnedDocumentEnvelope & {
 };
 
 export interface BlockDocumentSurfaceDependencies {
-  readonly createAdapter?: (projectId: string) => DocumentSyncAdapter;
+  readonly createAdapter?: (
+    accessContext: ContentAccessContext,
+  ) => DocumentSyncAdapter;
   readonly createRuntime?: (
     options: BlockDocumentSurfaceRuntimeOptions,
   ) => BlockDocumentSurfaceRuntime;
 }
 
 export interface BlockDocumentSurfaceProps {
-  readonly projectId: string;
   readonly descriptor: PrimaryPageBlockDocumentDescriptor;
   /** Stable Page identity used only for renderer-local live title projection. */
   readonly pageTitleIdentity?: PageTitleResourceIdentity;
@@ -262,7 +264,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 
 const makeActiveAwarenessState = (
   runtime: BlockDocumentSurfaceRuntime,
-  projectId: string,
+  accessContext: ContentAccessContext,
   descriptor: PrimaryOwnedBlockDocumentDescriptor,
   configured: BlockDocumentLocalAwarenessState | undefined,
   retained: Record<string, unknown> | null,
@@ -277,7 +279,10 @@ const makeActiveAwarenessState = (
     nodex: {
       ...retainedNodex,
       ...configuredNodex,
-      projectId,
+      accessContext,
+      ...(accessContext.kind === "project"
+        ? { projectId: accessContext.projectId }
+        : {}),
       ownerBlockId: descriptor.ownerBlockId,
       clientSessionId: runtime.clientSessionId,
     },
@@ -286,7 +291,7 @@ const makeActiveAwarenessState = (
 
 const useSurfaceAwareness = (
   runtime: BlockDocumentSurfaceRuntime,
-  projectId: string,
+  accessContext: ContentAccessContext,
   descriptor: PrimaryOwnedBlockDocumentDescriptor,
   isActive: boolean,
   configured: BlockDocumentLocalAwarenessState | undefined,
@@ -303,7 +308,7 @@ const useSurfaceAwareness = (
     if (isActive) {
       const activeState = makeActiveAwarenessState(
         runtime,
-        projectId,
+        accessContext,
         descriptor,
         configuredRef.current,
         awarenessLease?.getRetainedState() ?? retainedStateRef.current,
@@ -341,12 +346,11 @@ const useSurfaceAwareness = (
     awareness.on("update", handleAwarenessUpdate);
     clearPresence();
     return () => awareness.off("update", handleAwarenessUpdate);
-  }, [awarenessLease, descriptor, isActive, projectId, runtime]);
+  }, [accessContext, awarenessLease, descriptor, isActive, runtime]);
 };
 
 export interface OwnedBlockDocumentRuntimeSurfaceProps {
   readonly runtime: BlockDocumentSurfaceRuntime;
-  readonly projectId: string;
   readonly descriptor: PrimaryOwnedBlockDocumentDescriptor;
   readonly isActive: boolean;
   readonly localAwarenessState?: BlockDocumentLocalAwarenessState;
@@ -360,7 +364,6 @@ export interface OwnedBlockDocumentRuntimeSurfaceProps {
 
 export function OwnedBlockDocumentRuntimeSurface({
   runtime,
-  projectId,
   descriptor,
   isActive,
   localAwarenessState,
@@ -380,7 +383,7 @@ export function OwnedBlockDocumentRuntimeSurface({
   const reloadInFlightRef = useRef(false);
   useSurfaceAwareness(
     runtime,
-    projectId,
+    descriptor.accessContext,
     descriptor,
     isActive,
     localAwarenessState,
@@ -465,7 +468,6 @@ const EMPTY_RUNTIME_OWNER_STATE: RuntimeOwnerState = {
 };
 
 function RuntimeOwner({
-  projectId,
   descriptor: descriptorProp,
   isActive,
   localAwarenessState,
@@ -486,7 +488,7 @@ function RuntimeOwner({
   const onReloadRef = useRef(onReload);
   onReloadRef.current = onReload;
   const adapterFactory =
-    dependencies.createAdapter ?? createDocumentSyncAdapter;
+    dependencies.createAdapter ?? createDocumentSyncAdapterForContentAccess;
   const runtimeFactory = dependencies.createRuntime ?? createRuntime;
 
   useLayoutEffect(() => {
@@ -499,12 +501,7 @@ function RuntimeOwner({
       if (!live) return;
 
       try {
-        if (descriptor.projectId !== projectId) {
-          throw new TypeError(
-            "Block Document surface Project does not match its descriptor",
-          );
-        }
-        const adapter = adapterFactory(projectId);
+        const adapter = adapterFactory(descriptor.accessContext);
         ownedRuntime = runtimeFactory({
           descriptor,
           adapter,
@@ -538,7 +535,7 @@ function RuntimeOwner({
         () => undefined,
       );
     };
-  }, [adapterFactory, descriptor, projectId, runtimeFactory, runtimeRef]);
+  }, [adapterFactory, descriptor, runtimeFactory, runtimeRef]);
 
   const { runtime, startupError } = ownerState;
 
@@ -581,7 +578,6 @@ function RuntimeOwner({
   return (
     <OwnedBlockDocumentRuntimeSurface
       runtime={runtime}
-      projectId={projectId}
       descriptor={descriptor}
       isActive={isActive}
       localAwarenessState={localAwarenessState}
@@ -597,11 +593,11 @@ function RuntimeOwner({
 }
 
 const surfaceIdentity = (
-  projectId: string,
   descriptor: PrimaryOwnedBlockDocumentDescriptor,
 ): string =>
   [
-    projectId,
+    descriptor.libraryId,
+    JSON.stringify(descriptor.accessContext),
     descriptor.documentId,
     descriptor.storeEpoch,
     descriptor.generation,
@@ -616,7 +612,7 @@ export function OwnedBlockDocumentSurface(
   props: OwnedBlockDocumentSurfaceProps,
 ) {
   const [revision, setRevision] = useState(0);
-  const identity = surfaceIdentity(props.projectId, props.descriptor);
+  const identity = surfaceIdentity(props.descriptor);
   return (
     <RuntimeOwner
       key={`${identity}\u0000${revision}`}

@@ -27,7 +27,6 @@ import { useCanvasInlineFrameHeight } from "@/lib/use-canvas-inline-frame-height
 import { useLibraryCanvasTarget } from "@/lib/use-library-navigation";
 import { canvasBlockConfig } from "../../../../shared/block-documents/blocknote-schema-config";
 import { toast } from "@/components/ui/toast";
-import { projectIdFromContentAccessContext } from "../../../../shared/content-access-context";
 import {
   selectEmbeddedSurfaceShell,
   type EmbeddedSurfaceHostEditor,
@@ -247,7 +246,7 @@ export function CanvasBlock({
   const open = useCallback(() => {
     if (!host?.openCanvas || !summary) return;
     void host.openCanvas({
-      projectId: summary.projectId,
+      accessContext: host.contentAccessContext,
       canvasBlockId,
       titleSnapshot: summary.title,
     });
@@ -275,17 +274,16 @@ export function CanvasBlock({
     return selectHostShell();
   }, [selectHostShell]);
   const targetStatus = target.data?.value.status;
-  const canvasDocumentProjectId = summary?.projectId ?? (
-    host
-      ? projectIdFromContentAccessContext(host.contentAccessContext)
-      : null
-  );
+  const targetLibraryId = target.data?.libraryId;
   useEffect(() => {
-    if (targetStatus !== "deleted" || !canvasDocumentProjectId) return;
+    if (targetStatus !== "deleted" || !targetLibraryId || !host) return;
     void canvasDocumentSessionRegistry
-      .retireOwner(canvasDocumentProjectId, canvasBlockId)
+      .retireOwner({
+        libraryId: targetLibraryId,
+        accessContext: host.contentAccessContext,
+      }, canvasBlockId)
       .catch(() => undefined);
-  }, [canvasBlockId, canvasDocumentProjectId, targetStatus]);
+  }, [canvasBlockId, host, targetLibraryId, targetStatus]);
   const surfaceKey = host
     ? makeCanvasSceneSurfaceKey(
         "inline",
@@ -332,7 +330,7 @@ export function CanvasBlock({
           }
         >
           <CanvasDocumentSurface
-            projectId={summary.projectId}
+            accessContext={host.contentAccessContext}
             canvasBlockId={canvasBlockId}
             surfaceKey={surfaceKey}
             viewportPreferenceScope={makeCanvasViewportPreferenceScope({

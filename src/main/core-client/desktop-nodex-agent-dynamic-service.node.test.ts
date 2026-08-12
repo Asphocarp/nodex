@@ -8,7 +8,6 @@ import {
   UpdatePageV3InputSchema,
 } from "../../shared/nodex-agent-tools/v3-write-schemas";
 import type { NodexAgentDynamicExecutionContext } from "../agent-tools/dynamic-service-core";
-import { upgradeDatabaseViewConfigV2 } from "../../shared/database-view-presentation";
 import type { DesktopDataAuthorityRuntime } from "./desktop-data-authority";
 import type { DesktopDatabaseModuleBridge } from "./desktop-database-module-bridge";
 import type { DesktopDocumentSyncPort } from "./desktop-document-sync-bridge";
@@ -225,7 +224,6 @@ describe("native desktop Nodex Agent dynamic service", () => {
               expected_head_seq: 4,
             },
             destination_database_id: null,
-            destination_project_id: "project-native-agent",
             committed: null,
           },
         },
@@ -394,8 +392,6 @@ describe("native desktop Nodex Agent dynamic service", () => {
               },
               source_document_id: null,
               source_database_id: "database-move",
-              source_project_id: "project-native-agent",
-              target_project_id: "project-native-agent",
             }, {
               page_id: "page-move-library",
               source: {
@@ -404,8 +400,6 @@ describe("native desktop Nodex Agent dynamic service", () => {
               },
               source_document_id: null,
               source_database_id: null,
-              source_project_id: "project-native-agent",
-              target_project_id: "project-native-agent",
             }],
             document_heads: [{
               document_id: "document-move-target",
@@ -425,7 +419,6 @@ describe("native desktop Nodex Agent dynamic service", () => {
               expected_head_seq: 8,
             },
             destination_database_id: null,
-            destination_project_id: "project-native-agent",
             committed: null,
           },
         },
@@ -600,7 +593,6 @@ describe("native desktop Nodex Agent dynamic service", () => {
               expected_head_seq: 8,
             },
             destination_database_id: null,
-            destination_project_id: "project-native-agent",
             committed: null,
           },
         },
@@ -966,52 +958,31 @@ describe("native desktop Nodex Agent dynamic service", () => {
 
   test("queries native Data Sources with exact Agent authority and Core pagination", async () => {
     const database = {
-      databaseId: "database-native-agent",
-      libraryId: "library-native-agent",
+      database_id: "database-native-agent",
+      library_id: "library-native-agent",
       name: "Tasks",
       lifecycle: "active",
-      defaultViewId: "view-native-agent",
-      accessRevision: 1,
-      metadataRevision: 1,
-      createdAt: "2026-07-20T00:00:00.000Z",
-      updatedAt: "2026-07-20T00:00:00.000Z",
+      default_view_id: "view-native-agent",
+      access_revision: 1,
+      metadata_revision: 1,
+      created_at: "2026-07-20T00:00:00.000Z",
+      updated_at: "2026-07-20T00:00:00.000Z",
     };
     const dataSource = {
-      dataSourceId: "data-source-native-agent",
-      libraryId: "library-native-agent",
-      homeDatabaseId: "database-native-agent",
+      data_source_id: "data-source-native-agent",
+      library_id: "library-native-agent",
+      home_database_id: "database-native-agent",
       name: "Tasks",
-      schemaKey: "nodex.data-source",
-      schemaRevision: 4,
+      schema_key: "nodex.data-source",
+      schema_revision: 4,
       lifecycle: "active",
-      rankKey: "a",
-      createdAt: "2026-07-20T00:00:00.000Z",
-      updatedAt: "2026-07-20T00:00:00.000Z",
+      rank_key: "a",
+      created_at: "2026-07-20T00:00:00.000Z",
+      updated_at: "2026-07-20T00:00:00.000Z",
     };
-    const view = {
-      viewId: "view-native-agent",
-      databaseId: "database-native-agent",
-      dataSourceId: "data-source-native-agent",
-      name: "Tasks",
-      defaultLayout: "list",
-      config: upgradeDatabaseViewConfigV2({
-        schemaKey: "nodex.database-view",
-        schemaVersion: 2,
-        filter: { kind: "group", operator: "and", children: [] },
-        sort: [],
-        group: null,
-        display: { propertyIds: [], showTitle: true },
-      }),
-      isDefault: true,
-      revision: 1,
-      rankKey: "a",
-      lifecycle: "active",
-      createdAt: "2026-07-20T00:00:00.000Z",
-      updatedAt: "2026-07-20T00:00:00.000Z",
-    };
-    const databaseRead = vi.fn(async (read: { mode: string }) => {
+    const databaseRead = vi.fn(async (read: { kind: string }) => {
       const value = (() => {
-        switch (read.mode) {
+        switch (read.kind) {
           case "database":
             return {
               kind: "database" as const,
@@ -1030,7 +1001,7 @@ describe("native desktop Nodex Agent dynamic service", () => {
             return {
               kind: "view_descriptor_window" as const,
               views: {
-                items: [view],
+                items: [],
                 next_cursor: null,
                 authority: { projection_revision: 13 },
               },
@@ -1038,7 +1009,7 @@ describe("native desktop Nodex Agent dynamic service", () => {
           case "data_source":
             return {
               kind: "data_source" as const,
-              value: { dataSource },
+              value: { data_source: dataSource },
             };
           case "property_window":
             return {
@@ -1049,15 +1020,12 @@ describe("native desktop Nodex Agent dynamic service", () => {
                 authority: { projection_revision: 13 },
               },
             };
-          case "view":
-            return { kind: "view" as const, value: view };
           default:
             return {
-              kind: "agent_query" as const,
+              kind: "agent_data_source_query" as const,
               value: {
                 database_id: "database-native-agent",
                 data_source_id: "data-source-native-agent",
-                view_id: "view-native-agent",
                 rows: {
                   items: [],
                   next_cursor: "nxl1.query.signature",
@@ -1095,6 +1063,16 @@ describe("native desktop Nodex Agent dynamic service", () => {
       tool: "query_data_source",
     }, {
       dataSourceId: "data-source-native-agent",
+      filter: {
+        kind: "clause",
+        propertyId: "status",
+        operator: "is_empty",
+      },
+      sort: [{
+        field: { kind: "title" },
+        direction: "desc",
+        nulls: "last",
+      }],
       page: { limit: 25 },
     }, context);
 
@@ -1110,19 +1088,28 @@ describe("native desktop Nodex Agent dynamic service", () => {
       },
       page: { hasMore: true, nextCursor: "nxl1.query.signature" },
     });
-    expect(databaseRead).toHaveBeenNthCalledWith(1, expect.objectContaining({
-      target: expect.objectContaining({
-        kind: "agent_data_source",
-        data_source_id: "data-source-native-agent",
-        query: expect.objectContaining({
-          authorization: expect.objectContaining({
-            call_id: "call-native-agent",
-          }),
-          limit: 25,
+    expect(databaseRead).toHaveBeenNthCalledWith(1, {
+      kind: "agent_data_source_query",
+      data_source_id: "data-source-native-agent",
+      query: {
+        authorization: expect.objectContaining({
+          call_id: "call-native-agent",
         }),
-      }),
-      mode: "agent_query",
-    }));
+        cursor: null,
+        limit: 25,
+        projection_property_ids: null,
+        filter: {
+          kind: "clause",
+          propertyId: "status",
+          operator: "is_empty",
+        },
+        sort: [{
+          field: { kind: "title" },
+          direction: "desc",
+          nulls: "last",
+        }],
+      },
+    });
   });
 
   test("commits exact Page patches through prepared native Document authority", async () => {

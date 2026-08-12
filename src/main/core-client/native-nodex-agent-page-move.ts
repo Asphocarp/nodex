@@ -80,12 +80,20 @@ const output = (result: CoreMoveResult) => MovePagesV3OutputSchema.parse({
 });
 
 const sourceInput = (page: CoreMovePagePreparation) => {
-  if (page.source.kind === "library") return { kind: "space" as const };
+  if (page.source.kind === "library") {
+    return {
+      kind: "library" as const,
+      libraryId: page.source.library_id,
+    };
+  }
   if (page.source.kind === "data_source") {
     if (!page.source_database_id) {
       throw new Error(`Core Agent Page move omitted source Database for ${page.page_id}`);
     }
-    return { kind: "database" as const, databaseBlockId: page.source_database_id };
+    return {
+      kind: "data_source" as const,
+      dataSourceId: page.source.data_source_id,
+    };
   }
   const documentId = page.source.kind === "document"
     ? page.source.document_id
@@ -103,7 +111,7 @@ const destinationInput = (
   const destination = request.input.destination;
   if (destination.kind === "library") {
     return {
-      kind: "space" as const,
+      kind: "library" as const,
       ...(destination.at ? { at: destination.at } : {}),
     };
   }
@@ -119,8 +127,8 @@ const destinationInput = (
   const databaseId = preparation.destination_database_id;
   if (!databaseId) throw new Error("Core Agent Page move omitted its target Database");
   return {
-    kind: "database" as const,
-    databaseBlockId: databaseId,
+    kind: "data_source" as const,
+    dataSourceId: destination.dataSourceId,
     ...(destination.values ? { values: destination.values } : {}),
     ...(destination.view ? { view: destination.view } : {}),
   };
@@ -148,8 +156,6 @@ const command = (
     destination,
     transfers: preparation.pages.map((page) => ({
       pageId: page.page_id,
-      sourceProjectId: page.source_project_id,
-      targetProjectId: page.target_project_id,
       normalizedInput: TransferBlocksInputSchema.parse({
         mode: "move",
         blockIds: [page.page_id],

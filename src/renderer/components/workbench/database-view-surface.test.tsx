@@ -1359,8 +1359,15 @@ function NestedDatabaseListHarness({
       onOpenTaskSearch={() => undefined}
       onCloseTaskSearch={() => undefined}
       onOpenPage={() => undefined}
-      collapsedGroupKeys={collapsedKeys}
-      onCollapsedGroupKeysChange={setCollapsedKeys}
+      collapsedOccurrenceKeys={collapsedKeys}
+      onOccurrenceDisclosureChange={(target, collapsed) => {
+        setCollapsedKeys((current) => {
+          const next = new Set(current);
+          if (collapsed) next.add(target.occurrenceKey);
+          else next.delete(target.occurrenceKey);
+          return [...next];
+        });
+      }}
       onSelectedPageIdsChange={onSelectedPageIdsChange}
     />
   );
@@ -1412,7 +1419,7 @@ describe("DatabaseViewTabSurface", () => {
         onSelectedPageIdsChange={(pageIds) => selectedSnapshots.push(pageIds)}
       />,
     );
-    const grid = screen.getByRole("grid", { name: "Focused List" });
+    const grid = screen.getByRole("grid", { name: "Database List" });
     expect(screen.getByRole("button", { name: "Open Page Next Page" })).toBeTruthy();
 
     await act(async () => {

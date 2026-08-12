@@ -325,8 +325,9 @@ fn page_authorization_proof(
 ) -> Result<Option<Vec<ResourceKey>>, StoreError> {
     let page = connection
         .query_row(
-            "SELECT document_id FROM pages
-             WHERE block_id = ?1 AND library_id = ?2 AND lifecycle = 'active'",
+            "SELECT page.document_id FROM pages page
+             JOIN blocks block ON block.id = page.block_id AND block.library_id = page.library_id
+             WHERE page.block_id = ?1 AND page.library_id = ?2 AND block.lifecycle = 'active'",
             params![page_id, context.library_id.0],
             |row| row.get::<_, String>(0),
         )
@@ -365,8 +366,7 @@ fn document_authorization_proof(
     let belongs = connection.query_row(
         "SELECT EXISTS(
            SELECT 1 FROM documents document
-           JOIN projects project ON project.id = document.project_id
-           WHERE document.id = ?1 AND project.library_id = ?2
+           WHERE document.id = ?1 AND document.library_id = ?2
          )",
         params![document_id, context.library_id.0],
         |row| row.get::<_, i64>(0),
@@ -429,30 +429,26 @@ fn database_authorization_proof(
     database_id: &str,
     subject: &ResourceKey,
 ) -> Result<Option<Vec<ResourceKey>>, StoreError> {
-    let owner_project_id = connection
+    let exists = connection
         .query_row(
-            "SELECT block.project_id FROM blocks block
-           JOIN projects project ON project.id = block.project_id
+            "SELECT 1 FROM blocks block
            JOIN database_containers container ON container.block_id = block.id
-           WHERE block.id = ?1 AND project.library_id = ?2
+           WHERE block.id = ?1 AND block.library_id = ?2
              AND block.lifecycle = 'active'
              AND container.lifecycle = 'active'",
             params![database_id, context.library_id.0],
-            |row| row.get::<_, String>(0),
+            |_| Ok(()),
         )
         .optional()?;
-    let Some(owner_project_id) = owner_project_id else {
+    if exists.is_none() {
         return Ok(None);
-    };
+    }
     if matches!(scope, DeliveryAuthorizationScope::Library { .. }) {
         return Ok(Some(vec![subject.clone()]));
     }
     let Some(project_id) = scope_project_id(scope) else {
         return Ok(None);
     };
-    if project_id == owner_project_id {
-        return Ok(Some(vec![subject.clone()]));
-    }
     let primary = match crate::database::authorization::project_primary_database(
         connection,
         &context.library_id.0,
@@ -483,35 +479,37 @@ fn canvas_authorization_proof(
 ) -> Result<Option<Vec<ResourceKey>>, StoreError> {
     let row = connection
         .query_row(
-            "SELECT block.project_id, ownership.document_id, host_page.block_id
+            "SELECT ownership.document_id, host_page.block_id
              FROM canvas_owners canvas
              JOIN blocks block ON block.id = canvas.block_id
+               AND block.library_id = canvas.library_id
              JOIN block_documents ownership ON ownership.block_id = block.id
+               AND ownership.library_id = block.library_id
+             LEFT JOIN document_block_index containing
+               ON containing.block_id = block.id
              LEFT JOIN pages host_page
-               ON host_page.document_id = block.containing_document_id
+               ON host_page.document_id = containing.document_id
+              AND host_page.library_id = block.library_id
              WHERE block.id = ?1 AND canvas.library_id = ?2
                AND block.type = 'canvas' AND block.lifecycle = 'active'",
             params![canvas_id, context.library_id.0],
-            |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, Option<String>>(2)?,
-                ))
-            },
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
         )
         .optional()?;
-    let Some((owner_project_id, document_id, host_page_id)) = row else {
+    let Some((document_id, host_page_id)) = row else {
         return Ok(None);
     };
     match scope {
         DeliveryAuthorizationScope::Library { .. } => Ok(Some(vec![subject.clone()])),
         DeliveryAuthorizationScope::Project { project_id, .. } => {
-            if project_id == &owner_project_id {
-                return Ok(Some(vec![subject.clone()]));
-            }
             let Some(page_id) = host_page_id else {
-                return Ok(None);
+                return crate::library::canvas_grant_authorization_proof(
+                    connection,
+                    &context.library_id.0,
+                    project_id,
+                    canvas_id,
+                    false,
+                );
             };
             match crate::library::page_read_authorization_roots(
                 connection,

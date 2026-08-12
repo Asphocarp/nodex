@@ -95,7 +95,7 @@ export const usePageOutlinerActivation = ({
 
 export interface PageOutlinerFrameProps {
   readonly targetBlockId: string;
-  readonly projectId?: string;
+  readonly accessKind?: "library" | "project";
   readonly expanded: boolean;
   readonly active: boolean;
   readonly sectionRef?: RefCallback<HTMLElement>;
@@ -106,7 +106,7 @@ export interface PageOutlinerFrameProps {
 /** The observed DOM anchor never changes while row content loads or activates. */
 export function PageOutlinerFrame({
   targetBlockId,
-  projectId,
+  accessKind,
   expanded,
   active,
   sectionRef,
@@ -120,7 +120,7 @@ export function PageOutlinerFrame({
       ref={sectionRef}
       contentEditable={false}
       data-page-outliner-target={targetBlockId}
-      data-page-outliner-project={projectId}
+      data-page-outliner-access={accessKind}
       data-page-outliner-expanded={expanded ? "true" : "false"}
       data-page-outliner-active={active ? "true" : "false"}
       className="w-full min-w-0 self-stretch"
@@ -262,7 +262,7 @@ export interface PageOutlinerRowProps
 /** Convenience composite for stories and simple consumers. */
 export function PageOutlinerRow({
   targetBlockId,
-  projectId,
+  accessKind,
   active,
   sectionRef,
   onTouch,
@@ -271,7 +271,7 @@ export function PageOutlinerRow({
   return (
     <PageOutlinerFrame
       targetBlockId={targetBlockId}
-      projectId={projectId}
+      accessKind={accessKind}
       expanded={content.expanded}
       active={active}
       sectionRef={sectionRef}

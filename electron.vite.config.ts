@@ -2,6 +2,7 @@ import { resolve } from "path";
 import { defineConfig, externalizeDepsPlugin } from "electron-vite";
 import { sentryVitePlugin } from "@sentry/vite-plugin";
 import type { Plugin, Rollup } from "vite";
+import { createExcalidrawFontAssetPlugins } from "./config/excalidraw-font-assets";
 import { resolveRendererManualChunk } from "./config/renderer-manual-chunks";
 import {
   createRendererVitePlugins,
@@ -147,7 +148,11 @@ export default defineConfig({
       },
     },
     resolve: rendererViteResolve,
-    plugins: [...createRendererVitePlugins(), ...createSentryPlugins()],
+    plugins: [
+      ...createExcalidrawFontAssetPlugins(),
+      ...createRendererVitePlugins(),
+      ...createSentryPlugins(),
+    ],
     css: rendererViteCss,
   },
 });

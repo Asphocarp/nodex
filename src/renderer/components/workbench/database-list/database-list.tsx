@@ -29,6 +29,8 @@ import {
   searchDataSourceRelationCandidates,
 } from "@/lib/data-source-relation-runtime";
 import { readDatabasePropertyOptions } from "@/lib/database-view-authoring";
+import { collectRequiredPropertyOptionIds } from "@/lib/database-option-registry-requirements";
+import { databasePropertyValueSearchText } from "@/lib/database-property-search-text";
 import { resolveDatabaseTaskFilterCapabilities } from "@/lib/database-view-task-filter";
 import {
   buildDatabaseViewColumns,
@@ -46,16 +48,19 @@ import {
 } from "@/lib/database-view-row-mutations";
 import { matchesSearchTokens, tokenizeSearchQuery } from "@/lib/page-search";
 import { normalizeSearchText } from "@/lib/search-text";
-import { resolveDataSourcePropertyPresentationRole } from "@/lib/data-source-property-presentation-role";
 import { cn } from "@/lib/utils";
 import { StatusIcon } from "@/lib/status-presentation";
 import type {
   DatabaseJsonValue,
+  DatabasePropertyOption,
   DatabaseViewField,
   EffectiveDatabaseViewPresentation,
 } from "../../../../shared/database-kernel";
 import { isPriority } from "../../../../shared/priority";
-import type { DatabaseApplyOperationV2 } from "../../../../shared/database-module-v2";
+import type {
+  DatabaseApplyOperationV2,
+  DatabaseViewDisclosureTargetV2,
+} from "../../../../shared/database-module-v2";
 import type {
   DataSourcePageRowV2,
   DataSourcePropertyRecordV2,
@@ -132,8 +137,11 @@ interface DatabaseListProps {
   readonly presentedPageIds?: ReadonlySet<string>;
   readonly initialSelectedPageIds?: ReadonlySet<string>;
   readonly onSelectedPageIdsChange?: (pageIds: ReadonlySet<string>) => void;
-  readonly collapsedGroupKeys?: readonly string[];
-  readonly onCollapsedGroupKeysChange?: (keys: readonly string[]) => void;
+  readonly collapsedOccurrenceKeys?: readonly string[];
+  readonly onOccurrenceDisclosureChange?: (
+    target: DatabaseViewDisclosureTargetV2,
+    collapsed: boolean,
+  ) => void;
   readonly scrollStateKey?: string;
   readonly forcedDisplayField?: DatabaseViewField | null;
   readonly pageCreateSurfaceId?: string;
@@ -271,17 +279,44 @@ const readDatabaseListDragPayload = (
 const searchablePropertyValues = (
   model: DatabaseViewRenderModel,
   pageId: string,
+  optionRegistries: Readonly<Record<string, readonly DatabasePropertyOption[]>>,
 ): string => {
   const row = model.query.rows.find((candidate) => candidate.page.pageId === pageId);
   if (!row) return "";
-  return Object.values(row.values).map((entry) => JSON.stringify(entry.value)).join(" ");
+  const propertyById = new Map(
+    model.query.properties.map((property) => [String(property.propertyId), property] as const),
+  );
+  return Object.values(row.values)
+    .map((entry) => {
+      const property = propertyById.get(entry.propertyId);
+      return databasePropertyValueSearchText(entry.value, {
+        optionBacked: property?.valueType === "select"
+          || property?.valueType === "multi_select",
+        options: optionRegistries[entry.propertyId],
+      });
+    })
+    .join(" ");
 };
 
 const searchableAuthorityValues = (
   authority: DataSourcePageRowV2,
-): string => Object.values(authority.values)
-  .map((entry) => JSON.stringify(entry.value))
-  .join(" ");
+  properties: readonly DataSourcePropertyRecordV2[],
+  optionRegistries: Readonly<Record<string, readonly DatabasePropertyOption[]>>,
+): string => {
+  const propertyById = new Map(
+    properties.map((property) => [String(property.propertyId), property] as const),
+  );
+  return Object.values(authority.values)
+    .map((entry) => {
+      const property = propertyById.get(entry.propertyId);
+      return databasePropertyValueSearchText(entry.value, {
+        optionBacked: property?.valueType === "select"
+          || property?.valueType === "multi_select",
+        options: optionRegistries[entry.propertyId],
+      });
+    })
+    .join(" ");
+};
 
 const availableListFields = (
   model: DatabaseViewRenderModel,
@@ -375,8 +410,8 @@ export function DatabaseList({
   presentedPageIds,
   initialSelectedPageIds,
   onSelectedPageIdsChange,
-  collapsedGroupKeys: controlledCollapsedGroupKeys,
-  onCollapsedGroupKeysChange,
+  collapsedOccurrenceKeys: controlledCollapsedOccurrenceKeys,
+  onOccurrenceDisclosureChange,
   scrollStateKey = `database-view:${model.databaseViewId}:list`,
   forcedDisplayField = null,
   pageCreateSurfaceId,
@@ -416,37 +451,14 @@ export function DatabaseList({
     const displayedPropertyIds = new Set(sessionListFields.flatMap((field) =>
       field.kind === "property" ? [String(field.propertyId)] : []
     ));
-    const optionProperties = new Map(model.query.properties.flatMap((property) => {
-      if (!displayedPropertyIds.has(property.propertyId)) return [];
-      if (property.lifecycle !== "active") return [];
-      if (property.valueType !== "select" && property.valueType !== "multi_select") return [];
-      const role = resolveDataSourcePropertyPresentationRole(property);
-      if (role.kind === "status" || role.kind === "priority" || role.kind === "estimate") {
-        return [];
-      }
-      return [[property.propertyId, property] as const];
-    }));
-    const selected = new Map<string, Set<string>>(
-      [...optionProperties.keys()].map((propertyId) => [propertyId, new Set()]),
-    );
-    const rows = [
-      ...model.query.rows,
-      ...coreWindow.rows.flatMap((item) => item.kind === "page" ? [item.row] : []),
-    ];
-    for (const row of rows) {
-      for (const [propertyId, property] of optionProperties) {
-        const value = row.values[propertyId]?.value;
-        const values = property.valueType === "multi_select"
-          ? Array.isArray(value) ? value : []
-          : typeof value === "string" ? [value] : [];
-        for (const optionId of values) {
-          if (typeof optionId === "string") selected.get(propertyId)?.add(optionId);
-        }
-      }
-    }
-    return Object.fromEntries(
-      [...selected].map(([propertyId, optionIds]) => [propertyId, [...optionIds]]),
-    );
+    return collectRequiredPropertyOptionIds({
+      properties: model.query.properties,
+      rows: [
+        ...model.query.rows,
+        ...coreWindow.rows.flatMap((item) => item.kind === "page" ? [item.row] : []),
+      ],
+      propertyIds: displayedPropertyIds,
+    });
   }, [coreWindow.rows, model.query.properties, model.query.rows, sessionListFields]);
   const propertyOptionRegistries = usePropertyOptionRegistries({
     accessContext: model.accessContext,
@@ -455,14 +467,14 @@ export function DatabaseList({
   });
   const nested = presentation.hierarchy.showSubPages
     && presentation.hierarchy.nestedSubPages;
-  const [localCollapsedGroupKeys, setLocalCollapsedGroupKeys] = useState<ReadonlySet<string>>(
-    () => new Set(controlledCollapsedGroupKeys ?? []),
+  const [localCollapsedOccurrenceKeys, setLocalCollapsedOccurrenceKeys] = useState<ReadonlySet<string>>(
+    () => new Set(controlledCollapsedOccurrenceKeys ?? []),
   );
-  const collapsedGroupKeys = useMemo(
-    () => controlledCollapsedGroupKeys === undefined
-      ? localCollapsedGroupKeys
-      : new Set(controlledCollapsedGroupKeys),
-    [controlledCollapsedGroupKeys, localCollapsedGroupKeys],
+  const collapsedOccurrenceKeys = useMemo(
+    () => controlledCollapsedOccurrenceKeys === undefined
+      ? localCollapsedOccurrenceKeys
+      : new Set(controlledCollapsedOccurrenceKeys),
+    [controlledCollapsedOccurrenceKeys, localCollapsedOccurrenceKeys],
   );
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(0);
@@ -502,7 +514,7 @@ export function DatabaseList({
         ? column.rows
         : column.rows.filter((row) => matchesSearchTokens(
             normalizeSearchText(
-              `${row.title} ${row.preview} ${row.plainText} ${row.tags.join(" ")} ${searchablePropertyValues(model, row.pageId)}`,
+              `${row.title} ${row.preview} ${row.plainText} ${searchablePropertyValues(model, row.pageId, propertyOptionRegistries.options)}`,
             ),
             searchTokens,
           )),
@@ -515,6 +527,7 @@ export function DatabaseList({
     model,
     presentation.group?.propertyId,
     presentation.groupDirection,
+    propertyOptionRegistries.options,
     searchTokens,
   ]);
   const totalRowsByScope = useMemo(() => new Map(columns.map((column) => [
@@ -533,10 +546,10 @@ export function DatabaseList({
     subgrouped,
     showSubPages: presentation.hierarchy.showSubPages,
     nested,
-    collapsedGroupKeys,
+    collapsedOccurrenceKeys,
     totalRowsByScope,
   }), [
-    collapsedGroupKeys,
+    collapsedOccurrenceKeys,
     columns,
     grouped,
     nested,
@@ -547,7 +560,7 @@ export function DatabaseList({
   const coreProjection = useMemo(() => projectCoreDatabaseListRows({
     rows: coreWindow.rows,
     properties: model.query.properties,
-    collapsedGroupKeys,
+    collapsedOccurrenceKeys,
     groupLabel: (key) => groupLabel(
       model,
       presentation.group?.propertyId,
@@ -566,17 +579,18 @@ export function DatabaseList({
             authority: DataSourcePageRowV2,
           ) => matchesSearchTokens(
             normalizeSearchText(
-              `${row.title} ${row.preview} ${row.plainText} ${row.tags.join(" ")} ${searchableAuthorityValues(authority)}`,
+              `${row.title} ${row.preview} ${row.plainText} ${searchableAuthorityValues(authority, model.query.properties, propertyOptionRegistries.options)}`,
             ),
             searchTokens,
           ),
         }),
   }), [
-    collapsedGroupKeys,
+    collapsedOccurrenceKeys,
     coreWindow.rows,
     model,
     presentation.group?.propertyId,
     presentation.subgroup?.propertyId,
+    propertyOptionRegistries.options,
     searchTokens,
   ]);
   // Authorized runtime Views have exactly one ordering authority: Core's List
@@ -1170,7 +1184,7 @@ export function DatabaseList({
     onSetValue: setPropertyValue,
     onPatchOptions: patchOptions,
     onPatchRelation: patchRelation,
-    onReplaceRelation: replaceRelation,
+    onReplaceOneRelation: replaceRelation,
     onCreateOption: createOption,
     onRequestOptions: propertyOptionRegistries.requestOptions,
     onRequestMoreOptions: propertyOptionRegistries.requestMoreOptions,
@@ -1305,20 +1319,27 @@ export function DatabaseList({
     })();
   };
 
-  const updateCollapsedGroups = (
-    update: (current: ReadonlySet<string>) => ReadonlySet<string>,
+  const updateCollapsedOccurrences = (
+    updates: readonly { readonly key: string; readonly collapsed: boolean }[],
   ): void => {
-    const next = update(collapsedGroupKeys);
-    if (controlledCollapsedGroupKeys === undefined) setLocalCollapsedGroupKeys(next);
-    onCollapsedGroupKeysChange?.([...next]);
+    const next = new Set(collapsedOccurrenceKeys);
+    for (const update of updates) {
+      if (update.collapsed) next.add(update.key);
+      else next.delete(update.key);
+      onOccurrenceDisclosureChange?.(
+        { kind: "group", occurrenceKey: update.key },
+        update.collapsed,
+      );
+    }
+    if (controlledCollapsedOccurrenceKeys === undefined) {
+      setLocalCollapsedOccurrenceKeys(next);
+    }
   };
 
-  const toggleCollapseKey = (key: string): void => updateCollapsedGroups((current) => {
-    const next = new Set(current);
-    if (next.has(key)) next.delete(key);
-    else next.add(key);
-    return next;
-  });
+  const toggleCollapseKey = (key: string): void => updateCollapsedOccurrences([{
+    key,
+    collapsed: !collapsedOccurrenceKeys.has(key),
+  }]);
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
     if ((event.target as HTMLElement).closest(DATABASE_LIST_INTERACTIVE_SELECTOR)) return;
@@ -1385,9 +1406,12 @@ export function DatabaseList({
       const collapsibleKeys = projection.flatMap((row) =>
         row.kind === "group" ? [row.key] : []
       );
-      updateCollapsedGroups((current) => current.size > 0
-        ? new Set()
-        : new Set(collapsibleKeys));
+      const collapse = !collapsibleKeys.some((key) =>
+        collapsedOccurrenceKeys.has(key)
+      );
+      updateCollapsedOccurrences(collapsibleKeys
+        .filter((key) => collapsedOccurrenceKeys.has(key) !== collapse)
+        .map((key) => ({ key, collapsed: collapse })));
       return;
     }
     if (!activePage || !grouped) return;
@@ -1590,7 +1614,7 @@ export function DatabaseList({
       <div
         ref={scrollerRef}
         role="grid"
-        aria-label={`${model.viewName} List`}
+        aria-label="Database List"
         aria-rowcount={projection.length + logicalExtraRows}
         aria-busy={mutationPending || coreWindow.loading || undefined}
         data-list-container="true"

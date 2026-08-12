@@ -531,12 +531,19 @@ mod tests {
                            ('project-1', '/workspace/two', '/workspace/two', 1, \
                             '2026-07-19T03:30:00.000Z', '2026-07-19T03:30:00.000Z'); \
                          INSERT INTO blocks( \
-                           id, project_id, type, lifecycle, location_kind, \
-                           created_at, updated_at \
+                           id, library_id, type, lifecycle, placement_revision, \
+                           metadata_revision, created_at, updated_at \
                          ) VALUES \
-                           ('database-1', 'project-1', 'database', 'active', 'space', \
+                           ('database-1', 'library-1', 'database', 'active', 1, 1, \
                             '2026-07-19T03:30:00.000Z', '2026-07-19T03:30:00.000Z'), \
-                           ('database-2', 'project-2', 'database', 'active', 'space', \
+                           ('database-2', 'library-1', 'database', 'active', 1, 1, \
+                            '2026-07-19T03:30:00.000Z', '2026-07-19T03:30:00.000Z'); \
+                         INSERT INTO library_block_placements( \
+                           block_id, library_id, rank_key, revision, created_at, updated_at \
+                         ) VALUES \
+                           ('database-1', 'library-1', '3fffffffffffffffffffffffffffffff', 1, \
+                            '2026-07-19T03:30:00.000Z', '2026-07-19T03:30:00.000Z'), \
+                           ('database-2', 'library-1', '7fffffffffffffffffffffffffffffff', 1, \
                             '2026-07-19T03:30:00.000Z', '2026-07-19T03:30:00.000Z'); \
                          INSERT INTO database_containers( \
                            block_id, library_id, name, lifecycle, created_at, updated_at \

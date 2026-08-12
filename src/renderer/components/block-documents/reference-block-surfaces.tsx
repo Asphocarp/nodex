@@ -18,9 +18,16 @@ import {
 import { StatusIcon } from "@/lib/status-presentation";
 import { useElementVisibility } from "@/lib/use-element-visibility";
 import { cn } from "@/lib/utils";
+import {
+  contentAccessContextKey,
+  libraryContentAccess,
+  projectContentAccess,
+  type ContentAccessContext,
+  type ContentPageNavigationTarget,
+} from "../../../shared/content-access-context";
 
 export interface ReferencedPageDocumentInput {
-  readonly projectId: string;
+  readonly accessContext: ContentAccessContext;
   readonly card: DatabasePageSummary;
   readonly isActive: boolean;
 }
@@ -38,7 +45,7 @@ interface ReferenceSurfaceStateDependencies {
 
 export interface ReferencedCardRowProps extends ReferenceSurfaceStateDependencies {
   readonly disclosureKey: string;
-  readonly projectId: string;
+  readonly accessContext: ContentAccessContext;
   readonly card: DatabasePageSummary;
   readonly canEdit: boolean;
   readonly archived?: boolean;
@@ -46,11 +53,7 @@ export interface ReferencedCardRowProps extends ReferenceSurfaceStateDependencie
   readonly inlineEditingDisabledReason?: string;
   readonly metadata?: ReactNode;
   readonly renderDocument?: ReferencedPageDocumentRenderer;
-  readonly onOpenPage?: (input: {
-    projectId: string;
-    pageId: string;
-    titleSnapshot?: string;
-  }) => void | Promise<void>;
+  readonly onOpenPage?: (input: ContentPageNavigationTarget) => void | Promise<void>;
 }
 
 const META_CHIP =
@@ -90,7 +93,7 @@ function CardRowMetadata({
 
 export function ReferencedCardRow({
   disclosureKey,
-  projectId,
+  accessContext,
   card,
   canEdit,
   archived = false,
@@ -125,7 +128,7 @@ export function ReferencedCardRow({
       ref={visibility.ref}
       contentEditable={false}
       data-reference-card={card.id}
-      data-reference-project={projectId}
+      data-reference-access={contentAccessContextKey(accessContext)}
       data-reference-expanded={expanded ? "true" : "false"}
       data-reference-editor-active={active ? "true" : "false"}
       className="min-w-0 py-0.5"
@@ -177,7 +180,7 @@ export function ReferencedCardRow({
             className="inline-flex size-6 shrink-0 items-center justify-center rounded-sm text-token-description-foreground opacity-0 group-hover/reference-row:opacity-100 hover:bg-token-foreground/10 hover:text-token-text-primary focus-visible:opacity-100"
             onClick={() =>
               void onOpenPage({
-                projectId,
+                accessContext,
                 pageId: card.id,
                 titleSnapshot: title,
               })
@@ -191,7 +194,7 @@ export function ReferencedCardRow({
       {expanded ? (
         <div className="ml-3 min-w-0 border-l-[0.5px] border-token-foreground/10 pl-3">
           {active && renderDocument ? (
-            renderDocument({ projectId, card, isActive: true })
+            renderDocument({ accessContext, card, isActive: true })
           ) : visible && expandable ? (
             <button
               type="button"
@@ -233,7 +236,7 @@ export interface DatabaseViewReferenceSurfaceProps extends ReferenceSurfaceState
   readonly referenceKey: string;
   readonly displayHint: string;
   readonly model: DatabaseViewReadModel | null;
-  readonly documentScopeId?: string;
+  readonly accessContext?: ContentAccessContext;
   readonly loading?: boolean;
   readonly error?: Error | null;
   readonly renderDocument?: ReferencedPageDocumentRenderer;
@@ -246,7 +249,7 @@ export function DatabaseViewReferenceSurface({
   referenceKey,
   displayHint,
   model,
-  documentScopeId,
+  accessContext,
   loading = false,
   error = null,
   renderDocument,
@@ -289,7 +292,10 @@ export function DatabaseViewReferenceSurface({
   }
 
   const name = model.view.name.trim() || displayHint.trim() || "Database view";
-  const rowDocumentScopeId = documentScopeId ?? model.view.projectId ?? "";
+  const rowAccessContext = accessContext
+    ?? (model.view.projectId
+      ? projectContentAccess(model.view.projectId)
+      : libraryContentAccess);
   return (
     <section
       contentEditable={false}
@@ -319,10 +325,9 @@ export function DatabaseViewReferenceSurface({
             <ReferencedCardRow
               key={row.page.id}
               disclosureKey={`${referenceKey}:${row.page.id}`}
-              projectId={rowDocumentScopeId}
+              accessContext={rowAccessContext}
               card={row.page}
               canEdit={
-                rowDocumentScopeId.length > 0 &&
                 !row.page.archived &&
                 !referencesAncestor
               }

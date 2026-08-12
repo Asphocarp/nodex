@@ -5,8 +5,9 @@ import {
   MAX_DOCUMENT_TOUCHED_BLOCK_IDS,
   type DocumentReadiness,
   type OwnedDocumentDescriptor,
-  type LibraryOwnedDocumentDescriptor,
+  type LibraryAccessedDocumentDescriptor,
 } from "./contracts";
+import type { ContentAccessContext } from "../content-access-context";
 import {
   MAX_DOCUMENT_AWARENESS_UPDATE_BYTES,
   type DocumentAwarenessPublishRequest,
@@ -153,7 +154,8 @@ interface CanvasSyncResponseMetadata {
   readonly engine: "canvas_scene";
   readonly kind: "up_to_date" | "snapshot";
   readonly syncRequestId: string;
-  readonly projectId: string;
+  readonly libraryId: string;
+  readonly accessContext: ContentAccessContext;
   readonly documentId: string;
   readonly storeEpoch: string;
   readonly generation: number;
@@ -171,8 +173,9 @@ type EncodedOwnedDocumentSyncEngine =
     };
 
 interface EncodedOwnedDocumentDescriptor {
-  readonly version: 2;
-  readonly projectId: string;
+  readonly version: 3;
+  readonly libraryId: string;
+  readonly accessContext: ContentAccessContext;
   readonly ownerBlockId: string;
   readonly ownerType: string;
   readonly ownerLifecycle: OwnedDocumentDescriptor["ownerLifecycle"];
@@ -185,11 +188,6 @@ interface EncodedOwnedDocumentDescriptor {
   readonly readiness: DocumentReadiness;
   readonly authorization: OwnedDocumentDescriptor["authorization"];
   readonly sync: EncodedOwnedDocumentSyncEngine;
-}
-
-interface EncodedLibraryOwnedDocumentDescriptor
-  extends Omit<EncodedOwnedDocumentDescriptor, "projectId"> {
-  readonly accessContext: { readonly kind: "library" };
 }
 
 const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
@@ -339,11 +337,6 @@ const assertRouteDocument = (routeDocumentId: string): string => {
     return routeDocumentId;
   }
   throw new DocumentHttpWireError("route documentId must be non-empty");
-};
-
-const readIdentity = (value: string, field: string): string => {
-  if (value.length > 0 && value === value.trim()) return value;
-  throw new DocumentHttpWireError(`${field} must be non-empty`);
 };
 
 const parseSyncRequestMetadata = (value: unknown): SyncRequestMetadata => {
@@ -545,7 +538,8 @@ const parseCanvasSyncResponseMetadata = (
       "engine",
       "kind",
       "syncRequestId",
-      "projectId",
+      "libraryId",
+      "accessContext",
       "documentId",
       "storeEpoch",
       "generation",
@@ -559,7 +553,8 @@ const parseCanvasSyncResponseMetadata = (
     engine: "canvas_scene",
     kind: readEnum(record, "kind", ["up_to_date", "snapshot"] as const),
     syncRequestId: readString(record, "syncRequestId"),
-    projectId: readString(record, "projectId"),
+    libraryId: readString(record, "libraryId"),
+    accessContext: parseOwnedDocumentAccessContext(record.accessContext),
     documentId: readString(record, "documentId"),
     storeEpoch: readString(record, "storeEpoch"),
     generation: readInteger(record, "generation", 1),
@@ -589,6 +584,27 @@ const parseOwnedDocumentSyncEngine = (
   return { kind, stateVector };
 };
 
+const parseOwnedDocumentAccessContext = (
+  value: unknown,
+): ContentAccessContext => {
+  const record = readRecord(value);
+  if (record.kind === "library") {
+    assertExactKeys(record, ["kind"], "Owned Document access context");
+    return { kind: "library" };
+  }
+  if (record.kind === "project") {
+    assertExactKeys(
+      record,
+      ["kind", "projectId"],
+      "Owned Document access context",
+    );
+    return { kind: "project", projectId: readString(record, "projectId") };
+  }
+  throw new DocumentHttpWireError(
+    "Owned Document access context has an unsupported kind",
+  );
+};
+
 const parseOwnedDocumentDescriptor = (
   value: unknown,
 ): EncodedOwnedDocumentDescriptor => {
@@ -597,7 +613,8 @@ const parseOwnedDocumentDescriptor = (
     record,
     [
       "version",
-      "projectId",
+      "libraryId",
+      "accessContext",
       "ownerBlockId",
       "ownerType",
       "ownerLifecycle",
@@ -613,14 +630,15 @@ const parseOwnedDocumentDescriptor = (
     ],
     "Owned Document descriptor",
   );
-  if (record.version !== 2) {
+  if (record.version !== 3) {
     throw new DocumentHttpWireError(
       "Unsupported Owned Document descriptor version",
     );
   }
   return {
-    version: 2,
-    projectId: readString(record, "projectId"),
+    version: 3,
+    libraryId: readString(record, "libraryId"),
+    accessContext: parseOwnedDocumentAccessContext(record.accessContext),
     ownerBlockId: readString(record, "ownerBlockId"),
     ownerType: readString(record, "ownerType"),
     ownerLifecycle: readEnum(record, "ownerLifecycle", [
@@ -657,8 +675,9 @@ export const encodeOwnedDocumentDescriptorHttp = (
         }
       : { kind: "canvas_scene" };
   return JSON.stringify({
-    version: 2,
-    projectId: descriptor.projectId,
+    version: 3,
+    libraryId: descriptor.libraryId,
+    accessContext: descriptor.accessContext,
     ownerBlockId: descriptor.ownerBlockId,
     ownerType: descriptor.ownerType,
     ownerLifecycle: descriptor.ownerLifecycle,
@@ -697,7 +716,8 @@ export const decodeOwnedDocumentDescriptorHttp = (
       }
     : { kind: "canvas_scene" as const };
   return {
-    projectId: descriptor.projectId,
+    libraryId: descriptor.libraryId,
+    accessContext: descriptor.accessContext,
     ownerBlockId: descriptor.ownerBlockId,
     ownerType: descriptor.ownerType,
     ownerLifecycle: descriptor.ownerLifecycle,
@@ -713,89 +733,20 @@ export const decodeOwnedDocumentDescriptorHttp = (
   };
 };
 
-export const encodeLibraryOwnedDocumentDescriptorHttp = (
-  descriptor: LibraryOwnedDocumentDescriptor,
-): string => {
-  const sync: EncodedOwnedDocumentSyncEngine = descriptor.sync.kind === "yjs"
-    ? {
-        kind: "yjs",
-        stateVector: documentBytesToBase64(descriptor.sync.stateVector),
-      }
-    : { kind: "canvas_scene" };
-  return JSON.stringify({
-    version: 2,
-    accessContext: { kind: "library" },
-    ownerBlockId: descriptor.ownerBlockId,
-    ownerType: descriptor.ownerType,
-    ownerLifecycle: descriptor.ownerLifecycle,
-    documentId: descriptor.documentId,
-    storeEpoch: descriptor.storeEpoch,
-    generation: descriptor.generation,
-    headSeq: descriptor.headSeq,
-    schemaKey: descriptor.schemaKey,
-    schemaVersion: descriptor.schemaVersion,
-    readiness: descriptor.readiness,
-    authorization: descriptor.authorization ?? null,
-    sync,
-  } satisfies EncodedLibraryOwnedDocumentDescriptor);
-};
+export const encodeLibraryAccessedDocumentDescriptorHttp = (
+  descriptor: LibraryAccessedDocumentDescriptor,
+): string => encodeOwnedDocumentDescriptorHttp(descriptor);
 
-export const decodeLibraryOwnedDocumentDescriptorHttp = (
+export const decodeLibraryAccessedDocumentDescriptorHttp = (
   serialized: string,
-): LibraryOwnedDocumentDescriptor => {
-  let decoded: unknown;
-  try {
-    decoded = JSON.parse(serialized) as unknown;
-  } catch (error) {
+): LibraryAccessedDocumentDescriptor => {
+  const descriptor = decodeOwnedDocumentDescriptorHttp(serialized);
+  if (descriptor.accessContext.kind !== "library") {
     throw new DocumentHttpWireError(
-      "Library Owned Document descriptor is not valid JSON",
-      { cause: error },
+      "Library-accessed Document context must be library",
     );
   }
-  const record = readRecord(decoded);
-  assertExactKeys(
-    record,
-    [
-      "version",
-      "accessContext",
-      "ownerBlockId",
-      "ownerType",
-      "ownerLifecycle",
-      "documentId",
-      "storeEpoch",
-      "generation",
-      "headSeq",
-      "schemaKey",
-      "schemaVersion",
-      "readiness",
-      "authorization",
-      "sync",
-    ],
-    "Library Owned Document descriptor",
-  );
-  const accessContext = readRecord(record.accessContext);
-  assertExactKeys(
-    accessContext,
-    ["kind"],
-    "Library Owned Document access context",
-  );
-  if (accessContext.kind !== "library") {
-    throw new DocumentHttpWireError(
-      "Library Owned Document access context must be library",
-    );
-  }
-  const { accessContext: _accessContext, ...standardDescriptor } = record;
-  void _accessContext;
-  const parsed = decodeOwnedDocumentDescriptorHttp(JSON.stringify({
-    ...standardDescriptor,
-    projectId: "local-library",
-  }));
-  const { projectId: _privateProjectId, ...publicDescriptor } = parsed;
-  void _privateProjectId;
-  return {
-    ...publicDescriptor,
-    accessContext: { kind: "library" },
-  };
+  return { ...descriptor, accessContext: descriptor.accessContext };
 };
 
 export const encodeDocumentSyncHttpRequest = (
@@ -886,7 +837,7 @@ export const encodeCanvasSceneSyncHttpRequest = (
 
 export const decodeCanvasSceneSyncHttpRequest = (
   routeDocumentId: string,
-  projectId: string,
+  accessContext: ContentAccessContext,
   bytes: Uint8Array,
 ): CanvasSceneSyncRequest => {
   const envelope = decodeDocumentHttpEnvelope(
@@ -897,7 +848,7 @@ export const decodeCanvasSceneSyncHttpRequest = (
   return {
     version: CANVAS_SCENE_SYNC_VERSION,
     syncRequestId: envelope.metadata.syncRequestId,
-    projectId: readIdentity(projectId, "projectId"),
+    accessContext,
     documentId: assertRouteDocument(routeDocumentId),
     clientSessionId: envelope.metadata.clientSessionId,
     ...(envelope.metadata.knownStoreEpoch === undefined
@@ -933,7 +884,8 @@ export const encodeCanvasSceneSyncHttpResponse = (
       engine: "canvas_scene",
       kind: response.kind,
       syncRequestId: response.syncRequestId,
-      projectId: response.projectId,
+      libraryId: response.libraryId,
+      accessContext: response.accessContext,
       documentId: response.documentId,
       storeEpoch: response.storeEpoch,
       generation: response.generation,
@@ -955,7 +907,8 @@ export const decodeCanvasSceneSyncHttpResponse = (
   const common = {
     version: CANVAS_SCENE_SYNC_VERSION,
     syncRequestId: envelope.metadata.syncRequestId,
-    projectId: envelope.metadata.projectId,
+    libraryId: envelope.metadata.libraryId,
+    accessContext: envelope.metadata.accessContext,
     documentId: envelope.metadata.documentId,
     storeEpoch: envelope.metadata.storeEpoch,
     generation: envelope.metadata.generation,

@@ -66,7 +66,10 @@ import {
   projectCoreDatabaseViewQuery,
 } from "../../shared/database-page-projection";
 import { projectCoreDatabaseQueryRow } from "../../shared/core-database-row-projection";
-import { toCoreDatabaseViewPresentationOverride } from "./database-presentation-adapter";
+import {
+  fromCoreDatabaseViewPresentationOverride,
+  toCoreDatabaseViewPresentationOverride,
+} from "./database-presentation-adapter";
 
 export interface DesktopDatabaseModuleBridgeInput {
   readonly authority: Promise<DesktopDataAuthorityRuntime>;
@@ -145,7 +148,7 @@ const minimumCommitSeqForEpoch = (
 
 const coreViewTarget = (
   input: DatabaseViewWindowInput | DatabaseViewGroupsInput | DatabaseListWindowInput,
-): DatabaseRead["target"] => {
+): Extract<DatabaseRead, { readonly kind: "view_window" }>["target"] => {
   if (input.presentationOverride && !input.databaseViewId) {
     throw new Error("A Database View presentation override requires an explicit View");
   }
@@ -184,11 +187,8 @@ const readBoundedDatabaseViewWindow = async <
     input.currentStoreEpoch,
   );
   const snapshot = await input.readCore({
+    kind: "view_window",
     target: coreViewTarget(input.windowInput),
-    mode: "view_window",
-    filter: null,
-    sort: null,
-    page_ids: null,
     window: {
       after: input.windowInput.after ?? null,
       first: input.windowInput.first ?? 50,
@@ -330,11 +330,8 @@ const readBoundedDatabaseListWindow = async <
     input.currentStoreEpoch,
   );
   const snapshot = await input.readCore({
+    kind: "list_window",
     target: coreViewTarget(input.windowInput),
-    mode: "list_window",
-    filter: null,
-    sort: null,
-    page_ids: null,
     window: {
       after: input.windowInput.after ?? null,
       first: input.windowInput.first ?? 200,
@@ -413,8 +410,6 @@ const readBoundedDatabaseListWindow = async <
         depth: row.depth,
         hasChildren: row.has_children,
         transientKind: row.transient_kind,
-        siblingRank: row.sibling_rank ?? null,
-        taskParentValueRevision: row.task_parent_value_revision,
       };
     }),
     groups: value.groups.map((group) => ({
@@ -445,12 +440,8 @@ const readBoundedDatabaseViewGroups = async <
     input.currentStoreEpoch,
   );
   const snapshot = await input.readCore({
+    kind: "view_groups",
     target: coreViewTarget(input.groupsInput),
-    mode: "view_groups",
-    filter: null,
-    sort: null,
-    page_ids: null,
-    window: null,
   }, minimumCommitSeq);
   if (snapshot.value.kind !== "view_groups") {
     throw new Error("Database Core returned a non-groups View snapshot");
@@ -639,12 +630,8 @@ export const createDesktopDatabaseModuleBridge = (
         : 0;
       try {
         const snapshot = await coreAdapterFor(runtime, projectId).readCore({
-          target: { kind: "page", page_id: pageId },
-          mode: "row_detail",
-          filter: null,
-          sort: null,
-          page_ids: null,
-          window: null,
+          kind: "row_detail",
+          page_id: pageId,
         }, minimumCommitSeq);
         if (snapshot.value.kind !== "row_detail") {
           throw new Error("Database Core returned a non-detail Page snapshot");
@@ -737,6 +724,26 @@ export const mapCoreDatabaseEvent = (
     affectedDataSourceIds: payload.event.data_source_ids,
     affectedPageIds: payload.event.page_ids,
     affectedViewIds: payload.event.view_ids,
+    personalViewChanges: (payload.event.personal_view_changes ?? []).map((change) =>
+      change.kind === "presentation"
+        ? {
+            kind: change.kind,
+            viewId: parseDatabaseViewId(change.view_id),
+            presentationOverride: fromCoreDatabaseViewPresentationOverride(
+              change.value.presentation_override,
+            ),
+            revision: change.value.revision,
+          }
+        : {
+            kind: change.kind,
+            viewId: parseDatabaseViewId(change.view_id),
+            target: {
+              kind: change.target.kind,
+              occurrenceKey: change.target.occurrence_key,
+            },
+            collapsed: change.collapsed,
+          }
+    ),
     commitSeq: envelope.packet.manifest.identity.commit_seq,
   };
 };
@@ -748,6 +755,12 @@ export const mapCoreLibraryDatabaseEvent = (
 ): LibraryNavigationChangedEvent | null => {
   const payload = effect.payload;
   if (payload.module !== "database" || payload.event.project_id) return null;
+  if (
+    payload.event.database_ids.length === 0
+    && payload.event.data_source_ids.length === 0
+    && payload.event.page_ids.length === 0
+    && payload.event.view_ids.length === 0
+  ) return null;
   return {
     version: LIBRARY_NAVIGATION_EVENT_VERSION,
     libraryId,

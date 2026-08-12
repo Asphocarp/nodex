@@ -47,9 +47,10 @@ A View stores local Property and option IDs because it targets exactly one Data
 Source. Every unbound read or write carries the Source coordinate. Database
 Module v2, Block Property mutation v2, Page Lifecycle v2, trusted transports,
 renderer workflows, CLI, and `nodex_app@5` use those coordinates. High-level
-Page tag input remains canonical display names; its compiler resolves existing
-options and preallocates missing option IDs before enqueue so an exact retry
-reuses the identical request.
+Page creation retains preallocated option IDs as its semantic input. Display
+names are metadata only for options introduced by that same request, so an
+exact retry reuses the identical identities and later option renames cannot
+change the meaning of the request.
 
 Schema v81 makes `database_containers`, `data_sources`,
 `data_source_properties`, `data_source_page_memberships`,

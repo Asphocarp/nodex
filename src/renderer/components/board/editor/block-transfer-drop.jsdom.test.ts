@@ -98,7 +98,7 @@ describe("Board Card Block transfer drop", () => {
             observed: { store_epoch: "epoch-a", commit_head: 1 },
           },
           value: {
-            version: 1 as const,
+            version: 2 as const,
             operationId: "operation-a",
             projectId: "project-a",
             storeEpoch: "epoch-a",
@@ -178,7 +178,7 @@ describe("Board Card Block transfer drop", () => {
           observed: { store_epoch: "epoch-a", commit_head: 2 },
         },
         value: {
-          version: 1 as const,
+          version: 2 as const,
           operationId: "operation-editor",
           projectId: "project-a",
           storeEpoch: "epoch-a",

@@ -431,55 +431,41 @@ describe("CoreClient over a Unix socket", () => {
         }],
       });
       const databaseCatalog = await client.databaseRead({
-        target: { kind: "project_default" },
-        mode: "catalog_window",
-        filter: null,
-        sort: null,
+        kind: "catalog_window",
         window: { after: null, first: 10 },
       });
       if (databaseCatalog.value.kind !== "catalog_window") {
         throw new Error("Expected native Database catalog");
       }
-      const descriptor = databaseCatalog.value.databases.items[0] as {
-        readonly database?: { readonly databaseId?: string };
-      } | undefined;
-      const databaseId = descriptor?.database?.databaseId;
+      const databaseId = databaseCatalog.value.databases.items[0]?.database.database_id;
       if (!databaseId) throw new Error("Initial Project has no Database");
       const dataSources = await client.databaseRead({
-        target: { kind: "database", database_id: databaseId },
-        mode: "data_source_window",
-        filter: null,
-        sort: null,
+        kind: "data_source_window",
+        database_id: databaseId,
         window: { after: null, first: 10 },
       });
       if (dataSources.value.kind !== "data_source_window") {
         throw new Error("Expected native Data Source window");
       }
-      const dataSourceId = (
-        dataSources.value.data_sources.items[0] as {
-          readonly dataSourceId?: string;
-        } | undefined
-      )?.dataSourceId;
+      const dataSourceId = dataSources.value.data_sources.items[0]?.data_source_id;
       if (!dataSourceId) throw new Error("Initial Project has no Data Source");
       const agentDatabaseQuery = await client.databaseRead({
-        target: {
-          kind: "agent_data_source",
-          data_source_id: dataSourceId,
-          query: {
-            authorization: {
-              provenance: agentProvenance,
-              call_id: "call:node-database-query",
-            },
-            cursor: null,
-            limit: 1,
+        kind: "agent_data_source_query",
+        data_source_id: dataSourceId,
+        query: {
+          authorization: {
+            provenance: agentProvenance,
+            call_id: "call:node-database-query",
           },
+          cursor: null,
+          limit: 1,
+          projection_property_ids: null,
+          filter: { kind: "group", operator: "and", children: [] },
+          sort: [],
         },
-        mode: "agent_query",
-        filter: null,
-        sort: null,
       });
       expect(agentDatabaseQuery.value).toMatchObject({
-        kind: "agent_query",
+        kind: "agent_data_source_query",
         value: {
           data_source_id: dataSourceId,
           rows: {

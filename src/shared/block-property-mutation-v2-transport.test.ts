@@ -7,7 +7,6 @@ import {
 } from "./block-property-mutation-v2-transport";
 import {
   parseLibraryBlockPropertyMutationCommandResultV2,
-  toLibraryBlockPropertyMutationCommandResultV2,
 } from "./block-property-mutations-v2";
 const request = {
   version: 2,
@@ -29,7 +28,7 @@ const request = {
 } as const;
 
 describe("Block property mutation v2 transport binding", () => {
-  test("exposes strict Library receipts without compatibility Project identity", () => {
+  test("parses strict Library receipts without a Project coordinate", () => {
     const field = {
       path: "intrinsic/page-1/run.target",
       scope: "intrinsic" as const,
@@ -39,7 +38,7 @@ describe("Block property mutation v2 transport binding", () => {
       revision: 1,
       value: "cloud",
     };
-    const exposed = toLibraryBlockPropertyMutationCommandResultV2({
+    const exposed = parseLibraryBlockPropertyMutationCommandResultV2({
       ok: true,
       localCommit: {
         status: "no_op",
@@ -48,7 +47,7 @@ describe("Block property mutation v2 transport binding", () => {
       value: {
         version: 2,
         mutationId: "mutation-v2-1",
-        projectId: "private-compatibility-project",
+        accessContext: { kind: "library" },
         storeEpoch: "epoch-1",
         duplicate: false,
         fields: [field],

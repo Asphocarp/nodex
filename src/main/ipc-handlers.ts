@@ -1723,7 +1723,7 @@ export function registerIpcHandlers(
       return {
         ok: false as const,
         error: {
-          code: "project_scope_mismatch" as const,
+          code: "access_scope_mismatch" as const,
           message: "Canvas scene subscription is unauthorized",
           retryable: false,
           resetRequired: false,
@@ -1738,7 +1738,7 @@ export function registerIpcHandlers(
       return {
         ok: false as const,
         error: {
-          code: "project_scope_mismatch" as const,
+          code: "access_scope_mismatch" as const,
           message: "Canvas scene subscription is unauthorized",
           retryable: false,
           resetRequired: false,
@@ -1753,7 +1753,7 @@ export function registerIpcHandlers(
       return {
         ok: false as const,
         error: {
-          code: "project_scope_mismatch" as const,
+          code: "access_scope_mismatch" as const,
           message: "Canvas scene sync is unauthorized",
           retryable: false,
           resetRequired: false,
@@ -1768,7 +1768,7 @@ export function registerIpcHandlers(
       return {
         ok: false as const,
         error: {
-          code: "project_scope_mismatch" as const,
+          code: "access_scope_mismatch" as const,
           message: "Canvas scene mutation is unauthorized",
           retryable: false,
           resetRequired: false,
@@ -1799,7 +1799,7 @@ export function registerIpcHandlers(
       return {
         ok: false as const,
         error: {
-          code: "project_scope_mismatch" as const,
+          code: "access_scope_mismatch" as const,
           message: "Canvas compaction read is unauthorized",
           retryable: false,
           resetRequired: false,
@@ -1814,7 +1814,7 @@ export function registerIpcHandlers(
       return {
         ok: false as const,
         error: {
-          code: "project_scope_mismatch" as const,
+          code: "access_scope_mismatch" as const,
           message: "Canvas compaction is unauthorized",
           retryable: false,
           resetRequired: false,

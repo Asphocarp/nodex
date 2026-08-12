@@ -11,7 +11,6 @@ import {
 } from "react";
 import { ArrowDown, ArrowUp, GripVertical } from "@/components/shared/icons/generic-icons";
 import {
-  stableStringifyDatabaseJson,
   type DatabaseViewLayout,
   type DatabaseViewPresentationConfig,
   type EffectiveDatabaseViewPresentation,
@@ -41,6 +40,8 @@ import {
   type DatabaseViewRenderRow,
 } from "@/lib/database-view-render-model";
 import { readDatabasePropertyOptions } from "@/lib/database-view-authoring";
+import { collectRequiredPropertyOptionIds } from "@/lib/database-option-registry-requirements";
+import { databasePropertyValueSearchText } from "@/lib/database-property-search-text";
 import { normalizeSearchText } from "@/lib/search-text";
 import { cn } from "@/lib/utils";
 import { parseDataSourcePropertyId } from "../../../shared/database-identities";
@@ -144,13 +145,26 @@ const rowByPageId = (
 const searchablePropertyValues = (
   model: DatabaseViewRenderModel,
   pageId: string,
+  optionRegistries: Readonly<Record<string, readonly DatabasePropertyOption[]>>,
 ): string => {
   const row = rowByPageId(model, pageId);
   if (!row) return "";
+  const propertyById = new Map(
+    model.query.properties.map((property) => [String(property.propertyId), property] as const),
+  );
   return Object.values(row.values)
     .map((value) => {
       const relation = readRelationValuePreview(value.value);
-      if (!relation) return stableStringifyDatabaseJson(value.value);
+      if (!relation) {
+        return databasePropertyValueSearchText(
+          value.value,
+          {
+            optionBacked: propertyById.get(value.propertyId)?.valueType === "select"
+              || propertyById.get(value.propertyId)?.valueType === "multi_select",
+            options: optionRegistries[value.propertyId],
+          },
+        );
+      }
       return relation.targets
         .flatMap((target) => target.kind === "visible" ? [target.title] : [])
         .join(" ");
@@ -214,7 +228,7 @@ function BoardPageCardSurface({
   onSetValue,
   onPatchOptions,
   onPatchRelation,
-  onReplaceRelation,
+  onReplaceOneRelation,
   onCreateOption,
   onLoadRelationTargets,
   onSearchRelationCandidates,
@@ -255,7 +269,7 @@ function BoardPageCardSurface({
     propertyId: string,
     delta: { readonly addPageIds: readonly string[]; readonly removeEdgeIds: readonly string[] },
   ) => void;
-  readonly onReplaceRelation: (
+  readonly onReplaceOneRelation: (
     pageId: string,
     property: DataSourcePropertyRecordV2,
     targetPageId: string | null,
@@ -360,8 +374,8 @@ function BoardPageCardSurface({
             onPatchOptions(row.pageId, property, delta)}
           onPatchRelation={(delta) =>
             onPatchRelation(row.pageId, property.propertyId, delta)}
-          onReplaceRelation={(targetPageId) =>
-            onReplaceRelation(row.pageId, property, targetPageId)}
+          onReplaceOneRelation={(targetPageId) =>
+            onReplaceOneRelation(row.pageId, property, targetPageId)}
           onLoadRelationTargets={(after) =>
             onLoadRelationTargets(row.pageId, property.propertyId, after)}
           onSearchRelationCandidates={(query, after) =>
@@ -553,9 +567,18 @@ function BoardDatabaseViewSurface({
   const presentationId = keyboardSurface?.presentationId
     ?? `database-view-presentation:${keyboardSurfaceFallbackId}`;
   const surfaceRef = useRef<HTMLDivElement | null>(null);
+  const requiredOptionIds = useMemo(
+    () => collectRequiredPropertyOptionIds({
+      properties: model.query.properties,
+      rows: model.query.rows,
+      filter: model.query.view.config.filter,
+    }),
+    [model.query.properties, model.query.rows, model.query.view.config.filter],
+  );
   const propertyOptionRegistries = usePropertyOptionRegistries({
     accessContext: model.accessContext,
     properties: model.query.properties,
+    requiredOptionIds,
   });
   const {
     options: optionRegistries,
@@ -589,12 +612,12 @@ function BoardDatabaseViewSurface({
         : column.rows.filter((row) =>
             matchesSearchTokens(
               normalizeSearchText(
-                `${row.title} ${row.preview} ${row.plainText} ${row.tags.join(" ")} ${searchablePropertyValues(model, row.pageId)}`,
+                `${row.title} ${row.preview} ${row.plainText} ${searchablePropertyValues(model, row.pageId, optionRegistries)}`,
               ),
               searchTokens,
             )),
     })),
-    [activeLayout, model, presentation, searchTokens],
+    [activeLayout, model, optionRegistries, presentation, searchTokens],
   );
   const subgroupsByColumn = useMemo(() => {
     const subgroupPropertyId = presentation.subgroup?.propertyId;
@@ -1206,7 +1229,7 @@ function BoardDatabaseViewSurface({
     onSetValue: setValue,
     onPatchOptions: patchOptions,
     onPatchRelation: patchRelation,
-    onReplaceRelation: replaceRelation,
+    onReplaceOneRelation: replaceRelation,
     onCreateOption: createOption,
     onLoadRelationTargets: loadRelationTargets,
     onSearchRelationCandidates: searchRelationCandidates,

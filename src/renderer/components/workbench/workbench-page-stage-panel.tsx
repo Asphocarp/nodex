@@ -339,7 +339,7 @@ export function PageStageSessionTab({
     databaseCapability: PageStageDatabaseCapability | null,
   ): ReactNode => (
     <OwnedBlockDocumentBoundary
-      projectId={tab.config.projectId}
+      accessContext={projectContentAccess(tab.config.projectId)}
       ownerBlockId={page.page.id}
     >
       {(documentModel, documentControls) => {
@@ -397,7 +397,6 @@ export function PageStageSessionTab({
             retainEditorSession={tab.preview !== true}
             documentAuthority={documentAuthority}
             page={page}
-            documentScopeId={tab.config.projectId}
             projectName={project.name}
             projectWorkspacePath={projectWorkspaceRootOrNull(project)}
             closeRef={closeRef as MutableRefObject<
@@ -458,18 +457,20 @@ export function PageStageSessionTab({
             canStartThreadInSession={canStartThreadInSession}
             linkedCodexThreads={[]}
             onOpenCodexThread={onOpenThread}
-            onOpenPage={({ projectId, pageId, titleSnapshot }) => {
-              void onOpenPageTab(projectId, pageId, titleSnapshot, {
+            onOpenPage={({ accessContext, pageId, titleSnapshot }) => {
+              if (accessContext.kind !== "project") return;
+              void onOpenPageTab(accessContext.projectId, pageId, titleSnapshot, {
                 openMode: "durable",
               });
             }}
             onOpenCanvas={({
-              projectId,
+              accessContext,
               canvasBlockId,
               titleSnapshot,
             }) => {
+              if (accessContext.kind !== "project") return;
               void onOpenCanvasStage(
-                projectId,
+                accessContext.projectId,
                 canvasBlockId,
                 titleSnapshot,
               );

@@ -6,8 +6,12 @@ use nodex_core_contracts::collection::{
     CollectionWindow, CollectionWindowAuthority, CollectionWindowRequest,
 };
 use nodex_core_contracts::database::{
-    DatabasePropertyDescriptor, DatabaseRead, DatabaseReadMode, DatabaseReadValue, DatabaseTarget,
-    DatabaseViewContext, DatabaseViewPersonalPreferences,
+    DatabaseContainerRecord, DatabaseDataSourceDescriptor, DatabaseDataSourceRecord,
+    DatabaseDescriptor, DatabaseIdentityTarget, DatabasePropertyDescriptor, DatabasePropertyOption,
+    DatabaseRead, DatabaseReadValue, DatabaseRowsTarget, DatabaseViewCollapsedOccurrences,
+    DatabaseViewContext, DatabaseViewDisclosureTarget, DatabaseViewLayout,
+    DatabaseViewPersonalPresentation, DatabaseViewPresentationOverrideInput,
+    DatabaseViewReadTarget, DatabaseViewRecord,
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::{Map, Value, json};
@@ -38,7 +42,7 @@ struct PropertyDescriptorRow {
     data_source_id: String,
     name: String,
     value_type: String,
-    option_count: usize,
+    config_json: String,
     rank_key: String,
     lifecycle: String,
     revision: i64,
@@ -50,19 +54,47 @@ fn property_descriptor(
     connection: &Connection,
     row: PropertyDescriptorRow,
 ) -> Result<DatabasePropertyDescriptor, StoreError> {
+    if !super::property_semantics::is_canonical_property_id(&row.property_id) {
+        return Err(corrupt("Stored Property ID is not canonical"));
+    }
     let schema = super::property_semantics::schema_from_storage(
         connection,
         &row.data_source_id,
         &row.property_id,
         &row.value_type,
     )?;
+    if !super::property_semantics::schema_matches_canonical_property(
+        &row.property_id,
+        &row.data_source_id,
+        &schema,
+    ) {
+        return Err(corrupt("Stored reserved Property schema is not canonical"));
+    }
+    let option_count = if matches!(row.value_type.as_str(), "select" | "multi_select") {
+        super::property_semantics::option_config_from_storage(
+            &row.property_id,
+            &row.value_type,
+            &row.config_json,
+        )?
+        .options
+        .len()
+    } else {
+        let config = serde_json::from_str::<Value>(&row.config_json)
+            .map_err(|_| corrupt("Stored Property config is invalid"))?;
+        if config.as_object().is_none_or(|config| !config.is_empty()) {
+            return Err(corrupt(
+                "Stored Property config is not the canonical empty object",
+            ));
+        }
+        0
+    };
     Ok(DatabasePropertyDescriptor {
         property_id: row.property_id,
         data_source_id: row.data_source_id,
         name: row.name,
         capabilities: super::property_semantics::capabilities(&schema),
         schema,
-        option_count: u32::try_from(row.option_count)
+        option_count: u32::try_from(option_count)
             .map_err(|_| corrupt("Property option count overflowed"))?,
         rank_key: row.rank_key,
         lifecycle: row.lifecycle,
@@ -107,11 +139,11 @@ pub(crate) fn page_data_source_projection(
     }
     let database_id = database_for_source(connection, library_id, data_source_id)?;
     let data_source = source_record(connection, library_id, data_source_id)?;
-    if data_source.get("lifecycle").and_then(Value::as_str) == Some("deleted") {
+    if data_source.lifecycle == "deleted" {
         return Err(corrupt("Data Source Page belongs to a deleted Data Source"));
     }
     let database = container_record(connection, library_id, &database_id)?;
-    if database.get("lifecycle").and_then(Value::as_str) == Some("deleted") {
+    if database.lifecycle == "deleted" {
         return Err(corrupt("Data Source Page belongs to a deleted Database"));
     }
     let mut values = read_values(connection, data_source_id, membership_id)?
@@ -130,8 +162,8 @@ pub(crate) fn page_data_source_projection(
         data_source_id: membership_source_id.clone(),
         membership_revision: *revision,
         membership_created_at: created_at.clone(),
-        database,
-        data_source,
+        database: container_record_value(&database),
+        data_source: data_source_record_value(&data_source),
         properties: property_records(connection, data_source_id, true)?,
         property_configs: read_property_configs(connection, data_source_id)?,
         values,
@@ -164,505 +196,315 @@ pub(crate) fn read_at_commit_head(
             "Database reads require a Project or trusted Library scope",
         ));
     }
-    if request.group_scope.is_some()
-        && !matches!(
-            request.mode,
-            DatabaseReadMode::ViewWindow | DatabaseReadMode::ViewContext
-        )
-    {
-        return Err(invalid(
-            "Database group scope requires the view_window or view_context mode",
-        ));
-    }
     let primary_database_id = project_id
         .map(|project_id| project_primary_database(connection, library_id, project_id))
         .transpose()?
         .flatten();
     let store_epoch = crate::document::read_store_epoch(connection)?;
-    let mut value = match (&request.target, request.mode) {
-        (DatabaseTarget::ProjectDefault, DatabaseReadMode::ViewWindow) => {
-            let database_id =
-                primary_database_id.ok_or_else(|| not_found("Project has no primary Database"))?;
+    let mut value = match request {
+        DatabaseRead::CatalogWindow { window } => {
             let project_id = project_id
                 .ok_or_else(|| invalid("Library Database reads require a concrete target"))?;
-            authorize_required(
-                connection,
-                Some(project_id),
-                Some(&database_id),
-                &database_id,
-            )?;
-            let view_id = default_view_for_database(connection, &database_id)?;
-            validate_view_filter_access_by_id(connection, library_id, Some(project_id), &view_id)?;
-            Ok(DatabaseReadValue::ViewWindow {
-                value: super::window::view_window(
-                    connection,
-                    library_id,
-                    &view_id,
-                    super::window::ViewWindowRead {
-                        commit_head,
-                        project_id: Some(project_id),
-                        store_epoch: &store_epoch,
-                        window: request
-                            .window
-                            .as_ref()
-                            .unwrap_or(&CollectionWindowRequest::default()),
-                        group_scope: request.group_scope.as_ref(),
-                    },
-                )?,
-            })
-        }
-        (DatabaseTarget::ProjectDefault, DatabaseReadMode::ListWindow) => {
-            let database_id =
-                primary_database_id.ok_or_else(|| not_found("Project has no primary Database"))?;
-            let project_id = project_id
-                .ok_or_else(|| invalid("Library Database reads require a concrete target"))?;
-            authorize_required(
-                connection,
-                Some(project_id),
-                Some(&database_id),
-                &database_id,
-            )?;
-            let view_id = default_view_for_database(connection, &database_id)?;
-            validate_view_filter_access_by_id(connection, library_id, Some(project_id), &view_id)?;
-            Ok(DatabaseReadValue::ListWindow {
-                value: super::window::list_window(
-                    connection,
-                    library_id,
-                    &view_id,
-                    super::window::ViewWindowRead {
-                        commit_head,
-                        project_id: Some(project_id),
-                        store_epoch: &store_epoch,
-                        window: request
-                            .window
-                            .as_ref()
-                            .unwrap_or(&CollectionWindowRequest::default()),
-                        group_scope: None,
-                    },
-                )?,
-            })
-        }
-        (DatabaseTarget::ProjectDefault, DatabaseReadMode::RowsById) => {
-            let database_id =
-                primary_database_id.ok_or_else(|| not_found("Project has no primary Database"))?;
-            let project_id = project_id
-                .ok_or_else(|| invalid("Library Database reads require a concrete target"))?;
-            authorize_required(
-                connection,
-                Some(project_id),
-                Some(&database_id),
-                &database_id,
-            )?;
-            let view_id = default_view_for_database(connection, &database_id)?;
-            Ok(DatabaseReadValue::RowsById {
-                value: super::window::rows_by_id(
-                    connection,
-                    library_id,
-                    &view_id,
-                    request
-                        .page_ids
-                        .as_deref()
-                        .ok_or_else(|| invalid("Database rows-by-ID requires Page identities"))?,
-                )?,
-            })
-        }
-        (DatabaseTarget::ProjectDefault, DatabaseReadMode::CatalogWindow) => {
-            let project_id = project_id
-                .ok_or_else(|| invalid("Library Database reads require a concrete target"))?;
-            Ok(DatabaseReadValue::CatalogWindow {
+            DatabaseReadValue::CatalogWindow {
                 databases: catalog_window(
                     connection,
                     library_id,
                     commit_head,
                     project_id,
                     primary_database_id.as_deref(),
-                    request
-                        .window
-                        .as_ref()
-                        .unwrap_or(&CollectionWindowRequest::default()),
+                    &window,
                 )?,
-            })
+            }
         }
-        (DatabaseTarget::ProjectDefault, DatabaseReadMode::Database) => {
-            let database_id =
-                primary_database_id.ok_or_else(|| not_found("Project has no primary Database"))?;
-            let project_id = project_id
-                .ok_or_else(|| invalid("Library Database reads require a concrete target"))?;
+        DatabaseRead::Database { target } => {
+            let database_id = match target {
+                DatabaseIdentityTarget::ProjectDefault => primary_database_id
+                    .clone()
+                    .ok_or_else(|| not_found("Project has no primary Database"))?,
+                DatabaseIdentityTarget::Database { database_id } => database_id,
+            };
             authorize_required(
                 connection,
-                Some(project_id),
-                Some(&database_id),
+                project_id,
+                primary_database_id.as_deref(),
                 &database_id,
             )?;
-            Ok(DatabaseReadValue::Database {
+            DatabaseReadValue::Database {
                 value: database_descriptor(connection, library_id, &database_id)?,
-            })
+            }
         }
-        (DatabaseTarget::Database { database_id }, DatabaseReadMode::Database) => {
+        DatabaseRead::DataSourceWindow {
+            database_id,
+            window,
+        } => {
             authorize_required(
                 connection,
                 project_id,
                 primary_database_id.as_deref(),
-                database_id,
+                &database_id,
             )?;
-            Ok(DatabaseReadValue::Database {
-                value: database_descriptor(connection, library_id, database_id)?,
-            })
-        }
-        (DatabaseTarget::Database { database_id }, DatabaseReadMode::ViewWindow) => {
-            authorize_required(
-                connection,
-                project_id,
-                primary_database_id.as_deref(),
-                database_id,
-            )?;
-            let view_id = default_view_for_database(connection, database_id)?;
-            validate_view_filter_access_by_id(connection, library_id, project_id, &view_id)?;
-            Ok(DatabaseReadValue::ViewWindow {
-                value: super::window::view_window(
-                    connection,
-                    library_id,
-                    &view_id,
-                    super::window::ViewWindowRead {
-                        commit_head,
-                        project_id,
-                        store_epoch: &store_epoch,
-                        window: request
-                            .window
-                            .as_ref()
-                            .unwrap_or(&CollectionWindowRequest::default()),
-                        group_scope: request.group_scope.as_ref(),
-                    },
-                )?,
-            })
-        }
-        (DatabaseTarget::Database { database_id }, DatabaseReadMode::ListWindow) => {
-            authorize_required(
-                connection,
-                project_id,
-                primary_database_id.as_deref(),
-                database_id,
-            )?;
-            let view_id = default_view_for_database(connection, database_id)?;
-            validate_view_filter_access_by_id(connection, library_id, project_id, &view_id)?;
-            Ok(DatabaseReadValue::ListWindow {
-                value: super::window::list_window(
-                    connection,
-                    library_id,
-                    &view_id,
-                    super::window::ViewWindowRead {
-                        commit_head,
-                        project_id,
-                        store_epoch: &store_epoch,
-                        window: request
-                            .window
-                            .as_ref()
-                            .unwrap_or(&CollectionWindowRequest::default()),
-                        group_scope: None,
-                    },
-                )?,
-            })
-        }
-        (DatabaseTarget::Database { database_id }, DatabaseReadMode::DataSourceWindow) => {
-            authorize_required(
-                connection,
-                project_id,
-                primary_database_id.as_deref(),
-                database_id,
-            )?;
-            Ok(DatabaseReadValue::DataSourceWindow {
+            DatabaseReadValue::DataSourceWindow {
                 data_sources: data_source_window(
                     connection,
                     library_id,
                     commit_head,
-                    database_id,
-                    request
-                        .window
-                        .as_ref()
-                        .unwrap_or(&CollectionWindowRequest::default()),
+                    &database_id,
+                    &window,
                 )?,
-            })
+            }
         }
-        (DatabaseTarget::Database { database_id }, DatabaseReadMode::ViewDescriptorWindow) => {
+        DatabaseRead::DataSource { data_source_id } => {
+            let database_id = database_for_source(connection, library_id, &data_source_id)?;
             authorize_required(
                 connection,
                 project_id,
                 primary_database_id.as_deref(),
-                database_id,
+                &database_id,
             )?;
-            Ok(DatabaseReadValue::ViewDescriptorWindow {
+            DatabaseReadValue::DataSource {
+                value: data_source_descriptor(connection, library_id, &data_source_id)?,
+            }
+        }
+        DatabaseRead::PropertyWindow {
+            data_source_id,
+            window,
+        } => {
+            let database_id = database_for_source(connection, library_id, &data_source_id)?;
+            authorize_required(
+                connection,
+                project_id,
+                primary_database_id.as_deref(),
+                &database_id,
+            )?;
+            DatabaseReadValue::PropertyWindow {
+                properties: property_window(
+                    connection,
+                    library_id,
+                    commit_head,
+                    &data_source_id,
+                    &window,
+                )?,
+            }
+        }
+        DatabaseRead::OptionWindow {
+            data_source_id,
+            property_id,
+            window,
+        } => {
+            let database_id = database_for_source(connection, library_id, &data_source_id)?;
+            authorize_required(
+                connection,
+                project_id,
+                primary_database_id.as_deref(),
+                &database_id,
+            )?;
+            DatabaseReadValue::OptionWindow {
+                options: option_window(
+                    connection,
+                    library_id,
+                    commit_head,
+                    &data_source_id,
+                    &property_id,
+                    &window,
+                )?,
+            }
+        }
+        DatabaseRead::ViewDescriptorWindow {
+            database_id,
+            window,
+        } => {
+            authorize_required(
+                connection,
+                project_id,
+                primary_database_id.as_deref(),
+                &database_id,
+            )?;
+            DatabaseReadValue::ViewDescriptorWindow {
                 views: view_descriptor_window(
                     connection,
                     library_id,
                     commit_head,
                     project_id,
-                    database_id,
-                    request
-                        .window
-                        .as_ref()
-                        .unwrap_or(&CollectionWindowRequest::default()),
+                    &database_id,
+                    &window,
                 )?,
-            })
+            }
         }
-        (DatabaseTarget::DataSource { data_source_id }, DatabaseReadMode::DataSource) => {
-            let database_id = database_for_source(connection, library_id, data_source_id)?;
-            authorize_required(
+        DatabaseRead::View { view_id } => {
+            authorize_view(
                 connection,
+                library_id,
                 project_id,
                 primary_database_id.as_deref(),
-                &database_id,
+                &view_id,
             )?;
-            Ok(DatabaseReadValue::DataSource {
-                value: data_source_descriptor(connection, library_id, data_source_id)?,
-            })
+            DatabaseReadValue::View {
+                value: view_record(connection, library_id, project_id, &view_id)?,
+            }
         }
-        (DatabaseTarget::DataSource { data_source_id }, DatabaseReadMode::PropertyWindow) => {
-            let database_id = database_for_source(connection, library_id, data_source_id)?;
-            authorize_required(
+        DatabaseRead::ViewPersonalPresentation { view_id } => {
+            authorize_view(
                 connection,
+                library_id,
                 project_id,
                 primary_database_id.as_deref(),
-                &database_id,
+                &view_id,
             )?;
-            Ok(DatabaseReadValue::PropertyWindow {
-                properties: property_window(
-                    connection,
-                    library_id,
-                    commit_head,
-                    data_source_id,
-                    request
-                        .window
-                        .as_ref()
-                        .unwrap_or(&CollectionWindowRequest::default()),
-                )?,
-            })
-        }
-        (
-            DatabaseTarget::DataSource { data_source_id },
-            DatabaseReadMode::RelationCandidateWindow,
-        ) => {
-            let database_id = database_for_source(connection, library_id, data_source_id)?;
-            authorize_required(
-                connection,
-                project_id,
-                primary_database_id.as_deref(),
-                &database_id,
-            )?;
-            Ok(DatabaseReadValue::RelationCandidateWindow {
-                candidates: super::relation::candidate_window(
-                    connection,
-                    library_id,
-                    commit_head,
-                    data_source_id,
-                    request.filter.as_ref(),
-                    request
-                        .window
-                        .as_ref()
-                        .unwrap_or(&CollectionWindowRequest::default()),
-                )?,
-            })
-        }
-        (
-            DatabaseTarget::Property {
-                data_source_id,
-                property_id,
-            },
-            DatabaseReadMode::OptionWindow,
-        ) => {
-            let database_id = database_for_source(connection, library_id, data_source_id)?;
-            authorize_required(
-                connection,
-                project_id,
-                primary_database_id.as_deref(),
-                &database_id,
-            )?;
-            Ok(DatabaseReadValue::OptionWindow {
-                options: option_window(
-                    connection,
-                    library_id,
-                    commit_head,
-                    data_source_id,
-                    property_id,
-                    request
-                        .window
-                        .as_ref()
-                        .unwrap_or(&CollectionWindowRequest::default()),
-                )?,
-            })
-        }
-        (DatabaseTarget::View { view_id }, DatabaseReadMode::View) => {
-            let database_id = database_for_view(connection, library_id, view_id)?;
-            authorize_required(
-                connection,
-                project_id,
-                primary_database_id.as_deref(),
-                &database_id,
-            )?;
-            Ok(DatabaseReadValue::View {
-                value: view_record(connection, library_id, project_id, view_id)?,
-            })
-        }
-        (DatabaseTarget::View { view_id }, DatabaseReadMode::ViewPersonalPreferences) => {
-            let database_id = database_for_view(connection, library_id, view_id)?;
-            authorize_required(
-                connection,
-                project_id,
-                primary_database_id.as_deref(),
-                &database_id,
-            )?;
-            Ok(DatabaseReadValue::ViewPersonalPreferences {
-                value: view_personal_preferences(
+            DatabaseReadValue::ViewPersonalPresentation {
+                value: view_personal_presentation(
                     connection,
                     context.profile_id.0.as_str(),
-                    view_id,
+                    &view_id,
                 )?,
-            })
+            }
         }
-        (DatabaseTarget::View { view_id }, DatabaseReadMode::ViewWindow) => {
-            let database_id = database_for_view(connection, library_id, view_id)?;
-            authorize_required(
+        DatabaseRead::ViewCollapsedOccurrences { view_id } => {
+            authorize_view(
                 connection,
+                library_id,
                 project_id,
                 primary_database_id.as_deref(),
-                &database_id,
+                &view_id,
             )?;
-            validate_view_filter_access_by_id(connection, library_id, project_id, view_id)?;
-            Ok(DatabaseReadValue::ViewWindow {
-                value: super::window::view_window(
+            DatabaseReadValue::ViewCollapsedOccurrences {
+                value: view_collapsed_occurrences(
                     connection,
-                    library_id,
-                    view_id,
-                    super::window::ViewWindowRead {
-                        commit_head,
-                        project_id,
-                        store_epoch: &store_epoch,
-                        window: request
-                            .window
-                            .as_ref()
-                            .unwrap_or(&CollectionWindowRequest::default()),
-                        group_scope: request.group_scope.as_ref(),
-                    },
+                    context.profile_id.0.as_str(),
+                    &view_id,
                 )?,
-            })
+            }
         }
-        (DatabaseTarget::View { view_id }, DatabaseReadMode::ListWindow) => {
-            let database_id = database_for_view(connection, library_id, view_id)?;
-            authorize_required(
+        DatabaseRead::ViewWindow {
+            target,
+            window,
+            group_scope,
+        } => {
+            let resolved = resolve_view_read_target(
                 connection,
+                library_id,
                 project_id,
                 primary_database_id.as_deref(),
-                &database_id,
+                target,
             )?;
-            validate_view_filter_access_by_id(connection, library_id, project_id, view_id)?;
-            Ok(DatabaseReadValue::ListWindow {
-                value: super::window::list_window(
+            validate_view_filter_access_by_id(
+                connection,
+                library_id,
+                project_id,
+                &resolved.view_id,
+            )?;
+            let read = super::window::ViewWindowRead {
+                commit_head,
+                project_id,
+                store_epoch: &store_epoch,
+                window: &window,
+                group_scope: group_scope.as_ref(),
+            };
+            let value = match resolved.presentation_override {
+                Some(presentation_override) => super::window::presented_view_window(
                     connection,
                     library_id,
-                    view_id,
-                    super::window::ViewWindowRead {
-                        commit_head,
-                        project_id,
-                        store_epoch: &store_epoch,
-                        window: request
-                            .window
-                            .as_ref()
-                            .unwrap_or(&CollectionWindowRequest::default()),
-                        group_scope: None,
-                    },
+                    &resolved.view_id,
+                    &presentation_override,
+                    read,
                 )?,
-            })
+                None => {
+                    super::window::view_window(connection, library_id, &resolved.view_id, read)?
+                }
+            };
+            DatabaseReadValue::ViewWindow { value }
         }
-        (
-            DatabaseTarget::PresentedView {
-                view_id,
-                presentation_override,
-            },
-            DatabaseReadMode::ViewWindow,
-        ) => {
-            let database_id = database_for_view(connection, library_id, view_id)?;
-            authorize_required(
+        DatabaseRead::ListWindow { target, window } => {
+            let resolved = resolve_view_read_target(
                 connection,
+                library_id,
                 project_id,
                 primary_database_id.as_deref(),
-                &database_id,
+                target,
             )?;
-            validate_view_filter_access_by_id(connection, library_id, project_id, view_id)?;
-            Ok(DatabaseReadValue::ViewWindow {
-                value: super::window::presented_view_window(
+            validate_view_filter_access_by_id(
+                connection,
+                library_id,
+                project_id,
+                &resolved.view_id,
+            )?;
+            let read = super::window::ViewWindowRead {
+                commit_head,
+                project_id,
+                store_epoch: &store_epoch,
+                window: &window,
+                group_scope: None,
+            };
+            let value = match resolved.presentation_override {
+                Some(presentation_override) => super::window::presented_list_window(
                     connection,
                     library_id,
-                    view_id,
-                    presentation_override,
-                    super::window::ViewWindowRead {
-                        commit_head,
-                        project_id,
-                        store_epoch: &store_epoch,
-                        window: request
-                            .window
-                            .as_ref()
-                            .unwrap_or(&CollectionWindowRequest::default()),
-                        group_scope: request.group_scope.as_ref(),
-                    },
+                    &resolved.view_id,
+                    &presentation_override,
+                    read,
                 )?,
-            })
+                None => {
+                    super::window::list_window(connection, library_id, &resolved.view_id, read)?
+                }
+            };
+            DatabaseReadValue::ListWindow { value }
         }
-        (
-            DatabaseTarget::PresentedView {
-                view_id,
-                presentation_override,
-            },
-            DatabaseReadMode::ListWindow,
-        ) => {
-            let database_id = database_for_view(connection, library_id, view_id)?;
-            authorize_required(
+        DatabaseRead::ViewGroups { target } => {
+            let resolved = resolve_view_read_target(
                 connection,
+                library_id,
                 project_id,
                 primary_database_id.as_deref(),
-                &database_id,
+                target,
             )?;
-            validate_view_filter_access_by_id(connection, library_id, project_id, view_id)?;
-            Ok(DatabaseReadValue::ListWindow {
-                value: super::window::presented_list_window(
+            validate_view_filter_access_by_id(
+                connection,
+                library_id,
+                project_id,
+                &resolved.view_id,
+            )?;
+            let read = super::window::ViewGroupsRead {
+                commit_head,
+                project_id,
+                store_epoch: &store_epoch,
+            };
+            let value = match resolved.presentation_override {
+                Some(presentation_override) => super::window::presented_view_groups(
                     connection,
                     library_id,
-                    view_id,
-                    presentation_override,
-                    super::window::ViewWindowRead {
-                        commit_head,
-                        project_id,
-                        store_epoch: &store_epoch,
-                        window: request
-                            .window
-                            .as_ref()
-                            .unwrap_or(&CollectionWindowRequest::default()),
-                        group_scope: None,
-                    },
+                    &resolved.view_id,
+                    &presentation_override,
+                    read,
                 )?,
-            })
+                None => {
+                    super::window::view_groups(connection, library_id, &resolved.view_id, read)?
+                }
+            };
+            DatabaseReadValue::ViewGroups { value }
         }
-        (DatabaseTarget::View { view_id }, DatabaseReadMode::ViewContext) => {
+        DatabaseRead::ViewContext {
+            view_id,
+            window,
+            group_scope,
+        } => {
             let project_id = project_id
                 .ok_or_else(|| invalid("Database View context requires a Project scope"))?;
-            let database_id = database_for_view(connection, library_id, view_id)?;
-            authorize_required(
+            authorize_view(
                 connection,
+                library_id,
                 Some(project_id),
                 primary_database_id.as_deref(),
-                &database_id,
+                &view_id,
             )?;
             let projection = super::window::view_context(
                 connection,
                 library_id,
-                view_id,
+                &view_id,
                 super::window::ViewContextRead {
                     commit_head,
                     project_id,
                     store_epoch: &store_epoch,
-                    window: request
-                        .window
-                        .as_ref()
-                        .unwrap_or(&CollectionWindowRequest::default()),
-                    group_scope: request.group_scope.as_ref(),
+                    window: &window,
+                    group_scope: group_scope.as_ref(),
                 },
             )?;
             let property_ids = projection
@@ -674,40 +516,49 @@ pub(crate) fn read_at_commit_head(
                 .into_iter()
                 .filter(|property| property_ids.contains(property.property_id.as_str()))
                 .collect();
-            Ok(DatabaseReadValue::ViewContext {
+            DatabaseReadValue::ViewContext {
                 value: Box::new(DatabaseViewContext {
                     database: container_record(connection, library_id, &projection.database_id)?,
                     data_source: source_record(connection, library_id, &projection.data_source_id)?,
-                    view: view_record(connection, library_id, Some(project_id), view_id)?,
+                    view: view_record(connection, library_id, Some(project_id), &view_id)?,
                     properties,
                     groups: projection.groups,
                     projection: projection.projection,
                     rows: projection.rows,
                 }),
-            })
+            }
         }
-        (DatabaseTarget::View { view_id }, DatabaseReadMode::RowsById) => {
-            let database_id = database_for_view(connection, library_id, view_id)?;
-            authorize_required(
-                connection,
-                project_id,
-                primary_database_id.as_deref(),
-                &database_id,
-            )?;
-            Ok(DatabaseReadValue::RowsById {
-                value: super::window::rows_by_id(
-                    connection,
-                    library_id,
-                    view_id,
-                    request
-                        .page_ids
-                        .as_deref()
-                        .ok_or_else(|| invalid("Database rows-by-ID requires Page identities"))?,
-                )?,
-            })
+        DatabaseRead::RowsById { target, page_ids } => {
+            let view_id = match target {
+                DatabaseRowsTarget::ProjectDefault => {
+                    let database_id = primary_database_id
+                        .clone()
+                        .ok_or_else(|| not_found("Project has no primary Database"))?;
+                    authorize_required(
+                        connection,
+                        project_id,
+                        primary_database_id.as_deref(),
+                        &database_id,
+                    )?;
+                    default_view_for_database(connection, &database_id)?
+                }
+                DatabaseRowsTarget::View { view_id } => {
+                    authorize_view(
+                        connection,
+                        library_id,
+                        project_id,
+                        primary_database_id.as_deref(),
+                        &view_id,
+                    )?;
+                    view_id
+                }
+            };
+            DatabaseReadValue::RowsById {
+                value: super::window::rows_by_id(connection, library_id, &view_id, &page_ids)?,
+            }
         }
-        (DatabaseTarget::Page { page_id }, DatabaseReadMode::RowDetail) => {
-            let data_source_id = data_source_for_page(connection, library_id, page_id)?;
+        DatabaseRead::RowDetail { page_id } => {
+            let data_source_id = data_source_for_page(connection, library_id, &page_id)?;
             let database_id = database_for_source(connection, library_id, &data_source_id)?;
             authorize_required(
                 connection,
@@ -716,19 +567,16 @@ pub(crate) fn read_at_commit_head(
                 &database_id,
             )?;
             let view_id = default_view_for_database(connection, &database_id)?;
-            Ok(DatabaseReadValue::RowDetail {
+            DatabaseReadValue::RowDetail {
                 value: Box::new(super::window::row_detail(
-                    connection, library_id, &view_id, page_id,
+                    connection, library_id, &view_id, &page_id,
                 )?),
-            })
+            }
         }
-        (
-            DatabaseTarget::AgentDataSource {
-                data_source_id,
-                query,
-            },
-            DatabaseReadMode::AgentQuery,
-        ) => {
+        DatabaseRead::AgentDataSourceQuery {
+            data_source_id,
+            query,
+        } => {
             crate::library::agent_authorization::authorize_execution(
                 connection,
                 context,
@@ -739,26 +587,27 @@ pub(crate) fn read_at_commit_head(
                 },
                 AgentProjectResourceAction::Read,
             )?;
-            let view_id = default_view_for_source(connection, library_id, data_source_id)?;
-            Ok(DatabaseReadValue::AgentQuery {
-                value: super::window::view_window(
+            let window = CollectionWindowRequest {
+                after: query.cursor.clone(),
+                first: query.limit,
+            };
+            DatabaseReadValue::AgentDataSourceQuery {
+                value: super::window::agent_data_source_window(
                     connection,
                     library_id,
-                    &view_id,
+                    &data_source_id,
+                    &query,
                     super::window::ViewWindowRead {
                         commit_head,
                         project_id,
                         store_epoch: &store_epoch,
-                        window: &CollectionWindowRequest {
-                            after: query.cursor.clone(),
-                            first: query.limit,
-                        },
+                        window: &window,
                         group_scope: None,
                     },
                 )?,
-            })
+            }
         }
-        (DatabaseTarget::AgentView { view_id, query }, DatabaseReadMode::AgentQuery) => {
+        DatabaseRead::AgentViewQuery { view_id, query } => {
             crate::library::agent_authorization::authorize_execution(
                 connection,
                 context,
@@ -769,208 +618,196 @@ pub(crate) fn read_at_commit_head(
                 },
                 AgentProjectResourceAction::Read,
             )?;
-            Ok(DatabaseReadValue::AgentQuery {
-                value: super::window::view_window(
+            validate_view_filter_access_by_id(connection, library_id, project_id, &view_id)?;
+            let window = CollectionWindowRequest {
+                after: query.cursor,
+                first: query.limit,
+            };
+            DatabaseReadValue::AgentViewQuery {
+                value: super::window::agent_view_window(
                     connection,
                     library_id,
-                    view_id,
+                    &view_id,
+                    query.projection_property_ids.as_deref(),
                     super::window::ViewWindowRead {
                         commit_head,
                         project_id,
                         store_epoch: &store_epoch,
-                        window: &CollectionWindowRequest {
-                            after: query.cursor.clone(),
-                            first: query.limit,
-                        },
+                        window: &window,
                         group_scope: None,
                     },
                 )?,
-            })
+            }
         }
-        (DatabaseTarget::ProjectDefault, DatabaseReadMode::ViewGroups) => {
-            let database_id =
-                primary_database_id.ok_or_else(|| not_found("Project has no primary Database"))?;
-            let project_id = project_id
-                .ok_or_else(|| invalid("Library Database reads require a concrete target"))?;
-            authorize_required(
-                connection,
-                Some(project_id),
-                Some(&database_id),
-                &database_id,
-            )?;
-            let view_id = default_view_for_database(connection, &database_id)?;
-            validate_view_filter_access_by_id(connection, library_id, Some(project_id), &view_id)?;
-            Ok(DatabaseReadValue::ViewGroups {
-                value: super::window::view_groups(
-                    connection,
-                    library_id,
-                    &view_id,
-                    super::window::ViewGroupsRead {
-                        commit_head,
-                        project_id: Some(project_id),
-                        store_epoch: &store_epoch,
-                    },
-                )?,
-            })
-        }
-        (DatabaseTarget::Database { database_id }, DatabaseReadMode::ViewGroups) => {
-            authorize_required(
-                connection,
-                project_id,
-                primary_database_id.as_deref(),
-                database_id,
-            )?;
-            let view_id = default_view_for_database(connection, database_id)?;
-            validate_view_filter_access_by_id(connection, library_id, project_id, &view_id)?;
-            Ok(DatabaseReadValue::ViewGroups {
-                value: super::window::view_groups(
-                    connection,
-                    library_id,
-                    &view_id,
-                    super::window::ViewGroupsRead {
-                        commit_head,
-                        project_id,
-                        store_epoch: &store_epoch,
-                    },
-                )?,
-            })
-        }
-        (DatabaseTarget::View { view_id }, DatabaseReadMode::ViewGroups) => {
-            let database_id = database_for_view(connection, library_id, view_id)?;
+        DatabaseRead::RelationTargetWindow { address, window } => {
+            let database_id = database_for_source(connection, library_id, &address.data_source_id)?;
             authorize_required(
                 connection,
                 project_id,
                 primary_database_id.as_deref(),
                 &database_id,
             )?;
-            validate_view_filter_access_by_id(connection, library_id, project_id, view_id)?;
-            Ok(DatabaseReadValue::ViewGroups {
-                value: super::window::view_groups(
-                    connection,
-                    library_id,
-                    view_id,
-                    super::window::ViewGroupsRead {
-                        commit_head,
-                        project_id,
-                        store_epoch: &store_epoch,
-                    },
-                )?,
-            })
-        }
-        (
-            DatabaseTarget::PresentedView {
-                view_id,
-                presentation_override,
-            },
-            DatabaseReadMode::ViewGroups,
-        ) => {
-            let database_id = database_for_view(connection, library_id, view_id)?;
-            authorize_required(
-                connection,
-                project_id,
-                primary_database_id.as_deref(),
-                &database_id,
-            )?;
-            validate_view_filter_access_by_id(connection, library_id, project_id, view_id)?;
-            Ok(DatabaseReadValue::ViewGroups {
-                value: super::window::presented_view_groups(
-                    connection,
-                    library_id,
-                    view_id,
-                    presentation_override,
-                    super::window::ViewGroupsRead {
-                        commit_head,
-                        project_id,
-                        store_epoch: &store_epoch,
-                    },
-                )?,
-            })
-        }
-        (
-            DatabaseTarget::PageProperty {
-                page_id,
-                data_source_id,
-                property_id,
-            },
-            DatabaseReadMode::RelationTargetWindow,
-        ) => {
-            let database_id = database_for_source(connection, library_id, data_source_id)?;
-            authorize_required(
-                connection,
-                project_id,
-                primary_database_id.as_deref(),
-                &database_id,
-            )?;
-            Ok(DatabaseReadValue::RelationTargetWindow {
+            DatabaseReadValue::RelationTargetWindow {
                 value: super::relation::target_window(
                     connection,
                     library_id,
                     commit_head,
                     project_id,
-                    &nodex_core_contracts::database::DatabasePagePropertyAddress {
-                        page_id: page_id.clone(),
-                        data_source_id: data_source_id.clone(),
-                        property_id: property_id.clone(),
-                    },
-                    request
-                        .window
-                        .as_ref()
-                        .unwrap_or(&CollectionWindowRequest::default()),
+                    &address,
+                    &window,
                 )?,
-            })
+            }
         }
-        _ => Err(invalid("Database target and read mode are incompatible")),
-    }?;
+        DatabaseRead::RelationCandidateWindow {
+            data_source_id,
+            query,
+            window,
+        } => {
+            let database_id = database_for_source(connection, library_id, &data_source_id)?;
+            authorize_required(
+                connection,
+                project_id,
+                primary_database_id.as_deref(),
+                &database_id,
+            )?;
+            DatabaseReadValue::RelationCandidateWindow {
+                candidates: super::relation::candidate_window(
+                    connection,
+                    library_id,
+                    commit_head,
+                    &data_source_id,
+                    query.as_deref(),
+                    &window,
+                )?,
+            }
+        }
+    };
     hydrate_relation_previews(connection, library_id, project_id, &mut value)?;
     Ok(value)
 }
 
-fn view_personal_preferences(
+struct ResolvedViewReadTarget {
+    view_id: String,
+    presentation_override: Option<DatabaseViewPresentationOverrideInput>,
+}
+
+fn resolve_view_read_target(
+    connection: &Connection,
+    library_id: &str,
+    project_id: Option<&str>,
+    primary_database_id: Option<&str>,
+    target: DatabaseViewReadTarget,
+) -> Result<ResolvedViewReadTarget, StoreError> {
+    let (view_id, presentation_override) = match target {
+        DatabaseViewReadTarget::ProjectDefault => {
+            let database_id =
+                primary_database_id.ok_or_else(|| not_found("Project has no primary Database"))?;
+            authorize_required(connection, project_id, primary_database_id, database_id)?;
+            (default_view_for_database(connection, database_id)?, None)
+        }
+        DatabaseViewReadTarget::Database { database_id } => {
+            authorize_required(connection, project_id, primary_database_id, &database_id)?;
+            (default_view_for_database(connection, &database_id)?, None)
+        }
+        DatabaseViewReadTarget::View { view_id } => {
+            authorize_view(
+                connection,
+                library_id,
+                project_id,
+                primary_database_id,
+                &view_id,
+            )?;
+            (view_id, None)
+        }
+        DatabaseViewReadTarget::PresentedView {
+            view_id,
+            presentation_override,
+        } => {
+            authorize_view(
+                connection,
+                library_id,
+                project_id,
+                primary_database_id,
+                &view_id,
+            )?;
+            (view_id, Some(presentation_override))
+        }
+    };
+    Ok(ResolvedViewReadTarget {
+        view_id,
+        presentation_override,
+    })
+}
+
+fn authorize_view(
+    connection: &Connection,
+    library_id: &str,
+    project_id: Option<&str>,
+    primary_database_id: Option<&str>,
+    view_id: &str,
+) -> Result<(), StoreError> {
+    let database_id = database_for_view(connection, library_id, view_id)?;
+    authorize_required(connection, project_id, primary_database_id, &database_id)
+}
+
+fn view_personal_presentation(
     connection: &Connection,
     profile_id: &str,
     view_id: &str,
-) -> Result<DatabaseViewPersonalPreferences, StoreError> {
+) -> Result<DatabaseViewPersonalPresentation, StoreError> {
     let stored = connection
         .query_row(
-            "SELECT presentation_override_json, collapsed_group_keys_json, revision \
-             FROM database_view_personal_preferences \
+            "SELECT presentation_override_json, revision \
+             FROM database_view_personal_presentations \
              WHERE profile_id = ?1 AND view_id = ?2",
             params![profile_id, view_id],
-            |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, i64>(2)?,
-                ))
-            },
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
         )
         .optional()?;
-    let Some((presentation_json, collapsed_json, revision)) = stored else {
-        return Ok(DatabaseViewPersonalPreferences {
+    let Some((presentation_json, revision)) = stored else {
+        return Ok(DatabaseViewPersonalPresentation {
             presentation_override: Default::default(),
-            collapsed_group_keys: Vec::new(),
             revision: 0,
         });
     };
     let presentation_override = serde_json::from_str(&presentation_json)
         .map_err(|_| corrupt("Database View personal presentation override is invalid"))?;
-    let collapsed_group_keys = serde_json::from_str::<Vec<String>>(&collapsed_json)
-        .map_err(|_| corrupt("Database View collapsed group keys are invalid"))?;
-    if collapsed_group_keys.len() > 2_000
-        || collapsed_group_keys
-            .iter()
-            .any(|key| key.is_empty() || key.len() > 1_024)
-        || collapsed_group_keys.iter().collect::<BTreeSet<_>>().len() != collapsed_group_keys.len()
-    {
-        return Err(corrupt(
-            "Database View collapsed group keys violate their durable bound",
-        ));
-    }
-    Ok(DatabaseViewPersonalPreferences {
+    Ok(DatabaseViewPersonalPresentation {
         presentation_override,
-        collapsed_group_keys,
         revision,
     })
+}
+
+fn view_collapsed_occurrences(
+    connection: &Connection,
+    profile_id: &str,
+    view_id: &str,
+) -> Result<DatabaseViewCollapsedOccurrences, StoreError> {
+    let rows = connection
+        .prepare(
+            "SELECT target_kind, occurrence_key \
+             FROM database_view_collapsed_occurrences \
+             WHERE profile_id = ?1 AND view_id = ?2 \
+             ORDER BY target_kind, occurrence_key LIMIT 2001",
+        )?
+        .query_map(params![profile_id, view_id], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    if rows.len() > 2_000 {
+        return Err(corrupt(
+            "Database View collapsed occurrences exceed their durable bound",
+        ));
+    }
+    let targets = rows
+        .into_iter()
+        .map(|(kind, occurrence_key)| match kind.as_str() {
+            "group" => Ok(DatabaseViewDisclosureTarget::Group { occurrence_key }),
+            "page" => Ok(DatabaseViewDisclosureTarget::Page { occurrence_key }),
+            _ => Err(corrupt("Database View disclosure target kind is invalid")),
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(DatabaseViewCollapsedOccurrences { targets })
 }
 
 fn hydrate_relation_previews(
@@ -980,7 +817,16 @@ fn hydrate_relation_previews(
     value: &mut DatabaseReadValue,
 ) -> Result<(), StoreError> {
     match value {
-        DatabaseReadValue::ViewWindow { value } | DatabaseReadValue::AgentQuery { value } => {
+        DatabaseReadValue::ViewWindow { value } | DatabaseReadValue::AgentViewQuery { value } => {
+            super::relation_projection::hydrate_row_previews(
+                connection,
+                library_id,
+                project_id,
+                &value.data_source_id,
+                &mut value.rows.items,
+            )
+        }
+        DatabaseReadValue::AgentDataSourceQuery { value } => {
             super::relation_projection::hydrate_row_previews(
                 connection,
                 library_id,
@@ -1011,11 +857,6 @@ fn hydrate_relation_previews(
             )
         }
         DatabaseReadValue::ViewContext { value } => {
-            let data_source_id = value
-                .data_source
-                .get("dataSourceId")
-                .and_then(Value::as_str)
-                .ok_or_else(|| corrupt("Database View context has no Data Source identity"))?;
             let mut summaries = value
                 .rows
                 .items
@@ -1026,7 +867,7 @@ fn hydrate_relation_previews(
                 connection,
                 library_id,
                 project_id,
-                data_source_id,
+                &value.data_source.data_source_id,
                 &mut summaries,
             )
         }
@@ -1097,7 +938,7 @@ fn catalog_window(
     project_id: &str,
     primary_database_id: Option<&str>,
     request: &CollectionWindowRequest,
-) -> Result<CollectionWindow<Value>, StoreError> {
+) -> Result<CollectionWindow<DatabaseDescriptor>, StoreError> {
     let normalized = normalize_request(request)?;
     let fingerprint =
         cursor::query_fingerprint(&("database_catalog_v1", project_id, primary_database_id))?;
@@ -1164,7 +1005,7 @@ fn data_source_window(
     commit_head: i64,
     database_id: &str,
     request: &CollectionWindowRequest,
-) -> Result<CollectionWindow<Value>, StoreError> {
+) -> Result<CollectionWindow<DatabaseDataSourceRecord>, StoreError> {
     let normalized = normalize_request(request)?;
     let fingerprint = cursor::query_fingerprint(&("database_data_sources_v1", database_id))?;
     let subject = CollectionCursorSubject {
@@ -1233,7 +1074,7 @@ fn view_descriptor_window(
     project_id: Option<&str>,
     database_id: &str,
     request: &CollectionWindowRequest,
-) -> Result<CollectionWindow<Value>, StoreError> {
+) -> Result<CollectionWindow<DatabaseViewRecord>, StoreError> {
     let normalized = normalize_request(request)?;
     let fingerprint = cursor::query_fingerprint(&("database_views_v1", database_id))?;
     let subject = CollectionCursorSubject {
@@ -1341,8 +1182,6 @@ fn property_window(
             |row| {
                 let id = row.get::<_, String>(0)?;
                 let value_type = row.get::<_, String>(3)?;
-                let config = parse_json(row.get::<_, String>(4)?, "Property config")?;
-                let (_, option_count) = compact_property_config(config, &value_type)?;
                 let rank = row.get::<_, String>(5)?;
                 let bucket = row.get::<_, i64>(10)?;
                 Ok((
@@ -1351,7 +1190,7 @@ fn property_window(
                         data_source_id: row.get::<_, String>(1)?,
                         name: row.get::<_, String>(2)?,
                         value_type,
-                        option_count,
+                        config_json: row.get::<_, String>(4)?,
                         rank_key: rank.clone(),
                         lifecycle: row.get::<_, String>(6)?,
                         revision: row.get::<_, i64>(7)?,
@@ -1394,7 +1233,10 @@ fn option_window(
     data_source_id: &str,
     property_id: &str,
     request: &CollectionWindowRequest,
-) -> Result<CollectionWindow<Value>, StoreError> {
+) -> Result<CollectionWindow<DatabasePropertyOption>, StoreError> {
+    if !super::property_semantics::is_canonical_property_id(property_id) {
+        return Err(invalid("Property ID is not canonical"));
+    }
     let normalized = normalize_request(request)?;
     let (value_type, config_json, property_revision) = connection
         .query_row(
@@ -1440,22 +1282,25 @@ fn option_window(
             usize::try_from(*ordinal).map_err(|_| invalid("Property option cursor is incompatible"))
         })
         .transpose()?;
-    let options = parse_json(config_json, "Property config")?
-        .get("options")
-        .and_then(Value::as_array)
-        .cloned()
-        .ok_or_else(|| corrupt("Property option registry is invalid"))?;
-    if options.len() > super::MAX_PROPERTY_OPTIONS {
-        return Err(corrupt("Property option registry exceeds its bound"));
-    }
-    let candidates = options
+    let config = super::property_semantics::option_config_from_storage(
+        property_id,
+        &value_type,
+        &config_json,
+    )?;
+    let candidates = config
+        .options
         .into_iter()
         .enumerate()
         .filter(|(ordinal, _)| after.is_none_or(|after| *ordinal > after))
         .take(normalized.first.saturating_add(1))
         .map(|(ordinal, option)| {
-            let id = option_id(&option).to_owned();
-            WindowCandidate {
+            let option = DatabasePropertyOption {
+                id: option.id,
+                name: option.name,
+                color: option.color,
+            };
+            let id = option.id.clone();
+            Ok(WindowCandidate {
                 item: option,
                 coordinate: KeysetCoordinate {
                     values: vec![cursor::KeysetValue::Integer {
@@ -1464,9 +1309,9 @@ fn option_window(
                     }],
                     stable_id: id,
                 },
-            }
+            })
         })
-        .collect();
+        .collect::<Result<Vec<_>, StoreError>>()?;
     assemble_database_window(
         connection,
         subject,
@@ -1538,26 +1383,6 @@ fn decode_rank_cursor(
     })
 }
 
-fn compact_property_config(
-    mut config: Value,
-    value_type: &str,
-) -> rusqlite::Result<(Value, usize)> {
-    if !matches!(value_type, "select" | "multi_select") {
-        return Ok((config, 0));
-    }
-    let options = config
-        .get_mut("options")
-        .and_then(Value::as_array_mut)
-        .ok_or(rusqlite::Error::InvalidQuery)?;
-    let option_count = options.len();
-    options.clear();
-    Ok((config, option_count))
-}
-
-fn option_id(option: &Value) -> &str {
-    option.get("id").and_then(Value::as_str).unwrap_or("")
-}
-
 fn default_view_for_database(
     connection: &Connection,
     database_id: &str,
@@ -1569,31 +1394,6 @@ fn default_view_for_database(
             |row| row.get::<_, Option<String>>(0),
         )?
         .ok_or_else(|| not_found("Database has no default View"))
-}
-
-fn default_view_for_source(
-    connection: &Connection,
-    library_id: &str,
-    data_source_id: &str,
-) -> Result<String, StoreError> {
-    connection
-        .query_row(
-            "SELECT view.id \
-             FROM database_views view \
-             JOIN database_containers database \
-               ON database.block_id = view.database_block_id \
-               AND database.library_id = ?1 \
-             WHERE view.data_source_id = ?2 \
-               AND view.lifecycle = 'active' \
-               AND database.lifecycle = 'active' \
-             ORDER BY CASE WHEN view.id = database.default_view_id THEN 0 ELSE 1 END, \
-               view.rank_key, view.id \
-             LIMIT 1",
-            params![library_id, data_source_id],
-            |row| row.get::<_, String>(0),
-        )
-        .optional()?
-        .ok_or_else(|| not_found("Data Source has no active View"))
 }
 
 fn database_for_source(
@@ -1636,9 +1436,10 @@ fn data_source_for_page(
 ) -> Result<String, StoreError> {
     connection
         .query_row(
-            "SELECT parent_id FROM pages \
-             WHERE block_id = ?1 AND library_id = ?2 AND parent_kind = 'data_source' \
-               AND lifecycle <> 'deleted'",
+            "SELECT page.parent_id FROM pages page JOIN blocks block \
+               ON block.id = page.block_id AND block.library_id = page.library_id \
+             WHERE page.block_id = ?1 AND page.library_id = ?2 \
+               AND page.parent_kind = 'data_source' AND block.lifecycle <> 'deleted'",
             params![page_id, library_id],
             |row| row.get::<_, String>(0),
         )
@@ -1650,27 +1451,27 @@ fn database_descriptor(
     connection: &Connection,
     library_id: &str,
     database_id: &str,
-) -> Result<Value, StoreError> {
-    Ok(json!({
-        "database": container_record(connection, library_id, database_id)?,
-    }))
+) -> Result<DatabaseDescriptor, StoreError> {
+    Ok(DatabaseDescriptor {
+        database: container_record(connection, library_id, database_id)?,
+    })
 }
 
 fn data_source_descriptor(
     connection: &Connection,
     library_id: &str,
     data_source_id: &str,
-) -> Result<Value, StoreError> {
-    Ok(json!({
-        "dataSource": source_record(connection, library_id, data_source_id)?,
-    }))
+) -> Result<DatabaseDataSourceDescriptor, StoreError> {
+    Ok(DatabaseDataSourceDescriptor {
+        data_source: source_record(connection, library_id, data_source_id)?,
+    })
 }
 
 fn container_record(
     connection: &Connection,
     library_id: &str,
     database_id: &str,
-) -> Result<Value, StoreError> {
+) -> Result<DatabaseContainerRecord, StoreError> {
     connection
         .query_row(
             "SELECT block_id, library_id, name, lifecycle, default_view_id, access_revision, \
@@ -1678,17 +1479,17 @@ fn container_record(
              WHERE block_id = ?1 AND library_id = ?2",
             params![database_id, library_id],
             |row| {
-                Ok(json!({
-                    "databaseId": row.get::<_, String>(0)?,
-                    "libraryId": row.get::<_, String>(1)?,
-                    "name": row.get::<_, String>(2)?,
-                    "lifecycle": row.get::<_, String>(3)?,
-                    "defaultViewId": row.get::<_, Option<String>>(4)?,
-                    "accessRevision": row.get::<_, i64>(5)?,
-                    "metadataRevision": row.get::<_, i64>(6)?,
-                    "createdAt": row.get::<_, String>(7)?,
-                    "updatedAt": row.get::<_, String>(8)?,
-                }))
+                Ok(DatabaseContainerRecord {
+                    database_id: row.get(0)?,
+                    library_id: row.get(1)?,
+                    name: row.get(2)?,
+                    lifecycle: row.get(3)?,
+                    default_view_id: row.get(4)?,
+                    access_revision: row.get(5)?,
+                    metadata_revision: row.get(6)?,
+                    created_at: row.get(7)?,
+                    updated_at: row.get(8)?,
+                })
             },
         )
         .optional()?
@@ -1699,7 +1500,7 @@ fn source_record(
     connection: &Connection,
     library_id: &str,
     data_source_id: &str,
-) -> Result<Value, StoreError> {
+) -> Result<DatabaseDataSourceRecord, StoreError> {
     connection
         .query_row(
             "SELECT id, library_id, home_database_block_id, name, schema_key, schema_revision, \
@@ -1707,22 +1508,76 @@ fn source_record(
              WHERE id = ?1 AND library_id = ?2",
             params![data_source_id, library_id],
             |row| {
-                Ok(json!({
-                    "dataSourceId": row.get::<_, String>(0)?,
-                    "libraryId": row.get::<_, String>(1)?,
-                    "homeDatabaseId": row.get::<_, String>(2)?,
-                    "name": row.get::<_, String>(3)?,
-                    "schemaKey": row.get::<_, String>(4)?,
-                    "schemaRevision": row.get::<_, i64>(5)?,
-                    "lifecycle": row.get::<_, String>(6)?,
-                    "rankKey": row.get::<_, String>(7)?,
-                    "createdAt": row.get::<_, String>(8)?,
-                    "updatedAt": row.get::<_, String>(9)?,
-                }))
+                Ok(DatabaseDataSourceRecord {
+                    data_source_id: row.get(0)?,
+                    library_id: row.get(1)?,
+                    home_database_id: row.get(2)?,
+                    name: row.get(3)?,
+                    schema_key: row.get(4)?,
+                    schema_revision: row.get(5)?,
+                    lifecycle: row.get(6)?,
+                    rank_key: row.get(7)?,
+                    created_at: row.get(8)?,
+                    updated_at: row.get(9)?,
+                })
             },
         )
         .optional()?
         .ok_or_else(|| not_found("Data Source is unavailable in this Library"))
+}
+
+fn container_record_value(record: &DatabaseContainerRecord) -> Value {
+    json!({
+        "databaseId": record.database_id,
+        "libraryId": record.library_id,
+        "name": record.name,
+        "lifecycle": record.lifecycle,
+        "defaultViewId": record.default_view_id,
+        "accessRevision": record.access_revision,
+        "metadataRevision": record.metadata_revision,
+        "createdAt": record.created_at,
+        "updatedAt": record.updated_at,
+    })
+}
+
+fn data_source_record_value(record: &DatabaseDataSourceRecord) -> Value {
+    json!({
+        "dataSourceId": record.data_source_id,
+        "libraryId": record.library_id,
+        "homeDatabaseId": record.home_database_id,
+        "name": record.name,
+        "schemaKey": record.schema_key,
+        "schemaRevision": record.schema_revision,
+        "lifecycle": record.lifecycle,
+        "rankKey": record.rank_key,
+        "createdAt": record.created_at,
+        "updatedAt": record.updated_at,
+    })
+}
+
+fn view_record_value(record: &DatabaseViewRecord) -> Result<Value, StoreError> {
+    let config = serde_json::from_str::<Value>(
+        &super::view_contract::encode_definition_json(&record.definition)
+            .map_err(|message| corrupt(&message))?,
+    )
+    .map_err(|_| corrupt("Database View definition cannot encode"))?;
+    Ok(json!({
+        "viewId": record.view_id,
+        "databaseId": record.database_id,
+        "dataSourceId": record.data_source_id,
+        "name": record.name,
+        "defaultLayout": match record.layout {
+            DatabaseViewLayout::Board => "board",
+            DatabaseViewLayout::List => "list",
+        },
+        "config": config,
+        "isDefault": record.is_default,
+        "revision": record.revision,
+        "rankKey": record.rank_key,
+        "lifecycle": record.lifecycle,
+        "createdAt": record.created_at,
+        "updatedAt": record.updated_at,
+    }))
 }
 
 fn property_records(
@@ -1746,14 +1601,12 @@ fn property_records(
         .query_map([data_source_id], |row| {
             let property_id = row.get::<_, String>(0)?;
             let value_type = row.get::<_, String>(3)?;
-            let config = parse_json(row.get::<_, String>(4)?, "Property config")?;
-            let (_, option_count) = compact_property_config(config, &value_type)?;
             Ok(PropertyDescriptorRow {
                 property_id,
                 data_source_id: row.get::<_, String>(1)?,
                 name: row.get::<_, String>(2)?,
                 value_type,
-                option_count,
+                config_json: row.get::<_, String>(4)?,
                 rank_key: row.get::<_, String>(5)?,
                 lifecycle: row.get::<_, String>(6)?,
                 revision: row.get::<_, i64>(7)?,
@@ -1800,14 +1653,12 @@ fn property_record(
             |row| {
                 let property_id = row.get::<_, String>(0)?;
                 let value_type = row.get::<_, String>(3)?;
-                let config = parse_json(row.get::<_, String>(4)?, "Property config")?;
-                let (_, option_count) = compact_property_config(config, &value_type)?;
                 Ok(PropertyDescriptorRow {
                     property_id,
                     data_source_id: row.get::<_, String>(1)?,
                     name: row.get::<_, String>(2)?,
                     value_type,
-                    option_count,
+                    config_json: row.get::<_, String>(4)?,
                     rank_key: row.get::<_, String>(5)?,
                     lifecycle: row.get::<_, String>(6)?,
                     revision: row.get::<_, i64>(7)?,
@@ -1826,8 +1677,8 @@ fn view_record(
     library_id: &str,
     project_id: Option<&str>,
     view_id: &str,
-) -> Result<Value, StoreError> {
-    let view = connection
+) -> Result<DatabaseViewRecord, StoreError> {
+    let stored = connection
         .query_row(
             "SELECT view.id, view.database_block_id, view.data_source_id, view.name, view.default_layout, \
                view.config_json, view.revision, view.rank_key, view.lifecycle, view.created_at, \
@@ -1836,39 +1687,68 @@ fn view_record(
                ON container.block_id = view.database_block_id WHERE view.id = ?1",
             [view_id],
             |row| {
-                let config = parse_json(row.get::<_, String>(5)?, "View config")?;
                 let id = row.get::<_, String>(0)?;
                 let default_view_id = row.get::<_, Option<String>>(11)?;
-                Ok(json!({
-                    "viewId": id,
-                    "databaseId": row.get::<_, String>(1)?,
-                    "dataSourceId": row.get::<_, String>(2)?,
-                    "name": row.get::<_, String>(3)?,
-                    "defaultLayout": row.get::<_, String>(4)?,
-                    "config": config,
-                    "isDefault": default_view_id.as_deref() == Some(id.as_str()),
-                    "revision": row.get::<_, i64>(6)?,
-                    "rankKey": row.get::<_, String>(7)?,
-                    "lifecycle": row.get::<_, String>(8)?,
-                    "createdAt": row.get::<_, String>(9)?,
-                    "updatedAt": row.get::<_, String>(10)?,
-                }))
+                Ok((
+                    id.clone(),
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, String>(5)?,
+                    default_view_id.as_deref() == Some(id.as_str()),
+                    row.get::<_, i64>(6)?,
+                    row.get::<_, String>(7)?,
+                    row.get::<_, String>(8)?,
+                    row.get::<_, String>(9)?,
+                    row.get::<_, String>(10)?,
+                ))
             },
         )
         .optional()?
         .ok_or_else(|| not_found("Database View is unavailable"))?;
-    let data_source_id = required_str(&view, "dataSourceId")?;
-    let config = view
-        .get("config")
-        .ok_or_else(|| corrupt("Database View config is missing"))?;
+    let (
+        view_id,
+        database_id,
+        data_source_id,
+        name,
+        layout,
+        config_json,
+        is_default,
+        revision,
+        rank_key,
+        lifecycle,
+        created_at,
+        updated_at,
+    ) = stored;
+    let layout = match layout.as_str() {
+        "board" => DatabaseViewLayout::Board,
+        "list" => DatabaseViewLayout::List,
+        _ => return Err(corrupt("Database View layout is invalid")),
+    };
+    let definition = super::view_contract::decode_definition_json(&config_json)
+        .map_err(|message| corrupt(&message))?;
     super::relation::validate_view_filter_read_access(
         connection,
         library_id,
         project_id,
-        data_source_id,
-        config,
+        &data_source_id,
+        &definition.filter,
     )?;
-    Ok(view)
+    Ok(DatabaseViewRecord {
+        view_id,
+        database_id,
+        data_source_id,
+        name,
+        layout,
+        definition,
+        is_default,
+        revision,
+        rank_key,
+        lifecycle,
+        created_at,
+        updated_at,
+    })
 }
 
 fn validate_view_filter_access_by_id(
@@ -1885,13 +1765,14 @@ fn validate_view_filter_access_by_id(
         )
         .optional()?
         .ok_or_else(|| not_found("Database View is unavailable"))?;
-    let config = parse_json(config_json, "View config")?;
+    let definition = super::view_contract::decode_definition_json(&config_json)
+        .map_err(|message| corrupt(&message))?;
     super::relation::validate_view_filter_read_access(
         connection,
         library_id,
         project_id,
         &data_source_id,
-        &config,
+        &definition.filter,
     )
 }
 
@@ -1902,21 +1783,21 @@ pub(crate) fn view_descriptor_query(
     view_id: &str,
 ) -> Result<Value, StoreError> {
     let view = view_record(connection, library_id, project_id, view_id)?;
-    if view.get("lifecycle").and_then(Value::as_str) != Some("active") {
+    if view.lifecycle != "active" {
         return Err(not_found("Database View is not active"));
     }
-    let database_id = required_str(&view, "databaseId")?;
-    let data_source_id = required_str(&view, "dataSourceId")?;
-    let tags_property = property_record(connection, data_source_id, "tags")?;
+    let tags_property = property_record(connection, &view.data_source_id, "tags")?;
     if tags_property.lifecycle != "active" {
         return Err(not_found(
             "Default Data Source tags Property is unavailable",
         ));
     }
+    let database = container_record(connection, library_id, &view.database_id)?;
+    let data_source = source_record(connection, library_id, &view.data_source_id)?;
     Ok(json!({
-        "database": container_record(connection, library_id, database_id)?,
-        "dataSource": source_record(connection, library_id, data_source_id)?,
-        "view": view,
+        "database": container_record_value(&database),
+        "dataSource": data_source_record_value(&data_source),
+        "view": view_record_value(&view)?,
         "properties": [serde_json::to_value(tags_property)
             .map_err(|_| corrupt("Property descriptor cannot encode"))?],
         "rows": [],
@@ -1965,11 +1846,13 @@ pub(crate) fn page_record(connection: &Connection, page_id: &str) -> Result<Valu
     connection
         .query_row(
             "SELECT page.block_id, page.library_id, page.parent_kind, page.parent_id, \
-               page.lifecycle, page.parent_revision, page.metadata_revision, page.document_id, \
+               block.lifecycle, block.placement_revision, block.metadata_revision, page.document_id, \
                document.generation, document.head_seq, materialization.title, \
                materialization.title_rich_json, materialization.preview, materialization.plain_text, \
                page.created_at, page.updated_at \
-             FROM pages page JOIN documents document ON document.id = page.document_id \
+             FROM pages page \
+             JOIN blocks block ON block.id = page.block_id AND block.library_id = page.library_id \
+             JOIN documents document ON document.id = page.document_id AND document.library_id = page.library_id \
              JOIN document_materializations materialization ON materialization.document_id = document.id \
                AND materialization.generation = document.generation \
                AND materialization.projected_seq = document.head_seq \
@@ -2009,13 +1892,6 @@ pub(crate) fn page_record(connection: &Connection, page_id: &str) -> Result<Valu
         )
         .optional()?
         .ok_or_else(|| corrupt("Database membership has no exact-head Page projection"))
-}
-
-fn required_str<'value>(value: &'value Value, key: &str) -> Result<&'value str, StoreError> {
-    value
-        .get(key)
-        .and_then(Value::as_str)
-        .ok_or_else(|| corrupt("Database read projection is missing a required identity"))
 }
 
 fn parse_json(value: String, label: &str) -> rusqlite::Result<Value> {

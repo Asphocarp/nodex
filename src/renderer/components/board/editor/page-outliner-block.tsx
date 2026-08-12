@@ -78,7 +78,6 @@ export function PageOutlinerBlock({
   const host = useBlockReferenceHostRuntime();
   const contentAccessContext = host?.contentAccessContext
     ?? libraryContentAccess;
-  const documentScopeId = host?.documentScopeId ?? "";
   const reference = usePageTargetReadModel(
     contentAccessContext,
     host ? targetBlockId.trim() : "",
@@ -90,7 +89,6 @@ export function PageOutlinerBlock({
     loading: reference.loading,
     error: reference.error,
     contentAccessContext,
-    documentScopeId,
     hostPageId: host?.hostPageId ?? null,
     ancestorPageIds: host?.ancestorPageIds ?? [],
   });
@@ -160,7 +158,7 @@ export function PageOutlinerBlock({
       ? {
           onOpenPage: () =>
             host.openPage?.({
-              projectId: target.documentScopeId,
+              accessContext: target.contentAccessContext,
               pageId: target.page.pageId,
               titleSnapshot: plainTitle,
             }),
@@ -202,7 +200,7 @@ export function PageOutlinerBlock({
     <PageOutlinerFrame
       targetBlockId={target.targetBlockId}
       {...(target.status === "available"
-        ? { projectId: target.documentScopeId }
+        ? { accessKind: target.contentAccessContext.kind }
         : {})}
       expanded={activation.expanded}
       active={activation.active}

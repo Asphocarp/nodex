@@ -4,11 +4,12 @@ use nodex_core_contracts::collection::{CollectionWindowAuthority, CollectionWind
 use nodex_core_contracts::database::{
     DatabasePagePropertyAddress, DatabaseRelationCandidate, DatabaseRelationCardinality,
     DatabaseRelationTargetItem, DatabaseRelationTargetWindow, DatabaseTaskParentPage,
+    DatabaseViewFilter, DatabaseViewFilterOperator,
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::{Value, json};
 
-use crate::domain::fractional_rank::evenly_spaced_rank;
+use crate::domain::ordered_position::{LogicalPositionItem, PositionPlanError, plan_position_run};
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 use crate::infrastructure::{
     collection_window::{WindowCandidate, assemble, normalize_request},
@@ -27,13 +28,16 @@ const MAX_TASK_PARENT_ROWS: usize = 100_000;
 const MAX_TASK_PARENT_DEPTH: usize = 10;
 
 pub(crate) enum RelationValueEdit<'a> {
-    Replace {
+    ReplaceOne {
         expected_value_revision: i64,
         target_page_id: Option<&'a str>,
     },
-    Patch {
+    PatchMany {
         add_page_ids: &'a [String],
         remove_edge_ids: &'a [String],
+    },
+    ClearMany {
+        expected_value_revision: i64,
     },
 }
 
@@ -144,11 +148,11 @@ pub(crate) fn apply_value_edit(
             "SELECT membership.id \
              FROM data_source_page_memberships membership \
              JOIN pages page ON page.block_id = membership.page_block_id \
-             JOIN blocks block ON block.id = page.block_id \
+             JOIN blocks block ON block.id = page.block_id AND block.library_id = page.library_id \
              WHERE membership.data_source_id = ?1 AND membership.page_block_id = ?2 \
                AND membership.removed_at IS NULL \
                AND page.parent_kind = 'data_source' AND page.parent_id = ?1 \
-               AND page.lifecycle = 'active' AND block.lifecycle = 'active'",
+               AND block.lifecycle = 'active'",
             params![data_source_id, page_id],
             |row| row.get::<_, String>(0),
         )
@@ -177,10 +181,10 @@ pub(crate) fn apply_value_edit(
     let current = current_edges.values().cloned().collect::<BTreeSet<_>>();
 
     let (desired, targets_requiring_read_access, removed_edge_ids) = match edit {
-        RelationValueEdit::Replace {
+        RelationValueEdit::ReplaceOne {
             expected_value_revision,
             target_page_id,
-        } => {
+        } if definition.cardinality == DatabaseRelationCardinality::One => {
             require_revision(expected_value_revision, current_revision)?;
             let desired = target_page_id
                 .map(|page_id| canonical_targets(&[page_id.to_owned()], "Relation target"))
@@ -192,10 +196,10 @@ pub(crate) fn apply_value_edit(
                 current_edges.keys().cloned().collect(),
             )
         }
-        RelationValueEdit::Patch {
+        RelationValueEdit::PatchMany {
             add_page_ids,
             remove_edge_ids,
-        } => {
+        } if definition.cardinality == DatabaseRelationCardinality::Many => {
             if add_page_ids.len() + remove_edge_ids.len() > MAX_RELATION_PATCH_TARGETS {
                 return Err(resource_exhausted(format!(
                     "Relation patch exceeds {MAX_RELATION_PATCH_TARGETS} targets"
@@ -218,16 +222,31 @@ pub(crate) fn apply_value_edit(
             }
             (desired, add, remove)
         }
+        RelationValueEdit::ClearMany {
+            expected_value_revision,
+        } if definition.cardinality == DatabaseRelationCardinality::Many => {
+            require_revision(expected_value_revision, current_revision)?;
+            (
+                BTreeSet::new(),
+                BTreeSet::new(),
+                current_edges.keys().cloned().collect(),
+            )
+        }
+        RelationValueEdit::ReplaceOne { .. } => {
+            return Err(invalid(
+                "Cardinality-many Relation Property cannot replace a single target",
+            ));
+        }
+        RelationValueEdit::PatchMany { .. } | RelationValueEdit::ClearMany { .. } => {
+            return Err(invalid(
+                "Cardinality-one Relation Property cannot mutate a target set",
+            ));
+        }
     };
     if desired.len() > MAX_RELATION_TARGETS {
         return Err(resource_exhausted(format!(
             "Relation value exceeds {MAX_RELATION_TARGETS} targets"
         )));
-    }
-    if definition.cardinality == DatabaseRelationCardinality::One && desired.len() > 1 {
-        return Err(invalid(
-            "Cardinality-one Relation Property accepts at most one target",
-        ));
     }
     validate_readable_targets(
         connection,
@@ -534,10 +553,10 @@ pub(crate) fn apply_task_parent_run(
         .prepare(
             "SELECT membership.page_block_id, membership.id, value.revision, \
                     edge.edge_id, edge.target_page_block_id, edge.sibling_rank, \
-                    page.lifecycle = 'active' AND block.lifecycle = 'active' \
+                    block.lifecycle = 'active' \
              FROM data_source_page_memberships membership \
              JOIN pages page ON page.block_id = membership.page_block_id \
-             JOIN blocks block ON block.id = page.block_id \
+             JOIN blocks block ON block.id = page.block_id AND block.library_id = page.library_id \
              LEFT JOIN data_source_property_values value \
                ON value.data_source_id = membership.data_source_id \
               AND value.membership_id = membership.id \
@@ -654,56 +673,93 @@ pub(crate) fn apply_task_parent_run(
     }
 
     let mut desired = BTreeMap::new();
-    match parent_page_id {
-        None => {
-            for page in pages {
-                desired.insert(
-                    page.page_id.clone(),
-                    DesiredTaskParent {
-                        parent_page_id: None,
-                        sibling_rank: None,
+    if let Some(parent_page_id) = parent_page_id {
+        let mut target_siblings = state
+            .iter()
+            .filter_map(|(page_id, row)| {
+                (row.parent_page_id.as_deref() == Some(parent_page_id)).then_some(
+                    LogicalPositionItem {
+                        page_id: page_id.clone(),
+                        rank_key: row.sibling_rank.clone(),
                     },
-                );
-            }
-        }
-        Some(parent_page_id) => {
-            let mut sibling_ids = state
+                )
+            })
+            .collect::<Vec<_>>();
+        target_siblings.sort_by(|left, right| {
+            left.rank_key
+                .cmp(&right.rank_key)
+                .then_with(|| left.page_id.cmp(&right.page_id))
+        });
+
+        let current_order = target_siblings
+            .iter()
+            .map(|item| item.page_id.clone())
+            .collect::<Vec<_>>();
+        let mut desired_order = current_order
+            .iter()
+            .filter(|page_id| !page_ids.contains(page_id.as_str()))
+            .cloned()
+            .collect::<Vec<_>>();
+        let insert_at = match before_page_id {
+            Some(before_page_id) => desired_order
                 .iter()
-                .filter_map(|(page_id, row)| {
-                    (row.parent_page_id.as_deref() == Some(parent_page_id)
-                        && !page_ids.contains(page_id.as_str()))
-                    .then_some((
-                        row.sibling_rank.clone().unwrap_or_default(),
-                        page_id.clone(),
-                    ))
-                })
-                .collect::<Vec<_>>();
-            sibling_ids.sort();
-            let mut sibling_ids = sibling_ids
-                .into_iter()
-                .map(|(_, page_id)| page_id)
-                .collect::<Vec<_>>();
-            let insert_at = match before_page_id {
-                Some(before_page_id) => sibling_ids
-                    .iter()
-                    .position(|page_id| page_id == before_page_id)
-                    .ok_or_else(|| invalid("Parent Relation anchor is not a target sibling"))?,
-                None => sibling_ids.len(),
-            };
-            sibling_ids.splice(
-                insert_at..insert_at,
-                pages.iter().map(|page| page.page_id.clone()),
+                .position(|page_id| page_id == before_page_id)
+                .ok_or_else(|| invalid("Parent Relation anchor is not a target sibling"))?,
+            None => desired_order.len(),
+        };
+        desired_order.splice(
+            insert_at..insert_at,
+            pages.iter().map(|page| page.page_id.clone()),
+        );
+        let parent_is_unchanged = pages.iter().all(|page| {
+            state
+                .get(&page.page_id)
+                .is_some_and(|current| current.parent_page_id.as_deref() == Some(parent_page_id))
+        });
+        if parent_is_unchanged && desired_order == current_order {
+            return Ok(Vec::new());
+        }
+
+        let moved_page_ids = pages
+            .iter()
+            .map(|page| page.page_id.clone())
+            .collect::<Vec<_>>();
+        let rank_plan = plan_position_run(&target_siblings, &moved_page_ids, before_page_id, false)
+            .map_err(task_parent_position_plan_error)?;
+        for write in rank_plan.sibling_writes {
+            let current = state
+                .get(&write.page_id)
+                .ok_or_else(|| corrupt("Parent rank maintenance lost its sibling Page"))?;
+            write_task_parent_rank_maintenance(
+                connection,
+                data_source_id,
+                current,
+                &write.rank_key,
+            )?;
+        }
+        for page in pages {
+            let sibling_rank = rank_plan
+                .moved_rank_keys
+                .get(&page.page_id)
+                .cloned()
+                .ok_or_else(|| corrupt("Parent rank plan omitted a moved Page"))?;
+            desired.insert(
+                page.page_id.clone(),
+                DesiredTaskParent {
+                    parent_page_id: Some(parent_page_id.to_owned()),
+                    sibling_rank: Some(sibling_rank),
+                },
             );
-            let total = sibling_ids.len();
-            for (index, page_id) in sibling_ids.into_iter().enumerate() {
-                desired.insert(
-                    page_id,
-                    DesiredTaskParent {
-                        parent_page_id: Some(parent_page_id.to_owned()),
-                        sibling_rank: Some(evenly_spaced_rank(index, total)),
-                    },
-                );
-            }
+        }
+    } else {
+        for page in pages {
+            desired.insert(
+                page.page_id.clone(),
+                DesiredTaskParent {
+                    parent_page_id: None,
+                    sibling_rank: None,
+                },
+            );
         }
     }
 
@@ -755,6 +811,30 @@ pub(crate) fn apply_task_parent_run(
     Ok(affected_values)
 }
 
+fn task_parent_position_plan_error(error: PositionPlanError) -> StoreError {
+    match error {
+        PositionPlanError::InvalidInput(message) | PositionPlanError::AnchorNotFound(message) => {
+            invalid(message)
+        }
+        PositionPlanError::FractionalRank(error) => invalid(error.message),
+    }
+}
+
+/// Rank maintenance preserves logical order and therefore must not advance the
+/// sibling's Parent value revision or Page metadata revision.
+fn write_task_parent_rank_maintenance(
+    connection: &Connection,
+    data_source_id: &str,
+    current: &TaskParentState,
+    sibling_rank: &str,
+) -> Result<(), StoreError> {
+    let edge_id = current
+        .edge_id
+        .as_deref()
+        .ok_or_else(|| corrupt("Parent rank maintenance requires an existing edge"))?;
+    replace_task_parent_edge_rank(connection, data_source_id, edge_id, sibling_rank)
+}
+
 fn write_task_parent_edge(
     connection: &Connection,
     data_source_id: &str,
@@ -780,11 +860,7 @@ fn write_task_parent_edge(
             .edge_id
             .as_deref()
             .ok_or_else(|| corrupt("Parent Relation edge identity is missing"))?;
-        connection.execute(
-            "UPDATE data_source_relation_edges SET sibling_rank = ?1 WHERE edge_id = ?2",
-            params![sibling_rank, edge_id],
-        )?;
-        return Ok(());
+        return replace_task_parent_edge_rank(connection, data_source_id, edge_id, sibling_rank);
     }
     if let Some(edge_id) = current.edge_id.as_deref() {
         connection.execute(
@@ -803,6 +879,58 @@ fn write_task_parent_edge(
             current.membership_id,
             parent_page_id,
             now,
+            sibling_rank
+        ],
+    )?;
+    Ok(())
+}
+
+/// Relation edge identity is immutable. Rank-only maintenance therefore
+/// replaces the row atomically while preserving its identity and creation time.
+fn replace_task_parent_edge_rank(
+    connection: &Connection,
+    data_source_id: &str,
+    edge_id: &str,
+    sibling_rank: &str,
+) -> Result<(), StoreError> {
+    let edge = connection
+        .query_row(
+            "SELECT source_membership_id, target_page_block_id, created_at \
+             FROM data_source_relation_edges \
+             WHERE edge_id = ?1 AND source_data_source_id = ?2 \
+               AND property_id = 'task_parent'",
+            params![edge_id, data_source_id],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            },
+        )
+        .optional()?
+        .ok_or_else(|| corrupt("Parent Relation edge disappeared during rank maintenance"))?;
+    let deleted = connection.execute(
+        "DELETE FROM data_source_relation_edges \
+         WHERE edge_id = ?1 AND source_data_source_id = ?2 AND property_id = 'task_parent'",
+        params![edge_id, data_source_id],
+    )?;
+    if deleted != 1 {
+        return Err(corrupt(
+            "Parent Relation edge changed during rank maintenance",
+        ));
+    }
+    connection.execute(
+        "INSERT INTO data_source_relation_edges(\
+           edge_id, source_data_source_id, source_membership_id, property_id, \
+           target_page_block_id, created_at, sibling_rank\
+         ) VALUES (?1, ?2, ?3, 'task_parent', ?4, ?5, ?6)",
+        params![
+            edge_id,
+            data_source_id,
+            edge.0,
+            edge.1,
+            edge.2,
             sibling_rank
         ],
     )?;
@@ -1058,7 +1186,7 @@ pub(crate) fn candidate_window(
     library_id: &str,
     commit_head: i64,
     target_data_source_id: &str,
-    filter: Option<&Value>,
+    query: Option<&str>,
     request: &CollectionWindowRequest,
 ) -> Result<nodex_core_contracts::collection::CollectionWindow<DatabaseRelationCandidate>, StoreError>
 {
@@ -1068,16 +1196,7 @@ pub(crate) fn candidate_window(
             "Relation candidate window cannot exceed {MAX_RELATION_WINDOW} Pages"
         )));
     }
-    let query = match filter {
-        None | Some(Value::Null) => String::new(),
-        Some(Value::Object(filter)) if filter.keys().all(|key| key == "query") => filter
-            .get("query")
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .trim()
-            .to_ascii_lowercase(),
-        _ => return Err(invalid("Relation candidate filter must contain only query")),
-    };
+    let query = query.unwrap_or_default().trim().to_ascii_lowercase();
     if query.len() > MAX_RELATION_CANDIDATE_QUERY_BYTES {
         return Err(invalid("Relation candidate query is too long"));
     }
@@ -1119,7 +1238,7 @@ pub(crate) fn candidate_window(
              JOIN page_read_model model ON model.page_block_id = page.block_id \
              WHERE membership.data_source_id = ?1 AND membership.removed_at IS NULL \
                AND page.parent_kind = 'data_source' AND page.parent_id = ?1 \
-               AND page.lifecycle = 'active' AND block.lifecycle = 'active' \
+               AND block.lifecycle = 'active' \
                AND (?2 = '' OR instr(lower(model.title), ?2) > 0) \
                AND (?3 IS NULL OR lower(model.title) > ?3 \
                  OR (lower(model.title) = ?3 AND membership.page_block_id > ?4)) \
@@ -1178,9 +1297,10 @@ fn active_membership_id(
         .query_row(
             "SELECT membership.id FROM data_source_page_memberships membership \
              JOIN pages page ON page.block_id = membership.page_block_id \
+             JOIN blocks block ON block.id = page.block_id AND block.library_id = page.library_id \
              WHERE membership.data_source_id = ?1 AND membership.page_block_id = ?2 \
                AND membership.removed_at IS NULL AND page.parent_kind = 'data_source' \
-               AND page.parent_id = ?1 AND page.lifecycle = 'active'",
+               AND page.parent_id = ?1 AND block.lifecycle = 'active'",
             params![data_source_id, page_id],
             |row| row.get::<_, String>(0),
         )
@@ -1241,7 +1361,7 @@ fn project_targets(
              AND parent.block_id = ancestors.parent_id AND parent.library_id = ?2 \
            WHERE instr(ancestors.path, '|' || parent.block_id || '|') = 0\
          ) \
-         SELECT candidate.target_source_id, candidate.page_id, page.lifecycle, \
+         SELECT candidate.target_source_id, candidate.page_id, block.lifecycle, \
            materialization.title, \
            EXISTS(SELECT 1 FROM data_source_page_memberships membership \
              WHERE membership.data_source_id = candidate.target_source_id \
@@ -1251,8 +1371,7 @@ fn project_targets(
              EXISTS(SELECT 1 FROM projects project \
                WHERE project.id = ?3 AND project.library_id = ?2) \
              AND (\
-               block.project_id = ?3 \
-               OR EXISTS(\
+               EXISTS(\
                  SELECT 1 FROM ancestors terminal \
                  JOIN data_sources source ON terminal.parent_kind = 'data_source' \
                    AND source.id = terminal.parent_id AND source.library_id = ?2 \
@@ -1364,7 +1483,7 @@ pub(crate) fn validate_active_targets(
          FROM json_each(?1) candidate \
          JOIN blocks block ON block.id = candidate.value \
            AND block.type = 'page' AND block.lifecycle = 'active' \
-         JOIN pages page ON page.block_id = block.id AND page.lifecycle = 'active' \
+         JOIN pages page ON page.block_id = block.id AND page.library_id = block.library_id \
          JOIN data_source_page_memberships membership \
            ON membership.page_block_id = block.id \
            AND membership.data_source_id = ?2 AND membership.removed_at IS NULL \
@@ -1385,15 +1504,9 @@ pub(crate) fn validate_view_filter_read_access(
     library_id: &str,
     project_id: Option<&str>,
     data_source_id: &str,
-    config: &Value,
+    filter: &DatabaseViewFilter,
 ) -> Result<(), StoreError> {
     let Some(project_id) = project_id else {
-        return Ok(());
-    };
-    let Some(filter) = config.get("filter") else {
-        // Pre-v2 View fixtures and imported stores may not carry a canonical
-        // filter node. There is no persisted operand to reauthorize in that
-        // case, so preserve the historical unfiltered read behavior.
         return Ok(());
     };
     let mut targets = BTreeSet::new();
@@ -1416,7 +1529,7 @@ pub(crate) fn validate_view_filter_read_access(
 fn collect_relation_filter_targets(
     connection: &Connection,
     data_source_id: &str,
-    filter: &Value,
+    filter: &DatabaseViewFilter,
     depth: usize,
     nodes: &mut usize,
     targets: &mut BTreeSet<(String, String)>,
@@ -1425,14 +1538,7 @@ fn collect_relation_filter_targets(
         return Err(corrupt("Database View filter exceeds its structural bound"));
     }
     *nodes += 1;
-    let object = filter
-        .as_object()
-        .ok_or_else(|| corrupt("Database View filter node is invalid"))?;
-    if object.get("kind").and_then(Value::as_str) == Some("group") {
-        let children = object
-            .get("children")
-            .and_then(Value::as_array)
-            .ok_or_else(|| corrupt("Database View filter group is invalid"))?;
+    if let DatabaseViewFilter::Group { children, .. } = filter {
         for child in children {
             collect_relation_filter_targets(
                 connection,
@@ -1445,15 +1551,20 @@ fn collect_relation_filter_targets(
         }
         return Ok(());
     }
+    let DatabaseViewFilter::Clause {
+        property_id,
+        operator,
+        value,
+    } = filter
+    else {
+        unreachable!("Database View filter variants are exhaustive")
+    };
     if !matches!(
-        object.get("operator").and_then(Value::as_str),
-        Some("contains" | "not_contains")
+        operator,
+        DatabaseViewFilterOperator::Contains | DatabaseViewFilterOperator::NotContains
     ) {
         return Ok(());
     }
-    let Some(property_id) = object.get("propertyId").and_then(Value::as_str) else {
-        return Err(corrupt("Database View filter Property is invalid"));
-    };
     let target_data_source_id = connection
         .query_row(
             "SELECT relation.target_data_source_id \
@@ -1470,8 +1581,8 @@ fn collect_relation_filter_targets(
     let Some(target_data_source_id) = target_data_source_id else {
         return Ok(());
     };
-    let page_id = object
-        .get("value")
+    let page_id = value
+        .as_ref()
         .and_then(Value::as_str)
         .filter(|value| !value.is_empty())
         .ok_or_else(|| corrupt("Relation Property filter operand is invalid"))?;
@@ -1521,10 +1632,12 @@ mod tests {
             .execute_batch(
                 "CREATE TABLE projects( \
                    id TEXT PRIMARY KEY, library_id TEXT NOT NULL, database_block_id TEXT); \
-                 CREATE TABLE blocks(id TEXT PRIMARY KEY, project_id TEXT NOT NULL, type TEXT NOT NULL); \
+                 CREATE TABLE blocks( \
+                   id TEXT PRIMARY KEY, library_id TEXT NOT NULL, type TEXT NOT NULL, \
+                   lifecycle TEXT NOT NULL); \
                  CREATE TABLE pages( \
                    block_id TEXT PRIMARY KEY, library_id TEXT NOT NULL, document_id TEXT NOT NULL, \
-                   parent_kind TEXT NOT NULL, parent_id TEXT NOT NULL, lifecycle TEXT NOT NULL); \
+                   parent_kind TEXT NOT NULL, parent_id TEXT NOT NULL); \
                  CREATE TABLE documents( \
                    id TEXT PRIMARY KEY, generation INTEGER NOT NULL, head_seq INTEGER NOT NULL, \
                    schema_version INTEGER NOT NULL); \
@@ -1545,10 +1658,10 @@ mod tests {
                    data_source_id TEXT NOT NULL, property_id TEXT NOT NULL, \
                    target_data_source_id TEXT NOT NULL); \
                  INSERT INTO projects VALUES ('project:reader', 'library:one', NULL); \
-                 INSERT INTO blocks VALUES ('page:secret', 'project:owner', 'page'); \
+                 INSERT INTO blocks VALUES ('page:secret', 'library:one', 'page', 'active'); \
                  INSERT INTO pages VALUES ( \
                    'page:secret', 'library:one', 'document:secret', \
-                   'data_source', 'source:secret', 'active'); \
+                   'data_source', 'source:secret'); \
                  INSERT INTO documents VALUES ('document:secret', 1, 1, 1); \
                  INSERT INTO document_materializations VALUES ( \
                    'document:secret', 1, 1, 1, 'Secret target'); \
@@ -1557,27 +1670,24 @@ mod tests {
                  INSERT INTO data_source_page_memberships VALUES ( \
                    'source:secret', 'page:secret', NULL); \
                  INSERT INTO data_source_properties VALUES ( \
-                   'source:tasks', 'blocked_by', 'relation', 'active'); \
+                   'source:tasks', 'p_blocked0', 'relation', 'active'); \
                  INSERT INTO data_source_relation_properties VALUES ( \
-                   'source:tasks', 'blocked_by', 'source:secret'); \
+                   'source:tasks', 'p_blocked0', 'source:secret'); \
                  INSERT INTO project_resource_grants VALUES ( \
                    'project:reader', 'database', 'database:secret', 'active');",
             )
             .expect("Relation authorization rows");
-        let config = json!({
-            "filter": {
-                "kind": "clause",
-                "propertyId": "blocked_by",
-                "operator": "contains",
-                "value": "page:secret"
-            }
-        });
+        let filter = DatabaseViewFilter::Clause {
+            property_id: "p_blocked0".to_owned(),
+            operator: DatabaseViewFilterOperator::Contains,
+            value: Some(json!("page:secret")),
+        };
         validate_view_filter_read_access(
             &connection,
             "library:one",
             Some("project:reader"),
             "source:tasks",
-            &config,
+            &filter,
         )
         .expect("authorized filter operand");
 
@@ -1592,7 +1702,7 @@ mod tests {
             "library:one",
             Some("project:reader"),
             "source:tasks",
-            &config,
+            &filter,
         )
         .expect_err("stale View filter cannot retain a restricted Page identity");
         assert_eq!(error.code, StoreErrorCode::NotFound);

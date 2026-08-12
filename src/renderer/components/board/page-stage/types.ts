@@ -14,7 +14,11 @@ import type {
 } from "@/lib/page-stage-page";
 import type { PageStageBreadcrumbProps } from "./breadcrumb";
 import type { DatabaseId } from "../../../../shared/database-identities";
-import type { ContentAccessContext } from "../../../../shared/content-access-context";
+import type {
+  ContentAccessContext,
+  ContentCanvasNavigationTarget,
+  ContentPageNavigationTarget,
+} from "../../../../shared/content-access-context";
 import type { PageStagePropertyEdit } from "@/lib/page-stage-properties";
 
 export type { PageStageMetadataMutationResult } from "@/lib/page-stage-page";
@@ -80,8 +84,6 @@ export interface PageStageProps {
   page: PageStagePageModel | null;
   /** Content authority selected by the mounted Project or Resource surface. */
   contentAccessContext: ContentAccessContext;
-  /** Renderer-local identity for the mounted collaborative Document surface. */
-  documentScopeId: string;
   projectName?: string | null;
   projectWorkspacePath?: string | null;
   onUpdate: (
@@ -107,17 +109,9 @@ export interface PageStageProps {
   canStartThreadInSession?: boolean;
   linkedCodexThreads?: PageStageLinkedThread[];
   onOpenCodexThread?: (threadId: string) => Promise<void>;
-  onOpenPage?: (input: {
-    projectId: string;
-    pageId: string;
-    titleSnapshot?: string;
-  }) => void | Promise<void>;
+  onOpenPage?: (input: ContentPageNavigationTarget) => void | Promise<void>;
   onOpenDatabase?: (databaseId: DatabaseId) => void | Promise<void>;
-  onOpenCanvas?: (input: {
-    projectId: string;
-    canvasBlockId: string;
-    titleSnapshot?: string;
-  }) => void | Promise<void>;
+  onOpenCanvas?: (input: ContentCanvasNavigationTarget) => void | Promise<void>;
   breadcrumb?: Omit<PageStageBreadcrumbProps, "currentTitle" | "disabled">;
   onOpenNewCodexThread?: () => void;
   onOpenLocalEnvironmentSettings?: (input: {

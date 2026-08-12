@@ -1,6 +1,6 @@
 use rusqlite::{Connection, TransactionBehavior, params};
 
-use nodex_core_contracts::BoundModuleContext;
+use nodex_core_contracts::{BoundModuleContext, ProjectId};
 
 use crate::infrastructure::document_repository::{DocumentReadiness, DocumentSyncEngine};
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
@@ -85,6 +85,16 @@ pub(crate) fn finalize_idle_document_revisions(
             transaction.commit()?;
             continue;
         }
+        let actor_context = match context.project_id.as_ref() {
+            Some(_) => context.clone(),
+            None => BoundModuleContext {
+                project_id: Some(ProjectId(crate::library::resolve_library_actor_project_id(
+                    &transaction,
+                    &authority.head.library_id,
+                )?)),
+                ..context.clone()
+            },
+        };
         let already_covered = transaction.query_row(
             "SELECT EXISTS(SELECT 1 FROM document_versions \
              WHERE document_id = ?1 AND generation = ?2 AND base_head_seq = ?3)",
@@ -108,7 +118,7 @@ pub(crate) fn finalize_idle_document_revisions(
                 source_mutation_id: None,
                 source_change_seq: None,
                 actor: None,
-                context,
+                context: &actor_context,
                 now: &now,
             };
             match authority.head.sync_engine {
@@ -156,9 +166,9 @@ pub(crate) fn compact_eligible_documents(connection: &mut Connection) -> Result<
                     COALESCE(SUM(length(update_row.update_blob)), 0) AS update_bytes \
              FROM documents document \
              JOIN block_documents ownership ON ownership.document_id = document.id \
-               AND ownership.project_id = document.project_id \
+               AND ownership.library_id = document.library_id \
              JOIN blocks owner ON owner.id = ownership.block_id \
-               AND owner.project_id = document.project_id \
+               AND owner.library_id = document.library_id \
              JOIN document_updates update_row ON update_row.document_id = document.id \
                AND update_row.generation = document.generation \
              WHERE document.readiness = 'ready' AND document.sync_engine = 'yjs' \
@@ -296,22 +306,38 @@ mod tests {
                 )?;
                 connection.execute(
                     "INSERT INTO blocks( \
-                       id, project_id, type, lifecycle, location_kind, created_at, updated_at \
-                     ) VALUES ('page:revision-maintenance', 'project:revision-maintenance', \
-                       'page', 'active', 'space', ?1, ?1)",
+                       id, library_id, type, lifecycle, created_at, updated_at \
+                     ) VALUES ('page:revision-maintenance', 'library:revision-maintenance', \
+                       'page', 'active', ?1, ?1)",
                     ["2026-07-19T00:00:00.000Z"],
                 )?;
                 connection.execute(
                     "INSERT INTO documents( \
-                       id, project_id, schema_key, schema_version, created_at, updated_at \
+                       id, library_id, schema_key, schema_version, created_at, updated_at \
                      ) VALUES ('document:revision-maintenance', \
-                       'project:revision-maintenance', 'nodex.page', 2, ?1, ?1)",
+                       'library:revision-maintenance', 'nodex.page', 2, ?1, ?1)",
                     ["2026-07-19T00:00:00.000Z"],
                 )?;
                 connection.execute(
-                    "INSERT INTO block_documents(block_id, document_id, project_id, created_at) \
+                    "INSERT INTO block_documents(block_id, document_id, library_id, created_at) \
                      VALUES ('page:revision-maintenance', 'document:revision-maintenance', \
-                       'project:revision-maintenance', ?1)",
+                       'library:revision-maintenance', ?1)",
+                    ["2026-07-19T00:00:00.000Z"],
+                )?;
+                connection.execute(
+                    "INSERT INTO pages( \
+                       block_id, library_id, document_id, parent_kind, parent_id, \
+                       created_at, updated_at \
+                     ) VALUES ('page:revision-maintenance', 'library:revision-maintenance', \
+                       'document:revision-maintenance', 'library', \
+                       'library:revision-maintenance', ?1, ?1)",
+                    ["2026-07-19T00:00:00.000Z"],
+                )?;
+                connection.execute(
+                    "INSERT INTO library_block_placements( \
+                       block_id, library_id, rank_key, revision, created_at, updated_at \
+                     ) VALUES ('page:revision-maintenance', 'library:revision-maintenance', \
+                       'a0', 1, ?1, ?1)",
                     ["2026-07-19T00:00:00.000Z"],
                 )?;
                 let authority =
@@ -326,6 +352,7 @@ mod tests {
                     connection,
                     PersistYjsGenesis {
                         authority: &authority,
+                        actor_project_id: "project:revision-maintenance",
                         materialization: &genesis.materialization,
                         update_id: "genesis:revision-maintenance",
                         client_session_id: "client:revision-maintenance",
@@ -334,6 +361,9 @@ mod tests {
                         full_state: &genesis.engine.full_state_v1(),
                         store_epoch: "epoch:revision-maintenance",
                         operation_id: "operation:revision-maintenance-genesis",
+                        placement_genesis_block_ids: &[],
+                        placement_preapplied_block_ids: &[],
+                        placement_mutation_block_ids: &[],
                         emit_event: false,
                     },
                 )?;

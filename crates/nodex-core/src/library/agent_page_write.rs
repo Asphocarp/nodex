@@ -36,7 +36,7 @@ const MODULE_NAME: &str = "library";
 const MAX_ID_BYTES: usize = 512;
 
 struct SourceAuthority {
-    project_id: String,
+    library_id: String,
     location_revision: i64,
     parent_revision: i64,
     active_membership_revision: i64,
@@ -50,7 +50,6 @@ struct CopyPreflight {
     destination: LibraryPageCopyDestination,
     destination_document: Option<LibraryAgentDocumentHead>,
     destination_database_id: Option<String>,
-    destination_project_id: String,
     source: SourceAuthority,
     page_id: String,
     body_block_count: u32,
@@ -63,7 +62,8 @@ pub(super) struct ResolvedDestination {
     pub(super) authorization_fingerprint: String,
     pub(super) document_heads: Vec<LibraryAgentDocumentHead>,
     pub(super) database_id: Option<String>,
-    pub(super) project_id: String,
+    /// Project-scoped actor/event-delivery coordinate; never a content owner.
+    pub(super) actor_project_id: String,
 }
 
 pub(super) struct PreparePageCopyInput {
@@ -204,7 +204,6 @@ pub(super) fn prepare_page_copy(
                         destination: None,
                         destination_document: None,
                         destination_database_id: None,
-                        destination_project_id: None,
                         committed: Some(committed),
                     }),
                 },
@@ -237,7 +236,6 @@ pub(super) fn prepare_page_copy(
                         destination: Some(preflight.destination),
                         destination_document: preflight.destination_document,
                         destination_database_id: preflight.destination_database_id,
-                        destination_project_id: Some(preflight.destination_project_id),
                         committed: None,
                     }),
                 },
@@ -373,7 +371,7 @@ pub(super) fn execute_page_copy(
                     &agent_context,
                     &operation_id,
                     MutationEffects {
-                        project_id: execution.project_id,
+                        project_id: execution.actor_project_id,
                         operation_kind: "agent_duplicate_page",
                         change_kind: "library.changed",
                         did_mutate: true,
@@ -447,7 +445,7 @@ fn compile_preflight(
         authorization_fingerprint: destination_fingerprint,
         document_heads: mut destination_heads,
         database_id: destination_database_id,
-        project_id: destination_project_id,
+        actor_project_id,
     } = resolved_destination;
     let destination_document = if matches!(
         request.destination,
@@ -460,7 +458,7 @@ fn compile_preflight(
     let preview = preview_page_copy(
         connection,
         operation_id,
-        &source.project_id,
+        &source.library_id,
         &request.source_page_id,
         &source.document_id,
     )?;
@@ -512,7 +510,7 @@ fn compile_preflight(
         &source.document_generation,
         &source.document_head_seq,
         &destination,
-        &destination_project_id,
+        &actor_project_id,
         &document_heads,
     ))?;
     let footprint_hash = hash_serializable(&footprint)?;
@@ -528,7 +526,6 @@ fn compile_preflight(
         destination,
         destination_document,
         destination_database_id,
-        destination_project_id,
         source,
         page_id: preview.page_id,
         body_block_count: preview.body_block_count,
@@ -544,11 +541,13 @@ fn read_source(
 ) -> Result<SourceAuthority, StoreError> {
     connection
         .query_row(
-            "SELECT block.project_id, block.location_revision, page.parent_revision, \
+            "SELECT block.library_id, block.placement_revision, block.placement_revision, \
                COALESCE(membership.revision, 0), page.document_id, document.generation, \
-               document.head_seq, block.lifecycle, page.lifecycle, document.readiness \
+               document.head_seq, block.lifecycle, document.readiness \
              FROM pages page JOIN blocks block ON block.id = page.block_id AND block.type = 'page' \
+               AND block.library_id = page.library_id \
              JOIN documents document ON document.id = page.document_id \
+               AND document.library_id = page.library_id \
              LEFT JOIN data_source_page_memberships membership \
                ON membership.page_block_id = page.block_id AND membership.removed_at IS NULL \
              WHERE page.block_id = ?1 AND page.library_id = ?2",
@@ -556,7 +555,7 @@ fn read_source(
             |row| {
                 Ok((
                     SourceAuthority {
-                        project_id: row.get(0)?,
+                        library_id: row.get(0)?,
                         location_revision: row.get(1)?,
                         parent_revision: row.get(2)?,
                         active_membership_revision: row.get(3)?,
@@ -566,14 +565,13 @@ fn read_source(
                     },
                     row.get::<_, String>(7)?,
                     row.get::<_, String>(8)?,
-                    row.get::<_, String>(9)?,
                 ))
             },
         )
         .optional()?
         .ok_or_else(|| not_found("Source Page is unavailable"))
-        .and_then(|(source, block_lifecycle, page_lifecycle, readiness)| {
-            if block_lifecycle == "active" && page_lifecycle == "active" && readiness == "ready" {
+        .and_then(|(source, block_lifecycle, readiness)| {
+            if block_lifecycle == "active" && readiness == "ready" {
                 return Ok(source);
             }
             Err(not_found("Source Page is unavailable"))
@@ -599,15 +597,16 @@ pub(super) fn resolve_destination(
                 },
                 AgentProjectResourceAction::CreateChild,
             )?;
-            let project_id = authorization.provenance.authority.actor_project_id.as_str();
+            let actor_project_id = authorization.provenance.authority.actor_project_id.as_str();
             let ids = connection
                 .prepare(
-                    "SELECT placement.block_id FROM top_level_block_placements placement \
+                    "SELECT placement.block_id FROM library_block_placements placement \
                      JOIN blocks block ON block.id = placement.block_id \
-                     WHERE placement.project_id = ?1 AND block.lifecycle = 'active' \
+                     WHERE placement.library_id = ?1 AND block.library_id = placement.library_id \
+                       AND block.lifecycle = 'active' \
                      ORDER BY placement.rank_key, placement.block_id",
                 )?
-                .query_map([project_id], |row| row.get::<_, String>(0))?
+                .query_map([library_id], |row| row.get::<_, String>(0))?
                 .collect::<rusqlite::Result<Vec<_>>>()?;
             let before_id = resolve_before_id(&ids, at.as_ref(), "Library")?;
             let before = before_id
@@ -618,7 +617,7 @@ pub(super) fn resolve_destination(
                 authorization_fingerprint: fingerprint,
                 document_heads: Vec::new(),
                 database_id: None,
-                project_id: project_id.to_owned(),
+                actor_project_id: actor_project_id.to_owned(),
             })
         }
         LibraryAgentPageDestination::Page { page_id, at } => {
@@ -633,22 +632,22 @@ pub(super) fn resolve_destination(
                 },
                 AgentProjectResourceAction::CreateChild,
             )?;
-            let (project_id, document_id, generation, head_seq) = connection
+            let (document_id, generation, head_seq) = connection
                 .query_row(
-                    "SELECT block.project_id, page.document_id, document.generation, \
+                    "SELECT page.document_id, document.generation, \
                        document.head_seq \
                      FROM pages page JOIN blocks block ON block.id = page.block_id \
                      JOIN documents document ON document.id = page.document_id \
                      WHERE page.block_id = ?1 AND page.library_id = ?2 \
-                       AND page.lifecycle = 'active' AND block.lifecycle = 'active' \
+                       AND block.library_id = page.library_id AND block.lifecycle = 'active' \
+                       AND document.library_id = page.library_id \
                        AND document.readiness = 'ready'",
                     params![page_id, library_id],
                     |row| {
                         Ok((
                             row.get::<_, String>(0)?,
-                            row.get::<_, String>(1)?,
+                            row.get::<_, i64>(1)?,
                             row.get::<_, i64>(2)?,
-                            row.get::<_, i64>(3)?,
                         ))
                     },
                 )
@@ -682,7 +681,7 @@ pub(super) fn resolve_destination(
                     expected_head_seq: head_seq,
                 }],
                 database_id: None,
-                project_id,
+                actor_project_id: authorization.provenance.authority.actor_project_id.clone(),
             })
         }
         LibraryAgentPageDestination::DataSource {
@@ -738,10 +737,9 @@ fn resolve_data_source_destination(
         },
         AgentProjectResourceAction::CreateChild,
     )?;
-    let (database_id, project_id, source_revision, default_view_id) = connection
+    let (database_id, source_revision, default_view_id) = connection
         .query_row(
-            "SELECT source.home_database_block_id, database_block.project_id, \
-               source.schema_revision, \
+            "SELECT source.home_database_block_id, source.schema_revision, \
                container.default_view_id \
              FROM data_sources source JOIN database_containers container \
                ON container.block_id = source.home_database_block_id \
@@ -752,9 +750,8 @@ fn resolve_data_source_destination(
             |row| {
                 Ok((
                     row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, i64>(2)?,
-                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, Option<String>>(2)?,
                 ))
             },
         )
@@ -781,7 +778,8 @@ fn resolve_data_source_destination(
              LEFT JOIN database_view_page_positions position \
                ON position.view_id = ?1 AND position.page_block_id = membership.page_block_id \
              WHERE membership.data_source_id = ?2 AND membership.removed_at IS NULL \
-               AND page.lifecycle = 'active' \
+               AND EXISTS(SELECT 1 FROM blocks block WHERE block.id = page.block_id \
+                 AND block.library_id = page.library_id AND block.lifecycle = 'active') \
              ORDER BY CASE WHEN position.rank_key IS NULL THEN 1 ELSE 0 END, \
                position.rank_key, membership.page_block_id",
         )?
@@ -822,7 +820,7 @@ fn resolve_data_source_destination(
         authorization_fingerprint: fingerprint,
         document_heads: Vec::new(),
         database_id: Some(database_id),
-        project_id,
+        actor_project_id: authorization.provenance.authority.actor_project_id.clone(),
     })
 }
 
@@ -860,7 +858,7 @@ pub(super) fn read_location_anchor(
 ) -> Result<LibraryPlacementAnchor, StoreError> {
     let expected_location_revision = connection
         .query_row(
-            "SELECT location_revision FROM blocks WHERE id = ?1 AND lifecycle = 'active'",
+            "SELECT placement_revision FROM blocks WHERE id = ?1 AND lifecycle = 'active'",
             [block_id],
             |row| row.get::<_, i64>(0),
         )

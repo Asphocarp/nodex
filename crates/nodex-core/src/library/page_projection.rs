@@ -16,6 +16,7 @@ use crate::domain::rich_text::{RichTextItem, RichTextStyles, canonicalize_rich_t
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
 use super::content::page_content;
+use super::mutation::{require_project_in_library, resolve_library_actor_project_id};
 
 const PAGE_FILE_VERSION: u32 = 1;
 const PAGE_DRAFT_VERSION: u32 = 1;
@@ -46,7 +47,13 @@ pub(super) fn page_file(
     } = request;
     validate_prepare(kind, prepare.as_ref())?;
     let page = page_content(connection, library_id, store_epoch, commit_head, page_id)?;
-    let storage = page_storage_authority(connection, library_id, page_id)?;
+    let etag_project_id = match requesting_project_id {
+        Some(project_id) => {
+            require_project_in_library(connection, project_id, library_id)?;
+            project_id.to_owned()
+        }
+        None => resolve_library_actor_project_id(connection, library_id)?,
+    };
     let mut validators = LibraryPageFileValidators {
         title_etag: None,
         body_etag: None,
@@ -58,7 +65,7 @@ pub(super) fn page_file(
         Some(LibraryPagePrepareKind::TitleSet) => {
             let (title, _) = mint_document_projection_etags(
                 connection,
-                &storage.project_id,
+                &etag_project_id,
                 store_epoch,
                 &page.document_id,
                 page.rich_title.clone(),
@@ -70,7 +77,7 @@ pub(super) fn page_file(
         Some(LibraryPagePrepareKind::DocumentReplace) => {
             let (_, body) = mint_document_projection_etags(
                 connection,
-                &storage.project_id,
+                &etag_project_id,
                 store_epoch,
                 &page.document_id,
                 page.rich_title.clone(),
@@ -83,6 +90,7 @@ pub(super) fn page_file(
             validators.page_etag = Some(mint_page_shell_etag(
                 connection,
                 library_id,
+                &etag_project_id,
                 store_epoch,
                 page_id,
             )?);
@@ -123,7 +131,7 @@ pub(super) fn page_file(
                 schedule: project_schedule(
                     connection,
                     page_id,
-                    &storage.project_id,
+                    library_id,
                     page.metadata_revision,
                 )?,
             };
@@ -155,6 +163,7 @@ pub(super) fn page_draft_projection(
     store_epoch: &str,
     commit_head: i64,
     page_id: &str,
+    requesting_project_id: Option<&str>,
 ) -> Result<LibraryPageDraftProjection, StoreError> {
     let meta = page_file(
         connection,
@@ -162,7 +171,7 @@ pub(super) fn page_draft_projection(
         store_epoch,
         PageFileRequest {
             commit_head,
-            requesting_project_id: None,
+            requesting_project_id,
             page_id,
             kind: LibraryPageFileKind::MetaYaml,
             prepare: Some(LibraryPagePrepareKind::TitleSet),
@@ -174,7 +183,7 @@ pub(super) fn page_draft_projection(
         store_epoch,
         PageFileRequest {
             commit_head,
-            requesting_project_id: None,
+            requesting_project_id,
             page_id,
             kind: LibraryPageFileKind::BodyNestedMarkdown,
             prepare: Some(LibraryPagePrepareKind::DocumentReplace),
@@ -242,18 +251,17 @@ fn validate_prepare(
 }
 
 struct PageStorageAuthority {
-    project_id: String,
     lifecycle: String,
-    location_revision: i64,
+    placement_revision: i64,
     parent_kind: String,
     parent_id: String,
-    parent_revision: i64,
     metadata_revision: i64,
 }
 
 pub(super) fn mint_page_shell_etag(
     connection: &Connection,
     library_id: &str,
+    etag_project_id: &str,
     store_epoch: &str,
     page_id: &str,
 ) -> Result<String, StoreError> {
@@ -261,15 +269,15 @@ pub(super) fn mint_page_shell_etag(
     mint_etag(
         connection,
         "page_shell",
-        &storage.project_id,
+        etag_project_id,
         store_epoch,
         &[page_id],
         json!({
             "lifecycle": storage.lifecycle,
-            "locationRevision": storage.location_revision,
+            "locationRevision": storage.placement_revision,
             "parentKind": storage.parent_kind,
             "parentId": storage.parent_id,
-            "parentRevision": storage.parent_revision,
+            "parentRevision": storage.placement_revision,
             "metadataRevision": storage.metadata_revision,
         }),
     )
@@ -283,21 +291,19 @@ fn page_storage_authority(
 ) -> Result<PageStorageAuthority, StoreError> {
     connection
         .query_row(
-            "SELECT block.project_id, page.lifecycle, block.location_revision, \
-               page.parent_kind, page.parent_id, page.parent_revision, page.metadata_revision \
+            "SELECT block.lifecycle, block.placement_revision, page.parent_kind, page.parent_id, \
+               block.metadata_revision \
              FROM pages page JOIN blocks block ON block.id = page.block_id AND block.type = 'page' \
              WHERE page.block_id = ?1 AND page.library_id = ?2 \
-               AND page.lifecycle <> 'deleted' AND block.lifecycle <> 'deleted'",
+               AND block.library_id = ?2 AND block.lifecycle <> 'deleted'",
             params![page_id, library_id],
             |row| {
                 Ok(PageStorageAuthority {
-                    project_id: row.get(0)?,
-                    lifecycle: row.get(1)?,
-                    location_revision: row.get(2)?,
-                    parent_kind: row.get(3)?,
-                    parent_id: row.get(4)?,
-                    parent_revision: row.get(5)?,
-                    metadata_revision: row.get(6)?,
+                    lifecycle: row.get(0)?,
+                    placement_revision: row.get(1)?,
+                    parent_kind: row.get(2)?,
+                    parent_id: row.get(3)?,
+                    metadata_revision: row.get(4)?,
                 })
             },
         )
@@ -385,8 +391,10 @@ fn project_properties(
 ) -> Result<Vec<ProjectedPropertyV1>, StoreError> {
     let parent = connection
         .query_row(
-            "SELECT parent_kind, parent_id FROM pages \
-             WHERE block_id = ?1 AND library_id = ?2 AND lifecycle <> 'deleted'",
+            "SELECT page.parent_kind, page.parent_id FROM pages page \
+             JOIN blocks block ON block.id = page.block_id AND block.library_id = page.library_id \
+             WHERE page.block_id = ?1 AND page.library_id = ?2 \
+               AND block.lifecycle <> 'deleted'",
             params![page_id, library_id],
             |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
         )
@@ -440,7 +448,13 @@ fn project_properties(
                 property_id: property_id.to_owned(),
                 name: name.to_owned(),
                 value_type,
-                value: project_property_value(value_type, config, raw_value)?,
+                value: project_property_value(
+                    property_id,
+                    raw_type,
+                    value_type,
+                    config,
+                    raw_value,
+                )?,
             })
         })
         .collect()
@@ -461,6 +475,8 @@ fn property_type(value: &str) -> Result<ProjectedPropertyTypeV1, StoreError> {
 }
 
 fn project_property_value(
+    property_id: &str,
+    storage_value_type: &str,
     value_type: ProjectedPropertyTypeV1,
     config: &Value,
     value: &Value,
@@ -488,20 +504,24 @@ fn project_property_value(
             let id = value
                 .as_str()
                 .ok_or_else(|| corrupt("Select Property value is not an option ID"))?;
-            option_identity(config, id).map(ProjectedPropertyValueV1::Identity)
+            let config = validated_option_config(property_id, storage_value_type, config)?;
+            option_identity(&config.options, id).map(ProjectedPropertyValueV1::Identity)
         }
-        ProjectedPropertyTypeV1::MultiSelect => value
-            .as_array()
-            .ok_or_else(|| corrupt("Multi-select Property value is not a sequence"))?
-            .iter()
-            .map(|value| {
-                value
-                    .as_str()
-                    .ok_or_else(|| corrupt("Multi-select Property contains a non-string ID"))
-                    .and_then(|id| option_identity(config, id))
-            })
-            .collect::<Result<Vec<_>, _>>()
-            .map(ProjectedPropertyValueV1::Identities),
+        ProjectedPropertyTypeV1::MultiSelect => {
+            let config = validated_option_config(property_id, storage_value_type, config)?;
+            value
+                .as_array()
+                .ok_or_else(|| corrupt("Multi-select Property value is not a sequence"))?
+                .iter()
+                .map(|value| {
+                    value
+                        .as_str()
+                        .ok_or_else(|| corrupt("Multi-select Property contains a non-string ID"))
+                        .and_then(|id| option_identity(&config.options, id))
+                })
+                .collect::<Result<Vec<_>, _>>()
+                .map(ProjectedPropertyValueV1::Identities)
+        }
         ProjectedPropertyTypeV1::Date => {
             let value = value
                 .as_str()
@@ -572,33 +592,45 @@ fn project_property_value(
     }
 }
 
-fn option_identity(config: &Value, id: &str) -> Result<ProjectedIdentityV1, StoreError> {
+fn validated_option_config(
+    property_id: &str,
+    value_type: &str,
+    config: &Value,
+) -> Result<crate::database::property_semantics::PropertyOptionConfig, StoreError> {
+    let config_json = serde_json::to_string(config)
+        .map_err(|_| corrupt("Property option registry cannot encode"))?;
+    crate::database::property_semantics::option_config_from_storage(
+        property_id,
+        value_type,
+        &config_json,
+    )
+}
+
+fn option_identity(
+    options: &[crate::database::property_semantics::PropertyOption],
+    id: &str,
+) -> Result<ProjectedIdentityV1, StoreError> {
     bounded_identity(id, "Property option identity")?;
-    let options = config
-        .get("options")
-        .and_then(Value::as_array)
-        .ok_or_else(|| corrupt("Select Property config has no option registry"))?;
     let option = options
         .iter()
-        .find(|option| option.get("id").and_then(Value::as_str) == Some(id))
+        .find(|option| option.id == id)
         .ok_or_else(|| corrupt("Select Property references an unknown option"))?;
-    let name = required_string(option, "name", "Property option name")?;
-    bounded_name(name, "Property option name")?;
+    bounded_name(&option.name, "Property option name")?;
     Ok(ProjectedIdentityV1 {
         id: id.to_owned(),
-        name: name.to_owned(),
+        name: option.name.clone(),
     })
 }
 
 fn project_schedule(
     connection: &Connection,
     page_id: &str,
-    storage_project_id: &str,
+    library_id: &str,
     metadata_revision: i64,
 ) -> Result<Option<ProjectedScheduleV1>, StoreError> {
     let row = connection
         .query_row(
-            "SELECT project_id, lifecycle, scheduled_start, scheduled_end, is_all_day, \
+            "SELECT library_id, lifecycle, scheduled_start, scheduled_end, is_all_day, \
                schedule_timezone, source_metadata_revision \
              FROM scheduled_page_index WHERE page_block_id = ?1",
             [page_id],
@@ -615,10 +647,12 @@ fn project_schedule(
             },
         )
         .optional()?;
-    let Some((project_id, lifecycle, start, end, all_day, timezone, source_revision)) = row else {
+    let Some((schedule_library_id, lifecycle, start, end, all_day, timezone, source_revision)) =
+        row
+    else {
         return Ok(None);
     };
-    if project_id != storage_project_id || source_revision != metadata_revision {
+    if schedule_library_id != library_id || source_revision != metadata_revision {
         return Err(corrupt("Page schedule projection is stale or mis-scoped"));
     }
     if lifecycle != "active" {
@@ -1021,7 +1055,7 @@ mod tests {
                     }]),
                 },
                 ProjectedPropertyV1 {
-                    property_id: "blocked_by".to_owned(),
+                    property_id: "p_blocked0".to_owned(),
                     name: "Blocked by".to_owned(),
                     value_type: ProjectedPropertyTypeV1::Relation,
                     value: ProjectedPropertyValueV1::Relation(ProjectedRelationSummaryV1 {
@@ -1061,7 +1095,7 @@ mod tests {
                 "    value:\n",
                 "      - id: \"native\"\n",
                 "        name: \"Native\"\n",
-                "  \"blocked_by\":\n",
+                "  \"p_blocked0\":\n",
                 "    name: \"Blocked by\"\n",
                 "    type: relation\n",
                 "    value:\n",
@@ -1089,7 +1123,7 @@ mod tests {
                 property_id: "priority".to_owned(),
                 name: "Priority".to_owned(),
                 value_type: ProjectedPropertyTypeV1::Select,
-                value: ProjectedPropertyValueV1::Text("high".to_owned()),
+                value: ProjectedPropertyValueV1::Text("o_high0000".to_owned()),
             }],
             schedule: None,
         };

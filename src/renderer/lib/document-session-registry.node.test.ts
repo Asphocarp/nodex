@@ -15,7 +15,8 @@ const descriptor = (
   generation = 1,
   headSeq = 1,
 ): OwnedDocumentDescriptor => ({
-  projectId: "project-1",
+  libraryId: "library-1",
+  accessContext: { kind: "project", projectId: "project-1" },
   ownerBlockId: "page-1",
   ownerType: "page",
   ownerLifecycle: "active",
@@ -180,7 +181,10 @@ describe("DocumentSessionRegistry", () => {
   test("does not share a DocumentSession across access scopes", async () => {
     const registry = new DocumentSessionRegistry();
     const firstRuntime = createRuntime({});
-    const secondDescriptor = { ...descriptor(), projectId: "project-2" };
+    const secondDescriptor = {
+      ...descriptor(),
+      accessContext: { kind: "project" as const, projectId: "project-2" },
+    };
     const secondRuntime = createRuntime({ descriptor: secondDescriptor });
     const first = registry.acquire({
       key: makeEditorSurfaceKey("session-1", "tab-page-1"),

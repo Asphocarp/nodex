@@ -1,5 +1,6 @@
 import type {
   DatabaseJsonValue,
+  DatabasePropertyOption,
   DatabaseViewFilterClause,
   DatabaseViewFilterNode,
   DatabaseViewSort,
@@ -42,7 +43,7 @@ const taskChoiceSummary = (
     );
   if (unchanged) return null;
   const optionNames = value.selectedOptionIds.map((optionId) =>
-    property.options.find((option) => option.id === optionId)?.name ?? optionId
+    property.options.find((option) => option.id === optionId)?.name ?? "Unknown option"
   );
   if (value.includeEmpty) optionNames.push("Empty");
   return {
@@ -55,8 +56,11 @@ const taskChoiceSummary = (
 const summarizeTaskFilter = (
   filter: DatabaseViewFilterNode,
   properties: readonly DataSourcePropertyRecordV2[],
+  optionRegistries: Readonly<Record<string, readonly DatabasePropertyOption[]>>,
 ): readonly DatabaseViewRuleSummary[] | null => {
-  const capabilities = resolveDatabaseTaskFilterCapabilities(properties);
+  const capabilities = resolveDatabaseTaskFilterCapabilities(properties, {
+    tags: optionRegistries.tags ?? [],
+  });
   const state = decodeDatabaseTaskFilter(filter, capabilities);
   if (!state) return null;
   if (state.groups.length > 1) {
@@ -87,7 +91,7 @@ const summarizeTaskFilter = (
       : group.tags.mode === "all" ? "All" : "None";
     const names = group.tags.selectedOptionIds.map((optionId) =>
       capabilities.tags?.options.find((option) => option.id === optionId)?.name
-        ?? optionId
+        ?? "Unknown option"
     );
     summaries.push({
       key: capabilities.tags.propertyId,
@@ -108,25 +112,34 @@ const collectClauses = (
 const formatValue = (
   value: DatabaseJsonValue | undefined,
   property: DataSourcePropertyRecordV2 | null,
+  optionRegistries: Readonly<Record<string, readonly DatabasePropertyOption[]>>,
 ): string => {
   if (value === undefined || value === null || value === "") return "None";
   if (typeof value === "boolean") return value ? "Checked" : "Unchecked";
   if (typeof value === "number") return String(value);
   if (Array.isArray(value)) {
-    return value.map((item) => formatValue(item, property)).join(", ");
+    return value.map((item) => formatValue(item, property, optionRegistries)).join(", ");
   }
   if (typeof value === "object") return "Configured";
+  const options = property
+    ? optionRegistries[property.propertyId] ?? readDatabasePropertyOptions(property)
+    : [];
   const option = property
-    ? readDatabasePropertyOptions(property).find((candidate) => candidate.id === value)
+    ? options.find((candidate) => candidate.id === value)
     : null;
-  return option?.name ?? value;
+  if (option) return option.name;
+  if (property?.valueType === "select" || property?.valueType === "multi_select") {
+    return "Unknown option";
+  }
+  return value;
 };
 
 export const summarizeDatabaseViewFilter = (
   filter: DatabaseViewFilterNode,
   properties: readonly DataSourcePropertyRecordV2[],
+  optionRegistries: Readonly<Record<string, readonly DatabasePropertyOption[]>> = {},
 ): readonly DatabaseViewRuleSummary[] => {
-  const taskSummaries = summarizeTaskFilter(filter, properties);
+  const taskSummaries = summarizeTaskFilter(filter, properties, optionRegistries);
   if (taskSummaries) return taskSummaries;
   const propertyById = new Map<string, DataSourcePropertyRecordV2>(
     properties.map((property) => [property.propertyId, property]),
@@ -151,7 +164,7 @@ export const summarizeDatabaseViewFilter = (
     const operator = FILTER_OPERATOR_LABELS[clause.operator];
     const value = clause.operator === "is_empty" || clause.operator === "is_not_empty"
       ? operator
-      : `${operator} ${formatValue(clause.value, property)}`;
+      : `${operator} ${formatValue(clause.value, property, optionRegistries)}`;
     return {
       key: propertyId,
       label: property?.name ?? "Missing property",

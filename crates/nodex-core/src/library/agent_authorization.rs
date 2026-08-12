@@ -514,17 +514,21 @@ pub(super) fn persist_project_grants(
                         ));
                     }
                 };
-                let table = if resource_kind == "page" {
-                    "pages"
-                } else {
-                    "database_containers"
-                };
                 let exists = connection
                     .query_row(
-                        &format!(
-                            "SELECT 1 FROM {table} WHERE block_id = ?1 AND library_id = ?2 \
-                     AND lifecycle <> 'deleted'"
-                        ),
+                        if resource_kind == "page" {
+                            "SELECT 1 FROM pages page JOIN blocks block ON block.id = page.block_id \
+                             WHERE page.block_id = ?1 AND page.library_id = ?2 \
+                               AND block.library_id = page.library_id \
+                               AND block.lifecycle <> 'deleted'"
+                        } else {
+                            "SELECT 1 FROM database_containers container \
+                             JOIN blocks block ON block.id = container.block_id \
+                             WHERE container.block_id = ?1 AND container.library_id = ?2 \
+                               AND block.library_id = container.library_id \
+                               AND container.lifecycle <> 'deleted' \
+                               AND block.lifecycle <> 'deleted'"
+                        },
                         params![resource_id, library_id],
                         |_| Ok(()),
                     )
@@ -679,18 +683,19 @@ fn resolve_coordinates(
             let page_id = connection
                 .query_row(
                     "SELECT page.block_id FROM pages page JOIN blocks page_block \
-                       ON page_block.id = page.block_id \
+                       ON page_block.id = page.block_id AND page_block.library_id = page.library_id \
                      WHERE page.block_id = ?1 AND page.library_id = ?2 \
-                       AND page.lifecycle <> 'deleted' AND page_block.lifecycle <> 'deleted' \
+                       AND page_block.lifecycle <> 'deleted' \
                      UNION ALL \
                      SELECT owner.block_id FROM blocks block \
-                     JOIN block_documents ownership \
-                       ON ownership.document_id = block.containing_document_id \
+                     JOIN document_block_index block_index ON block_index.block_id = block.id \
+                     JOIN block_documents ownership ON ownership.document_id = block_index.document_id \
                      JOIN pages owner ON owner.block_id = ownership.block_id \
                      JOIN blocks owner_block ON owner_block.id = owner.block_id \
-                     WHERE block.id = ?1 AND block.location_kind = 'document' \
+                       AND owner_block.library_id = owner.library_id \
+                     WHERE block.id = ?1 AND block.library_id = ?2 \
                        AND block.lifecycle <> 'deleted' AND owner.library_id = ?2 \
-                       AND owner.lifecycle <> 'deleted' AND owner_block.lifecycle <> 'deleted' \
+                       AND owner_block.lifecycle <> 'deleted' \
                      LIMIT 1",
                     params![id, library_id],
                     |row| row.get::<_, String>(0),
@@ -771,9 +776,10 @@ fn page_coordinates(
 ) -> Result<CoordinateResolution, StoreError> {
     let active = connection
         .query_row(
-            "SELECT 1 FROM pages page JOIN blocks block ON block.id = page.block_id \
+            "SELECT 1 FROM pages page JOIN blocks block \
+               ON block.id = page.block_id AND block.library_id = page.library_id \
              WHERE page.block_id = ?1 AND page.library_id = ?2 \
-               AND page.lifecycle <> 'deleted' AND block.lifecycle <> 'deleted'",
+               AND block.lifecycle <> 'deleted'",
             params![page_id, library_id],
             |_| Ok(()),
         )
@@ -854,12 +860,10 @@ fn coordinates_for_database_target(
 ) -> Result<CoordinateResolution, StoreError> {
     let host_page_id = connection
         .query_row(
-            "SELECT owner.block_id FROM blocks database_block \
-             JOIN block_documents ownership \
-               ON ownership.document_id = database_block.containing_document_id \
+            "SELECT owner.block_id FROM document_block_index block_index \
+             JOIN block_documents ownership ON ownership.document_id = block_index.document_id \
              JOIN pages owner ON owner.block_id = ownership.block_id \
-             WHERE database_block.id = ?1 AND database_block.location_kind = 'document' \
-               AND owner.library_id = ?2",
+             WHERE block_index.block_id = ?1 AND owner.library_id = ?2",
             params![host_database_id, library_id],
             |row| row.get::<_, String>(0),
         )
@@ -1049,9 +1053,10 @@ fn page_coordinates_batch(
             "WITH RECURSIVE ancestors(root_page_id, page_id, parent_kind, parent_id, path) AS ( \
                SELECT page.block_id, page.block_id, page.parent_kind, page.parent_id, \
                  '|' || page.block_id || '|' \
-               FROM pages page JOIN blocks block ON block.id = page.block_id \
-               WHERE page.library_id = ?1 AND page.lifecycle <> 'deleted' \
-                 AND block.lifecycle <> 'deleted' AND page.block_id IN ({placeholders}) \
+               FROM pages page JOIN blocks block \
+                 ON block.id = page.block_id AND block.library_id = page.library_id \
+               WHERE page.library_id = ?1 AND block.lifecycle <> 'deleted' \
+                 AND page.block_id IN ({placeholders}) \
                UNION ALL \
                SELECT ancestors.root_page_id, parent.block_id, parent.parent_kind, \
                  parent.parent_id, ancestors.path || parent.block_id || '|' \

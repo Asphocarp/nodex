@@ -72,7 +72,15 @@ export class DatabaseNotifier extends EventEmitter {
 
   notifyDatabaseChanged(event: DatabaseChangeEvent): void {
     this.emit("database-changed", event);
-    if (!event.libraryId) return;
+    if (
+      !event.libraryId
+      || (
+        event.affectedDatabaseIds.length === 0
+        && (event.affectedDataSourceIds?.length ?? 0) === 0
+        && (event.affectedPageIds?.length ?? 0) === 0
+        && (event.affectedViewIds?.length ?? 0) === 0
+      )
+    ) return;
     this.notifyLibraryNavigationChanged({
       version: LIBRARY_NAVIGATION_EVENT_VERSION,
       libraryId: event.libraryId,

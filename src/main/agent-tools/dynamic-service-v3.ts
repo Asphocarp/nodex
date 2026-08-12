@@ -252,15 +252,12 @@ function createPagesFootprint(
     effect: "write",
     resources: [
       destinationResource(command.input.destination),
-      `compatibility_owner:${command.destination.contentProjectId ?? command.projectId}`,
       ...command.pages.map((page) => `page:${page.pageId}`),
     ],
     deletions: [],
     transformations: command.pages.map((page) =>
-      `page.create:${page.pageId}:body-blocks:${page.bodyBlockIds.length}`
-    ).concat([
-      `owner.create:${command.destination.contentProjectId ?? command.projectId}`,
-    ]),
+      `page.create:${page.pageId}:body-blocks:${page.bodyBlockIds.length}:${command.input.destination.kind}`
+    ),
   });
 }
 
@@ -308,18 +305,16 @@ function movePagesFootprint(
     effect: "write",
     resources: [
       destinationResource(command.input.destination),
-      `compatibility_owner:${command.destination.contentProjectId ?? command.projectId}`,
       ...command.input.pageIds.map((pageId) => `page:${pageId}`),
       ...command.documentHeads.map((head) => `document:${head.documentId}`),
-      ...command.transfers.flatMap((step) => [
-        ...(step.rehome?.blockIds.map((blockId) => `block:${blockId}`) ?? []),
-        ...(step.rehome?.documentIds.map((documentId) => `document:${documentId}`) ?? []),
-      ]),
     ],
     deletions: [],
-    transformations: command.transfers.map((step) =>
-      `page.move:${step.pageId}:${step.sourceProjectId ?? command.projectId}->${step.targetProjectId ?? command.projectId}:${command.input.destination.kind}`
-    ),
+    transformations: command.transfers.map((step) => {
+      if (step.normalizedInput.mode !== "move") {
+        throw new Error("Prepared Page move contains a non-move transfer");
+      }
+      return `page.move:${step.pageId}:${step.normalizedInput.from.kind}->${command.input.destination.kind}`;
+    }),
   });
 }
 
@@ -334,12 +329,11 @@ function duplicatePageFootprint(
     resources: [
       `page:${command.input.pageId}`,
       destinationResource(command.input.destination),
-      `compatibility_owner:${command.destination.contentProjectId ?? command.projectId}`,
       ...command.documentHeads.map((head) => `document:${head.documentId}`),
     ],
     deletions: [],
     transformations: [
-      `page.duplicate:${command.input.pageId}:${command.transfer?.projectId ?? command.projectId}->${command.destination.contentProjectId ?? command.projectId}:${command.input.destination.kind}`,
+      `page.duplicate:${command.input.pageId}:${command.input.destination.kind}`,
     ],
   });
 }

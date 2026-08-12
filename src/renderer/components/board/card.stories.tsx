@@ -15,7 +15,7 @@ const SAMPLE_CARD: CardType = {
   hasDescription: true,
   priority: "p1-high",
   estimate: "m",
-  tags: ["UI", "Panels"],
+  tags: ["o_AAAAAAAA", "o_BBBBBBBB"],
   assignee: "alex",
   created: new Date("2026-06-17T12:00:00.000Z"),
   order: 0,
@@ -42,6 +42,10 @@ function CardStoryFrame({
           projectId="alpha"
           card={SAMPLE_CARD}
           columnId="build"
+          tagOptions={[
+            { id: "o_AAAAAAAA", name: "UI", color: "blue" },
+            { id: "o_BBBBBBBB", name: "Panels", color: "gray" },
+          ]}
           dragDisabled={dragDisabled}
           isPresented={isPresented}
           isKeyboardActive={isKeyboardActive}

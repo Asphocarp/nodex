@@ -11,6 +11,8 @@ type LibraryMoveableResourceTarget = Exclude<
   { readonly kind: "canvas" }
 >;
 
+type LibraryAccessResourceTarget = AnyLibraryResourceTarget;
+
 export const buildLibraryMoveOperation = (input: Readonly<{
   target: LibraryMoveableResourceTarget;
   expectedLocationRevision: number;
@@ -32,7 +34,7 @@ export const buildLibraryMoveOperation = (input: Readonly<{
 });
 
 export const buildLibraryProjectGrantOperation = (input: Readonly<{
-  target: LibraryMoveableResourceTarget;
+  target: LibraryAccessResourceTarget;
   projectId: string;
   access: "read" | "read_write";
 }>): GrantLibraryResourceToProjectOperation => ({
@@ -43,7 +45,7 @@ export const buildLibraryProjectGrantOperation = (input: Readonly<{
 });
 
 export const buildLibraryProjectAccessOperation = (input: Readonly<{
-  target: LibraryMoveableResourceTarget;
+  target: LibraryAccessResourceTarget;
   changes: SetLibraryProjectAccessOperation["changes"];
 }>): SetLibraryProjectAccessOperation => ({
   kind: "set_project_access",

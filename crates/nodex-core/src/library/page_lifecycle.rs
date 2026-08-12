@@ -14,16 +14,12 @@ struct PageAuthorityRow {
     block_type: String,
     block_lifecycle: String,
     block_metadata_revision: i64,
-    location_kind: String,
+    placement_revision: i64,
     containing_document_id: Option<String>,
-    containing_database_id: Option<String>,
     page_library_id: Option<String>,
     document_id: Option<String>,
     parent_kind: Option<String>,
     parent_id: Option<String>,
-    page_lifecycle: Option<String>,
-    page_metadata_revision: Option<i64>,
-    parent_revision: Option<i64>,
     document_generation: Option<i64>,
     document_head_seq: Option<i64>,
     document_readiness: Option<String>,
@@ -80,7 +76,9 @@ pub(super) fn read_preflight(
             page: None,
         });
     }
-    super::require_page_read_access(connection, library_id, project_id, page_id)?;
+    super::history::require_page_lifecycle_read_access(
+        connection, library_id, project_id, page_id,
+    )?;
     let page = project_page_authority(connection, library_id, page_id, row)?;
     Ok(LibraryPageLifecyclePreflight {
         version: 3,
@@ -123,8 +121,13 @@ fn read_tags_property(connection: &Connection, default_view: &Value) -> Result<V
         )
         .optional()?
         .ok_or_else(|| corrupt("Project default Data Source has no active tags Property"))?;
-    let config = serde_json::from_str::<Value>(&config_json)
-        .map_err(|_| corrupt("Project default tags Property config is invalid"))?;
+    let config = database::property_semantics::option_config_from_storage(
+        "tags",
+        "multi_select",
+        &config_json,
+    )?;
+    let config = serde_json::to_value(config)
+        .map_err(|_| corrupt("Project default tags Property config cannot encode"))?;
     Ok(json!({
         "propertyId": "tags",
         "dataSourceId": data_source_id,
@@ -141,15 +144,17 @@ fn read_page_authority(
 ) -> Result<Option<PageAuthorityRow>, StoreError> {
     connection
         .query_row(
-            "SELECT block.type, block.lifecycle, block.metadata_revision, block.location_kind, \
-               block.containing_document_id, block.containing_database_id, page.library_id, \
-               page.document_id, page.parent_kind, page.parent_id, page.lifecycle, \
-               page.metadata_revision, page.parent_revision, document.generation, \
+            "SELECT block.type, block.lifecycle, block.metadata_revision, \
+               block.placement_revision, containing.document_id, page.library_id, \
+               page.document_id, page.parent_kind, page.parent_id, document.generation, \
                document.head_seq, document.readiness, document.authority, document.schema_key, \
                document.schema_version, ownership.document_id \
              FROM blocks block LEFT JOIN pages page ON page.block_id = block.id \
              LEFT JOIN documents document ON document.id = page.document_id \
+               AND document.library_id = page.library_id \
              LEFT JOIN block_documents ownership ON ownership.block_id = block.id \
+               AND ownership.library_id = block.library_id \
+             LEFT JOIN document_block_index containing ON containing.block_id = block.id \
              WHERE block.id = ?1 LIMIT 1",
             [page_id],
             |row| {
@@ -157,23 +162,19 @@ fn read_page_authority(
                     block_type: row.get(0)?,
                     block_lifecycle: row.get(1)?,
                     block_metadata_revision: row.get(2)?,
-                    location_kind: row.get(3)?,
+                    placement_revision: row.get(3)?,
                     containing_document_id: row.get(4)?,
-                    containing_database_id: row.get(5)?,
-                    page_library_id: row.get(6)?,
-                    document_id: row.get(7)?,
-                    parent_kind: row.get(8)?,
-                    parent_id: row.get(9)?,
-                    page_lifecycle: row.get(10)?,
-                    page_metadata_revision: row.get(11)?,
-                    parent_revision: row.get(12)?,
-                    document_generation: row.get(13)?,
-                    document_head_seq: row.get(14)?,
-                    document_readiness: row.get(15)?,
-                    document_authority: row.get(16)?,
-                    document_schema_key: row.get(17)?,
-                    document_schema_version: row.get(18)?,
-                    owned_document_id: row.get(19)?,
+                    page_library_id: row.get(5)?,
+                    document_id: row.get(6)?,
+                    parent_kind: row.get(7)?,
+                    parent_id: row.get(8)?,
+                    document_generation: row.get(9)?,
+                    document_head_seq: row.get(10)?,
+                    document_readiness: row.get(11)?,
+                    document_authority: row.get(12)?,
+                    document_schema_key: row.get(13)?,
+                    document_schema_version: row.get(14)?,
+                    owned_document_id: row.get(15)?,
                 })
             },
         )
@@ -191,18 +192,11 @@ fn project_page_authority(
     let document_id = required(row.document_id.clone(), "Page has no Document identity")?;
     let parent_kind = required(row.parent_kind.clone(), "Page has no parent kind")?;
     let parent_id = required(row.parent_id.clone(), "Page has no parent identity")?;
-    let page_lifecycle = required(
-        row.page_lifecycle.clone(),
-        "Page has no lifecycle authority",
-    )?;
-    let page_metadata_revision =
-        required(row.page_metadata_revision, "Page has no metadata revision")?;
-    let parent_revision = required(row.parent_revision, "Page has no parent revision")?;
-    if page_library_id != library_id
-        || page_lifecycle != row.block_lifecycle
-        || page_metadata_revision != row.block_metadata_revision
-    {
-        return Err(corrupt("Page lifecycle projections diverge"));
+    let page_lifecycle = row.block_lifecycle.clone();
+    let page_metadata_revision = row.block_metadata_revision;
+    let parent_revision = row.placement_revision;
+    if page_library_id != library_id {
+        return Err(corrupt("Page escaped its Library authority"));
     }
     if !matches!(page_lifecycle.as_str(), "active" | "archived" | "deleted") {
         return Err(corrupt("Page lifecycle is invalid"));
@@ -222,7 +216,7 @@ fn project_page_authority(
         },
         _ => return Err(corrupt("Page parent authority is invalid")),
     };
-    validate_location(&row, &parent, connection, library_id)?;
+    validate_parent_placement(&row, &parent, connection, library_id)?;
     let library_rank_key = connection
         .query_row(
             "SELECT rank_key FROM library_block_placements \
@@ -299,23 +293,17 @@ fn project_page_authority(
     })
 }
 
-fn validate_location(
+fn validate_parent_placement(
     row: &PageAuthorityRow,
     parent: &LibraryPageLifecycleParent,
     connection: &Connection,
     library_id: &str,
 ) -> Result<(), StoreError> {
     match parent {
-        LibraryPageLifecycleParent::Library { .. }
-            if row.location_kind == "space"
-                && row.containing_document_id.is_none()
-                && row.containing_database_id.is_none() =>
-        {
+        LibraryPageLifecycleParent::Library { .. } if row.containing_document_id.is_none() => {
             Ok(())
         }
-        LibraryPageLifecycleParent::Page { page_id }
-            if row.location_kind == "document" && row.containing_database_id.is_none() =>
-        {
+        LibraryPageLifecycleParent::Page { page_id } => {
             let parent_document = connection
                 .query_row(
                     "SELECT document_id FROM pages WHERE block_id = ?1 AND library_id = ?2",
@@ -328,21 +316,8 @@ fn validate_location(
             }
             Err(corrupt("Nested Page location and parent Document diverge"))
         }
-        LibraryPageLifecycleParent::DataSource { data_source_id }
-            if row.location_kind == "database" && row.containing_document_id.is_none() =>
-        {
-            let database_id = connection
-                .query_row(
-                    "SELECT home_database_block_id FROM data_sources \
-                         WHERE id = ?1 AND library_id = ?2",
-                    params![data_source_id, library_id],
-                    |row| row.get::<_, String>(0),
-                )
-                .optional()?;
-            if database_id == row.containing_database_id {
-                return Ok(());
-            }
-            Err(corrupt("Data Source Page location and Database diverge"))
+        LibraryPageLifecycleParent::DataSource { .. } if row.containing_document_id.is_none() => {
+            Ok(())
         }
         _ => Err(corrupt("Page parent and Block location diverge")),
     }

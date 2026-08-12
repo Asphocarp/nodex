@@ -151,6 +151,14 @@ pub(crate) fn payload_claims(
                     .cloned()
                     .map(|view_id| ResourceKey::View { view_id }),
             );
+            claims.extend(
+                event
+                    .personal_view_changes
+                    .iter()
+                    .map(|change| ResourceKey::View {
+                        view_id: change.view_id().to_owned(),
+                    }),
+            );
         }
         DeliveryAtomPayload::OwnedDocument {
             library_id,
@@ -344,6 +352,7 @@ fn compile_database(library_id: &str, event: DatabaseEvent) -> Vec<DeliveryAtomD
             Vec::new(),
             Vec::new(),
             Vec::new(),
+            Vec::new(),
         ));
     }
     for data_source_id in &event.data_source_ids {
@@ -355,6 +364,7 @@ fn compile_database(library_id: &str, event: DatabaseEvent) -> Vec<DeliveryAtomD
             }]),
             Vec::new(),
             vec![data_source_id.clone()],
+            Vec::new(),
             Vec::new(),
             Vec::new(),
         ));
@@ -370,6 +380,7 @@ fn compile_database(library_id: &str, event: DatabaseEvent) -> Vec<DeliveryAtomD
             Vec::new(),
             vec![page_id.clone()],
             Vec::new(),
+            Vec::new(),
         ));
     }
     for view_id in &event.view_ids {
@@ -383,6 +394,21 @@ fn compile_database(library_id: &str, event: DatabaseEvent) -> Vec<DeliveryAtomD
             Vec::new(),
             Vec::new(),
             vec![view_id.clone()],
+            Vec::new(),
+        ));
+    }
+    for change in &event.personal_view_changes {
+        atoms.push(database_atom(
+            library_id,
+            &event,
+            base.iter().cloned().chain([ResourceKey::View {
+                view_id: change.view_id().to_owned(),
+            }]),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            vec![change.clone()],
         ));
     }
     if atoms.is_empty() {
@@ -390,6 +416,7 @@ fn compile_database(library_id: &str, event: DatabaseEvent) -> Vec<DeliveryAtomD
             library_id,
             &event,
             base,
+            Vec::new(),
             Vec::new(),
             Vec::new(),
             Vec::new(),
@@ -407,6 +434,7 @@ fn database_atom(
     data_source_ids: Vec<String>,
     page_ids: Vec<String>,
     view_ids: Vec<String>,
+    personal_view_changes: Vec<nodex_core_contracts::database::DatabasePersonalViewChange>,
 ) -> DeliveryAtomDraft {
     atom(
         DeliveryAtomKind::DatabaseChanged,
@@ -420,6 +448,7 @@ fn database_atom(
                 data_source_ids,
                 page_ids,
                 view_ids,
+                personal_view_changes,
             },
         },
     )
@@ -712,7 +741,9 @@ fn corrupt(message: &str) -> StoreError {
 
 #[cfg(test)]
 mod tests {
-    use nodex_core_contracts::database::DatabaseEventKind;
+    use nodex_core_contracts::database::{
+        DatabaseEventKind, DatabasePersonalViewChange, DatabaseViewDisclosureTarget,
+    };
 
     use super::*;
 
@@ -730,6 +761,7 @@ mod tests {
                 data_source_ids: Vec::new(),
                 page_ids: vec!["page:visible".to_owned(), "page:hidden".to_owned()],
                 view_ids: Vec::new(),
+                personal_view_changes: Vec::new(),
             }),
         )
         .expect("compile atoms");
@@ -742,6 +774,50 @@ mod tests {
             );
             assert_eq!(atom.required_resources.len(), 3);
         }
+    }
+
+    #[test]
+    fn personal_database_event_is_view_authorized_without_shared_projection_ids() {
+        let connection = Connection::open_in_memory().expect("in-memory compiler store");
+        let change = DatabasePersonalViewChange::OccurrenceDisclosure {
+            view_id: "view:personal".to_owned(),
+            target: DatabaseViewDisclosureTarget::Page {
+                occurrence_key: "ITEM_parent/child".to_owned(),
+            },
+            collapsed: true,
+        };
+        let atoms = compile(
+            &connection,
+            "library:test",
+            "project:test",
+            CoreModuleEventPayload::Database(DatabaseEvent {
+                kind: DatabaseEventKind::DatabaseChanged,
+                project_id: Some("project:test".to_owned()),
+                database_ids: Vec::new(),
+                data_source_ids: Vec::new(),
+                page_ids: Vec::new(),
+                view_ids: Vec::new(),
+                personal_view_changes: vec![change.clone()],
+            }),
+        )
+        .expect("compile personal View atom");
+
+        assert_eq!(atoms.len(), 1);
+        assert!(atoms[0].required_resources.contains(&ResourceKey::View {
+            view_id: "view:personal".to_owned(),
+        }));
+        let DeliveryAtomPayload::Database { event, .. } = &atoms[0].payload else {
+            panic!("expected Database atom");
+        };
+        assert!(event.database_ids.is_empty());
+        assert!(event.data_source_ids.is_empty());
+        assert!(event.page_ids.is_empty());
+        assert!(event.view_ids.is_empty());
+        assert_eq!(event.personal_view_changes, vec![change]);
+        assert_eq!(
+            payload_claims(&atoms[0].payload).unwrap(),
+            atoms[0].required_resources
+        );
     }
 
     #[test]

@@ -3,7 +3,10 @@ import {
   resolveRendererTransport,
 } from "./renderer-transport";
 import type { IpcApi } from "../../shared/ipc-api";
-import type { ContentAccessContext } from "../../shared/content-access-context";
+import type {
+  ContentAccessContext,
+  ContentAccessIdentity,
+} from "../../shared/content-access-context";
 import {
   isCursorRejectionCode,
   type CoreReadError,
@@ -29,8 +32,8 @@ import type {
   CanvasSceneCompactionRequest,
 } from "../../shared/block-documents/canvas-scene-maintenance";
 import type {
-  LibraryOwnedDocumentDescriptor,
-  OwnedDocumentDescriptor,
+  LibraryAccessedDocumentDescriptor,
+  ProjectAccessedDocumentDescriptor,
 } from "../../shared/block-documents/contracts";
 import type { DocumentSyncCommandResult } from "../../shared/block-documents/document-sync";
 import type {
@@ -146,12 +149,20 @@ export function createLibraryDocumentSyncAdapter(): DocumentSyncAdapter {
   throw new Error("Library Document sync is unavailable for this renderer transport");
 }
 
+export function createDocumentSyncAdapterForContentAccess(
+  accessContext: ContentAccessContext,
+): DocumentSyncAdapter {
+  return accessContext.kind === "project"
+    ? createDocumentSyncAdapter(accessContext.projectId)
+    : createLibraryDocumentSyncAdapter();
+}
+
 export function createCanvasSceneSyncAdapter(
-  projectId: string,
+  identity: ContentAccessIdentity,
 ): CanvasSceneSyncAdapter {
   const transport = resolveRendererTransport();
   const createAdapter = transport.createCanvasSceneSyncAdapter;
-  if (createAdapter) return createAdapter(projectId);
+  if (createAdapter) return createAdapter(identity);
   throw new Error("Canvas scene sync is unavailable for this renderer transport");
 }
 
@@ -173,7 +184,7 @@ export function compactCanvasScene(
 export function getOwnedDocumentDescriptor(
   projectId: string,
   ownerBlockId: string,
-): Promise<OwnedDocumentDescriptor> {
+): Promise<ProjectAccessedDocumentDescriptor> {
   return resolveRendererTransport().getOwnedDocumentDescriptor(
     projectId,
     ownerBlockId,
@@ -183,7 +194,7 @@ export function getOwnedDocumentDescriptor(
 export function prepareOwnedBlockDocument(
   projectId: string,
   ownerBlockId: string,
-): Promise<DocumentSyncCommandResult<OwnedDocumentDescriptor>> {
+): Promise<DocumentSyncCommandResult<ProjectAccessedDocumentDescriptor>> {
   return resolveRendererTransport().prepareOwnedBlockDocument(
     projectId,
     ownerBlockId,
@@ -192,8 +203,19 @@ export function prepareOwnedBlockDocument(
 
 export function prepareLibraryOwnedBlockDocument(
   ownerBlockId: string,
-): Promise<DocumentSyncCommandResult<LibraryOwnedDocumentDescriptor>> {
+): Promise<DocumentSyncCommandResult<LibraryAccessedDocumentDescriptor>> {
   return resolveRendererTransport().prepareLibraryOwnedBlockDocument(ownerBlockId);
+}
+
+export function prepareOwnedBlockDocumentForContentAccess(
+  accessContext: ContentAccessContext,
+  ownerBlockId: string,
+): Promise<DocumentSyncCommandResult<
+  ProjectAccessedDocumentDescriptor | LibraryAccessedDocumentDescriptor
+>> {
+  return accessContext.kind === "project"
+    ? prepareOwnedBlockDocument(accessContext.projectId, ownerBlockId)
+    : prepareLibraryOwnedBlockDocument(ownerBlockId);
 }
 
 export async function mutateDocument(

@@ -607,7 +607,7 @@ fn concurrent_launchers_reuse_one_authenticated_profile_core() {
         "intent": [{
             "kind": "put_property",
             "data_source_id": SOURCE_ID,
-            "property_id": "risk",
+            "property_id": "p_risk0000",
             "expected_data_source_revision": 1,
             "expected_property_revision": 0,
             "name": "Risk",

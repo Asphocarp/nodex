@@ -8,18 +8,13 @@ import type { DatabasePageSummary } from "@/lib/types";
 import { useProjects } from "@/lib/use-projects";
 import { resolveReferencedProjectContext } from "@/lib/referenced-project-context";
 import {
-  blockDocumentSurfaceDependenciesForContentAccess,
-  ownedBlockDocumentQueryDependenciesForContentAccess,
-} from "@/lib/content-access-document-dependencies";
-import {
-  projectContentAccess,
+  libraryContentAccess,
   projectIdFromContentAccessContext,
 } from "../../../../shared/content-access-context";
 import { NfmEditor } from "./nfm-editor";
 import { PAGE_DESCRIPTION_PLACEHOLDER } from "@/lib/page-description-placeholder";
 
 export interface EmbeddedReferencedPageDocumentProps {
-  readonly documentScopeId: string;
   readonly card: DatabasePageSummary;
   readonly isActive: boolean;
   readonly hostRuntime: BlockReferenceHostRuntime | null;
@@ -34,13 +29,12 @@ const stopNestedEditorEvent = (event: SyntheticEvent): void => {
  * collapsed reference pays neither the NfmEditor bundle cost nor a provider.
  */
 export function EmbeddedReferencedPageDocument({
-  documentScopeId,
   card,
   isActive,
   hostRuntime,
 }: EmbeddedReferencedPageDocumentProps) {
   const contentAccessContext = hostRuntime?.contentAccessContext
-    ?? projectContentAccess(documentScopeId);
+    ?? libraryContentAccess;
   const executionProjectId = projectIdFromContentAccessContext(
     contentAccessContext,
   );
@@ -52,15 +46,10 @@ export function EmbeddedReferencedPageDocument({
   const targetLibraryId = projects.find(
     (project) => project.id === executionProjectId,
   )?.libraryId ?? projects[0]?.libraryId;
-  const queryDependencies =
-    ownedBlockDocumentQueryDependenciesForContentAccess(contentAccessContext);
-  const surfaceDependencies =
-    blockDocumentSurfaceDependenciesForContentAccess(contentAccessContext);
   return (
     <OwnedBlockDocumentBoundary
-      projectId={documentScopeId}
+      accessContext={contentAccessContext}
       ownerBlockId={card.id}
-      dependencies={queryDependencies}
     >
       {(model, controls) => {
         if (model.status === "loading") {
@@ -82,12 +71,10 @@ export function EmbeddedReferencedPageDocument({
         }
         return (
           <BlockDocumentSurface
-            projectId={documentScopeId}
             descriptor={model.descriptor}
             pageTitleIdentity={targetLibraryId
               ? { libraryId: targetLibraryId, pageId: card.id }
               : undefined}
-            dependencies={surfaceDependencies}
             isActive={isActive}
             onReload={controls.reload}
             localAwarenessState={{
@@ -122,7 +109,6 @@ export function EmbeddedReferencedPageDocument({
                 </div>
                 <NfmEditor
                   contentAccessContext={contentAccessContext}
-                  documentScopeId={documentScopeId}
                   projectName={targetProject.projectName}
                   projectWorkspacePath={targetProject.projectWorkspacePath}
                   source={{

@@ -5,8 +5,7 @@ use std::path::Path;
 use nodex_core_contracts::collection::{CollectionWindowRequest, MAX_COLLECTION_WINDOW_ITEMS};
 use nodex_core_contracts::database::{
     DatabaseGroupScope, DatabasePropertyDescriptor, DatabasePropertySchema, DatabaseRead,
-    DatabaseReadMode, DatabaseReadValue, DatabaseTarget, DatabaseViewContext,
-    DatabaseViewContextRow,
+    DatabaseReadValue, DatabaseViewContext, DatabaseViewContextRow, DatabaseViewDefinition,
 };
 use nodex_core_contracts::workspace::ProjectWorkspaceProject;
 use nodex_core_protocol::client::CoreClient;
@@ -48,16 +47,12 @@ pub(crate) fn query(
     };
     let snapshot = unwrap_database(client.database_read(
         Some(&project.id),
-        DatabaseRead {
-            target: DatabaseTarget::View { view_id },
-            mode: DatabaseReadMode::ViewContext,
-            filter: None,
-            sort: None,
-            window: Some(CollectionWindowRequest {
+        DatabaseRead::ViewContext {
+            view_id,
+            window: CollectionWindowRequest {
                 after: arguments.after,
                 first: arguments.limit,
-            }),
-            page_ids: None,
+            },
             group_scope,
         },
     ))?;
@@ -94,17 +89,11 @@ pub(crate) fn resolve_view_selector(
     loop {
         let snapshot = unwrap_database(client.database_read(
             Some(&project.id),
-            DatabaseRead {
-                target: DatabaseTarget::ProjectDefault,
-                mode: DatabaseReadMode::CatalogWindow,
-                filter: None,
-                sort: None,
-                window: Some(CollectionWindowRequest {
+            DatabaseRead::CatalogWindow {
+                window: CollectionWindowRequest {
                     after: database_cursor,
                     first: Some(MAX_COLLECTION_WINDOW_ITEMS),
-                }),
-                page_ids: None,
-                group_scope: None,
+                },
             },
         ))?;
         let DatabaseReadValue::CatalogWindow { databases } = snapshot.value else {
@@ -113,8 +102,7 @@ pub(crate) fn resolve_view_selector(
             ));
         };
         for database in databases.items {
-            let database_id = required_string(&database, "/database/databaseId")?;
-            database_ids.push(database_id);
+            database_ids.push(database.database.database_id);
             enforce_candidate_budget(database_ids.len())?;
         }
         let Some(next_cursor) = databases.next_cursor else {
@@ -129,29 +117,22 @@ pub(crate) fn resolve_view_selector(
         loop {
             let snapshot = unwrap_database(client.database_read(
                 Some(&project.id),
-                DatabaseRead {
-                    target: DatabaseTarget::Database {
-                        database_id: database_id.clone(),
-                    },
-                    mode: DatabaseReadMode::ViewDescriptorWindow,
-                    filter: None,
-                    sort: None,
-                    window: Some(CollectionWindowRequest {
+                DatabaseRead::ViewDescriptorWindow {
+                    database_id: database_id.clone(),
+                    window: CollectionWindowRequest {
                         after: view_cursor,
                         first: Some(MAX_COLLECTION_WINDOW_ITEMS),
-                    }),
-                    page_ids: None,
-                    group_scope: None,
+                    },
                 },
             ))?;
             let DatabaseReadValue::ViewDescriptorWindow { views } = snapshot.value else {
                 return Err(internal("Core returned the wrong View descriptor window"));
             };
             for view in views.items {
-                if view.get("name").and_then(Value::as_str) != Some(selector) {
+                if view.name != selector {
                     continue;
                 }
-                matches.push(required_string(&view, "/viewId")?);
+                matches.push(view.view_id);
                 enforce_candidate_budget(matches.len())?;
             }
             let Some(next_cursor) = views.next_cursor else {
@@ -206,14 +187,6 @@ fn validate_group_key(value: String) -> Result<String, CliError> {
     validate_stable_id(&value, "View group key")
 }
 
-fn required_string(value: &Value, pointer: &str) -> Result<String, CliError> {
-    value
-        .pointer(pointer)
-        .and_then(Value::as_str)
-        .map(str::to_owned)
-        .ok_or_else(|| internal(format!("Core descriptor omitted {pointer}")))
-}
-
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ViewQueryOutput {
@@ -244,7 +217,7 @@ struct ViewIdentity {
     database_id: String,
     data_source_id: String,
     grouping_property_id: Option<String>,
-    config: Value,
+    config: DatabaseViewDefinition,
 }
 
 #[derive(Debug, Serialize)]
@@ -296,8 +269,11 @@ fn read_group_labels(
 ) -> Result<BTreeMap<String, String>, CliError> {
     let Some(property_id) = context
         .view
-        .pointer("/config/group/propertyId")
-        .and_then(Value::as_str)
+        .definition
+        .presentation
+        .group
+        .as_ref()
+        .map(|group| group.property_id.as_str())
     else {
         return Ok(BTreeMap::new());
     };
@@ -319,33 +295,20 @@ fn read_group_labels(
     loop {
         let snapshot = unwrap_database(client.database_read(
             Some(project_id),
-            DatabaseRead {
-                target: DatabaseTarget::Property {
-                    data_source_id: property.data_source_id.clone(),
-                    property_id: property.property_id.clone(),
-                },
-                mode: DatabaseReadMode::OptionWindow,
-                filter: None,
-                sort: None,
-                window: Some(CollectionWindowRequest {
+            DatabaseRead::OptionWindow {
+                data_source_id: property.data_source_id.clone(),
+                property_id: property.property_id.clone(),
+                window: CollectionWindowRequest {
                     after,
                     first: Some(MAX_COLLECTION_WINDOW_ITEMS),
-                }),
-                page_ids: None,
-                group_scope: None,
+                },
             },
         ))?;
         let DatabaseReadValue::OptionWindow { options } = snapshot.value else {
             return Err(internal("Core returned the wrong Property option window"));
         };
         for option in options.items {
-            let Some(id) = option.get("id").and_then(Value::as_str) else {
-                return Err(internal("Core Property option omitted id"));
-            };
-            let Some(name) = option.get("name").and_then(Value::as_str) else {
-                return Err(internal("Core Property option omitted name"));
-            };
-            labels.insert(id.to_owned(), name.to_owned());
+            labels.insert(option.id, option.name);
         }
         let Some(cursor) = options.next_cursor else {
             return Ok(labels);
@@ -359,18 +322,20 @@ fn project_context(
     labels: BTreeMap<String, String>,
 ) -> Result<ViewQueryOutput, CliError> {
     let database = NamedIdentity {
-        id: required_string(&context.database, "/databaseId")?,
-        name: required_string(&context.database, "/name")?,
+        id: context.database.database_id,
+        name: context.database.name,
     };
     let data_source = NamedIdentity {
-        id: required_string(&context.data_source, "/dataSourceId")?,
-        name: required_string(&context.data_source, "/name")?,
+        id: context.data_source.data_source_id,
+        name: context.data_source.name,
     };
     let grouping_property_id = context
         .view
-        .pointer("/config/group/propertyId")
-        .and_then(Value::as_str)
-        .map(str::to_owned);
+        .definition
+        .presentation
+        .group
+        .as_ref()
+        .map(|group| group.property_id.clone());
     let groups = context
         .groups
         .groups
@@ -392,16 +357,12 @@ fn project_context(
         })
         .collect();
     let view = ViewIdentity {
-        id: required_string(&context.view, "/viewId")?,
-        name: required_string(&context.view, "/name")?,
-        database_id: required_string(&context.view, "/databaseId")?,
-        data_source_id: required_string(&context.view, "/dataSourceId")?,
+        id: context.view.view_id,
+        name: context.view.name,
+        database_id: context.view.database_id,
+        data_source_id: context.view.data_source_id,
         grouping_property_id,
-        config: context
-            .view
-            .get("config")
-            .cloned()
-            .ok_or_else(|| internal("Core View descriptor omitted config"))?,
+        config: context.view.definition,
     };
     let rows = context.rows.items.into_iter().map(project_row).collect();
     let end_cursor = context.rows.next_cursor;
@@ -495,29 +456,66 @@ mod tests {
     #[test]
     fn context_projection_uses_option_labels_and_preserves_stable_group_keys() {
         let context = DatabaseViewContext {
-            database: json!({ "databaseId": "database-1", "name": "Work" }),
-            data_source: json!({ "dataSourceId": "source-1", "name": "Tasks" }),
-            view: json!({
-                "viewId": "view-1",
+            database: serde_json::from_value(json!({
+                "database_id": "database-1",
+                "library_id": "library-1",
+                "name": "Work",
+                "lifecycle": "active",
+                "default_view_id": "view-1",
+                "access_revision": 1,
+                "metadata_revision": 1,
+                "created_at": "2026-08-04T00:00:00.000Z",
+                "updated_at": "2026-08-04T00:00:00.000Z"
+            }))
+            .expect("Database record"),
+            data_source: serde_json::from_value(json!({
+                "data_source_id": "source-1",
+                "library_id": "library-1",
+                "home_database_id": "database-1",
+                "name": "Tasks",
+                "schema_key": "nodex.database",
+                "schema_revision": 1,
+                "lifecycle": "active",
+                "rank_key": "a",
+                "created_at": "2026-08-04T00:00:00.000Z",
+                "updated_at": "2026-08-04T00:00:00.000Z"
+            }))
+            .expect("Data Source record"),
+            view: serde_json::from_value(json!({
+                "view_id": "view-1",
                 "name": "Planning",
-                "defaultLayout": "board",
-                "databaseId": "database-1",
-                "dataSourceId": "source-1",
-                "config": {
+                "layout": "board",
+                "database_id": "database-1",
+                "data_source_id": "source-1",
+                "definition": {
                     "filter": { "kind": "group", "operator": "and", "children": [] },
-                    "sort": [],
-                    "group": { "propertyId": "status" },
-                    "display": { "propertyIds": ["status"], "showTitle": true }
-                }
-            }),
+                    "presentation": {
+                        "sort": [],
+                        "group": { "propertyId": "status" },
+                        "subgroup": null,
+                        "groupDirection": "asc",
+                        "completion": { "range": "all", "orderByRecency": false },
+                        "hierarchy": { "showSubPages": true, "nestedSubPages": false },
+                        "layouts": {
+                            "board": { "fields": [], "showEmptyGroups": false },
+                            "list": { "fields": [], "showEmptyGroups": false }
+                        }
+                    }
+                },
+                "is_default": true,
+                "revision": 1,
+                "rank_key": "a",
+                "lifecycle": "active",
+                "created_at": "2026-08-04T00:00:00.000Z",
+                "updated_at": "2026-08-04T00:00:00.000Z"
+            }))
+            .expect("View record"),
             properties: vec![DatabasePropertyDescriptor {
                 property_id: "status".to_owned(),
                 data_source_id: "source-1".to_owned(),
                 name: "Status".to_owned(),
                 schema: DatabasePropertySchema::Select,
                 capabilities: DatabasePropertyCapabilities {
-                    replace: true,
-                    patch_set_member: None,
                     filter_operators: vec![
                         DatabasePropertyFilterOperator::Equals,
                         DatabasePropertyFilterOperator::NotEquals,
@@ -606,7 +604,6 @@ mod tests {
             description_length: 0,
             has_description: false,
             database_values: BTreeMap::from([("status".to_owned(), json!("triage"))]),
-            database_display_values: BTreeMap::from([("status".to_owned(), json!("triage"))]),
             intrinsic_properties: BTreeMap::new(),
             database_value_revisions: BTreeMap::from([("status".to_owned(), 1)]),
             metadata_revision: 1,

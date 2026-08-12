@@ -1,13 +1,10 @@
 use std::path::Path;
 use std::process::Command;
 
-use nodex_core_contracts::database::{
-    DatabaseRead, DatabaseReadMode, DatabaseReadValue, DatabaseTarget,
-};
+use nodex_core_contracts::database::{DatabaseRead, DatabaseReadValue, DatabaseViewRecord};
 use nodex_core_contracts::library::{LibraryRead, LibraryReadValue};
 use nodex_core_protocol::client::CoreClient;
 use serde::Serialize;
-use serde_json::Value;
 
 use crate::cli::OpenResourceArgs;
 use crate::deeplink::{NodexDeepLinkKind, build};
@@ -91,16 +88,8 @@ pub(crate) fn view(
     let view_id = resolve_view_selector(client, &project, &arguments.resource)?;
     let snapshot = unwrap_database(client.database_read(
         Some(&project.id),
-        DatabaseRead {
-            target: DatabaseTarget::View {
-                view_id: view_id.clone(),
-            },
-            mode: DatabaseReadMode::View,
-            filter: None,
-            sort: None,
-            window: None,
-            page_ids: None,
-            group_scope: None,
+        DatabaseRead::View {
+            view_id: view_id.clone(),
         },
     ))?;
     let DatabaseReadValue::View { value } = snapshot.value else {
@@ -116,11 +105,11 @@ pub(crate) fn view(
     )
 }
 
-fn validate_view_descriptor(value: &Value, view_id: &str) -> Result<(), CliError> {
-    if value.get("viewId").and_then(Value::as_str) != Some(view_id) {
+fn validate_view_descriptor(value: &DatabaseViewRecord, view_id: &str) -> Result<(), CliError> {
+    if value.view_id != view_id {
         return Err(internal("Core View open validation escaped its identity"));
     }
-    if value.get("lifecycle").and_then(Value::as_str) != Some("active") {
+    if value.lifecycle != "active" {
         return Err(CliError::new(
             CliErrorCode::ScopeNotFound,
             "the requested Database View is not active",

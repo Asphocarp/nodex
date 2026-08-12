@@ -79,6 +79,34 @@ describe("database View rule summaries", () => {
     }]);
   });
 
+  test("resolves tag identities only through the bounded option registry", () => {
+    const tags: DataSourcePropertyRecordV2 = {
+      ...property("tags", "Tags"),
+      ...testPropertySemantics("multi_select", 1),
+      valueType: "multi_select",
+      config: {},
+    };
+    const filter = {
+      kind: "clause" as const,
+      propertyId: "tags",
+      operator: "contains" as const,
+      value: "o_AAAAAAAA",
+    };
+
+    expect(summarizeDatabaseViewFilter(filter, [tags], {
+      tags: [{ id: "o_AAAAAAAA", name: "Product" }],
+    })).toEqual([{
+      key: "tags",
+      label: "Tags",
+      value: "Any: Product",
+    }]);
+    expect(summarizeDatabaseViewFilter(filter, [tags])).toEqual([{
+      key: "tags",
+      label: "Tags",
+      value: "Any: Unknown option",
+    }]);
+  });
+
   test("treats only canonical manual ordering as the default", () => {
     expect(hasCustomDatabaseViewSort([{
       field: { kind: "manual" },

@@ -90,9 +90,16 @@ export const materializePageCreateDescription = (
 export const resolvePageCreateTagNames = (
   selectedIds: readonly string[],
   options: readonly DatabasePropertyOption[],
-): string[] => {
+): string[] => resolvePageCreateTagOptions(selectedIds, options).map(
+  (option) => option.name,
+);
+
+export const resolvePageCreateTagOptions = (
+  selectedIds: readonly string[],
+  options: readonly DatabasePropertyOption[],
+): NonNullable<PageCreateInput["tagOptions"]> => {
   const optionById = new Map(options.map((option) => [option.id, option]));
-  const names = selectedIds.map((selectedId) => {
+  const selected = selectedIds.map((selectedId) => {
     const option = optionById.get(selectedId);
     if (!option) {
       throw new Error("A selected tag is no longer available");
@@ -101,10 +108,14 @@ export const resolvePageCreateTagNames = (
     if (!name) {
       throw new Error("Tags must have a name");
     }
-    return name;
+    return { optionId: option.id, name };
   });
-
-  return [...new Set(names)];
+  const seenNames = new Set<string>();
+  return selected.filter((option) => {
+    if (seenNames.has(option.name)) return false;
+    seenNames.add(option.name);
+    return true;
+  });
 };
 
 const resolveRecoverablePageCreateTagNames = (
@@ -137,7 +148,7 @@ export const buildPageCreateInput = ({
     description: materializePageCreateDescription(descriptionDraft),
     priority: priority ?? undefined,
     estimate: estimate ?? undefined,
-    tags: resolvePageCreateTagNames(selectedTagIds, tagOptions),
+    tagOptions: resolvePageCreateTagOptions(selectedTagIds, tagOptions),
   };
   return capabilities
     ? gatePageCreateInputByCapabilities(input, capabilities)

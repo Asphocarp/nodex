@@ -69,13 +69,11 @@ export interface NodexAgentDocumentHead {
 
 export type PreparedNodexAgentCreateDestination =
   | {
-      readonly kind: "space";
-      readonly contentProjectId?: string;
+      readonly kind: "library";
       readonly beforeBlockId?: string;
     }
   | {
       readonly kind: "document";
-      readonly contentProjectId?: string;
       readonly documentId: string;
       readonly generation: number;
       readonly expectedHeadSeq: number;
@@ -83,10 +81,7 @@ export type PreparedNodexAgentCreateDestination =
       readonly beforeBlockId?: string;
     }
   | {
-      readonly kind: "database";
-      readonly contentProjectId?: string;
-      readonly databaseBlockId: string;
-      /** Canonical owner coordinate. Database identity alone is ambiguous. */
+      readonly kind: "data_source";
       readonly dataSourceId: string;
       readonly schemaRevision: number;
       readonly view?: {

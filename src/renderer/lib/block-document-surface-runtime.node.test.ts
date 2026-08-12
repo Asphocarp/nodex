@@ -30,7 +30,8 @@ import { BlockDocumentSurfaceError } from "./block-document-surface-failure";
 const descriptor = (
   overrides: Partial<OwnedDocumentDescriptor> = {},
 ): OwnedDocumentDescriptor => ({
-  projectId: "project-1",
+  libraryId: "library-1",
+  accessContext: { kind: "project", projectId: "project-1" },
   ownerBlockId: "card-1",
   ownerType: "page",
   ownerLifecycle: "active",

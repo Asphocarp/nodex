@@ -92,19 +92,21 @@ pub(super) fn page_content(
     validate_identity(page_id, "Page content identity")?;
     let row = connection
         .query_row(
-            "SELECT page.block_id, page.metadata_revision, page.document_id, \
+            "SELECT page.block_id, owner.metadata_revision, page.document_id, \
                document.generation, document.head_seq, document.schema_key, \
                document.schema_version, document.readiness, materialization.generation, \
                materialization.projected_seq, materialization.schema_version, \
                materialization.title, materialization.title_rich_json, materialization.nfm, \
                materialization.plain_text, materialization.preview, \
                materialization.references_json, materialization.asset_refs_json \
-             FROM pages page JOIN blocks owner ON owner.id = page.block_id \
-             JOIN documents document ON document.id = page.document_id \
+             FROM pages page JOIN blocks owner \
+               ON owner.id = page.block_id AND owner.library_id = page.library_id \
+             JOIN documents document \
+               ON document.id = page.document_id AND document.library_id = page.library_id \
              LEFT JOIN document_materializations materialization \
                ON materialization.document_id = document.id \
              WHERE page.block_id = ?1 AND page.library_id = ?2 \
-               AND page.lifecycle <> 'deleted' AND owner.lifecycle <> 'deleted'",
+               AND owner.lifecycle <> 'deleted'",
             params![page_id, library_id],
             |row| {
                 Ok(RawPageContent {
@@ -238,7 +240,6 @@ pub(super) fn search(
         "owner.lifecycle <> 'deleted'".to_owned(),
         "owner.type = 'page'".to_owned(),
         "owner_page.library_id = ?".to_owned(),
-        "owner_page.lifecycle <> 'deleted'".to_owned(),
     ];
     let mut parameters = vec![
         SqlValue::Text(match_query),
@@ -246,7 +247,6 @@ pub(super) fn search(
     ];
     if !include_archived {
         conditions.push("owner.lifecycle = 'active'".to_owned());
-        conditions.push("owner_page.lifecycle = 'active'".to_owned());
     }
     conditions.push(format!(
         "unit.source_kind IN ({})",
@@ -285,7 +285,7 @@ pub(super) fn search(
 
     let sql = format!(
         "WITH ranked AS (\
-           SELECT unit.project_id, unit.owner_block_id, unit.document_id, unit.block_id, \
+           SELECT unit.library_id, unit.owner_block_id, unit.document_id, unit.block_id, \
              source.type AS block_type, unit.document_generation, unit.projected_seq, \
              unit.source_kind, unit.field_key, \
              snippet(block_search_units_fts, 0, char(2), char(3), '…', 32) AS excerpt, \
@@ -293,15 +293,15 @@ pub(super) fn search(
            FROM block_search_units_fts \
            JOIN block_search_units unit ON unit.rowid = block_search_units_fts.rowid \
            JOIN documents document ON document.id = unit.document_id \
-             AND document.project_id = unit.project_id \
+             AND document.library_id = unit.library_id \
            JOIN blocks source ON source.id = unit.block_id \
-             AND source.project_id = unit.project_id \
+             AND source.library_id = unit.library_id \
            JOIN blocks owner ON owner.id = unit.owner_block_id \
-             AND owner.project_id = unit.project_id \
+             AND owner.library_id = unit.library_id \
            JOIN pages owner_page ON owner_page.block_id = owner.id \
            WHERE {}\
          ) \
-         SELECT project_id, owner_block_id, document_id, block_id, block_type, \
+         SELECT library_id, owner_block_id, document_id, block_id, block_type, \
            document_generation, projected_seq, source_kind, field_key, excerpt, rank, search_rowid \
          FROM ranked \
          WHERE ? = 0 OR (rank, owner_block_id, block_id, search_rowid) > (?, ?, ?, ?) \
@@ -412,11 +412,11 @@ pub(super) fn project_page_search(
              FROM block_search_units_fts \
              JOIN block_search_units unit ON unit.rowid = block_search_units_fts.rowid \
              JOIN documents document ON document.id = unit.document_id \
-               AND document.project_id = unit.project_id \
+               AND document.library_id = unit.library_id \
              JOIN blocks source ON source.id = unit.block_id \
-               AND source.project_id = unit.project_id \
+               AND source.library_id = unit.library_id \
              JOIN blocks owner ON owner.id = unit.owner_block_id \
-               AND owner.project_id = unit.project_id \
+               AND owner.library_id = unit.library_id \
              JOIN pages owner_page ON owner_page.block_id = owner.id \
              JOIN document_materializations owner_materialization \
                ON owner_materialization.document_id = owner_page.document_id \
@@ -429,7 +429,6 @@ pub(super) fn project_page_search(
                AND owner.lifecycle = 'active' \
                AND owner.type = 'page' \
                AND owner_page.library_id = ?2 \
-               AND owner_page.lifecycle = 'active' \
                AND unit.source_kind IN ('document_title', 'document_block', 'document_marker') \
              ORDER BY rank, unit.owner_block_id, unit.block_id LIMIT ?3",
         )?
@@ -701,7 +700,7 @@ fn search_hit(
         ));
     }
     Ok(LibrarySearchHit {
-        project_id: row.0,
+        library_id: row.0,
         owner_page_id: row.1,
         document_id: row.2,
         block_id: row.3,

@@ -1,5 +1,5 @@
 use nodex_core_contracts::events::ResourceKey;
-use rusqlite::{Connection, params};
+use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::infrastructure::sqlite::StoreError;
 
@@ -49,4 +49,83 @@ pub(crate) fn page_grant_ownership_proof(
             .map(|page_id| ResourceKey::Page { page_id })
             .collect(),
     ))
+}
+
+/// Resolves direct Project access to a top-level Canvas. Embedded Canvases do
+/// not use this path: their authority is inherited from the owning Page.
+pub(crate) fn canvas_grant_authorization_proof(
+    connection: &Connection,
+    library_id: &str,
+    project_id: &str,
+    canvas_id: &str,
+    write_required: bool,
+) -> Result<Option<Vec<ResourceKey>>, StoreError> {
+    canvas_grant_authorization_proof_with_lifecycle(
+        connection,
+        library_id,
+        project_id,
+        canvas_id,
+        write_required,
+        false,
+    )
+}
+
+pub(crate) fn canvas_lifecycle_grant_authorization_proof(
+    connection: &Connection,
+    library_id: &str,
+    project_id: &str,
+    canvas_id: &str,
+) -> Result<Option<Vec<ResourceKey>>, StoreError> {
+    canvas_grant_authorization_proof_with_lifecycle(
+        connection, library_id, project_id, canvas_id, false, true,
+    )
+}
+
+fn canvas_grant_authorization_proof_with_lifecycle(
+    connection: &Connection,
+    library_id: &str,
+    project_id: &str,
+    canvas_id: &str,
+    write_required: bool,
+    include_deleted: bool,
+) -> Result<Option<Vec<ResourceKey>>, StoreError> {
+    let authorized = connection
+        .query_row(
+            "SELECT 1 \
+             FROM projects project \
+             JOIN blocks block ON block.id = ?3 AND block.library_id = project.library_id \
+             JOIN canvas_owners canvas ON canvas.block_id = block.id \
+               AND canvas.library_id = block.library_id \
+             LEFT JOIN library_block_placements placement ON placement.block_id = block.id \
+               AND placement.library_id = block.library_id \
+             JOIN project_resource_grants grant_row \
+               ON grant_row.project_id = project.id \
+              AND grant_row.library_id = project.library_id \
+              AND grant_row.root_kind = 'canvas' \
+              AND grant_row.root_id = block.id \
+             LEFT JOIN document_block_index containing ON containing.block_id = block.id \
+             WHERE project.id = ?1 AND project.library_id = ?2 \
+               AND project.lifecycle = 'active' \
+               AND block.type = 'canvas' \
+               AND (?5 = 1 OR block.lifecycle <> 'deleted') \
+               AND (block.lifecycle = 'deleted' OR placement.block_id IS NOT NULL) \
+               AND containing.block_id IS NULL \
+               AND grant_row.lifecycle = 'active' \
+               AND (?4 = 0 OR grant_row.access = 'read_write')",
+            params![
+                project_id,
+                library_id,
+                canvas_id,
+                i64::from(write_required),
+                i64::from(include_deleted),
+            ],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some();
+    Ok(authorized.then(|| {
+        vec![ResourceKey::Canvas {
+            canvas_id: canvas_id.to_owned(),
+        }]
+    }))
 }

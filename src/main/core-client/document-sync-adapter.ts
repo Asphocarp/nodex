@@ -1,8 +1,10 @@
 import { createHash } from "node:crypto";
+import type { components } from "@nodex/core-protocol";
 
 import { revocationsFromVisibilityDelta } from "../../shared/local-commit-delivery";
 
 import {
+  ADDITIONAL_DOCUMENT_COMMAND_VERSION,
   encodeAdditionalDocumentCommandSemanticHashInput,
   parseAdditionalDocumentCommandRequest,
   parseAdditionalDocumentCommandResult,
@@ -10,7 +12,7 @@ import {
   type AdditionalDocumentCommandRequest,
   type AdditionalDocumentCommandResult,
   type AdditionalDocumentHeadRevision,
-  type AdditionalDocumentSpacePlacement,
+  type AdditionalDocumentLibraryPlacement,
 } from "../../shared/additional-document-commands";
 import { stableStringifyBlockPropertyJson } from "../../shared/block-property-mutations";
 import type {
@@ -95,17 +97,11 @@ interface CoreDocumentSyncAdapterOptions {
   readonly maxInitialOpenAttempts?: number;
 }
 
-const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
-
 class DocumentUpdateResourceIntegrityError extends Error {}
 
 const decodeCoreOwnedDocumentDescriptor = (
-  value: unknown,
+  value: components["schemas"]["OwnedDocumentDescriptor"],
 ): OwnedDocumentDescriptor => {
-  if (!isRecord(value) || !isRecord(value.sync)) {
-    throw new Error("Core Owned Document descriptor is invalid");
-  }
   if (value.sync.kind !== "yjs") {
     return decodeOwnedDocumentDescriptorHttp(JSON.stringify({
       ...value,
@@ -200,7 +196,7 @@ const coreHead = (
   };
 };
 
-const coreSpaceAnchor = (placement: AdditionalDocumentSpacePlacement) => {
+const coreLibraryAnchor = (placement: AdditionalDocumentLibraryPlacement) => {
   const before = placement.before;
   return before
     ? {
@@ -221,7 +217,7 @@ const coreOwnerCommand = (
         source_block_id: operation.sourceBlockId,
         document_id: operation.documentId,
         initial_blocks: operation.initialBlocks,
-        before: coreSpaceAnchor(operation.placement),
+        before: coreLibraryAnchor(operation.placement),
       };
     case "promote_synced_source":
       return {
@@ -247,7 +243,7 @@ const coreOwnerCommand = (
         document_id: operation.documentId,
         display_name: operation.displayName,
         initial_blocks: operation.initialBlocks,
-        before: coreSpaceAnchor(operation.placement),
+        before: coreLibraryAnchor(operation.placement),
       };
     case "instantiate_template":
       return {
@@ -1100,7 +1096,7 @@ export const createCoreDocumentSyncAdapter = (
           ok: true,
           localCommit: rendererLocalCommitApply(committed),
           value: {
-            version: 1,
+            version: ADDITIONAL_DOCUMENT_COMMAND_VERSION,
             operationId: request.operationId,
             projectId: request.projectId,
             storeEpoch,

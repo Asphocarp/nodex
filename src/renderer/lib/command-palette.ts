@@ -67,6 +67,8 @@ export interface CommandPalettePage {
   projectAppearance: ProjectAppearance;
   columnName: string;
   page: DatabasePageSummary;
+  /** Registry-resolved display labels; canonical option IDs stay on page.tags. */
+  tagLabels: string[];
   inActiveProject: boolean;
   recentIndex: number | null;
   boardIndex: number;
@@ -467,7 +469,7 @@ export function matchesCommandPalettePageFilters(
     return false;
   }
 
-  if (!matchesTagFilters(item.page.tags, filters)) {
+  if (!matchesTagFilters(item.tagLabels, filters)) {
     return false;
   }
 

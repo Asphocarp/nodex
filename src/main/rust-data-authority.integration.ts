@@ -337,7 +337,7 @@ describe("Electron native data authority", () => {
       const nativeContentBlockId = "01981e00-0000-7000-8000-000000000003";
       const nativeEmptyBlockId = "01981e00-0000-7000-8000-000000000004";
       const createSyncedSource = {
-        version: 1 as const,
+        version: 2 as const,
         operationId: "electron-document-create-synced-source",
         projectId,
         storeEpoch: runtime.rootClient.handshake.store_epoch,
@@ -368,7 +368,7 @@ describe("Electron native data authority", () => {
             content: [],
             children: [],
           }],
-          placement: { kind: "space" as const },
+          placement: { kind: "library" as const },
         },
       };
       const createdSyncedSource = await projectDocuments
@@ -535,6 +535,11 @@ describe("Electron native data authority", () => {
         },
       };
       const restored = await projectDocuments.restoreVersion(restoreRequest);
+      if (!restored.ok) {
+        throw new Error(
+          `Core Document restore failed: ${restored.error.code}: ${restored.error.message}`,
+        );
+      }
       expect(restored).toMatchObject({
         ok: true,
         value: {
@@ -604,7 +609,7 @@ describe("Electron native data authority", () => {
       const nativeTargetAnchorBlockId = "01981e00-0000-7000-8000-000000000007";
       const createdTransferTarget = await projectDocuments
         .applyAdditionalDocumentCommand({
-          version: 1,
+          version: 2,
           operationId: "electron-block-transfer-create-target",
           projectId,
           storeEpoch: runtime.rootClient.handshake.store_epoch,
@@ -625,7 +630,7 @@ describe("Electron native data authority", () => {
               content: [],
               children: [],
             }],
-            placement: { kind: "space" },
+            placement: { kind: "library" },
           },
         });
       if (!createdTransferTarget.ok) {
@@ -678,7 +683,9 @@ describe("Electron native data authority", () => {
             documentId: nativeTargetDocumentId,
           },
         },
-        finalLocationRevisions: { [nativeContentBlockId]: 2 },
+        // Delete, snapshot reattachment, and this transfer each advance the
+        // canonical placement revision after its genesis revision.
+        finalLocationRevisions: { [nativeContentBlockId]: 4 },
         documentCommits: expect.arrayContaining([
           expect.objectContaining({
             documentId: nativeSourceDocumentId,
@@ -698,7 +705,7 @@ describe("Electron native data authority", () => {
           value: {
             operationId: transferIntent.operationId,
             duplicate: true,
-            finalLocationRevisions: { [nativeContentBlockId]: 2 },
+            finalLocationRevisions: { [nativeContentBlockId]: 4 },
           },
         });
       const promoteToLibraryIntent = {
@@ -738,12 +745,12 @@ describe("Electron native data authority", () => {
         }],
         finalLocations: {
           [nativeContentBlockId]: {
-            kind: "space",
-            projectId,
+            kind: "library",
+            libraryId: runtime.rootClient.handshake.library_id,
             rankKey: expect.any(String),
           },
         },
-        finalLocationRevisions: { [nativeContentBlockId]: 3 },
+        finalLocationRevisions: { [nativeContentBlockId]: 5 },
         documentCommits: expect.arrayContaining([
           expect.objectContaining({
             documentId: nativeTargetDocumentId,
@@ -795,8 +802,9 @@ describe("Electron native data authority", () => {
         }],
         finalLocations: {
           [copiedDataSourcePageId]: {
-            kind: "database",
+            kind: "data_source",
             databaseBlockId: primaryDatabase.database.databaseId,
+            dataSourceId: primaryDataSource.dataSourceId,
           },
         },
         finalLocationRevisions: { [copiedDataSourcePageId]: 2 },
@@ -1213,8 +1221,8 @@ describe("Electron native data authority", () => {
         resultRootBlockIds: [copiedDataSourcePageId],
         finalLocations: {
           [copiedDataSourcePageId]: {
-            kind: "space",
-            projectId,
+            kind: "library",
+            libraryId: runtime.rootClient.handshake.library_id,
           },
         },
         finalLocationRevisions: {
@@ -1248,8 +1256,9 @@ describe("Electron native data authority", () => {
       expect(returnedPageToDataSource.value).toMatchObject({
         finalLocations: {
           [copiedDataSourcePageId]: {
-            kind: "database",
+            kind: "data_source",
             databaseBlockId: primaryDatabase.database.databaseId,
+            dataSourceId: primaryDataSource.dataSourceId,
           },
         },
         finalLocationRevisions: {
@@ -1321,7 +1330,10 @@ describe("Electron native data authority", () => {
       expect(copiedRecursivePage.value).toMatchObject({
         resultRootBlockIds: [copiedRecursiveRootId],
         finalLocations: {
-          [copiedRecursiveRootId]: { kind: "space", projectId },
+          [copiedRecursiveRootId]: {
+            kind: "library",
+            libraryId: runtime.rootClient.handshake.library_id,
+          },
         },
         copiedBlockIds: {
           [nativeContentBlockId]: copiedRecursiveRootId,
@@ -1395,7 +1407,10 @@ describe("Electron native data authority", () => {
       }
       expect(returnedNestedPage.value).toMatchObject({
         finalLocations: {
-          [copiedDataSourcePageId]: { kind: "space", projectId },
+          [copiedDataSourcePageId]: {
+            kind: "library",
+            libraryId: runtime.rootClient.handshake.library_id,
+          },
         },
         finalLocationRevisions: {
           [copiedDataSourcePageId]: restoredParentRevision + 4,
@@ -2170,22 +2185,28 @@ describe("Electron native data authority", () => {
       expect(listCurrentProcessFiles()).not.toContain(databasePath);
       await expect(
         runtime.clientForProject(projectId).databaseRead({
-          target: { kind: "project_default" },
-          mode: "catalog_window",
+          kind: "catalog_window",
           window: { after: null, first: 10 },
         }),
       ).resolves.toMatchObject({ value: { kind: "catalog_window" } });
 
       const canvasDocumentId = primaryCanvasDocumentId(projectId);
+      const canvasAccessContext = { kind: "project", projectId } as const;
+      const canvasBinding = {
+        libraryId: runtime.identity.libraryId,
+        accessContext: canvasAccessContext,
+      };
       const firstCanvas = createCoreCanvasSceneAdapter(
         runtime.clientForProject(projectId),
+        canvasBinding,
       );
       const secondCanvas = createCoreCanvasSceneAdapter(
         runtime.clientForProject(projectId),
+        canvasBinding,
       );
       const firstCanvasRequest = {
         version: CANVAS_SCENE_SYNC_VERSION,
-        projectId,
+        accessContext: canvasAccessContext,
         documentId: canvasDocumentId,
         clientSessionId: "renderer:electron-canvas:first",
       } as const;
@@ -2361,7 +2382,9 @@ describe("Electron native data authority", () => {
         ok: true,
         value: {
           operationKind: "grant_project_access",
-          didMutate: true,
+          // A Project-created Library-root Page grants its creator read/write
+          // access atomically; repeating that grant is a semantic no-op.
+          didMutate: false,
         },
       });
       await expect(library.readProjectPageDetail(
@@ -2545,7 +2568,7 @@ describe("Electron native data authority", () => {
       });
       // Library providers intentionally use the unscoped root client. Core binds
       // that transport to its trusted local Library capability instead of
-      // accepting an Adapter-selected storage Project.
+      // accepting an Adapter-selected content owner.
       const firstProvider = new NodexYProvider({
         documentId: firstDocument.guid,
         document: firstDocument,

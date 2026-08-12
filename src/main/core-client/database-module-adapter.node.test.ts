@@ -14,6 +14,7 @@ import {
 import {
   createCoreDatabaseModuleAdapter,
   createCoreLibraryDatabaseModuleAdapter,
+  mapCorePropertyDescriptor,
 } from "./database-module-adapter";
 import {
   createDesktopDatabaseModuleBridge,
@@ -46,6 +47,31 @@ const databaseRecord = () => ({
   updatedAt: "2026-07-25T00:00:00.000Z",
 });
 
+const coreDatabaseRecord = () => ({
+  database_id: "database:test",
+  library_id: identity.libraryId,
+  name: "Tasks",
+  lifecycle: "active",
+  default_view_id: null,
+  access_revision: 1,
+  metadata_revision: 1,
+  created_at: "2026-07-25T00:00:00.000Z",
+  updated_at: "2026-07-25T00:00:00.000Z",
+});
+
+const coreDataSourceRecord = (schemaRevision = 1) => ({
+  data_source_id: "source:test",
+  library_id: identity.libraryId,
+  home_database_id: "database:test",
+  name: "Tasks",
+  schema_key: "nodex.database",
+  schema_revision: schemaRevision,
+  lifecycle: "active",
+  rank_key: "a",
+  created_at: "2026-07-25T00:00:00.000Z",
+  updated_at: "2026-07-25T00:00:00.000Z",
+});
+
 const viewAuthorization = (
   commitSeq: number,
   storeEpoch: string = identity.storeEpoch,
@@ -67,7 +93,7 @@ const databaseSnapshot = () => ({
   authorization: null,
   value: {
     kind: "database" as const,
-    value: { database: databaseRecord() },
+    value: { database: coreDatabaseRecord() },
   },
 });
 
@@ -151,18 +177,7 @@ const emptyDataSourceDescriptorReads = (client: FakeCoreClient): void => {
     value: {
       kind: "data_source" as const,
       value: {
-        dataSource: {
-          dataSourceId: "source:test",
-          libraryId: identity.libraryId,
-          homeDatabaseId: "database:test",
-          name: "Tasks",
-          schemaKey: "nodex.database",
-          schemaRevision: 1,
-          lifecycle: "active",
-          rankKey: "a",
-          createdAt: "2026-07-25T00:00:00.000Z",
-          updatedAt: "2026-07-25T00:00:00.000Z",
-        },
+        data_source: coreDataSourceRecord(),
       },
     },
   });
@@ -211,25 +226,96 @@ describe("Core Database Module Adapter", () => {
       },
     });
     expect(client.databaseReads).toEqual([{
+      kind: "database",
       target: { kind: "project_default" },
-      mode: "database",
-      filter: null,
-      sort: null,
     }, {
-      target: { kind: "database", database_id: "database:test" },
-      mode: "data_source_window",
-      filter: null,
-      sort: null,
-      page_ids: null,
+      kind: "data_source_window",
+      database_id: "database:test",
       window: { after: null, first: 200 },
     }, {
-      target: { kind: "database", database_id: "database:test" },
-      mode: "view_descriptor_window",
-      filter: null,
-      sort: null,
-      page_ids: null,
+      kind: "view_descriptor_window",
+      database_id: "database:test",
       window: { after: null, first: 200 },
     }]);
+  });
+
+  test("maps the Core View descriptor into the renderer contract", async () => {
+    const client = new FakeCoreClient();
+    const config = upgradeDatabaseViewConfigV2({
+      schemaKey: "nodex.database-view" as const,
+      schemaVersion: 2 as const,
+      filter: { kind: "group" as const, operator: "and" as const, children: [] },
+      sort: [{
+        field: { kind: "manual" as const },
+        direction: "asc" as const,
+        nulls: "last" as const,
+      }],
+      group: null,
+      display: { propertyIds: [], showTitle: true },
+    });
+    client.enqueueDatabaseRead({
+      contract_version: 10,
+      store_epoch: identity.storeEpoch,
+      commit_head: 23,
+      authorization: viewAuthorization(23),
+      value: {
+        kind: "view",
+        value: {
+          view_id: "view:test",
+          database_id: "database:test",
+          data_source_id: "source:test",
+          name: "All tasks",
+          layout: "list",
+          definition: {
+            filter: config.filter,
+            presentation: config.presentation,
+          },
+          is_default: true,
+          revision: 2,
+          rank_key: "a",
+          lifecycle: "active",
+          created_at: "2026-07-25T00:00:00.000Z",
+          updated_at: "2026-07-25T00:00:00.000Z",
+        },
+      },
+    });
+    const adapter = createCoreDatabaseModuleAdapter({ client, ...identity });
+
+    await expect(adapter.read({
+      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+      projectId: identity.projectId,
+      read: {
+        target: { kind: "view", viewId: parseDatabaseViewId("view:test") },
+        mode: "view",
+      },
+    })).resolves.toEqual({
+      ok: true,
+      value: {
+        version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+        projectId: identity.projectId,
+        libraryId: identity.libraryId,
+        storeEpoch: identity.storeEpoch,
+        commitSeq: 23,
+        authorization: viewAuthorization(23),
+        value: {
+          kind: "view",
+          value: {
+            viewId: "view:test",
+            databaseId: "database:test",
+            dataSourceId: "source:test",
+            name: "All tasks",
+            defaultLayout: "list",
+            config,
+            isDefault: true,
+            revision: 2,
+            rankKey: "a",
+            lifecycle: "active",
+            createdAt: "2026-07-25T00:00:00.000Z",
+            updatedAt: "2026-07-25T00:00:00.000Z",
+          },
+        },
+      },
+    });
   });
 
   test("hydrates authorized catalog entries and maps Relation candidates", async () => {
@@ -242,7 +328,7 @@ describe("Core Database Module Adapter", () => {
       value: {
         kind: "catalog_window",
         databases: {
-          items: [{ database: databaseRecord() }],
+          items: [{ database: coreDatabaseRecord() }],
           next_cursor: null,
           authority: { projection_revision: 21 },
         },
@@ -341,8 +427,9 @@ describe("Core Database Module Adapter", () => {
       },
     });
     expect(candidateClient.databaseReads[0]).toMatchObject({
-      mode: "relation_candidate_window",
-      filter: { query: "blocked" },
+      kind: "relation_candidate_window",
+      data_source_id: "source:test",
+      query: "blocked",
       window: { first: 25 },
     });
   });
@@ -377,8 +464,8 @@ describe("Core Database Module Adapter", () => {
       },
     });
     expect(client.databaseReads[0]).toMatchObject({
-      mode: "relation_candidate_window",
-      filter: null,
+      kind: "relation_candidate_window",
+      query: null,
       window: { first: 25 },
     });
   });
@@ -396,18 +483,7 @@ describe("Core Database Module Adapter", () => {
       value: {
         kind: "data_source" as const,
         value: {
-          dataSource: {
-            dataSourceId: "source:test",
-            libraryId: identity.libraryId,
-            homeDatabaseId: "database:test",
-            name: "Tasks",
-            schemaKey: "nodex.database",
-            schemaRevision: 2,
-            lifecycle: "active",
-            rankKey: "a",
-            createdAt: "2026-07-25T00:00:00.000Z",
-            updatedAt: "2026-07-25T00:00:00.000Z",
-          },
+          data_source: coreDataSourceRecord(2),
         },
       },
     });
@@ -422,8 +498,6 @@ describe("Core Database Module Adapter", () => {
             name: "Status",
             schema: { kind: "select" },
             capabilities: {
-              replace: true,
-              patch_set_member: null,
               filter_operators: ["equals", "not_equals", "is_empty", "is_not_empty"],
               sortable: true,
               groupable: true,
@@ -451,8 +525,6 @@ describe("Core Database Module Adapter", () => {
             name: "Notes",
             schema: { kind: "text" },
             capabilities: {
-              replace: true,
-              patch_set_member: null,
               filter_operators: ["equals", "not_equals", "contains", "not_contains", "is_empty", "is_not_empty"],
               sortable: true,
               groupable: true,
@@ -501,11 +573,31 @@ describe("Core Database Module Adapter", () => {
         },
       },
     });
-    expect(client.databaseReads.map((read) => read.mode)).toEqual([
+    expect(client.databaseReads.map((read) => read.kind)).toEqual([
       "data_source",
       "property_window",
       "property_window",
     ]);
+  });
+
+  test("rejects a noncanonical Core Property identity at the adapter boundary", () => {
+    expect(() => mapCorePropertyDescriptor({
+      property_id: "risk",
+      data_source_id: "source:test",
+      name: "Risk",
+      schema: { kind: "select" },
+      capabilities: {
+        filter_operators: ["equals"],
+        sortable: true,
+        groupable: true,
+      },
+      option_count: 0,
+      rank_key: "a",
+      lifecycle: "active",
+      revision: 1,
+      created_at: "2026-07-25T00:00:00.000Z",
+      updated_at: "2026-07-25T00:00:00.000Z",
+    })).toThrow(/propertyId is invalid/u);
   });
 
   test("maps ordered mutation semantics and validates the atomic Core receipt", async () => {
@@ -745,8 +837,11 @@ describe("Core Database Module Adapter", () => {
           view_id: viewId,
           expected_revision: 0,
           name: "Priority",
-          default_layout: "list",
-          config,
+          layout: "list",
+          definition: {
+            filter: config.filter,
+            presentation: config.presentation,
+          },
           is_default: true,
           before_view_id: null,
         },
@@ -939,7 +1034,7 @@ describe("Core Database Module Adapter", () => {
     });
 
     expect(client.databaseReads[0]).toMatchObject({
-      mode: "view_groups",
+      kind: "view_groups",
       target: { kind: "view", view_id: "view:test" },
     });
     expect(groups).toMatchObject({
@@ -998,7 +1093,6 @@ describe("Core Database Module Adapter", () => {
                 description_length: 0,
                 has_description: false,
                 database_values: {},
-                database_display_values: {},
                 intrinsic_properties: {},
                 database_value_revisions: {},
                 metadata_revision: 1,
@@ -1025,8 +1119,6 @@ describe("Core Database Module Adapter", () => {
               depth: 1,
               has_children: true,
               transient_kind: "child" as const,
-              sibling_rank: "a",
-              task_parent_value_revision: 3,
             }],
             next_cursor: "list:next",
             authority: { projection_revision: 23 },
@@ -1068,7 +1160,7 @@ describe("Core Database Module Adapter", () => {
     });
 
     expect(client.databaseReads[0]).toMatchObject({
-      mode: "list_window",
+      kind: "list_window",
       target: { kind: "view", view_id: "view:test" },
       window: { first: 1 },
     });
@@ -1084,7 +1176,6 @@ describe("Core Database Module Adapter", () => {
         depth: 1,
         hasChildren: true,
         transientKind: "child",
-        taskParentValueRevision: 3,
         row: {
           taskParent: {
             parentPageId: "page:parent",
@@ -1158,7 +1249,7 @@ describe("Core Database Module Adapter", () => {
     ).rejects.toThrow("non-window");
 
     expect(client.databaseReads[0]).toMatchObject({
-      mode: "view_window",
+      kind: "view_window",
       window: { first: 25 },
       group_scope: { kind: "path", group_key: "triage", subgroup_key: null },
     });
@@ -1204,21 +1295,24 @@ describe("Core Database Module Adapter", () => {
       }),
     ).rejects.toThrow("non-window");
 
-    expect(client.databaseReads[0]?.target).toEqual({
-      kind: "presented_view",
-      view_id: "view:test",
-      presentation_override: {
-        layout: "list",
-        sort: [{
-          field: { kind: "property", property_id: "priority" },
-          direction: "desc",
-          nulls: "last",
-        }],
-        group: { kind: "none" },
-        group_direction: "desc",
-        layouts: {
-          list: {
-            fields: [{ kind: "property", property_id: "priority" }],
+    expect(client.databaseReads[0]).toMatchObject({
+      kind: "view_window",
+      target: {
+        kind: "presented_view",
+        view_id: "view:test",
+        presentation_override: {
+          layout: "list",
+          sort: [{
+            field: { kind: "property", property_id: "priority" },
+            direction: "desc",
+            nulls: "last",
+          }],
+          group: { kind: "none" },
+          group_direction: "desc",
+          layouts: {
+            list: {
+              fields: [{ kind: "property", property_id: "priority" }],
+            },
           },
         },
       },
@@ -1243,6 +1337,15 @@ describe("Core Database Module Adapter", () => {
             data_source_ids: ["source:test"],
             page_ids: ["page:test"],
             view_ids: ["view:test"],
+            personal_view_changes: [{
+              kind: "occurrence_disclosure",
+              view_id: "view:test",
+              target: {
+                kind: "page",
+                occurrence_key: "ITEM_parent/child",
+              },
+              collapsed: true,
+            }],
           },
         },
         canonicalHash: "0".repeat(64),
@@ -1253,7 +1356,7 @@ describe("Core Database Module Adapter", () => {
       envelope.packet.atoms[0]!,
       identity.libraryId,
     )).toEqual({
-      version: 2,
+      version: 3,
       projectId: identity.projectId,
       libraryId: identity.libraryId,
       storeEpoch: identity.storeEpoch,
@@ -1263,11 +1366,20 @@ describe("Core Database Module Adapter", () => {
       affectedDataSourceIds: ["source:test"],
       affectedPageIds: ["page:test"],
       affectedViewIds: ["view:test"],
+      personalViewChanges: [{
+        kind: "occurrence_disclosure",
+        viewId: "view:test",
+        target: {
+          kind: "page",
+          occurrenceKey: "ITEM_parent/child",
+        },
+        collapsed: true,
+      }],
       commitSeq: 42,
     });
   });
 
-  test("maps Library Database events without a compatibility Project", () => {
+  test("maps Library Database events without a Project coordinate", () => {
     const envelope = {
       transport_version: 4,
       packet: createCoreLocalCommitFixture({

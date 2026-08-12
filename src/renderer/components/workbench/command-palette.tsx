@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   NodexDialog as Dialog,
   NodexDialogContent as DialogContent,
@@ -15,7 +15,9 @@ import type { Project } from "@/lib/types";
 import { useCommandPalettePageSearchIndex } from "@/lib/use-command-palette-page-search-index";
 import { useCommandPaletteThreadItems } from "@/lib/command-palette-chat-search";
 import { useCommandPaletteThreadSearchIndex } from "@/lib/use-command-palette-thread-search-index";
+import { readPropertyOptionRegistry } from "@/lib/database-property-options-runtime";
 import type { RecentPageSession } from "@/lib/use-workbench-profile-preferences";
+import type { DataSourcePropertyRecordV2 } from "../../../shared/database-module-v2";
 import {
   buildCommandPaletteCommands,
   executeCommandPaletteShellCommand,
@@ -46,6 +48,40 @@ function isMacPlatform(): boolean {
   return typeof navigator !== "undefined" && navigator.platform.toUpperCase().includes("MAC");
 }
 
+interface CommandPaletteTagRegistryRequest {
+  readonly key: string;
+  readonly projectId: string;
+  readonly property: DataSourcePropertyRecordV2;
+}
+
+type CommandPalettePageCandidate = Omit<CommandPalettePage, "tagLabels"> & {
+  readonly tagRegistryKey: string | null;
+};
+
+const UNKNOWN_OPTION_LABEL = "Unknown option";
+const MAX_TAG_REGISTRY_CACHE_ENTRIES = 64;
+
+const commandPaletteTagRegistryKey = (
+  projectId: string,
+  property: DataSourcePropertyRecordV2,
+): string => JSON.stringify([
+  projectId,
+  property.dataSourceId,
+  property.propertyId,
+  property.revision,
+  property.optionCount,
+]);
+
+const resolveCommandPaletteTagLabels = (
+  optionIds: readonly string[],
+  labels: ReadonlyMap<string, string> | undefined,
+): string[] => {
+  if (!labels) return [];
+  return [...new Set(optionIds.map((optionId) =>
+    labels.get(optionId) ?? UNKNOWN_OPTION_LABEL
+  ))];
+};
+
 function useCommandPalettePages(
   open: boolean,
   projects: Project[],
@@ -53,6 +89,11 @@ function useCommandPalettePages(
   recentPageSessions: RecentPageSession[],
 ): { pages: CommandPalettePage[]; loading: boolean } {
   const [version, setVersion] = useState(0);
+  const [tagRegistries, setTagRegistries] = useState<ReadonlyMap<
+    string,
+    ReadonlyMap<string, string>
+  >>(() => new Map());
+  const tagRegistryLoadsRef = useRef(new Map<string, Promise<void>>());
   const stores = useMemo(
     () => projects.flatMap((project) => project.defaultDatabaseViewId
       ? [{
@@ -84,15 +125,32 @@ function useCommandPalettePages(
     };
   }, [open, stores]);
 
-  return useMemo(() => {
+  const source = useMemo(() => {
     void version;
     let loading = false;
-    const pages: CommandPalettePage[] = [];
+    const pages: CommandPalettePageCandidate[] = [];
+    const registryRequests = new Map<string, CommandPaletteTagRegistryRequest>();
 
     for (const { project, store } of stores) {
       const snapshot = store.getSnapshot();
       if (snapshot.loading && snapshot.pageIndex.size === 0) {
         loading = true;
+      }
+      const tagsProperty = snapshot.databaseView?.query.properties.find(
+        (property) => property.lifecycle === "active" && property.propertyId === "tags",
+      ) ?? null;
+      const hasTagSelections = [...snapshot.pageIndex.values()].some(
+        (page) => page.tags.length > 0,
+      );
+      const tagRegistryKey = tagsProperty && hasTagSelections
+        ? commandPaletteTagRegistryKey(project.id, tagsProperty)
+        : null;
+      if (tagsProperty && tagRegistryKey) {
+        registryRequests.set(tagRegistryKey, {
+          key: tagRegistryKey,
+          projectId: project.id,
+          property: tagsProperty,
+        });
       }
 
       for (const page of snapshot.pageIndex.values()) {
@@ -104,6 +162,7 @@ function useCommandPalettePages(
           projectAppearance: project.appearance,
           columnName: page.columnName,
           page,
+          tagRegistryKey,
           inActiveProject: project.id === activeProjectId,
           recentIndex: recentIndexByKey.get(`${project.id}:${page.id}`) ?? null,
           boardIndex: page.boardIndex,
@@ -111,8 +170,63 @@ function useCommandPalettePages(
       }
     }
 
-    return { pages, loading };
+    return { pages, loading, registryRequests: [...registryRequests.values()] };
   }, [activeProjectId, recentIndexByKey, stores, version]);
+
+  useEffect(() => {
+    if (!open) return;
+
+    for (const request of source.registryRequests) {
+      if (tagRegistries.has(request.key) || tagRegistryLoadsRef.current.has(request.key)) {
+        continue;
+      }
+      const load = readPropertyOptionRegistry(
+        { kind: "project", projectId: request.projectId },
+        request.property,
+      )
+        .then((options) => {
+          setTagRegistries((current) => {
+            const next = new Map(current);
+            next.set(
+              request.key,
+              new Map(options.map((option) => [option.id, option.name] as const)),
+            );
+            while (next.size > MAX_TAG_REGISTRY_CACHE_ENTRIES) {
+              const oldestKey = next.keys().next().value;
+              if (oldestKey === undefined) break;
+              next.delete(oldestKey);
+            }
+            return next;
+          });
+        })
+        .catch((cause: unknown) => {
+          console.error("Failed to resolve command palette tag labels", cause);
+          setTagRegistries((current) => {
+            if (current.has(request.key)) return current;
+            return new Map(current).set(request.key, new Map());
+          });
+        })
+        .finally(() => {
+          if (tagRegistryLoadsRef.current.get(request.key) === load) {
+            tagRegistryLoadsRef.current.delete(request.key);
+          }
+        });
+      tagRegistryLoadsRef.current.set(request.key, load);
+    }
+  }, [open, source.registryRequests, tagRegistries]);
+
+  return useMemo(() => ({
+    loading: source.loading,
+    pages: source.pages.map(({ tagRegistryKey, ...page }) => ({
+      ...page,
+      tagLabels: tagRegistryKey
+        ? resolveCommandPaletteTagLabels(
+            page.page.tags,
+            tagRegistries.get(tagRegistryKey),
+          )
+        : [],
+    })),
+  }), [source.loading, source.pages, tagRegistries]);
 }
 
 export function CommandPalette({

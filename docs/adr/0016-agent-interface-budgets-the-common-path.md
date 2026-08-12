@@ -61,7 +61,7 @@ The catalog remains intent-oriented. Search, fetch/read, saved-View query, advan
 
 `fetch` replaces `get_block`. Nodex is Block-first internally, but an Agent's intent is to fetch the resource identified by a stable Block ID. `fetch` defaults to canonical Nested Markdown: an owning Card returns its complete Document body, a Document child returns its canonical subtree, and a Database Block returns its Database/View definition. Callers may explicitly request a compact summary or stable-ID Block representation. This makes the familiar `search → fetch` workflow useful without a second corrective call while preserving explicit compact and identity-sensitive projections.
 
-The existing `query_database` union is split. `query_database_view` accepts one saved `viewId` and is the small common query tool. `advanced_query_database` accepts one `databaseBlockId` plus ad-hoc typed filter/sort intent. The explicit `advanced_` prefix makes the familiar saved-View path easier to select and signals that the caller must understand property schema and query syntax. A simple rename is rejected because a tool named for a View must not also hide a non-View mode.
+The existing `query_database` union is split. `query_database_view` accepts one saved `viewId` and is the small common query tool. `query_data_source` accepts one `dataSourceId` plus ad-hoc typed filter/sort intent. Naming the second tool for its exact schema-and-row authority makes clear that it does not execute or inherit a saved View. A simple rename is rejected because a tool named for a View must not also hide a non-View mode.
 
 `create_cards` replaces singular `create` and accepts one to sixteen complete Card drafts for one shared destination. Each item carries a direct inline Markdown title, optional complete body Nested Markdown, and any destination-specific initial values. Public destinations are `space`, parent `card`, or `database`; they do not expose a derived destination Document ID. The call is all-or-nothing, preserves input order at the shared insertion anchor, and has a bounded aggregate body budget. A one-item call remains the ordinary create path; the plural name advertises bulk authoring without requiring a second tool.
 
@@ -77,7 +77,7 @@ The resulting catalog is:
     search
     fetch
     query_database_view
-    advanced_query_database
+    query_data_source
     create_cards
     update_card
     advanced_update_card
@@ -128,7 +128,7 @@ Nodex will not turn ordinary value writes into SQL or accept raw SQL against SQL
 
 Future Database schema and View-definition tools will start with a compact, parsed configuration language rather than exposing every property/View variant as recursive JSON Schema. The parser produces a typed AST, validates names and stable identities against current authority, and renders a semantic authorization preview before compilation. Its full grammar is loaded on demand.
 
-The existing ad-hoc Database filter/sort input is only 3,518 schema bytes before tool metadata. `advanced_query_database` retains that typed input in v3. A throwaway parsed query-language prototype reduced the complete tool from 2,796 to 665 bytes and canonical corpus arguments by 51.8%, but accepted only four of ten plausible grammar variants. The prototype was deleted because schema savings alone do not justify a brittle custom grammar; a later revision requires broader deterministic grammar coverage, concrete user demand, and an on-demand grammar design.
+The existing ad-hoc Data Source filter/sort input is only 3,518 schema bytes before tool metadata. `query_data_source` retains that typed input in v3. A throwaway parsed query-language prototype reduced the complete tool from 2,796 to 665 bytes and canonical corpus arguments by 51.8%, but accepted only four of ten plausible grammar variants. The prototype was deleted because schema savings alone do not justify a brittle custom grammar; a later revision requires broader deterministic grammar coverage, concrete user demand, and an on-demand grammar design.
 
 ### Keep outputs sparse and make Code Mode the orchestration layer
 
@@ -146,7 +146,7 @@ The familiar fetch/query names, text-title representation, default Nested Markdo
 
 The common authoring path becomes smaller and more native to what models already generate. Rich titles and bodies share one default textual language, while stable IDs remain available for the minority of identity-sensitive edits. Familiar `search`, `fetch`, `query_database_view`, `create_cards`, `update_card`, `move_cards`, and `duplicate_card` verbs reduce tool-selection translation. A Code Mode workflow can create or patch complete Cards without constructing rich-text or Block trees in JSON.
 
-The v3 catalog has ten tools, like v2, but its boundaries are narrower: one advanced Card-update tool and one split query intent are added, generic create/transfer/Database-edit unions are removed, and Card movement and duplication are independent. Tool count is not the optimization target; the objective is minimal relevant context and fewer invalid calls for one intent. `advanced_update_card` and `advanced_query_database` remain deferred without taxing ordinary Card updates or saved-View queries.
+The v3 catalog has ten tools, like v2, but its boundaries are narrower: one advanced Card-update tool and one split query intent are added, generic create/transfer/Database-edit unions are removed, and Card movement and duplication are independent. Tool count is not the optimization target; the objective is minimal relevant context and fewer invalid calls for one intent. `advanced_update_card` and `query_data_source` remain deferred without taxing ordinary Card updates or saved-View queries.
 
 Schema budgets become explicit engineering constraints. The activated v3 production catalog measures 547 shared namespace bytes, 4,427 eager bytes, and 29,021 complete bytes, down from the production v2 baseline of 529, 6,524, and 40,558 bytes respectively; every selected tool remains below its individual cap. Adding a recursive union, a new eager option, or verbose default output requires evidence and an intentional budget update instead of silently consuming context.
 
@@ -164,7 +164,7 @@ Keeping `NFM` in the v3 public contract would preserve an internal abbreviation 
 
 Keeping `get_block` is precise from the storage model's perspective but asks the Agent to translate a familiar fetch intent into an implementation noun. The stable Block identity remains the input authority; only the intent-facing verb changes.
 
-Renaming the current two-mode `query_database` directly to `query_database_view` would make half of its accepted calls contradict the tool name. Splitting `query_database_view` and `advanced_query_database` costs one deferred tool declaration but reduces each schema and error surface.
+Renaming the current two-mode `query_database` directly to `query_database_view` would make half of its accepted calls contradict the tool name. Splitting `query_database_view` and `query_data_source` costs one deferred tool declaration but reduces each schema and error surface.
 
 Flattening every semantic object would produce ambiguous parameter lists and separate preconditions from the values they guard. Only transport wrappers and generated-schema duplication are removed.
 
