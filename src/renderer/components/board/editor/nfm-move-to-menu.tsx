@@ -14,7 +14,7 @@ import {
   shouldConsumeStalePickerNavigation,
 } from "@/lib/query-fresh-picker";
 import { normalizeSearchText } from "@/lib/search-text";
-import { StatusIcon } from "@/lib/status-chip";
+import { StatusIcon } from "@/lib/status-presentation";
 import type { BoardSummary, Project } from "@/lib/types";
 import { useProjects } from "@/lib/use-projects";
 import { useBoardsForProjects } from "@/lib/use-project-board-windows";

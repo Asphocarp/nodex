@@ -24,6 +24,8 @@ import {
   RefreshIcon,
   BoardIcon,
 } from "@/components/shared/icons";
+import { StatusIcon, StatusLabel } from "@/lib/status-presentation";
+import { WORKFLOW_STATUS_LABELS, WORKFLOW_STATUS_ORDER } from "../../../shared/workflow-status";
 import { NodexButton } from "./button";
 import {
   NodexDialog,
@@ -91,6 +93,27 @@ function ShortcutKeycapsDemo() {
         >
           <NodexButton size="xs">Tooltip keycap</NodexButton>
         </NodexTooltip>
+      </div>
+    </StorySurface>
+  );
+}
+
+function WorkflowStatusIconDemo() {
+  return (
+    <StorySurface>
+      <div className="grid grid-cols-[6rem_4rem_4rem_auto] items-center gap-x-5 gap-y-3 rounded-xl bg-token-main-surface-secondary p-5 text-token-foreground ring-[0.5px] ring-token-border">
+        <span className="text-xs font-medium text-token-description-foreground">Status</span>
+        <span className="text-xs font-medium text-token-description-foreground">14px</span>
+        <span className="text-xs font-medium text-token-description-foreground">16px</span>
+        <span className="text-xs font-medium text-token-description-foreground">Label</span>
+        {WORKFLOW_STATUS_ORDER.map((status) => (
+          <div key={status} className="contents">
+            <span className="text-sm">{WORKFLOW_STATUS_LABELS[status]}</span>
+            <StatusIcon statusId={status} />
+            <StatusIcon statusId={status} className="size-4" />
+            <StatusLabel statusId={status} />
+          </div>
+        ))}
       </div>
     </StorySurface>
   );
@@ -645,4 +668,8 @@ export const ToastGlobalStack: Story = {
 
 export const ShortcutKeycapsSurface: Story = {
   render: () => <ShortcutKeycapsDemo />,
+};
+
+export const WorkflowStatusIcons: Story = {
+  render: () => <WorkflowStatusIconDemo />,
 };

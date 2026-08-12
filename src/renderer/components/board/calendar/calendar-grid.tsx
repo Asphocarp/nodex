@@ -27,7 +27,7 @@ import {
   resolveShiftScrollSettleDays,
   scaleShiftWheelDelta,
 } from "@/lib/calendar-shift-scroll";
-import { columnStyles } from "@/lib/status-chip";
+import { columnStyles } from "@/lib/status-presentation";
 import { CalendarEventBlock } from "./calendar-event-block";
 import { CalendarInlineCreator } from "./calendar-inline-creator";
 import { OccurrenceScopeDialog } from "./occurrence-scope-dialog";

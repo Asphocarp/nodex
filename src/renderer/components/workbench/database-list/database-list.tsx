@@ -48,7 +48,7 @@ import { matchesSearchTokens, tokenizeSearchQuery } from "@/lib/page-search";
 import { normalizeSearchText } from "@/lib/search-text";
 import { resolveDataSourcePropertyPresentationRole } from "@/lib/data-source-property-presentation-role";
 import { cn } from "@/lib/utils";
-import { StatusIcon } from "@/lib/status-chip";
+import { StatusIcon } from "@/lib/status-presentation";
 import type {
   DatabaseJsonValue,
   DatabaseViewField,

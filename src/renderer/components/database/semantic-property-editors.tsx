@@ -1,9 +1,7 @@
 import type { ReactNode } from "react";
-import { StatusChip } from "@/lib/status-chip";
-import {
-  BOARD_PRIORITY_OPTIONS,
-  BOARD_PRIORITY_OPTIONS_BY_VALUE,
-} from "@/lib/board-options";
+import { EstimatePickerIcon, PriorityValueIcon } from "@/components/shared/icons";
+import { StatusLabel } from "@/lib/status-presentation";
+import { BOARD_PRIORITY_OPTIONS } from "@/lib/board-options";
 import { estimateStyles } from "@/lib/types";
 import {
   isWorkflowStatus,
@@ -11,9 +9,8 @@ import {
   WORKFLOW_STATUS_ORDER,
 } from "../../../shared/workflow-status";
 import { isPriority } from "../../../shared/priority";
-import type { Estimate, Priority } from "../../../shared/types";
+import type { Estimate } from "../../../shared/types";
 import type { DatabasePropertyOption } from "../../../shared/database-kernel";
-import { cn } from "@/lib/utils";
 import {
   PropertyOptionPicker,
   PropertyOptionToken,
@@ -97,29 +94,25 @@ const semanticOption = (
   option: PresentedDataSourcePropertyOption,
 ): ReactNode => {
   if (kind === "status" && isWorkflowStatus(option.id)) {
-    return <StatusChip statusId={option.id} label={option.name} />;
+    return <StatusLabel statusId={option.id} label={option.name} />;
   }
-  if (kind === "priority") {
-    const visual = BOARD_PRIORITY_OPTIONS_BY_VALUE[option.id as Priority];
-    if (visual) {
-      return (
-        <span className={cn(
-          "inline-flex h-5.5 max-w-full items-center rounded-md px-1.5 text-sm/5",
-          visual.className,
-        )}>
-          <span className="truncate">{option.name}</span>
-        </span>
-      );
-    }
+  if (kind === "priority" && isPriority(option.id)) {
+    return (
+      <span className="inline-flex min-w-0 max-w-full items-center gap-2 text-sm/5 text-token-text-primary">
+        <PriorityValueIcon
+          priority={option.id}
+          className="size-4 text-token-description-foreground"
+        />
+        <span className="truncate">{option.name}</span>
+      </span>
+    );
   }
   if (kind === "estimate") {
     const visual = estimateStyles[option.id as Estimate];
     if (visual) {
       return (
-        <span className={cn(
-          "inline-flex h-5.5 max-w-full items-center rounded-md px-1.5 text-sm/5",
-          visual.className,
-        )}>
+        <span className="inline-flex min-w-0 max-w-full items-center gap-2 text-sm/5 text-token-text-primary">
+          <EstimatePickerIcon className="size-4 text-token-description-foreground" />
           <span className="truncate">{option.name}</span>
         </span>
       );
@@ -159,7 +152,7 @@ export function SemanticSelectPropertyEditor({
   readonly disabled: boolean;
   readonly pending?: boolean;
   readonly registryState?: DataSourcePropertyOptionRegistryState;
-  readonly presentation: "compact" | "page" | "chip" | "list";
+  readonly presentation: "compact" | "page" | "chip" | "inline" | "list";
   readonly searchPlaceholder?: string;
   readonly searchLeading?: ReactNode;
   readonly contentClassName?: string;

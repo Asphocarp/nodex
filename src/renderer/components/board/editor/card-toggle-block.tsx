@@ -8,7 +8,7 @@ import {
   getMetaChipClassName,
   parseMetaTokens,
 } from "@/lib/toggle-list/meta-chips";
-import { createStatusIconElement, getStatusIdByLabel } from "@/lib/status-chip";
+import { createStatusIconElement, getStatusIdByLabel } from "@/lib/status-presentation";
 import { cardToggleBlockConfig } from "../../../../shared/block-documents/blocknote-schema-config";
 
 export const createPageToggleBlockSpec = createBlockSpec(

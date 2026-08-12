@@ -1,7 +1,7 @@
 import type { ComponentProps } from "react";
 
 import { cn } from "@/lib/utils";
-import type { Priority } from "../../../../shared/types";
+export { PriorityValueIcon as DatabaseListPriorityIcon } from "@/components/shared/icons/priority-value-icon";
 
 type IconProps = ComponentProps<"svg">;
 
@@ -46,74 +46,6 @@ export function DatabaseListPlusIcon({ className, ...props }: IconProps) {
       aria-hidden="true"
     >
       <path d="M8.75 4C8.75 3.58579 8.41421 3.25 8 3.25C7.58579 3.25 7.25 3.58579 7.25 4V7.25H4C3.58579 7.25 3.25 7.58579 3.25 8C3.25 8.41421 3.58579 8.75 4 8.75H7.25V12C7.25 12.4142 7.58579 12.75 8 12.75C8.41421 12.75 8.75 12.4142 8.75 12V8.75H12C12.4142 8.75 12.75 8.41421 12.75 8C12.75 7.58579 12.4142 7.25 12 7.25H8.75V4Z" />
-    </svg>
-  );
-}
-
-export function DatabaseListPriorityIcon({
-  priority,
-  className,
-  ...props
-}: IconProps & { readonly priority: Priority | null }) {
-  const label = priority === "p0-critical"
-    ? "Urgent"
-    : priority === "p1-high"
-      ? "High"
-      : priority === "p2-medium"
-        ? "Medium"
-        : priority === "p3-low"
-          ? "Low"
-          : "No";
-  if (priority === "p0-critical") {
-    return (
-      <svg
-        {...props}
-        {...iconProps(className)}
-        aria-label={`${label} priority`}
-        role="img"
-        width="16"
-        height="16"
-        viewBox="0 0 16 16"
-        fill="lch(66% 80 48)"
-      >
-        <path d="M3 1C1.91067 1 1 1.91067 1 3V13C1 14.0893 1.91067 15 3 15H13C14.0893 15 15 14.0893 15 13V3C15 1.91067 14.0893 1 13 1H3ZM7 4L9 4L8.75391 8.99836H7.25L7 4ZM9 11C9 11.5523 8.55228 12 8 12C7.44772 12 7 11.5523 7 11C7 10.4477 7.44772 10 8 10C8.55228 10 9 10.4477 9 11Z" />
-      </svg>
-    );
-  }
-  if (priority === null) {
-    return (
-      <svg
-        {...props}
-        {...iconProps(className)}
-        aria-label="No priority"
-        role="img"
-        width="16"
-        height="16"
-        viewBox="0 0 16 16"
-        fill="currentColor"
-      >
-        <rect x="1.5" y="7.25" width="3" height="1.5" rx="0.5" opacity="0.9" />
-        <rect x="6.5" y="7.25" width="3" height="1.5" rx="0.5" opacity="0.9" />
-        <rect x="11.5" y="7.25" width="3" height="1.5" rx="0.5" opacity="0.9" />
-      </svg>
-    );
-  }
-  const secondOpacity = priority === "p3-low" ? 0.4 : 1;
-  const thirdOpacity = priority === "p1-high" ? 1 : 0.4;
-  return (
-    <svg
-      {...props}
-      {...iconProps(className)}
-      aria-label={`${label} priority`}
-      role="img"
-      width="16"
-      height="16"
-      viewBox="0 0 16 16"
-      fill="currentColor"
-    >
-      <rect x="1.5" y="8" width="3" height="6" rx="1" />
-      <rect x="6.5" y="5" width="3" height="9" rx="1" opacity={secondOpacity} />
-      <rect x="11.5" y="2" width="3" height="12" rx="1" opacity={thirdOpacity} />
     </svg>
   );
 }
