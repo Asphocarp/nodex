@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Check } from "@/components/shared/icons/generic-icons";
+import { EstimatePickerIcon, PriorityValueIcon } from "@/components/shared/icons";
 import { EMPTY_PRIORITY_OPTION_VALUE, BOARD_PRIORITY_SELECT_OPTIONS } from "@/lib/board-options";
 import {
   NodexDropdownActionRow,
@@ -12,7 +13,7 @@ import {
   TOGGLE_LIST_STATUS_LABELS,
 } from "@/lib/toggle-list/types";
 import { cn } from "@/lib/utils";
-import { StatusChip } from "@/lib/status-chip";
+import { StatusLabel } from "@/lib/status-presentation";
 import type { MetaChipPropertyType } from "@/lib/toggle-list/meta-chips";
 import {
   tokenToPriorityValue,
@@ -21,6 +22,7 @@ import {
 } from "@/lib/toggle-list/meta-chips";
 import type { DatabasePropertyOption } from "../../../../shared/database-kernel";
 import { propertyOptionColorClassName } from "@/lib/data-source-property-options";
+import { isPriority } from "../../../../shared/priority";
 
 export interface ChipPropertyEditorProps {
   propertyType: MetaChipPropertyType;
@@ -230,30 +232,29 @@ function resolveCurrentValue(propertyType: string, token: string): string {
 }
 
 function renderItemContent(propertyType: string, item: MenuItemData) {
-  if (propertyType === "priority" && item.className) {
-    if (item.value === EMPTY_PRIORITY_OPTION_VALUE) {
-      return <span className="text-base text-(--foreground-tertiary)">{item.label}</span>;
-    }
+  if (propertyType === "priority") {
     return (
-      <span className={cn("inline-flex h-5 items-center rounded-sm px-1.5 text-base/5 font-medium", item.className)}>
-        {item.label}
+      <span className="inline-flex min-w-0 items-center gap-2 text-sm/5 text-token-text-primary">
+        <PriorityValueIcon
+          priority={isPriority(item.value) ? item.value : null}
+          className="size-4 text-token-description-foreground"
+        />
+        <span className="truncate">{item.label}</span>
       </span>
     );
   }
 
   if (propertyType === "estimate") {
-    if (!item.className) {
-      return <span className="text-base text-(--foreground-tertiary)">{item.label}</span>;
-    }
     return (
-      <span className={cn("inline-flex h-5 items-center rounded-sm px-1.5 text-base/5 font-medium", item.className)}>
-        {item.label}
+      <span className="inline-flex min-w-0 items-center gap-2 text-sm/5 text-token-text-primary">
+        <EstimatePickerIcon className="size-4 text-token-description-foreground" />
+        <span className="truncate">{item.label}</span>
       </span>
     );
   }
 
   if (propertyType === "status") {
-    return <StatusChip statusId={item.value} label={item.label} />;
+    return <StatusLabel statusId={item.value} label={item.label} />;
   }
 
   if (propertyType === "tag") {

@@ -14,7 +14,7 @@ import {
   COLLAPSED_BOARD_COLUMN_WIDTH,
   type BoardColumnLayout,
 } from "../../lib/board-column-layout";
-import { StatusChip, StatusIcon, columnStyles as sharedColumnStyles } from "../../lib/status-chip";
+import { StatusIcon, StatusLabel, columnStyles as sharedColumnStyles } from "../../lib/status-presentation";
 import type { ColumnPaginationState } from "../../lib/board-store";
 import type { DatabasePageSummary, BoardSummaryColumn } from "../../lib/types";
 import type { PageCreateOriginKind } from "../../lib/page-create-focus";
@@ -28,7 +28,7 @@ import type {
 import { NodexTooltip } from "@/components/ui/tooltip";
 import { toast } from "@/components/ui/toast";
 
-export { columnStyles } from "../../lib/status-chip";
+export { columnStyles } from "../../lib/status-presentation";
 
 type CardType = DatabasePageSummary;
 type ColumnType = BoardSummaryColumn;
@@ -171,8 +171,6 @@ export const Column = memo(function Column({
   const styles = sharedColumnStyles[column.id] || {
     dotColor: "bg-[var(--foreground-tertiary)]",
     headerBg: "bg-[var(--background-secondary)]",
-    badgeBg: "bg-[var(--gray-bg)]",
-    badgeText: "text-[var(--foreground-secondary)]",
     dropBg: "bg-[var(--background-secondary)]",
     accentColor: "#8E8B86",
   };
@@ -322,20 +320,16 @@ export const Column = memo(function Column({
               )}
               style={activeDropSurfaceStyle}
             >
-              {/* Status badge pill */}
-              <button
-                className={cn(
-                  "rounded-lg",
-                  "hover:opacity-80",
-                )}
-              >
-                <StatusChip statusId={column.id} label={column.name} />
-              </button>
+              <StatusLabel
+                statusId={column.id}
+                label={column.name}
+                className="text-(--foreground)"
+                iconClassName="size-4"
+              />
 
               {/* Card count (true group total, not just the loaded window) */}
               <span
-                className="ml-1 flex h-5 items-center rounded-xs px-1.5 text-sm"
-                style={{ color: styles.accentColor }}
+                className="ml-1.5 flex h-5 items-center text-sm tabular-nums text-(--foreground-tertiary)"
               >
                 {cardCount}
               </span>

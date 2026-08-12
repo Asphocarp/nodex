@@ -3,7 +3,7 @@ import type { DragEvent, MouseEvent, ReactNode } from "react";
 import { PropertyOptionPicker } from "@/components/database/property-option-picker";
 import { NodexButton } from "@/components/ui/button";
 import { NodexCheckbox } from "@/components/ui/settings";
-import { StatusIcon } from "@/lib/status-chip";
+import { StatusIcon } from "@/lib/status-presentation";
 import { usePresentedPageTitle } from "@/lib/page-title-projection-context";
 import { cn } from "@/lib/utils";
 import { isPriority } from "../../../../shared/priority";

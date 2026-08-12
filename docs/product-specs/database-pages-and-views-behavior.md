@@ -162,7 +162,14 @@ consumer that remains mounted.
 Workflow-status List groups use the canonical `Triage`, `Plan`, `Build`,
 `Review`, and `Ship` labels. Each writable status group ends with a compact
 create action that opens the standard Page composer already seeded to that
-status. Custom non-status option labels remain data-defined.
+status. Their icons form one compact progress family: Triage uses a segmented
+ring, Plan an empty ring, Build a half-filled ring, Review a three-quarter-filled
+ring, and Ship a filled ring with a knocked-out check. Shape communicates state
+at 14–16px while semantic color remains supplementary. Status values use a flat
+icon-and-neutral-label presentation; the surrounding row or trigger owns hover,
+focus, and selection backgrounds, so status itself never adds a nested pill.
+Set-like Tags and Labels remain compact chips. Custom non-status option labels
+remain data-defined.
 
 A manual position is optional; an unpositioned Page remains visible according
 to the View's null policy. Board drag, Board keyboard movement, and manual List
