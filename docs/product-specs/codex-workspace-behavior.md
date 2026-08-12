@@ -1,0 +1,128 @@
+# Codex Workspace Behavior
+
+## Scope
+
+This document owns the product-level lifecycle around Chats: creation,
+Project/projectless ownership, workspaces and worktrees, external discovery,
+forks and Side chats, runtime integrations, and account/intelligence selection.
+Visible turns, requests, tools, search, virtualization, and composer rendering
+are specified in [Codex Thread Transcript Behavior](codex-thread-transcript-behavior.md).
+Multi-window publication and recovery are specified in
+[Codex Owner/Follower Streaming](codex-thread-owner-follower-streaming.md).
+
+## Chat identity and ownership
+
+Project Chats belong to durable Project Sessions and link to one app-server
+Thread. A Page may mention a Chat or send an immutable Page snapshot to it but
+never owns the Chat. The sidebar may discover interactive root Threads created
+by other local app-server clients and materializes them into Sessions.
+
+Only first materialization may infer Project ownership from the longest matching
+configured source root. Once recorded, Project identity or explicit projectless
+identity is durable and never reinterpreted from a later cwd observation.
+Moving a Chat between Projects is an explicit domain action.
+
+Archived, deleted, internal helper, Side chat, reviewer, and parent-linked child
+Threads do not become root sidebar Chats. If late ancestry proves that a row is
+a child agent, Nodex removes its root-Chat presentation while preserving it for
+the parent conversation.
+
+## Starting and resuming
+
+Opening `New chat` creates only a Window-scoped draft. First submit creates or
+reuses exactly one Session, starts the Thread and first Turn, and links them.
+The initiating window keeps the draft surface until the canonical conversation
+and optimistic first user Turn are visible; a durable Thread link alone never
+causes a misleading empty transcript.
+
+A direct local Project Chat runs from the primary source when present and a
+generated per-Chat workspace otherwise. `New worktree` requires a primary Git
+source, creates a managed worktree, optionally runs the selected Environment
+setup, and starts the Thread there. Setup failure preserves a recoverable Session
+and draft and does not create duplicate Sessions on retry.
+
+Stopping an ordinary Turn leaves the Chat resumable. Resume starts a userless
+continuation with current Thread settings and creates no synthetic user message.
+An archived Thread must be explicitly restored before resume.
+
+## Projectless Chats
+
+A projectless Chat has no Project authority and receives a generated workspace
+under the user's Documents/Nodex collection. It persists cwd, output-directory,
+and workspace-browser-root hints. Scratch work belongs under `work/`; user-facing
+deliverables belong under `outputs/`. A persistent fork or Side chat inherits
+the same workspace boundary.
+
+Projectless Chats support conversation, Browser, exact-file previews, and
+Terminal only when a cwd is available. They never infer Project ownership from
+path containment and cannot open Project-only Database or Pages capabilities
+without explicit access/context.
+
+## Forks, Side chats, and child agents
+
+A persistent fork creates an independent durable Chat from an eligible Turn.
+An older-Turn fork asks for confirmation unless the user disabled that prompt.
+Session-backed forks materialize and link the new Session before the child
+history is published.
+
+A Side chat is a temporary excluded-history fork for a focused question. It
+inherits the parent workspace identity, lives only in a right/bottom panel tab,
+is excluded from durable Chat navigation, and is discarded when closed. It may
+not recursively create another Side chat. Selected transcript text may prefill
+its composer without submitting.
+
+Inline child agents remain descendants of one root Chat and open through the
+single read-only Subagents surface rather than becoming root Sessions. Summary
+presentation is defined in [Thread Summary Panel Behavior](thread-summary-panel-behavior.md).
+
+## Browser, Computer Use, Files, and Terminal
+
+Browser pages, Computer Use, filesystem reads, and PTYs are Main-owned runtimes
+attached through exact Window Session and Chat identities. Selecting another
+Chat does not rewrite a runtime's owner. Browser Use captures the owning Scene
+at Turn start and may materialize a visible or retained Browser surface without
+destroying the page when panels hide.
+
+Exact file previews may open outside a Project tree after top-level window
+ownership is verified. Tree browsing stays within an explicit canonical root.
+Editable files use bounded reads, recoverable drafts, compare-and-swap save,
+watcher refresh, and explicit external-change conflict presentation.
+
+Terminal PTYs start from the Chat cwd or Project primary source and have one
+active Window Session input lease. Moving or closing a presentation does not
+silently kill the PTY; explicit kill, backend exit, Project cleanup, and app
+shutdown own termination.
+
+The native PiP layer is Desktop-Host presentation, not transcript or Scene
+authority. It is shown only for a real active stream and is dismissed by the
+owning runtime lifecycle. Thread Summary exposes only a host-backed show/hide
+action.
+
+Process Manager is the shared Workbench surface for registered background
+processes across known Chats. It joins registry identity with live app-server
+processes and Terminal-action sessions, polls only while open, and preserves
+registered-but-missing rows instead of inventing live metrics. `Open output`
+focuses the owning Chat when needed and opens the same live process-output
+surface used by Thread Summary. Start/Restart require a retained command and
+working directory; Stop acts on the exact live process or Terminal session.
+
+## Intelligence and account state
+
+A new Chat selects a provider, model, harness, reasoning effort, service tier,
+collaboration mode, and personality from current host catalogs. Existing Chats
+retain immutable provider/harness identity while allowing only catalog-approved
+same-Thread changes to mutable intelligence settings. Forks and scheduled/child
+execution inherit the source's latest durable profile.
+
+Fast Mode is a global preference with the focused contract in
+[Codex Fast Mode Core Enablement](codex-fast-mode-core-enablement.md). Provider
+credentials and authenticated account state remain Main-owned and never enter
+renderer persistence. Import of external-agent data is explicit, selective,
+and never imports credentials, approval policy, or another product database.
+
+## Task actions and export
+
+Chat actions support the applicable Pin/Unpin, Rename, Archive, Side chat,
+working-directory/thread/deeplink copy, and Markdown export operations. Export
+first obtains complete canonical visible history, then serializes that view; it
+does not introduce another transcript store or app-server export endpoint.

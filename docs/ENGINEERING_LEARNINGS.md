@@ -350,6 +350,10 @@ measurement loop is too expensive to rediscover through runtime testing alone.
 | Scheduled task/template route, drafts, runs, and navigation guards | [Scheduled route](product-specs/scheduled-route-behavior.md) |
 | Settings routes, catalog, search, composition, and deep links | [Settings route](product-specs/settings-route-behavior.md) |
 | Block/Owned Document durability, sync, backup, recovery | [Reliability](RELIABILITY.md) |
+| Core selection, generation recovery, and Store migration policy | [Core lifecycle and Store](reliability/core-lifecycle-and-store.md) |
+| LocalCommit delivery, projection freshness, and visibility | [LocalCommit and projections](reliability/local-commit-and-projections.md) |
+| Document/Canvas sync, semantic history, and retention | [Document sync/history](reliability/document-sync-history-and-retention.md) |
+| Whole-Store backup, restore, replacement, and maintenance | [Backup/restore](reliability/backup-restore-and-maintenance.md) |
 | Cross-feature renderer construction, state ownership, shared UI/editor primitives, and Storybook conventions | [Frontend](FRONTEND.md) |
 | Kanban and cross-surface drag behavior | [Kanban drag and drop](product-specs/kanban-drag-and-drop-behavior.md) |
 | NFM side-menu interaction | [NFM block side menu](product-specs/nfm-block-side-menu-behavior.md) |

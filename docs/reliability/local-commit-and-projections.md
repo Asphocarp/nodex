@@ -1,0 +1,87 @@
+# LocalCommit and Projection Delivery
+
+## One committed fact
+
+Every semantic Core mutation atomically persists its canonical state change,
+private physical evidence, immutable receipt, one CommitManifest, affected
+Projection revisions, visibility evidence, and Document effect references. Its
+durable identity is the Store epoch, LocalCommit sequence, and manifest hash.
+
+The command result and post-state delivery authorization are separate. A caller
+may receive the command outcome even when it cannot read the post-state. When an
+authorized apply delivery exists, Main admits it to the initiating renderer
+before the feature Promise resolves. The renderer never waits for the event
+stream, a reread, or another renderer acknowledgement to treat the command as
+complete.
+
+An apply packet and later stream packet are complementary presentations of the
+same Manifest. Coverage is deduplicated by durable identity, audience, and
+resource. A different Manifest hash at the same Store coordinate fails closed.
+
+## Durable wake and replay
+
+The global and scoped brokers install their wake receiver before scanning the
+durable ledger. A wake carries no event data or cursor; it only requests another
+keyset scan. Lost or coalesced wakes are recovered by a later wake or reconnect
+barrier. The scanner advances across sequence gaps and commits that authorize
+zero packets.
+
+A cursor older than retained history returns a typed resync boundary. Replay
+pages are indexed, bounded, authorized, and keyed by the complete Store
+coordinate. The global LocalCommit sequence measures replay progress; it is not
+a Projection revision, Document head, or change-log sequence.
+
+Main multiplexes Core-authored audience packets to concrete renderer recipients.
+Each renderer has independent delivery and acknowledgement state. Recipient
+leases and resets are Core-issued; Main cannot broaden an audience. A destroyed
+renderer retains no delivery timer or state.
+
+## Projection freshness
+
+Each projection advances on its exact scope revision and semantic dependencies.
+A complete contiguous patch may apply immediately. A gap, unavailable patch,
+integrity mismatch, conservative reset, or authorization change fences the stale
+projection and schedules a bounded canonical read.
+
+Canonical reads derive their Store epoch, LocalCommit head, projection revision,
+and values from one SQLite snapshot. Renderer stores admit the response only if
+its authority/freshness stamp still covers every dependency observed since the
+read began. A response started before a revoke or reset cannot repopulate stale
+state.
+
+Optimistic journals may keep an acknowledged semantic transform composed over
+canonical base until the bounded projection actually materializes it. Promise
+success or a broad commit cursor is not proof that one row/window contains the
+result.
+
+## Visibility and authorization changes
+
+Core computes authorization before and after the mutation inside the same
+transaction and seals exact gains/losses into the Manifest. A revoke reaches the
+affected resource before post-state content. Exact evidence evicts only matching
+resources; a bounded closure overflow requests a conservative whole-address
+reset.
+
+Projection invalidation is not authorization. Every later read/write still
+checks current Core authority. Relation and other reference edges do not expand
+authorization; the product contract for Relation visibility is in
+[Database, Pages, and Views Behavior](../product-specs/database-pages-and-views-behavior.md).
+
+## Document effects
+
+Large update bytes are referenced by verified Document effect metadata and may
+be delivered through the exact Document resource lane. Operational compaction
+may remove the bytes while retaining durable causal metadata. Replay then emits
+`document_resync_required`; Main maps it to a history-compacted canonical resync
+instead of inventing an empty update or declaring the commit lost.
+
+Document delivery lanes serialize independently by Document identity. A multi-
+Document commit may progress independently on unaffected lanes; retrying one
+failed lane does not depend on unrelated notification delivery.
+
+## Deep decisions
+
+The durable projection model is recorded in
+[ADR 0024](../adr/0024-durable-projection-invalidation.md) and the causal local
+mutation boundary in
+[ADR 0040](../adr/0040-local-commit-authority-and-causal-structural-mutations.md).

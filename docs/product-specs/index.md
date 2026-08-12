@@ -2,7 +2,13 @@
 
 | Spec | Status | Last Updated | Summary |
 |------|--------|--------------|---------|
-| nodex-product-spec.md | Active | 2026-02-13 | Full product contract: goals, features, API, CLI, config, architecture |
+| nodex-product-spec.md | Active | 2026-08-12 | Compact product promise, capability map, invariants, and routing to the narrow owning contracts |
+| product-foundations.md | Active | 2026-08-12 | First-run, Project lifecycle, Library navigation, grants, Workbench boundary, and product principles |
+| database-pages-and-views-behavior.md | Active | 2026-08-12 | Database View, Page creation, Page Stage, Property, Relation, and editor-owner behavior |
+| canvas-behavior.md | Active | 2026-08-12 | Canvas identity, placement, inline/Stage presentation, scene/assets, sync, presence, and history |
+| calendar-and-reminders-behavior.md | Active | 2026-08-12 | Calendar release gate, occurrence presentation, recurrence scopes, reminders, and notification routing |
+| codex-workspace-behavior.md | Active | 2026-08-12 | Chat lifecycle, Project/projectless workspaces, worktrees, forks, Side chats, runtime integrations, and intelligence state |
+| agent-interface-behavior.md | Active | 2026-08-12 | Project-bound Nodex tools, native CLI/Skill boundary, authorization, semantic preconditions, and Agent content rules |
 | auto-review-behavior.md | Active | 2026-04-09 | Detailed Auto-review contract covering config-backed preset resolution, availability and reviewer fallback, UI surfaces, and approval request lifecycle |
 | desktop-notification-behavior.md | Active | 2026-04-09 | Detailed Electron desktop notification contract for thread turn-complete, approval, and question notifications, including suppression, payloads, and action routing |
 | codex-fast-mode-core-enablement.md | Active | 2026-04-09 | Detailed global Fast-mode preference contract covering persistence, shared renderer ownership, UI surfaces, request fallback, queue freezing, and reporting normalization |

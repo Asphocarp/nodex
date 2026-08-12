@@ -1,0 +1,77 @@
+# Canvas Behavior
+
+## Identity and placement
+
+Canvas is a first-class document-bearing Block. It owns an independently
+synchronized `canvas_scene` Document and has one exclusive Library or Page
+placement. A Project's primary Canvas is only its default entry point; it is not
+a Database View or a different Canvas type.
+
+A Canvas nested in a Page appears there as one childless owner shell whose Block
+ID is the Canvas ID. The shell stores no scene, file bytes, title snapshot, or
+Document ID. Create, rename, move, duplicate, and delete use typed Library
+operations that keep the owner, host shell, Document lifecycle, projections,
+and receipt consistent.
+
+## Inline and Stage presentation
+
+An inline Canvas begins as a lightweight named shell and mounts its editor only
+while the owning Page surface is active and the Canvas is visible, prewarmed, or
+explicitly engaged. A bounded coordinator prioritizes focused and nearby
+Canvases; an evicted Canvas returns automatically without a separate Resume
+state.
+
+`Open Canvas in tab` and Library/Project entry points open the same stable Canvas
+in Canvas Stage. Opening it again focuses the existing target where appropriate.
+Deleted or inaccessible targets retain an explicit closable state instead of
+silently opening another Canvas.
+
+Inline and Stage surfaces share one process-local Canvas session per authorized
+Document while retaining independent camera, selection, tools, undo, and
+presence. Camera and inline height may persist as local presentation
+preferences; they never enter the scene or host Page.
+
+## Scene and assets
+
+Core stores normalized current elements, durable portable app state, ordering,
+and managed-file metadata. Selection, active tool, focus, viewport, and cursor
+are presentation state. Separate windows converge element candidates by the
+scene's deterministic version/tie-break rules; deletion is an explicit
+tombstone.
+
+Image bytes are materialized as content-addressed managed assets before scene
+authority references them. Equal logical file assertions are idempotent; a
+different digest under the same logical identity is rejected. Page shapes keep
+only a stable target Page identity and never copy Page content or Data Source
+membership into Canvas state.
+
+## Offline work, sync, and presence
+
+The renderer coalesces observations and persists each pending local scene
+mutation to a bounded active outbox before transport. Response loss retries the
+same mutation. Deterministic rejection quarantines that mutation, repairs from
+canonical state, and allows later work to continue. Store-epoch or Document-
+generation changes invalidate stale pending rows.
+
+Subscriptions begin before canonical synchronization. Missing or out-of-order
+heads, reconnect, and completed write leases repair through one bounded full
+scene. Remote updates do not enter local Excalidraw undo.
+
+Open surfaces share best-effort bounded cursor, selection, and active/idle
+presence. Presence never changes scene authority, history, or offline state.
+
+## History and maintenance
+
+Canvas history is semantic scene history. Restore applies a new forward scene
+mutation with newer element versions and explicit tombstones rather than
+replacing current authority with old JSON.
+
+Tombstone/file compaction may run after the last fully committed Canvas surface
+closes and only after Core proves there is no active copy or pending work. It
+pins a safety revision before rotating the collaboration generation. Failure to
+acquire that boundary defers maintenance and never blocks close.
+
+The deep scene-authority decisions are recorded in
+[ADR 0005](../adr/0005-canvas-scene-native-sync-engine.md) and
+[ADR 0033](../adr/0033-incremental-canvas-scene-authority.md). Reliability and
+recovery mechanics live in [Reliability](../RELIABILITY.md).
