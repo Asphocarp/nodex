@@ -23,7 +23,7 @@ import {
 } from "@/components/shared/icons";
 import { NodexButton } from "@/components/ui/button";
 import {
-  NodexDropdownChoiceMenu,
+  NodexOptionPicker,
   NodexDropdownItem,
   NodexDropdownMenu,
   NodexDropdownMessage,
@@ -313,7 +313,7 @@ function AutomationDropdownField({
 }) {
   const selectedLabel = options.find((option) => option.value === value)?.label ?? value;
   return (
-    <NodexDropdownChoiceMenu
+    <NodexOptionPicker
       value={value}
       options={options}
       onValueChange={onValueChange}
@@ -450,7 +450,7 @@ function AutomationSchedulePopover({
             <NodexPopoverTitle className="text-token-description-foreground flex min-h-6 items-center truncate px-[var(--padding-row-x)] py-[var(--padding-row-y)] text-sm leading-4">
               Schedule
             </NodexPopoverTitle>
-            <NodexDropdownChoiceMenu
+            <NodexOptionPicker
               value={resolvedConfig.mode}
               options={modeOptions}
               onValueChange={(value) => updateSchedule({ mode: value as WorkbenchAutomationScheduleMode })}
@@ -500,7 +500,7 @@ function AutomationSchedulePopover({
             ) : null}
 
             {resolvedConfig.mode === "weekly" ? (
-              <NodexDropdownChoiceMenu
+              <NodexOptionPicker
                 value={resolvedConfig.weekdays[0] ?? "MO"}
                 options={[
                   { value: "SU", label: "Sunday" },

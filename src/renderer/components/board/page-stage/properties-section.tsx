@@ -3,7 +3,7 @@ import { EnvironmentSelectorPopover } from "@/features/local-conversation/view/s
 import { ThreadsIcon } from "@/components/workbench/threads-icon";
 import {
   NodexDropdownButtonTrigger,
-  NodexDropdownChoiceMenu,
+  NodexOptionPicker,
 } from "@/components/ui/dropdown";
 import { SchedulePopover } from "@/components/board/schedule-popover";
 import { dataSourcePropertyIcon } from "@/components/database/data-source-property-presentation";
@@ -57,7 +57,7 @@ function ThreadsPropertyRow({ controller }: PageStagePropertiesSectionProps) {
           <span className="text-sm/5 text-(--foreground-secondary)">Threads</span>
         </div>
         <div className="flex min-w-0 flex-1 items-center gap-2 px-2">
-          <NodexDropdownChoiceMenu
+          <NodexOptionPicker
             value={runInTarget}
             onValueChange={(value) => {
               void handleRunInTargetChange(value as PageRunInTarget);

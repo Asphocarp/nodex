@@ -43,9 +43,11 @@ controls, and visible Properties from the active Source schema. List is a dense,
 full-width 40–44px task-row surface whose sections match Board groups and
 subgroups; it has no spreadsheet header, column resizers, rounded card stack, or
 inline foreign Page Document. Its controls use the shared Nodex dropdown,
-button, switch, popover, and checkbox primitives. Board and List share bounded
-group windows, selection, Page-open behavior, Property editors, and mutation
-receipts.
+button, switch, popover, and checkbox primitives. Selectors backed by Source
+Properties, options, or other growing data catalogs are searchable; closed
+presentation enums remain compact selection menus without a redundant search
+field. Board and List share bounded group windows, selection, Page-open behavior,
+Property editors, and mutation receipts.
 
 ### List projection and task hierarchy
 

@@ -10,7 +10,7 @@ import {
 } from "@/components/shared/icons/generic-icons";
 import {
   NodexDropdownButtonTrigger,
-  NodexDropdownChoiceMenu,
+  NodexOptionPicker,
 } from "@/components/ui/dropdown";
 import { NodexSwitch } from "@/components/ui/button";
 import { formatRulesV2AsJsonLogic, parseRulesV2FromJsonLogic } from "@/lib/toggle-list/rules-v2-jsonlogic";
@@ -449,7 +449,7 @@ function SortSection({
       <div className={cn("flex flex-col", compact ? "gap-1" : "gap-1.5")}>
         {settings.rulesV2.sort.map((entry, index) => (
           <div key={`${entry.field}:${index}`} className="flex items-center gap-1.5">
-            <NodexDropdownChoiceMenu
+            <NodexOptionPicker
               value={entry.field}
               onValueChange={(value) => updateSort(index, buildSortKeyWithEmptyPlacement({
                 field: value as ToggleListRankField,
@@ -467,7 +467,7 @@ function SortSection({
               )}
             />
 
-            <NodexDropdownChoiceMenu
+            <NodexOptionPicker
               value={entry.direction}
               onValueChange={(value) => updateSort(index, buildSortKeyWithEmptyPlacement({
                 field: entry.field,
@@ -485,7 +485,7 @@ function SortSection({
               )}
             />
             {supportsSortEmptyPlacementField(entry.field) ? (
-              <NodexDropdownChoiceMenu
+              <NodexOptionPicker
                 value={resolveSortEmptyPlacement(entry.field, entry.emptyPlacement)}
                 onValueChange={(value) => updateSort(index, buildSortKeyWithEmptyPlacement({
                   field: entry.field,
@@ -793,7 +793,7 @@ function GroupEditor({
       <div className="flex items-start gap-2">
         <span className={cn(ROW_LABEL, "pt-0.75")}>Tags</span>
         <div className="flex flex-wrap items-start gap-1.5">
-          <NodexDropdownChoiceMenu
+          <NodexOptionPicker
             value={tagMode}
             onValueChange={(value) => setTagMode(value as ToggleListTagFilterMode)}
             options={TOGGLE_LIST_TAG_FILTER_MODES.map((mode) => ({

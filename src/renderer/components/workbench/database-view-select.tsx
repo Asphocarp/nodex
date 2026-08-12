@@ -2,7 +2,8 @@ import type { ReactNode } from "react";
 
 import {
   NodexDropdownButtonTrigger,
-  NodexDropdownChoiceMenu,
+  NodexOptionPicker,
+  type NodexOptionPickerSearchMode,
   type NodexDropdownButtonTriggerProps,
   type NodexDropdownContentWidth,
 } from "@/components/ui/dropdown";
@@ -11,6 +12,7 @@ import { cn } from "@/lib/utils";
 export interface DatabaseViewSelectOption {
   readonly value: string;
   readonly label: ReactNode;
+  readonly searchText?: string;
   readonly disabled?: boolean;
 }
 
@@ -21,6 +23,8 @@ interface DatabaseViewSelectProps {
   readonly options: readonly DatabaseViewSelectOption[];
   readonly onValueChange: (value: string) => void;
   readonly disabled?: boolean;
+  readonly search?: NodexOptionPickerSearchMode;
+  readonly searchPlaceholder?: string;
   readonly className?: string;
   readonly contentWidth?: NodexDropdownContentWidth;
   readonly chrome?: NodexDropdownButtonTriggerProps["chrome"];
@@ -34,21 +38,27 @@ export function DatabaseViewSelect({
   options,
   onValueChange,
   disabled = false,
+  search = "none",
+  searchPlaceholder,
   className,
   contentWidth = "sm",
   chrome = "filled",
   size = "xs",
 }: DatabaseViewSelectProps) {
   return (
-    <NodexDropdownChoiceMenu
+    <NodexOptionPicker
       value={value}
       disabled={disabled}
+      search={search}
+      searchPlaceholder={searchPlaceholder}
+      searchAriaLabel={search === "filter" ? `Search ${ariaLabel}` : undefined}
       onValueChange={onValueChange}
       contentWidth={contentWidth}
       align="end"
       options={options.map((option) => ({
         value: option.value,
         label: option.label,
+        searchText: option.searchText,
         disabled: option.disabled,
       }))}
       triggerButton={(

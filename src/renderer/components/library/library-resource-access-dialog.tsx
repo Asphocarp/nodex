@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/dialog";
 import {
   NodexDropdownButtonTrigger,
-  NodexDropdownChoiceMenu,
+  NodexOptionPicker,
 } from "@/components/ui/dropdown";
 import { ProjectMarker } from "@/components/workbench/project-marker";
 import type {
@@ -285,7 +285,7 @@ function LibraryResourceAccessEditor({
                     </div>
                   ) : null}
                 </div>
-                <NodexDropdownChoiceMenu
+                <NodexOptionPicker
                   value={directAccess ?? "none"}
                   onValueChange={(value) => setDraft((current) => ({
                     ...current,

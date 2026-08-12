@@ -2,9 +2,9 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { createReactInlineContentSpec } from "@blocknote/react";
 import { DayPicker, type DateRange } from "react-day-picker";
 import {
-  NodexDropdownChoiceMenu,
+  NodexOptionPicker,
   NodexDropdownSeparator,
-  type NodexDropdownChoiceOption,
+  type NodexOptionPickerOption,
 } from "@/components/ui/dropdown";
 import {
   NodexPopover,
@@ -79,13 +79,13 @@ const EMPTY_DATE_MENTION_PROPS: DateMentionProps = {
   reminder: "",
 };
 
-const DATE_FORMAT_OPTIONS: NodexDropdownChoiceOption[] = NFM_DATE_MENTION_DATE_FORMATS.map((format) => ({
+const DATE_FORMAT_OPTIONS: NodexOptionPickerOption[] = NFM_DATE_MENTION_DATE_FORMATS.map((format) => ({
   value: format,
   label: getDateFormatLabel(format),
   subText: format === "relative" ? "Today, Tomorrow, Jun 28 fallback" : format,
 }));
 
-const TIME_FORMAT_OPTIONS: NodexDropdownChoiceOption[] = [
+const TIME_FORMAT_OPTIONS: NodexOptionPickerOption[] = [
   { value: "", label: getTimeFormatLabel(undefined), subText: "Use browser locale" },
   ...NFM_DATE_MENTION_TIME_FORMATS.map((format) => ({
     value: format,
@@ -94,7 +94,7 @@ const TIME_FORMAT_OPTIONS: NodexDropdownChoiceOption[] = [
   })),
 ];
 
-const REMINDER_OPTIONS: NodexDropdownChoiceOption[] = [
+const REMINDER_OPTIONS: NodexOptionPickerOption[] = [
   { value: "", label: "None" },
   ...NFM_DATE_MENTION_REMINDER_PRESETS.map((reminder) => ({
     value: reminder,
@@ -487,7 +487,7 @@ function DateMentionPopoverBody({
           )}
         />
 
-        <NodexDropdownChoiceMenu
+        <NodexOptionPicker
           value={payload.format ?? "relative"}
           options={DATE_FORMAT_OPTIONS}
           onValueChange={(format) => onPatch({ format })}
@@ -516,7 +516,7 @@ function DateMentionPopoverBody({
 
         {hasTime ? (
           <>
-            <NodexDropdownChoiceMenu
+            <NodexOptionPicker
               value={payload.timeFormat ?? ""}
               options={TIME_FORMAT_OPTIONS}
               onValueChange={(timeFormat) => onPatch({ timeFormat })}
@@ -530,9 +530,12 @@ function DateMentionPopoverBody({
               )}
             />
 
-            <NodexDropdownChoiceMenu
+            <NodexOptionPicker
               value={payload.tz || getLocalDateMentionTimeZone()}
               options={timezoneOptions}
+              search="filter"
+              searchPlaceholder="Search timezones…"
+              searchAriaLabel="Search timezones"
               onValueChange={setTimezone}
               contentWidth="workspace"
               triggerButton={(
@@ -546,7 +549,7 @@ function DateMentionPopoverBody({
           </>
         ) : null}
 
-        <NodexDropdownChoiceMenu
+        <NodexOptionPicker
           value={payload.reminder ?? ""}
           options={payload.reminder && !NFM_DATE_MENTION_REMINDER_PRESETS.includes(payload.reminder as never)
             ? [

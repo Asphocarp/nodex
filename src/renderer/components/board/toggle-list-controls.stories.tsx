@@ -8,7 +8,7 @@ import {
 import { PROJECTION_ACTION_BTN } from "./editor/projection-drag-handle";
 import {
   NodexDropdownButtonTrigger,
-  NodexDropdownChoiceMenu,
+  NodexOptionPicker,
 } from "@/components/ui/dropdown";
 import { getDefaultToggleListSettings } from "@/lib/toggle-list/settings";
 import type { ToggleListSettings } from "@/lib/toggle-list/types";
@@ -60,10 +60,13 @@ function ToggleListInlineToolbarStory() {
           <button type="button" className={cn(PROJECTION_ACTION_BTN, "w-7 cursor-grab justify-center px-0")}>
             ⋮⋮
           </button>
-          <NodexDropdownChoiceMenu
+          <NodexOptionPicker
             value={sourceProjectId}
             onValueChange={setSourceProjectId}
             options={PROJECT_OPTIONS}
+            search="filter"
+            searchPlaceholder="Search projects…"
+            searchAriaLabel="Search projects"
             triggerButton={(
               <NodexDropdownButtonTrigger className={cn(PROJECTION_ACTION_BTN, "h-7! pr-2")}>
                 <span className="inline-flex items-center gap-1.5">
