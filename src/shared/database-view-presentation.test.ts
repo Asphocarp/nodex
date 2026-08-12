@@ -5,6 +5,7 @@ import type {
 } from "./database-kernel";
 import {
   DatabaseMutationContractError,
+  parseDatabaseViewConfigV4,
   parseDatabaseViewPresentationOverride,
 } from "./database-kernel";
 import {
@@ -49,6 +50,32 @@ const presentation: DatabaseViewPresentationConfig = {
 };
 
 describe("Database View presentation", () => {
+  test("accepts Page ID as an optional intrinsic display field", () => {
+    const parsed = parseDatabaseViewConfigV4({
+      schemaKey: "nodex.database-view",
+      schemaVersion: 4,
+      filter: { kind: "group", operator: "and", children: [] },
+      presentation: {
+        ...presentation,
+        layouts: {
+          ...presentation.layouts,
+          list: {
+            ...presentation.layouts.list,
+            fields: [
+              { kind: "intrinsic", field: "page_id" },
+              ...presentation.layouts.list.fields,
+            ],
+          },
+        },
+      },
+    });
+
+    expect(parsed.presentation.layouts.list.fields[0]).toEqual({
+      kind: "intrinsic",
+      field: "page_id",
+    });
+  });
+
   test("parses sparse Profile overrides without accepting query fields", () => {
     expect(parseDatabaseViewPresentationOverride({
       layout: "list",

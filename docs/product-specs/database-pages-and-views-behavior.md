@@ -39,7 +39,12 @@ conflict retains the personal state. A valid legacy renderer preference migrates
 once and is removed only after Core accepts the write.
 
 Display Options derives valid group fields, finite empty groups, completion
-controls, and visible Properties from the active Source schema. List is a dense,
+controls, and visible Properties from the active Source schema. Page ID is an
+ordinary optional List display field: it follows the same personal override,
+reset, and default-publishing flow as other display fields and is never forced
+visible. Hiding any optional List field collapses only that field's track; the
+remaining Page identity cells, Property cells, group headers, and nested guides
+retain their named-column alignment. List is a dense,
 full-width 40–44px task-row surface whose sections match Board groups and
 subgroups; it has no spreadsheet header, column resizers, rounded card stack, or
 inline foreign Page Document. Its controls use the shared Nodex dropdown,

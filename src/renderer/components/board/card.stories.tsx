@@ -25,10 +25,12 @@ function CardStoryFrame({
   isPresented = false,
   isKeyboardActive = false,
   isSelected = false,
+  dragDisabled = true,
 }: {
   isPresented?: boolean;
   isKeyboardActive?: boolean;
   isSelected?: boolean;
+  dragDisabled?: boolean;
 }) {
   return (
     <div className="min-h-screen bg-token-main-surface-primary p-8">
@@ -40,7 +42,7 @@ function CardStoryFrame({
           projectId="alpha"
           card={SAMPLE_CARD}
           columnId="build"
-          dragDisabled
+          dragDisabled={dragDisabled}
           isPresented={isPresented}
           isKeyboardActive={isKeyboardActive}
           isSelected={isSelected}
@@ -80,4 +82,9 @@ export const PresentedAndSelected: Story = {
 
 export const PresentedAndKeyboardActive: Story = {
   render: () => <CardStoryFrame isPresented isKeyboardActive />,
+};
+
+/** Draggable cards retain their click affordance until a drag actually starts. */
+export const Draggable: Story = {
+  render: () => <CardStoryFrame dragDisabled={false} />,
 };

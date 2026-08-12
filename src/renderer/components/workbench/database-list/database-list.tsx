@@ -675,7 +675,12 @@ export function DatabaseList({
     priority: selectedPropertyIds.has("priority") && activePropertyIds.has("priority"),
     status: selectedPropertyIds.has("status") && activePropertyIds.has("status"),
   }), [activePropertyIds, selectedPropertyIds]);
-  const { inlineFields, trailingFields, gridTemplateColumns } = useDatabaseListGrid(
+  const {
+    showIdentifier,
+    inlineFields,
+    trailingFields,
+    gridTemplateColumns,
+  } = useDatabaseListGrid(
     allFields,
     coreColumnVisibility,
   );
@@ -1525,6 +1530,7 @@ export function DatabaseList({
         }
         showPriority={coreColumnVisibility.priority}
         showStatus={coreColumnVisibility.status}
+        showIdentifier={showIdentifier}
         nestingContinuations={nestingContinuationsByKey.get(item.key) ?? []}
       />
     );
@@ -1677,6 +1683,7 @@ export function DatabaseList({
           </div>
         ) : (
           <div
+            data-list-layout-grid="true"
             className="grid min-w-[320px] items-stretch gap-x-2"
             style={{ gridTemplateColumns } as CSSProperties}
           >

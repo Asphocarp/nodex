@@ -43,7 +43,7 @@ export type DatabaseViewField =
     }
   | {
       readonly kind: "intrinsic";
-      readonly field: "created_at" | "updated_at";
+      readonly field: "page_id" | "created_at" | "updated_at";
     };
 
 export function databaseGroupValueFromKey(
@@ -1122,7 +1122,11 @@ const parseViewLayoutDisplay = (
       );
     }
     assertExactKeys(field, `${label}.fields[${index}]`, ["kind", "field"]);
-    if (field.field !== "created_at" && field.field !== "updated_at") {
+    if (
+      field.field !== "page_id"
+      && field.field !== "created_at"
+      && field.field !== "updated_at"
+    ) {
       throw new DatabaseMutationContractError(
         `${label}.fields[${index}].field is unsupported`,
       );

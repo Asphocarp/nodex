@@ -2360,7 +2360,7 @@ fn refresh_effective_presentation(
                     format!("property:{property_id}")
                 }
                 ViewField::Intrinsic { field }
-                    if matches!(field.as_str(), "created_at" | "updated_at") =>
+                    if matches!(field.as_str(), "page_id" | "created_at" | "updated_at") =>
                 {
                     format!("intrinsic:{field}")
                 }
@@ -2414,7 +2414,7 @@ fn view_field_override(input: &DatabaseViewFieldInput) -> Result<ViewField, Stor
             })
         }
         DatabaseViewFieldInput::Intrinsic { field }
-            if matches!(field.as_str(), "created_at" | "updated_at") =>
+            if matches!(field.as_str(), "page_id" | "created_at" | "updated_at") =>
         {
             Ok(ViewField::Intrinsic {
                 field: field.clone(),

@@ -96,4 +96,26 @@ describe("Database View Display option reducer", () => {
       .toEqual({ kind: "property", propertyId: "priority" });
     expect(displayFieldForcedByOrdering({ kind: "title" })).toBeNull();
   });
+
+  test("treats Page ID as an ordinary List display field", () => {
+    const shown = reduceDisplayOptionChange(
+      effective(),
+      { kind: "toggle_field", field: { kind: "intrinsic", field: "page_id" } },
+      capabilities,
+    );
+    expect(shown.presentation.layouts.list.fields).toContainEqual({
+      kind: "intrinsic",
+      field: "page_id",
+    });
+
+    const hidden = reduceDisplayOptionChange(
+      shown,
+      { kind: "toggle_field", field: { kind: "intrinsic", field: "page_id" } },
+      capabilities,
+    );
+    expect(hidden.presentation.layouts.list.fields).not.toContainEqual({
+      kind: "intrinsic",
+      field: "page_id",
+    });
+  });
 });

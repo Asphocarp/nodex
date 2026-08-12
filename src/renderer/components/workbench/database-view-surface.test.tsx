@@ -675,6 +675,35 @@ describe("DatabaseViewSurface", () => {
     expect(onOpenPage).toHaveBeenCalledWith("page-next", "Next Page");
   });
 
+  test("keeps the named List grid valid and cells anchored when Page ID is hidden", () => {
+    const screen = render(
+      <DatabaseViewSurface
+        model={listModel()}
+        presentationLayout="list"
+        searchQuery=""
+        onOpenPage={() => undefined}
+      />,
+    );
+    const layoutGrid = screen.container.querySelector<HTMLElement>(
+      "[data-list-layout-grid=true]",
+    );
+    const row = screen.container.querySelector<HTMLElement>(
+      "[data-database-view-page-id]",
+    );
+    if (!layoutGrid || !row) throw new Error("Expected the List layout grid and a Page row");
+
+    expect(layoutGrid.style.gridTemplateColumns)
+      .toMatch(/\[identifier (?:status|title)\]/);
+    expect(row.querySelector("[data-list-grid-column=identifier]")).toBeNull();
+    const cells = row.querySelectorAll<HTMLElement>(
+      ":scope > [data-list-grid-column]",
+    );
+    expect(cells.length).toBeGreaterThan(0);
+    for (const cell of cells) {
+      expect(cell.style.gridColumn).toBe(cell.dataset.listGridColumn);
+    }
+  });
+
   test("keeps external editor focus across List projection refreshes and selection", async () => {
     const renderSurface = (viewModel: DatabaseViewRenderModel) => (
       <>

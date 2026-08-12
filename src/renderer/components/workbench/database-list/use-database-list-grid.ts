@@ -9,14 +9,19 @@ export const useDatabaseListGrid = (
   fields: readonly DatabaseViewField[],
   coreColumns: DatabaseListCoreColumnVisibility,
 ): {
+  readonly showIdentifier: boolean;
   readonly inlineFields: readonly DatabaseViewField[];
   readonly trailingFields: readonly DatabaseViewField[];
   readonly gridTemplateColumns: string;
 } => {
-  const { inlineFields, trailingFields } = partitionDatabaseListFields(fields);
+  const { showIdentifier, inlineFields, trailingFields } = partitionDatabaseListFields(fields);
   return {
+    showIdentifier,
     inlineFields,
     trailingFields,
-    gridTemplateColumns: databaseListGridTemplate(trailingFields, coreColumns),
+    gridTemplateColumns: databaseListGridTemplate(trailingFields, {
+      ...coreColumns,
+      identifier: showIdentifier,
+    }),
   };
 };

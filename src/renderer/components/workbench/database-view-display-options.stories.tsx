@@ -56,6 +56,7 @@ const durable: EffectiveDatabaseViewPresentation = {
       },
       list: {
         fields: [
+          { kind: "intrinsic", field: "page_id" },
           { kind: "property", propertyId: "status" },
           { kind: "property", propertyId: "priority" },
           { kind: "property", propertyId: "assignee" },
