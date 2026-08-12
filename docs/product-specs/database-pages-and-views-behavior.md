@@ -81,14 +81,23 @@ ID.
 
 List selection supports replace, toggle, contiguous range, all matching with
 sparse exclusions, a roving keyboard cursor, context actions, and a bulk action
-bar. Selection-state paint in a List row is immediate rather than tweened. A
-visible Status or Priority icon is also its inline editor trigger: opening it
-must not select or open the Page. The editor uses the shared searchable Property
-option picker, and choosing an option commits through the same optimistic,
-receipt-backed Property mutation path as other editors. Built-in task Properties
-keep their canonical options available when a bounded option window is not
-embedded in the current projection. Reorder, cross-group Property adoption,
-nest, un-nest, and eligible
+bar. A normal pointer click on either the title or any non-interactive part of a
+Page row opens that Page; it does not convert navigation into selection.
+Pointer selection is explicit: the row checkbox toggles an occurrence and
+Shift-click extends the current range, while disclosure and Property controls
+remain isolated from both Page-open and selection. Selection-state paint in a
+List row is immediate rather than tweened. A visible Status or Priority icon is
+also its inline editor trigger: opening it must not select or open the Page. The
+editor uses the shared searchable Property option picker, and choosing an option
+commits through the same optimistic, receipt-backed Property mutation path as
+other editors. Built-in task Properties keep their canonical options available
+when a bounded option window is not embedded in the current projection.
+
+An ordinary Page-row drag resolves against the target row midpoint as a
+before/after insertion and never treats the row center as an implicit drop
+inside the target Page. Holding Option/Alt deliberately switches that target to
+the nest operation. Reorder, cross-group Property adoption, explicit nest,
+un-nest, and eligible
 multi-Page drops compile from occurrence context into one atomic Database apply
 with Property, Parent-value, and position compare-and-swap. The renderer may apply
 a conservative optimistic occurrence projection and recompile once after a
@@ -99,7 +108,10 @@ committed revisions.
 Primary and subgroup headers paint an opaque full-width sticky surface through
 the scrollport's top edge. The scroll container must not introduce transparent
 top padding above that sticky plane, so a scrolled Page row can never show
-through as a seam above the header.
+through as a seam above the header. Light and dark List presentations preserve
+the same geometry, density, and interaction hierarchy; each theme supplies an
+opaque surface plus distinct hover, selection, group, text, icon, chip, checkbox,
+focus, and drop-indicator colors.
 
 Opening a Page, changing Display Options, and switching between Board and List
 preserve the last readable Database surface instead of replacing it with an

@@ -675,6 +675,46 @@ describe("DatabaseViewSurface", () => {
     expect(onOpenPage).toHaveBeenCalledWith("page-next", "Next Page");
   });
 
+  test("opens a List Page from its title or row surface while selection stays explicit", async () => {
+    const onOpenPage = vi.fn();
+    const screen = render(
+      <DatabaseViewSurface
+        model={listModel()}
+        presentationLayout="list"
+        searchQuery=""
+        onOpenPage={onOpenPage}
+      />,
+    );
+    const row = screen.container.querySelector<HTMLElement>(
+      '[data-database-view-page-id="page-focused"]',
+    );
+    if (!row) throw new Error("Expected the focused List row");
+
+    await act(async () => {
+      fireEvent.click(row);
+      await Promise.resolve();
+    });
+    expect(onOpenPage).toHaveBeenLastCalledWith("page-focused", "Focused Page");
+    expect(row.getAttribute("aria-selected")).toBe("false");
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", {
+        name: "Open Page Focused Page",
+      }));
+      await Promise.resolve();
+    });
+    expect(onOpenPage).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("checkbox", {
+        name: "Select Focused Page",
+      }));
+      await Promise.resolve();
+    });
+    expect(row.getAttribute("aria-selected")).toBe("true");
+    expect(onOpenPage).toHaveBeenCalledTimes(2);
+  });
+
   test("opens the searchable List row action surface from the row context trigger", async () => {
     const screen = render(
       <DatabaseViewSurface

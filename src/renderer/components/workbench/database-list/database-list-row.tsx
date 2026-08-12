@@ -17,6 +17,7 @@ import {
   DatabaseListNestingLines,
   DATABASE_LIST_NESTING_DEPTH_PX,
 } from "./database-list-nesting-lines";
+import { resolveDatabaseListRowDropPosition } from "./database-list-row-interaction";
 
 const shortIdentifier = (pageId: string): string => {
   const normalized = pageId.replace(/^page[-_:]?/i, "").replace(/[^a-z0-9]/gi, "");
@@ -138,17 +139,14 @@ export function DatabaseListRow({
       className={cn(
         "group/list-row relative grid h-11 min-h-11 min-w-0 items-center gap-x-2 rounded-lg outline-none [grid-template-columns:subgrid] [grid-column:1/-1]",
         "before:absolute before:inset-x-2 before:inset-y-0 before:-z-0 before:rounded-lg before:content-['']",
-        "hover:before:bg-[lch(94.44_0.5_282)]",
-        selected && "before:bg-[lch(92.44_4_250)] hover:before:bg-[lch(92.44_4_250)]",
+        "hover:before:bg-[var(--database-list-row-hover)]",
+        selected && "before:bg-[var(--database-list-row-selected)] hover:before:bg-[var(--database-list-row-selected)]",
         selected && selectedBefore && "before:rounded-t-none",
         selected && selectedAfter && "before:rounded-b-none",
-        active && "focus-visible:before:ring-1 focus-visible:before:ring-inset focus-visible:before:ring-[lch(64_25_250)]",
-        dragging && "opacity-10",
-        dropPosition === "nest" && "before:ring-1 before:ring-inset before:ring-[lch(64_25_250)]",
+        active && "focus-visible:before:ring-1 focus-visible:before:ring-inset focus-visible:before:ring-[var(--database-list-focus)]",
+        dragging && "opacity-70",
+        dropPosition === "nest" && "before:ring-1 before:ring-inset before:ring-[var(--database-list-drop-indicator)]",
       )}
-      style={{
-        fontFamily: '"Inter Variable", "SF Pro Display", -apple-system, system-ui, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif',
-      }}
       onFocus={(event) => {
         if (event.target === event.currentTarget) onActivate();
       }}
@@ -158,7 +156,14 @@ export function DatabaseListRow({
       }}
       onClick={(event) => {
         if ((event.target as HTMLElement).closest(DATABASE_LIST_INTERACTIVE_SELECTOR)) return;
-        onSelect(selectionMode(event));
+        if (event.shiftKey) {
+          event.preventDefault();
+          onSelect(selectionMode(event));
+          return;
+        }
+        if (dragging) return;
+        onActivate();
+        onOpen(presentedTitle);
       }}
       onDragStart={(event) => {
         if ((event.target as HTMLElement).closest(DATABASE_LIST_INTERACTIVE_SELECTOR)) {
@@ -173,8 +178,12 @@ export function DatabaseListRow({
         event.preventDefault();
         event.dataTransfer.dropEffect = "move";
         const rect = event.currentTarget.getBoundingClientRect();
-        const ratio = rect.height <= 0 ? 0.5 : (event.clientY - rect.top) / rect.height;
-        onDragTargetChange(ratio < 0.27 ? "before" : ratio > 0.73 ? "after" : "nest");
+        onDragTargetChange(resolveDatabaseListRowDropPosition({
+          clientY: event.clientY,
+          rowTop: rect.top,
+          rowHeight: rect.height,
+          explicitNest: event.altKey,
+        }));
       }}
       onDragLeave={(event) => {
         if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
@@ -182,15 +191,19 @@ export function DatabaseListRow({
       }}
       onDrop={(event) => {
         const rect = event.currentTarget.getBoundingClientRect();
-        const ratio = rect.height <= 0 ? 0.5 : (event.clientY - rect.top) / rect.height;
-        onDrop(event, ratio < 0.27 ? "before" : ratio > 0.73 ? "after" : "nest");
+        onDrop(event, resolveDatabaseListRowDropPosition({
+          clientY: event.clientY,
+          rowTop: rect.top,
+          rowHeight: rect.height,
+          explicitNest: event.altKey,
+        }));
       }}
     >
       {dropPosition === "before" || dropPosition === "after" ? (
         <span
           aria-hidden="true"
           className={cn(
-            "pointer-events-none absolute inset-x-2 z-[3] h-0.5 rounded-full bg-[lch(64_25_250)]",
+            "pointer-events-none absolute inset-x-2 z-[3] h-0.5 rounded-full bg-[var(--database-list-drop-indicator)]",
             dropPosition === "before" ? "top-0" : "bottom-0",
           )}
         />
@@ -206,14 +219,14 @@ export function DatabaseListRow({
           ariaLabel={`${selected ? "Deselect" : "Select"} ${presentedTitle}`}
           checked={selected}
           onCheckedChange={() => onSelect("toggle")}
-          className="rounded-[3px] border-[lch(82.484_0.054_281.837)] opacity-0 shadow-none transition-none group-hover/list-row:opacity-100 group-focus-within/list-row:opacity-100 data-[state=checked]:opacity-100"
+          className="rounded-[3px] border-[var(--database-list-checkbox-border)] opacity-0 shadow-none transition-none group-hover/list-row:opacity-100 group-focus-within/list-row:opacity-100 data-[state=checked]:opacity-100 focus-visible:border-[var(--database-list-focus)] focus-visible:ring-[var(--database-list-focus)]"
         />
       </div>
       {showPriority ? (
         <div
           role="gridcell"
           data-list-grid-column="priority"
-          className="relative z-[1] flex min-w-0 items-center justify-center text-[lch(39.176_1.25_282)]"
+          className="relative z-[1] flex min-w-0 items-center justify-center text-[var(--database-list-text-muted)]"
           style={{ transform: `translateX(${depthOffset}px)` }}
         >
           <PropertyOptionPicker
@@ -232,7 +245,7 @@ export function DatabaseListRow({
                 variant="ghost"
                 size="icon-xs"
                 aria-label={`Change priority for ${presentedTitle}`}
-                className="size-5 rounded text-[lch(39.176_1.25_282)] disabled:opacity-100"
+                className="size-5 rounded text-[var(--database-list-text-muted)] disabled:opacity-100"
               >
                 <DatabaseListPriorityIcon priority={item.row.priority ?? null} />
               </NodexButton>
@@ -252,7 +265,7 @@ export function DatabaseListRow({
       <div
         role="gridcell"
         data-list-grid-column="identifier"
-        className="relative z-[1] min-w-0 truncate text-[13px] font-[450] leading-[normal] tabular-nums text-[lch(39.176_1.25_282)]"
+        className="relative z-[1] min-w-0 truncate text-[13px] font-[450] leading-[normal] tabular-nums text-[var(--database-list-text-muted)]"
         style={{ transform: `translateX(${depthOffset}px)` }}
         title={item.pageId}
       >
@@ -262,7 +275,7 @@ export function DatabaseListRow({
         <div
           role="gridcell"
           data-list-grid-column="status"
-          className="relative z-[1] flex min-w-0 items-center justify-center text-[lch(39.176_1.25_282)]"
+          className="relative z-[1] flex min-w-0 items-center justify-center text-[var(--database-list-text-muted)]"
           style={{ transform: `translateX(${depthOffset}px)` }}
         >
           <PropertyOptionPicker
@@ -280,11 +293,11 @@ export function DatabaseListRow({
                 variant="ghost"
                 size="icon-xs"
                 aria-label={`Change status for ${presentedTitle}`}
-                className="size-5 rounded text-[lch(39.176_1.25_282)] disabled:opacity-100"
+                className="size-5 rounded text-[var(--database-list-text-muted)] disabled:opacity-100"
               >
                 {item.row.status ? (
                   <StatusIcon statusId={item.row.status} className="size-4" />
-                ) : <span className="size-2 rounded-full ring-[1px] ring-[lch(67.969_3.577_260.65)]" />}
+                ) : <span className="size-2 rounded-full ring-[1px] ring-[var(--database-list-icon-muted)]" />}
               </NodexButton>
             )}
             onSelectedIdsChange={(selectedIds) => onSetStatus(selectedIds[0] ?? null)}
@@ -316,7 +329,7 @@ export function DatabaseListRow({
               type="button"
               aria-label={`${item.collapsed ? "Expand" : "Collapse"} sub-pages of ${presentedTitle}`}
               aria-expanded={!item.collapsed}
-              className="grid size-4 shrink-0 place-items-center rounded-full text-[lch(39.176_1.25_282)] outline-none hover:bg-[lch(90.44_0.5_282)] focus-visible:ring-1 focus-visible:ring-[lch(64_25_250)]"
+              className="grid size-4 shrink-0 place-items-center rounded-full text-[var(--database-list-text-muted)] outline-none hover:bg-[var(--database-list-row-hover)] focus-visible:ring-1 focus-visible:ring-[var(--database-list-focus)]"
               onPointerDown={(event) => event.stopPropagation()}
               onClick={(event) => {
                 event.stopPropagation();
@@ -328,9 +341,12 @@ export function DatabaseListRow({
           ) : null}
           <button
             type="button"
-            className="min-w-0 shrink truncate text-left text-[13px] font-medium leading-[normal] text-[lch(9.794_0_282)] outline-none"
+            className="min-w-0 shrink truncate text-left text-sm font-medium leading-[normal] text-[var(--database-list-text-primary)] outline-none"
             aria-label={`Open Page ${presentedTitle}`}
-            onClick={() => onOpen(presentedTitle)}
+            onClick={() => {
+              onActivate();
+              onOpen(presentedTitle);
+            }}
           >
             {presentedTitle}
           </button>

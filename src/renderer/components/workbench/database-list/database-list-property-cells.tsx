@@ -153,7 +153,7 @@ function DatabaseListAssigneeEditor({
           type="button"
           aria-label={`Edit ${label}: ${value}`}
           title={value}
-          className="grid size-[18px] shrink-0 place-items-center overflow-hidden rounded-full text-[lch(64.64_1.25_282)] outline-none hover:bg-[lch(94.44_0.5_282)] focus-visible:ring-1 focus-visible:ring-[lch(64_25_250)] disabled:opacity-50"
+          className="grid size-[18px] shrink-0 place-items-center overflow-hidden rounded-full text-[var(--database-list-icon-muted)] outline-none hover:bg-[var(--database-list-row-hover)] focus-visible:ring-1 focus-visible:ring-[var(--database-list-focus)] disabled:opacity-50"
         >
           <DatabaseListAssigneeIcon />
         </button>
@@ -338,7 +338,7 @@ export function DatabaseListTrailingPropertyCells({
         role="gridcell"
         data-list-grid-column={field.field}
         data-list-field-key={`intrinsic:${field.field}`}
-        className="relative z-[1] min-w-0 truncate text-right text-xs tabular-nums text-[lch(39.176_1.25_282)]"
+        className="relative z-[1] min-w-0 truncate text-right text-xs tabular-nums text-[var(--database-list-text-muted)]"
       >
         {dateFormatter.format(new Date(value))}
       </div>

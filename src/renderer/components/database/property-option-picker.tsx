@@ -137,7 +137,7 @@ function PropertyListMultipleDots({
         <PropertyListOptionDot
           key={option.id}
           option={option}
-          className="absolute top-0 ring-1 ring-[lch(97.94_0.5_282)]"
+          className="absolute top-0 ring-1 ring-[var(--database-list-chip-background)]"
           style={{ left: index * 4.5 }}
         />
       ))}
@@ -364,7 +364,7 @@ export function PropertyOptionPicker({
                     )
                   : presentation === "list"
                     ? listMultipleTrigger
-                      ? "h-6 gap-[3px] overflow-hidden rounded-[48px] border-0 bg-transparent p-0 hover:bg-transparent focus-visible:ring-1 focus-visible:ring-[lch(64_25_250)]"
+                      ? "h-6 gap-[3px] overflow-hidden rounded-[48px] border-0 bg-transparent p-0 hover:bg-transparent focus-visible:ring-1 focus-visible:ring-[var(--database-list-focus)]"
                       : DATABASE_PROPERTY_LIST_CHIP_CLASS_NAME
                   : "rounded-md px-1 text-[11px]",
             )}

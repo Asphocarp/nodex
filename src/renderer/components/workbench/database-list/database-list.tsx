@@ -111,6 +111,7 @@ import {
 import { useDatabaseListWindow } from "./use-database-list-window";
 import { buildDatabaseListDropUndoOperations } from "./database-list-undo";
 import { databaseListNestingContinuations } from "./database-list-nesting-lines";
+import { DATABASE_LIST_THEME_CLASS_NAME } from "./database-list-theme";
 
 const DATABASE_VIEW_PAGE_DRAG_MIME =
   "application/vnd.nodex.database-view-pages.v1+json";
@@ -270,7 +271,7 @@ const databaseListGroupMarker = (
   if (propertyId === "priority" && isPriority(key)) {
     return <DatabaseListPriorityIcon priority={key} className="size-4" />;
   }
-  return <span className="size-2 shrink-0 rounded-full ring-[1px] ring-[lch(67.969_3.577_260.65)]" />;
+  return <span className="size-2 shrink-0 rounded-full ring-[1px] ring-[var(--database-list-icon-muted)]" />;
 };
 
 const initialSelection = (
@@ -1461,7 +1462,10 @@ export function DatabaseList({
       ref={hostRef}
       data-database-view-id={model.databaseViewId}
       data-page-create-surface-id={pageCreateSurfaceId}
-      className="relative h-full min-h-0 min-w-0 bg-[lch(97.94_0.5_282)]"
+      className={cn(
+        "relative h-full min-h-0 min-w-0 bg-[var(--database-list-surface)] text-[var(--database-list-text-primary)]",
+        DATABASE_LIST_THEME_CLASS_NAME,
+      )}
     >
       <div
         ref={scrollerRef}
@@ -1475,9 +1479,6 @@ export function DatabaseList({
           selectionCount > 0 ? "pb-16" : "pb-2",
           pointerSuppressed && "[&_[data-list-row=true]]:pointer-events-none",
         )}
-        style={{
-          fontFamily: '"Inter Variable", "SF Pro Display", -apple-system, system-ui, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif',
-        }}
         onKeyDown={handleKeyDown}
         onScroll={(event) => {
           const nextTop = event.currentTarget.scrollTop;
@@ -1583,7 +1584,7 @@ export function DatabaseList({
                     aria-rowindex={logicalIndex + 1}
                     data-list-row="true"
                     data-list-key={item.key}
-                    className="sticky top-[35.5px] z-[9] grid h-8 items-center gap-x-2 bg-[lch(97.94_0.5_282)] [grid-template-columns:subgrid] [grid-column:1/-1]"
+                    className="sticky top-[35.5px] z-[9] grid h-8 items-center gap-x-2 bg-[var(--database-list-surface)] [grid-template-columns:subgrid] [grid-column:1/-1]"
                     onDragOver={(event) => {
                       if (!event.dataTransfer.types.includes(DATABASE_VIEW_PAGE_DRAG_MIME)) return;
                       event.preventDefault();
@@ -1598,11 +1599,11 @@ export function DatabaseList({
                   >
                     <div
                       role="gridcell"
-                      className="mx-2 grid h-8 items-center gap-x-2 rounded-lg bg-[lch(95.44_0.5_282)] [grid-template-columns:subgrid] [grid-column:1/-1]"
+                      className="mx-2 grid h-8 items-center gap-x-2 rounded-lg bg-[var(--database-list-subgroup)] [grid-template-columns:subgrid] [grid-column:1/-1]"
                     >
                       <span aria-hidden="true" style={{ gridColumn: "indent" }} />
                       <span
-                        className="flex items-center justify-center text-[lch(39.176_1.25_282)]"
+                        className="flex items-center justify-center text-[var(--database-list-text-muted)]"
                         style={{ gridColumn: "checkbox" }}
                       >
                         {databaseListGroupMarker(
@@ -1614,14 +1615,14 @@ export function DatabaseList({
                         className="flex min-w-0 items-center gap-2"
                         style={{ gridColumn: "identifier / list-end" }}
                       >
-                        <span className="truncate text-xs font-medium text-[lch(18.888_1.25_282)]">
+                        <span className="truncate text-xs font-medium text-[var(--database-list-group-text)]">
                           {groupLabel(
                             model,
                             presentation.subgroup?.propertyId,
                             item.subgroupKey,
                           )}
                         </span>
-                        <span className="shrink-0 text-xs tabular-nums text-[lch(39.176_1.25_282)]">
+                        <span className="shrink-0 text-xs tabular-nums text-[var(--database-list-group-count)]">
                           {item.totalRows}
                         </span>
                       </span>
@@ -1647,7 +1648,7 @@ export function DatabaseList({
                   aria-rowindex={logicalIndex + 1}
                   data-list-row="true"
                   data-list-key={item.key}
-                  className="sticky top-[-0.5px] z-10 mb-0.5 grid h-9 items-center gap-x-2 bg-[lch(97.94_0.5_282)] [grid-template-columns:subgrid] [grid-column:1/-1]"
+                  className="sticky top-[-0.5px] z-10 mb-0.5 grid h-9 items-center gap-x-2 bg-[var(--database-list-surface)] [grid-template-columns:subgrid] [grid-column:1/-1]"
                   onDragOver={(event) => {
                     if (!event.dataTransfer.types.includes(DATABASE_VIEW_PAGE_DRAG_MIME)) return;
                     event.preventDefault();
@@ -1665,7 +1666,7 @@ export function DatabaseList({
                     data-list-group-divider="true"
                     className="mx-2 grid h-9 items-center gap-x-2 overflow-hidden rounded-lg pr-2 [grid-template-columns:subgrid] [grid-column:1/-1]"
                     style={{
-                      background: "linear-gradient(90deg, lch(94.557 0.858 69.967) 0%, lch(94.44 0.5 282) 100%), lch(94.44 0.5 282)",
+                      background: "linear-gradient(90deg, var(--database-list-group-start) 0%, var(--database-list-group-end) 100%), var(--database-list-group-end)",
                     }}
                   >
                     <span aria-hidden="true" style={{ gridColumn: "indent" }} />
@@ -1673,7 +1674,7 @@ export function DatabaseList({
                       type="button"
                       aria-expanded={!item.collapsed}
                       aria-label={`${item.collapsed ? "Expand" : "Collapse"} ${resolvedGroupLabel}`}
-                      className="grid size-7 place-items-center rounded-full text-[lch(39.176_1.25_282)] outline-none hover:bg-[lch(90.44_0.5_282)] focus-visible:ring-1 focus-visible:ring-[lch(64_25_250)]"
+                      className="grid size-7 place-items-center rounded-full text-[var(--database-list-text-muted)] outline-none hover:bg-[var(--database-list-row-hover)] focus-visible:ring-1 focus-visible:ring-[var(--database-list-focus)]"
                       style={{ gridColumn: "checkbox" }}
                       onClick={() => toggleCollapseKey(item.key)}
                     >
@@ -1681,7 +1682,7 @@ export function DatabaseList({
                     </button>
                     {coreColumnVisibility.priority ? (
                       <span
-                        className="flex size-4 items-center justify-center text-[lch(39.176_1.25_282)]"
+                        className="flex size-4 items-center justify-center text-[var(--database-list-text-muted)]"
                         style={{ gridColumn: "priority" }}
                       >
                         {databaseListGroupMarker(
@@ -1698,10 +1699,10 @@ export function DatabaseList({
                         presentation.group?.propertyId,
                         item.groupKey,
                       ) : null}
-                      <span className="truncate text-[13px] font-medium leading-[normal] text-[lch(18.888_1.25_282)]">
+                      <span className="truncate text-[13px] font-medium leading-[normal] text-[var(--database-list-group-text)]">
                         {resolvedGroupLabel}
                       </span>
-                      <span className="shrink-0 text-xs tabular-nums text-[lch(39.176_1.25_282)]">
+                      <span className="shrink-0 text-xs tabular-nums text-[var(--database-list-group-count)]">
                         {item.totalRows}
                       </span>
                       {groupCreateAction ? (
@@ -1711,7 +1712,7 @@ export function DatabaseList({
                           aria-label="Create new Page"
                           data-page-create-trigger="header"
                           data-page-create-column-id={groupCreateAction.status}
-                          className="ml-auto size-6 rounded-full px-0.5 text-[lch(37.776_12_282)]"
+                          className="ml-auto size-6 rounded-full px-0.5 text-[var(--database-list-text-muted)]"
                           onClick={() => groupCreateAction.request(groupCreateAction.status)}
                         >
                           <DatabaseListPlusIcon />
