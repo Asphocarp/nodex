@@ -812,6 +812,7 @@ mod tests {
                 },
                 "intrinsic_properties": {},
                 "database_value_revisions": {},
+                "task_parent_value_revision": 1,
                 "metadata_revision": 1,
                 "parent_revision": 1,
                 "document_id": "document:row",

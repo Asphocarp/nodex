@@ -1017,7 +1017,7 @@ describe("Core Database Module Adapter", () => {
                 position_revision: 2,
                 task_parent_page_id: "page:parent",
                 task_sibling_rank: "a",
-                task_hierarchy_revision: 3,
+                task_parent_value_revision: 3,
               },
               group_path: ["build", null],
               ancestor_page_ids: ["page:parent"],
@@ -1025,7 +1025,7 @@ describe("Core Database Module Adapter", () => {
               has_children: true,
               transient_kind: "child" as const,
               sibling_rank: "a",
-              hierarchy_revision: 3,
+              task_parent_value_revision: 3,
             }],
             next_cursor: "list:next",
             authority: { projection_revision: 23 },
@@ -1083,12 +1083,12 @@ describe("Core Database Module Adapter", () => {
         depth: 1,
         hasChildren: true,
         transientKind: "child",
-        hierarchyRevision: 3,
+        taskParentValueRevision: 3,
         row: {
-          taskHierarchy: {
+          taskParent: {
             parentPageId: "page:parent",
             siblingRank: "a",
-            revision: 3,
+            valueRevision: 3,
           },
         },
       }],

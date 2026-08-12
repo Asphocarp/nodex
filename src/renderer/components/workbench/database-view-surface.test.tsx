@@ -151,6 +151,7 @@ const model: DatabaseViewRenderModel = {
           revision: 1,
         },
       },
+      taskParent: { parentPageId: null, siblingRank: null, valueRevision: 1 },
       position: { rankKey: "a", revision: 1 },
       effectiveGroupKey: null,
       effectiveSubgroupKey: null,
@@ -170,6 +171,7 @@ const model: DatabaseViewRenderModel = {
       preview: "",
       plainText: "",
       tags: ["selected-view"],
+      taskParentValueRevision: 1,
       metadataRevision: 1,
       createdAt: new Date(timestamp),
     }],
@@ -253,10 +255,10 @@ const nestedListModel = (): DatabaseViewRenderModel => {
         parentAuthority,
         {
           ...childAuthority,
-          taskHierarchy: {
+          taskParent: {
             parentPageId: parentAuthority.page.pageId,
             siblingRank: "a",
-            revision: 1,
+            valueRevision: 1,
           },
         },
       ],

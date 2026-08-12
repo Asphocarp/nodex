@@ -24,7 +24,7 @@ export interface CompiledDatabaseListDrop {
   readonly hierarchyMutations: readonly SetDatabaseTaskParentOperationV2[];
   readonly positionMutations: readonly DatabaseApplyOperationV2[];
   readonly expectedProjectionRevision: number;
-  readonly expectedHierarchyRevisions: Readonly<Record<string, number>>;
+  readonly expectedTaskParentValueRevisions: Readonly<Record<string, number>>;
   readonly confirmation: null;
   readonly operations: readonly DatabaseApplyOperationV2[];
 }
@@ -55,7 +55,7 @@ const taskParent = (
   model: DatabaseViewRenderModel,
   pageId: string,
 ): string | null => model.query.rows.find((row) => row.page.pageId === pageId)
-  ?.taskHierarchy?.parentPageId ?? null;
+  ?.taskParent.parentPageId ?? null;
 
 const isAncestor = (
   model: DatabaseViewRenderModel,
@@ -87,7 +87,7 @@ const taskDepth = (model: DatabaseViewRenderModel, pageId: string): number => {
 const subtreeHeight = (model: DatabaseViewRenderModel, pageId: string): number => {
   const children = new Map<string, string[]>();
   for (const row of model.query.rows) {
-    const parentPageId = row.taskHierarchy?.parentPageId;
+    const parentPageId = row.taskParent.parentPageId;
     if (!parentPageId) continue;
     children.set(parentPageId, [
       ...(children.get(parentPageId) ?? []),
@@ -178,7 +178,7 @@ const nextSibling = (input: {
 }): string | undefined => {
   const candidates = input.model.query.rows.filter((row) => {
     if (input.movedPageIds.has(row.page.pageId)) return false;
-    if ((row.taskHierarchy?.parentPageId ?? null) !== input.parentPageId) return false;
+    if (row.taskParent.parentPageId !== input.parentPageId) return false;
     if (input.parentPageId !== null) return true;
     return row.effectiveGroupKey === input.groupKey
       && row.effectiveSubgroupKey === input.subgroupKey;
@@ -333,7 +333,7 @@ export const compileDatabaseListDropIntent = (input: {
     dataSourceId: input.model.dataSourceId,
     pages: pageIds.map((pageId) => ({
       pageId,
-      expectedHierarchyRevision: rowsById.get(pageId)?.taskHierarchy?.revision ?? 0,
+      expectedValueRevision: rowsById.get(pageId)!.taskParent.valueRevision,
     })),
     ...(parentPageId === null ? {} : { parentPageId }),
     ...(beforeHierarchyPageId ? { beforePageId: beforeHierarchyPageId } : {}),
@@ -361,9 +361,9 @@ export const compileDatabaseListDropIntent = (input: {
       hierarchyMutations,
       positionMutations: positionOperations,
       expectedProjectionRevision: input.model.commitSeq,
-      expectedHierarchyRevisions: Object.fromEntries(pageIds.map((pageId) => [
+      expectedTaskParentValueRevisions: Object.fromEntries(pageIds.map((pageId) => [
         pageId,
-        rowsById.get(pageId)?.taskHierarchy?.revision ?? 0,
+        rowsById.get(pageId)!.taskParent.valueRevision,
       ])),
       confirmation: null,
       operations,

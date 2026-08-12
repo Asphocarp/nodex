@@ -260,4 +260,43 @@ describe("DataSourcePropertyValueEditor", () => {
     });
     expect(view.queryByRole("button", { name: "Create “New signal”" })).toBeNull();
   });
+
+  test("keeps self-targets available for ordinary self-Relations", async () => {
+    const onPatchRelation = vi.fn();
+    const property: DataSourcePropertyRecordV2 = {
+      ...statusProperty,
+      propertyId: parseDataSourcePropertyId("p_0123abcd"),
+      name: "Related",
+      ...testPropertySemantics("relation"),
+      valueType: "relation",
+      optionCount: 0,
+    };
+    const view = render(
+      <DataSourcePropertyValueEditor
+        property={property}
+        value={null}
+        revision={1}
+        disabled={false}
+        showLabel={false}
+        presentation="page"
+        relationSourcePageId="page:self"
+        relationCandidates={[{ pageId: "page:self", title: "Current task" }]}
+        onChange={vi.fn()}
+        onPatchRelation={onPatchRelation}
+      />,
+    );
+
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Edit Related relation" }));
+      await Promise.resolve();
+    });
+    await act(async () => {
+      fireEvent.click(view.getByRole("option", { name: "Current task" }));
+      await Promise.resolve();
+    });
+    expect(onPatchRelation).toHaveBeenCalledWith({
+      addPageIds: ["page:self"],
+      removeEdgeIds: [],
+    });
+  });
 });

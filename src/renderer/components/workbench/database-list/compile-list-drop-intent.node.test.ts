@@ -20,10 +20,10 @@ const effective: EffectiveDatabaseViewPresentation = {
   },
 };
 
-const hierarchy = (parentPageId: string, siblingRank: string, revision = 1) => ({
+const parentRelation = (parentPageId: string, siblingRank: string, valueRevision = 1) => ({
   parentPageId,
   siblingRank,
-  revision,
+  valueRevision,
 });
 
 const model = {
@@ -43,10 +43,10 @@ const model = {
     },
     properties: [],
     rows: [
-      { page: { pageId: "parent" }, position: { revision: 1 }, effectiveGroupKey: null, effectiveSubgroupKey: null },
-      { page: { pageId: "child-a" }, position: { revision: 2 }, taskHierarchy: hierarchy("parent", "a"), effectiveGroupKey: null, effectiveSubgroupKey: null },
-      { page: { pageId: "child-b" }, position: { revision: 3 }, taskHierarchy: hierarchy("parent", "b", 2), effectiveGroupKey: null, effectiveSubgroupKey: null },
-      { page: { pageId: "root-b" }, position: { revision: 4 }, effectiveGroupKey: null, effectiveSubgroupKey: null },
+      { page: { pageId: "parent" }, position: { revision: 1 }, taskParent: { parentPageId: null, siblingRank: null, valueRevision: 1 }, effectiveGroupKey: null, effectiveSubgroupKey: null },
+      { page: { pageId: "child-a" }, position: { revision: 2 }, taskParent: parentRelation("parent", "a"), effectiveGroupKey: null, effectiveSubgroupKey: null },
+      { page: { pageId: "child-b" }, position: { revision: 3 }, taskParent: parentRelation("parent", "b", 2), effectiveGroupKey: null, effectiveSubgroupKey: null },
+      { page: { pageId: "root-b" }, position: { revision: 4 }, taskParent: { parentPageId: null, siblingRank: null, valueRevision: 1 }, effectiveGroupKey: null, effectiveSubgroupKey: null },
     ],
   },
 } as unknown as DatabaseViewRenderModel;
@@ -69,7 +69,7 @@ describe("compileDatabaseListDropIntent", () => {
         hierarchyMutations: [{
           kind: "set_task_parent",
           parentPageId: "parent",
-          pages: [{ pageId: "root-b", expectedHierarchyRevision: 0 }],
+          pages: [{ pageId: "root-b", expectedValueRevision: 1 }],
         }],
       },
     });
@@ -90,7 +90,7 @@ describe("compileDatabaseListDropIntent", () => {
       value: {
         hierarchyMutations: [{
           parentPageId: "parent",
-          pages: [{ pageId: "child-a", expectedHierarchyRevision: 1 }],
+          pages: [{ pageId: "child-a", expectedValueRevision: 1 }],
         }],
       },
     });
@@ -111,7 +111,7 @@ describe("compileDatabaseListDropIntent", () => {
       value: {
         hierarchyMutations: [{
           kind: "set_task_parent",
-          pages: [{ pageId: "child-a", expectedHierarchyRevision: 1 }],
+          pages: [{ pageId: "child-a", expectedValueRevision: 1 }],
         }],
         positionMutations: [{ kind: "position_pages", beforePageId: "root-b" }],
       },
@@ -165,6 +165,7 @@ describe("compileDatabaseListDropIntent", () => {
               revision: 3,
             },
           },
+          taskParent: { parentPageId: null, siblingRank: null, valueRevision: 1 },
           position: { revision: 1 },
           effectiveGroupKey: "[\"o_AAAAAAAA\",\"o_BBBBBBBB\",\"o_KEEPMEEE\"]",
           effectiveSubgroupKey: null,
@@ -172,6 +173,7 @@ describe("compileDatabaseListDropIntent", () => {
           page: { pageId: "target" },
           membership: { membershipId: "membership-target" },
           values: {},
+          taskParent: { parentPageId: null, siblingRank: null, valueRevision: 1 },
           position: { revision: 2 },
           effectiveGroupKey: "o_CCCCCCCC",
           effectiveSubgroupKey: null,

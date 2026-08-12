@@ -160,7 +160,7 @@ describe("Data Source Property value operations", () => {
         pageId: "page-1",
         dataSourceId,
         propertyId: definition.propertyId,
-        edit: { kind: "clear_relation", expectedValueRevision: 7 },
+        edit: { kind: "replace_relation", expectedValueRevision: 7 },
       }],
     }]);
   });

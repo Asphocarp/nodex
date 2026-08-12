@@ -45,6 +45,7 @@ const row = (pageId: string, status: string, priority: string, rankKey: string) 
     [statusId]: { propertyId: statusId, valueType: "select" as const, value: status, revision: 2 },
     [priorityId]: { propertyId: priorityId, valueType: "select" as const, value: priority, revision: 3 },
   },
+  taskParent: { parentPageId: null, siblingRank: null, valueRevision: 1 },
   position: { rankKey, revision: 4 },
   effectiveGroupKey: status,
   effectiveSubgroupKey: priority,

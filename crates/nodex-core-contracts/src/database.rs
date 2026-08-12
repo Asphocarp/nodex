@@ -9,7 +9,14 @@ use crate::collection::{CollectionWindow, CollectionWindowRequest};
 use crate::events::ProjectionSnapshotAuthority;
 use crate::{ModuleMutationReceipt, ModuleName, VersionedModuleContract};
 
-pub const DATABASE_CONTRACT_VERSION: u32 = 10;
+pub const DATABASE_CONTRACT_VERSION: u32 = 11;
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DatabaseRelationCardinality {
+    One,
+    Many,
+}
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -21,7 +28,10 @@ pub enum DatabasePropertySchema {
     MultiSelect,
     Date,
     Datetime,
-    Relation { target_data_source_id: String },
+    Relation {
+        target_data_source_id: String,
+        cardinality: DatabaseRelationCardinality,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -400,7 +410,7 @@ pub enum DatabaseListProjectionRow {
         has_children: bool,
         transient_kind: DatabaseListTransientKind,
         sibling_rank: Option<String>,
-        hierarchy_revision: i64,
+        task_parent_value_revision: i64,
     },
 }
 
@@ -526,7 +536,9 @@ pub struct DatabaseRowSummary {
     pub position_order: Option<i64>,
     pub task_parent_page_id: Option<String>,
     pub task_sibling_rank: Option<String>,
-    pub task_hierarchy_revision: i64,
+    /// Revision of the standard `task_parent` Relation value. This remains
+    /// populated for root tasks, which have no Relation edge.
+    pub task_parent_value_revision: i64,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
@@ -599,7 +611,7 @@ pub enum DatabaseIntent {
     },
     SetTaskParent {
         data_source_id: String,
-        pages: Vec<DatabaseTaskHierarchyPage>,
+        pages: Vec<DatabaseTaskParentPage>,
         parent_page_id: Option<String>,
         before_page_id: Option<String>,
     },
@@ -654,8 +666,9 @@ pub enum DatabasePropertyValueEdit {
     PatchSet {
         delta: DatabasePropertySetDelta,
     },
-    ClearRelation {
+    ReplaceRelation {
         expected_value_revision: i64,
+        target_page_id: Option<String>,
     },
 }
 
@@ -672,10 +685,11 @@ pub struct DatabasePagePosition {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
-pub struct DatabaseTaskHierarchyPage {
+pub struct DatabaseTaskParentPage {
     pub page_id: String,
-    /// Zero means the Page is currently a task root with no hierarchy edge.
-    pub expected_hierarchy_revision: i64,
+    /// Root tasks retain an empty `task_parent` Relation value header, so this
+    /// revision remains positive and monotonic.
+    pub expected_value_revision: i64,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]

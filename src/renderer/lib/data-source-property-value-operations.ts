@@ -89,7 +89,7 @@ export const buildDataSourcePropertyValueOperations = (input: {
         dataSourceId: input.dataSourceId,
         propertyId: input.property.propertyId,
         edit: {
-          kind: "clear_relation",
+          kind: "replace_relation",
           expectedValueRevision: input.current?.revision ?? 0,
         },
       }],
@@ -138,6 +138,31 @@ export const buildDataSourcePropertyValueOperations = (input: {
         kind: "replace",
         expectedValueRevision: input.current?.revision ?? 0,
         value: databasePropertyReplacementValue(input.property, input.value),
+      },
+    }],
+  }];
+};
+
+export const buildDataSourceRelationReplacementOperations = (input: {
+  readonly pageId: string;
+  readonly dataSourceId: DataSourceId;
+  readonly property: DataSourcePropertyRecordV2;
+  readonly expectedValueRevision: number;
+  readonly targetPageId: string | null;
+}): readonly DatabaseApplyOperationV2[] => {
+  if (input.property.valueType !== "relation") {
+    throw localError(input.property.propertyId);
+  }
+  return [{
+    kind: "edit_property_values",
+    edits: [{
+      pageId: input.pageId,
+      dataSourceId: input.dataSourceId,
+      propertyId: input.property.propertyId,
+      edit: {
+        kind: "replace_relation",
+        expectedValueRevision: input.expectedValueRevision,
+        ...(input.targetPageId ? { targetPageId: input.targetPageId } : {}),
       },
     }],
   }];

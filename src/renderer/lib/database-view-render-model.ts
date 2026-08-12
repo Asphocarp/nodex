@@ -51,10 +51,10 @@ export type DatabaseViewAccessContext =
 
 export interface DatabaseViewRenderRow {
   readonly pageId: string;
-  /** Database task hierarchy, distinct from structural Page ownership. */
+  /** Standard Parent Relation projection, distinct from structural Page ownership. */
   readonly parentPageId?: string;
   readonly siblingRank?: string;
-  readonly hierarchyRevision?: number;
+  readonly taskParentValueRevision: number;
   readonly groupKey: string | null;
   readonly subgroupKey: string | null;
   readonly title: string;
@@ -174,13 +174,15 @@ export const projectDataSourcePageRowToDatabaseViewRenderRow = (
 
   return {
     pageId: row.page.pageId,
-    ...(row.taskHierarchy
+    ...(row.taskParent.parentPageId
       ? {
-          parentPageId: row.taskHierarchy.parentPageId,
-          siblingRank: row.taskHierarchy.siblingRank,
-          hierarchyRevision: row.taskHierarchy.revision,
+          parentPageId: row.taskParent.parentPageId,
+          ...(row.taskParent.siblingRank
+            ? { siblingRank: row.taskParent.siblingRank }
+            : {}),
         }
       : {}),
+    taskParentValueRevision: row.taskParent.valueRevision,
     groupKey: row.effectiveGroupKey,
     subgroupKey: row.effectiveSubgroupKey,
     title: row.page.title || "Untitled",

@@ -26,7 +26,7 @@ import type {
   DatabaseViewPresentationOverride,
 } from "./database-kernel";
 
-export const DATABASE_MODULE_V2_CONTRACT_VERSION = 8 as const;
+export const DATABASE_MODULE_V2_CONTRACT_VERSION = 9 as const;
 export const MAX_DATABASE_MODULE_V2_OPERATIONS = 64 as const;
 export const MAX_DATABASE_MODULE_V2_BULK_ENTRIES = 100 as const;
 
@@ -53,6 +53,7 @@ export type DatabasePropertySchemaV2 =
   | {
       readonly kind: "relation";
       readonly targetDataSourceId: DataSourceId;
+      readonly cardinality: "one" | "many";
     };
 
 export interface DatabasePropertyCapabilitiesV2 {
@@ -139,11 +140,11 @@ export interface DataSourcePageRowV2
   readonly bodyNfm?: string;
   /** Page-intrinsic properties needed by compatibility row projections. */
   readonly intrinsicProperties?: readonly PageIntrinsicPropertyValueV2[];
-  /** Task hierarchy is independent from the Page's structural owner. */
-  readonly taskHierarchy?: null | {
-    readonly parentPageId: string;
-    readonly siblingRank: string;
-    readonly revision: number;
+  /** Projection of the standard Parent Relation, independent from structural ownership. */
+  readonly taskParent: {
+    readonly parentPageId: string | null;
+    readonly siblingRank: string | null;
+    readonly valueRevision: number;
   };
 }
 
@@ -443,7 +444,11 @@ export interface DatabasePropertyValueMutationV2 {
         readonly value: DatabasePropertyValueInputV2;
       }
     | { readonly kind: "patch_set"; readonly delta: DatabasePropertySetDeltaV2 }
-    | { readonly kind: "clear_relation"; readonly expectedValueRevision: number };
+    | {
+        readonly kind: "replace_relation";
+        readonly expectedValueRevision: number;
+        readonly targetPageId?: string;
+      };
 }
 
 export interface EditDataSourcePageValuesOperationV2 {
@@ -505,8 +510,8 @@ export interface SetDatabaseTaskParentOperationV2 {
   readonly dataSourceId: DataSourceId;
   readonly pages: readonly {
     readonly pageId: string;
-    /** Zero means that the Page is currently a root task. */
-    readonly expectedHierarchyRevision: number;
+    /** Standard `task_parent` Relation value revision, including for roots. */
+    readonly expectedValueRevision: number;
   }[];
   /** Missing means promote the ordered Page run to the root level. */
   readonly parentPageId?: string;

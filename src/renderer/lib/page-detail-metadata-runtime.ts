@@ -66,6 +66,7 @@ import {
   buildDataSourceMultiSelectPatchOperations,
   buildDataSourcePropertyValueOperations,
   buildDataSourceRelationPatchOperations,
+  buildDataSourceRelationReplacementOperations,
 } from "./data-source-property-value-operations";
 import type { PageStagePropertyEdit } from "./page-stage-properties";
 
@@ -717,6 +718,15 @@ const compileDirectPropertyEdit = (
       property,
       addPageIds: edit.addPageIds,
       removeEdgeIds: edit.removeEdgeIds,
+    });
+  }
+  if (edit.kind === "replace_relation") {
+    return buildDataSourceRelationReplacementOperations({
+      pageId: detail.page.pageId,
+      dataSourceId: context.dataSource.dataSourceId,
+      property,
+      expectedValueRevision: edit.expectedValueRevision,
+      targetPageId: edit.targetPageId,
     });
   }
   if (edit.kind === "patch_multi_select") {

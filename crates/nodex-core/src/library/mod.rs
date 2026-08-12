@@ -2210,6 +2210,20 @@ mod tests {
                         "INSERT INTO data_source_properties( \
                            data_source_id, id, name, value_type, config_json, rank_key, \
                            lifecycle, schema_revision, created_at, updated_at \
+                         ) VALUES (?1, 'task_parent', 'Parent', 'relation', '{}', \
+                           'c', 'active', 1, ?2, ?2)",
+                        params![SOURCE, NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO data_source_relation_properties( \
+                           data_source_id, property_id, target_data_source_id, cardinality \
+                         ) VALUES (?1, 'task_parent', ?1, 'one')",
+                        [SOURCE],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO data_source_properties( \
+                           data_source_id, id, name, value_type, config_json, rank_key, \
+                           lifecycle, schema_revision, created_at, updated_at \
                          ) VALUES (?1, 'tags', 'Tags', 'multi_select', \
                            '{\"options\":[]}', 'b', 'active', 1, ?2, ?2)",
                         params![SOURCE, NOW],
@@ -2313,6 +2327,13 @@ mod tests {
                         params![SOURCE, NOW],
                     )?;
                     transaction.execute(
+                        "INSERT INTO data_source_property_values( \
+                           data_source_id, membership_id, property_id, value_type, value_json, \
+                           revision, updated_at \
+                         ) VALUES (?1, 'membership:row', 'task_parent', 'relation', 'null', 1, ?2)",
+                        params![SOURCE, NOW],
+                    )?;
+                    transaction.execute(
                         "INSERT INTO page_read_model( \
                            page_block_id, project_id, lifecycle, location_kind, \
                            containing_document_id, containing_database_id, top_level_rank_key, \
@@ -2339,8 +2360,8 @@ mod tests {
                            projection_version, created_at, updated_at \
                          ) VALUES (?1, 'project-1', 'active', 'database', NULL, ?2, NULL, 1, 1, \
                            ?3, 1, 0, 2, 'legacy_shadow', 'membership:row', ?2, NULL, NULL, NULL, '', '', 0, 0, \
-                           '{\"status\":\"triage\"}', '{}', \
-                           '{\"database\":{\"status\":1},\"intrinsic\":{}}', 1, ?4, ?4)",
+                           '{\"status\":\"triage\",\"task_parent\":null}', '{}', \
+                           '{\"database\":{\"status\":1,\"task_parent\":1},\"intrinsic\":{}}', 1, ?4, ?4)",
                         params![ROW_PAGE, DATABASE, ROW_DOCUMENT, NOW],
                     )?;
                     transaction.execute(
@@ -2398,8 +2419,9 @@ mod tests {
                            projection_version, created_at, updated_at \
                          ) VALUES (?1, 'project-1', 'active', 'database', NULL, ?2, NULL, 1, 1, \
                            ?3, 1, 1, 2, 'ydoc_primary', 'membership:row', ?2, NULL, NULL, NULL, \
-                           'Say hi', '', 0, 0, '{\"status\":\"triage\"}', '{}', \
-                           '{\"database\":{\"status\":1},\"intrinsic\":{}}', 1, ?4, ?4)",
+                           'Say hi', '', 0, 0, \
+                           '{\"status\":\"triage\",\"task_parent\":null}', '{}', \
+                           '{\"database\":{\"status\":1,\"task_parent\":1},\"intrinsic\":{}}', 1, ?4, ?4)",
                         params![ROW_PAGE, DATABASE, ROW_DOCUMENT, NOW],
                     )?;
                     transaction.execute(

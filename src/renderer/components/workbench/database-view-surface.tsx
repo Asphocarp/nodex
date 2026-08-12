@@ -47,6 +47,7 @@ import { parseDataSourcePropertyId } from "../../../shared/database-identities";
 import {
   buildDataSourceCreateOptionAndSelectOperations,
   buildDataSourceMultiSelectPatchOperations,
+  buildDataSourceRelationReplacementOperations,
 } from "@/lib/data-source-property-value-operations";
 import {
   readRelationValuePreview,
@@ -213,6 +214,7 @@ function BoardPageCardSurface({
   onSetValue,
   onPatchOptions,
   onPatchRelation,
+  onReplaceRelation,
   onCreateOption,
   onLoadRelationTargets,
   onSearchRelationCandidates,
@@ -252,6 +254,11 @@ function BoardPageCardSurface({
     pageId: string,
     propertyId: string,
     delta: { readonly addPageIds: readonly string[]; readonly removeEdgeIds: readonly string[] },
+  ) => void;
+  readonly onReplaceRelation: (
+    pageId: string,
+    property: DataSourcePropertyRecordV2,
+    targetPageId: string | null,
   ) => void;
   readonly onPatchOptions: (
     pageId: string,
@@ -344,6 +351,7 @@ function BoardPageCardSurface({
             pageId: candidate.page.pageId,
             title: candidate.page.title,
           }))}
+          relationSourcePageId={row.pageId}
           onChange={(value) =>
             onSetValue(row.pageId, property.propertyId, value)}
           onCreateOption={(option) =>
@@ -352,6 +360,8 @@ function BoardPageCardSurface({
             onPatchOptions(row.pageId, property, delta)}
           onPatchRelation={(delta) =>
             onPatchRelation(row.pageId, property.propertyId, delta)}
+          onReplaceRelation={(targetPageId) =>
+            onReplaceRelation(row.pageId, property, targetPageId)}
           onLoadRelationTargets={(after) =>
             onLoadRelationTargets(row.pageId, property.propertyId, after)}
           onSearchRelationCandidates={(query, after) =>
@@ -1090,6 +1100,21 @@ function BoardDatabaseViewSurface({
     }],
     [`value:${pageId}:${propertyId}`],
   );
+  const replaceRelation = (
+    pageId: string,
+    property: DataSourcePropertyRecordV2,
+    targetPageId: string | null,
+  ) => void commit(
+    buildDataSourceRelationReplacementOperations({
+      pageId,
+      dataSourceId: model.query.dataSource.dataSourceId,
+      property,
+      expectedValueRevision:
+        rowByPageId(model, pageId)?.values[property.propertyId]?.revision ?? 0,
+      targetPageId,
+    }),
+    [`value:${pageId}:${property.propertyId}`],
+  );
   const patchOptions = (
     pageId: string,
     property: DataSourcePropertyRecordV2,
@@ -1181,6 +1206,7 @@ function BoardDatabaseViewSurface({
     onSetValue: setValue,
     onPatchOptions: patchOptions,
     onPatchRelation: patchRelation,
+    onReplaceRelation: replaceRelation,
     onCreateOption: createOption,
     onLoadRelationTargets: loadRelationTargets,
     onSearchRelationCandidates: searchRelationCandidates,

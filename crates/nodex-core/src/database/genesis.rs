@@ -87,8 +87,11 @@ fn create_database_authority_records_for_contract(
             now
         ],
     )?;
+    let includes_task_parent = matches!(&contract, GenesisViewContract::Current);
+    let initial_properties = initial_property_definitions(includes_task_parent);
+    let initial_property_count = initial_properties.len();
     for (index, (id, property_name, value_type, config)) in
-        initial_property_definitions().into_iter().enumerate()
+        initial_properties.into_iter().enumerate()
     {
         connection.execute(
             "INSERT INTO data_source_properties(\
@@ -101,8 +104,19 @@ fn create_database_authority_records_for_contract(
                 property_name,
                 value_type,
                 serde_json::to_string(&config).map_err(|_| internal("Initial Property config"))?,
-                fractional_rank(index + 1, 8),
+                fractional_rank(index + 1, initial_property_count),
                 now,
+            ],
+        )?;
+    }
+    if includes_task_parent {
+        connection.execute(
+            "INSERT INTO data_source_relation_properties(\
+               data_source_id, property_id, target_data_source_id, cardinality\
+             ) VALUES (?1, ?2, ?1, 'one')",
+            params![
+                data_source_id,
+                super::property_semantics::TASK_PARENT_PROPERTY_ID
             ],
         )?;
     }
@@ -192,8 +206,10 @@ fn create_database_authority_records_for_contract(
     Err(corrupt("Created Database Container disappeared"))
 }
 
-fn initial_property_definitions() -> Vec<(&'static str, &'static str, &'static str, Value)> {
-    vec![
+fn initial_property_definitions(
+    includes_task_parent: bool,
+) -> Vec<(&'static str, &'static str, &'static str, Value)> {
+    let mut definitions = vec![
         (
             "status",
             "Status",
@@ -238,7 +254,16 @@ fn initial_property_definitions() -> Vec<(&'static str, &'static str, &'static s
         ("scheduled_start", "Scheduled start", "datetime", json!({})),
         ("scheduled_end", "Scheduled end", "datetime", json!({})),
         ("assignee", "Assignee", "text", json!({})),
-    ]
+    ];
+    if includes_task_parent {
+        definitions.push((
+            super::property_semantics::TASK_PARENT_PROPERTY_ID,
+            "Parent",
+            "relation",
+            json!({}),
+        ));
+    }
+    definitions
 }
 
 fn fractional_rank(ordinal: usize, total: usize) -> String {

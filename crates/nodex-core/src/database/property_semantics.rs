@@ -1,6 +1,6 @@
 use nodex_core_contracts::database::{
     DatabasePropertyCapabilities, DatabasePropertyFilterOperator, DatabasePropertySchema,
-    DatabasePropertySetMemberKind,
+    DatabasePropertySetMemberKind, DatabaseRelationCardinality,
 };
 use rusqlite::{Connection, OptionalExtension, params};
 
@@ -8,6 +8,7 @@ use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
 pub(crate) const PRIORITY_PROPERTY_ID: &str = "priority";
 pub(crate) const STATUS_PROPERTY_ID: &str = "status";
+pub(crate) const TASK_PARENT_PROPERTY_ID: &str = "task_parent";
 pub(crate) const COMPLETED_STATUS_OPTION_ID: &str = "ship";
 pub(crate) const PRIORITY_OPTIONS: [(&str, &str); 4] = [
     ("p0-critical", "P0 - Critical"),
@@ -104,17 +105,23 @@ pub(crate) fn schema_from_storage(
         "date" => DatabasePropertySchema::Date,
         "datetime" => DatabasePropertySchema::Datetime,
         "relation" => {
-            let target_data_source_id = connection
+            let (target_data_source_id, cardinality) = connection
                 .query_row(
-                    "SELECT target_data_source_id FROM data_source_relation_properties \
+                    "SELECT target_data_source_id, cardinality FROM data_source_relation_properties \
                      WHERE data_source_id = ?1 AND property_id = ?2",
                     params![data_source_id, property_id],
-                    |row| row.get::<_, String>(0),
+                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
                 )
                 .optional()?
                 .ok_or_else(|| corrupt("Relation Property has no target Data Source"))?;
+            let cardinality = match cardinality.as_str() {
+                "one" => DatabaseRelationCardinality::One,
+                "many" => DatabaseRelationCardinality::Many,
+                _ => return Err(corrupt("Relation Property has invalid cardinality")),
+            };
             DatabasePropertySchema::Relation {
                 target_data_source_id,
+                cardinality,
             }
         }
         _ => return Err(corrupt("Stored Property has an unsupported schema")),

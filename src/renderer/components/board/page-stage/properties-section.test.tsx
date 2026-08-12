@@ -18,6 +18,7 @@ const page = {
 } satisfies PageStageCorePage;
 
 const emptyPropertyControls: PageStagePropertyControls = {
+  pageId: null,
   properties: [],
   primaryProperties: [],
   sectionProperties: [],
@@ -33,6 +34,7 @@ const emptyPropertyControls: PageStagePropertyControls = {
   errors: {},
   edit: async () => ({ status: "updated", didMutate: false }),
   patchRelation: async () => ({ status: "updated", didMutate: false }),
+  replaceRelation: async () => ({ status: "updated", didMutate: false }),
   patchMultiSelect: async () => ({ status: "updated", didMutate: false }),
   createOptionAndSelect: async () => ({ status: "updated", didMutate: false }),
   loadRelationTargets: async (property) => ({

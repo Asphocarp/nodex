@@ -11,7 +11,11 @@ export const testPropertySemantics = (
   optionCount = 0,
 ): Pick<DataSourcePropertyRecordV2, "schema" | "capabilities" | "optionCount"> => {
   const schema: DatabasePropertySchemaV2 = valueType === "relation"
-    ? { kind: "relation", targetDataSourceId: parseDataSourceId("source-1") }
+    ? {
+        kind: "relation",
+        targetDataSourceId: parseDataSourceId("source-1"),
+        cardinality: "many",
+      }
     : { kind: valueType };
   const capabilities: DatabasePropertyCapabilitiesV2 = {
     replace: true,

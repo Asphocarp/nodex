@@ -35,9 +35,9 @@ pub const TRANSPORT_PROTOCOL_MIN: u32 = 8;
 pub const TRANSPORT_PROTOCOL_MAX: u32 = 8;
 pub const COMPATIBILITY_MANIFEST_VERSION: u32 = 1;
 pub const STORE_LINEAGE: &str = "nodex-rust-core";
-pub const CURRENT_STORE_VERSION: u32 = 114;
+pub const CURRENT_STORE_VERSION: u32 = 115;
 pub const CURRENT_STORE_SCHEMA_FINGERPRINT: &str =
-    "f5882e4f8cab2835d04c069ce7cfabdae3f57b69e74cf30419599f8eccee2f20";
+    "74a4d09e3d03ccddcd23608ce3a2ebd76877bc97a1d488067c262dbeb4d92bf1";
 pub const MAX_ORDINARY_JSON_REQUEST_BYTES: usize = 2 * 1024 * 1024;
 pub const MAX_ORDINARY_JSON_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
 pub const MAX_EVENT_FRAME_BYTES: usize = (2 * 1024 * 1024) + (256 * 1024);
@@ -95,7 +95,8 @@ pub fn store_format(version: u32) -> Option<StoreFormatIdentity> {
         109 => "315a507e0c59326d2e6f0cb9eb8d44d13b61eebc235b56eeba82f3cf01aceead",
         110 | 111 => "4bdd8d692330d7d15ab9f16fb1355df8d4829d5523563d8c71620b8f87ac9c14",
         112 | 113 => "1692f75d0e6888ac4dcd6676c10f400fbf43a3214b858681d3ca385ef05635ab",
-        114 => CURRENT_STORE_SCHEMA_FINGERPRINT,
+        114 => "f5882e4f8cab2835d04c069ce7cfabdae3f57b69e74cf30419599f8eccee2f20",
+        115 => CURRENT_STORE_SCHEMA_FINGERPRINT,
         _ => return None,
     };
     Some(StoreFormatIdentity {

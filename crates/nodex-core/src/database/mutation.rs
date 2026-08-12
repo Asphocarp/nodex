@@ -5,7 +5,8 @@ use nodex_core_contracts::database::{
     DatabasePagePropertyAddress, DatabasePropertyCapabilities, DatabasePropertyFilterOperator,
     DatabasePropertySchema, DatabasePropertySetDelta, DatabasePropertyValueEdit,
     DatabasePropertyValueInput, DatabasePropertyValueMutation, DatabaseReceipt,
-    DatabaseTaskHierarchyPage, DatabaseTransferTarget, DatabaseViewPresentationOverrideInput,
+    DatabaseRelationCardinality, DatabaseTaskParentPage, DatabaseTransferTarget,
+    DatabaseViewPresentationOverrideInput,
 };
 use nodex_core_contracts::{
     BoundModuleContext, CoreModuleEventPayload, ModuleApplyRequest, ModuleMutationReceipt,
@@ -18,8 +19,7 @@ use unicode_normalization::UnicodeNormalization;
 
 use crate::document::{read_store_epoch, sha256};
 use crate::domain::fractional_rank::{
-    FractionalRankError, FractionalRankErrorCode, RankedItem, evenly_spaced_rank,
-    plan as plan_fractional_rank,
+    FractionalRankError, FractionalRankErrorCode, RankedItem, plan as plan_fractional_rank,
 };
 use crate::domain::view_position::{
     LogicalViewPositionItem, ViewPositionPlanError, ViewSiblingRankWriteKind,
@@ -649,8 +649,22 @@ fn put_property(
     {
         return Err(invalid("Priority Property must use the select schema"));
     }
+    if property_id == super::property_semantics::TASK_PARENT_PROPERTY_ID
+        && !matches!(
+            schema,
+            DatabasePropertySchema::Relation {
+                target_data_source_id,
+                cardinality: DatabaseRelationCardinality::One,
+            } if target_data_source_id == data_source_id
+        )
+    {
+        return Err(invalid(
+            "Task Parent Property must be a cardinality-one self Relation",
+        ));
+    }
     if let DatabasePropertySchema::Relation {
         target_data_source_id,
+        ..
     } = schema
     {
         validate_id(
@@ -669,6 +683,7 @@ fn put_property(
     )?;
     if let DatabasePropertySchema::Relation {
         target_data_source_id,
+        ..
     } = schema
     {
         authorize_relation_target_read(
@@ -742,31 +757,43 @@ fn put_property(
     )?;
     if let DatabasePropertySchema::Relation {
         target_data_source_id,
+        cardinality,
     } = schema
     {
-        let existing_target = connection
+        let cardinality = match cardinality {
+            DatabaseRelationCardinality::One => "one",
+            DatabaseRelationCardinality::Many => "many",
+        };
+        let existing_relation = connection
             .query_row(
-                "SELECT target_data_source_id FROM data_source_relation_properties \
+                "SELECT target_data_source_id, cardinality FROM data_source_relation_properties \
                  WHERE data_source_id = ?1 AND property_id = ?2",
                 params![data_source_id, property_id],
-                |row| row.get::<_, String>(0),
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
             )
             .optional()?;
-        match existing_target {
-            Some(existing_target) if existing_target == *target_data_source_id => {}
+        match existing_relation {
+            Some((existing_target, existing_cardinality))
+                if existing_target == *target_data_source_id
+                    && existing_cardinality == cardinality => {}
             Some(_) => {
                 return Err(StoreError::new(
                     StoreErrorCode::Conflict,
-                    "Relation Property target is immutable",
+                    "Relation Property target and cardinality are immutable",
                     false,
                 ));
             }
             None => {
                 connection.execute(
                     "INSERT INTO data_source_relation_properties(\
-                       data_source_id, property_id, target_data_source_id\
-                     ) VALUES (?1, ?2, ?3)",
-                    params![data_source_id, property_id, target_data_source_id],
+                       data_source_id, property_id, target_data_source_id, cardinality\
+                     ) VALUES (?1, ?2, ?3, ?4)",
+                    params![
+                        data_source_id,
+                        property_id,
+                        target_data_source_id,
+                        cardinality
+                    ],
                 )?;
             }
         }
@@ -803,6 +830,13 @@ fn delete_property(
     effects: &mut MutationEffects,
     library_scope: bool,
 ) -> Result<(), StoreError> {
+    if property_id == super::property_semantics::TASK_PARENT_PROPERTY_ID {
+        return Err(StoreError::new(
+            StoreErrorCode::Conflict,
+            "Task Parent is a required standard Property",
+            false,
+        ));
+    }
     let source = require_source(connection, library_id, data_source_id)?;
     authorize_write(
         connection,
@@ -1090,15 +1124,17 @@ fn edit_property_value(
                 library_scope,
             ),
         },
-        DatabasePropertyValueEdit::ClearRelation {
+        DatabasePropertyValueEdit::ReplaceRelation {
             expected_value_revision,
+            target_page_id,
         } => edit_relation_value(
             connection,
             library_id,
             project_id,
             &input.address,
-            RelationEdit::Clear {
+            RelationEdit::Replace {
                 expected_value_revision: *expected_value_revision,
+                target_page_id: target_page_id.as_deref(),
             },
             now,
             effects,
@@ -1151,11 +1187,11 @@ fn edit_relation_value(
     if property.value_type != "relation" {
         return Err(invalid("Relation value edit requires a Relation Property"));
     }
-    let added_page_ids = match &edit {
-        RelationEdit::Clear { .. } => &[],
-        RelationEdit::Patch { add_page_ids, .. } => *add_page_ids,
+    let adds_target = match &edit {
+        RelationEdit::Replace { target_page_id, .. } => target_page_id.is_some(),
+        RelationEdit::Patch { add_page_ids, .. } => !add_page_ids.is_empty(),
     };
-    if !added_page_ids.is_empty() {
+    if adds_target {
         let target_data_source_id = super::relation::target_data_source_id(
             connection,
             &address.data_source_id,
@@ -1180,31 +1216,84 @@ fn edit_relation_value(
     if !outcome.changed {
         return Ok(());
     }
-    let metadata_revision = bump_page_metadata_revision(connection, &address.page_id, now)?;
-    refresh_value_projection(
+    record_relation_outcomes(
         connection,
-        &address.page_id,
-        &address.property_id,
-        &Value::Null,
-        outcome.value_revision,
-        metadata_revision,
-        &property,
+        library_id,
+        &outcome.affected_values,
+        None,
         now,
+        effects,
     )?;
-    touch_source(effects, &source);
-    effects.page_ids.insert(address.page_id.clone());
-    effects.revisions.insert(
-        format!(
-            "value:{}:{}:{}",
-            address.data_source_id, outcome.membership_id, address.property_id
-        ),
-        outcome.value_revision,
-    );
-    effects.revisions.insert(
-        format!("page:{}:metadata", address.page_id),
-        metadata_revision,
-    );
     Ok(())
+}
+
+fn record_relation_outcomes(
+    connection: &Connection,
+    library_id: &str,
+    outcomes: &[super::relation::RelationValueRevision],
+    skipped_page_id: Option<&str>,
+    now: &str,
+    effects: &mut MutationEffects,
+) -> Result<(), StoreError> {
+    let metadata_revisions =
+        synchronize_relation_value_projections(connection, outcomes, skipped_page_id, now)?;
+    let mut source_ids = BTreeSet::new();
+    for affected in outcomes {
+        effects.revisions.insert(
+            format!(
+                "value:{}:{}:{}",
+                affected.data_source_id, affected.membership_id, affected.property_id
+            ),
+            affected.value_revision,
+        );
+        source_ids.insert(affected.data_source_id.as_str());
+    }
+    for (page_id, metadata_revision) in metadata_revisions {
+        effects.page_ids.insert(page_id.clone());
+        effects
+            .revisions
+            .insert(format!("page:{page_id}:metadata"), metadata_revision);
+    }
+    for data_source_id in source_ids {
+        let source = require_source(connection, library_id, data_source_id)?;
+        touch_source(effects, &source);
+    }
+    Ok(())
+}
+
+pub(crate) fn synchronize_relation_value_projections(
+    connection: &Connection,
+    outcomes: &[super::relation::RelationValueRevision],
+    skipped_page_id: Option<&str>,
+    now: &str,
+) -> Result<BTreeMap<String, i64>, StoreError> {
+    let mut metadata_revisions = BTreeMap::new();
+    for affected in outcomes {
+        if skipped_page_id == Some(affected.page_id.as_str()) {
+            continue;
+        }
+        let metadata_revision = match metadata_revisions.get(&affected.page_id) {
+            Some(revision) => *revision,
+            None => {
+                let revision = bump_page_metadata_revision(connection, &affected.page_id, now)?;
+                metadata_revisions.insert(affected.page_id.clone(), revision);
+                revision
+            }
+        };
+        let property =
+            active_property(connection, &affected.data_source_id, &affected.property_id)?;
+        refresh_value_projection(
+            connection,
+            &affected.page_id,
+            &affected.property_id,
+            &Value::Null,
+            affected.value_revision,
+            metadata_revision,
+            &property,
+            now,
+        )?;
+    }
+    Ok(metadata_revisions)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2763,6 +2852,20 @@ fn transfer_page(
         .query_map([page_id], |row| row.get::<_, String>(0))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     if let Some(membership) = &active_membership {
+        let relation_outcomes = super::relation::remove_membership_task_parent_edges(
+            connection,
+            &membership.data_source_id,
+            &membership.id,
+            now,
+        )?;
+        record_relation_outcomes(
+            connection,
+            library_id,
+            &relation_outcomes,
+            Some(page_id),
+            now,
+            effects,
+        )?;
         let removed_revision = connection
             .query_row(
                 "UPDATE data_source_page_memberships SET removed_at = ?1, revision = revision + 1 \
@@ -3507,6 +3610,7 @@ fn is_built_in_property(property_id: &str) -> bool {
             | "scheduled_start"
             | "scheduled_end"
             | "assignee"
+            | "task_parent"
     )
 }
 
@@ -3901,89 +4005,19 @@ fn position_pages(
     Ok(())
 }
 
-#[derive(Clone, Debug)]
-struct TaskHierarchyEdge {
-    parent_page_id: String,
-    sibling_rank: String,
-    revision: i64,
-    created_at: String,
-}
-
-fn task_hierarchy_depth(
-    page_id: &str,
-    edges: &BTreeMap<String, TaskHierarchyEdge>,
-) -> Result<usize, StoreError> {
-    let mut depth = 0;
-    let mut cursor = page_id;
-    let mut visited = HashSet::new();
-    while let Some(edge) = edges.get(cursor) {
-        if !visited.insert(cursor) {
-            return Err(corrupt("Task hierarchy contains a cycle"));
-        }
-        depth += 1;
-        if depth > 10 {
-            return Err(corrupt("Task hierarchy exceeds its depth bound"));
-        }
-        cursor = &edge.parent_page_id;
-    }
-    Ok(depth)
-}
-
-fn task_subtree_height(
-    page_id: &str,
-    edges: &BTreeMap<String, TaskHierarchyEdge>,
-    path: &mut HashSet<String>,
-) -> Result<usize, StoreError> {
-    if !path.insert(page_id.to_owned()) {
-        return Err(corrupt("Task hierarchy contains a cycle"));
-    }
-    let mut height = 0;
-    for child_id in edges.iter().filter_map(|(child_id, edge)| {
-        (edge.parent_page_id == page_id).then_some(child_id.as_str())
-    }) {
-        height = height.max(1 + task_subtree_height(child_id, edges, path)?);
-    }
-    path.remove(page_id);
-    Ok(height)
-}
-
 #[allow(clippy::too_many_arguments)]
 fn set_task_parent(
     connection: &Connection,
     library_id: &str,
     project_id: &str,
     data_source_id: &str,
-    pages: &[DatabaseTaskHierarchyPage],
+    pages: &[DatabaseTaskParentPage],
     parent_page_id: Option<&str>,
     before_page_id: Option<&str>,
     now: &str,
     effects: &mut MutationEffects,
     library_scope: bool,
 ) -> Result<(), StoreError> {
-    if pages.is_empty() || pages.len() > MAX_BULK_VALUES {
-        return Err(invalid("Task hierarchy Page run is invalid"));
-    }
-    let page_ids = pages
-        .iter()
-        .map(|page| page.page_id.as_str())
-        .collect::<HashSet<_>>();
-    if page_ids.len() != pages.len() {
-        return Err(invalid("Task hierarchy Page IDs must be unique"));
-    }
-    if parent_page_id.is_some_and(|page_id| page_ids.contains(page_id)) {
-        return Err(invalid("A task cannot be its own parent"));
-    }
-    if before_page_id.is_some_and(|page_id| page_ids.contains(page_id)) {
-        return Err(invalid(
-            "Task hierarchy anchor must be outside the moved Page set",
-        ));
-    }
-    if parent_page_id.is_none() && before_page_id.is_some() {
-        return Err(invalid(
-            "Root task ordering must use the View position operation",
-        ));
-    }
-
     let source = require_source(connection, library_id, data_source_id)?;
     authorize_write(
         connection,
@@ -3992,155 +4026,23 @@ fn set_task_parent(
         DatabaseWriteAction::Write,
         library_scope,
     )?;
-    for page in pages {
-        active_row_membership(connection, data_source_id, &page.page_id)?;
-    }
-    if let Some(parent_page_id) = parent_page_id {
-        active_row_membership(connection, data_source_id, parent_page_id)?;
-    }
-    if let Some(before_page_id) = before_page_id {
-        active_row_membership(connection, data_source_id, before_page_id)?;
-    }
-
-    let edges = connection
-        .prepare(
-            "SELECT child_page_id, parent_page_id, sibling_rank, revision, created_at \
-             FROM database_task_hierarchy_edges WHERE data_source_id = ?1 \
-             ORDER BY parent_page_id, sibling_rank, child_page_id",
-        )?
-        .query_map([data_source_id], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                TaskHierarchyEdge {
-                    parent_page_id: row.get(1)?,
-                    sibling_rank: row.get(2)?,
-                    revision: row.get(3)?,
-                    created_at: row.get(4)?,
-                },
-            ))
-        })?
-        .collect::<rusqlite::Result<BTreeMap<_, _>>>()?;
-    for page in pages {
-        let revision = edges.get(&page.page_id).map_or(0, |edge| edge.revision);
-        require_revision(
-            page.expected_hierarchy_revision,
-            revision,
-            "Task hierarchy revision changed",
-        )?;
-        let mut cursor = edges
-            .get(&page.page_id)
-            .map(|edge| edge.parent_page_id.as_str());
-        while let Some(ancestor) = cursor {
-            if page_ids.contains(ancestor) {
-                return Err(invalid(
-                    "A task selection cannot also contain one of its ancestors",
-                ));
-            }
-            cursor = edges.get(ancestor).map(|edge| edge.parent_page_id.as_str());
-        }
-    }
-
-    if let Some(parent_page_id) = parent_page_id {
-        let mut cursor = Some(parent_page_id);
-        let mut visited = HashSet::new();
-        while let Some(ancestor) = cursor {
-            if !visited.insert(ancestor) {
-                return Err(corrupt("Task hierarchy contains a cycle"));
-            }
-            if page_ids.contains(ancestor) {
-                return Err(invalid("Task hierarchy mutation would create a cycle"));
-            }
-            cursor = edges.get(ancestor).map(|edge| edge.parent_page_id.as_str());
-        }
-        let parent_depth = task_hierarchy_depth(parent_page_id, &edges)?;
-        for page in pages {
-            let subtree_height = task_subtree_height(&page.page_id, &edges, &mut HashSet::new())?;
-            if parent_depth + 1 + subtree_height > 10 {
-                return Err(invalid("Task hierarchy cannot exceed depth 10"));
-            }
-        }
-    }
-
-    if parent_page_id.is_none() {
-        for page in pages {
-            connection.execute(
-                "DELETE FROM database_task_hierarchy_edges \
-                 WHERE data_source_id = ?1 AND child_page_id = ?2",
-                params![data_source_id, page.page_id],
-            )?;
-            effects.page_ids.insert(page.page_id.clone());
-            effects
-                .revisions
-                .insert(format!("task_hierarchy:{}", page.page_id), 0);
-        }
-        effects.database_ids.insert(source.database_id);
-        effects.data_source_ids.insert(source.id);
+    active_property(
+        connection,
+        data_source_id,
+        super::property_semantics::TASK_PARENT_PROPERTY_ID,
+    )?;
+    let affected_values = super::relation::apply_task_parent_run(
+        connection,
+        data_source_id,
+        pages,
+        parent_page_id,
+        before_page_id,
+        now,
+    )?;
+    if affected_values.is_empty() {
         return Ok(());
     }
-
-    let Some(parent_page_id) = parent_page_id else {
-        return Err(internal("Task hierarchy parent guard was bypassed"));
-    };
-    let mut siblings = edges
-        .iter()
-        .filter_map(|(child_id, edge)| {
-            (edge.parent_page_id == parent_page_id && !page_ids.contains(child_id.as_str()))
-                .then_some((edge.sibling_rank.clone(), child_id.clone()))
-        })
-        .collect::<Vec<_>>();
-    siblings.sort();
-    let mut sibling_ids = siblings
-        .into_iter()
-        .map(|(_, page_id)| page_id)
-        .collect::<Vec<_>>();
-    let insert_at = match before_page_id {
-        Some(before_page_id) => sibling_ids
-            .iter()
-            .position(|page_id| page_id == before_page_id)
-            .ok_or_else(|| invalid("Task hierarchy anchor is not a target sibling"))?,
-        None => sibling_ids.len(),
-    };
-    sibling_ids.splice(
-        insert_at..insert_at,
-        pages.iter().map(|page| page.page_id.clone()),
-    );
-    let total = sibling_ids.len();
-    let mut put = connection.prepare(
-        "INSERT INTO database_task_hierarchy_edges(\
-           data_source_id, child_page_id, parent_page_id, sibling_rank, revision, \
-           created_at, updated_at\
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7) \
-         ON CONFLICT(child_page_id) DO UPDATE SET \
-           data_source_id = excluded.data_source_id, \
-           parent_page_id = excluded.parent_page_id, \
-           sibling_rank = excluded.sibling_rank, revision = excluded.revision, \
-           updated_at = excluded.updated_at",
-    )?;
-    for (index, page_id) in sibling_ids.iter().enumerate() {
-        let rank = evenly_spaced_rank(index, total);
-        let existing = edges.get(page_id);
-        let moved = page_ids.contains(page_id.as_str());
-        if !moved && existing.is_some_and(|edge| edge.sibling_rank == rank) {
-            continue;
-        }
-        let revision = existing.map_or(1, |edge| edge.revision + 1);
-        put.execute(params![
-            data_source_id,
-            page_id,
-            parent_page_id,
-            rank,
-            revision,
-            existing.map_or(now, |edge| edge.created_at.as_str()),
-            now,
-        ])?;
-        effects.page_ids.insert(page_id.clone());
-        effects
-            .revisions
-            .insert(format!("task_hierarchy:{page_id}"), revision);
-    }
-    effects.database_ids.insert(source.database_id);
-    effects.data_source_ids.insert(source.id);
-    Ok(())
+    record_relation_outcomes(connection, library_id, &affected_values, None, now, effects)
 }
 
 fn presentation_override_is_empty(presentation: &DatabaseViewPresentationOverrideInput) -> bool {

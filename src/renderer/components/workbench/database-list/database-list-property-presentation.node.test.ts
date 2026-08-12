@@ -18,6 +18,7 @@ const property = (valueType: DataSourcePropertyRecordV2["valueType"]): DataSourc
     ? {
         kind: "relation",
         targetDataSourceId: "data-source:test" as DataSourcePropertyRecordV2["dataSourceId"],
+        cardinality: "many",
       }
     : { kind: valueType },
   capabilities: {

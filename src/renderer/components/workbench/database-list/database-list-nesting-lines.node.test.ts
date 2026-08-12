@@ -19,6 +19,7 @@ const page = (
     preview: "",
     plainText: "",
     tags: [],
+    taskParentValueRevision: 1,
     metadataRevision: 1,
     createdAt: new Date("2026-08-12T00:00:00.000Z"),
   },
