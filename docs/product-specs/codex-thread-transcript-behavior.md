@@ -119,7 +119,8 @@ MCP and dynamic app-server tool calls are specialized `toolCall` rows with canon
 - Removing a plan-implementation request completes every matching same-turn item without changing its existing timestamps and removes every same-turn canonical request. Starting another turn completes older plan-implementation items and globally removes stale or orphan request entries, including entries whose turn is outside the loaded page.
 - When a completed turn’s latest visible plan item is non-empty, the composer swaps into an `Implement this plan?` request surface.
 - That surface offers `Yes, implement this plan` and `No, and tell Codex what to do differently`.
-- Accepting the plan sends a follow-up prompt prefixed with `PLEASE IMPLEMENT THIS PLAN:` and resets collaboration mode to `Default` for that follow-up turn.
+- Only the active parent `implementPlan` request exposes one request-owned intelligence footer below the rounded questionnaire card. It reuses the normal composer’s model, effort, and speed selector; background requests may remain above it, while every other request family continues to hide all composer controls.
+- Accepting the plan waits for the displayed intelligence selection to commit, then starts one `Default`-mode follow-up turn prefixed with `PLEASE IMPLEMENT THIS PLAN:` using that exact model, effort, and speed. Starting the turn owns stale request cleanup so a settings or turn-start failure leaves the plan available for retry. Dismissal switches to `Default` before removing the request; freeform feedback preserves the current collaboration mode.
 
 ## Turn Rendering
 - The renderer groups transcript entries by `turnId`, projects a flat renderer-item stream, bucketizes that stream, and then renders each turn in fixed block order:
@@ -457,6 +458,7 @@ MCP and dynamic app-server tool calls are specialized `toolCall` rows with canon
 - When a background child approval exists, its request card renders before the active-thread request card.
 - Background child approvals do not add a separate worker-name header above the card; when the approval prompt needs an actor, that child identity is injected inline into the approval prompt itself.
 - While request cards are present, the normal freeform composer editor is hidden.
+- The active parent `implementPlan` request is the sole exception for composer controls: it renders the shared intelligence selector as a sibling footer below the request stack, without attachment, permission, context-window, dictation, or send controls. Auto-review replacement and non-plan parent requests suppress that footer.
 - Request cards use one dispatcher family:
   - `approval` uses the ask-for-permission shell with inline command/network/patch preview, option rows, freeform decline guidance, `Skip`, and `Submit`
   - command approval previews derive command text from the same command approval projection order used by command rows: command-action commands first, then the request command, then shell-escaped execpolicy amendment fallback; managed network approval previews render the network allowlist reason as their body and do not require or show a shell command preview

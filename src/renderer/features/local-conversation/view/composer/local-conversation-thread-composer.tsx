@@ -1,12 +1,15 @@
 import {
+  Component,
   useCallback,
   useDeferredValue,
   useEffect,
+  lazy,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
   useSyncExternalStore,
+  Suspense,
   type DragEvent,
   type ReactNode,
 } from "react";
@@ -215,10 +218,21 @@ import {
   useScopeHandle,
   useSetScopedAtom,
   appScope,
+  usePersistedAtomValue,
+  useSetPersistedAtom,
 } from "@/lib/maitai";
 import { openModal } from "@/lib/modal-registry";
 import { ComposerScope } from "@/lib/workbench-ui-scopes";
 import { ProviderCredentialDialog } from "./provider-credential-dialog";
+import {
+  useComposerIntelligenceController,
+  type ComposerIntelligenceController,
+} from "./use-composer-intelligence-controller";
+import {
+  findComposerPowerChoiceIndex,
+  resolveComposerPowerPolicy,
+} from "./composer-intelligence-power-policy";
+import { composerModelPickerViewAtom } from "./composer-model-picker-view-state";
 import {
   ComposerAddContextMenu,
   type ComposerAddContextMenuHandle,
@@ -250,6 +264,7 @@ interface ThreadComposerProps {
   errorMessage: string | null;
   onErrorMessage: (message: string | null) => void;
   contextRailLeadingContent?: ReactNode;
+  intelligenceController?: ComposerIntelligenceController;
 }
 
 const SERVICE_TIER_OPTIONS = [
@@ -261,9 +276,40 @@ const SERVICE_TIER_OPTIONS = [
   {
     value: "fast" as const,
     label: "Fast",
-    description: "1.5x speed, increased usage",
+    description: "1.5x speed · More usage",
   },
 ];
+
+const LazyModelPickerPowerSlider = lazy(async () => {
+  const module = await import("./model-picker-power-slider");
+  return { default: module.ModelPickerPowerSlider };
+});
+
+class ModelPickerPowerSliderBoundary extends Component<
+  { children: ReactNode; onError: () => void },
+  { failed: boolean }
+> {
+  state = { failed: false };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  componentDidCatch() {
+    this.props.onError();
+  }
+
+  render() {
+    if (this.state.failed) {
+      return (
+        <div className="px-2 py-3 text-xs text-token-description-foreground">
+          Power controls are unavailable. Use Advanced instead.
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 function isElectronLikeComposerEnvironment(): boolean {
   if (typeof window === "undefined") {
@@ -945,15 +991,19 @@ function ModelSelectorMenuItem({
   model,
   serviceTier,
   showFastIndicator,
-  actions,
+  controller,
 }: {
   candidate: ThreadFooterModel["availableModels"][number];
   model: ThreadFooterModel;
   serviceTier: CodexServiceTier;
   showFastIndicator: boolean;
-  actions: ThreadStageActions;
+  controller: ComposerIntelligenceController;
 }) {
-  const isSelected = candidate.id === model.selectedModel;
+  const selection = controller.selection as Extract<
+    ComposerIntelligenceController["selection"],
+    { kind: "codex" }
+  >;
+  const isSelected = candidate.id === selection.model;
   const description = candidate.description.trim().replace(/\.$/u, "");
 
   return (
@@ -962,15 +1012,18 @@ function ModelSelectorMenuItem({
       onSelect={(event) => {
         event.preventDefault();
         const nextReasoningEffort = resolveReasoningEffortForModelChange({
-          currentReasoningEffort: model.selectedReasoningEffort,
+          currentReasoningEffort: selection.reasoningEffort,
           nextModelId: candidate.id,
           models: model.availableModels,
         });
 
-        actions.onModelChange(candidate.id);
-        if (nextReasoningEffort && nextReasoningEffort !== model.selectedReasoningEffort) {
-          actions.onReasoningEffortChange(nextReasoningEffort);
-        }
+        if (!nextReasoningEffort) return;
+        controller.select({
+          kind: "codex",
+          model: candidate.id,
+          reasoningEffort: nextReasoningEffort,
+          serviceTier: selection.serviceTier,
+        });
       }}
       rightSlot={isSelected ? <NodexDropdownSelectedIcon /> : null}
       tooltipText={description || undefined}
@@ -986,20 +1039,83 @@ function ModelSelectorMenuItem({
   );
 }
 
+function ModelPickerViewPanels({
+  view,
+  simple,
+  advanced,
+}: {
+  view: "simple" | "advanced";
+  simple: ReactNode;
+  advanced: ReactNode;
+}) {
+  const simpleRef = useRef<HTMLDivElement>(null);
+  const advancedRef = useRef<HTMLDivElement>(null);
+  const [height, setHeight] = useState<number | null>(null);
+
+  useLayoutEffect(() => {
+    const activePanel = view === "simple" ? simpleRef.current : advancedRef.current;
+    if (!activePanel) return undefined;
+
+    const updateHeight = () => setHeight(activePanel.getBoundingClientRect().height);
+    updateHeight();
+
+    if (typeof ResizeObserver === "undefined") return undefined;
+    const observer = new ResizeObserver(updateHeight);
+    observer.observe(activePanel);
+    return () => observer.disconnect();
+  }, [view]);
+
+  const panelClassName = (panelView: "simple" | "advanced") => cn(
+    "inset-x-0 top-0 transition-opacity duration-[320ms] ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:transition-none",
+    view === panelView
+      ? "relative z-10 opacity-100"
+      : "pointer-events-none absolute opacity-0",
+  );
+
+  return (
+    <div
+      className="relative overflow-hidden transition-[height] duration-[320ms] ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:transition-none"
+      style={height === null ? undefined : { height }}
+    >
+      <div
+        ref={simpleRef}
+        role="tabpanel"
+        aria-hidden={view !== "simple"}
+        inert={view !== "simple"}
+        className={panelClassName("simple")}
+      >
+        {simple}
+      </div>
+      <div
+        ref={advancedRef}
+        role="tabpanel"
+        aria-hidden={view !== "advanced"}
+        inert={view !== "advanced"}
+        className={panelClassName("advanced")}
+      >
+        {advanced}
+      </div>
+    </div>
+  );
+}
+
 function LegacyModelSelectorDropdown({
   model,
-  serviceTier,
-  onServiceTierChange,
-  actions,
+  controller,
 }: {
   model: ThreadFooterModel;
-  serviceTier: CodexServiceTier;
-  onServiceTierChange: (nextTier: CodexServiceTier) => void;
-  actions: ThreadStageActions;
+  controller: ComposerIntelligenceController;
 }) {
-  const [menuOpen, setMenuOpen] = useState(false);
+  const selection = controller.selection as Extract<
+    ComposerIntelligenceController["selection"],
+    { kind: "codex" }
+  >;
+  const menuOpen = controller.isOpen;
+  const setMenuOpen = controller.setOpen;
   const [query, setQuery] = useState("");
   const deferredQuery = useDeferredValue(query);
+  const pickerViewLoadable = usePersistedAtomValue(composerModelPickerViewAtom);
+  const setPickerView = useSetPersistedAtom(composerModelPickerViewAtom);
   const normalizedQuery = deferredQuery.trim().toLocaleLowerCase();
   const matchingModels = model.availableModels.filter((candidate) => (
     !candidate.hidden
@@ -1008,10 +1124,10 @@ function LegacyModelSelectorDropdown({
   const visibleModels = matchingModels.slice(0, 50);
   const hiddenMatchCount = matchingModels.length - visibleModels.length;
   const modelLabel = formatCompactCodexModelLabel(
-    model.selectedModel,
+    selection.model,
     model.availableModels,
   );
-  const reasoningLabel = formatCodexReasoningEffortLabel(model.selectedReasoningEffort);
+  const reasoningLabel = formatCodexReasoningEffortLabel(selection.reasoningEffort);
   const labelCandidates = useMemo<readonly IntelligenceSelectorLabelCandidate[]>(() => {
     const candidates = model.availableModels
       .filter((candidate) => !candidate.hidden)
@@ -1022,7 +1138,7 @@ function LegacyModelSelectorDropdown({
         );
         const efforts = candidate.supportedReasoningEfforts.length > 0
           ? candidate.supportedReasoningEfforts.map((option) => option.reasoningEffort)
-          : [candidate.defaultReasoningEffort ?? model.selectedReasoningEffort];
+          : [candidate.defaultReasoningEffort ?? selection.reasoningEffort];
         return efforts.map((effort) => ({
           id: `${candidate.id}:${effort}`,
           modelLabel: modelCandidateLabel,
@@ -1033,19 +1149,49 @@ function LegacyModelSelectorDropdown({
     return [
       ...candidates,
       {
-        id: `selected:${model.selectedModel}:${model.selectedReasoningEffort}`,
+        id: `selected:${selection.model}:${selection.reasoningEffort}`,
         modelLabel,
         reasoningLabel,
       },
     ];
   }, [
     model.availableModels,
-    model.selectedModel,
-    model.selectedReasoningEffort,
+    selection.model,
+    selection.reasoningEffort,
     modelLabel,
     reasoningLabel,
   ]);
   const triggerGeometry = useIntelligenceSelectorTriggerGeometry(labelCandidates);
+  const powerPolicy = useMemo(
+    () => resolveComposerPowerPolicy(model.availableModels),
+    [model.availableModels],
+  );
+  const selectedPowerIndex = powerPolicy
+    ? findComposerPowerChoiceIndex(
+        powerPolicy.choices,
+        selection.model,
+        selection.reasoningEffort,
+      )
+    : -1;
+  const preferredPickerView = pickerViewLoadable.value;
+  const effectivePickerView = powerPolicy && selectedPowerIndex >= 0
+    ? preferredPickerView
+    : "advanced";
+  const showPickerViewToggle = powerPolicy !== null;
+  const setSimpleView = () => {
+    if (!powerPolicy) return;
+    if (selectedPowerIndex < 0) {
+      const fallback = powerPolicy.choices[0];
+      if (fallback) {
+        controller.select({
+          ...selection,
+          model: fallback.model,
+          reasoningEffort: fallback.reasoningEffort,
+        });
+      }
+    }
+    void setPickerView("simple");
+  };
 
   return (
     <NodexDropdownMenu
@@ -1053,13 +1199,25 @@ function LegacyModelSelectorDropdown({
       onOpenChange={setMenuOpen}
       triggerButton={(
         <IntelligenceSelectorTrigger
+          ref={controller.triggerRef}
           geometry={triggerGeometry}
           isOpen={menuOpen}
           labelCandidates={labelCandidates}
           modelLabel={modelLabel}
           reasoningLabel={reasoningLabel}
-          showFastIndicator={serviceTier === "fast"}
-          title={`OpenAI · ${formatCodexModelLabel(model.selectedModel, model.availableModels)} · ${reasoningLabel}`}
+          showFastIndicator={selection.serviceTier === "fast"}
+          aria-keyshortcuts="Control+Shift+M"
+        />
+      )}
+      triggerTooltipContent="Select model"
+      triggerTooltipShortcut={(
+        <ShortcutKeycaps
+          keys={[
+            typeof navigator !== "undefined" && navigator.platform.toUpperCase().includes("MAC")
+              ? "⌃⇧M"
+              : "Ctrl+Shift+M",
+          ]}
+          density="compact"
         />
       )}
       side="top"
@@ -1068,10 +1226,112 @@ function LegacyModelSelectorDropdown({
       sideOffset={INTELLIGENCE_SELECTOR_SIDE_OFFSET_PX}
       contentClassName="w-56"
     >
-      <NodexDropdownSummarySubmenuItem
-        ariaLabel={`Model ${formatCodexModelLabel(model.selectedModel, model.availableModels)}`}
+      {showPickerViewToggle ? (
+        <div className="flex items-center gap-0.5 px-1 pb-1" role="tablist" aria-label="Model picker view">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={effectivePickerView === "simple"}
+            className={cn(
+              "h-7 flex-1 rounded-lg px-2 text-xs text-token-description-foreground",
+              effectivePickerView === "simple" && "bg-token-foreground/8 text-token-foreground",
+            )}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              setSimpleView();
+            }}
+          >
+            Simple
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={effectivePickerView === "advanced"}
+            className={cn(
+              "h-7 flex-1 rounded-lg px-2 text-xs text-token-description-foreground",
+              effectivePickerView === "advanced" && "bg-token-foreground/8 text-token-foreground",
+            )}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              void setPickerView("advanced");
+            }}
+          >
+            Advanced
+          </button>
+        </div>
+      ) : null}
+
+      <ModelPickerViewPanels
+        view={effectivePickerView}
+        simple={powerPolicy ? (
+          <div className="flex flex-col">
+          <ModelPickerPowerSliderBoundary
+            onError={() => {
+              void setPickerView("advanced");
+            }}
+          >
+            <Suspense
+              fallback={(
+                <div className="mx-2 my-2 h-12 animate-pulse rounded-lg bg-token-foreground/5" />
+              )}
+            >
+              <LazyModelPickerPowerSlider
+                choices={powerPolicy.choices}
+                selectedIndex={selectedPowerIndex}
+                disabled={controller.isPending}
+                onSelect={(index) => {
+                  const choice = powerPolicy.choices[index];
+                  if (!choice) return;
+                  controller.select({
+                    ...selection,
+                    model: choice.model,
+                    reasoningEffort: choice.reasoningEffort,
+                  });
+                  if (choice.isUltra) {
+                    toast.warning("Ultra uses significantly more model capacity", {
+                      duration: 2_000,
+                    });
+                  }
+                }}
+              />
+            </Suspense>
+          </ModelPickerPowerSliderBoundary>
+          <div className="mx-1 mb-1 flex items-center justify-between rounded-lg bg-token-foreground/5 px-2 py-1.5">
+            <span className="text-xs text-token-text-secondary">Speed</span>
+            <div className="flex items-center gap-0.5" aria-label="Speed">
+              {SERVICE_TIER_OPTIONS.map((option) => (
+                <button
+                  key={option.label}
+                  type="button"
+                  aria-pressed={selection.serviceTier === option.value}
+                  aria-description={option.description}
+                  title={option.description}
+                  className={cn(
+                    "rounded-md px-1.5 py-1 text-xs text-token-description-foreground",
+                    selection.serviceTier === option.value
+                      && "bg-token-dropdown-background text-token-foreground shadow-sm",
+                  )}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    controller.select({ ...selection, serviceTier: option.value });
+                  }}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          </div>
+        ) : null}
+        advanced={(
+          <div className="flex flex-col">
+            <NodexDropdownSummarySubmenuItem
+        ariaLabel={`Model ${formatCodexModelLabel(selection.model, model.availableModels)}`}
         label="Model"
-        value={formatCodexModelLabel(model.selectedModel, model.availableModels)}
+        value={formatCodexModelLabel(selection.model, model.availableModels)}
         contentClassName="w-[280px]"
       >
         <NodexDropdownSection className="flex w-full min-w-0 flex-col overflow-hidden">
@@ -1091,9 +1351,9 @@ function LegacyModelSelectorDropdown({
                 key={candidate.id}
                 candidate={candidate}
                 model={model}
-                serviceTier={serviceTier}
+                serviceTier={selection.serviceTier}
                 showFastIndicator
-                actions={actions}
+                controller={controller}
               />
             ))}
             {hiddenMatchCount > 0 ? (
@@ -1113,22 +1373,31 @@ function LegacyModelSelectorDropdown({
       >
         <NodexDropdownSection className="flex min-w-[180px] flex-col overflow-hidden">
           <NodexDropdownTitle>Effort</NodexDropdownTitle>
-          {model.reasoningEffortOptions.map((option) => (
+          {resolveCodexReasoningEffortOptions(selection.model, model.availableModels).map((option) => (
             <NodexDropdownItem
               key={option.reasoningEffort}
               onSelect={(event) => {
                 event.preventDefault();
-                actions.onReasoningEffortChange(option.reasoningEffort);
+                controller.select({
+                  ...selection,
+                  reasoningEffort: option.reasoningEffort,
+                });
               }}
               rightSlot={
-                option.reasoningEffort === model.selectedReasoningEffort
+                option.reasoningEffort === selection.reasoningEffort
                   ? <NodexDropdownSelectedIcon />
                   : null
               }
               tooltipText={option.description || undefined}
+              subText={
+                option.reasoningEffort === "ultra"
+                  ? "Consumes usage limits faster"
+                  : undefined
+              }
+              allowWrap={option.reasoningEffort === "ultra"}
               data-intelligence-option={option.reasoningEffort}
               data-reasoning-selected={
-                option.reasoningEffort === model.selectedReasoningEffort
+                option.reasoningEffort === selection.reasoningEffort
                   ? "true"
                   : undefined
               }
@@ -1140,9 +1409,9 @@ function LegacyModelSelectorDropdown({
       </NodexDropdownSummarySubmenuItem>
 
       <NodexDropdownSummarySubmenuItem
-        ariaLabel={`Speed ${serviceTier === "fast" ? "Fast" : "Standard"}`}
+        ariaLabel={`Speed ${selection.serviceTier === "fast" ? "Fast" : "Standard"}`}
         label="Speed"
-        value={serviceTier === "fast" ? "Fast" : "Standard"}
+        value={selection.serviceTier === "fast" ? "Fast" : "Standard"}
         contentClassName="w-[233px]"
       >
         <NodexDropdownSection className="flex w-full min-w-0 flex-col overflow-hidden">
@@ -1152,9 +1421,12 @@ function LegacyModelSelectorDropdown({
               key={option.label}
               onSelect={(event) => {
                 event.preventDefault();
-                onServiceTierChange(option.value);
+                controller.select({
+                  ...selection,
+                  serviceTier: option.value,
+                });
               }}
-              rightSlot={option.value === serviceTier ? <NodexDropdownSelectedIcon /> : null}
+              rightSlot={option.value === selection.serviceTier ? <NodexDropdownSelectedIcon /> : null}
               subText={option.description}
               allowWrap
             >
@@ -1162,7 +1434,10 @@ function LegacyModelSelectorDropdown({
             </NodexDropdownItem>
           ))}
         </NodexDropdownSection>
-      </NodexDropdownSummarySubmenuItem>
+            </NodexDropdownSummarySubmenuItem>
+          </div>
+        )}
+      />
     </NodexDropdownMenu>
   );
 }
@@ -1201,13 +1476,17 @@ function isProviderSelectable(provider: AgentProviderOption): boolean {
 function AgentModelMenuItem({
   candidate,
   model,
-  actions,
+  controller,
 }: {
   candidate: AgentModelOption;
   model: ThreadFooterModel;
-  actions: ThreadStageActions;
+  controller: ComposerIntelligenceController;
 }) {
-  const current = model.executionProfile;
+  const selection = controller.selection as Extract<
+    ComposerIntelligenceController["selection"],
+    { kind: "agent" }
+  >;
+  const current = selection.profile;
   const selected = current?.providerId === candidate.providerId
     && current.modelId === candidate.modelId;
   const requiresNewThread = model.executionIdentityLocked === true
@@ -1219,10 +1498,11 @@ function AgentModelMenuItem({
       disabled={requiresNewThread}
       onSelect={(event) => {
         event.preventDefault();
-        void actions.onExecutionProfileChange?.(
-          selectAgentModel(candidate, current ?? null),
-          "model",
-        );
+        controller.select({
+          kind: "agent",
+          profile: selectAgentModel(candidate, current),
+          change: "model",
+        });
       }}
       rightSlot={selected ? <NodexDropdownSelectedIcon /> : null}
       tooltipText={
@@ -1239,19 +1519,23 @@ function AgentModelMenuItem({
 
 function AgentModelSelectorDropdown({
   model,
-  serviceTier,
+  controller,
   actions,
 }: {
   model: ThreadFooterModel;
-  serviceTier: CodexServiceTier;
-  onServiceTierChange: (nextTier: CodexServiceTier) => void;
+  controller: ComposerIntelligenceController;
   actions: ThreadStageActions;
 }) {
   const appHandle = useScopeHandle(appScope);
   const catalog = model.agentProviderCatalog;
-  const profile = model.executionProfile;
+  const selection = controller.selection as Extract<
+    ComposerIntelligenceController["selection"],
+    { kind: "agent" }
+  >;
+  const profile = selection.profile;
   const [query, setQuery] = useState("");
-  const [menuOpen, setMenuOpen] = useState(false);
+  const menuOpen = controller.isOpen;
+  const setMenuOpen = controller.setOpen;
   const deferredQuery = useDeferredValue(query);
   const providerId = profile?.providerId;
 
@@ -1330,7 +1614,7 @@ function AgentModelSelectorDropdown({
     : isFastAgentServiceTierOption({
         value: profile.serviceTier,
         displayName: "",
-      }) || (model.isNewThreadTab && serviceTier === "fast");
+      });
   const modelLabel = selectedModel?.displayName ?? profile.modelId;
   const reasoningLabel = selectedReasoning?.displayName
     ?? (profile.reasoningEffort
@@ -1347,7 +1631,9 @@ function AgentModelSelectorDropdown({
 
   const selectProvider = (candidate: AgentProviderOption) => {
     const next = selectAgentProvider(catalog, candidate.id, profile);
-    if (next) return actions.onExecutionProfileChange?.(next, "provider");
+    if (next) {
+      controller.select({ kind: "agent", profile: next, change: "provider" });
+    }
     return undefined;
   };
   const openCredentialDialog = (
@@ -1376,17 +1662,25 @@ function AgentModelSelectorDropdown({
       onOpenChange={setMenuOpen}
       triggerButton={(
         <IntelligenceSelectorTrigger
+          ref={controller.triggerRef}
           geometry={triggerGeometry}
           isOpen={menuOpen}
           labelCandidates={labelCandidates}
           modelLabel={modelLabel}
           reasoningLabel={reasoningLabel}
           showFastIndicator={showFastIndicator}
-          title={[
-            provider.displayName,
-            modelLabel,
-            reasoningLabel,
-          ].filter(Boolean).join(" · ")}
+          aria-keyshortcuts="Control+Shift+M"
+        />
+      )}
+      triggerTooltipContent="Select model"
+      triggerTooltipShortcut={(
+        <ShortcutKeycaps
+          keys={[
+            typeof navigator !== "undefined" && navigator.platform.toUpperCase().includes("MAC")
+              ? "⌃⇧M"
+              : "Ctrl+Shift+M",
+          ]}
+          density="compact"
         />
       )}
       side="top"
@@ -1476,7 +1770,7 @@ function AgentModelSelectorDropdown({
                 key={`${candidate.providerId}:${candidate.modelId}`}
                 candidate={candidate}
                 model={model}
-                actions={actions}
+                controller={controller}
               />
             ))}
             {hiddenMatchCount > 0 ? (
@@ -1504,10 +1798,11 @@ function AgentModelSelectorDropdown({
                   event.preventDefault();
                   const next = selectAgentReasoningEffort(catalog, profile, option.value);
                   if (next) {
-                    void actions.onExecutionProfileChange?.(
-                      next,
-                      "reasoningEffort",
-                    );
+                    controller.select({
+                      kind: "agent",
+                      profile: next,
+                      change: "reasoningEffort",
+                    });
                   }
                 }}
                 rightSlot={
@@ -1548,10 +1843,11 @@ function AgentModelSelectorDropdown({
                 key={option.value ?? "standard"}
                 onSelect={(event) => {
                   event.preventDefault();
-                  void actions.onExecutionProfileChange?.({
-                    ...profile,
-                    serviceTier: option.value,
-                  }, "serviceTier");
+                  controller.select({
+                    kind: "agent",
+                    profile: { ...profile, serviceTier: option.value },
+                    change: "serviceTier",
+                  });
                 }}
                 rightSlot={
                   option.value === profile.serviceTier
@@ -1580,13 +1876,12 @@ function AgentModelSelectorDropdown({
   );
 }
 
-function ModelSelectorDropdown(props: {
+export function ModelSelectorDropdown(props: {
   model: ThreadFooterModel;
-  serviceTier: CodexServiceTier;
-  onServiceTierChange: (nextTier: CodexServiceTier) => void;
+  controller: ComposerIntelligenceController;
   actions: ThreadStageActions;
 }) {
-  if (props.model.agentProviderCatalog && props.model.executionProfile && props.actions.onExecutionProfileChange) {
+  if (props.model.agentProviderCatalog && props.model.executionProfile) {
     return <AgentModelSelectorDropdown {...props} />;
   }
   return <LegacyModelSelectorDropdown {...props} />;
@@ -1635,10 +1930,42 @@ interface HydratedThreadComposerProps extends ThreadComposerProps {
   readonly prompt: string;
   readonly setPrompt: (prompt: string) => void;
   readonly clearSubmittedDraft: () => void;
+  readonly intelligenceController: ComposerIntelligenceController;
 }
 
 export function ThreadComposer(props: ThreadComposerProps) {
+  if (props.intelligenceController) {
+    return (
+      <ControlledThreadComposer
+        {...props}
+        intelligenceController={props.intelligenceController}
+      />
+    );
+  }
+
+  return <ThreadComposerWithOwnedIntelligence {...props} />;
+}
+
+function ThreadComposerWithOwnedIntelligence(props: ThreadComposerProps) {
+  const intelligenceController = useComposerIntelligenceController(
+    props.model,
+    props.actions,
+  );
+  return (
+    <ControlledThreadComposer
+      {...props}
+      intelligenceController={intelligenceController}
+    />
+  );
+}
+
+function ControlledThreadComposer(
+  props: ThreadComposerProps & {
+    readonly intelligenceController: ComposerIntelligenceController;
+  },
+) {
   const { model, actions, onErrorMessage } = props;
+  const { intelligenceController } = props;
   const { floating: isFloatingComposer } =
     useRightPanelComposerPresentation();
   const composerThreadId = model.conversation?.threadId ?? model.threadId;
@@ -1849,6 +2176,7 @@ export function ThreadComposer(props: ThreadComposerProps) {
     <HydratedThreadComposer
       key={resetGeneration}
       {...props}
+      intelligenceController={intelligenceController}
       prompt={promptDraft.prompt}
       setPrompt={setPrompt}
       clearSubmittedDraft={clearSubmittedDraft}
@@ -1865,6 +2193,7 @@ function HydratedThreadComposer({
   prompt,
   setPrompt,
   clearSubmittedDraft,
+  intelligenceController,
 }: HydratedThreadComposerProps) {
   const { floating: isFloatingComposer } = useRightPanelComposerPresentation();
   const canStartNewThread = canStartNewThreadTarget(model);
@@ -2408,9 +2737,11 @@ function HydratedThreadComposer({
           return;
         }
       } else {
+        await intelligenceController.flush();
         await actions.onSendPrompt(nextPrompt, {
           collaborationMode: model.selectedCollaborationMode,
           promptInput,
+          ...intelligenceController.turnOverrides,
         });
       }
       if (target?.runInTarget !== "newWorktree") {
@@ -2430,6 +2761,7 @@ function HydratedThreadComposer({
     goalModeActive,
     hasSubmittableAttachments,
     hasPendingPastedTextAttachments,
+    intelligenceController,
     model.activeTurn,
     model.conversation,
     model.isThreadRunning,
@@ -3434,8 +3766,7 @@ function HydratedThreadComposer({
       />
       <ModelSelectorDropdown
         model={model}
-        serviceTier={serviceTierSettings.serviceTier}
-        onServiceTierChange={(nextTier) => setServiceTier(nextTier, "composer_menu")}
+        controller={intelligenceController}
         actions={actions}
       />
     </>

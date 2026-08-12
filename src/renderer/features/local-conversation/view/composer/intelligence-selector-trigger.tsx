@@ -209,7 +209,7 @@ interface IntelligenceSelectorTriggerProps
   modelLabel: string;
   reasoningLabel: string | null;
   showFastIndicator: boolean;
-  title: string;
+  title?: string;
 }
 
 function setForwardedRef<T>(ref: ForwardedRef<T>, value: T | null): void {

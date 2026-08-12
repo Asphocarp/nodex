@@ -7,10 +7,13 @@ import { CodexPermissionRequestCard } from "./codex-permission-request-card";
 import { CodexSetupCodexStepRequestCard } from "./codex-setup-codex-step-request-card";
 import { CodexUserInputRequestCard } from "./codex-user-input-request-card";
 import { NodexAgentAuthorizationRequestCard } from "./nodex-agent-authorization-request-card";
+import type { ComposerIntelligenceController } from "../use-composer-intelligence-controller";
+import { buildComposerIntelligenceTurnOverrides } from "../composer-intelligence-selection";
 
 interface CodexPendingRequestCardProps {
   entry: ThreadComposerShellPendingRequestModel;
   actions: ThreadStageActions;
+  intelligenceController?: ComposerIntelligenceController;
   onManualApproval?: (conversationId: string) => void | Promise<void>;
 }
 
@@ -25,6 +28,7 @@ function isAcceptedApprovalDecision(
 export function CodexPendingRequestCard({
   entry,
   actions,
+  intelligenceController,
   onManualApproval,
 }: CodexPendingRequestCardProps) {
   const approvalQuestionActor = entry.surface === "backgroundThread" && entry.actorName?.trim()
@@ -144,17 +148,28 @@ export function CodexPendingRequestCard({
         <CodexImplementPlanRequestCard
           request={request}
           onRespond={async (response) => {
-            await actions.onResolvePlanImplementationRequest(entry.conversationId, request.turnId);
             if (response.type === "implement") {
-              actions.onCollaborationModeChange("default");
+              await intelligenceController?.flush();
+              const selection = intelligenceController?.getSelection();
+              if (selection && actions.onIntelligenceSelectionChange) {
+                await actions.onIntelligenceSelectionChange(selection, {
+                  collaborationMode: "default",
+                });
+              } else {
+                await actions.onCollaborationModeChange("default");
+              }
               await actions.onSendPrompt(`${PLAN_IMPLEMENTATION_PROMPT_PREFIX}\n${request.planContent}`, {
                 collaborationMode: "default",
+                ...(selection ? buildComposerIntelligenceTurnOverrides(selection) : {}),
               });
               return;
             }
             if (response.type === "followUp") {
               await actions.onSendPrompt(response.prompt);
+              return;
             }
+            await actions.onCollaborationModeChange("default");
+            await actions.onResolvePlanImplementationRequest(entry.conversationId, request.turnId);
           }}
         />
       );

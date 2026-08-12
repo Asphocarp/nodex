@@ -51,6 +51,7 @@ import type {
   CodexThreadSummary,
   CodexReasoningEffort,
   CodexReasoningEffortOption,
+  CodexServiceTier,
   CodexScheduledAutomationCreateInput,
   CodexScheduledAutomationUpdateInput,
   GitReviewSource,
@@ -72,6 +73,7 @@ import type {
   AgentProviderCatalog,
   AgentProviderCredentialMutationResult,
 } from "../../../shared/agent-runtime";
+import type { ComposerIntelligenceSelection } from "./view/composer/composer-intelligence-types";
 
 export interface NewChatProjectSelectorModel {
   projects: NewChatProjectSelectorOption[];
@@ -277,6 +279,10 @@ export interface ThreadStageActions {
   onCollaborationModeChange: (mode: CodexCollaborationModeKind) => void | Promise<void>;
   onModelChange: (model: string) => void | Promise<void>;
   onReasoningEffortChange: (reasoningEffort: CodexReasoningEffort) => void | Promise<void>;
+  onIntelligenceSelectionChange?: (
+    selection: ComposerIntelligenceSelection,
+    options?: { collaborationMode?: CodexCollaborationModeKind },
+  ) => Promise<void>;
   onExecutionProfileChange?: (
     profile: AgentExecutionProfile,
     change?: AgentExecutionProfileChange,
@@ -317,7 +323,13 @@ export interface ThreadStageActions {
     prompt: string;
   }) => Promise<void>;
   onComposerCapabilitiesChanged?: () => Promise<void>;
-  onSendPrompt: (prompt: string, opts?: { collaborationMode?: CodexCollaborationModeKind; promptInput?: CodexPromptInput }) => Promise<void>;
+  onSendPrompt: (prompt: string, opts?: {
+    collaborationMode?: CodexCollaborationModeKind;
+    promptInput?: CodexPromptInput;
+    model?: string;
+    reasoningEffort?: CodexReasoningEffort;
+    serviceTier?: CodexServiceTier;
+  }) => Promise<void>;
   onOpenSideChat?: (input?: ThreadOpenSideChatInput) => Promise<void>;
   onOpenMcpAppSidePanel?: (input: ThreadMcpAppSidePanelInput) => Promise<void>;
   onOpenPlanInSidePanel?: (input: ThreadPlanSidePanelTarget) => void | Promise<void>;
