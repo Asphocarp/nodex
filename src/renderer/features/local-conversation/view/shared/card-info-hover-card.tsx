@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import * as HoverCardPrimitive from "@radix-ui/react-hover-card";
-import { StatusChip } from "@/lib/status-chip";
+import { EstimatePickerIcon, PriorityValueIcon } from "@/components/shared/icons";
+import { StatusLabel } from "@/lib/status-presentation";
 import {
   BOARD_STATUS_LABELS,
   resolveBoardPriorityOption,
@@ -70,31 +71,30 @@ export function CardInfoHoverCard({
 
             {/* Metadata row */}
             <div className="flex flex-wrap items-center gap-1.5">
-              {/* Column/status badge */}
+              {/* Column/status */}
               {columnId && (
-                <StatusChip
+                <StatusLabel
                   statusId={columnId}
                   label={formatColumnName(columnId)}
-                  className="rounded-full px-2 text-[11px]/5 font-medium"
-                  labelClassName="text-[11px] font-medium"
-                  iconClassName="size-3"
+                  className="gap-1 text-[11px]/5 text-(--foreground-secondary)"
+                  labelClassName="text-[11px]"
+                  iconClassName="size-3.5"
                 />
               )}
 
               {/* Priority */}
               {priorityOption && priorityLabel ? (
-                <span className={cn(
-                  "inline-flex h-5 items-center rounded-full px-2 text-[11px] font-medium",
-                  priorityOption.className,
-                )}>
-                  {priorityLabel}
+                <span className="inline-flex h-5 items-center gap-1 text-[11px]/5 text-(--foreground-secondary)">
+                  <PriorityValueIcon priority={card.priority ?? null} className="size-3.5" />
+                  <span>{priorityLabel}</span>
                 </span>
               ) : null}
 
               {/* Estimate */}
               {card.estimate && (
-                <span className="inline-flex h-5 items-center rounded-full bg-(--background-tertiary) px-2 text-[11px] font-medium text-(--foreground-secondary)">
-                  {ESTIMATE_LABEL[card.estimate] ?? card.estimate.toUpperCase()}
+                <span className="inline-flex h-5 items-center gap-1 text-[11px]/5 text-(--foreground-secondary)">
+                  <EstimatePickerIcon className="size-3.5" />
+                  <span>{ESTIMATE_LABEL[card.estimate] ?? card.estimate.toUpperCase()}</span>
                 </span>
               )}
             </div>

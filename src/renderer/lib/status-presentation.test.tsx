@@ -1,11 +1,11 @@
 import { describe, expect, test } from "vitest";
 import {
-  StatusChip,
+  StatusLabel,
   StatusIcon,
   createStatusIconElement,
   getStatusAccentColorByLabel,
   getStatusIdByLabel,
-} from "./status-chip";
+} from "./status-presentation";
 import { render } from "../test/dom";
 
 type MockSvgNode = {
@@ -50,9 +50,9 @@ function createMockDocument(): Document {
   } as unknown as Document;
 }
 
-describe("status chip", () => {
-  test("renders the shared in-review chip with an icon and label", () => {
-    const { container, getByText } = render(<StatusChip statusId="review" />);
+describe("status presentation", () => {
+  test("renders the shared in-review label with an icon and text", () => {
+    const { container, getByText } = render(<StatusLabel statusId="review" />);
 
     expect(getByText("Review").textContent).toBe("Review");
     expect(container.querySelector("svg")).not.toBeNull();
@@ -63,17 +63,46 @@ describe("status chip", () => {
     const icon = container.querySelector("svg");
 
     expect(icon?.getAttribute("aria-hidden")).toBe("true");
+    expect(icon?.getAttribute("viewBox")).toBe("0 0 14 14");
     expect(container.querySelector("path")).not.toBeNull();
   });
 
-  test("creates a DOM icon element for editor-rendered status chips", () => {
+  test("renders plan through review as one progressively filled ring family", () => {
+    const { container } = render(<StatusIcon statusId="review" />);
+    const ring = container.querySelector("rect");
+    const sector = container.querySelector("path");
+
+    expect(ring?.getAttribute("x")).toBe("1");
+    expect(ring?.getAttribute("width")).toBe("12");
+    expect(ring?.getAttribute("stroke-width")).toBe("1.5");
+    expect(sector?.getAttribute("d")).toContain("A3.5,3.5 0 1,1");
+    expect(sector?.getAttribute("transform")).toBe("translate(3.5,3.5)");
+  });
+
+  test("creates the filled completed icon for editor-rendered status labels", () => {
     const icon = createStatusIconElement("ship", {
       documentRef: createMockDocument(),
     });
 
-    expect(icon.getAttribute("viewBox")).toBe("0 0 20 20");
+    expect(icon.getAttribute("viewBox")).toBe("0 0 14 14");
+    expect(icon.getAttribute("width")).toBe("14");
     expect(icon.getAttribute("aria-hidden")).toBe("true");
-    expect(icon.querySelectorAll("path").length).toBe(2);
+    expect(icon.querySelectorAll("path").length).toBe(1);
+    expect(icon.querySelectorAll("path")[0]?.getAttribute("fill-rule")).toBe("evenodd");
+  });
+
+  test("creates stroked progress geometry through the DOM renderer", () => {
+    const icon = createStatusIconElement("build", {
+      documentRef: createMockDocument(),
+    });
+    const ring = icon.querySelectorAll("rect")[0];
+    const sector = icon.querySelectorAll("path")[0];
+
+    expect(ring?.getAttribute("fill")).toBe("none");
+    expect(ring?.getAttribute("stroke")).toBe("currentColor");
+    expect(ring?.getAttribute("stroke-width")).toBe("1.5");
+    expect(sector?.getAttribute("stroke")).toBe("none");
+    expect(sector?.getAttribute("transform")).toBe("translate(3.5,3.5)");
   });
 
   test("maps status labels back to shared status metadata", () => {

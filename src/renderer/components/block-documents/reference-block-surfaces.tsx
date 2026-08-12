@@ -15,7 +15,7 @@ import {
   referenceSurfaceActivationBudget,
   useReferenceSurfaceActivation,
 } from "@/lib/reference-surface-state";
-import { StatusIcon } from "@/lib/status-chip";
+import { StatusIcon } from "@/lib/status-presentation";
 import { useElementVisibility } from "@/lib/use-element-visibility";
 import { cn } from "@/lib/utils";
 

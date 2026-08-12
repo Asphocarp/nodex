@@ -11,9 +11,7 @@ import { MAX_PAGE_TITLE_LENGTH } from "../../../shared/page-limits";
 import {
   ChevronRightIcon,
   CloseIcon,
-  EstimatePickerIcon,
   ExpandPanelIcon,
-  PriorityPickerIcon,
   RestorePanelIcon,
   TagIcon,
 } from "@/components/shared/icons";
@@ -46,7 +44,7 @@ import {
 import { restorePageCreateFocus, type PageCreateOrigin } from "@/lib/page-create-focus";
 import { createBoardPage } from "@/lib/board-page-create-command";
 import { BOARD_PRIORITY_OPTIONS } from "@/lib/board-options";
-import { StatusIcon } from "@/lib/status-chip";
+import { StatusIcon } from "@/lib/status-presentation";
 import { defaultDataSourcePropertyOptionColor } from "@/lib/data-source-property-options";
 import {
   estimateOptions,
@@ -451,8 +449,7 @@ function PageCreateDialogContent({
               label="Status"
               triggerAriaLabel="Status"
               mode="single"
-              presentation="chip"
-              triggerPrefix={<StatusIcon statusId={status} className="icon-xs" />}
+              presentation="inline"
               options={statusOptions}
               selectedIds={[status]}
               disabled={saving}
@@ -479,13 +476,10 @@ function PageCreateDialogContent({
                 kind="priority"
                 label="Priority"
                 triggerAriaLabel="Priority"
-                triggerPrefix={(
-                  <PriorityPickerIcon className="icon-xs shrink-0 text-token-description-foreground" />
-                )}
                 options={PAGE_CREATE_PRIORITY_OPTIONS}
                 selectedId={priority}
                 disabled={saving}
-                presentation="chip"
+                presentation="inline"
                 searchPlaceholder="Change priority…"
                 searchLeading={null}
                 contentClassName="w-[min(220px,calc(100vw-16px))]"
@@ -506,13 +500,10 @@ function PageCreateDialogContent({
                 kind="estimate"
                 label="Estimate"
                 triggerAriaLabel="Estimate"
-                triggerPrefix={(
-                  <EstimatePickerIcon className="icon-xs shrink-0 text-token-description-foreground" />
-                )}
                 options={PAGE_CREATE_ESTIMATE_OPTIONS}
                 selectedId={estimate}
                 disabled={saving}
-                presentation="chip"
+                presentation="inline"
                 searchPlaceholder="Change estimate…"
                 searchLeading={null}
                 contentClassName="w-[min(220px,calc(100vw-16px))]"
