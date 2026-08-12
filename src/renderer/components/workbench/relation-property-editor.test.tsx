@@ -92,6 +92,40 @@ describe("RelationPropertyEditor", () => {
     expect(view.getByText("1 restricted")).toBeTruthy();
   });
 
+  test("replaces a cardinality-one Parent and excludes the source Page", async () => {
+    const onReplace = vi.fn();
+    const view = render(
+      <RelationPropertyEditor
+        label="Parent"
+        value={null}
+        candidates={[
+          { pageId: "page:child", title: "Current task" },
+          { pageId: "page:parent", title: "Parent task" },
+        ]}
+        cardinality="one"
+        excludedPageId="page:child"
+        disabled={false}
+        targetMatchesCurrentSource
+        onPatch={vi.fn()}
+        onReplace={onReplace}
+        onClear={vi.fn()}
+      />,
+    );
+
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Edit Parent relation" }));
+      await Promise.resolve();
+    });
+    expect(view.queryByRole("option", { name: "Current task" })).toBeNull();
+    await act(async () => {
+      fireEvent.click(view.getByRole("option", { name: "Parent task" }));
+      await Promise.resolve();
+    });
+
+    expect(onReplace).toHaveBeenCalledWith("page:parent");
+    expect(view.queryByRole("option", { name: "Parent task" })).toBeNull();
+  });
+
   test("removes a restricted target by its source-owned edge handle", async () => {
     const onPatch = vi.fn();
     const hiddenEdgeId = "b".repeat(64);

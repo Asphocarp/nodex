@@ -159,6 +159,7 @@ const makeRow = (
       revision: 1,
     },
   ],
+  taskParent: { parentPageId: null, siblingRank: null, valueRevision: 1 },
   position: {
     rankKey: `rank:${pageId}`,
     revision: 1,
@@ -247,7 +248,7 @@ describe("native Database Page projections", () => {
       database_value_revisions: {},
       task_parent_page_id: null,
       task_sibling_rank: null,
-      task_hierarchy_revision: 0,
+      task_parent_value_revision: 1,
       metadata_revision: 1,
       parent_revision: 1,
       document_id: "document:defaults",

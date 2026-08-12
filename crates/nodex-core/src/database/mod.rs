@@ -29,13 +29,14 @@ pub(crate) use mutation::{
     resolve_page_copy_data_source_source, resolve_page_transfer_data_source_destination,
     resolve_page_transfer_data_source_destination_prevalidated,
     resolve_page_transfer_data_source_source, synchronize_membership_completion_timestamp,
-    transfer_existing_page_for_agent_move_prevalidated, transfer_existing_page_for_block_transfer,
+    synchronize_relation_value_projections, transfer_existing_page_for_agent_move_prevalidated,
+    transfer_existing_page_for_block_transfer,
 };
 pub(crate) use projection_delta::{
     record_local_projection_delta, record_page_detail_projection_delta,
     record_page_document_projection_delta,
 };
-pub(crate) use relation::copy_relation_edges;
+pub(crate) use relation::{copy_relation_edges, remove_membership_task_parent_edges};
 pub(crate) use view_contract::is_exact_primary_board_config;
 pub(crate) use window::{default_page_move_view_id, mint_page_move_etag};
 
@@ -270,7 +271,7 @@ mod tests {
         DatabaseAgentQuery, DatabaseGroupScope, DatabaseIntent, DatabaseListProjectionRow,
         DatabaseListTransientKind, DatabasePagePropertyAddress, DatabasePropertySchema,
         DatabasePropertySetDelta, DatabasePropertyValueEdit, DatabasePropertyValueInput,
-        DatabasePropertyValueMutation, DatabaseReadMode, DatabaseTarget, DatabaseTaskHierarchyPage,
+        DatabasePropertyValueMutation, DatabaseReadMode, DatabaseTarget, DatabaseTaskParentPage,
         DatabaseTransferTarget, DatabaseViewCompletedRangeInput,
         DatabaseViewCompletionOverrideInput, DatabaseViewGroupOverrideInput,
         DatabaseViewLayoutDisplayOverrideInput, DatabaseViewLayoutInput,
@@ -278,7 +279,7 @@ mod tests {
         DatabaseViewSortDirectionInput,
     };
     use nodex_core_contracts::library::{
-        LIBRARY_CONTRACT_VERSION, LibraryIntent, LibraryWriteParent,
+        LIBRARY_CONTRACT_VERSION, LibraryIntent, LibraryPageLifecycleMutation, LibraryWriteParent,
     };
     use nodex_core_contracts::workspace::{
         PROJECT_WORKSPACE_CONTRACT_VERSION, ProjectWorkspaceIntent, ProjectWorkspaceThreadPatch,
@@ -816,6 +817,13 @@ mod tests {
                         params![SOURCE_ID, NOW],
                     )?;
                     transaction.execute(
+                        "INSERT INTO data_source_property_values(\
+                           data_source_id, membership_id, property_id, value_type, value_json, \
+                           revision, updated_at\
+                         ) VALUES (?1, 'membership:row', 'task_parent', 'relation', 'null', 1, ?2)",
+                        params![SOURCE_ID, NOW],
+                    )?;
+                    transaction.execute(
                         "INSERT INTO database_view_page_positions(\
                            view_id, page_block_id, rank_key, revision, created_at, updated_at\
                          ) VALUES (?1, 'page:database-row', 'a', 1, ?2, ?2)",
@@ -855,6 +863,13 @@ mod tests {
                         "INSERT INTO data_source_page_memberships(\
                            id, data_source_id, page_block_id, revision, created_at, removed_at\
                          ) VALUES ('membership:row-2', ?1, 'page:database-row-2', 1, ?2, NULL)",
+                        params![SOURCE_ID, NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO data_source_property_values(\
+                           data_source_id, membership_id, property_id, value_type, value_json, \
+                           revision, updated_at\
+                         ) VALUES (?1, 'membership:row-2', 'task_parent', 'relation', 'null', 1, ?2)",
                         params![SOURCE_ID, NOW],
                     )?;
                     transaction.execute(
@@ -1656,7 +1671,7 @@ mod tests {
         let DatabaseReadValue::PropertyWindow { properties } = properties.value else {
             panic!("Property window");
         };
-        assert_eq!(properties.items.len(), 9);
+        assert_eq!(properties.items.len(), 10);
         assert!(
             properties
                 .items
@@ -2260,6 +2275,13 @@ mod tests {
                              ) VALUES (?1, ?2, ?3, 1, ?4, NULL)",
                             params![membership_id, SOURCE_ID, row.page_id, NOW],
                         )?;
+                        transaction.execute(
+                            "INSERT INTO data_source_property_values(\
+                               data_source_id, membership_id, property_id, value_type, \
+                               value_json, revision, updated_at\
+                             ) VALUES (?1, ?2, 'task_parent', 'relation', 'null', 1, ?3)",
+                            params![SOURCE_ID, membership_id, NOW],
+                        )?;
                         if let Some(value_json) = row.value_json {
                             transaction.execute(
                                 "INSERT INTO data_source_property_values(\
@@ -2344,9 +2366,9 @@ mod tests {
                     pages: pages
                         .iter()
                         .map(
-                            |(page_id, expected_hierarchy_revision)| DatabaseTaskHierarchyPage {
+                            |(page_id, expected_value_revision)| DatabaseTaskParentPage {
                                 page_id: (*page_id).to_owned(),
-                                expected_hierarchy_revision: *expected_hierarchy_revision,
+                                expected_value_revision: *expected_value_revision,
                             },
                         )
                         .collect(),
@@ -2478,7 +2500,7 @@ mod tests {
         apply_task_parent(
             &module,
             "operation:hierarchy-child",
-            &[("page:child", 0)],
+            &[("page:child", 1)],
             Some("page:parent"),
             None,
         )
@@ -2486,7 +2508,7 @@ mod tests {
         apply_task_parent(
             &module,
             "operation:hierarchy-grandchild",
-            &[("page:grandchild", 0)],
+            &[("page:grandchild", 1)],
             Some("page:child"),
             None,
         )
@@ -2500,13 +2522,13 @@ mod tests {
             .find(|row| row.page_id == "page:child")
             .expect("child row");
         assert_eq!(child.task_parent_page_id.as_deref(), Some("page:parent"));
-        assert_eq!(child.task_hierarchy_revision, 1);
+        assert_eq!(child.task_parent_value_revision, 2);
         assert!(child.task_sibling_rank.is_some());
 
         let cycle = apply_task_parent(
             &module,
             "operation:hierarchy-cycle",
-            &[("page:parent", 0)],
+            &[("page:parent", 1)],
             Some("page:grandchild"),
             None,
         )
@@ -2516,7 +2538,7 @@ mod tests {
         let stale = apply_task_parent(
             &module,
             "operation:hierarchy-stale",
-            &[("page:child", 0)],
+            &[("page:child", 1)],
             Some("page:parent"),
             None,
         )
@@ -2526,7 +2548,7 @@ mod tests {
         apply_task_parent(
             &module,
             "operation:hierarchy-peer-before-child",
-            &[("page:peer", 0)],
+            &[("page:peer", 1)],
             Some("page:parent"),
             Some("page:child"),
         )
@@ -2536,9 +2558,15 @@ mod tests {
             .read_default(|connection| {
                 connection
                     .prepare(
-                        "SELECT child_page_id FROM database_task_hierarchy_edges \
-                         WHERE data_source_id = ?1 AND parent_page_id = 'page:parent' \
-                         ORDER BY sibling_rank, child_page_id",
+                        "SELECT membership.page_block_id \
+                         FROM data_source_relation_edges edge \
+                         JOIN data_source_page_memberships membership \
+                           ON membership.data_source_id = edge.source_data_source_id \
+                          AND membership.id = edge.source_membership_id \
+                         WHERE edge.source_data_source_id = ?1 \
+                           AND edge.property_id = 'task_parent' \
+                           AND edge.target_page_block_id = 'page:parent' \
+                         ORDER BY edge.sibling_rank, membership.page_block_id",
                     )?
                     .query_map([SOURCE_ID], |row| row.get::<_, String>(0))?
                     .collect::<rusqlite::Result<Vec<_>>>()
@@ -2552,7 +2580,12 @@ mod tests {
             .read_default(|connection| {
                 connection
                     .query_row(
-                        "SELECT revision FROM database_task_hierarchy_edges WHERE child_page_id = 'page:child'",
+                        "SELECT value.revision FROM data_source_property_values value \
+                         JOIN data_source_page_memberships membership \
+                           ON membership.data_source_id = value.data_source_id \
+                          AND membership.id = value.membership_id \
+                         WHERE membership.page_block_id = 'page:child' \
+                           AND value.property_id = 'task_parent'",
                         [],
                         |row| row.get::<_, i64>(0),
                     )
@@ -2572,8 +2605,10 @@ mod tests {
                 .committed
                 .receipt
                 .committed_revisions
-                .get("task_hierarchy:page:child"),
-            Some(&0),
+                .get(&format!(
+                    "value:{SOURCE_ID}:membership:page:child:task_parent"
+                )),
+            Some(&(child_revision + 1)),
         );
         let window = read_view_window(&module, 20, None, None).expect("read unparented window");
         let child = window
@@ -2583,7 +2618,208 @@ mod tests {
             .find(|row| row.page_id == "page:child")
             .expect("unparented child row");
         assert_eq!(child.task_parent_page_id, None);
-        assert_eq!(child.task_hierarchy_revision, 0);
+        assert_eq!(child.task_parent_value_revision, child_revision + 1);
+    }
+
+    #[test]
+    fn task_parent_relation_edits_and_hierarchy_intents_share_one_revision_authority() {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        let kernel = SqliteStoreKernel::open_test(&home).expect("fresh store");
+        let module = seed_grouped_fixture(
+            &kernel,
+            vec![
+                GroupRowSpec {
+                    page_id: "page:parent",
+                    title: "Parent",
+                    value_json: None,
+                    rank_key: Some("a"),
+                },
+                GroupRowSpec {
+                    page_id: "page:child",
+                    title: "Child",
+                    value_json: None,
+                    rank_key: Some("b"),
+                },
+            ],
+        );
+
+        let related = module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    operation_id: "operation:relation-parent-child".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: vec![DatabaseIntent::EditPropertyValues {
+                        edits: vec![DatabasePropertyValueMutation {
+                            address: DatabasePagePropertyAddress {
+                                page_id: "page:child".to_owned(),
+                                data_source_id: SOURCE_ID.to_owned(),
+                                property_id: "task_parent".to_owned(),
+                            },
+                            edit: DatabasePropertyValueEdit::ReplaceRelation {
+                                expected_value_revision: 1,
+                                target_page_id: Some("page:parent".to_owned()),
+                            },
+                        }],
+                    }],
+                },
+            )
+            .expect("set Parent through the generic Relation editor");
+        assert_eq!(
+            related.committed.receipt.committed_revisions.get(&format!(
+                "value:{SOURCE_ID}:membership:page:child:task_parent"
+            )),
+            Some(&2),
+        );
+
+        apply_task_parent(
+            &module,
+            "operation:hierarchy-unparent-related-child",
+            &[("page:child", 2)],
+            None,
+            None,
+        )
+        .expect("clear Parent through the hierarchy command");
+        let window = read_view_window(&module, 20, None, None).expect("read shared authority");
+        let child = window
+            .rows
+            .items
+            .iter()
+            .find(|row| row.page_id == "page:child")
+            .expect("child row");
+        assert_eq!(child.task_parent_page_id, None);
+        assert_eq!(child.task_parent_value_revision, 3);
+
+        let stale_relation = module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    operation_id: "operation:stale-relation-parent".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: vec![DatabaseIntent::EditPropertyValues {
+                        edits: vec![DatabasePropertyValueMutation {
+                            address: DatabasePagePropertyAddress {
+                                page_id: "page:child".to_owned(),
+                                data_source_id: SOURCE_ID.to_owned(),
+                                property_id: "task_parent".to_owned(),
+                            },
+                            edit: DatabasePropertyValueEdit::ReplaceRelation {
+                                expected_value_revision: 2,
+                                target_page_id: Some("page:parent".to_owned()),
+                            },
+                        }],
+                    }],
+                },
+            )
+            .expect_err("reject stale Relation edit after hierarchy command");
+        assert_eq!(stale_relation.code, CoreErrorCode::RevisionConflict);
+    }
+
+    #[test]
+    fn archived_parent_is_retained_as_a_relation_but_not_as_active_list_hierarchy() {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        let kernel = SqliteStoreKernel::open_test(&home).expect("fresh store");
+        let module = seed_grouped_fixture(
+            &kernel,
+            vec![
+                GroupRowSpec {
+                    page_id: "page:parent",
+                    title: "Parent",
+                    value_json: None,
+                    rank_key: Some("a"),
+                },
+                GroupRowSpec {
+                    page_id: "page:child",
+                    title: "Child",
+                    value_json: None,
+                    rank_key: Some("b"),
+                },
+            ],
+        );
+        apply_task_parent(
+            &module,
+            "operation:archive-parent-child",
+            &[("page:child", 1)],
+            Some("page:parent"),
+            None,
+        )
+        .expect("nest child");
+
+        kernel
+            .writer()
+            .call(|connection| {
+                with_immediate_transaction(connection, |transaction| {
+                    transaction.execute(
+                        "UPDATE blocks SET lifecycle = 'archived' WHERE id = 'page:parent'",
+                        [],
+                    )?;
+                    transaction.execute(
+                        "UPDATE pages SET lifecycle = 'archived' WHERE block_id = 'page:parent'",
+                        [],
+                    )?;
+                    transaction.execute(
+                        "UPDATE page_read_model SET lifecycle = 'archived' \
+                         WHERE page_block_id = 'page:parent'",
+                        [],
+                    )?;
+                    Ok(())
+                })
+            })
+            .expect("archive parent projection");
+
+        let archived = read_view_window(&module, 20, None, None).expect("read archived parent");
+        let child = archived
+            .rows
+            .items
+            .iter()
+            .find(|row| row.page_id == "page:child")
+            .expect("visible child");
+        assert_eq!(child.task_parent_page_id, None);
+        assert_eq!(child.task_sibling_rank, None);
+        assert_eq!(child.task_parent_value_revision, 2);
+        let retained_edges = kernel
+            .readers()
+            .read_default(|connection| {
+                connection
+                    .query_row(
+                        "SELECT count(*) FROM data_source_relation_edges \
+                         WHERE source_data_source_id = ?1 \
+                           AND source_membership_id = 'membership:page:child' \
+                           AND property_id = 'task_parent' \
+                           AND target_page_block_id = 'page:parent'",
+                        [SOURCE_ID],
+                        |row| row.get::<_, i64>(0),
+                    )
+                    .map_err(StoreError::from)
+            })
+            .expect("read retained Parent edge");
+        assert_eq!(retained_edges, 1);
+
+        kernel
+            .writer()
+            .call(|connection| {
+                connection.execute_batch(
+                    "UPDATE blocks SET lifecycle = 'active' WHERE id = 'page:parent'; \
+                     UPDATE pages SET lifecycle = 'active' WHERE block_id = 'page:parent'; \
+                     UPDATE page_read_model SET lifecycle = 'active' \
+                       WHERE page_block_id = 'page:parent';",
+                )?;
+                Ok(())
+            })
+            .expect("restore parent projection");
+        let restored = read_view_window(&module, 20, None, None).expect("read restored parent");
+        let child = restored
+            .rows
+            .items
+            .iter()
+            .find(|row| row.page_id == "page:child")
+            .expect("restored child");
+        assert_eq!(child.task_parent_page_id.as_deref(), Some("page:parent"));
+        assert_eq!(child.task_parent_value_revision, 2);
     }
 
     #[test]
@@ -2620,7 +2856,7 @@ mod tests {
             apply_task_parent(
                 &module,
                 &format!("operation:hierarchy-depth-{index}"),
-                &[(DEPTH_PAGE_IDS[index], 0)],
+                &[(DEPTH_PAGE_IDS[index], 1)],
                 Some(DEPTH_PAGE_IDS[index - 1]),
                 None,
             )
@@ -2629,7 +2865,7 @@ mod tests {
         let too_deep = apply_task_parent(
             &module,
             "operation:hierarchy-depth-overflow",
-            &[("page:depth-11", 0)],
+            &[("page:depth-11", 1)],
             Some("page:depth-10"),
             None,
         )
@@ -2668,7 +2904,7 @@ mod tests {
         apply_task_parent(
             &module,
             "operation:removed-parent-child",
-            &[("page:promoted-child", 0)],
+            &[("page:promoted-child", 1)],
             Some("page:removed-parent"),
             None,
         )
@@ -2676,7 +2912,7 @@ mod tests {
         apply_task_parent(
             &module,
             "operation:removed-parent-grandchild",
-            &[("page:retained-grandchild", 0)],
+            &[("page:retained-grandchild", 1)],
             Some("page:promoted-child"),
             None,
         )
@@ -2715,12 +2951,100 @@ mod tests {
             .find(|row| row.page_id == "page:retained-grandchild")
             .expect("retained grandchild");
         assert_eq!(child.task_parent_page_id, None);
-        assert_eq!(child.task_hierarchy_revision, 0);
+        assert_eq!(child.task_parent_value_revision, 3);
         assert_eq!(
             grandchild.task_parent_page_id.as_deref(),
             Some("page:promoted-child"),
         );
-        assert_eq!(grandchild.task_hierarchy_revision, 1);
+        assert_eq!(grandchild.task_parent_value_revision, 2);
+    }
+
+    #[test]
+    fn deleting_a_parent_page_projects_promoted_children_through_library_events() {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        let kernel = SqliteStoreKernel::open_test(&home).expect("fresh store");
+        let database = seed_grouped_fixture(
+            &kernel,
+            vec![
+                GroupRowSpec {
+                    page_id: "page:deleted-parent",
+                    title: "Deleted parent",
+                    value_json: Some("\"triage\""),
+                    rank_key: Some("a"),
+                },
+                GroupRowSpec {
+                    page_id: "page:library-promoted-child",
+                    title: "Promoted child",
+                    value_json: Some("\"triage\""),
+                    rank_key: Some("b"),
+                },
+            ],
+        );
+        apply_task_parent(
+            &database,
+            "operation:delete-parent-child",
+            &[("page:library-promoted-child", 1)],
+            Some("page:deleted-parent"),
+            None,
+        )
+        .expect("nest child");
+        let (metadata_revision, parent_revision) = kernel
+            .readers()
+            .read_default(|connection| {
+                connection
+                    .query_row(
+                        "SELECT metadata_revision, parent_revision FROM pages \
+                         WHERE block_id = 'page:deleted-parent'",
+                        [],
+                        |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+                    )
+                    .map_err(StoreError::from)
+            })
+            .expect("read parent revisions");
+        let library = LibraryModule::new("profile-1", "library-1", &kernel);
+        let deleted = library
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "operation:delete-parent-page".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::ApplyPageLifecycle {
+                        mutation: Box::new(LibraryPageLifecycleMutation::DeletePage {
+                            page_id: "page:deleted-parent".to_owned(),
+                            expected_metadata_revision: metadata_revision,
+                            expected_parent_revision: parent_revision,
+                            parent_document_head: None,
+                        }),
+                    },
+                },
+            )
+            .expect("delete parent Page through Library lifecycle");
+        assert_eq!(
+            deleted.committed.receipt.committed_revisions.get(&format!(
+                "value:{SOURCE_ID}:membership:page:library-promoted-child:task_parent"
+            )),
+            Some(&3),
+        );
+        assert!(
+            deleted
+                .committed
+                .receipt
+                .affected_page_ids
+                .iter()
+                .any(|page_id| page_id == "page:library-promoted-child")
+        );
+
+        let window = read_view_window(&database, 20, None, None).expect("read promoted child");
+        let child = window
+            .rows
+            .items
+            .iter()
+            .find(|row| row.page_id == "page:library-promoted-child")
+            .expect("promoted child");
+        assert_eq!(child.task_parent_page_id, None);
+        assert_eq!(child.task_parent_value_revision, 3);
     }
 
     #[test]
@@ -2748,7 +3072,7 @@ mod tests {
         apply_task_parent(
             &module,
             "operation:list-window-child",
-            &[("page:list-child", 0)],
+            &[("page:list-child", 1)],
             Some("page:list-parent"),
             None,
         )
@@ -3293,6 +3617,8 @@ mod tests {
                         name: "Blocked by".to_owned(),
                         schema: DatabasePropertySchema::Relation {
                             target_data_source_id: SOURCE_ID.to_owned(),
+                            cardinality:
+                                nodex_core_contracts::database::DatabaseRelationCardinality::Many,
                         },
                         before_property_id: None,
                     }],
@@ -3451,8 +3777,9 @@ mod tests {
                                 data_source_id: SOURCE_ID.to_owned(),
                                 property_id: "blocked_by".to_owned(),
                             },
-                            edit: DatabasePropertyValueEdit::ClearRelation {
+                            edit: DatabasePropertyValueEdit::ReplaceRelation {
                                 expected_value_revision: 0,
+                                target_page_id: None,
                             },
                         }],
                     }],
@@ -3665,8 +3992,9 @@ mod tests {
                                 data_source_id: SOURCE_ID.to_owned(),
                                 property_id: "blocked_by".to_owned(),
                             },
-                            edit: DatabasePropertyValueEdit::ClearRelation {
+                            edit: DatabasePropertyValueEdit::ReplaceRelation {
                                 expected_value_revision: 2,
+                                target_page_id: None,
                             },
                         }],
                     }],

@@ -910,6 +910,7 @@ fn validate_create_values(
                 assignee.map_or(Value::Null, |value| Value::String(value.to_owned())),
             ),
         ),
+        ("task_parent", ("relation", Value::Null)),
     ]);
     inputs
         .into_iter()
@@ -1504,6 +1505,7 @@ fn transition_lifecycle(
                 receipt,
                 BTreeMap::from([(format!("blockMetadata:{page_id}"), metadata_revision)]),
                 Vec::new(),
+                Vec::new(),
                 vec![page.document_id.clone()],
                 now.clone(),
             )
@@ -1662,6 +1664,7 @@ fn move_in_library(
                 receipt,
                 BTreeMap::from([(format!("blockLocation:{page_id}"), parent_revision)]),
                 Vec::new(),
+                Vec::new(),
                 vec![page.document_id.clone()],
                 now.clone(),
             )
@@ -1734,6 +1737,25 @@ fn delete_page(
                 "DELETE FROM database_view_page_positions WHERE page_block_id = ?1",
                 [page_id],
             )?;
+            let relation_outcomes = membership
+                .as_ref()
+                .map(|membership| {
+                    crate::database::remove_membership_task_parent_edges(
+                        connection,
+                        &membership.data_source_id,
+                        &membership.membership_id,
+                        &now,
+                    )
+                })
+                .transpose()?
+                .unwrap_or_default();
+            let relation_metadata_revisions =
+                crate::database::synchronize_relation_value_projections(
+                    connection,
+                    &relation_outcomes,
+                    Some(page_id),
+                    &now,
+                )?;
             if let Some(membership) = &membership {
                 let changed = connection.execute(
             "UPDATE data_source_page_memberships SET removed_at = ?1, revision = revision + 1 \
@@ -1903,6 +1925,20 @@ fn delete_page(
                     parent.head_seq,
                 );
             }
+            committed_revisions.extend(relation_outcomes.iter().map(|value| {
+                (
+                    format!(
+                        "value:{}:{}:{}",
+                        value.data_source_id, value.membership_id, value.property_id
+                    ),
+                    value.value_revision,
+                )
+            }));
+            committed_revisions.extend(relation_metadata_revisions.iter().map(
+                |(affected_page_id, revision)| {
+                    (format!("page:{affected_page_id}:metadata"), *revision)
+                },
+            ));
             seal_page_lifecycle(
                 scope,
                 context,
@@ -1916,6 +1952,7 @@ fn delete_page(
                     .iter()
                     .map(|block| block.block_id.clone())
                     .collect(),
+                relation_metadata_revisions.keys().cloned().collect(),
                 affected_document_ids,
                 now.clone(),
             )
@@ -2172,6 +2209,7 @@ fn restore_page(
                     .iter()
                     .map(|block| block.block_id.clone())
                     .collect(),
+                Vec::new(),
                 affected_document_ids,
                 now.clone(),
             )
@@ -3381,6 +3419,7 @@ fn seal_page_lifecycle(
     receipt: LibraryPageLifecycleMutationReceipt,
     committed_revisions: BTreeMap<String, i64>,
     affected_block_ids: Vec<String>,
+    additional_affected_page_ids: Vec<String>,
     affected_document_ids: Vec<String>,
     committed_at: String,
 ) -> Result<SealedOutcome<crate::ModuleWriterResult<LibraryCommitValue, LibraryReceipt>>, StoreError>
@@ -3421,6 +3460,11 @@ fn seal_page_lifecycle(
     }
     affected_database_ids.sort();
     affected_database_ids.dedup();
+    let mut affected_page_ids = std::iter::once(page.page_id.clone())
+        .chain(additional_affected_page_ids)
+        .collect::<Vec<_>>();
+    affected_page_ids.sort();
+    affected_page_ids.dedup();
     seal_mutation(
         scope,
         context,
@@ -3433,7 +3477,7 @@ fn seal_page_lifecycle(
             created_target: None,
             affected_parent_keys: vec![parent_key],
             affected_block_ids,
-            affected_page_ids: vec![page.page_id.clone()],
+            affected_page_ids,
             affected_database_ids,
             affected_view_ids: membership
                 .and_then(|membership| membership.view_id.clone())

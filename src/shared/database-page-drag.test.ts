@@ -166,6 +166,7 @@ const querySnapshot = (input: {
         revision: revision + 10,
       },
     },
+    taskParent: { parentPageId: null, siblingRank: null, valueRevision: 1 },
     position: { rankKey, revision: revision + 20 },
     effectiveGroupKey: status,
     effectiveSubgroupKey: null,

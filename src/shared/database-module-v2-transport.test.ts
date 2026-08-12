@@ -98,7 +98,7 @@ const propertyRecord = () => ({
 describe("Database Module v2 transport boundary", () => {
   test("exposes the View-global ordering contract versions", () => {
     expect(DATABASE_MODULE_CONTRACT_VERSION).toBe(3);
-    expect(DATABASE_MODULE_V2_CONTRACT_VERSION).toBe(8);
+    expect(DATABASE_MODULE_V2_CONTRACT_VERSION).toBe(9);
   });
 
   test("binds ordered option creation and value writes under one apply", () => {
@@ -413,7 +413,11 @@ describe("Database Module v2 transport boundary", () => {
           pageId: "page-source",
           dataSourceId: "source-1",
           propertyId: CUSTOM_PROPERTY_ID,
-          edit: { kind: "clear_relation", expectedValueRevision: 7 },
+          edit: {
+            kind: "replace_relation",
+            expectedValueRevision: 7,
+            targetPageId: "page:parent",
+          },
         }],
       }],
     }, "project-1", { actor: { kind: "test" } });
@@ -421,7 +425,11 @@ describe("Database Module v2 transport boundary", () => {
       clear.operations[0]?.kind === "edit_property_values"
         ? clear.operations[0].edits[0]?.edit
         : null,
-    ).toEqual({ kind: "clear_relation", expectedValueRevision: 7 });
+    ).toEqual({
+      kind: "replace_relation",
+      expectedValueRevision: 7,
+      targetPageId: "page:parent",
+    });
 
     expect(() => bindDatabaseApplyV2({
       version: DATABASE_MODULE_V2_CONTRACT_VERSION,
@@ -451,6 +459,29 @@ describe("Database Module v2 transport boundary", () => {
     }, "project-1", { actor: { kind: "test" } })).toThrow(
       "may change at most 100 Relation targets",
     );
+  });
+
+  test("binds task-parent runs to Relation value revisions", () => {
+    const request = bindDatabaseApplyV2({
+      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+      operationId: "task-parent-run",
+      projectId: "project-1",
+      storeEpoch: "epoch-1",
+      actor: {},
+      operations: [{
+        kind: "set_task_parent",
+        dataSourceId: "source-1",
+        pages: [{ pageId: "page:child", expectedValueRevision: 4 }],
+        parentPageId: "page:parent",
+      }],
+    }, "project-1", { actor: { kind: "test" } });
+
+    expect(request.operations[0]).toEqual({
+      kind: "set_task_parent",
+      dataSourceId: "source-1",
+      pages: [{ pageId: "page:child", expectedValueRevision: 4 }],
+      parentPageId: "page:parent",
+    });
   });
 
   test("parses typed Property descriptors while rejecting the removed key field", () => {

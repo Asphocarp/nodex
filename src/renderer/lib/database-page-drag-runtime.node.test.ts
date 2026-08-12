@@ -126,6 +126,7 @@ const snapshot = (): DatabaseModuleReadSnapshotV2 => ({
             revision: 2,
           },
         },
+        taskParent: { parentPageId: null, siblingRank: null, valueRevision: 1 },
         position: { rankKey: "a", revision: 3 },
         effectiveGroupKey: "triage",
         effectiveSubgroupKey: null,

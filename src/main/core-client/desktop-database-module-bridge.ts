@@ -414,7 +414,7 @@ const readBoundedDatabaseListWindow = async <
         hasChildren: row.has_children,
         transientKind: row.transient_kind,
         siblingRank: row.sibling_rank ?? null,
-        hierarchyRevision: row.hierarchy_revision,
+        taskParentValueRevision: row.task_parent_value_revision,
       };
     }),
     groups: value.groups.map((group) => ({

@@ -199,7 +199,7 @@ mod tests {
                 database_value_revisions: BTreeMap::new(),
                 task_parent_page_id: None,
                 task_sibling_rank: None,
-                task_hierarchy_revision: 0,
+                task_parent_value_revision: 1,
                 metadata_revision: 1,
                 parent_revision: 1,
                 document_id: "document:row".to_owned(),

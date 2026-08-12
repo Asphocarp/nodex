@@ -73,13 +73,11 @@ export const projectCoreDatabaseQueryRow = (
       : null,
     effectiveGroupKey: row.effective_group_key ?? null,
     effectiveSubgroupKey: row.effective_subgroup_key ?? null,
-    taskHierarchy: row.task_parent_page_id && row.task_sibling_rank
-      ? {
-          parentPageId: row.task_parent_page_id,
-          siblingRank: row.task_sibling_rank,
-          revision: row.task_hierarchy_revision,
-        }
-      : null,
+    taskParent: {
+      parentPageId: row.task_parent_page_id ?? null,
+      siblingRank: row.task_sibling_rank ?? null,
+      valueRevision: row.task_parent_value_revision,
+    },
     intrinsicProperties: Object.entries(row.intrinsic_properties).map(
       ([key, propertyValue]) => ({
         key,

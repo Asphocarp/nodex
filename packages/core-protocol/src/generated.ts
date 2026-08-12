@@ -1000,13 +1000,13 @@ export interface components {
                 readonly depth: number;
                 readonly group_path: readonly (string | null)[];
                 readonly has_children: boolean;
-                /** Format: int64 */
-                readonly hierarchy_revision: number;
                 /** @enum {string} */
                 readonly kind: "page";
                 readonly occurrence_key: string;
                 readonly sibling_rank?: string | null;
                 readonly summary: components["schemas"]["DatabaseRowSummary"];
+                /** Format: int64 */
+                readonly task_parent_value_revision: number;
                 readonly transient_kind: components["schemas"]["DatabaseListTransientKind"];
             })[];
             readonly next_cursor?: string | null;
@@ -1095,9 +1095,13 @@ export interface components {
                 readonly position_revision?: number | null;
                 readonly rank_key?: string | null;
                 readonly rich_title: unknown;
-                /** Format: int64 */
-                readonly task_hierarchy_revision: number;
                 readonly task_parent_page_id?: string | null;
+                /**
+                 * Format: int64
+                 * @description Revision of the standard `task_parent` Relation value. This remains
+                 *     populated for root tasks, which have no Relation edge.
+                 */
+                readonly task_parent_value_revision: number;
                 readonly task_sibling_rank?: string | null;
                 readonly title: string;
                 readonly updated_at: string;
@@ -1660,7 +1664,7 @@ export interface components {
             readonly data_source_id: string;
             /** @enum {string} */
             readonly kind: "set_task_parent";
-            readonly pages: readonly components["schemas"]["DatabaseTaskHierarchyPage"][];
+            readonly pages: readonly components["schemas"]["DatabaseTaskParentPage"][];
             readonly parent_page_id?: string | null;
         } | {
             readonly collapsed_group_keys: readonly string[];
@@ -1759,6 +1763,7 @@ export interface components {
             /** @enum {string} */
             readonly kind: "datetime";
         } | {
+            readonly cardinality: components["schemas"]["DatabaseRelationCardinality"];
             /** @enum {string} */
             readonly kind: "relation";
             readonly target_data_source_id: string;
@@ -1790,7 +1795,8 @@ export interface components {
             /** Format: int64 */
             readonly expected_value_revision: number;
             /** @enum {string} */
-            readonly kind: "clear_relation";
+            readonly kind: "replace_relation";
+            readonly target_page_id?: string | null;
         };
         readonly DatabasePropertyValueInput: {
             /** @enum {string} */
@@ -1833,6 +1839,8 @@ export interface components {
         readonly DatabaseReadMode: "catalog_window" | "database" | "data_source_window" | "data_source" | "property_window" | "option_window" | "view_descriptor_window" | "view" | "agent_query" | "view_window" | "list_window" | "view_groups" | "view_context" | "rows_by_id" | "row_detail" | "relation_target_window" | "relation_candidate_window" | "view_personal_preferences";
         readonly DatabaseReadRequest: components["schemas"]["ModuleReadRequest_DatabaseRead"];
         readonly DatabaseReadResponse: components["schemas"]["ResponseEnvelope_ModuleReadSnapshot_DatabaseReadValue"];
+        /** @enum {string} */
+        readonly DatabaseRelationCardinality: "one" | "many";
         readonly DatabaseRelationTargetWindow: {
             readonly targets: components["schemas"]["CollectionWindow_DatabaseRelationTargetItem"];
             /** Format: int64 */
@@ -1885,9 +1893,13 @@ export interface components {
             readonly position_revision?: number | null;
             readonly rank_key?: string | null;
             readonly rich_title: unknown;
-            /** Format: int64 */
-            readonly task_hierarchy_revision: number;
             readonly task_parent_page_id?: string | null;
+            /**
+             * Format: int64
+             * @description Revision of the standard `task_parent` Relation value. This remains
+             *     populated for root tasks, which have no Relation edge.
+             */
+            readonly task_parent_value_revision: number;
             readonly task_sibling_rank?: string | null;
             readonly title: string;
             readonly updated_at: string;
@@ -1938,12 +1950,13 @@ export interface components {
             readonly query: components["schemas"]["DatabaseAgentQuery"];
             readonly view_id: string;
         };
-        readonly DatabaseTaskHierarchyPage: {
+        readonly DatabaseTaskParentPage: {
             /**
              * Format: int64
-             * @description Zero means the Page is currently a task root with no hierarchy edge.
+             * @description Root tasks retain an empty `task_parent` Relation value header, so this
+             *     revision remains positive and monotonic.
              */
-            readonly expected_hierarchy_revision: number;
+            readonly expected_value_revision: number;
             readonly page_id: string;
         };
         readonly DatabaseTransferTarget: {
@@ -4840,7 +4853,7 @@ export interface components {
                 readonly data_source_id: string;
                 /** @enum {string} */
                 readonly kind: "set_task_parent";
-                readonly pages: readonly components["schemas"]["DatabaseTaskHierarchyPage"][];
+                readonly pages: readonly components["schemas"]["DatabaseTaskParentPage"][];
                 readonly parent_page_id?: string | null;
             } | {
                 readonly collapsed_group_keys: readonly string[];

@@ -15,6 +15,7 @@ const property: DataSourcePropertyRecordV2 = {
   schema: {
     kind: "relation",
     targetDataSourceId: parseDataSourceId("source-target"),
+    cardinality: "many",
   },
   valueType: "relation",
   config: {},

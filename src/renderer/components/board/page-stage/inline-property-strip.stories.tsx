@@ -60,6 +60,7 @@ function InlinePropertyStripStory() {
     [properties],
   );
   const controls = useMemo<PageStagePropertyControls>(() => ({
+    pageId: "page:story",
     properties,
     primaryProperties: properties.filter((item) =>
       ["priority", "status", "estimate", "due_date"].includes(
@@ -90,6 +91,7 @@ function InlinePropertyStripStory() {
       return { status: "updated", didMutate: true };
     },
     patchRelation: async () => ({ status: "updated", didMutate: false }),
+    replaceRelation: async () => ({ status: "updated", didMutate: false }),
     patchMultiSelect: async () => ({ status: "updated", didMutate: false }),
     createOptionAndSelect: async () => ({ status: "updated", didMutate: false }),
     loadRelationTargets: async (property) => ({

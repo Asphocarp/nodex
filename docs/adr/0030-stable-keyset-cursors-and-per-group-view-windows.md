@@ -57,7 +57,7 @@ exactly, scoped windows are restrictions of the flat order, and totals always
 agree with scoped traversal. Cursor fingerprints include the scope, isolating
 each column's continuation.
 
-The renderer kanban store owns one window per group and composes them for the
+The renderer Board store owns one window per group and composes them for the
 existing render pipeline. Columns page independently through in-flow
 `Show N more` rows, header badges report true group totals, refreshes re-read
 each loaded group's span (`first = clamp(loaded, 50, 200)`) instead of

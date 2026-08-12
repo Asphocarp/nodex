@@ -40,6 +40,35 @@ type Story = StoryObj<typeof RelationPropertyEditor>;
 
 export const Empty: Story = { args: { value: null } };
 export const VisibleAndRestricted: Story = { args: { value: visibleAndRestrictedValue } };
+export const SingleParent: Story = {
+  args: {
+    label: "Parent",
+    cardinality: "one",
+    excludedPageId: "page:child",
+    value: {
+      kind: "relation",
+      value: {
+        value_revision: 3,
+        total_count: 1,
+        targets: [{
+          kind: "visible",
+          edge_id: "c".repeat(64),
+          page_id: "page:parent",
+          title: "Parent task",
+          lifecycle: "active",
+          membership_state: "active_in_target_source",
+        }],
+        restricted_count: 0,
+        has_more: false,
+      },
+    },
+    candidates: [
+      { pageId: "page:child", title: "Current task" },
+      { pageId: "page:next-parent", title: "Next parent" },
+    ],
+    onReplace: () => undefined,
+  },
+};
 export const ReadOnly: Story = {
   args: { value: visibleAndRestrictedValue, disabled: true },
 };

@@ -3645,7 +3645,7 @@
                     "depth",
                     "has_children",
                     "transient_kind",
-                    "hierarchy_revision",
+                    "task_parent_value_revision",
                     "kind"
                   ],
                   "properties": {
@@ -3672,10 +3672,6 @@
                     "has_children": {
                       "type": "boolean"
                     },
-                    "hierarchy_revision": {
-                      "type": "integer",
-                      "format": "int64"
-                    },
                     "kind": {
                       "type": "string",
                       "enum": [
@@ -3693,6 +3689,10 @@
                     },
                     "summary": {
                       "$ref": "#/components/schemas/DatabaseRowSummary"
+                    },
+                    "task_parent_value_revision": {
+                      "type": "integer",
+                      "format": "int64"
                     },
                     "transient_kind": {
                       "$ref": "#/components/schemas/DatabaseListTransientKind"
@@ -3933,7 +3933,7 @@
                 "membership_created_at",
                 "created_at",
                 "updated_at",
-                "task_hierarchy_revision"
+                "task_parent_value_revision"
               ],
               "properties": {
                 "created_at": {
@@ -4041,15 +4041,16 @@
                   ]
                 },
                 "rich_title": {},
-                "task_hierarchy_revision": {
-                  "type": "integer",
-                  "format": "int64"
-                },
                 "task_parent_page_id": {
                   "type": [
                     "string",
                     "null"
                   ]
+                },
+                "task_parent_value_revision": {
+                  "type": "integer",
+                  "format": "int64",
+                  "description": "Revision of the standard `task_parent` Relation value. This remains\npopulated for root tasks, which have no Relation edge."
                 },
                 "task_sibling_rank": {
                   "type": [
@@ -6232,7 +6233,7 @@
               "pages": {
                 "type": "array",
                 "items": {
-                  "$ref": "#/components/schemas/DatabaseTaskHierarchyPage"
+                  "$ref": "#/components/schemas/DatabaseTaskParentPage"
                 }
               },
               "parent_page_id": {
@@ -6615,9 +6616,13 @@
             "type": "object",
             "required": [
               "target_data_source_id",
+              "cardinality",
               "kind"
             ],
             "properties": {
+              "cardinality": {
+                "$ref": "#/components/schemas/DatabaseRelationCardinality"
+              },
               "kind": {
                 "type": "string",
                 "enum": [
@@ -6755,7 +6760,13 @@
               "kind": {
                 "type": "string",
                 "enum": [
-                  "clear_relation"
+                  "replace_relation"
+                ]
+              },
+              "target_page_id": {
+                "type": [
+                  "string",
+                  "null"
                 ]
               }
             }
@@ -6954,6 +6965,13 @@
       "DatabaseReadResponse": {
         "$ref": "#/components/schemas/ResponseEnvelope_ModuleReadSnapshot_DatabaseReadValue"
       },
+      "DatabaseRelationCardinality": {
+        "type": "string",
+        "enum": [
+          "one",
+          "many"
+        ]
+      },
       "DatabaseRelationTargetWindow": {
         "type": "object",
         "required": [
@@ -7013,7 +7031,7 @@
           "membership_created_at",
           "created_at",
           "updated_at",
-          "task_hierarchy_revision"
+          "task_parent_value_revision"
         ],
         "properties": {
           "created_at": {
@@ -7121,15 +7139,16 @@
             ]
           },
           "rich_title": {},
-          "task_hierarchy_revision": {
-            "type": "integer",
-            "format": "int64"
-          },
           "task_parent_page_id": {
             "type": [
               "string",
               "null"
             ]
+          },
+          "task_parent_value_revision": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Revision of the standard `task_parent` Relation value. This remains\npopulated for root tasks, which have no Relation edge."
           },
           "task_sibling_rank": {
             "type": [
@@ -7363,17 +7382,17 @@
           }
         ]
       },
-      "DatabaseTaskHierarchyPage": {
+      "DatabaseTaskParentPage": {
         "type": "object",
         "required": [
           "page_id",
-          "expected_hierarchy_revision"
+          "expected_value_revision"
         ],
         "properties": {
-          "expected_hierarchy_revision": {
+          "expected_value_revision": {
             "type": "integer",
             "format": "int64",
-            "description": "Zero means the Page is currently a task root with no hierarchy edge."
+            "description": "Root tasks retain an empty `task_parent` Relation value header, so this\nrevision remains positive and monotonic."
           },
           "page_id": {
             "type": "string"
@@ -19525,7 +19544,7 @@
                     "pages": {
                       "type": "array",
                       "items": {
-                        "$ref": "#/components/schemas/DatabaseTaskHierarchyPage"
+                        "$ref": "#/components/schemas/DatabaseTaskParentPage"
                       }
                     },
                     "parent_page_id": {

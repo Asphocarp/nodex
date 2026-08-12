@@ -53,6 +53,7 @@ describe("PageStageInlinePropertyStrip", () => {
     const properties = model.databaseContext.properties;
     const semantic = model.databaseContext.semanticProperties;
     const controls: PageStagePropertyControls = {
+      pageId: "page:test",
       properties,
       primaryProperties: properties.filter(isPageStagePrimaryProperty),
       sectionProperties: pageStageSectionProperties(properties, semantic),
@@ -68,6 +69,7 @@ describe("PageStageInlinePropertyStrip", () => {
       errors: {},
       edit: vi.fn(async () => ({ status: "updated", didMutate: true } as const)),
       patchRelation: vi.fn(async () => ({ status: "updated", didMutate: true } as const)),
+      replaceRelation: vi.fn(async () => ({ status: "updated", didMutate: true } as const)),
       patchMultiSelect: vi.fn(async () => ({ status: "updated", didMutate: true } as const)),
       createOptionAndSelect: vi.fn(async () => ({ status: "updated", didMutate: true } as const)),
       loadRelationTargets: vi.fn(async (property) => ({

@@ -153,6 +153,7 @@ const makeSnapshot = (input: {
           revision: 1,
         },
       },
+      taskParent: { parentPageId: null, siblingRank: null, valueRevision: 1 },
       position: { rankKey: "a", revision: 2 },
       effectiveGroupKey: input.groupedByStatus === false ? null : "build",
       effectiveSubgroupKey: null,

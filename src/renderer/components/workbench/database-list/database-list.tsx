@@ -20,6 +20,7 @@ import type { ColumnPaginationState } from "@/lib/board-store";
 import {
   buildDataSourceCreateOptionAndSelectOperations,
   buildDataSourceMultiSelectPatchOperations,
+  buildDataSourceRelationReplacementOperations,
 } from "@/lib/data-source-property-value-operations";
 import {
   readDataSourceRelationTargets,
@@ -977,6 +978,25 @@ export function DatabaseList({
     });
   };
 
+  const replaceRelation = (
+    pageId: string,
+    property: DataSourcePropertyRecordV2,
+    targetPageId: string | null,
+  ): void => {
+    const current = authorityByPageId.get(pageId)?.values[property.propertyId];
+    void commit(buildDataSourceRelationReplacementOperations({
+      pageId,
+      dataSourceId: model.dataSourceId,
+      property,
+      expectedValueRevision: current?.revision ?? 0,
+      targetPageId,
+    }), {
+      mutationKeys: [propertyValueMutationKey(pageId, property.propertyId)],
+      errorMessage: "Couldn’t save this property. Try again.",
+      inlineError: true,
+    });
+  };
+
   const createOption = async (
     pageId: string,
     property: DataSourcePropertyRecordV2,
@@ -1024,6 +1044,7 @@ export function DatabaseList({
     onSetValue: setPropertyValue,
     onPatchOptions: patchOptions,
     onPatchRelation: patchRelation,
+    onReplaceRelation: replaceRelation,
     onCreateOption: createOption,
     onRequestOptions: propertyOptionRegistries.requestOptions,
     onRequestMoreOptions: propertyOptionRegistries.requestMoreOptions,

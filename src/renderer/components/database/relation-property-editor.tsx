@@ -46,10 +46,13 @@ export function RelationPropertyEditor({
   label,
   value,
   candidates,
+  cardinality = "many",
+  excludedPageId,
   disabled,
   pending = false,
   targetMatchesCurrentSource,
   onPatch,
+  onReplace,
   onClear,
   onLoadMore,
   onSearchCandidates,
@@ -63,6 +66,8 @@ export function RelationPropertyEditor({
   readonly label: string;
   readonly value: unknown;
   readonly candidates: readonly { readonly pageId: string; readonly title: string }[];
+  readonly cardinality?: "one" | "many";
+  readonly excludedPageId?: string;
   readonly disabled: boolean;
   readonly pending?: boolean;
   readonly targetMatchesCurrentSource: boolean;
@@ -70,6 +75,7 @@ export function RelationPropertyEditor({
     readonly addPageIds: readonly string[];
     readonly removeEdgeIds: readonly string[];
   }) => void;
+  readonly onReplace?: (targetPageId: string | null) => void;
   readonly onClear: () => void;
   readonly onLoadMore?: (after: string | null) => Promise<RelationTargetWindow>;
   readonly onSearchCandidates?: (
@@ -156,7 +162,19 @@ export function RelationPropertyEditor({
   const candidateError = candidateErrorQuery === query;
   const candidateSearchPending = searching || query !== deferredQuery;
   const available = mergeCandidates(seedCandidates, activeCandidateResults)
-    .filter((candidate) => !selectedIds.has(candidate.pageId));
+    .filter((candidate) =>
+      candidate.pageId !== excludedPageId
+      && !selectedIds.has(candidate.pageId)
+    );
+  const selectCandidate = (pageId: string) => {
+    if (cardinality === "one") {
+      if (!onReplace) return;
+      onReplace(pageId);
+      setOpen(false);
+      return;
+    }
+    onPatch({ addPageIds: [pageId], removeEdgeIds: [] });
+  };
 
   useEffect(() => {
     setActiveCandidateIndex((current) =>
@@ -184,7 +202,9 @@ export function RelationPropertyEditor({
     setTargetError(false);
   }, [label, preview.valueRevision]);
 
-  const readOnly = disabled || invalidPreview;
+  const readOnly = disabled
+    || invalidPreview
+    || (cardinality === "one" && onReplace === undefined);
   const actionDisabled = readOnly || pending;
 
   useEffect(() => {
@@ -460,7 +480,7 @@ export function RelationPropertyEditor({
                   event.preventDefault();
                   const candidate = available[activeCandidateIndex];
                   if (!candidate || actionDisabled) return;
-                  onPatch({ addPageIds: [candidate.pageId], removeEdgeIds: [] });
+                  selectCandidate(candidate.pageId);
                 }}
                 placeholder="Search pages…"
                 className="h-full min-w-0 flex-1 bg-transparent text-sm text-token-foreground outline-hidden placeholder:text-token-description-foreground"
@@ -505,6 +525,11 @@ export function RelationPropertyEditor({
                       disabled={actionDisabled}
                       onClick={() => {
                         if (actionDisabled) return;
+                        if (cardinality === "one" && onReplace) {
+                          onReplace(null);
+                          setOpen(false);
+                          return;
+                        }
                         onPatch({ addPageIds: [], removeEdgeIds: [target.edgeId] });
                       }}
                       className="grid size-6 shrink-0 place-items-center rounded-md text-token-description-foreground opacity-70 hover:bg-token-foreground/10 hover:text-token-foreground group-hover:opacity-100 focus-visible:opacity-100"
@@ -525,6 +550,11 @@ export function RelationPropertyEditor({
                       disabled={actionDisabled}
                       onClick={() => {
                         if (actionDisabled) return;
+                        if (cardinality === "one" && onReplace) {
+                          onReplace(null);
+                          setOpen(false);
+                          return;
+                        }
                         onPatch({ addPageIds: [], removeEdgeIds: [target.edgeId] });
                       }}
                       className="grid size-6 shrink-0 place-items-center rounded-md text-token-description-foreground opacity-70 hover:bg-token-foreground/10 hover:text-token-foreground group-hover:opacity-100 focus-visible:opacity-100"
@@ -582,8 +612,10 @@ export function RelationPropertyEditor({
                     onPointerDown={(event) => event.preventDefault()}
                     onClick={() => {
                       if (actionDisabled) return;
-                      onPatch({ addPageIds: [candidate.pageId], removeEdgeIds: [] });
-                      requestAnimationFrame(() => searchInputRef.current?.focus());
+                      selectCandidate(candidate.pageId);
+                      if (cardinality === "many") {
+                        requestAnimationFrame(() => searchInputRef.current?.focus());
+                      }
                     }}
                     className="flex min-h-8 w-full items-center gap-2 rounded-lg px-2 text-left hover:bg-token-list-hover-background disabled:opacity-50"
                   >

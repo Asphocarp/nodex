@@ -56,7 +56,7 @@ Profile
     ├── Canvas                      document-bearing Block
     │   └── Document                scene authority
     └── Database                    placeable Container Block
-        ├── Data Source             schema + Page rows + values + task hierarchy
+        ├── Data Source             schema + Page rows + typed Property values
         └── View                    presentation over one Data Source
 
 Project                              execution context
@@ -70,7 +70,7 @@ One Profile owns one Library. Library owns durable content; Project owns executi
 
 Every active Page has exactly one `library | page | data_source` parent. Page ownership forms an acyclic forest. References, mentions, backlinks, relations, and Views are non-owning and do not expand authorization. Page ID is Block ID; Document identity remains independent.
 
-A Database is a Container Block that owns Data Sources and Views. A Data Source owns its schema, row Pages, values, query identity, and an optional single-parent task hierarchy with sibling ranks. Task hierarchy is non-owning presentation semantics: it never changes a Page's structural `library | page | data_source` parent or expands authorization. A View targets exactly one Data Source and owns its durable Filter, default presentation, and one View-global Page rank; sparse personal Board/List display changes and collapsed occurrence keys remain per-View Profile preferences. Core normalizes the effective presentation against Data Source capabilities before query execution. Board consumes its established bounded group windows, while List consumes a dedicated grouped/nested occurrence window; both compile mutations through the same atomic Database boundary. These identities are independent and must not be derived from one another.
+A Database is a Container Block that owns Data Sources and Views. A Data Source owns its schema, row Pages, typed Property values, and query identity. Its fixed `task_parent` Property is a cardinality-one self-Relation; the Relation value header is the sole concurrency authority for roots and children, and only its edge may carry sibling rank. The resulting task hierarchy is non-owning presentation semantics: it never changes a Page's structural `library | page | data_source` parent or expands authorization, and there is no parallel hierarchy graph. A View targets exactly one Data Source and owns its durable Filter, default presentation, and one View-global Page rank; sparse personal Board/List display changes and collapsed occurrence keys remain per-View Profile preferences. Core normalizes the effective presentation against Data Source capabilities before query execution. Board consumes its established bounded group windows, while List consumes a dedicated grouped/nested occurrence window; both compile mutations through the same atomic Database boundary. These identities are independent and must not be derived from one another.
 
 The decisions behind this model are recorded in [ADR 0017](docs/adr/0017-library-pages-data-sources-and-project-resource-grants.md), [ADR 0020](docs/adr/0020-database-identity-scopes.md), and [ADR 0039](docs/adr/0039-data-source-relation-properties-and-property-semantics.md).
 
@@ -234,7 +234,7 @@ These invariants cross subsystem boundaries. Narrower domain and feature invaria
 3. Renderer code reaches durable state only through typed preload/Main Adapters; it has no direct Node, filesystem, SQLite, or Core-socket access.
 4. One Profile owns one Library. Project lifecycle changes execution authority and access, never Library content ownership.
 5. `blocks.id` is the persistent content identity. Page ID is Block ID; Document, Database, Data Source, and View identities are independent coordinates.
-6. Every active Page has one exclusive acyclic structural parent. References, Views, task hierarchy, relations, mentions, and backlinks are non-owning and non-authorizing.
+6. Every active Page has one exclusive acyclic structural parent. References, Views, the `task_parent` Relation projection, other Relations, mentions, and backlinks are non-owning and non-authorizing.
 7. Database Container owns Data Sources and Views; Data Source owns schema, Pages, and values; every View targets one Data Source.
 8. Authorization is evaluated by Core from explicit trusted access context. Renderer presentation and Codex operation approval are not resource authorization.
 9. Runtime validation occurs at transport, persistence, and external-data boundaries. Normalized in-memory domain state remains typed without repeated permissive parsing.
