@@ -1,5 +1,4 @@
 import { describe, expect, test } from "vitest";
-import { DATABASE_MODULE_CONTRACT_VERSION } from "./database-module";
 import { DATABASE_MODULE_V2_CONTRACT_VERSION } from "./database-module-v2";
 import { noOpLocalCommit } from "./testing/local-commit";
 import {
@@ -94,8 +93,7 @@ const propertyRecord = () => ({
 });
 
 describe("Database Module v2 transport boundary", () => {
-  test("exposes the View-global ordering contract versions", () => {
-    expect(DATABASE_MODULE_CONTRACT_VERSION).toBe(3);
+  test("exposes the View-global ordering contract version", () => {
     expect(DATABASE_MODULE_V2_CONTRACT_VERSION).toBe(11);
   });
 
@@ -621,6 +619,22 @@ describe("Database Module v2 transport boundary", () => {
         },
       }),
     ).toThrow(".key is not supported");
+
+    expect(() =>
+      parseDatabaseModuleReadResultV2({
+        ...result,
+        value: {
+          ...result.value,
+          value: {
+            kind: "data_source",
+            value: {
+              dataSource: dataSourceRecord(),
+              properties: [{ ...propertyRecord(), lifecycle: "archived" }],
+            },
+          },
+        },
+      }),
+    ).toThrow(".lifecycle is unsupported");
   });
 
   test("parses independently versioned presentation and sparse disclosure reads", () => {

@@ -1,7 +1,12 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
 import type { BoardSummary, DatabasePageSummary, Project } from "@/lib/types";
-import type { DatabaseContainerDescriptor } from "../../../shared/database-module";
+import type { DatabaseContainerDescriptorV2 } from "../../../shared/database-module-v2";
+import {
+  parseDatabaseId,
+  parseDatabaseViewId,
+  parseDataSourceId,
+} from "../../../shared/database-identities";
 import { plainTextToPortableRichText } from "../../../shared/block-documents";
 import { upgradeDatabaseViewConfigV2 } from "../../../shared/database-view-presentation";
 import type { PanelDestination } from "./panel-destination-picker-model";
@@ -92,12 +97,12 @@ const BOARD_MAP = new Map<string, BoardSummary>([
   ],
 ]);
 
-const DATABASE_DESCRIPTOR_MAP = new Map<string, DatabaseContainerDescriptor>(
+const DATABASE_DESCRIPTOR_MAP = new Map<string, DatabaseContainerDescriptorV2>(
   PROJECTS.map((project) => {
-    const databaseId = `database:${project.id}`;
-    const dataSourceId = `data-source:${project.id}`;
+    const databaseId = parseDatabaseId(`database:${project.id}`);
+    const dataSourceId = parseDataSourceId(`data-source:${project.id}`);
     const makeView = (suffix: string, name: string, isDefault: boolean) => ({
-      viewId: `view:${project.id}:${suffix}`,
+      viewId: parseDatabaseViewId(`view:${project.id}:${suffix}`),
       databaseId,
       dataSourceId,
       name,
@@ -123,7 +128,7 @@ const DATABASE_DESCRIPTOR_MAP = new Map<string, DatabaseContainerDescriptor>(
         libraryId: "library:test",
         name: "Tasks",
         lifecycle: "active",
-        defaultViewId: `view:${project.id}:primary`,
+        defaultViewId: parseDatabaseViewId(`view:${project.id}:primary`),
         accessRevision: 1,
         metadataRevision: 1,
         createdAt: STORY_DATE.toISOString(),
