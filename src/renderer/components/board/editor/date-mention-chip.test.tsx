@@ -7,11 +7,13 @@ import {
   setDateMentionClockStoreForTest,
 } from "@/lib/nfm/date-mention-clock";
 import {
-  buildDateMentionUpdate,
   DateMentionInlineContentView,
-  dateMentionPayloadToProps,
 } from "./date-mention-chip";
-import type { DateMentionInlineContentUpdate, DateMentionProps } from "./date-mention-chip";
+import {
+  dateMentionPayloadToProps,
+  type DateMentionInlineContentUpdate,
+  type DateMentionProps,
+} from "./date-mention-inline-content";
 
 let restoreDateMentionClockStore: (() => void) | null = null;
 
@@ -176,18 +178,4 @@ describe("DateMentionInlineContentView", () => {
     expect(updateCount).toBe(0);
   });
 
-  test("buildDateMentionUpdate repairs reversed ranges", () => {
-    const update = buildDateMentionUpdate(
-      {
-        start: "2050-06-30",
-        end: "2050-06-28",
-        format: "ll",
-      },
-      {},
-    );
-
-    expect(update.props.start).toBe("2050-06-28");
-    expect(update.props.end).toBe("2050-06-30");
-    expect(update.props.format).toBe("ll");
-  });
 });

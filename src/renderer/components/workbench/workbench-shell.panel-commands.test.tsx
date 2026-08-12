@@ -3,7 +3,7 @@ import { describe, test, expect } from "vitest";
 import { settleAsyncRender, textContent, textContentIncludingShadowRoots } from "../../test/dom";
 import { fireEvent, within, act, waitFor } from "@testing-library/react";
 import { splitWorkbenchPanelLeaf } from "../../../shared/workbench-panel-layout";
-import { primaryCanvasBlockId } from "../../../shared/block-documents";
+import { primaryCanvasBlockId } from "../../../shared/block-documents/canvas-document-identity";
 import { makeAttachedSession, makePanelLayout, makePanels, makeProject, makeSession, makeSessionTab } from "./workbench-testkit/workbench-shell-fixtures";
 import { appendMockNfmEditor, executeCommandPaletteCommand, getLastTerminalPanelProps, getPanelTabById, getPanelTabChromeById, getWorkbenchPanelActivateCalls, getWorkbenchTabDeleteInputs, getWorkbenchTabProjectionDeleteTabIds, invokeCalls, listBackgroundProcessesCalls, openBottomPanel, openPanelMenu, pointerDownAndSettle, renderWorkbench, sideChatConversations, startSideChatCalls, setInvokeCalls, setStartSideChatCalls } from "./workbench-testkit/workbench-shell-harness";
 

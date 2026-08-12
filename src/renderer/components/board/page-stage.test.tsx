@@ -22,8 +22,8 @@ import {
 import {
   PAGE_DOCUMENT_SCHEMA_VERSION,
   createPageDocument,
-  plainTextToPortableRichText,
-} from "../../../shared/block-documents";
+} from "../../../shared/block-documents/page-document";
+import { plainTextToPortableRichText } from "../../../shared/block-documents/portable-rich-text";
 import { populateBlockDocumentBodyFromNfm } from "../../../shared/block-documents/block-document-codec";
 import { projectContentAccess } from "../../../shared/content-access-context";
 import { buildPageDetailStoryResult } from "./page-stage/page-stage-story-page-detail";

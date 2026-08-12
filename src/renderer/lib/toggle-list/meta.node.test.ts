@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import type { ToggleListCard } from "./types";
 import { formatMeta } from "./meta";
-import { plainTextToPortableRichText } from "../../../shared/block-documents";
+import { plainTextToPortableRichText } from "../../../shared/block-documents/portable-rich-text";
 
 const baseCard: ToggleListCard = {
   id: "card-1",

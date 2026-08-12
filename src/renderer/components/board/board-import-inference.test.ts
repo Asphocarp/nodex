@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import type { BoardSummary, PageInput, WorkflowStatus, DatabasePageSummary } from "@/lib/types";
 import type { DbViewRules } from "../../lib/db-view-prefs";
-import { plainTextToPortableRichText } from "../../../shared/block-documents";
+import { plainTextToPortableRichText } from "../../../shared/block-documents/portable-rich-text";
 import { resolveBoardImportInference } from "./board-import-inference";
 
 function makeCard(

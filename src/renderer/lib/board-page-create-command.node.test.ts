@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import { plainTextToPortableRichText } from "../../shared/block-documents";
+import { plainTextToPortableRichText } from "../../shared/block-documents/portable-rich-text";
 import type { DataSourcePropertyRecordV2 } from "../../shared/database-module-v2";
 import type { BoardSummary, DatabasePage } from "./types";
 

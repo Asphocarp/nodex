@@ -12,7 +12,7 @@ import {
   useDatabaseRowDetail,
 } from "./database-row-detail-store";
 import type { DatabasePage } from "./types";
-import { plainTextToPortableRichText } from "../../shared/block-documents";
+import { plainTextToPortableRichText } from "../../shared/block-documents/portable-rich-text";
 
 function buildCard(overrides: Partial<DatabasePage> = {}): DatabasePage {
   const title = overrides.title ?? "Persisted title";

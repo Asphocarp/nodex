@@ -5,7 +5,7 @@ import type { DefaultReactSuggestionItem } from "@blocknote/react";
 import type { CommandPalettePage, CommandPaletteThread } from "@/lib/command-palette";
 import type { CommandPalettePageSearchIndex } from "@/lib/command-palette-page-search";
 import type { NfmMentionGetItemsLoaders } from "./nfm-slash-menu";
-import { plainTextToPortableRichText } from "../../../../shared/block-documents";
+import { plainTextToPortableRichText } from "../../../../shared/block-documents/portable-rich-text";
 import { DEFAULT_PROJECT_APPEARANCE } from "../../../../shared/project-appearance";
 import { useNfmMentionGetItems } from "./nfm-slash-menu";
 

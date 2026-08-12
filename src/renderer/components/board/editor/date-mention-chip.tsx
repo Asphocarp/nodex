@@ -1,6 +1,12 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { createReactInlineContentSpec } from "@blocknote/react";
-import { DayPicker, type DateRange } from "react-day-picker";
+import {
+  lazy,
+  Suspense,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
+import type { DateRange } from "react-day-picker";
 import {
   NodexOptionPicker,
   NodexDropdownSeparator,
@@ -20,10 +26,7 @@ import {
   ClockIcon,
   SmallChevronDownIcon,
 } from "@/components/shared/icons";
-import {
-  NODEX_DAY_PICKER_CLASS_NAMES,
-  NodexDateCalendarHeader,
-} from "@/components/ui/date-calendar";
+import { NodexDateCalendarHeader } from "@/components/ui/date-calendar-header";
 import {
   addIsoDateDays,
   createDateMentionPayload,
@@ -43,41 +46,34 @@ import {
   NFM_DATE_MENTION_DATE_FORMATS,
   NFM_DATE_MENTION_REMINDER_PRESETS,
   NFM_DATE_MENTION_TIME_FORMATS,
-  normalizeDateMention,
   parseDateMentionInput,
   todayIsoDate,
-  type NfmDateMentionDateFormat,
-  type NfmDateMentionTimeFormat,
 } from "@/lib/nfm/date-mention";
 import type { NfmDateMentionInlineContent } from "@/lib/nfm/types";
 import { cn } from "@/lib/utils";
-import { dateMentionInlineContentConfig } from "../../../../shared/block-documents/blocknote-schema-config";
 import { DateMentionInlineVisual } from "../date-mention-inline-visual";
+import {
+  buildDateMentionUpdate,
+  dateMentionPayloadToProps,
+  dateMentionPropsToPayload,
+  normalizeDateMentionProps,
+  type DateMentionInlineContentUpdate,
+  type DateMentionPatch,
+  type DateMentionProps,
+} from "./date-mention-inline-content";
 
-export interface DateMentionProps {
-  start: string;
-  end: string;
-  tz: string;
-  format: string;
-  timeFormat: string;
-  reminder: string;
-}
+let dateMentionCalendarPromise:
+  | Promise<typeof import("./date-mention-calendar")>
+  | undefined;
 
-export interface DateMentionInlineContentUpdate {
-  type: "dateMention";
-  props: DateMentionProps;
-}
-
-type DateMentionPatch = Partial<DateMentionProps>;
-
-const EMPTY_DATE_MENTION_PROPS: DateMentionProps = {
-  start: "",
-  end: "",
-  tz: "",
-  format: "",
-  timeFormat: "",
-  reminder: "",
+const loadDateMentionCalendar = () => {
+  dateMentionCalendarPromise ??= import("./date-mention-calendar");
+  return dateMentionCalendarPromise;
 };
+
+const LazyDateMentionCalendar = lazy(async () => ({
+  default: (await loadDateMentionCalendar()).DateMentionCalendar,
+}));
 
 const DATE_FORMAT_OPTIONS: NodexOptionPickerOption[] = NFM_DATE_MENTION_DATE_FORMATS.map((format) => ({
   value: format,
@@ -101,62 +97,6 @@ const REMINDER_OPTIONS: NodexOptionPickerOption[] = [
     label: getReminderLabel(reminder),
   })),
 ];
-
-function normalizeDateMentionProps(input: Partial<DateMentionProps> | undefined): DateMentionProps {
-  return {
-    ...EMPTY_DATE_MENTION_PROPS,
-    start: typeof input?.start === "string" ? input.start : "",
-    end: typeof input?.end === "string" ? input.end : "",
-    tz: typeof input?.tz === "string" ? input.tz : "",
-    format: typeof input?.format === "string" ? input.format : "",
-    timeFormat: typeof input?.timeFormat === "string" ? input.timeFormat : "",
-    reminder: typeof input?.reminder === "string" ? input.reminder : "",
-  };
-}
-
-export function dateMentionPayloadToProps(payload: NfmDateMentionInlineContent): DateMentionProps {
-  return {
-    start: payload.start,
-    end: payload.end ?? "",
-    tz: payload.tz ?? "",
-    format: payload.format ?? "",
-    timeFormat: payload.timeFormat ?? "",
-    reminder: payload.reminder ?? "",
-  };
-}
-
-export function dateMentionPropsToPayload(
-  props: Partial<DateMentionProps> | undefined,
-): NfmDateMentionInlineContent {
-  const normalizedProps = normalizeDateMentionProps(props);
-  const payload = normalizeDateMention({
-    type: "dateMention",
-    start: normalizedProps.start,
-    end: normalizedProps.end,
-    tz: normalizedProps.tz,
-    format: normalizedProps.format as NfmDateMentionDateFormat,
-    timeFormat: normalizedProps.timeFormat as NfmDateMentionTimeFormat,
-    reminder: normalizedProps.reminder,
-  });
-
-  return payload ?? createDateMentionPayload(todayIsoDate());
-}
-
-export function buildDateMentionUpdate(
-  current: Partial<DateMentionProps> | undefined,
-  patch: DateMentionPatch,
-): DateMentionInlineContentUpdate {
-  const currentPayload = dateMentionPropsToPayload(current);
-  const nextProps = normalizeDateMentionProps({
-    ...dateMentionPayloadToProps(currentPayload),
-    ...patch,
-  });
-  const nextPayload = dateMentionPropsToPayload(nextProps);
-  return {
-    type: "dateMention",
-    props: dateMentionPayloadToProps(nextPayload),
-  };
-}
 
 function DateMentionSwitch({
   checked,
@@ -446,31 +386,17 @@ function DateMentionPopoverBody({
         }}
       />
 
-      {hasEndDate ? (
-        <DayPicker
-          mode="range"
-          selected={selectedRange}
+      <Suspense fallback={<div aria-hidden="true" className="h-48 w-full" />}>
+        <LazyDateMentionCalendar
+          hasEndDate={hasEndDate}
+          selectedRange={selectedRange}
+          selectedDate={startDate}
           month={month}
           onMonthChange={setMonth}
-          onSelect={setSelectedRange}
-          showOutsideDays
-          fixedWeeks
-          hideNavigation
-          classNames={NODEX_DAY_PICKER_CLASS_NAMES}
+          onSelectDate={setSelectedDate}
+          onSelectRange={setSelectedRange}
         />
-      ) : (
-        <DayPicker
-          mode="single"
-          selected={startDate}
-          month={month}
-          onMonthChange={setMonth}
-          onSelect={setSelectedDate}
-          showOutsideDays
-          fixedWeeks
-          hideNavigation
-          classNames={NODEX_DAY_PICKER_CLASS_NAMES}
-        />
-      )}
+      </Suspense>
 
       <NodexDropdownSeparator paddingClassName="py-1" />
 
@@ -626,6 +552,12 @@ export function DateMentionInlineContentView({
               onMouseDown={(event) => {
                 event.preventDefault();
               }}
+              onPointerEnter={() => {
+                void loadDateMentionCalendar();
+              }}
+              onFocus={() => {
+                void loadDateMentionCalendar();
+              }}
               onClick={(event) => {
                 event.preventDefault();
                 event.stopPropagation();
@@ -645,52 +577,5 @@ export function DateMentionInlineContentView({
         <DateMentionPopoverBody props={props} onPatch={handlePatch} />
       </NodexPopoverContent>
     </NodexPopover>
-  );
-}
-
-export function createReadonlyDateMentionInlineContentSpec() {
-  return createReactInlineContentSpec(
-    dateMentionInlineContentConfig,
-    {
-      render: ({ inlineContent }) => {
-        const payload = dateMentionPropsToPayload((inlineContent as { props: Partial<DateMentionProps> }).props);
-        return (
-          <DateMentionInlineVisual
-            as="button"
-            payload={payload}
-            withGuards
-            contentEditable={false}
-            title={formatDateMentionPlainText(payload)}
-            tabIndex={-1}
-          />
-        );
-      },
-    },
-  );
-}
-
-export function createDateMentionInlineContentSpec() {
-  return createReactInlineContentSpec(
-    dateMentionInlineContentConfig,
-    {
-      render: ({ inlineContent, updateInlineContent }) => (
-        <DateMentionInlineContentView
-          inlineContent={inlineContent as { props: Partial<DateMentionProps> }}
-          updateInlineContent={updateInlineContent as (update: DateMentionInlineContentUpdate) => void}
-        />
-      ),
-      toExternalHTML: ({ inlineContent }) => {
-        const payload = dateMentionPropsToPayload((inlineContent as { props: Partial<DateMentionProps> }).props);
-        return (
-          <DateMentionInlineVisual
-            as="button"
-            payload={payload}
-            withGuards
-            contentEditable={false}
-            title={formatDateMentionPlainText(payload)}
-          />
-        );
-      },
-    },
   );
 }

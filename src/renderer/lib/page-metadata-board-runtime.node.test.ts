@@ -1,6 +1,6 @@
 import { describe, expect, test, vi } from "vitest";
 
-import { plainTextToPortableRichText } from "../../shared/block-documents";
+import { plainTextToPortableRichText } from "../../shared/block-documents/portable-rich-text";
 import type { DatabasePage } from "./types";
 import {
   commitPageMetadataPatchForBoard,

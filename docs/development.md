@@ -146,13 +146,15 @@ The test commands follow production boundaries:
 - `pnpm test` runs the ordinary deterministic test tier across the Node, main,
   renderer, and integration runtimes.
 - `pnpm test:unit` runs pure shared, script, configuration, and renderer helper
-  logic in Node. Renderer tests use the `.node.test.ts` suffix when they do not
-  require DOM behavior.
+  logic in Node. Under `src/renderer`, ordinary `.test.ts` files run in Node by
+  default; use `.node.test.tsx` when a pure test needs TSX syntax.
 - `pnpm test:core-client` builds the development Core binary, then runs the
   Node-side Core client, adapter, projection, and supervisor contracts. These
   tests seed disposable Stores only through public Core APIs.
 - `pnpm test:main` runs Electron main-process adapter and host tests.
-- `pnpm test:renderer` runs ordinary React and DOM behavior in jsdom.
+- `pnpm test:renderer` runs ordinary `.test.tsx` React behavior and explicit
+  `.jsdom.test.ts` DOM behavior in jsdom. A `.test.ts` file must not rely on
+  browser globals implicitly.
 - `pnpm test:browser` runs browser-sensitive renderer contracts in Chromium.
 - `pnpm test:integration` runs integration tests in Electron's Node runtime.
 - `pnpm run test:stress` runs volume, repeated-lifecycle, and concurrency

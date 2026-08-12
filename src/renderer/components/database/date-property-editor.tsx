@@ -1,11 +1,17 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  lazy,
+  Suspense,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { CalendarIcon, ClockIcon } from "@/components/shared/icons";
 import {
   NodexPopover,
   NodexPopoverContent,
   NodexPopoverTrigger,
 } from "@/components/ui/popover";
-import { NodexDateCalendar } from "@/components/ui/date-calendar";
 import {
   datetimeDraftFromIso,
   formatLocalDateAsIso,
@@ -16,6 +22,19 @@ import {
 import { cn } from "@/lib/utils";
 import { PropertyEmptyValue } from "./property-empty-value";
 import { DATABASE_PROPERTY_LIST_CHIP_CLASS_NAME } from "./property-list-chip";
+
+let dateCalendarPromise:
+  | Promise<typeof import("@/components/ui/date-calendar")>
+  | undefined;
+
+const loadDateCalendar = () => {
+  dateCalendarPromise ??= import("@/components/ui/date-calendar");
+  return dateCalendarPromise;
+};
+
+const LazyNodexDateCalendar = lazy(async () => ({
+  default: (await loadDateCalendar()).NodexDateCalendar,
+}));
 
 const formatListDate = (date: Date): string => {
   const today = new Date();
@@ -145,6 +164,12 @@ export function DatePropertyEditor({
         <button
           type="button"
           aria-label={`Edit ${label}`}
+          onPointerEnter={() => {
+            void loadDateCalendar();
+          }}
+          onFocus={() => {
+            void loadDateCalendar();
+          }}
           className={cn(
             "inline-flex min-h-6 min-w-0 items-center gap-1.5 rounded-md px-1 text-left outline-hidden",
             "text-token-text-secondary hover:bg-token-foreground/5 focus-visible:ring-2 focus-visible:ring-token-focus disabled:opacity-50",
@@ -238,26 +263,28 @@ export function DatePropertyEditor({
           ) : null}
           {error ? <p role="alert" className="px-1 pt-1 text-xs text-token-error-foreground">{error}</p> : null}
         </div>
-        <NodexDateCalendar
-          selected={selected ?? undefined}
-          disabled={disabled}
-          month={month}
-          onMonthChange={setMonth}
-          onToday={() => {
-            if (disabled) return;
-            const today = todayAsIsoDate();
-            setDateInput(today);
-            setMonth(parseIsoDateToLocalDate(today)!);
-            commitDraft(today);
-          }}
-          onSelect={(date) => {
-            if (disabled || !date) return;
-            const next = formatLocalDateAsIso(date);
-            if (!next) return;
-            setDateInput(next);
-            commitDraft(next);
-          }}
-        />
+        <Suspense fallback={<div aria-hidden="true" className="h-56 w-full" />}>
+          <LazyNodexDateCalendar
+            selected={selected ?? undefined}
+            disabled={disabled}
+            month={month}
+            onMonthChange={setMonth}
+            onToday={() => {
+              if (disabled) return;
+              const today = todayAsIsoDate();
+              setDateInput(today);
+              setMonth(parseIsoDateToLocalDate(today)!);
+              commitDraft(today);
+            }}
+            onSelect={(date) => {
+              if (disabled || !date) return;
+              const next = formatLocalDateAsIso(date);
+              if (!next) return;
+              setDateInput(next);
+              commitDraft(next);
+            }}
+          />
+        </Suspense>
         <div className="h-px bg-token-foreground/8" />
         <div className="p-1">
           <button

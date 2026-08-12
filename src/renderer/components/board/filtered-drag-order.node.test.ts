@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { BoardSummary, WorkflowStatus, DatabasePageSummary } from "@/lib/types";
-import { plainTextToPortableRichText } from "../../../shared/block-documents";
+import { plainTextToPortableRichText } from "../../../shared/block-documents/portable-rich-text";
 import { resolveFilteredDropOrder } from "./filtered-drag-order";
 
 function createPage(id: string, status: WorkflowStatus, order: number): DatabasePageSummary {

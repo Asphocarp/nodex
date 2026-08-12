@@ -7,6 +7,14 @@ import tseslint from "typescript-eslint";
 
 const isBetterTailwindEnabled = process.env.ESLINT_BETTER_TAILWIND === "1";
 
+const rendererRestrictedImportPaths = [
+  {
+    name: "lucide-react",
+    message:
+      "Use app-owned icons from @/components/shared/icons or normalized generic glyphs from @/components/shared/icons/generic-icons.",
+  },
+];
+
 const betterTailwindRecommendedRules = Object.fromEntries(
   Object.entries(betterTailwindcss.configs.recommended.rules)
     .filter(
@@ -52,11 +60,7 @@ const eslintConfig = defineConfig([
         "error",
         {
           paths: [
-            {
-              name: "lucide-react",
-              message:
-                "Use app-owned icons from @/components/shared/icons or normalized generic glyphs from @/components/shared/icons/generic-icons.",
-            },
+            ...rendererRestrictedImportPaths,
           ],
         },
       ],
@@ -68,6 +72,32 @@ const eslintConfig = defineConfig([
     files: ["src/renderer/components/shared/icons/generic-icons.tsx"],
     rules: {
       "no-restricted-imports": "off",
+    },
+  },
+  {
+    files: [
+      "src/renderer/**/*.test.tsx",
+      "src/renderer/**/*.jsdom.test.ts",
+      "src/renderer/**/*testkit*/**/*.{ts,tsx}",
+    ],
+    ignores: [
+      "src/renderer/**/*.browser.test.tsx",
+      "src/renderer/**/*.node.test.tsx",
+    ],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: rendererRestrictedImportPaths,
+          patterns: [
+            {
+              regex: "(?:^|/)shared/block-documents$",
+              message:
+                "Import the owning block-documents module directly so renderer tests do not load the complete schema barrel.",
+            },
+          ],
+        },
+      ],
     },
   },
   {

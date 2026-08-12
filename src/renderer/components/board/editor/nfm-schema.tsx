@@ -14,7 +14,7 @@ import {
   createPageBlockSpec,
   createPageRefBlockSpec,
 } from "./page-outliner-block";
-import { createDateMentionInlineContentSpec } from "./date-mention-chip";
+import { createDateMentionInlineContentSpec } from "./date-mention-inline-content-spec";
 import { createDatabaseViewRefBlockSpec } from "./database-view-ref-block";
 import { createDatabaseBlockSpec } from "./database-block";
 import { imageBlockSpec } from "./image-block";

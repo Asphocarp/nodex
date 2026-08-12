@@ -5,12 +5,16 @@ import { selectTieredTestFiles } from "./config/vitest-test-tier";
 const testFiles = selectTieredTestFiles({
   defaultExclude: [
     "packages/landing/src/download-cta.test.ts",
+    "src/renderer/**/*.browser.test.ts",
+    "src/renderer/**/*.jsdom.test.ts",
+    "src/renderer/**/*.stress.test.{ts,tsx}",
     "third_party/**",
   ],
   defaultInclude: [
     "config/**/*.test.ts",
     "scripts/**/*.test.ts",
     "src/shared/**/*.test.ts",
+    "src/renderer/**/*.test.ts",
     "src/renderer/**/*.node.test.{ts,tsx}",
     "packages/landing/src/**/*.test.ts",
   ],

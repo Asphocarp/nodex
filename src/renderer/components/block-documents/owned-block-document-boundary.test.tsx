@@ -3,11 +3,13 @@ import { describe, expect, test } from "vitest";
 import {
   PAGE_DOCUMENT_SCHEMA_KEY,
   PAGE_DOCUMENT_SCHEMA_VERSION,
+} from "../../../shared/block-documents/page-document";
+import {
   SYNCED_BLOCK_DOCUMENT_SCHEMA_KEY,
   SYNCED_BLOCK_DOCUMENT_SCHEMA_VERSION,
   SYNCED_BLOCK_SOURCE_TYPE,
-  type OwnedDocumentDescriptor,
-} from "../../../shared/block-documents";
+} from "../../../shared/block-documents/synced-block-document";
+import type { OwnedDocumentDescriptor } from "../../../shared/block-documents/contracts";
 import { render } from "@/test/dom";
 import { TestQueryProvider } from "@/test/query";
 import {

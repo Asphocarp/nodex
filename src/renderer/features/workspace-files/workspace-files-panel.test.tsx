@@ -1,5 +1,5 @@
 import { beforeAll, beforeEach, describe, expect, vi, test } from "vitest";
-import { fireEvent } from "@testing-library/react";
+import { act, fireEvent } from "@testing-library/react";
 import { useState } from "react";
 import { renderWithMaitai, settleAsyncRender } from "../../test/dom";
 import { TestQueryProvider } from "../../test/query";
@@ -204,8 +204,15 @@ describe("WorkspaceFilesPanel", () => {
     expect(view.getByText("README.md") !== null).toBe(true);
     expect(view.getByText("archive.zip") !== null).toBe(true);
 
-    fireEvent.input(view.getByPlaceholderText("Filter files…"), { target: { value: "read" } });
-    await new Promise((resolve) => window.setTimeout(resolve, 175));
+    vi.useFakeTimers();
+    try {
+      await act(async () => {
+        fireEvent.input(view.getByPlaceholderText("Filter files…"), { target: { value: "read" } });
+        await vi.advanceTimersByTimeAsync(175);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
     await settleAsyncRender();
     expect(view.getByText("README.md") !== null).toBe(true);
     expect(view.queryByText("archive.zip")).toBe(null);

@@ -15,7 +15,7 @@ import * as Y from "yjs";
 import { act, fireEvent, waitFor, within } from "@testing-library/react";
 import {
   PAGE_DOCUMENT_SCHEMA_VERSION,
-} from "../../../../shared/block-documents";
+} from "../../../../shared/block-documents/page-document";
 import { WorkbenchLayoutSnapshotSchema } from "../../../../shared/schemas/workbench-layout";
 import type {
   CodexAutomationInboxItem,

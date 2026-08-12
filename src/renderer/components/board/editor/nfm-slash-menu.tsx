@@ -71,7 +71,7 @@ import {
   type DateMentionQueryMatch,
 } from "@/lib/nfm/date-mention";
 import type { NfmDateMentionInlineContent } from "@/lib/nfm/types";
-import { dateMentionPayloadToProps } from "./date-mention-chip";
+import { dateMentionPayloadToProps } from "./date-mention-inline-content";
 import { useBlockReferenceHostRuntime } from "@/components/block-documents/block-reference-runtime-context";
 import { toast } from "@/components/ui/toast";
 import { setCanvasCreatePending } from "./canvas-create-pending-extension";
