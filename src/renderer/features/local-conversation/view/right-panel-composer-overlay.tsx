@@ -271,6 +271,7 @@ export function RightPanelComposerOverlay({
   const controlledFocusRequestKey = visibility.kind === "controlled"
     ? visibility.focusRequestKey ?? 0
     : 0;
+  const consumedControlledFocusRequestKeyRef = useRef<number | null>(null);
   const reservePx = contentVisible && !compact
     ? RIGHT_PANEL_COMPOSER_OVERLAY_RESERVE_PX
     : 0;
@@ -338,11 +339,19 @@ export function RightPanelComposerOverlay({
 
   useLayoutEffect(() => {
     if (!contentVisible || controlledFocusRequestKey <= 0) return;
+    if (
+      consumedControlledFocusRequestKeyRef.current
+      === controlledFocusRequestKey
+    ) return;
 
     const frame = requestAnimationFrame(() => {
-      interactiveRef.current
+      const editor = interactiveRef.current
         ?.querySelector<HTMLElement>('[data-codex-composer="true"]')
-        ?.focus();
+        ?? null;
+      if (!editor) return;
+      editor.focus();
+      consumedControlledFocusRequestKeyRef.current =
+        controlledFocusRequestKey;
     });
     return () => cancelAnimationFrame(frame);
   }, [contentVisible, controlledFocusRequestKey, target]);

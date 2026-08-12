@@ -112,6 +112,10 @@ editor uses the shared searchable Property option picker, and choosing an option
 commits through the same optimistic, receipt-backed Property mutation path as
 other editors. Built-in task Properties keep their canonical options available
 when a bounded option window is not embedded in the current projection.
+The roving cursor records the next List tab stop, not an enduring DOM-focus
+command. Only an unconsumed keyboard-navigation request may move focus to a
+Page row; selection commands, View projection refreshes, and edits in another
+surface never replay an earlier row-focus request.
 
 An ordinary Page-row drag resolves against the target row midpoint as a
 before/after insertion and never treats the row center as an implicit drop

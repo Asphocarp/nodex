@@ -82,6 +82,36 @@ describe("ProjectAgentDockTargetSelector", () => {
     await waitFor(() => expect(document.activeElement).toBe(trigger));
   });
 
+  test("does not refocus the search input when result rows refresh", async () => {
+    const renderSelector = (model: ProjectAgentDockModel) => (
+      <ProjectAgentDockTargetSelector
+        model={model}
+        query=""
+        onQueryChange={() => undefined}
+        onSelect={() => undefined}
+        onLoadMore={() => undefined}
+        onRetry={() => undefined}
+      />
+    );
+    const view = render(renderSelector(makeModel({ hasMore: true })));
+    await act(async () => {
+      fireEvent.click(view.getByLabelText("Connected chat: New chat"));
+    });
+    const input = await view.findByRole("combobox", {
+      name: "Choose connected chat",
+    });
+    await waitFor(() => expect(document.activeElement).toBe(input));
+    const loadMore = view.getByRole("button", { name: "Load more" });
+    loadMore.focus();
+
+    view.rerender(renderSelector(makeModel({
+      rows: [newRow, unreadRow, runningRow],
+      hasMore: true,
+    })));
+
+    await waitFor(() => expect(document.activeElement).toBe(loadMore));
+  });
+
   test("uses the leading indicator for running and unread state without status copy", async () => {
     const view = render(
       <ProjectAgentDockTargetSelector
