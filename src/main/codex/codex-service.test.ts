@@ -125,6 +125,7 @@ import type {
   DesktopProjectWorkspacePort,
   DesktopProjectWorkspaceSidebar,
   DesktopProjectWorkspaceThread,
+  DesktopProjectWorkspaceThreadMoveInput,
 } from "../core-client/project-workspace-adapter";
 
 interface TestableCodexService {
@@ -1681,6 +1682,229 @@ function createService(options?: {
   };
   return service;
 }
+
+describe("codex-service sidebar Thread Project moves", () => {
+  test("confirms Project-wide source access, replays the move, and can remove it to Chats", async () => {
+    const sourceProject = makeProject({
+      id: "project:source",
+      name: "Source",
+      sources: [{ root: "/workspace/source", order: 0 }],
+      primaryWorkspaceRoot: "/workspace/source",
+    });
+    const targetProject = makeProject({
+      id: "project:target",
+      name: "Target",
+      bindingRevision: 4,
+      sources: [{ root: "/workspace/target", order: 0 }],
+      primaryWorkspaceRoot: "/workspace/target",
+    });
+    const projects = new Map([
+      [sourceProject.id, sourceProject],
+      [targetProject.id, targetProject],
+    ]);
+    const baseWorkspace = createTestProjectWorkspace();
+    await baseWorkspace.upsertThread("thread:move", {
+      projectId: sourceProject.id,
+      threadName: "Move me",
+      threadPreview: "Move me",
+      modelProvider: "openai",
+      cwd: "/workspace/source/.worktrees/thread",
+      managedWorktreePath: "/workspace/source/.worktrees",
+      status: { statusType: "idle", activeFlags: [] },
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    const moveInputs: Array<
+      Parameters<DesktopProjectWorkspacePort["moveThread"]>[0]
+    > = [];
+    const projectWorkspace = {
+      ...baseWorkspace,
+      getProject: async (projectId: string) => projects.get(projectId) ?? null,
+      getProjectSession: async (sessionId: string) => ({
+        id: sessionId,
+        projectId: sourceProject.id,
+        noThreadFallbackTitle: "Move me",
+        displayTitle: "Move me",
+        order: 0,
+        pinned: false,
+        pinnedOrder: null,
+        archived: false,
+        archivedAt: null,
+        unread: false,
+        thread: null,
+        createdAt: "2026-08-12T00:00:00.000Z",
+        updatedAt: "2026-08-12T00:00:00.000Z",
+      }),
+      moveThread: async (
+        input: Parameters<DesktopProjectWorkspacePort["moveThread"]>[0],
+      ) => {
+        moveInputs.push(input);
+        return await baseWorkspace.moveThread(input);
+      },
+    } as DesktopProjectWorkspacePort;
+    const service = createService({ projectWorkspace });
+    const moveInput = {
+      hostId: "local" as const,
+      threadId: "thread:move",
+      sourceContainerId: "project:project:source" as const,
+      targetContainerId: "project:project:target" as const,
+      beforeThreadId: null,
+      useDefaultOrder: true as const,
+    };
+
+    try {
+      const confirmation = await service.moveSidebarThread(moveInput);
+      expect(confirmation).toEqual({
+        status: "confirmation-required",
+        reason: "target-project-needs-source-access",
+        threadId: "thread:move",
+        targetProjectId: targetProject.id,
+        targetBindingRevision: 4,
+        missingProjectSources: ["/workspace/source"],
+        targetProjectName: "Target",
+      });
+      expect(moveInputs).toEqual([]);
+      if (confirmation.status !== "confirmation-required") {
+        throw new Error("Expected Project access confirmation");
+      }
+
+      const moved = await service.moveSidebarThread({
+        ...moveInput,
+        projectAccessGrant: {
+          targetProjectId: confirmation.targetProjectId,
+          expectedBindingRevision: confirmation.targetBindingRevision,
+          missingProjectSources: confirmation.missingProjectSources,
+        },
+      });
+      expect(moved.status).toBe("moved");
+      expect(moveInputs[0]).toMatchObject({
+        sourceProjectId: sourceProject.id,
+        targetProjectId: targetProject.id,
+        runtimeWorkspaceRoots: [
+          "/workspace/source/.worktrees/thread",
+          "/workspace/target",
+          "/workspace/source",
+        ],
+        projectAccessGrant: {
+          expectedTargetBindingRevision: 4,
+          missingProjectSources: ["/workspace/source"],
+        },
+      });
+
+      const removed = await service.moveSidebarThread({
+        hostId: "local",
+        threadId: "thread:move",
+        sourceContainerId: "project:project:target",
+        targetContainerId: "chats",
+        beforeThreadId: null,
+      });
+      expect(removed.status).toBe("moved");
+      if (removed.status === "moved") {
+        expect(removed.destination.projectId).toBeNull();
+      }
+      expect(moveInputs[1]).toMatchObject({
+        sourceProjectId: targetProject.id,
+        targetProjectId: null,
+      });
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("commits a dormant task move when app-server no longer has the loaded Thread", async () => {
+    const sourceProject = makeProject({
+      id: "project:source",
+      name: "Source",
+      sources: [{ root: "/workspace/target/source", order: 0 }],
+      primaryWorkspaceRoot: "/workspace/target/source",
+    });
+    const targetProject = makeProject({
+      id: "project:target",
+      name: "Target",
+      sources: [{ root: "/workspace/target", order: 0 }],
+      primaryWorkspaceRoot: "/workspace/target",
+    });
+    const projects = new Map([
+      [sourceProject.id, sourceProject],
+      [targetProject.id, targetProject],
+    ]);
+    const baseWorkspace = createTestProjectWorkspace();
+    await baseWorkspace.upsertThread("thread:dormant-move", {
+      projectId: sourceProject.id,
+      threadName: "Dormant move",
+      threadPreview: "Dormant move",
+      modelProvider: "openai",
+      cwd: "/workspace/target/source",
+      status: { statusType: "idle", activeFlags: [] },
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    const events: string[] = [];
+    const moveInputs: DesktopProjectWorkspaceThreadMoveInput[] = [];
+    const projectWorkspace = {
+      ...baseWorkspace,
+      getProject: async (projectId: string) => projects.get(projectId) ?? null,
+      getProjectSession: async (sessionId: string) => ({
+        id: sessionId,
+        projectId: sourceProject.id,
+        noThreadFallbackTitle: "Dormant move",
+        displayTitle: "Dormant move",
+        order: 0,
+        pinned: false,
+        pinnedOrder: null,
+        archived: false,
+        archivedAt: null,
+        unread: false,
+        thread: null,
+        createdAt: "2026-08-12T00:00:00.000Z",
+        updatedAt: "2026-08-12T00:00:00.000Z",
+      }),
+      moveThread: async (input: DesktopProjectWorkspaceThreadMoveInput) => {
+        events.push("core-move");
+        moveInputs.push(input);
+        return await baseWorkspace.moveThread(input);
+      },
+    } as DesktopProjectWorkspacePort;
+    const service = createService({ projectWorkspace });
+    const client = Reflect.get(service as object, "client") as {
+      start: () => Promise<void>;
+      request: (method: string) => Promise<unknown>;
+    };
+    client.start = async () => undefined;
+    client.request = async (method) => {
+      expect(method).toBe("thread/settings/update");
+      events.push("app-server-sync");
+      throw new CodexRpcError(
+        "thread not found: thread:dormant-move",
+        -32600,
+      );
+    };
+
+    try {
+      const moved = await service.moveSidebarThread({
+        hostId: "local",
+        threadId: "thread:dormant-move",
+        sourceContainerId: "project:project:source",
+        targetContainerId: "project:project:target",
+        beforeThreadId: null,
+        useDefaultOrder: true,
+      });
+
+      expect(moved.status).toBe("moved");
+      expect(events).toEqual(["core-move", "app-server-sync"]);
+      expect(moveInputs).toEqual([
+        expect.objectContaining({
+          sourceProjectId: sourceProject.id,
+          targetProjectId: targetProject.id,
+          runtimeWorkspaceRoots: ["/workspace/target"],
+          metadata: expect.objectContaining({ cwd: "/workspace/target" }),
+        }),
+      ]);
+    } finally {
+      await service.shutdown();
+    }
+  });
+});
 
 function makeRecordingForkSidePanelTransferLifecycle(
   events: string[],
@@ -8226,6 +8450,62 @@ describe("codex-service collaboration modes", () => {
         .filter((request) => request.method === "turn/start")[2]
         ?.params;
       expect(thirdTurn?.summary).toBe("none");
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("keeps next-turn settings when app-server has unloaded the task", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      ensureConversationDetail: (threadId: string) => CodexThreadDetail | null;
+      parseThreadRef: (threadId: string) => { projectId: string | null; cwd: string | null } | null;
+      markThreadAsActive: (threadId: string) => void;
+      persistThreadSnapshot: (threadId: string) => void;
+    };
+    const client = Reflect.get(service as object, "client") as {
+      start: () => Promise<void>;
+      request: (method: string, params: unknown) => Promise<unknown>;
+    };
+    const turnStarts: Array<Record<string, unknown>> = [];
+
+    serviceInternals.parseThreadRef = () => null;
+    serviceInternals.markThreadAsActive = () => {};
+    serviceInternals.persistThreadSnapshot = () => {};
+    client.start = async () => undefined;
+    client.request = async (method, params) => {
+      if (method === "thread/settings/update") {
+        throw new CodexRpcError("thread not found: thr_unloaded_settings", -32600);
+      }
+      if (method === "turn/start") {
+        turnStarts.push(params as Record<string, unknown>);
+        return {
+          turn: {
+            id: "turn_unloaded_settings",
+            status: "in_progress",
+            transcript: [],
+          },
+        };
+      }
+      return {};
+    };
+    serviceInternals.ensureConversationDetail("thr_unloaded_settings");
+
+    try {
+      const settings = await service.updateThreadSettingsForNextTurn(
+        "thr_unloaded_settings",
+        { model: "gpt-settings", reasoningEffort: "high" },
+      );
+      await service.startTurn("thr_unloaded_settings", "Use persisted settings");
+
+      expect(settings.model).toBe("gpt-settings");
+      expect(turnStarts).toEqual([
+        expect.objectContaining({
+          threadId: "thr_unloaded_settings",
+          model: "gpt-settings",
+          effort: "high",
+        }),
+      ]);
     } finally {
       await service.shutdown();
     }

@@ -25,7 +25,17 @@ function listProjectRoots(project: Project | null): string[] {
     .filter(Boolean) ?? [];
 }
 
-/** Exact KUe: every source root must also be present in the destination project. */
+function isProjectRootCovered(sourceRoot: string, targetRoot: string): boolean {
+  const source = normalizeRoot(sourceRoot);
+  const target = normalizeRoot(targetRoot);
+  const relative = path.relative(target, source);
+  return relative === ""
+    || relative !== ".."
+      && !relative.startsWith(`..${path.sep}`)
+      && !path.isAbsolute(relative);
+}
+
+/** A destination root grants access to itself and every nested source root. */
 export function listMissingCodexProjectMoveSources(
   sourceProject: Project | null,
   targetProject: Project | null,
@@ -33,8 +43,29 @@ export function listMissingCodexProjectMoveSources(
   if (!sourceProject) return [];
   if (sourceProject.id === targetProject?.id) return [];
 
-  const targetRoots = new Set(listProjectRoots(targetProject).map(normalizeRoot));
-  return listProjectRoots(sourceProject).filter((root) => !targetRoots.has(normalizeRoot(root)));
+  const targetRoots = listProjectRoots(targetProject);
+  return listProjectRoots(sourceProject).filter((sourceRoot) => (
+    !targetRoots.some((targetRoot) => isProjectRootCovered(sourceRoot, targetRoot))
+  ));
+}
+
+export function appendMissingCodexProjectMoveSources(
+  targetProject: Project,
+  missingProjectSources: readonly string[],
+): Project {
+  const roots = [...listProjectRoots(targetProject), ...missingProjectSources];
+  const seen = new Set<string>();
+  const sources = roots.flatMap((root) => {
+    const key = normalizeRoot(root);
+    if (seen.has(key)) return [];
+    seen.add(key);
+    return [{ root, order: seen.size - 1 }];
+  });
+  return {
+    ...targetProject,
+    sources,
+    primaryWorkspaceRoot: sources[0]?.root ?? null,
+  };
 }
 
 export async function resolveCodexProjectThreadWorkspaceMove(input: {
@@ -60,7 +91,7 @@ export async function resolveCodexProjectThreadWorkspaceMove(input: {
     : null;
   const cwd = worktreeCwd ?? projectCwd;
   const runtimeWorkspaceRoots = worktreeCwd
-    ? [worktreeCwd]
+    ? [...new Set([worktreeCwd, ...projectRoots])]
     : generatedWorkspace
       ? [generatedWorkspace.workspaceRoot, ...projectRoots]
       : projectRoots;
@@ -85,4 +116,3 @@ export function resolveCodexProjectlessThreadWorkspaceMove(input: {
     runtimeWorkspaceRoots: [...input.persistedRuntimeWorkspaceRoots],
   };
 }
-

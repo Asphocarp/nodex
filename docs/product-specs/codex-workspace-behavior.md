@@ -22,6 +22,19 @@ configured source root. Once recorded, Project identity or explicit projectless
 identity is durable and never reinterpreted from a later cwd observation.
 Moving a Chat between Projects is an explicit domain action.
 
+A Chat may move between active Projects from either sidebar drag-and-drop or
+its native context menu. The destination must cover every source folder of the
+current Project; a destination folder covers itself and nested source folders.
+When coverage is missing, Nodex asks before expanding the destination Project,
+names every folder that all Chats in that Project would gain access to, and
+makes no change when the user cancels. After confirmation, the Project source
+expansion, Chat membership, workspace metadata, and writable roots commit as one
+atomic change against the confirmed Project revision. A loaded app-server Thread
+is synchronized after that commit; an unloaded Thread adopts the persisted
+workspace when it is next resumed. Moving a Project Chat to Chats removes its
+Project membership without discarding its existing workspace or writable-root
+context.
+
 Archived, deleted, internal helper, Side chat, reviewer, and parent-linked child
 Threads do not become root sidebar Chats. If late ancestry proves that a row is
 a child agent, Nodex removes its root-Chat presentation while preserving it for

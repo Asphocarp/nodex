@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import type { Project } from "../../shared/types";
 import { DEFAULT_PROJECT_APPEARANCE } from "../../shared/project-appearance";
 import {
+  appendMissingCodexProjectMoveSources,
   listMissingCodexProjectMoveSources,
   resolveCodexProjectThreadWorkspaceMove,
   resolveCodexProjectlessThreadWorkspaceMove,
@@ -44,6 +45,36 @@ describe("Codex sidebar project thread workspace move", () => {
     expect(listMissingCodexProjectMoveSources(null, target).length).toBe(0);
     expect(JSON.stringify(listMissingCodexProjectMoveSources(source, null)))
       .toBe(JSON.stringify(["/repo/source", "/repo/shared"]));
+  });
+
+  test("treats a target ancestor as access to nested source roots without prefix leaks", () => {
+    const source = makeProject("source", [
+      "/repo/nodex",
+      "/repo-a",
+      "/repo/other/../shared",
+    ]);
+    const target = makeProject("target", ["/repo"]);
+
+    expect(listMissingCodexProjectMoveSources(source, target)).toEqual(["/repo-a"]);
+    expect(listMissingCodexProjectMoveSources(
+      makeProject("source", ["/repo"]),
+      makeProject("target", ["/repo/nodex"]),
+    )).toEqual(["/repo"]);
+  });
+
+  test("appends missing roots once and promotes the first root to primary", () => {
+    const target = makeProject("target", []);
+    const expanded = appendMissingCodexProjectMoveSources(target, [
+      "/repo/source",
+      "/repo/source/../source",
+      "/repo/shared",
+    ]);
+
+    expect(expanded.sources).toEqual([
+      { root: "/repo/source", order: 0 },
+      { root: "/repo/shared", order: 1 },
+    ]);
+    expect(expanded.primaryWorkspaceRoot).toBe("/repo/source");
   });
 
   test("uses the sole project source without generating a workspace", async () => {
@@ -99,7 +130,7 @@ describe("Codex sidebar project thread workspace move", () => {
     });
     expect(worktree.next.cwd).toBe("/repo/.worktrees/thread/workspace");
     expect(JSON.stringify(worktree.runtimeWorkspaceRoots))
-      .toBe(JSON.stringify(["/repo/.worktrees/thread/workspace"]));
+      .toBe(JSON.stringify(["/repo/.worktrees/thread/workspace", "/repo/source"]));
 
     const projectless = resolveCodexProjectlessThreadWorkspaceMove({
       current,

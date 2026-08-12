@@ -1545,9 +1545,10 @@ describe("Electron native data authority", () => {
       expect(
         clearedProjectOrder.projectThreadOrders[createdProject.id],
       ).toBeUndefined();
+      const moveTargetRoot = path.join(nodexHome, "move-target");
       const moveTargetProject = await workspace.createProject({
         name: "Electron Thread Move Target",
-        sources: [nodexHome],
+        sources: [moveTargetRoot],
       });
       const moveSession = await workspace.createProjectSession({
         projectId: createdProject.id,
@@ -1571,8 +1572,13 @@ describe("Electron native data authority", () => {
         sourceProjectId: createdProject.id,
         targetProjectId: moveTargetProject.id,
         useDefaultOrder: true,
+        runtimeWorkspaceRoots: [moveTargetRoot, nodexHome],
+        projectAccessGrant: {
+          expectedTargetBindingRevision: moveTargetProject.bindingRevision,
+          missingProjectSources: [nodexHome],
+        },
         metadata: {
-          cwd: nodexHome,
+          cwd: moveTargetRoot,
           managedWorktreePath: null,
           projectlessOutputDirectory: null,
           projectlessWorkspaceBrowserRoot: null,
@@ -1582,10 +1588,24 @@ describe("Electron native data authority", () => {
           threadId: "thread:electron-native-move",
           projectId: moveTargetProject.id,
           sessionId: moveSession.id,
+          cwd: moveTargetRoot,
         },
       });
       await expect(workspace.getProjectSession(moveSession.id)).resolves.toMatchObject({
         projectId: moveTargetProject.id,
+      });
+      await expect(
+        workspace.readThreadExecutionContext("thread:electron-native-move"),
+      ).resolves.toMatchObject({
+        projectId: moveTargetProject.id,
+        writableRoots: [moveTargetRoot, nodexHome],
+      });
+      await expect(workspace.getProject(moveTargetProject.id)).resolves.toMatchObject({
+        bindingRevision: moveTargetProject.bindingRevision + 1,
+        sources: [
+          { root: moveTargetRoot, order: 0 },
+          { root: nodexHome, order: 1 },
+        ],
       });
       const projectlessSession = await workspace.createProjectSession({
         projectId: null,

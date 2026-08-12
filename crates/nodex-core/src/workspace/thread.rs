@@ -14,7 +14,8 @@ use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 use super::ProjectWorkspaceApplyOutcome;
 use super::execution::read_writable_roots;
 use super::mutation::{
-    WorkspaceMutationEffects, finish_mutation, project_session_scope, workspace_event_anchor,
+    WorkspaceMutationEffects, finish_mutation, project_session_scope, run_mutation,
+    workspace_event_anchor,
 };
 use super::session_mutation::sqlite_now;
 
@@ -1987,6 +1988,112 @@ pub(super) fn finish_thread_mutation(
     session_ids: Vec<String>,
     thread_ids: Vec<String>,
 ) -> Result<ProjectWorkspaceApplyOutcome, StoreError> {
+    finish_thread_mutation_with_optional_project_catalog_change(
+        connection,
+        library_id,
+        context,
+        store_epoch,
+        operation_id,
+        request_hash,
+        operation_kind,
+        None,
+        session_summary_scopes,
+        project_ids,
+        session_ids,
+        thread_ids,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn apply_thread_mutation(
+    connection: &Connection,
+    library_id: &str,
+    context: &BoundModuleContext,
+    store_epoch: &str,
+    operation_id: &str,
+    request_hash: &str,
+    operation_kind: &'static str,
+    project_catalog_change: Option<nodex_core_contracts::workspace::ProjectCatalogChangeKind>,
+    session_summary_scopes: Vec<nodex_core_contracts::workspace::ProjectSessionInvalidationScope>,
+    project_ids: Vec<String>,
+    session_ids: Vec<String>,
+    thread_ids: Vec<String>,
+    apply: impl FnOnce() -> Result<(), StoreError>,
+) -> Result<ProjectWorkspaceApplyOutcome, StoreError> {
+    let committed_at = sqlite_now(connection)?;
+    let effects = thread_mutation_effects(
+        connection,
+        library_id,
+        operation_kind,
+        project_catalog_change,
+        session_summary_scopes,
+        project_ids,
+        session_ids,
+        thread_ids,
+        committed_at.clone(),
+    )?;
+    run_mutation(
+        connection,
+        context,
+        store_epoch,
+        operation_id,
+        request_hash,
+        &committed_at,
+        |_| {
+            apply()?;
+            Ok(effects)
+        },
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn finish_thread_mutation_with_optional_project_catalog_change(
+    connection: &Connection,
+    library_id: &str,
+    context: &BoundModuleContext,
+    store_epoch: &str,
+    operation_id: &str,
+    request_hash: &str,
+    operation_kind: &'static str,
+    project_catalog_change: Option<nodex_core_contracts::workspace::ProjectCatalogChangeKind>,
+    session_summary_scopes: Vec<nodex_core_contracts::workspace::ProjectSessionInvalidationScope>,
+    project_ids: Vec<String>,
+    session_ids: Vec<String>,
+    thread_ids: Vec<String>,
+) -> Result<ProjectWorkspaceApplyOutcome, StoreError> {
+    let effects = thread_mutation_effects(
+        connection,
+        library_id,
+        operation_kind,
+        project_catalog_change,
+        session_summary_scopes,
+        project_ids,
+        session_ids,
+        thread_ids,
+        sqlite_now(connection)?,
+    )?;
+    finish_mutation(
+        connection,
+        context,
+        store_epoch,
+        operation_id,
+        request_hash,
+        effects,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn thread_mutation_effects(
+    connection: &Connection,
+    library_id: &str,
+    operation_kind: &'static str,
+    project_catalog_change: Option<nodex_core_contracts::workspace::ProjectCatalogChangeKind>,
+    session_summary_scopes: Vec<nodex_core_contracts::workspace::ProjectSessionInvalidationScope>,
+    project_ids: Vec<String>,
+    session_ids: Vec<String>,
+    thread_ids: Vec<String>,
+    committed_at: String,
+) -> Result<WorkspaceMutationEffects, StoreError> {
     let session_detail_ids = if session_summary_scopes.is_empty() {
         Vec::new()
     } else {
@@ -1996,31 +2103,24 @@ pub(super) fn finish_thread_mutation(
         .first()
         .cloned()
         .map_or_else(|| workspace_event_anchor(connection, library_id), Ok)?;
-    finish_mutation(
-        connection,
-        context,
-        store_epoch,
-        operation_id,
-        request_hash,
-        WorkspaceMutationEffects {
-            operation_kind,
-            project_catalog_change: None,
-            change_project_id,
-            project_ids,
-            session_detail_ids,
-            session_ids,
-            thread_ids,
-            session_summary_scopes,
-            block_ids: Vec::new(),
-            document_ids: Vec::new(),
-            database_ids: Vec::new(),
-            page_ids: Vec::new(),
-            data_source_ids: Vec::new(),
-            view_ids: Vec::new(),
-            document_heads: Vec::new(),
-            committed_at: sqlite_now(connection)?,
-        },
-    )
+    Ok(WorkspaceMutationEffects {
+        operation_kind,
+        project_catalog_change,
+        change_project_id,
+        project_ids,
+        session_detail_ids,
+        session_ids,
+        thread_ids,
+        session_summary_scopes,
+        block_ids: Vec::new(),
+        document_ids: Vec::new(),
+        database_ids: Vec::new(),
+        page_ids: Vec::new(),
+        data_source_ids: Vec::new(),
+        view_ids: Vec::new(),
+        document_heads: Vec::new(),
+        committed_at,
+    })
 }
 
 fn unix_time_millis() -> Result<i64, StoreError> {
