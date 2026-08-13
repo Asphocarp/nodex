@@ -31,7 +31,7 @@ pub(crate) fn persist_recovery_if_barrier_crossed(
     }
     let barriers = connection
         .prepare(
-            "SELECT block_ids_json, title_fence \
+            "SELECT block_ids_json, title_fence, document_wide_fence \
              FROM document_structural_barriers \
              WHERE document_id = ?1 AND generation = ?2 \
                AND head_seq > ?3 AND head_seq <= ?4 \
@@ -44,7 +44,13 @@ pub(crate) fn persist_recovery_if_barrier_crossed(
                 input.base_head_seq,
                 authority.head.head_seq,
             ],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, i64>(2)?,
+                ))
+            },
         )?
         .collect::<rusqlite::Result<Vec<_>>>()
         .map_err(|_| corrupt("Document structural barrier row is invalid"))?;
@@ -53,7 +59,8 @@ pub(crate) fn persist_recovery_if_barrier_crossed(
     }
     let mut fenced = HashSet::new();
     let mut title_fence = false;
-    for (block_ids, title) in barriers {
+    let mut document_wide_fence = false;
+    for (block_ids, title, document_wide) in barriers {
         let block_ids = serde_json::from_str::<Vec<String>>(&block_ids)
             .map_err(|_| corrupt("Document structural barrier Block IDs are invalid"))?;
         if block_ids
@@ -64,6 +71,7 @@ pub(crate) fn persist_recovery_if_barrier_crossed(
         }
         fenced.extend(block_ids);
         title_fence |= title == 1;
+        document_wide_fence |= document_wide == 1;
     }
     let declared_conflict = input
         .touched_block_ids
@@ -81,7 +89,7 @@ pub(crate) fn persist_recovery_if_barrier_crossed(
             && derived
                 .iter()
                 .any(|block_id| block_id == &authority.owner_block_id));
-    let unsafe_update = declared_conflict || derived_conflict;
+    let unsafe_update = document_wide_fence || declared_conflict || derived_conflict;
     if !unsafe_update {
         return Ok(None);
     }

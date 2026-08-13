@@ -301,12 +301,11 @@ fn validate_request(request: &ModuleApplyRequest<Vec<DatabaseIntent>>) -> Result
         if let DatabaseIntent::PutViewPersonalPresentation {
             expected_revision, ..
         } = intent
+            && *expected_revision < 0
         {
-            if *expected_revision < 0 {
-                return Err(invalid(
-                    "View personal presentation revision cannot be negative",
-                ));
-            }
+            return Err(invalid(
+                "View personal presentation revision cannot be negative",
+            ));
         }
         if let DatabaseIntent::SetViewOccurrenceDisclosure { target, .. } = intent {
             validate_disclosure_target(target)?;
@@ -3008,7 +3007,7 @@ fn transfer_page(
         DatabaseTransferTarget::Page {
             page_id: target_page_id,
         } => {
-            let target_exists = connection
+            connection
                 .query_row(
                     "SELECT 1 FROM pages page JOIN blocks block \
                        ON block.id = page.block_id AND block.library_id = page.library_id \
@@ -3019,7 +3018,6 @@ fn transfer_page(
                 )
                 .optional()?
                 .ok_or_else(|| not_found("Target Page is unavailable"))?;
-            let _ = target_exists;
             if !library_scope {
                 crate::library::require_page_write_access(
                     connection,

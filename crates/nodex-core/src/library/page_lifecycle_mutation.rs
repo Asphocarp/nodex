@@ -16,8 +16,8 @@ use serde_json::{Map, Value, json};
 
 use crate::database;
 use crate::document::{
-    BlockDocumentSchema, DocumentBlockOperation, PAGE_SCHEMA_KEY, PAGE_SCHEMA_VERSION,
-    PersistYjsGenesis, persist_yjs_genesis_with_local_commit,
+    BlockDocumentSchema, DocumentBlockOperation, DocumentPlacementEvidence, PAGE_SCHEMA_KEY,
+    PAGE_SCHEMA_VERSION, PersistYjsGenesis, persist_yjs_genesis_with_local_commit,
     prepare_page_yjs_genesis_with_content, read_document_authority, sha256,
 };
 use crate::domain::block_materialization::MaterializedBlockNode;
@@ -36,9 +36,9 @@ use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
 use super::LibraryApplyOutcome;
 use super::mutation::{
-    MutationEffects, ParentDocumentPlacement, insert_page_read_model, library_commit_result,
-    persist_parent_operations_detailed_with_local_commit, require_project_in_library,
-    seal_mutation, synchronize_library_placement_rank,
+    MutationEffects, ParentDocumentPlacement, ParentDocumentWriteContext, insert_page_read_model,
+    library_commit_result, persist_parent_operations_detailed_with_local_commit,
+    require_project_in_library, seal_mutation, synchronize_library_placement_rank,
 };
 
 struct PageAuthority {
@@ -523,9 +523,7 @@ fn create_page(
                     full_state: &full_state,
                     store_epoch,
                     operation_id: &genesis_update_id,
-                    placement_genesis_block_ids: &[],
-                    placement_preapplied_block_ids: &[],
-                    placement_mutation_block_ids: &[],
+                    placement: DocumentPlacementEvidence::STRUCTURAL,
                     emit_event: false,
                 },
                 scope.evidence(),
@@ -1780,20 +1778,24 @@ fn delete_page(
                 .map(|parent| {
                     persist_parent_operations_detailed_with_local_commit(
                         connection,
-                        context
-                            .project_id
-                            .as_ref()
-                            .map(|project_id| project_id.0.as_str())
-                            .ok_or_else(|| corrupt("Page delete lost its actor Project"))?,
-                        store_epoch,
-                        operation_id,
+                        ParentDocumentWriteContext {
+                            actor_project_id: context
+                                .project_id
+                                .as_ref()
+                                .map(|project_id| project_id.0.as_str())
+                                .ok_or_else(|| corrupt("Page delete lost its actor Project"))?,
+                            store_epoch,
+                            operation_id,
+                            commit: scope.evidence(),
+                        },
                         "page-delete",
                         parent,
                         &[DocumentBlockOperation::DeleteBlock {
                             block_id: page_id.to_owned(),
                         }],
-                        ParentDocumentPlacement::Derived,
-                        scope.evidence(),
+                        ParentDocumentPlacement::Derived {
+                            attachment_advances: &[],
+                        },
                     )
                 })
                 .transpose()?;
@@ -2071,13 +2073,16 @@ fn restore_page(
                 (Some(parent), Some(nested_parent)) => {
                     Some(persist_parent_operations_detailed_with_local_commit(
                         connection,
-                        context
-                            .project_id
-                            .as_ref()
-                            .map(|project_id| project_id.0.as_str())
-                            .ok_or_else(|| corrupt("Page restore lost its actor Project"))?,
-                        store_epoch,
-                        operation_id,
+                        ParentDocumentWriteContext {
+                            actor_project_id: context
+                                .project_id
+                                .as_ref()
+                                .map(|project_id| project_id.0.as_str())
+                                .ok_or_else(|| corrupt("Page restore lost its actor Project"))?,
+                            store_epoch,
+                            operation_id,
+                            commit: scope.evidence(),
+                        },
                         "page-restore",
                         parent,
                         &[DocumentBlockOperation::InsertBlock {
@@ -2092,7 +2097,6 @@ fn restore_page(
                             before_block_id: nested_parent.before_block_id.clone(),
                         }],
                         ParentDocumentPlacement::Preapplied(&[page_id.to_owned()]),
-                        scope.evidence(),
                     )?)
                 }
                 (None, None) => None,

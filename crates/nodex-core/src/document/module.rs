@@ -85,12 +85,15 @@ use super::operations::{
 };
 use super::owners::execute_owner_command;
 use super::persistence::{
-    DocumentAuthorityRow, PersistYjsCommit, PersistYjsGenesis, derive_touched_block_ids,
-    persist_yjs_commit_with_local_commit, persist_yjs_genesis_with_local_commit,
-    read_document_authority, read_event_head, read_local_commit_head, read_store_epoch, sha256,
+    DocumentAuthorityRow, DocumentPlacementEvidence, PersistYjsCommit, PersistYjsGenesis,
+    derive_touched_block_ids, persist_yjs_commit_with_local_commit,
+    persist_yjs_genesis_with_local_commit, read_document_authority, read_event_head,
+    read_local_commit_head, read_store_epoch, sha256,
 };
 use super::recovery::{StaleYjsUpdate, persist_recovery_if_barrier_crossed};
-use super::runtime::{DocumentRuntimeCache, reconstruction_duration_metrics};
+use super::runtime::{
+    DocumentRuntimeCache, reconstruct_retained_yjs_engine_at, reconstruction_duration_metrics,
+};
 use super::semantic::{
     AgentDocumentCursorCoordinate, SemanticMutationContext, SemanticMutationError,
     decode_agent_document_cursor, find_block, mint_agent_document_cursor, mint_document_block_etag,
@@ -98,7 +101,7 @@ use super::semantic::{
 };
 use super::{
     BlockDocumentSchema, DocumentMaterialization, YrsEngineError, decode_block_document,
-    materialize_decoded_document,
+    derive_document_node_delta, derive_document_placement_delta, materialize_decoded_document,
 };
 
 const MODULE_NAME: &str = "owned_document";
@@ -158,6 +161,11 @@ enum UpdatePublication {
     Invalidated(DocumentInvalidationReason),
 }
 
+enum PreparedPlacementAttribution {
+    Collaborative,
+    Exact(Vec<String>),
+}
+
 enum PreparedUpdate {
     Apply {
         base_head_seq: i64,
@@ -165,7 +173,9 @@ enum PreparedUpdate {
         touched_block_ids: Vec<String>,
         update: Vec<u8>,
         write_fence_block_ids: Vec<String>,
+        placement_attribution: PreparedPlacementAttribution,
         title_write_fence_required: bool,
+        document_write_fence_required: bool,
         mutation_effect: Option<Box<DocumentMutationEffect>>,
         semantic_local_block_ids: Option<BTreeMap<String, String>>,
     },
@@ -1632,9 +1642,7 @@ impl OwnedDocumentModule {
                                             full_state: &prepared.update_v1,
                                             store_epoch: &store_epoch,
                                             operation_id: &operation_id,
-                                            placement_genesis_block_ids: &[],
-                                            placement_preapplied_block_ids: &[],
-                                            placement_mutation_block_ids: &[],
+                                            placement: DocumentPlacementEvidence::STRUCTURAL,
                                             emit_event: true,
                                         },
                                         scope.evidence(),
@@ -1767,11 +1775,8 @@ impl OwnedDocumentModule {
                                             write_fence_block_ids: &prepared.write_fence_block_ids,
                                             title_write_fence_required: prepared
                                                 .title_write_fence_required,
-                                            structurally_detached_block_ids: &[],
-                                            placement_genesis_block_ids: &[],
-                                            placement_preapplied_block_ids: &[],
-                                            placement_mutation_block_ids: &prepared
-                                                .write_fence_block_ids,
+                                            document_write_fence_required: false,
+                                            placement: DocumentPlacementEvidence::STRUCTURAL,
                                         },
                                         scope.evidence(),
                                     )?;
@@ -2507,17 +2512,43 @@ impl OwnedDocumentModule {
                             false,
                         )
                     })?;
-                    engine
-                        .prepare_update_v1(&update)
-                        .ok()
-                        .and_then(|candidate| materialize_candidate(&candidate, schema).ok())
-                        .map(|after| {
-                            derive_touched_block_ids(
-                                &authority.owner_block_id,
-                                materialization,
-                                &after,
-                            )
-                        })
+                    let current_touched = derive_update_touched_block_ids(
+                        &authority.owner_block_id,
+                        engine,
+                        materialization,
+                        schema,
+                        &update,
+                    );
+                    let historical_touched = if base_head_seq == 0 {
+                        None
+                    } else {
+                        let historical_engine = reconstruct_retained_yjs_engine_at(
+                            connection,
+                            &authority.head,
+                            base_head_seq,
+                        )?;
+                        match historical_engine {
+                            Some(historical_engine) => {
+                                let historical_materialization =
+                                    materialize_engine(&historical_engine, schema)?;
+                                derive_update_touched_block_ids(
+                                    &authority.owner_block_id,
+                                    &historical_engine,
+                                    &historical_materialization,
+                                    schema,
+                                    &update,
+                                )
+                            }
+                            None => None,
+                        }
+                    };
+                    match (current_touched, historical_touched) {
+                        (Some(mut current), Some(historical)) => {
+                            current.extend(historical);
+                            Some(current.into_iter().collect::<Vec<_>>())
+                        }
+                        _ => None,
+                    }
                 } else {
                     None
                 };
@@ -2553,7 +2584,9 @@ impl OwnedDocumentModule {
                     touched_block_ids,
                     update,
                     write_fence_block_ids: Vec::new(),
+                    placement_attribution: PreparedPlacementAttribution::Collaborative,
                     title_write_fence_required: false,
+                    document_write_fence_required: false,
                     mutation_effect: None,
                     semantic_local_block_ids: None,
                 })
@@ -2740,14 +2773,26 @@ impl OwnedDocumentModule {
                     }
                     Err(error) => return Err(document_operation_store_error(error)),
                 };
+                let exact_moved_block_ids = operations
+                    .iter()
+                    .filter_map(|operation| match operation {
+                        EngineDocumentBlockOperation::MoveBlock { block_id, .. } => {
+                            Some(block_id.clone())
+                        }
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>();
                 let mutation_effect = document_mutation_effect(
                     &authority.owner_block_id,
                     authority.head.head_seq,
                     materialization,
                     &prepared.materialization,
-                    &prepared.write_fence_block_ids,
-                    prepared.title_write_fence_required,
-                    false,
+                    DocumentMutationEffectPolicy {
+                        write_fence_block_ids: &prepared.write_fence_block_ids,
+                        title_write_fence_required: prepared.title_write_fence_required,
+                        force_write_fence: false,
+                        exact_moved_block_ids: Some(&exact_moved_block_ids),
+                    },
                 );
                 assert_fresh_document_block_ids(
                     connection,
@@ -2760,7 +2805,11 @@ impl OwnedDocumentModule {
                     touched_block_ids: mutation_effect.touched_block_ids.clone(),
                     update: prepared.update_v1,
                     write_fence_block_ids: prepared.write_fence_block_ids,
+                    placement_attribution: PreparedPlacementAttribution::Exact(
+                        exact_moved_block_ids,
+                    ),
                     title_write_fence_required: prepared.title_write_fence_required,
+                    document_write_fence_required: false,
                     mutation_effect: Some(Box::new(mutation_effect)),
                     semantic_local_block_ids: None,
                 })
@@ -2846,9 +2895,12 @@ impl OwnedDocumentModule {
                     authority.head.head_seq,
                     materialization,
                     &prepared.materialization,
-                    &prepared.write_fence_block_ids,
-                    prepared.title_write_fence_required,
-                    true,
+                    DocumentMutationEffectPolicy {
+                        write_fence_block_ids: &prepared.write_fence_block_ids,
+                        title_write_fence_required: prepared.title_write_fence_required,
+                        force_write_fence: true,
+                        exact_moved_block_ids: None,
+                    },
                 );
                 assert_fresh_document_block_ids(
                     connection,
@@ -2861,7 +2913,9 @@ impl OwnedDocumentModule {
                     touched_block_ids: mutation_effect.touched_block_ids.clone(),
                     update: prepared.update_v1,
                     write_fence_block_ids: prepared.write_fence_block_ids,
+                    placement_attribution: PreparedPlacementAttribution::Collaborative,
                     title_write_fence_required: prepared.title_write_fence_required,
+                    document_write_fence_required: true,
                     mutation_effect: Some(Box::new(mutation_effect)),
                     semantic_local_block_ids: None,
                 })
@@ -3142,9 +3196,12 @@ impl OwnedDocumentModule {
                     authority.head.head_seq,
                     materialization,
                     &prepared.materialization,
-                    &prepared.write_fence_block_ids,
-                    prepared.title_write_fence_required,
-                    true,
+                    DocumentMutationEffectPolicy {
+                        write_fence_block_ids: &prepared.write_fence_block_ids,
+                        title_write_fence_required: prepared.title_write_fence_required,
+                        force_write_fence: true,
+                        exact_moved_block_ids: None,
+                    },
                 );
                 let now = sqlite_now(connection)?;
                 let safety_label = format!("Before restore {version_id}");
@@ -3170,7 +3227,9 @@ impl OwnedDocumentModule {
                     touched_block_ids: Vec::new(),
                     update: prepared.update_v1,
                     write_fence_block_ids: prepared.write_fence_block_ids,
+                    placement_attribution: PreparedPlacementAttribution::Collaborative,
                     title_write_fence_required: prepared.title_write_fence_required,
+                    document_write_fence_required: true,
                     mutation_effect: Some(Box::new(mutation_effect)),
                     semantic_local_block_ids: None,
                 })
@@ -3611,7 +3670,9 @@ impl OwnedDocumentModule {
                     touched_block_ids,
                     update,
                     write_fence_block_ids,
+                    placement_attribution,
                     title_write_fence_required,
+                    document_write_fence_required,
                     mutation_effect,
                     semantic_local_block_ids,
                 } = prepared
@@ -3752,10 +3813,16 @@ impl OwnedDocumentModule {
                                 },
                                 write_fence_block_ids: &write_fence_block_ids,
                                 title_write_fence_required,
-                                structurally_detached_block_ids: &[],
-                                placement_genesis_block_ids: &[],
-                                placement_preapplied_block_ids: &[],
-                                placement_mutation_block_ids: &write_fence_block_ids,
+                                document_write_fence_required,
+                                placement: match &placement_attribution {
+                                    PreparedPlacementAttribution::Collaborative => {
+                                        DocumentPlacementEvidence::COLLABORATIVE
+                                    }
+                                    PreparedPlacementAttribution::Exact(block_ids) => {
+                                        DocumentPlacementEvidence::STRUCTURAL
+                                            .with_exact_moves(block_ids)
+                                    }
+                                },
                             },
                             scope.evidence(),
                         )?;
@@ -3911,26 +3978,43 @@ fn materialize_candidate(
         .map_err(|error| invalid_store(format!("Yjs update cannot materialize: {error}")))
 }
 
+fn derive_update_touched_block_ids(
+    owner_block_id: &str,
+    engine: &super::YrsDocumentEngine,
+    before: &DocumentMaterialization,
+    schema: BlockDocumentSchema,
+    update: &[u8],
+) -> Option<BTreeSet<String>> {
+    let candidate = engine.prepare_update_v1(update).ok()?;
+    let after = materialize_candidate(&candidate, schema).ok()?;
+    let placement_delta = derive_document_placement_delta(before, &after);
+    Some(
+        derive_touched_block_ids(owner_block_id, before, &after, &placement_delta)
+            .into_iter()
+            .collect(),
+    )
+}
+
 #[derive(Clone, Copy)]
 struct SemanticBlockCoordinate<'a> {
     block: &'a MaterializedBlockNode,
-    parent_block_id: Option<&'a str>,
-    sibling_index: usize,
 }
 
 fn flatten_semantic_coordinates<'a>(
     blocks: &'a [MaterializedBlockNode],
-    parent_block_id: Option<&'a str>,
     coordinates: &mut Vec<SemanticBlockCoordinate<'a>>,
 ) {
-    for (sibling_index, block) in blocks.iter().enumerate() {
-        coordinates.push(SemanticBlockCoordinate {
-            block,
-            parent_block_id,
-            sibling_index,
-        });
-        flatten_semantic_coordinates(&block.children, Some(&block.id), coordinates);
+    for block in blocks {
+        coordinates.push(SemanticBlockCoordinate { block });
+        flatten_semantic_coordinates(&block.children, coordinates);
     }
+}
+
+struct DocumentMutationEffectPolicy<'a> {
+    write_fence_block_ids: &'a [String],
+    title_write_fence_required: bool,
+    force_write_fence: bool,
+    exact_moved_block_ids: Option<&'a [String]>,
 }
 
 fn document_mutation_effect(
@@ -3938,22 +4022,12 @@ fn document_mutation_effect(
     base_head_seq: i64,
     before: &DocumentMaterialization,
     after: &DocumentMaterialization,
-    write_fence_block_ids: &[String],
-    title_write_fence_required: bool,
-    force_write_fence: bool,
+    policy: DocumentMutationEffectPolicy<'_>,
 ) -> DocumentMutationEffect {
     let mut before_coordinates = Vec::new();
-    flatten_semantic_coordinates(&before.block_tree, None, &mut before_coordinates);
+    flatten_semantic_coordinates(&before.block_tree, &mut before_coordinates);
     let mut after_coordinates = Vec::new();
-    flatten_semantic_coordinates(&after.block_tree, None, &mut after_coordinates);
-    let before_by_id = before_coordinates
-        .iter()
-        .map(|coordinate| (coordinate.block.id.as_str(), coordinate))
-        .collect::<HashMap<_, _>>();
-    let after_by_id = after_coordinates
-        .iter()
-        .map(|coordinate| (coordinate.block.id.as_str(), coordinate))
-        .collect::<HashMap<_, _>>();
+    flatten_semantic_coordinates(&after.block_tree, &mut after_coordinates);
     let before_ids = before_coordinates
         .iter()
         .map(|coordinate| coordinate.block.id.clone())
@@ -3975,83 +4049,39 @@ fn document_mutation_effect(
         .filter(|block_id| !after_id_set.contains(*block_id))
         .cloned()
         .collect::<Vec<_>>();
+    let node_delta = derive_document_node_delta(before, after);
     let updated_block_ids = before_ids
         .iter()
-        .filter(|block_id| {
-            let Some(previous) = before_by_id.get(block_id.as_str()) else {
-                return false;
-            };
-            let Some(next) = after_by_id.get(block_id.as_str()) else {
-                return false;
-            };
-            previous.block.block_type != next.block.block_type
-                || previous.block.props != next.block.props
-                || previous.block.content != next.block.content
-        })
+        .filter(|block_id| after_id_set.contains(*block_id) && node_delta.contains(*block_id))
         .cloned()
         .collect::<Vec<_>>();
-    let common_ids = before_ids
-        .iter()
-        .filter(|block_id| after_id_set.contains(*block_id))
-        .cloned()
-        .collect::<HashSet<_>>();
-    let parent_ids = before_coordinates
-        .iter()
-        .chain(after_coordinates.iter())
-        .map(|coordinate| coordinate.parent_block_id.map(str::to_owned))
-        .chain(std::iter::once(None))
-        .collect::<HashSet<_>>();
-    let mut reordered_ids = HashSet::new();
-    for parent_block_id in parent_ids {
-        let common_sibling_order = |coordinates: &[SemanticBlockCoordinate<'_>]| {
-            let mut siblings = coordinates
-                .iter()
-                .filter(|coordinate| {
-                    coordinate.parent_block_id == parent_block_id.as_deref()
-                        && common_ids.contains(&coordinate.block.id)
-                })
-                .collect::<Vec<_>>();
-            siblings.sort_by_key(|coordinate| coordinate.sibling_index);
-            siblings
-                .into_iter()
-                .map(|coordinate| coordinate.block.id.clone())
-                .collect::<Vec<_>>()
-        };
-        let previous = common_sibling_order(&before_coordinates);
-        let next = common_sibling_order(&after_coordinates);
-        if previous == next {
-            continue;
-        }
-        for (index, block_id) in previous.iter().enumerate() {
-            if next.get(index) != Some(block_id) {
-                reordered_ids.insert(block_id.clone());
-            }
-        }
-        for (index, block_id) in next.iter().enumerate() {
-            if previous.get(index) != Some(block_id) {
-                reordered_ids.insert(block_id.clone());
-            }
-        }
-    }
+    let placement_delta = derive_document_placement_delta(before, after);
+    let exact_moved_block_ids = policy
+        .exact_moved_block_ids
+        .map(|block_ids| block_ids.iter().map(String::as_str).collect::<HashSet<_>>());
     let moved_block_ids = before_ids
         .iter()
         .filter(|block_id| {
-            let Some(previous) = before_by_id.get(block_id.as_str()) else {
-                return false;
-            };
-            let Some(next) = after_by_id.get(block_id.as_str()) else {
-                return false;
-            };
-            previous.parent_block_id != next.parent_block_id || reordered_ids.contains(*block_id)
+            let changed = placement_delta.parent_changed_block_ids.contains(*block_id)
+                || placement_delta.reordered_block_ids.contains(*block_id);
+            changed
+                && exact_moved_block_ids
+                    .as_ref()
+                    .is_none_or(|exact| exact.contains(block_id.as_str()))
         })
         .cloned()
         .collect::<Vec<_>>();
-    let mut durable_write_fences = write_fence_block_ids
+    let known_block_ids = before_id_set
+        .union(&after_id_set)
+        .map(String::as_str)
+        .collect::<HashSet<_>>();
+    let mut durable_write_fences = policy
+        .write_fence_block_ids
         .iter()
-        .filter(|block_id| before_id_set.contains(*block_id))
+        .filter(|block_id| known_block_ids.contains(block_id.as_str()))
         .cloned()
         .collect::<BTreeSet<_>>();
-    if title_write_fence_required {
+    if policy.title_write_fence_required {
         durable_write_fences.insert(owner_block_id.to_owned());
     }
     let mut touched_block_ids = created_block_ids
@@ -4064,7 +4094,7 @@ fn document_mutation_effect(
     if title_changed {
         touched_block_ids.insert(owner_block_id.to_owned());
     }
-    let coordination = if force_write_fence || !durable_write_fences.is_empty() {
+    let coordination = if policy.force_write_fence || !durable_write_fences.is_empty() {
         DocumentMutationCoordination::WriteFence
     } else {
         DocumentMutationCoordination::MergeFriendly
@@ -4626,14 +4656,24 @@ fn prepare_semantic_update(
             let preview_markdown = prepared.materialization.nfm.clone();
             let semantic_local_block_ids =
                 (!prepared.local_block_ids.is_empty()).then_some(prepared.local_block_ids.clone());
+            let exact_moved_block_ids = commands
+                .iter()
+                .filter_map(|command| match command {
+                    DocumentSemanticCommand::MoveBlock { block_id, .. } => Some(block_id.clone()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
             let mutation_effect = document_mutation_effect(
                 &authority.owner_block_id,
                 authority.head.head_seq,
                 materialization,
                 &prepared.materialization,
-                &prepared.write_fence_block_ids,
-                prepared.title_write_fence_required,
-                false,
+                DocumentMutationEffectPolicy {
+                    write_fence_block_ids: &prepared.write_fence_block_ids,
+                    title_write_fence_required: prepared.title_write_fence_required,
+                    force_write_fence: false,
+                    exact_moved_block_ids: Some(&exact_moved_block_ids),
+                },
             );
             assert_fresh_document_block_ids(
                 connection,
@@ -4647,7 +4687,11 @@ fn prepare_semantic_update(
                     touched_block_ids: mutation_effect.touched_block_ids.clone(),
                     update: prepared.update_v1,
                     write_fence_block_ids: prepared.write_fence_block_ids,
+                    placement_attribution: PreparedPlacementAttribution::Exact(
+                        exact_moved_block_ids,
+                    ),
                     title_write_fence_required: prepared.title_write_fence_required,
+                    document_write_fence_required: false,
                     mutation_effect: Some(Box::new(mutation_effect)),
                     semantic_local_block_ids,
                 },
@@ -5656,9 +5700,9 @@ mod tests {
     use tempfile::tempdir;
 
     use crate::document::{
-        BlockDocumentSchema, DocumentAwareness, DocumentBlockOperation, DocumentRealtimeEvent,
-        DocumentSubscriptionEngine, OwnedDocumentRealtimeAdapter, YrsDocumentEngine,
-        prepare_document_operation_update,
+        BlockDocumentSchema, DocumentAwareness, DocumentBlockOperation, DocumentBlockUpdatePatch,
+        DocumentRealtimeEvent, DocumentSubscriptionEngine, OwnedDocumentRealtimeAdapter,
+        YrsDocumentEngine, prepare_document_operation_update,
     };
     use crate::infrastructure::sqlite::{StoreError, with_immediate_transaction};
     use crate::library::LibraryModule;
@@ -5938,6 +5982,44 @@ mod tests {
             false,
         )
         .expect("title update")
+        .update_v1
+    }
+
+    fn synced_page_engine(seeded: &SeededModule) -> (i64, YrsDocumentEngine) {
+        let sync = seeded
+            .module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
+                    read: OwnedDocumentRead::SyncYjs {
+                        document_id: DOCUMENT_ID.to_owned(),
+                        state_vector: Vec::new(),
+                    },
+                },
+            )
+            .expect("Yjs sync");
+        let OwnedDocumentReadValue::YjsSync { descriptor, update } = sync.value else {
+            panic!("expected Yjs sync")
+        };
+        let engine = YrsDocumentEngine::from_full_state_v1(DOCUMENT_ID, &update)
+            .expect("synced Page engine");
+        (descriptor.head_seq, engine)
+    }
+
+    fn raw_document_operation_update(
+        engine: &YrsDocumentEngine,
+        operations: &[DocumentBlockOperation],
+    ) -> Vec<u8> {
+        prepare_document_operation_update(
+            DOCUMENT_ID,
+            BlockDocumentSchema::PageV2,
+            &engine.full_state_v1(),
+            &engine.state_vector_v1(),
+            operations,
+            false,
+        )
+        .expect("raw Document operation update")
         .update_v1
     }
 
@@ -8387,6 +8469,362 @@ mod tests {
     }
 
     #[test]
+    fn raw_yjs_parent_changes_derive_placement_without_renderer_metadata() {
+        let seeded = seeded_module();
+        let original_root_id = seeded
+            .kernel
+            .readers()
+            .read_default(|connection| {
+                connection
+                    .query_row(
+                        "SELECT block_id FROM document_block_index \
+                         WHERE document_id = ?1 AND parent_block_id IS NULL \
+                         ORDER BY ordinal LIMIT 1",
+                        [DOCUMENT_ID],
+                        |row| row.get::<_, String>(0),
+                    )
+                    .map_err(StoreError::from)
+            })
+            .expect("seed root");
+        let indented_block_id = "019bf52d-6870-7000-8000-000000000120";
+        let sibling_block_id = "019bf52d-6870-7000-8000-000000000121";
+        seeded
+            .module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
+                    operation_id: "document-operation:seed-indent".to_owned(),
+                    store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                    intent: OwnedDocumentIntent::ApplyOperationBatch {
+                        document_id: DOCUMENT_ID.to_owned(),
+                        generation: 1,
+                        expected_head_seq: 1,
+                        operations: vec![
+                            ContractDocumentBlockOperation::InsertBlock {
+                                block: paragraph(indented_block_id, "Indent me"),
+                                parent_block_id: None,
+                                before_block_id: None,
+                            },
+                            ContractDocumentBlockOperation::InsertBlock {
+                                block: paragraph(sibling_block_id, "Keep me stable"),
+                                parent_block_id: None,
+                                before_block_id: None,
+                            },
+                        ],
+                        actor: json!({ "kind": "test" }),
+                    },
+                },
+            )
+            .expect("seed sibling roots");
+
+        let (head_seq, engine) = synced_page_engine(&seeded);
+        let indent_update = raw_document_operation_update(
+            &engine,
+            &[DocumentBlockOperation::MoveBlock {
+                block_id: indented_block_id.to_owned(),
+                parent_block_id: Some(original_root_id.clone()),
+                before_block_id: None,
+            }],
+        );
+        let indented = seeded
+            .module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
+                    operation_id: "update:raw-indent".to_owned(),
+                    store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                    intent: OwnedDocumentIntent::ApplyYjsUpdate {
+                        document_id: DOCUMENT_ID.to_owned(),
+                        generation: 1,
+                        base_head_seq: head_seq,
+                        update_id: "update:raw-indent".to_owned(),
+                        touched_block_ids: Vec::new(),
+                        update: indent_update,
+                    },
+                },
+            )
+            .expect("raw collaborative indent");
+        assert_eq!(indented.committed.value.head_seq, head_seq + 1);
+
+        seeded
+            .kernel
+            .readers()
+            .read_default(|connection| {
+                let placement = connection.query_row(
+                    "SELECT entry.parent_block_id, moved.placement_revision, \
+                            parent.placement_revision, sibling.placement_revision \
+                     FROM document_block_index entry \
+                     JOIN blocks moved ON moved.id = entry.block_id \
+                     JOIN blocks parent ON parent.id = ?2 \
+                     JOIN blocks sibling ON sibling.id = ?3 \
+                     WHERE entry.document_id = ?1 AND entry.block_id = ?4",
+                    params![
+                        DOCUMENT_ID,
+                        original_root_id,
+                        sibling_block_id,
+                        indented_block_id,
+                    ],
+                    |row| {
+                        Ok((
+                            row.get::<_, Option<String>>(0)?,
+                            row.get::<_, i64>(1)?,
+                            row.get::<_, i64>(2)?,
+                            row.get::<_, i64>(3)?,
+                        ))
+                    },
+                )?;
+                assert_eq!(
+                    placement,
+                    (Some(original_root_id.clone()), 2, 1, 1),
+                    "only the Block whose logical parent changed advances placement CAS",
+                );
+                Ok::<_, StoreError>(())
+            })
+            .expect("persisted indent placement");
+
+        let (head_seq, engine) = synced_page_engine(&seeded);
+        let outdent_update = raw_document_operation_update(
+            &engine,
+            &[DocumentBlockOperation::MoveBlock {
+                block_id: indented_block_id.to_owned(),
+                parent_block_id: None,
+                before_block_id: Some(sibling_block_id.to_owned()),
+            }],
+        );
+        seeded
+            .module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
+                    operation_id: "update:raw-outdent".to_owned(),
+                    store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                    intent: OwnedDocumentIntent::ApplyYjsUpdate {
+                        document_id: DOCUMENT_ID.to_owned(),
+                        generation: 1,
+                        base_head_seq: head_seq,
+                        update_id: "update:raw-outdent".to_owned(),
+                        touched_block_ids: Vec::new(),
+                        update: outdent_update,
+                    },
+                },
+            )
+            .expect("raw collaborative outdent");
+        seeded
+            .kernel
+            .readers()
+            .read_default(|connection| {
+                let placement = connection.query_row(
+                    "SELECT entry.parent_block_id, moved.placement_revision, \
+                            sibling.placement_revision \
+                     FROM document_block_index entry \
+                     JOIN blocks moved ON moved.id = entry.block_id \
+                     JOIN blocks sibling ON sibling.id = ?2 \
+                     WHERE entry.document_id = ?1 AND entry.block_id = ?3",
+                    params![DOCUMENT_ID, sibling_block_id, indented_block_id],
+                    |row| {
+                        Ok((
+                            row.get::<_, Option<String>>(0)?,
+                            row.get::<_, i64>(1)?,
+                            row.get::<_, i64>(2)?,
+                        ))
+                    },
+                )?;
+                assert_eq!(placement, (None, 3, 1));
+                Ok::<_, StoreError>(())
+            })
+            .expect("persisted outdent placement");
+    }
+
+    #[test]
+    fn raw_yjs_delete_and_durable_undo_use_document_tombstone_authority() {
+        let seeded = seeded_module();
+        let block_id = "019bf52d-6870-7000-8000-000000000122";
+        seeded
+            .module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
+                    operation_id: "document-operation:seed-durable-undo".to_owned(),
+                    store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                    intent: OwnedDocumentIntent::ApplyOperationBatch {
+                        document_id: DOCUMENT_ID.to_owned(),
+                        generation: 1,
+                        expected_head_seq: 1,
+                        operations: vec![ContractDocumentBlockOperation::InsertBlock {
+                            block: paragraph(block_id, "Undo me after ACK"),
+                            parent_block_id: None,
+                            before_block_id: None,
+                        }],
+                        actor: json!({ "kind": "test" }),
+                    },
+                },
+            )
+            .expect("seed undoable Block");
+        let (_, block_tree) = persisted_body(&seeded);
+        let deleted_block = find_block(&block_tree, block_id)
+            .expect("seeded Block materialization")
+            .clone();
+
+        let (head_seq, engine) = synced_page_engine(&seeded);
+        let delete_update = raw_document_operation_update(
+            &engine,
+            &[DocumentBlockOperation::DeleteBlock {
+                block_id: block_id.to_owned(),
+            }],
+        );
+        let deleted = seeded
+            .module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
+                    operation_id: "update:raw-delete-before-undo".to_owned(),
+                    store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                    intent: OwnedDocumentIntent::ApplyYjsUpdate {
+                        document_id: DOCUMENT_ID.to_owned(),
+                        generation: 1,
+                        base_head_seq: head_seq,
+                        update_id: "update:raw-delete-before-undo".to_owned(),
+                        touched_block_ids: Vec::new(),
+                        update: delete_update,
+                    },
+                },
+            )
+            .expect("durable raw delete");
+        assert_eq!(deleted.committed.value.head_seq, head_seq + 1);
+
+        seeded
+            .kernel
+            .readers()
+            .read_default(|connection| {
+                let evidence = connection.query_row(
+                    "SELECT block.lifecycle, block.placement_revision, block.metadata_revision, \
+                            tombstone.document_id, tombstone.document_generation, \
+                            tombstone.deletion_head_seq, tombstone.placement_revision, \
+                            (SELECT count(*) FROM document_block_index entry \
+                              WHERE entry.block_id = block.id), \
+                            receipt.client_touched_block_ids_json, \
+                            receipt.derived_touched_block_ids_json \
+                     FROM blocks block \
+                     JOIN document_block_tombstones tombstone ON tombstone.block_id = block.id \
+                     JOIN document_update_receipts receipt \
+                       ON receipt.update_id = 'update:raw-delete-before-undo' \
+                     WHERE block.id = ?1",
+                    [block_id],
+                    |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, i64>(1)?,
+                            row.get::<_, i64>(2)?,
+                            row.get::<_, String>(3)?,
+                            row.get::<_, i64>(4)?,
+                            row.get::<_, i64>(5)?,
+                            row.get::<_, i64>(6)?,
+                            row.get::<_, i64>(7)?,
+                            row.get::<_, String>(8)?,
+                            row.get::<_, String>(9)?,
+                        ))
+                    },
+                )?;
+                assert_eq!(
+                    &evidence.0, "deleted",
+                    "the ACKed deletion must become a reversible Document tombstone",
+                );
+                assert_eq!((evidence.1, evidence.2), (2, 2));
+                assert_eq!(evidence.3, DOCUMENT_ID);
+                assert_eq!((evidence.4, evidence.5, evidence.6), (1, head_seq + 1, 2));
+                assert_eq!(evidence.7, 0);
+                assert_eq!(
+                    serde_json::from_str::<Vec<String>>(&evidence.8).expect("client touched IDs"),
+                    Vec::<String>::new(),
+                );
+                assert_eq!(
+                    serde_json::from_str::<Vec<String>>(&evidence.9).expect("derived touched IDs"),
+                    vec![block_id.to_owned()],
+                );
+                Ok::<_, StoreError>(())
+            })
+            .expect("durable deletion authority");
+
+        let (head_seq, engine) = synced_page_engine(&seeded);
+        let undo_update = raw_document_operation_update(
+            &engine,
+            &[DocumentBlockOperation::InsertBlock {
+                block: deleted_block,
+                parent_block_id: None,
+                before_block_id: None,
+            }],
+        );
+        let restored = seeded
+            .module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
+                    operation_id: "update:raw-undo-after-ack".to_owned(),
+                    store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                    intent: OwnedDocumentIntent::ApplyYjsUpdate {
+                        document_id: DOCUMENT_ID.to_owned(),
+                        generation: 1,
+                        base_head_seq: head_seq,
+                        update_id: "update:raw-undo-after-ack".to_owned(),
+                        touched_block_ids: Vec::new(),
+                        update: undo_update,
+                    },
+                },
+            )
+            .expect("raw undo after durable ACK");
+        assert_eq!(restored.committed.value.head_seq, head_seq + 1);
+        seeded
+            .kernel
+            .readers()
+            .read_default(|connection| {
+                let evidence = connection.query_row(
+                    "SELECT block.lifecycle, block.placement_revision, block.metadata_revision, \
+                            (SELECT count(*) FROM document_block_tombstones tombstone \
+                              WHERE tombstone.block_id = block.id), \
+                            (SELECT count(*) FROM document_block_index entry \
+                              WHERE entry.block_id = block.id AND entry.document_id = ?2), \
+                            receipt.client_touched_block_ids_json, \
+                            receipt.derived_touched_block_ids_json \
+                     FROM blocks block \
+                     JOIN document_update_receipts receipt \
+                       ON receipt.update_id = 'update:raw-undo-after-ack' \
+                     WHERE block.id = ?1",
+                    params![block_id, DOCUMENT_ID],
+                    |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, i64>(1)?,
+                            row.get::<_, i64>(2)?,
+                            row.get::<_, i64>(3)?,
+                            row.get::<_, i64>(4)?,
+                            row.get::<_, String>(5)?,
+                            row.get::<_, String>(6)?,
+                        ))
+                    },
+                )?;
+                assert_eq!(evidence.0, "active");
+                assert_eq!((evidence.1, evidence.2), (3, 3));
+                assert_eq!((evidence.3, evidence.4), (0, 1));
+                assert_eq!(
+                    serde_json::from_str::<Vec<String>>(&evidence.5).expect("client touched IDs"),
+                    Vec::<String>::new(),
+                );
+                assert_eq!(
+                    serde_json::from_str::<Vec<String>>(&evidence.6).expect("derived touched IDs"),
+                    vec![block_id.to_owned()],
+                );
+                Ok::<_, StoreError>(())
+            })
+            .expect("durable undo evidence");
+    }
+
+    #[test]
     fn page_document_event_records_its_database_projection_impact() {
         const GRANTED_PROJECT_ID: &str = "project:document-projection-grantee";
         const RELATION_SOURCE_PAGE_ID: &str = "019bf52d-6870-7000-8000-000000000003";
@@ -10270,6 +10708,269 @@ mod tests {
                 Ok::<_, StoreError>(())
             })
             .unwrap();
+    }
+
+    #[test]
+    fn stale_touch_attribution_includes_blocks_hidden_by_a_structural_barrier() {
+        let seeded = seeded_module();
+        let hidden_block_id = "019bf52d-6870-7000-8000-000000000124";
+        let initial = materialize_engine(
+            &YrsDocumentEngine::from_full_state_v1(DOCUMENT_ID, &seeded.full_state).unwrap(),
+            BlockDocumentSchema::PageV2,
+        )
+        .unwrap();
+        let visible_block_id = initial.block_tree[0].id.clone();
+        seeded
+            .module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
+                    operation_id: "document-operation:seed-stale-hidden-block".to_owned(),
+                    store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                    intent: OwnedDocumentIntent::ApplyOperationBatch {
+                        document_id: DOCUMENT_ID.to_owned(),
+                        generation: 1,
+                        expected_head_seq: 1,
+                        operations: vec![ContractDocumentBlockOperation::InsertBlock {
+                            block: paragraph(hidden_block_id, "Soon hidden"),
+                            parent_block_id: None,
+                            before_block_id: None,
+                        }],
+                        actor: json!({ "kind": "test" }),
+                    },
+                },
+            )
+            .expect("seed Block that will cross a barrier");
+        let (base_head_seq, base_engine) = synced_page_engine(&seeded);
+        assert_eq!(base_head_seq, 2);
+        let patch = |text: &str| DocumentBlockUpdatePatch {
+            block_type: None,
+            props: None,
+            content: Some(json!([{
+                "type": "text",
+                "text": text,
+                "styles": {},
+            }])),
+            unset_content: false,
+        };
+        let mixed_stale_update = raw_document_operation_update(
+            &base_engine,
+            &[
+                DocumentBlockOperation::UpdateBlock {
+                    block_id: visible_block_id.clone(),
+                    patch: patch("Visible stale edit"),
+                },
+                DocumentBlockOperation::UpdateBlock {
+                    block_id: hidden_block_id.to_owned(),
+                    patch: patch("Hidden stale edit"),
+                },
+            ],
+        );
+        let visible_only_stale_update = raw_document_operation_update(
+            &base_engine,
+            &[DocumentBlockOperation::UpdateBlock {
+                block_id: visible_block_id.clone(),
+                patch: patch("Safe disjoint stale edit"),
+            }],
+        );
+        seeded
+            .module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
+                    operation_id: "document-operation:hide-stale-target".to_owned(),
+                    store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                    intent: OwnedDocumentIntent::ApplyOperationBatch {
+                        document_id: DOCUMENT_ID.to_owned(),
+                        generation: 1,
+                        expected_head_seq: base_head_seq,
+                        operations: vec![ContractDocumentBlockOperation::DeleteBlock {
+                            block_id: hidden_block_id.to_owned(),
+                        }],
+                        actor: json!({ "kind": "test" }),
+                    },
+                },
+            )
+            .expect("delete Block behind a structural barrier");
+
+        let mixed_request = ModuleApplyRequest {
+            contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
+            operation_id: "update:stale-hidden-and-visible".to_owned(),
+            store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+            intent: OwnedDocumentIntent::ApplyYjsUpdate {
+                document_id: DOCUMENT_ID.to_owned(),
+                generation: 1,
+                base_head_seq,
+                update_id: "update:stale-hidden-and-visible".to_owned(),
+                touched_block_ids: vec![visible_block_id.clone()],
+                update: mixed_stale_update,
+            },
+        };
+        let recovery = seeded
+            .module
+            .apply(&context(), mixed_request)
+            .expect_err("base-head attribution catches the hidden fenced edit");
+        assert_eq!(recovery.code, CoreErrorCode::RevisionConflict);
+
+        let safe = seeded
+            .module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
+                    operation_id: "update:stale-visible-only".to_owned(),
+                    store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                    intent: OwnedDocumentIntent::ApplyYjsUpdate {
+                        document_id: DOCUMENT_ID.to_owned(),
+                        generation: 1,
+                        base_head_seq,
+                        update_id: "update:stale-visible-only".to_owned(),
+                        touched_block_ids: vec![visible_block_id.clone()],
+                        update: visible_only_stale_update,
+                    },
+                },
+            )
+            .expect("truly disjoint stale edit remains merge-friendly");
+        assert_eq!(safe.committed.value.head_seq, 4);
+
+        seeded
+            .kernel
+            .readers()
+            .read_default(|connection| {
+                let (head_seq, derived_json, artifact_status, hidden_index_count) = connection
+                    .query_row(
+                        "SELECT document.head_seq, artifact.derived_touched_block_ids_json, \
+                                artifact.status, \
+                                (SELECT count(*) FROM document_block_index \
+                                  WHERE block_id = ?2) \
+                         FROM documents document \
+                         JOIN document_recovery_artifacts artifact \
+                           ON artifact.document_id = document.id \
+                          AND artifact.update_id = 'update:stale-hidden-and-visible' \
+                         WHERE document.id = ?1",
+                        params![DOCUMENT_ID, hidden_block_id],
+                        |row| {
+                            Ok((
+                                row.get::<_, i64>(0)?,
+                                row.get::<_, String>(1)?,
+                                row.get::<_, String>(2)?,
+                                row.get::<_, i64>(3)?,
+                            ))
+                        },
+                    )?;
+                let derived = serde_json::from_str::<BTreeSet<String>>(&derived_json)
+                    .map_err(|_| internal("recovery derived touched IDs"))?;
+                assert_eq!(head_seq, 4);
+                assert_eq!(artifact_status, "pending");
+                assert_eq!(hidden_index_count, 0);
+                assert!(derived.contains(&visible_block_id));
+                assert!(derived.contains(hidden_block_id));
+                Ok::<_, StoreError>(())
+            })
+            .expect("base and current attribution evidence");
+    }
+
+    #[test]
+    fn whole_document_replacement_fences_disjoint_stale_insertions() {
+        let seeded = seeded_module();
+        let stale_block_id = "019bf52d-6870-7000-8000-000000000123";
+        let stale_engine = YrsDocumentEngine::from_full_state_v1(DOCUMENT_ID, &seeded.full_state)
+            .expect("stale renderer state");
+        let stale_update = raw_document_operation_update(
+            &stale_engine,
+            &[DocumentBlockOperation::InsertBlock {
+                block: MaterializedBlockNode {
+                    id: stale_block_id.to_owned(),
+                    block_type: "paragraph".to_owned(),
+                    props: BTreeMap::new(),
+                    content: Some(json!([{
+                        "type": "text",
+                        "text": "Stale disjoint insertion",
+                        "styles": {},
+                    }])),
+                    children: Vec::new(),
+                },
+                parent_block_id: None,
+                before_block_id: None,
+            }],
+        );
+        let current_nfm = seeded
+            .kernel
+            .readers()
+            .read_default(|connection| {
+                connection
+                    .query_row(
+                        "SELECT nfm FROM document_materializations WHERE document_id = ?1",
+                        [DOCUMENT_ID],
+                        |row| row.get::<_, String>(0),
+                    )
+                    .map_err(StoreError::from)
+            })
+            .expect("current NFM");
+        seeded
+            .module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
+                    operation_id: "document-operation:whole-document-fence".to_owned(),
+                    store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                    intent: OwnedDocumentIntent::ReplaceFromNfm {
+                        document_id: DOCUMENT_ID.to_owned(),
+                        generation: 1,
+                        expected_head_seq: 1,
+                        nfm: current_nfm,
+                        rich_title: Some(vec![json!({
+                            "type": "text",
+                            "text": "Whole document replacement",
+                            "styles": {},
+                        })]),
+                        actor: json!({ "kind": "test" }),
+                    },
+                },
+            )
+            .expect("whole-Document replacement");
+
+        let recovery = seeded
+            .module
+            .apply(
+                &context(),
+                apply_request("update:stale-disjoint-insertion", 1, stale_update),
+            )
+            .expect_err("whole-Document fence rejects disjoint stale insertions");
+        assert_eq!(recovery.code, CoreErrorCode::RevisionConflict);
+        assert!(recovery.message.contains("document-recovery:"));
+        seeded
+            .kernel
+            .readers()
+            .read_default(|connection| {
+                let evidence = connection.query_row(
+                    "SELECT document.head_seq, \
+                            (SELECT count(*) FROM document_block_index \
+                              WHERE block_id = ?2), \
+                            barrier.document_wide_fence, \
+                            (SELECT status FROM document_recovery_artifacts \
+                              WHERE update_id = 'update:stale-disjoint-insertion') \
+                     FROM documents document \
+                     JOIN document_structural_barriers barrier \
+                       ON barrier.document_id = document.id AND barrier.head_seq = document.head_seq \
+                     WHERE document.id = ?1",
+                    params![DOCUMENT_ID, stale_block_id],
+                    |row| {
+                        Ok((
+                            row.get::<_, i64>(0)?,
+                            row.get::<_, i64>(1)?,
+                            row.get::<_, i64>(2)?,
+                            row.get::<_, String>(3)?,
+                        ))
+                    },
+                )?;
+                assert_eq!(evidence, (2, 0, 1, "pending".to_owned()));
+                Ok::<_, StoreError>(())
+            })
+            .expect("whole-Document recovery evidence");
     }
 
     #[test]

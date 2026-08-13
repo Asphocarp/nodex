@@ -48,7 +48,24 @@ SQLite is the local durable authority. `document_updates` stores the compactable
 
 Each mounted writable surface creates a distinct Yjs client identity, even for two windows owned by the same user. `Y.UndoManager` tracks only local transaction origins for that surface, so remote edits are not undone locally. Awareness carries cursor/presence keyed by client session and window but is never persisted as content.
 
+Ordinary editor transactions carry no trusted structural command metadata. The
+writer derives direct node, parent, and sibling-order effects from the canonical
+before/after Block trees; renderer-reported touched IDs remain diagnostics only.
+An acknowledged removal of an ordinary Block records generation- and
+placement-revision-bound authority for that Document so a later causal local
+undo may restore the same identity. That evidence cannot reactivate a retired
+identity, cross a Document authority or generation, or stand in for an explicit
+cross-authority relocation.
+
 NFM is limited to genesis import, explicit compare-and-swap replacement, export, and materialized projection. `blocksToYDoc`-style conversion is permitted only for genesis. An existing collaborative Document is loaded from snapshot plus updates and is never reconstructed from NFM.
+
+Whole-body replacement and checkpoint restore create a Document-wide durable
+barrier. Any stale Yjs update based before that barrier is preserved as recovery
+work rather than merged, even when its apparent Block IDs are disjoint; a
+block-scoped semantic fence remains merge-friendly only when applying the
+update to both its retained base head and the current head proves it unrelated.
+If the base head is no longer reconstructible, the writer preserves the update
+as recovery work instead of trusting incomplete client metadata.
 
 ## Consequences
 
