@@ -50,10 +50,7 @@ const EMPTY_WINDOW_STATE: DatabaseListWindowState = Object.freeze({
   error: null,
 });
 
-/**
- * List owns one List projection even while Board is selected. The layout in
- * this request must therefore never inherit the currently visible layout.
- */
+/** A List request must never inherit the currently visible Board layout. */
 const fullListPresentationOverride = (
   effective: EffectiveDatabaseViewPresentation,
 ): DatabaseViewPresentationOverride => ({
@@ -245,6 +242,12 @@ export class DatabaseListWindowStore {
 
   private inFlightContinuation = false;
 
+  private firstWindowRequested = false;
+
+  private preserveRowsForNextFirstWindow = false;
+
+  private firstWindowDrain: Promise<void> | null = null;
+
   constructor(
     private readonly dependencies: DatabaseListWindowStoreDependencies,
     private readonly onAccess: () => void,
@@ -256,6 +259,13 @@ export class DatabaseListWindowStore {
   subscribe = (listener: ListWindowListener): (() => void) => {
     this.onAccess();
     this.listeners.add(listener);
+    if (
+      this.listeners.size === 1
+      && this.descriptor
+      && this.acceptedRequestIdentity !== this.descriptor.identity
+    ) {
+      this.requestFirstWindow(this.state.active);
+    }
     return () => {
       this.listeners.delete(listener);
       if (this.listeners.size === 0) this.onInactive();
@@ -268,6 +278,7 @@ export class DatabaseListWindowStore {
 
   dispose(): void {
     this.generation += 1;
+    this.firstWindowRequested = false;
     this.listeners.clear();
   }
 
@@ -295,8 +306,11 @@ export class DatabaseListWindowStore {
     if (storeEpochChanged) {
       this.acceptedRequestIdentity = null;
       this.firstSnapshot = null;
+      if (!this.isActive()) this.publish(EMPTY_WINDOW_STATE);
     }
-    this.requestFirstWindow(!storeEpochChanged && this.state.active);
+    if (this.isActive()) {
+      this.requestFirstWindow(!storeEpochChanged && this.state.active);
+    }
   }
 
   loadMore = (): void => {
@@ -381,23 +395,50 @@ export class DatabaseListWindowStore {
     this.acceptedRequestIdentity = null;
     this.firstSnapshot = null;
     this.inFlightContinuation = false;
+    this.firstWindowRequested = false;
+    this.preserveRowsForNextFirstWindow = false;
     this.publish(EMPTY_WINDOW_STATE);
   }
 
   private requestFirstWindow(preserveRows: boolean): void {
-    const descriptor = this.descriptor;
-    if (!descriptor) return;
-    const generation = this.generation + 1;
-    this.generation = generation;
+    if (!this.descriptor) return;
+    this.generation += 1;
     this.inFlightContinuation = false;
+    this.firstWindowRequested = true;
+    this.preserveRowsForNextFirstWindow ||= preserveRows;
     this.publish(preserveRows && this.state.active
       ? { ...this.state, loading: true, loadingMore: false, error: null }
       : { ...EMPTY_WINDOW_STATE, loading: true });
 
-    void (async () => {
+    if (this.firstWindowDrain) return;
+    this.startFirstWindowDrain();
+  }
+
+  private startFirstWindowDrain(): void {
+    if (this.firstWindowDrain || !this.firstWindowRequested) return;
+    this.firstWindowDrain = this.drainFirstWindows().finally(() => {
+      this.firstWindowDrain = null;
+      if (this.firstWindowRequested) this.startFirstWindowDrain();
+    });
+  }
+
+  private async drainFirstWindows(): Promise<void> {
+    while (this.firstWindowRequested) {
+      const descriptor = this.descriptor;
+      if (!descriptor) return;
+      const generation = this.generation;
+      const preserveRows = this.preserveRowsForNextFirstWindow;
+      this.firstWindowRequested = false;
+      this.preserveRowsForNextFirstWindow = false;
+
       try {
         const snapshot = await this.dependencies.readWindow(descriptor.request);
-        if (generation !== this.generation) return;
+        if (
+          generation !== this.generation
+          || descriptor.identity !== this.descriptor?.identity
+        ) {
+          continue;
+        }
         assertWindowIdentity(descriptor.resource, snapshot);
         if (snapshot.windowStart !== 0) {
           throw new Error("Database List first window did not start at zero");
@@ -406,7 +447,12 @@ export class DatabaseListWindowStore {
         this.acceptedRequestIdentity = descriptor.identity;
         this.publish(stateFromFirstWindow(snapshot));
       } catch {
-        if (generation !== this.generation) return;
+        if (
+          generation !== this.generation
+          || descriptor.identity !== this.descriptor?.identity
+        ) {
+          continue;
+        }
         this.publish({
           ...(preserveRows && this.state.active
             ? this.state
@@ -416,7 +462,7 @@ export class DatabaseListWindowStore {
           error: "Couldn’t load the authoritative List window.",
         });
       }
-    })();
+    }
   }
 
   private publish(state: DatabaseListWindowState): void {
@@ -497,13 +543,6 @@ export const createDatabaseListWindowStoreRegistry = (
 });
 
 const sharedListWindowRegistry = createDatabaseListWindowStoreRegistry();
-
-export const preloadDatabaseListWindow = (
-  model: DatabaseViewRenderModel,
-  effective: EffectiveDatabaseViewPresentation,
-): void => {
-  sharedListWindowRegistry.getStore(model).setRequest(model, effective);
-};
 
 export interface UseDatabaseListWindowResult extends DatabaseListWindowState {
   readonly loadMore: () => void;

@@ -17,6 +17,7 @@ import {
   projectionEffectMatches,
   revocationMatches,
 } from "./projection-invalidation-registry";
+import { INTERACTIVE_PROJECTION_REPAIR_BURST } from "./causal-projection-runtime";
 
 const scope: ProjectionScope = {
   kind: "project",
@@ -101,9 +102,16 @@ const revocationMessage = (
   },
 });
 
-const flush = async () => await new Promise((resolve) => setTimeout(resolve, 0));
+const flush = async (): Promise<void> => {
+  await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  await Promise.resolve();
+  await Promise.resolve();
+};
 
-const harness = () => {
+const harness = (effectRepairBurst?: {
+  readonly quietMs: number;
+  readonly maxMs: number;
+}) => {
   const projectionListeners = new Set<(message: ProjectionStreamMessage) => void>();
   const revocationListeners = new Set<(message: ResourceRevocationMessage) => void>();
   const subscribeProjection = vi.fn((
@@ -124,6 +132,7 @@ const harness = () => {
     registry: new ProjectionInvalidationRegistry({
       subscribeProjection,
       subscribeRevocations,
+      ...(effectRepairBurst ? { effectRepairBurst } : {}),
     }),
     subscribeProjection,
     subscribeRevocations,
@@ -389,13 +398,84 @@ describe("ProjectionInvalidationRegistry", () => {
       invalidate,
     });
     stream.publish(effectMessage(1));
-    stream.publish(effectMessage(2));
     await flush();
     expect(invalidate).toHaveBeenCalledOnce();
+    stream.publish(effectMessage(2));
     release();
     await flush();
     expect(invalidate).toHaveBeenCalledTimes(2);
     expect(cursor.commitSeq).toBe(2);
+  });
+
+  test("bounds generic canonical reads during a sustained effect burst", async () => {
+    vi.useFakeTimers();
+    try {
+      const stream = harness({ quietMs: 100, maxMs: 500 });
+      let cursor = { storeEpoch: "epoch-1", commitSeq: 0 };
+      const invalidate = vi.fn(async (message: ProjectionInvalidationCause) => {
+        cursor = message.stream;
+      });
+      stream.registry.register({
+        scope,
+        consumerKey: "burst-query",
+        getDependencies: () => ({ pageIds: ["page-1"] }),
+        getCursor: () => cursor,
+        invalidate,
+      });
+
+      for (let commitSeq = 1; commitSeq <= 300; commitSeq += 1) {
+        stream.publish(effectMessage(commitSeq));
+        await vi.advanceTimersByTimeAsync(1);
+      }
+      await vi.advanceTimersByTimeAsync(100);
+      await vi.runAllTicks();
+
+      expect(invalidate).toHaveBeenCalledOnce();
+      expect(invalidate).toHaveBeenLastCalledWith(expect.objectContaining({
+        stream: { storeEpoch: "epoch-1", commitSeq: 300 },
+      }));
+      expect(cursor.commitSeq).toBe(300);
+      stream.registry.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("keeps long generic effect streams inside the production repair budget", async () => {
+    vi.useFakeTimers();
+    try {
+      const stream = harness(INTERACTIVE_PROJECTION_REPAIR_BURST);
+      let cursor = { storeEpoch: "epoch-1", commitSeq: 0 };
+      const invalidate = vi.fn(async (message: ProjectionInvalidationCause) => {
+        cursor = message.stream;
+      });
+      stream.registry.register({
+        scope,
+        consumerKey: "long-burst-query",
+        getDependencies: () => ({ pageIds: ["page-1"] }),
+        getCursor: () => cursor,
+        invalidate,
+      });
+
+      for (let commitSeq = 1; commitSeq <= 400; commitSeq += 1) {
+        stream.publish(effectMessage(commitSeq));
+        await vi.advanceTimersByTimeAsync(100);
+      }
+      await vi.advanceTimersByTimeAsync(
+        INTERACTIVE_PROJECTION_REPAIR_BURST.quietMs,
+      );
+      await vi.runAllTicks();
+
+      expect(invalidate.mock.calls.length).toBeGreaterThan(1);
+      expect(invalidate.mock.calls.length).toBeLessThanOrEqual(9);
+      expect(invalidate).toHaveBeenLastCalledWith(expect.objectContaining({
+        stream: { storeEpoch: "epoch-1", commitSeq: 400 },
+      }));
+      expect(cursor.commitSeq).toBe(400);
+      stream.registry.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   test("delivers a matching revocation even when the cache cursor is newer", async () => {
@@ -466,6 +546,7 @@ describe("ProjectionInvalidationRegistry", () => {
     const second = revocationMessage(3, "page-2");
     const third = revocationMessage(4, "page-3");
     stream.publish(first);
+    await flush();
     stream.publish(second);
     stream.publish(third);
 
@@ -474,7 +555,6 @@ describe("ProjectionInvalidationRegistry", () => {
       second,
       third,
     ]);
-    await flush();
     expect(invalidate).toHaveBeenCalledOnce();
     release();
     await flush();
@@ -502,8 +582,8 @@ describe("ProjectionInvalidationRegistry", () => {
     const revoked = revocationMessage(2);
     const changedAgain = effectMessage(3);
     stream.publish(revoked);
-    stream.publish(changedAgain);
     await flush();
+    stream.publish(changedAgain);
     expect(invalidate).toHaveBeenCalledOnce();
 
     release();

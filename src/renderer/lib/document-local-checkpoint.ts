@@ -39,6 +39,7 @@ export interface DocumentLocalCheckpointStore {
     boundary: DocumentCheckpointBoundary,
     constraints?: DocumentLocalCheckpointStateConstraints,
   ) => Promise<DocumentLocalCheckpoint | null>;
+  /** Atomically merges this Yjs delta with the existing boundary checkpoint. */
   write: (
     checkpoint: DocumentLocalCheckpoint,
     constraints?: DocumentLocalCheckpointStateConstraints,

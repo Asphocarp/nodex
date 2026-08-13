@@ -601,6 +601,12 @@ function waitForMicrotasks(): Promise<void> {
   });
 }
 
+function waitForProjectionRepair(): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(() => resolve(), 350);
+  });
+}
+
 function createDeferred<T>() {
   let resolve!: (value: T) => void;
   let reject!: (error: unknown) => void;
@@ -898,8 +904,7 @@ describe("board store", () => {
     );
 
     projection.publish(pageChanged(3, "card-1", "view-focused"));
-    await waitForMicrotasks();
-    await waitForMicrotasks();
+    await waitForProjectionRepair();
 
     expect(readFloors).toContain(3);
     expect(store.getSnapshot().pageIndex.get("card-1")?.title).toBe(
@@ -1061,6 +1066,47 @@ describe("board store", () => {
     expect(windowReads).toBe(1);
     expect(Object.hasOwn(indexedPage ?? {}, "description")).toBe(false);
     expect(indexedPage?.descriptionPreview).toBe("Initial description");
+  });
+
+  test("bounds group-window read concurrency for high-cardinality Views", async () => {
+    const release = createDeferred<void>();
+    const groups = Array.from({ length: 24 }, (_, index) => ({
+      groupKey: `group-${index}`,
+      subgroupKey: null,
+      totalRows: 1,
+    }));
+    let windowReads = 0;
+    let activeReads = 0;
+    let maxActiveReads = 0;
+    const registry = createTestRegistry({
+      readViewGroups: async () => createGroupsSnapshot({
+        grouped: true,
+        totalRows: groups.length,
+        totalGroups: groups.length,
+        groups,
+      }),
+      readViewWindow: async () => {
+        windowReads += 1;
+        activeReads += 1;
+        maxActiveReads = Math.max(maxActiveReads, activeReads);
+        await release.promise;
+        activeReads -= 1;
+        return createBoardSnapshot();
+      },
+      subscribeBoardChanges: () => () => {},
+    });
+    const store = registry.getStore("default");
+    const fetching = store.fetchBoard();
+    await waitForMicrotasks();
+
+    expect(windowReads).toBe(8);
+    expect(maxActiveReads).toBe(8);
+
+    release.resolve(undefined);
+    await fetching;
+
+    expect(windowReads).toBe(24);
+    expect(maxActiveReads).toBe(8);
   });
 
   test("retries instead of composing groups and windows from different projection revisions", async () => {
@@ -1702,7 +1748,7 @@ describe("board store", () => {
         .flatMap((column) => column.rows)
         .some((row) => row.pageId === "page-promoted"),
     ).toBe(true);
-    await waitForMicrotasks();
+    await waitForProjectionRepair();
     expect(readCount).toBe(2);
     delayedRepair.resolve(createBoardSnapshot({
       columns: createBoard().columns.map((column) => column.id === "triage"

@@ -146,10 +146,16 @@ focus, and drop-indicator colors.
 Opening a Page, changing Display Options, and switching between Board and List
 preserve the last readable Database surface instead of replacing it with an
 opening screen. Background reads update only the affected projection and hand
-over atomically. List ordering always comes from its preloaded Core occurrence
-projection; it never passes through a temporary Board-derived order. Permission
+over atomically. An inactive alternative layout does not preload or refresh its
+windows; selecting List starts its Core occurrence projection on demand and then
+retains the last accepted window. List ordering never passes through a temporary
+Board-derived order. Permission
 revocation, checkpoint/reset, authorization loss, and Store replacement remain
 hard-clear boundaries.
+
+Rapid List coordinate replacements keep one first-window read in flight and
+skip obsolete intermediate targets. Board group-window reads and load-more-all
+use at most eight concurrent Core reads, independent of the number of groups.
 
 Every mounted Board or List remains subscribed to its exact durable View while
 another Page Stage or window edits Page titles and Source Properties. A
