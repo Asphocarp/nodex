@@ -21,6 +21,6 @@
   "include": [
     "tests/e2e/**/*.ts",
     "tests/e2e/**/*.tsx",
-    "src/renderer/env.d.ts"
+    "src/renderer/**/*.d.ts"
   ]
 }
