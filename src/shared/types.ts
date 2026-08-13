@@ -1348,9 +1348,8 @@ export interface WorktreeEnvironmentOption {
 }
 
 export interface WorktreeEnvironmentActionDefinition {
-  id: string;
   name: string;
-  icon: WorktreeEnvironmentActionIcon;
+  icon: WorktreeEnvironmentActionIcon | null;
   command: string;
   platform: WorktreeEnvironmentPlatform | null;
 }
@@ -1393,6 +1392,7 @@ export interface WorktreeEnvironmentSettingsSnapshot {
   configPath: string;
   nextConfigPath: string;
   configExists: boolean;
+  revision: string | null;
   configs: WorktreeEnvironmentConfigRecord[];
   environment: WorktreeEnvironmentDefinition | null;
   parseErrorMessage: string | null;
@@ -1403,8 +1403,13 @@ export interface WorktreeEnvironmentSettingsSnapshot {
 export interface UpdateWorktreeEnvironmentConfigInput {
   projectId: string;
   configPath: string;
+  expectedRevision: string | null;
   environment: WorktreeEnvironmentDefinition;
 }
+
+export type WorktreeEnvironmentSaveResult =
+  | { type: "success" }
+  | { type: "conflict" };
 
 export interface BackupSettings {
   autoEnabled: boolean;

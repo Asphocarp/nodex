@@ -297,6 +297,7 @@ import type {
   ManagedWorktreeRecord,
   WorktreeEnvironmentOption,
   WorktreeEnvironmentConfigRecord,
+  WorktreeEnvironmentSaveResult,
   WorktreeEnvironmentSettingsSnapshot,
   UpdateWorktreeEnvironmentConfigInput,
   UpdateCodexDeveloperInstructionSettingsInput,
@@ -1721,7 +1722,7 @@ export interface IpcApi {
   };
   "worktrees:environments:config:save": {
     args: [input: UpdateWorktreeEnvironmentConfigInput];
-    result: WorktreeEnvironmentSettingsSnapshot;
+    result: WorktreeEnvironmentSaveResult;
   };
   "worktrees:delete": { args: [threadId: string]; result: boolean };
   "codex:pending-worktrees:list": {

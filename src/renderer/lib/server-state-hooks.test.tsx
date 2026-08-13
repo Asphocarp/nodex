@@ -17,6 +17,8 @@ import type {
 } from "./types";
 import {
   useLocalEnvironmentConfigs,
+  useLocalEnvironmentOptions,
+  useLocalEnvironmentSnapshot,
   useSaveLocalEnvironmentConfigMutation,
 } from "./use-local-environment-queries";
 import { useMcpApps, useMcpServerStatuses } from "./use-mcp-queries";
@@ -53,6 +55,7 @@ function makeSnapshot(configs: WorktreeEnvironmentConfigRecord[]): WorktreeEnvir
     configPath: configs[0]?.configPath ?? "/tmp/project-1/.codex/environment.json",
     nextConfigPath: "/tmp/project-1/.codex/environment-2.json",
     configExists: configs.length > 0,
+    revision: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     configs,
     environment: ENVIRONMENT,
     parseErrorMessage: null,
@@ -62,6 +65,8 @@ function makeSnapshot(configs: WorktreeEnvironmentConfigRecord[]): WorktreeEnvir
 
 function ServerStateHarness() {
   const { data: configs } = useLocalEnvironmentConfigs("project-1");
+  const { data: options } = useLocalEnvironmentOptions("project-1");
+  const { data: snapshot } = useLocalEnvironmentSnapshot("project-1", null);
   const saveConfig = useSaveLocalEnvironmentConfigMutation();
   useMcpServerStatuses({ enabled: false });
 
@@ -73,11 +78,12 @@ function ServerStateHarness() {
         void saveConfig.mutateAsync({
           projectId: "project-1",
           configPath: "/tmp/project-1/.codex/environment.json",
+          expectedRevision: snapshot?.revision ?? null,
           environment: ENVIRONMENT,
         });
       }}
     >
-      {configs?.length ?? 0}
+      {configs?.length ?? 0}|{options?.length ?? 0}|{snapshot?.configs.length ?? 0}
     </button>
   );
 }
@@ -115,6 +121,9 @@ function AppsCatalogConsumer() {
 describe("server state query hooks", () => {
   let configs: WorktreeEnvironmentConfigRecord[];
   let configListCalls = 0;
+  let optionListCalls = 0;
+  let snapshotCalls = 0;
+  let saveResult: "success" | "conflict" = "success";
   let mcpStatusCalls = 0;
   let mcpStatusArgs: unknown[] = [];
   let appListCalls = 0;
@@ -123,6 +132,9 @@ describe("server state query hooks", () => {
   beforeEach(() => {
     configs = [makeConfig("/tmp/project-1/.codex/environment.json")];
     configListCalls = 0;
+    optionListCalls = 0;
+    snapshotCalls = 0;
+    saveResult = "success";
     mcpStatusCalls = 0;
     mcpStatusArgs = [];
     appListCalls = 0;
@@ -135,12 +147,29 @@ describe("server state query hooks", () => {
           return configs;
         }
 
+        if (channel === "worktrees:environments:list") {
+          optionListCalls += 1;
+          return configs.map((config) => ({
+            path: config.configPath,
+            name: config.name,
+            hasSetupScript: config.hasSetupScript,
+            hasCleanupScript: config.hasCleanupScript,
+            actionCount: config.actionCount,
+          }));
+        }
+
+        if (channel === "worktrees:environments:config:read") {
+          snapshotCalls += 1;
+          return makeSnapshot(configs);
+        }
+
         if (channel === "worktrees:environments:config:save") {
+          if (saveResult === "conflict") return { type: "conflict" };
           configs = [
             configs[0] ?? makeConfig("/tmp/project-1/.codex/environment.json"),
             makeConfig("/tmp/project-1/.codex/environment-2.json"),
           ];
-          return makeSnapshot(configs);
+          return { type: "success" };
         }
 
         if (channel === "codex:mcp-server-statuses:list") {
@@ -174,7 +203,7 @@ describe("server state query hooks", () => {
     });
   });
 
-  test("skips disabled MCP status queries and refreshes local environment configs after save", async () => {
+  test("skips disabled MCP queries and refetches all canonical environment data after success", async () => {
     const view = render(
       <TestQueryProvider>
         <ServerStateHarness />
@@ -182,19 +211,42 @@ describe("server state query hooks", () => {
     );
 
     await waitFor(() => {
-      expect(view.getByTestId("configs").textContent).toBe("1");
+      expect(view.getByTestId("configs").textContent).toBe("1|1|1");
     });
     expect(configListCalls).toBe(1);
+    expect(optionListCalls).toBe(1);
+    expect(snapshotCalls).toBe(1);
     expect(mcpStatusCalls).toBe(0);
 
     fireEvent.click(view.getByRole("button"));
     await settleAsyncRender();
 
     await waitFor(() => {
-      expect(view.getByTestId("configs").textContent).toBe("2");
+      expect(view.getByTestId("configs").textContent).toBe("2|2|2");
     });
     expect(configListCalls).toBe(2);
+    expect(optionListCalls).toBe(2);
+    expect(snapshotCalls).toBe(2);
     expect(mcpStatusCalls).toBe(0);
+  });
+
+  test("keeps canonical environment caches untouched after a conflict", async () => {
+    saveResult = "conflict";
+    const view = render(
+      <TestQueryProvider>
+        <ServerStateHarness />
+      </TestQueryProvider>,
+    );
+    await waitFor(() => {
+      expect(view.getByTestId("configs").textContent).toBe("1|1|1");
+    });
+
+    fireEvent.click(view.getByRole("button"));
+    await settleAsyncRender();
+
+    expect(configListCalls).toBe(1);
+    expect(optionListCalls).toBe(1);
+    expect(snapshotCalls).toBe(1);
   });
 
   test("shares one host catalog request across independent MCP consumers", async () => {

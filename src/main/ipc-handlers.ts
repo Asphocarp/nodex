@@ -89,6 +89,7 @@ import type {
   CodexHostMessage,
   CodexProtocolRequestId,
   DatabasePage,
+  UpdateWorktreeEnvironmentConfigInput,
 } from "../shared/types";
 import type { ProjectionCursor } from "../shared/projection-stream";
 import type {
@@ -1016,6 +1017,18 @@ function assertValidOccurrenceIpcInput(
   ) {
     throw new Error("Missing or invalid occurrence source");
   }
+}
+
+function assertValidWorktreeEnvironmentSaveInput(
+  input: UpdateWorktreeEnvironmentConfigInput,
+): void {
+  const revision = input?.expectedRevision;
+  if (revision === null || (
+    typeof revision === "string"
+    && /^sha256:[a-f0-9]{64}$/.test(revision)
+  )) return;
+
+  throw new Error("Invalid local environment revision");
 }
 
 function assertValidOccurrenceCompleteIpcInput(
@@ -3833,9 +3846,10 @@ export function registerIpcHandlers(
       codexService.readWorktreeEnvironmentConfig(projectId, configPath),
   );
 
-  registerHandle("worktrees:environments:config:save", (_, input) =>
-    codexService.saveWorktreeEnvironmentConfig(input),
-  );
+  registerHandle("worktrees:environments:config:save", (_, input) => {
+    assertValidWorktreeEnvironmentSaveInput(input);
+    return codexService.saveWorktreeEnvironmentConfig(input);
+  });
 
   registerHandle("worktrees:delete", (_, threadId: string) =>
     codexService.deleteManagedWorktree(threadId),

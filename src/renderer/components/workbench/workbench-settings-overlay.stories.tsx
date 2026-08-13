@@ -59,6 +59,7 @@ function buildEnvironmentSnapshot(
     configPath: ".codex/environments/environment.toml",
     nextConfigPath: ".codex/environments/environment-2.toml",
     configExists: true,
+    revision: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     configs: [
       {
         configPath: ".codex/environments/environment.toml",
@@ -84,7 +85,6 @@ function buildEnvironmentSnapshot(
           },
           actions: [
             {
-              id: "action-1",
               name: "Run tests",
               icon: "test",
               command: "bun test",
@@ -107,7 +107,6 @@ function buildEnvironmentSnapshot(
       },
       actions: [
         {
-          id: "action-1",
           name: "Run tests",
           icon: "test",
           command: "bun test",
@@ -131,7 +130,7 @@ function ensureStorybookElectronBridge({
   notificationSettings,
 }: {
   snapshots: Record<string, WorktreeEnvironmentSettingsSnapshot>;
-  onSaveSnapshot: (input: UpdateWorktreeEnvironmentConfigInput) => WorktreeEnvironmentSettingsSnapshot;
+  onSaveSnapshot: (input: UpdateWorktreeEnvironmentConfigInput) => { type: "success" };
   backups: BackupRecord[];
   onDeleteBackup: (backupId: string) => void;
   onCreateBackup: (label: string | null) => BackupRecord;
@@ -482,7 +481,7 @@ function SettingsRouteShellStory({
         ...current,
         [input.projectId]: nextSnapshot,
       }));
-      return nextSnapshot;
+      return { type: "success" };
     },
     backups,
     onDeleteBackup: (backupId) => {

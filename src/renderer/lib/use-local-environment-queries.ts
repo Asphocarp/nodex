@@ -8,7 +8,7 @@ import {
 import { queryKeys } from "./query-keys";
 import type {
   UpdateWorktreeEnvironmentConfigInput,
-  WorktreeEnvironmentSettingsSnapshot,
+  WorktreeEnvironmentSaveResult,
 } from "./types";
 
 interface QueryEnabledOptions {
@@ -54,20 +54,23 @@ export function useSaveLocalEnvironmentConfigMutation() {
 
   return useMutation({
     mutationFn: (input: UpdateWorktreeEnvironmentConfigInput) =>
-      invoke("worktrees:environments:config:save", input) as Promise<WorktreeEnvironmentSettingsSnapshot>,
-    onSuccess: async (snapshot) => {
-      queryClient.setQueryData(
-        queryKeys.localEnvironments.config(snapshot.projectId, snapshot.configPath),
-        snapshot,
-      );
-      await queryClient.invalidateQueries({
-        queryKey: queryKeys.localEnvironments.configs(snapshot.projectId),
-        exact: true,
-      });
-      await queryClient.invalidateQueries({
-        queryKey: queryKeys.localEnvironments.options(snapshot.projectId),
-        exact: true,
-      });
+      invoke("worktrees:environments:config:save", input) as Promise<WorktreeEnvironmentSaveResult>,
+    onSuccess: async (result, input) => {
+      if (result.type === "conflict") return;
+
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.localEnvironments.configScope(input.projectId),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.localEnvironments.configs(input.projectId),
+          exact: true,
+        }),
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.localEnvironments.options(input.projectId),
+          exact: true,
+        }),
+      ]);
     },
   });
 }

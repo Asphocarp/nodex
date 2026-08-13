@@ -707,11 +707,12 @@ export function LocalEnvironmentsSettingsSectionPage({
       initialProjectId={initialLocalEnvironmentProjectId}
       initialConfigPath={initialLocalEnvironmentConfigPath}
       onAddProject={onRequestProjectPickerOpen}
-      renderShell={({ title, subtitle, backSlot, children }) => (
+      renderShell={({ title, subtitle, backSlot, action, children }) => (
         <SettingsPageSurface
           title={title}
           subtitle={subtitle}
           backSlot={backSlot}
+          action={action}
         >
           {children}
         </SettingsPageSurface>
