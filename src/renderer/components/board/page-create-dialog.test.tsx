@@ -537,6 +537,8 @@ describe("PageCreateDialog", () => {
     await waitFor(() => expect(document.activeElement).toBe(
       view.getByRole("textbox", { name: "Page title" }),
     ));
+    expect(view.getByRole("button", { name: "Priority" }).textContent).toContain("Priority");
+    expect(view.getByRole("button", { name: "Estimate" }).textContent).toContain("Estimate");
 
     await act(async () => {
       fireEvent.click(view.getByRole("button", { name: "Priority" }));
@@ -577,6 +579,16 @@ describe("PageCreateDialog", () => {
       await Promise.resolve();
     });
     expect(view.getByRole("button", { name: "Estimate" }).textContent).toContain("M");
+
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Estimate" }));
+      await Promise.resolve();
+    });
+    await act(async () => {
+      fireEvent.click(view.getByRole("option", { name: "No estimate" }));
+      await Promise.resolve();
+    });
+    expect(view.getByRole("button", { name: "Estimate" }).textContent).toContain("Estimate");
     expect(view.getByRole("dialog")).toBeTruthy();
   });
 });

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Check } from "@/components/shared/icons/generic-icons";
-import { EstimatePickerIcon, PriorityValueIcon } from "@/components/shared/icons";
+import { EstimateIcon, PriorityValueIcon } from "@/components/shared/icons";
 import { EMPTY_PRIORITY_OPTION_VALUE, BOARD_PRIORITY_SELECT_OPTIONS } from "@/lib/board-options";
 import {
   NodexDropdownActionRow,
@@ -247,7 +247,7 @@ function renderItemContent(propertyType: string, item: MenuItemData) {
   if (propertyType === "estimate") {
     return (
       <span className="inline-flex min-w-0 items-center gap-2 text-sm/5 text-token-text-primary">
-        <EstimatePickerIcon className="size-4 text-token-description-foreground" />
+        <EstimateIcon className="size-4 text-token-description-foreground" />
         <span className="truncate">{item.label}</span>
       </span>
     );

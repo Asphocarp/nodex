@@ -27,11 +27,6 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Status: Story = {};
-export const InlineStatus: Story = {
-  args: {
-    presentation: "inline",
-  },
-};
 export const RenamedStatus: Story = {
   args: {
     label: "Workflow",
