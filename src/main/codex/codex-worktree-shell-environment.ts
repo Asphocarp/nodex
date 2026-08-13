@@ -466,6 +466,95 @@ export async function runCodexWorktreeSetupScript(
   }
 }
 
+export async function runCodexWorktreeCleanupScript(input: {
+  readonly script: string;
+  readonly cwd: string;
+  readonly environment?: NodeJS.ProcessEnv;
+  readonly signal?: AbortSignal;
+  readonly onOutput?: (output: { stream: "stdout" | "stderr"; data: string }) => void;
+  readonly loadBaseEnvironment?: () => Promise<NodeJS.ProcessEnv>;
+}): Promise<void> {
+  if (input.signal?.aborted) throw new Error("Worktree environment cleanup canceled.");
+  const temporaryRoot = await mkdtemp(path.join(tmpdir(), "nodex-worktree-cleanup-"));
+  const scriptPath = path.join(temporaryRoot, `${randomUUID()}-cleanup.sh`);
+  await writeFile(scriptPath, input.script, "utf8");
+  try {
+    const baseEnvironment = input.loadBaseEnvironment
+      ? await input.loadBaseEnvironment()
+      : await loadCodexLocalShellEnvironment();
+    await new Promise<void>((resolve, reject) => {
+      const child = spawn("bash", [scriptPath], {
+        cwd: input.cwd,
+        detached: process.platform !== "win32",
+        env: {
+          ...baseEnvironment,
+          COLORTERM: "truecolor",
+          FORCE_COLOR: "1",
+          TERM: "xterm-256color",
+          ...input.environment,
+        },
+        windowsHide: true,
+      });
+      let settled = false;
+      let canceled = false;
+      let killTimer: ReturnType<typeof setTimeout> | null = null;
+      let stdoutTail = "";
+      let stderrTail = "";
+      const onAbort = () => {
+        canceled = true;
+        if (child.exitCode !== null || child.signalCode !== null) return;
+        killChildProcessTree(child, "SIGTERM");
+        killTimer = setTimeout(() => {
+          if (child.exitCode === null && child.signalCode === null) {
+            killChildProcessTree(child, "SIGKILL");
+          }
+        }, SETUP_KILL_ESCALATION_MS);
+        killTimer.unref?.();
+      };
+      input.signal?.addEventListener("abort", onAbort, { once: true });
+      if (input.signal?.aborted) onAbort();
+      child.stdout?.on("data", (chunk: Buffer) => {
+        const text = chunk.toString("utf8");
+        stdoutTail = appendOutputTail(stdoutTail, text);
+        input.onOutput?.({ stream: "stdout", data: text });
+      });
+      child.stderr?.on("data", (chunk: Buffer) => {
+        const text = chunk.toString("utf8");
+        stderrTail = appendOutputTail(stderrTail, text);
+        input.onOutput?.({ stream: "stderr", data: text });
+      });
+      child.on("error", (error) => {
+        if (settled) return;
+        settled = true;
+        input.signal?.removeEventListener("abort", onAbort);
+        reject(canceled
+          ? new Error("Worktree environment cleanup canceled.")
+          : new Error(`Worktree environment cleanup script failed.\n${String(error)}`));
+      });
+      child.on("close", (code) => {
+        if (settled) return;
+        settled = true;
+        if (killTimer) clearTimeout(killTimer);
+        input.signal?.removeEventListener("abort", onAbort);
+        if (canceled) {
+          reject(new Error("Worktree environment cleanup canceled."));
+          return;
+        }
+        if (code === 0) {
+          resolve();
+          return;
+        }
+        const output = [stdoutTail.trim(), stderrTail.trim()].filter(Boolean).join("\n");
+        reject(new Error(
+          `Worktree environment cleanup script failed.${output ? `\n${output}` : ""}`,
+        ));
+      });
+    });
+  } finally {
+    await rm(temporaryRoot, { recursive: true, force: true });
+  }
+}
+
 /** Exact `q2/Y2/X2`: resolve the worktree-local git path, then write or clear it. */
 export async function persistCodexWorktreeShellEnvironment(input: {
   readonly cwd: string;

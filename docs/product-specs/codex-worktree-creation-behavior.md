@@ -9,8 +9,11 @@ cancel behavior, conversation handoff, and the worktree initialization activity
 shown at the top of the finished Chat.
 
 General Chat identity and Project ownership remain in
-[Codex Workspace Behavior](codex-workspace-behavior.md). General transcript
-projection remains in
+[Codex Workspace Behavior](codex-workspace-behavior.md). Snapshot, removal,
+restore, retention, sidebar identity, and moving an existing Chat are specified
+in
+[Codex Managed Worktree Lifecycle Behavior](codex-managed-worktree-lifecycle-behavior.md).
+General transcript projection remains in
 [Codex Thread Transcript Behavior](codex-thread-transcript-behavior.md). Exact
 host elements, token classes, icons, and visual fixtures are owned by the
 focused renderer components and Storybook stories named below.
@@ -70,11 +73,21 @@ Composer submission is blocked while the selected intent cannot be safely
 resolved. Opening Environment settings receives the exact repair path when one
 exists.
 
+The selected config crosses IPC and execution-host boundaries only as a
+portable workspace-relative identifier under `.codex/environments` (for
+example `.codex/environments/environment.toml`). An absolute source-machine
+path, traversal segment, or path outside that directory is invalid. The host
+resolves and canonically contains the identifier against its own source
+workspace before reading it.
+
 ## Pending lifecycle and actions
 
 Electron Main owns an in-memory collection of pending worktrees. Each entry has
 an immutable launch descriptor plus an attempt number, phase, two bounded output
-tails, allocated roots, failure/attention metadata, and presentation metadata.
+tails, successfully created roots, failure/attention metadata, and presentation
+metadata. An allocated filesystem path is lifecycle-private until Git creation
+succeeds; allocation alone must never make the renderer, retry logic, or cleanup
+logic treat a worktree as created.
 Its worktree phase is one of `queued`, `creating`, `setting-up`,
 `worktree-ready`, or `failed`. Conversation start is a separate state machine:
 `waiting`, `starting`, `succeeded`, or `failed`.
@@ -86,11 +99,17 @@ emits an explicit phase with every chunk; Main never guesses phase from log
 text.
 
 The pending route uses the normal conversation scroll frame. It shows the
-submitted user bubble with an always-available Copy action, then worktree/setup
-activities and their output. Running and terminal actions appear in this order:
+submitted user bubble with an always-available Copy action, then one compact
+progress surface. That surface reports `Preparing workspace`, `Checking out
+files`, and, when selected, `Setting up environment`; checkout exposes Git's
+numeric `Updating files` progress when available. Failure details start open,
+stay mounted when collapsed, and combine the bounded worktree/setup output with
+the terminal error exactly once. Running and terminal actions appear in this
+order:
 
 - During `queued`, `creating`, or `setting-up`: `Work locally`, then `Cancel`.
-  Both share the active-action loading state.
+  Both are compact ghost actions with their laptop and close glyphs and share
+  the active-action loading state.
 - After a creation failure: `Edit environment`, then `Retry` when applicable.
 - After setup failure with an allocated worktree: `Edit environment`,
   `Auto-fix` when eligible, `Retry`, then the primary `Continue anyway` action.
@@ -107,9 +126,10 @@ continues to conversation start. Dismissal after successful handoff removes only
 pending presentation state and never deletes the ready worktree.
 
 Auto-fix starts an independent pending repair Chat without an Environment. A
-stable-worktree request shares the worker transaction but, on success, adds a
-workspace root and does not start a conversation. Neither path changes the
-ordinary prompt-created worktree state machine.
+stable-worktree request shares the worker transaction but, on success, creates
+a permanent Project whose primary source is the worktree and whose additional
+sources retain their original order. It does not start a conversation. Neither
+path changes the ordinary prompt-created worktree state machine.
 
 ## Host-owned worktree transaction
 
@@ -120,12 +140,21 @@ thread; another host may register its own adapter for paths it owns. Default
 branch resolution happens inside that host's worker. Local-only ignored-file
 propagation is disabled for non-local adapters.
 
+Every local or remote worker request is checked against the same versioned
+runtime codec before it is dispatched. A producer/codec mismatch fails that
+request before a worker is opened or poisoned; worker crash remains a separate
+infrastructure failure. Production-shaped contract tests use the same portable
+Environment identifier that Composer emits rather than substituting an
+absolute test-only path.
+
 The create transaction is linear and all-or-cleanup:
 
 1. Resolve the source Git root and the selected source subdirectory suffix.
 2. Allocate `<worktrees root>/<first four UUID characters>/<repository name>`,
-   retrying bounded collisions. Publish both Git and workspace roots before
-   `git worktree add`, so cancel can clean every partial state.
+   retrying bounded collisions. Main registers the allocated Git root as a
+   lifecycle-private newborn before `git worktree add`; the worker transaction
+   owns abort cleanup. Public pending-entry roots remain null until creation
+   succeeds or setup fails after a completed Git creation.
 3. Resolve the selected local branch/ref, full remote ref, or working-tree base.
    A missing local tracking branch for a selected remote ref is created with
    its upstream and rolled back if the transaction fails.
@@ -175,11 +204,32 @@ client-to-Thread mapping, inserts the client-only worktree initialization item
 into the pre-first-turn canonical snapshot, and calls the first `turn/start`
 with the original input.
 
-This ordering makes the finished Chat begin with worktree initialization
-activity followed by the user's prompt. The synthetic item is an app-side
-canonical item; it is never added to the generated app-server `ThreadItem`
-union, never sent as protocol history, and is filtered from accepted server
-items.
+Before the renderer opens the pending route, the start controller carries the
+actual target Project Session beside the immutable client Thread id. A start in
+the current blank Session promotes that Session's existing Thread scope; a
+cross-Project start binds to the newly selected target Session instead. Pending
+route resolution and the later server Thread id extend that one identity graph;
+they do not allocate replacement React/renderer owners. A real attempt to join
+two independently established scopes is still a typed identity conflict and
+fails closed.
+
+The rewritten root sequence is the single execution-permission contract for
+app-server start/resume, Turn sandbox projection, Core durable writable roots,
+hydration, fork, stable Project creation, Auto-fix, and scheduled automation.
+It is always the new primary followed by path-equivalent-deduplicated
+additional roots in their original order. The old primary checkout is not
+retained as a writable root. An explicitly selected cwd outside the source
+primary remains an explicit root; a cwd nested below the source primary is
+rebased below the worktree and is covered by the new primary rather than added
+as a redundant writable root.
+
+For a new Chat, the synthetic item belongs to the optimistic first Turn. It is
+staged before app-server items but treated as a transparent user-prefix item,
+so the rendered Turn is user prompt, worked-time disclosure, worktree
+initialization activity, then assistant response. The synthetic item is an
+app-side canonical item; it is never added to the generated app-server
+`ThreadItem` union, never sent as protocol history, and is filtered from
+accepted server items.
 
 Forking uses app-server `thread/fork` from the latest or selected source Turn,
 rewrites cwd and roots the same way, and appends worktree initialization as its
@@ -196,26 +246,30 @@ recovery across a complete Main-process restart.
 
 ## Activity presentation and accessibility
 
-Worktree initialization uses one ordered activity list with these exact labels:
-`Creating a worktree`, `Worktree created`, `Failed to create worktree`,
-`Setting up the environment`, `Environment set up`, `Environment setup
-skipped`, `Failed to set up the environment`, `Starting the conversation`, and
-`Failed to start the conversation`.
+The pending route and completed Thread intentionally use different authored
+structures. Pending creation has a title row (`Creating a worktree`, `Worktree
+created`, `Worktree setup failed`, or `Task failed to start`) followed by a
+single bordered progress card while work remains or an error is actionable. A
+ready worktree hides the card; while conversation start is in flight it shows a
+separate shimmer row labelled `Starting a task`.
 
-Each worktree or setup activity is an authored disclosure row with the shared
-status icon, summary, chevron, optional plain shell output, and optional action
-footer. The running conversation activity is a shimmer row rather than a
-disclosure. The last actionable activity starts expanded. A running disclosure
-starts expanded but respects a manual collapse; completed rows keep their own
-manual state. Disclosure bodies remain mounted and switch `aria-hidden`,
-`inert`, pointer events, overflow, measured height, and opacity together.
+The progress card is an ordered step list plus an optional plain shell and one
+footer containing `More details`/`Less details` and the state-valid actions.
+Failed steps use the failure icon and danger text, pending steps use subdued
+text, and running/completed steps use the informational color. Failure details
+start expanded. Collapsing details leaves the shell subtree mounted and hidden;
+only the chevron uses the relaxed transform transition. Plain shell output is
+capped at 9rem, scrolls in both axes when necessary, and provides its shared
+Copy output action. Shimmer animation is suppressed by the global
+reduced-motion media rule.
 
-The shared height transition is 0.3 seconds with easing
-`[0.19, 1, 0.22, 1]`; the chevron uses the shared relaxed transform token.
-Plain shell output is capped at 9rem, scrolls in both axes when necessary,
-keeps its action footer outside the clipped body, and provides a hover/focus
-Copy output action. Shimmer animation is suppressed by the global reduced-motion
-media rule; no worktree-only reduced-motion behavior is invented.
+After handoff, the synthetic `worktreeInit` Thread item keeps the separate
+ordered activity-disclosure presentation for durable transcript history. Its
+mounted measured-height disclosure behavior is not reused by the pending
+progress card. Completed activities start collapsed and can be expanded in
+place beneath the Turn's worked-time summary. Choosing no Environment adds no
+setup activity; `No local environment selected` remains part of the worktree
+output instead.
 
 The implementation owners are:
 
@@ -223,6 +277,7 @@ The implementation owners are:
 - `src/renderer/features/local-conversation/view/shared/worktree-starting-state-popover.tsx`
 - `src/renderer/features/local-conversation/view/shared/environment-selector-popover.tsx`
 - `src/renderer/components/workbench/pending-worktree-route.tsx`
+- `src/renderer/components/workbench/pending-worktree-progress.tsx`
 - `src/renderer/features/local-conversation/view/shared/tools/worktree-init-activity-list.tsx`
 - `src/renderer/features/local-conversation/view/shared/tools/tool-primitives.tsx`
 - `src/renderer/features/local-conversation/view/shared/tools/thread-command-shell-block.tsx`
@@ -238,8 +293,9 @@ duplicate token-class strings.
 
 - The renderer cannot invoke raw create/remove worktree worker operations.
 - The generated app-server protocol does not gain a `worktreeInit` item.
-- Worktree Settings, onboarding, and long-term cleanup are separate features
-  except where they call the shared transaction.
+- Worktree Settings, snapshot/removal/restore, ownership transfer, and long-term
+  cleanup are owned by
+  [Codex Managed Worktree Lifecycle Behavior](codex-managed-worktree-lifecycle-behavior.md).
 - A remote-host option is advertised only when a real host adapter and its
   repository/environment catalog are registered. Nodex never treats a remote
   path as a local filesystem path.

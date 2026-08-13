@@ -9,6 +9,7 @@
 | calendar-and-reminders-behavior.md | Active | 2026-08-12 | Calendar release gate, occurrence presentation, recurrence scopes, reminders, and notification routing |
 | codex-workspace-behavior.md | Active | 2026-08-12 | Chat lifecycle, Project/projectless workspaces, worktrees, forks, Side chats, runtime integrations, and intelligence state |
 | codex-worktree-creation-behavior.md | Active | 2026-08-13 | New-worktree Composer choices, Git/setup transaction, pending recovery, conversation handoff, and initialization activity |
+| codex-managed-worktree-lifecycle-behavior.md | Active | 2026-08-14 | Managed-worktree identity, snapshot/removal/restore, retention, ownership transfer, handoff, and execution-host behavior |
 | agent-interface-behavior.md | Active | 2026-08-12 | Project-bound Nodex tools, native CLI/Skill boundary, authorization, semantic preconditions, and Agent content rules |
 | auto-review-behavior.md | Active | 2026-04-09 | Detailed Auto-review contract covering config-backed preset resolution, availability and reviewer fallback, UI surfaces, and approval request lifecycle |
 | desktop-notification-behavior.md | Active | 2026-04-09 | Detailed Electron desktop notification contract for thread turn-complete, approval, and question notifications, including suppression, payloads, and action routing |

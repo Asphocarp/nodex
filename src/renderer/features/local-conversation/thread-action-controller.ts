@@ -40,7 +40,10 @@ export interface ThreadActionControllerInput {
     materialized: CodexThreadGoalMaterializedDraft | null,
   ) => Promise<void>;
   onRefreshProjectSessions: (projectId: string | null) => Promise<ProjectSession[]>;
-  onOpenPendingWorktree?: (clientThreadId: string) => void;
+  onOpenPendingWorktree?: (
+    clientThreadId: string,
+    projectSessionId: string,
+  ) => void;
   newThreadStartBlockedReason?: string | null;
   onForkSessionFromTurn?: (input: {
     threadId: string;
@@ -286,7 +289,7 @@ export function createThreadStageActions(input: ThreadActionControllerInput): Th
           if (!input.onOpenPendingWorktree) {
             throw new Error("Pending worktree navigation is unavailable");
           }
-          input.onOpenPendingWorktree(result.clientThreadId);
+          input.onOpenPendingWorktree(result.clientThreadId, targetSessionId);
           return;
         }
         await input.onRefreshProjectSessions(projectId);

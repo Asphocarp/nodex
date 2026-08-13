@@ -95,6 +95,8 @@ export function createDesktopProjectWorkspaceBridge(
       await (await resolve()).upsertThread(threadId, patch),
     updateThread: async (threadId, patch) =>
       await (await resolve()).updateThread(threadId, patch),
+    setThreadExecutionLocation: async (threadId, location) =>
+      await (await resolve()).setThreadExecutionLocation(threadId, location),
     moveThread: async (input) =>
       await (await resolve()).moveThread(input),
     setThreadUnread: async (threadId, unread) =>
@@ -122,6 +124,8 @@ export function createDesktopProjectWorkspaceBridge(
       await (await resolve()).listBackgroundProcesses(threadId),
     listManagedWorktreeWindow: async (input) =>
       await (await resolve()).listManagedWorktreeWindow(input),
+    readManagedWorktreeLifecycleSnapshot: async () =>
+      await (await resolve()).readManagedWorktreeLifecycleSnapshot(),
     upsertBackgroundProcess: async (processInput, options) =>
       await (await resolve()).upsertBackgroundProcess(processInput, options),
     setProjectThreadOrder: async (projectId, orderedThreadIds) =>

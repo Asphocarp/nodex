@@ -7,12 +7,12 @@ import {
 import { isAbsolute, join } from "node:path";
 import { z } from "zod";
 import { resolveNodexProjectsDirectory } from "../nodex-projects-directory";
-import type { InitialProjectJournal } from "./initial-project-journal-store";
 import {
   isMissingPathError,
   syncDirectory,
   writeDurableJson,
-} from "./initial-project-journal-store";
+} from "../durable-json-file";
+import type { InitialProjectJournal } from "./initial-project-journal-store";
 
 const MARKER_FILE_NAME = ".nodex-initial-project-v2.json";
 const MARKER_MAX_BYTES = 4 * 1024;

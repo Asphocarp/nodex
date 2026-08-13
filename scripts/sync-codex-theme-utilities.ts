@@ -33,6 +33,7 @@ const ROOT_SELECTOR_BLOCKS = [
   ".heading-dialog",
   ".heading-sm",
   ".heading-xs",
+  ".text-danger",
   ".contain-inline-size",
   ".text-size-chat",
   ".text-size-chat-sm",

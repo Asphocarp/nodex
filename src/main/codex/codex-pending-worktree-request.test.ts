@@ -22,6 +22,7 @@ describe("pending worktree request allocation", () => {
       hostId: "local",
       label: "Persistent project",
       sourceWorkspaceRoot: "/repo",
+      sourceWorkspaceRoots: ["/repo", "/shared"],
       startingState: { type: "branch", branchName: "HEAD" },
       localEnvironmentConfigPath: null,
       prompt: "Create a persistent project worktree",
@@ -43,6 +44,7 @@ describe("pending worktree request allocation", () => {
       hostId: "local",
       label: "Forked task",
       sourceWorkspaceRoot: "/repo",
+      sourceWorkspaceRoots: ["/repo", "/shared"],
       startingState: { type: "working-tree" },
       localEnvironmentConfigPath: null,
       prompt: "Forking task",
@@ -140,6 +142,26 @@ describe("pending worktree frozen start payload", () => {
         path: "/worktrees/a1b2/primary/packages/app",
         pendingCoreUpdate: false,
       },
+    });
+  });
+
+  test("keeps an external custom cwd explicit instead of granting the old primary", () => {
+    expect(projectCodexPendingWorktreeLaunchLocation({
+      sourceWorkspaceRoot: "/repo/primary",
+      worktreeWorkspaceRoot: "/worktrees/a1b2/primary",
+      params: {
+        cwd: "/scratch/custom-cwd",
+        workspaceRoots: ["/repo/primary", "/repo/shared"],
+        projectAssignment: null,
+      },
+    })).toEqual({
+      cwd: "/scratch/custom-cwd",
+      workspaceRoots: [
+        "/worktrees/a1b2/primary",
+        "/repo/shared",
+        "/scratch/custom-cwd",
+      ],
+      projectAssignment: null,
     });
   });
 

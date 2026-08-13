@@ -91,7 +91,7 @@ The decisions behind this model are recorded in [ADR 0017](docs/adr/0017-library
 | Backups, restore, retention, Store maintenance | Rust Core Administration Module | Electron administration adapter and controlled relaunch |
 | Active Codex conversation document | Current renderer owner, seeded from app-server state | Main holds a validated relay/recovery replica; followers render validated copies |
 | Codex wire protocol and remote Thread observations | Pinned Codex-compatible app-server | Main validates and routes generated protocol envelopes |
-| Pending worktree lifecycle and streamed setup state | Electron Main coordinator and its host-scoped worktree worker | Renderer projects typed pending snapshots; Core persists only resulting Session/Thread/worktree metadata |
+| Managed worktree creation and lifecycle | Electron Main lifecycle coordinator and the worktree's execution-host worker | Renderer projects typed pending/availability/inventory state; Core persists only durable execution location and Session/Thread/worktree metadata |
 | Window layout, owner-scoped Scenes, surface placement | Renderer Window Session App aggregate | Main persists the revisioned Window Session catalog |
 | Browser guests, Browser Use, MCP App guests, Terminal processes | Electron Main runtime aggregates | Renderer holds presentation descriptors and host bindings only |
 | Git repository live-read state | Main-owned Git worker process | Typed Main/preload bus and renderer query projections |
@@ -222,8 +222,41 @@ host-scoped worktree worker owns Git and setup filesystem effects. The renderer
 can observe and act on typed pending entries but cannot invoke raw worktree
 mutation. Core receives only the successful durable Session/Thread link and
 managed-worktree metadata; the app-side initialization activity remains outside
-the generated app-server protocol. See
+the generated app-server protocol. Main keeps that synthetic activity only for
+its process lifetime: renderer replacement can recover it from Main's
+conversation document, while a Main/app restart reconstructs protocol history
+without it. See
 [Codex worktree creation behavior](docs/product-specs/codex-worktree-creation-behavior.md).
+
+Execution-host workers use a versioned, operation-discriminated protocol. Main
+routes an operation only to a registered host that advertises the capability;
+request, progress, terminal result, and cancellation retain the same operation
+identity across the boundary. A worker crash fails its in-flight requests and
+the host adapter may start a fresh worker for later requests.
+
+Thread-scoped app-server requests are routed from the same Core-backed execution
+host projection. Global account and configuration requests remain local. A
+cross-host handoff is the only pre-commit exception: Main explicitly addresses
+the destination app-server while Core still names the source, then atomically
+commits the new host with cwd and runtime roots. SSH adapters are registered only
+after health, worker-deployment, file-transfer, and app-server capabilities are
+ready; renderer and Core never receive SSH credentials or arbitrary commands.
+
+After creation, one Main-owned managed-worktree lifecycle Module coordinates
+inspection, snapshot policy, Environment cleanup, removal, restoration,
+ownership transfer, retention, and execution-location movement. The owning
+execution-host worker alone mutates Git, files, and scripts. Core Workspace
+atomically persists the durable host/cwd/worktree execution location but never
+inspects a repository or stores snapshot refs. Its lifecycle read publishes all
+managed-worktree consumers and Project protection roots at one projection
+revision. Settings, archive, automation, and handoff call the same lifecycle
+Interface rather than invoking physical removal independently. See
+[Codex managed worktree lifecycle behavior](docs/product-specs/codex-managed-worktree-lifecycle-behavior.md).
+
+Core's execution location also wins during app-server hydration. Every managed
+Thread resume explicitly projects the durable cwd and writable roots; an
+app-server metadata read cannot rewrite that location or reintroduce a replaced
+Project source checkout into the writable-root set.
 
 ### Window Session and Workbench presentation
 
@@ -289,7 +322,7 @@ This map names stable regions and responsibilities rather than enumerating indiv
 | [`src/main/browser`](src/main/browser) and [`src/main/browser-use`](src/main/browser-use) | Main-owned Browser runtime and automation integration |
 | [`src/main/mcp-app`](src/main/mcp-app) | Sandboxed MCP App guest attachment and MessagePort host |
 | [`src/main/git-worker`](src/main/git-worker) | Generation-bound repository read worker |
-| [`src/main/worktree-worker`](src/main/worktree-worker) | Main-internal host adapter for cancellable managed-worktree creation, setup streaming, and cleanup |
+| [`src/main/worktree-worker`](src/main/worktree-worker) | Main-internal execution-host adapter for cancellable managed-worktree creation, snapshot/removal/restore, setup/cleanup streaming, and handoff effects |
 | [`src/main/local-store`](src/main/local-store) | Host-only preferences, assets, notification and persistence support; never semantic DB authority |
 | [`src/preload`](src/preload) | Context-isolated typed bridge |
 | [`src/renderer/features`](src/renderer/features) | Feature-owned application state and workflows |

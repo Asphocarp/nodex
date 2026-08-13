@@ -5,6 +5,7 @@ import type {
 } from "../../shared/codex-pending-worktree";
 import { appendTextTail } from "../../shared/bounded-text";
 import { WORKTREE_OUTPUT_TAIL_MAX_CHARS } from "../../shared/worktree-output";
+import { rewriteExecutionWorkspaceRoots } from "./codex-execution-workspace-roots";
 
 export type {
   CodexPendingForkConversationRequest,
@@ -80,10 +81,10 @@ export type CodexPendingWorktreeEffect =
       readonly includeWorktreeInit: boolean;
     }
   | {
-      readonly type: "addWorkspaceRoot";
+      readonly type: "registerStableProject";
       readonly pendingWorktreeId: string;
       readonly attempt: number;
-      readonly workspaceRoot: string;
+      readonly workspaceRoots: readonly string[];
       readonly label: string;
     };
 
@@ -94,13 +95,6 @@ export type CodexPendingWorktreeAction =
       readonly createdAt: number;
     }
   | { readonly type: "start"; readonly pendingWorktreeId: string; readonly attempt: number }
-  | {
-      readonly type: "pathAllocated";
-      readonly pendingWorktreeId: string;
-      readonly attempt: number;
-      readonly worktreeGitRoot: string;
-      readonly worktreeWorkspaceRoot: string;
-    }
   | {
       readonly type: "setupStarted";
       readonly pendingWorktreeId: string;
@@ -135,7 +129,7 @@ export type CodexPendingWorktreeAction =
       readonly errorMessage: string;
     }
   | {
-      readonly type: "workspaceRootAdded";
+      readonly type: "stableProjectRegistered";
       readonly pendingWorktreeId: string;
       readonly attempt: number;
     }
@@ -240,14 +234,19 @@ export function resolveCodexPendingWorktreeThread(
     );
     if (!pendingStart) return null;
     const [pendingWorktreeId, start] = pendingStart;
-    return start.value.state === "failed"
-      ? {
+    if (start.value.state === "failed") {
+      return {
           state: "failed",
           clientThreadId,
           pendingWorktreeId,
           errorMessage: start.value.errorMessage,
-        }
-      : { state: "waiting", clientThreadId, pendingWorktreeId };
+        };
+    }
+    return {
+      state: start.value.state === "starting" ? "starting" : "waiting",
+      clientThreadId,
+      pendingWorktreeId,
+    };
   }
 
   const conversationStart = state.conversationStartsByPendingWorktreeId.get(entry.id)?.value;
@@ -260,6 +259,9 @@ export function resolveCodexPendingWorktreeThread(
         ? conversationStart.errorMessage
         : entry.errorMessage,
     };
+  }
+  if (conversationStart?.state === "starting") {
+    return { state: "starting", clientThreadId, pendingWorktreeId: entry.id };
   }
   return { state: "waiting", clientThreadId, pendingWorktreeId: entry.id };
 }
@@ -455,10 +457,14 @@ function setPendingWorktreeReady(
     state: nextState,
     effects: [
       {
-        type: "addWorkspaceRoot",
+        type: "registerStableProject",
         pendingWorktreeId: readyEntry.id,
         attempt: readyEntry.attempt,
-        workspaceRoot: action.worktreeWorkspaceRoot,
+        workspaceRoots: rewriteExecutionWorkspaceRoots({
+          sourcePrimary: readyEntry.sourceWorkspaceRoot,
+          targetPrimary: action.worktreeWorkspaceRoot,
+          workspaceRoots: readyEntry.sourceWorkspaceRoots,
+        }),
         label: readyEntry.label,
       },
     ],
@@ -786,23 +792,6 @@ export function reduceCodexPendingWorktreeState(
       return createPendingWorktree(state, action);
     case "start":
       return startPendingWorktree(state, action.pendingWorktreeId, action.attempt);
-    case "pathAllocated": {
-      const entry = entryForAttempt(state, action.pendingWorktreeId, action.attempt);
-      if (
-        !entry
-        || (entry.phase !== "creating" && entry.phase !== "setting-up")
-      ) {
-        return unchanged(state);
-      }
-      return {
-        state: withEntry(state, {
-          ...entry,
-          worktreeGitRoot: action.worktreeGitRoot,
-          worktreeWorkspaceRoot: action.worktreeWorkspaceRoot,
-        }),
-        effects: [],
-      };
-    }
     case "setupStarted": {
       const entry = entryForAttempt(state, action.pendingWorktreeId, action.attempt);
       if (!entry || entry.phase !== "creating") return unchanged(state);
@@ -863,7 +852,7 @@ export function reduceCodexPendingWorktreeState(
       };
       return { state: withEntry(state, failed), effects: [] };
     }
-    case "workspaceRootAdded":
+    case "stableProjectRegistered":
       return completeStableWorkspaceRootRegistration(
         state,
         action.pendingWorktreeId,

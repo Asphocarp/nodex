@@ -1,12 +1,17 @@
 import {
-  type ComponentProps,
+  type ComponentPropsWithoutRef,
   useCallback,
   useEffect,
   useEffectEvent,
   useRef,
   useState,
 } from "react";
-import { ActivitySpinnerIcon } from "@/components/shared/icons";
+import {
+  ActivitySpinnerIcon,
+  CloseIcon,
+  PendingWorktreeLocalIcon,
+  PendingWorktreeRetryIcon,
+} from "@/components/shared/icons";
 import { NodexButton } from "@/components/ui/button";
 import { toast } from "@/components/ui/toast";
 import {
@@ -19,18 +24,16 @@ import {
 } from "@/features/local-conversation/view/shared/thread-message-actions";
 import { UserMessageText } from "@/features/local-conversation/view/shared/user-message-collapse";
 import { THREAD_VISUAL_TOKENS } from "@/features/local-conversation/view/blocks/local-conversation-visual-tokens";
-import { WorktreeInitActivityList } from "@/features/local-conversation/view/shared/tools/worktree-init-activity-list";
 import { invoke, subscribeCodexPendingWorktreesChanged } from "@/lib/api";
+import { cn } from "@/lib/utils";
 import type {
   CodexPendingWorktreeEntry,
   CodexPendingWorktreeThreadResolution,
   CodexPendingWorktreesChangedEvent,
 } from "../../../shared/codex-pending-worktree";
 import type { CodexAgentMode } from "../../../shared/types";
-import {
-  resolvePendingWorktreeActivities,
-  resolvePendingWorktreeRouteActions,
-} from "./pending-worktree-route-model";
+import { PendingWorktreeProgress } from "./pending-worktree-progress";
+import { resolvePendingWorktreeRouteActions } from "./pending-worktree-route-model";
 
 type PendingWorktreeRouteAction =
   | "auto-fix"
@@ -141,17 +144,33 @@ function PendingWorktreeActionButton({
   children,
   disabled = false,
   loading = false,
+  tone = "ghost",
+  className,
   ...props
-}: ComponentProps<typeof NodexButton> & { loading?: boolean }) {
+}: ComponentPropsWithoutRef<"button"> & {
+  loading?: boolean;
+  tone?: "ghost" | "primary" | "secondary";
+}) {
   return (
-    <NodexButton
+    <button
+      type="button"
       aria-busy={loading || undefined}
       disabled={disabled || loading}
+      className={cn(
+        "no-drag flex h-6 cursor-interaction items-center gap-1 rounded-full border border-transparent px-2 py-0.5 text-sm leading-[18px] whitespace-nowrap select-none focus:outline-none focus-visible:ring-2 focus-visible:ring-token-focus disabled:cursor-not-allowed disabled:opacity-40",
+        tone === "secondary"
+          && "bg-token-foreground/5 text-token-foreground enabled:hover:bg-token-foreground/10",
+        tone === "ghost"
+          && "text-token-text-tertiary enabled:hover:bg-token-list-hover-background",
+        tone === "primary"
+          && "bg-token-foreground text-token-dropdown-background enabled:hover:bg-token-foreground/80",
+        className,
+      )}
       {...props}
     >
       {loading ? <ActivitySpinnerIcon aria-hidden="true" className="icon-xs" /> : null}
       {children}
-    </NodexButton>
+    </button>
   );
 }
 
@@ -167,7 +186,6 @@ export function PendingWorktreeRouteView({
   onRetry,
   onWorkLocally,
 }: PendingWorktreeRouteViewProps) {
-  const activities = resolvePendingWorktreeActivities(entry, resolution);
   const availableActions = resolvePendingWorktreeRouteActions(entry, resolution);
   const actionButtons = availableActions.canCancel
     || availableActions.canAutoFix
@@ -179,37 +197,35 @@ export function PendingWorktreeRouteView({
         <>
           {availableActions.canWorkLocally ? (
             <PendingWorktreeActionButton
-              variant="secondary"
-              size="sm"
+              tone="ghost"
               loading={busyAction === "work-locally" || busyAction === "cancel"}
               onClick={onWorkLocally}
             >
+              <PendingWorktreeLocalIcon />
               Work locally
             </PendingWorktreeActionButton>
           ) : null}
           {availableActions.canCancel ? (
             <PendingWorktreeActionButton
-              variant="secondary"
-              size="sm"
+              tone="ghost"
               loading={busyAction === "work-locally" || busyAction === "cancel"}
               onClick={onCancel}
             >
+              <CloseIcon />
               Cancel
             </PendingWorktreeActionButton>
           ) : null}
           {availableActions.canEditEnvironment ? (
-            <NodexButton
-              variant="secondary"
-              size="sm"
+            <PendingWorktreeActionButton
+              tone="secondary"
               onClick={onEditEnvironment}
             >
               Edit environment
-            </NodexButton>
+            </PendingWorktreeActionButton>
           ) : null}
           {availableActions.canAutoFix ? (
             <PendingWorktreeActionButton
-              variant="secondary"
-              size="sm"
+              tone="secondary"
               loading={busyAction === "auto-fix"}
               onClick={onAutoFix}
             >
@@ -217,22 +233,21 @@ export function PendingWorktreeRouteView({
             </PendingWorktreeActionButton>
           ) : null}
           {availableActions.canRetry ? (
-            <NodexButton
-              variant="secondary"
-              size="sm"
+            <PendingWorktreeActionButton
+              tone="ghost"
               onClick={onRetry}
             >
+              <PendingWorktreeRetryIcon />
               Retry
-            </NodexButton>
+            </PendingWorktreeActionButton>
           ) : null}
           {availableActions.canContinue ? (
-            <NodexButton
-              variant="primary"
-              size="sm"
+            <PendingWorktreeActionButton
+              tone="primary"
               onClick={onContinue}
             >
               Continue anyway
-            </NodexButton>
+            </PendingWorktreeActionButton>
           ) : null}
         </>
       )
@@ -258,12 +273,12 @@ export function PendingWorktreeRouteView({
                 <CopyMessageActionButton text={entry.prompt} />
               </ThreadMessageActionRow>
             </div>
-            <WorktreeInitActivityList activities={activities} actions={actionButtons} />
-            {actionError ? (
-              <div role="alert" className="text-sm text-token-error-foreground">
-                {actionError}
-              </div>
-            ) : null}
+            <PendingWorktreeProgress
+              entry={entry}
+              resolution={resolution}
+              actions={actionButtons}
+              actionError={actionError}
+            />
           </div>
         </LocalConversationThreadScrollLayout>
       </EnsureLocalConversationThreadScrollController>
@@ -506,7 +521,10 @@ export function PendingWorktreeRoute({
     if (actionError) {
       return <PendingWorktreeRouteStatusSurface error={actionError} onClose={onClose} />;
     }
-    if (snapshot.resolution?.state === "waiting") {
+    if (
+      snapshot.resolution?.state === "waiting"
+      || snapshot.resolution?.state === "starting"
+    ) {
       return <PendingWorktreeRouteStatusSurface error={null} onClose={onClose} />;
     }
     if (snapshot.resolution?.state === "failed") {

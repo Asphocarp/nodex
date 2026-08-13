@@ -1,4 +1,3 @@
-import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { constants as fsConstants } from "node:fs";
 import {
@@ -6,6 +5,7 @@ import {
   lstat,
   mkdir,
   mkdtemp,
+  readFile,
   readdir,
   rm,
   stat,
@@ -18,13 +18,11 @@ import {
   buildWorktreeThreadSlug,
   normalizeWorktreeAutoBranchPrefix,
 } from "../../shared/worktree-auto-branch";
-
-interface GitCommandResult {
-  stdout: string;
-  stderr: string;
-}
-
-type GitCommandOutputStream = "stdout" | "stderr" | "info";
+import {
+  runCodexGitCommand as runGitCommand,
+  throwIfCodexRequestAborted as throwIfRequestAborted,
+  type CodexGitCommandOutputStream as GitCommandOutputStream,
+} from "./codex-git-command";
 
 const MAX_STARTING_DIFF_BYTES = 64 * 1024 * 1024;
 const MAX_AUTO_BRANCH_NAME_ATTEMPTS = 100;
@@ -50,16 +48,6 @@ const UNIFIED_DIFF_ARGS = [
   "--binary",
 ] as const;
 
-function createRequestCanceledError(): Error {
-  return new Error("Request canceled");
-}
-
-function throwIfRequestAborted(signal?: AbortSignal): void {
-  if (signal?.aborted) {
-    throw createRequestCanceledError();
-  }
-}
-
 async function runAbortChecked<T>(
   signal: AbortSignal | undefined,
   operation: () => Promise<T>,
@@ -68,20 +56,6 @@ async function runAbortChecked<T>(
   const result = await operation();
   throwIfRequestAborted(signal);
   return result;
-}
-
-function killChildProcessTree(child: ChildProcess, signal: NodeJS.Signals): void {
-  const pid = child.pid;
-  if (process.platform !== "win32" && pid != null) {
-    try {
-      process.kill(-pid, signal);
-      return;
-    } catch {
-      // Fall through when the process group has already exited or was not created.
-    }
-  }
-
-  child.kill(signal);
 }
 
 function normalizeBranchName(value: string): string {
@@ -109,135 +83,6 @@ async function ensureGitRepository(cwd: string, signal?: AbortSignal): Promise<v
   if (result.stdout.trim() !== "true") {
     throw new Error(`Path is not a git repository: ${cwd}`);
   }
-}
-
-function runGitCommand(
-  args: string[],
-  cwd: string,
-  options?: {
-    allowedExitCodes?: readonly number[];
-    env?: NodeJS.ProcessEnv;
-    onOutput?: (output: { stream: GitCommandOutputStream; data: string }) => void;
-    signal?: AbortSignal;
-    timeoutMs?: number;
-  },
-): Promise<GitCommandResult> {
-  const allowedExitCodes = options?.allowedExitCodes ?? [0];
-  const onOutput = options?.onOutput;
-  const signal = options?.signal;
-  const timeoutMs = options?.timeoutMs;
-  throwIfRequestAborted(signal);
-
-  return new Promise((resolve, reject) => {
-    const child = spawn(
-      "git",
-      args,
-      {
-        cwd,
-        env: options?.env ?? process.env,
-        detached: process.platform !== "win32",
-        windowsHide: true,
-      },
-    );
-    let stdout = "";
-    let stderr = "";
-    let aborted = false;
-    let timedOut = false;
-    let settled = false;
-    let killEscalationId: ReturnType<typeof setTimeout> | null = null;
-    let timeoutId: ReturnType<typeof setTimeout> | null = null;
-
-    const cleanup = () => {
-      if (killEscalationId) clearTimeout(killEscalationId);
-      if (timeoutId) clearTimeout(timeoutId);
-      signal?.removeEventListener("abort", handleAbort);
-    };
-
-    const rejectOnce = (error: Error) => {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      reject(error);
-    };
-
-    const terminate = () => {
-      if (child.exitCode !== null || child.signalCode !== null) return;
-      killChildProcessTree(child, "SIGTERM");
-      if (killEscalationId) return;
-      killEscalationId = setTimeout(() => {
-        if (child.exitCode === null && child.signalCode === null) {
-          killChildProcessTree(child, "SIGKILL");
-        }
-      }, 250);
-      killEscalationId.unref();
-    };
-
-    function handleAbort(): void {
-      aborted = true;
-      terminate();
-    }
-
-    signal?.addEventListener("abort", handleAbort, { once: true });
-    if (signal?.aborted) handleAbort();
-    if (timeoutMs != null) {
-      timeoutId = setTimeout(() => {
-        timedOut = true;
-        terminate();
-      }, timeoutMs);
-      timeoutId.unref();
-    }
-
-    child.stdout?.on("data", (chunk: Buffer) => {
-      const text = chunk.toString("utf8");
-      stdout += text;
-      onOutput?.({
-        stream: "stdout",
-        data: text,
-      });
-    });
-
-    child.stderr?.on("data", (chunk: Buffer) => {
-      const text = chunk.toString("utf8");
-      stderr += text;
-      onOutput?.({
-        stream: "stderr",
-        data: text,
-      });
-    });
-
-    child.on("error", (error) => {
-      if (aborted || signal?.aborted) {
-        rejectOnce(createRequestCanceledError());
-        return;
-      }
-      if (timedOut) {
-        rejectOnce(new Error(`git ${args.join(" ")} timed out after ${String(timeoutMs)}ms`));
-        return;
-      }
-      rejectOnce(error);
-    });
-
-    child.on("close", (code) => {
-      if (settled) return;
-      if (aborted || signal?.aborted) {
-        rejectOnce(createRequestCanceledError());
-        return;
-      }
-      if (timedOut) {
-        rejectOnce(new Error(`git ${args.join(" ")} timed out after ${String(timeoutMs)}ms`));
-        return;
-      }
-      if (code != null && allowedExitCodes.includes(code)) {
-        settled = true;
-        cleanup();
-        resolve({ stdout, stderr });
-        return;
-      }
-
-      const message = stderr.trim() || stdout.trim() || `git exited with code ${String(code)}`;
-      rejectOnce(new Error(message));
-    });
-  });
 }
 
 async function branchExists(cwd: string, branchName: string, signal?: AbortSignal): Promise<boolean> {
@@ -1135,6 +980,7 @@ export type ManagedWorktreeStartingState =
 export interface CreateManagedWorktreeInput {
   repositoryPath: string;
   nodexHome: string;
+  managedRoot?: string;
   projectId: string;
   targetId: string;
   threadTitle?: string | null;
@@ -1197,6 +1043,36 @@ export async function setManagedWorktreeOwnerThread(
   ));
 }
 
+export async function readManagedWorktreeOwnerThread(
+  worktreeGitRoot: string,
+  signal?: AbortSignal,
+): Promise<string | null> {
+  const resolvedRoot = await ensureDirectory(worktreeGitRoot, signal);
+  await ensureGitRepository(resolvedRoot, signal);
+  const gitPath = await runGitCommand(
+    ["rev-parse", "--path-format=absolute", "--git-path", "codex-thread.json"],
+    resolvedRoot,
+    { signal },
+  );
+  const configPath = resolveGitOutputPath(resolvedRoot, gitPath.stdout.trim());
+  const raw = await runAbortChecked(signal, async () =>
+    await readFile(configPath, "utf8").catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return null;
+      throw error;
+    })
+  );
+  if (raw === null) return null;
+  const parsed: unknown = JSON.parse(raw);
+  if (typeof parsed !== "object" || parsed === null) {
+    throw new Error("Managed worktree owner metadata must be an object");
+  }
+  const ownerThreadId = (parsed as { readonly ownerThreadId?: unknown }).ownerThreadId;
+  if (typeof ownerThreadId !== "string" || !ownerThreadId.trim()) {
+    throw new Error("Managed worktree owner metadata is missing ownerThreadId");
+  }
+  return ownerThreadId.trim();
+}
+
 export async function removeManagedWorktree(worktreePath: string): Promise<void> {
   const normalizedPath = worktreePath.trim();
   if (!normalizedPath) {
@@ -1249,7 +1125,9 @@ export async function createManagedWorktree(input: CreateManagedWorktreeInput): 
     detachedStartingState?.startingRef ??
     (await resolveDefaultBaseRef(sourceGitRoot, input.preferredBaseBranch, signal));
   const worktreePathLeaf = path.basename(sourceGitRoot);
-  const worktreesRoot = path.join(nodexHome, "worktrees");
+  const worktreesRoot = input.managedRoot?.trim()
+    ? path.resolve(input.managedRoot)
+    : path.join(nodexHome, "worktrees");
   await runAbortChecked(signal, () => mkdir(worktreesRoot, { recursive: true }));
 
   for (let attempt = 0; attempt < 10; attempt += 1) {

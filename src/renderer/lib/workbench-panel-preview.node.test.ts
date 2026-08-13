@@ -18,6 +18,7 @@ function thread(cwd: string): ProjectSessionThreadLink {
     threadName: "Thread",
     threadPreview: "Thread",
     modelProvider: "openai",
+    executionHostId: "local",
     cwd,
     statusType: "notLoaded",
     statusActiveFlags: [],

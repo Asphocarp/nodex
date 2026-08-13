@@ -838,6 +838,7 @@ describe("workbench session shell / sidebar-projects", () => {
     const projectlessPinnedItem: CodexSidebarThreadItem = {
       key: "local:thread-projectless-pinned",
       kind: "local",
+      runLocation: { kind: "local-checkout" },
       hostId: "local",
       threadId: "thread-projectless-pinned",
       parentThreadId: null,
@@ -1008,6 +1009,7 @@ describe("workbench session shell / sidebar-projects", () => {
     const pendingBeta: CodexSidebarThreadItem = {
       key: "local:client-new-thread:beta-pending",
       kind: "pending-worktree",
+      runLocation: { kind: "local-worktree", path: null, phase: "pending" },
       pendingWorktreeId: "pending-worktree:beta-pending",
       clientThreadId: "client-new-thread:beta-pending",
       pinnedBeforeThreadId: null,

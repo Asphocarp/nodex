@@ -230,6 +230,16 @@ pub(super) fn read(
                 )?,
             })
         }
+        ProjectWorkspaceRead::ManagedWorktreeLifecycleSnapshot => Ok(
+            ProjectWorkspaceReadValue::ManagedWorktreeLifecycleSnapshot {
+                snapshot:
+                    super::managed_worktree_lifecycle::read_managed_worktree_lifecycle_snapshot(
+                        connection,
+                        library_id,
+                        commit_head,
+                    )?,
+            },
+        ),
     }
 }
 

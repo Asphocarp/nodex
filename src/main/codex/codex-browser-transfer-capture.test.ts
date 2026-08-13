@@ -29,6 +29,7 @@ function makeSession(hasThread = false): ProjectSession {
           threadId: "thread-source",
           threadPreview: "",
           modelProvider: "openai",
+          executionHostId: "local",
           statusType: "idle",
           statusActiveFlags: [],
           archived: false,

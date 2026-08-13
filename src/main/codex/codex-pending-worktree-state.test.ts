@@ -67,6 +67,7 @@ function createStableRequest(id = "stable-1"): CodexPendingStableWorktreeRequest
     hostId: "local",
     label: "Stable worktree",
     sourceWorkspaceRoot: "/repo",
+    sourceWorkspaceRoots: ["/repo", "/shared"],
     prompt: "",
     launchMode: "create-stable-worktree",
     startConversationParamsInput: null,
@@ -157,18 +158,9 @@ describe("Codex pending worktree state", () => {
     expect(store.getSnapshot()[0]?.worktreeOutputText).toBe(
       CODEX_PENDING_WORKTREE_CREATION_STARTED_OUTPUT,
     );
-    dispatch(store, {
-      type: "pathAllocated",
-      pendingWorktreeId: "pending-1",
-      attempt: 1,
-      worktreeGitRoot: "/worktrees/a1b2/repo",
-      worktreeWorkspaceRoot: "/worktrees/a1b2/repo/packages/app",
-    });
-    expect(store.getSnapshot()[0]?.worktreeGitRoot).toBe("/worktrees/a1b2/repo");
-    expect(store.getSnapshot()[0]?.worktreeWorkspaceRoot).toBe(
-      "/worktrees/a1b2/repo/packages/app",
-    );
-    expect(publishCount).toBe(4);
+    expect(store.getSnapshot()[0]?.worktreeGitRoot).toBe(null);
+    expect(store.getSnapshot()[0]?.worktreeWorkspaceRoot).toBe(null);
+    expect(publishCount).toBe(3);
     unsubscribe();
   });
 
@@ -259,7 +251,7 @@ describe("Codex pending worktree state", () => {
     expect(getCodexPendingWorktreeConversationStartSnapshot(store.getState())[0]?.state).toBe(
       "starting",
     );
-    expect(store.resolveThread("client-1")?.state).toBe("waiting");
+    expect(store.resolveThread("client-1")?.state).toBe("starting");
     expect(dispatch(store, {
       type: "continueWithoutSetup",
       pendingWorktreeId: "pending-1",
@@ -319,13 +311,6 @@ describe("Codex pending worktree state", () => {
     expect(entry?.isPinned).toBe(true);
     expect(store.resolveThread("client-1")?.state).toBe("waiting");
 
-    dispatch(store, {
-      type: "pathAllocated",
-      pendingWorktreeId: "pending-1",
-      attempt: 1,
-      worktreeGitRoot: "/worktrees/stale",
-      worktreeWorkspaceRoot: "/worktrees/stale/workspace",
-    });
     dispatch(store, {
       type: "worktreeFailed",
       pendingWorktreeId: "pending-1",
@@ -513,6 +498,7 @@ describe("Codex pending worktree state", () => {
       worktreeWorkspaceRoot: "/worktrees/delegated/workspace",
     });
     expect(effectTypes(firstLaunch)).toBe("launchConversation");
+    expect(store.resolveThread("client-1")?.state).toBe("starting");
     expect(dispatch(store, {
       type: "worktreeReady",
       pendingWorktreeId: "pending-1",
@@ -533,6 +519,7 @@ describe("Codex pending worktree state", () => {
       pendingWorktreeId: "pending-1",
     });
     expect(effectTypes(retryLaunch)).toBe("launchConversation");
+    expect(store.resolveThread("client-1")?.state).toBe("starting");
     expect(dispatch(store, {
       type: "retryConversationStart",
       pendingWorktreeId: "pending-1",
@@ -571,12 +558,15 @@ describe("Codex pending worktree state", () => {
       worktreeWorkspaceRoot: "/worktrees/stable/workspace",
     });
 
-    expect(effectTypes(effects)).toBe("addWorkspaceRoot");
+    expect(effectTypes(effects)).toBe("registerStableProject");
     expect(store.getSnapshot()[0]?.phase).toBe("worktree-ready");
-    expect(effects[0]?.type === "addWorkspaceRoot" ? effects[0].attempt : null).toBe(1);
+    expect(effects[0]?.type === "registerStableProject" ? effects[0].attempt : null).toBe(1);
+    expect(
+      effects[0]?.type === "registerStableProject" ? effects[0].workspaceRoots : null,
+    ).toEqual(["/worktrees/stable/workspace", "/shared"]);
 
     const registeredEffects = dispatch(store, {
-      type: "workspaceRootAdded",
+      type: "stableProjectRegistered",
       pendingWorktreeId: "stable-1",
       attempt: 1,
     });
@@ -625,7 +615,7 @@ describe("Codex pending worktree state", () => {
       "/worktrees/stable",
     );
     expect(dispatch(store, {
-      type: "workspaceRootAdded",
+      type: "stableProjectRegistered",
       pendingWorktreeId: "stable-1",
       attempt: 1,
     }).length).toBe(0);

@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
-import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -188,6 +188,25 @@ describe("createManagedWorktree starting state", () => {
     expect(await readFile(path.join(result.worktreeWorkspaceRoot, "feature.txt"), "utf8")).toBe(
       "feature branch\n",
     );
+  });
+
+  test("allocates future worktrees beneath the configured managed root", async () => {
+    const { repositoryPath, root } = await createRepository();
+    const managedRoot = path.join(root, "custom managed root");
+
+    const result = await createManagedWorktree({
+      repositoryPath,
+      nodexHome: path.join(root, "server"),
+      managedRoot,
+      projectId: "project-custom-root",
+      targetId: "target-custom-root",
+      mode: "detachedHead",
+      startingState: { type: "branch", branchName: "main" },
+    });
+
+    expect(path.relative(managedRoot, result.worktreeGitRoot).startsWith("..")).toBe(false);
+    expect(result.worktreeGitRoot).toContain(`${path.sep}custom managed root${path.sep}`);
+    expect(existsSync(result.worktreeGitRoot)).toBe(true);
   });
 
   test("uses the full remote ref and creates its missing local tracking branch", async () => {
@@ -469,6 +488,36 @@ describe("createManagedWorktree starting state", () => {
     expect(await readFile(ownerConfigPath, "utf8")).toBe(
       `${JSON.stringify({ version: 1, ownerThreadId: "thread-owner-1" }, null, 2)}\n`,
     );
+
+    if (process.platform !== "win32") {
+      const [sourceStat, worktreeStat, ownerStat] = await Promise.all([
+        stat(repositoryPath),
+        stat(result.worktreeGitRoot),
+        stat(ownerConfigPath),
+      ]);
+      expect({ uid: worktreeStat.uid, gid: worktreeStat.gid }).toEqual({
+        uid: sourceStat.uid,
+        gid: sourceStat.gid,
+      });
+      expect(worktreeStat.mode & 0o777).toBe(0o755);
+      expect(ownerStat.mode & 0o777).toBe(0o644);
+    }
+
+    const [sourceCommonDir, worktreeCommonDir] = await Promise.all([
+      runCommand(
+        "git",
+        ["rev-parse", "--path-format=absolute", "--git-common-dir"],
+        repositoryPath,
+      ),
+      runCommand(
+        "git",
+        ["rev-parse", "--path-format=absolute", "--git-common-dir"],
+        result.worktreeGitRoot,
+      ),
+    ]);
+    expect(path.resolve(worktreeCommonDir.stdout.trim())).toBe(
+      path.resolve(sourceCommonDir.stdout.trim()),
+    );
   });
 
   test("records a non-remote-default starting branch as synced metadata", async () => {
@@ -633,6 +682,27 @@ describe("createManagedWorktree starting state", () => {
     const worktreeList = await runCommand("git", ["worktree", "list", "--porcelain"], repositoryPath);
     expect(worktreeList.stdout.includes(nodexHome)).toBe(false);
     expect(await readFile(sourceUntrackedPath, "utf8")).toBe("source remains\n");
+  });
+
+  test("rejects untracked symlinks instead of copying outside workspace contents", async () => {
+    if (process.platform === "win32") return;
+    const { repositoryPath, root } = await createRepository();
+    const nodexHome = path.join(root, "server-symlink-copy");
+    const outsidePath = path.join(root, "outside.txt");
+    await writeFile(outsidePath, "outside remains\n", "utf8");
+    await symlink(outsidePath, path.join(repositoryPath, "untracked-link"));
+
+    await expect(createManagedWorktree({
+      repositoryPath,
+      nodexHome,
+      projectId: "project-untracked-symlink",
+      targetId: "target-untracked-symlink",
+      mode: "detachedHead",
+      startingState: { type: "working-tree" },
+    })).rejects.toThrow("Failed to copy all untracked working tree files");
+
+    expect(await readFile(outsidePath, "utf8")).toBe("outside remains\n");
+    expect((await readdir(path.join(nodexHome, "worktrees"))).length).toBe(0);
   });
 
   test("fails without creating a worktree when dirty-state capture fails", async () => {

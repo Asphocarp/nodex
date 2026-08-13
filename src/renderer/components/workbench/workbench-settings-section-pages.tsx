@@ -9,6 +9,7 @@ import { AgentImportSettingsPage } from "./agent-import-settings-page";
 import { ComputerUseSettingsPage } from "./computer-use-settings-page";
 import { KeyboardShortcutsSettingsPage } from "./keyboard-shortcuts-settings-page";
 import { LocalEnvironmentsSettingsPage } from "./local-environments-settings-page";
+import { ManagedWorktreesSettingControl } from "./managed-worktrees-settings-control";
 import { WorkbenchHooksSettingsPage } from "./workbench-hooks-settings-page";
 import {
   BrowserSettingsPage,
@@ -35,7 +36,6 @@ import {
   FileLinkOpenerSettingControl,
   formatApprovalPolicyLabel,
   formatSandboxModeLabel,
-  ManagedWorktreesSettingControl,
   NfmAutolinkBareDomainsSettingControl,
   NfmAutolinkPasteSettingControl,
   NfmAutolinkTypingSettingControl,
@@ -56,7 +56,6 @@ import {
   TelemetrySettingControl,
   WindowRestoreSettingControl,
   WorktreeAutoBranchPrefixSettingControl,
-  WorktreeStartModeSettingControl,
 } from "./workbench-settings-route-shell";
 import type {
   SettingsPageComponentRegistry,
@@ -485,37 +484,15 @@ export function PageSettingsPage({
 }
 
 export function WorktreesSettingsPage({
-  onWorktreeStartModeChange,
   open,
-  worktreeStartMode,
+  onOpenThread,
 }: SettingsSectionPageProps) {
   return (
-    <SettingsPageSurface
-      title="Worktrees"
-      subtitle="Managed worktree creation, naming, and cleanup."
-    >
-      <SectionBlock title="Defaults">
-        <SettingRow
-          label="Worktree start mode"
-          description="Choose whether new worktree threads auto-create a branch or start detached."
-        >
-          <WorktreeStartModeSettingControl
-            value={worktreeStartMode}
-            onChange={onWorktreeStartModeChange}
-          />
-        </SettingRow>
-      </SectionBlock>
-      <SectionBlock title="Managed worktrees">
-        <div className="flex flex-col gap-1 p-3">
-          <div className="text-sm text-token-text-primary">
-            Managed worktrees
-          </div>
-          <div className="text-token-text-secondary text-sm">
-            Worktrees created by card threads. Hover a row to remove.
-          </div>
-          <ManagedWorktreesSettingControl open={open} />
-        </div>
-      </SectionBlock>
+    <SettingsPageSurface title="Worktrees">
+      <ManagedWorktreesSettingControl
+        open={open}
+        onOpenThread={onOpenThread}
+      />
     </SettingsPageSurface>
   );
 }

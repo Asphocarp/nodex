@@ -14,6 +14,10 @@ import type {
   CodexPermissionState,
   CodexThreadGoalDraftInput,
 } from "../../shared/types";
+import {
+  rewriteExecutionWorkspacePath,
+  rewriteExecutionWorkspaceRoots,
+} from "./codex-execution-workspace-roots";
 
 export { dedupeCodexLiveFileAttachments } from "../../shared/codex-live-file-attachments";
 
@@ -153,30 +157,14 @@ type CodexPendingStartConversationFreezeInput = Omit<
   readonly sourceWorkspaceRoots?: readonly string[];
 };
 
-function normalizeWorkspacePathForComparison(value: string): string {
-  const slashNormalized = value.trim().replaceAll("\\", "/");
-  const collapsed = slashNormalized.startsWith("//")
-    ? `//${slashNormalized.slice(2).replace(/\/{2,}/g, "/")}`
-    : slashNormalized.replace(/\/{2,}/g, "/");
-  const withoutTrailingSlash = collapsed === "/"
-    ? collapsed
-    : collapsed.replace(/\/+$/, "");
-  return /^(?:[a-z]:\/|\/\/)/i.test(withoutTrailingSlash)
-    ? withoutTrailingSlash.toLowerCase()
-    : withoutTrailingSlash;
-}
-
 function dedupeWorkspaceRoots(
   primaryRoot: string,
   workspaceRoots: readonly string[],
 ): string[] {
-  const roots = [primaryRoot, ...workspaceRoots];
-  const seen = new Set<string>();
-  return roots.filter((root) => {
-    const normalized = normalizeWorkspacePathForComparison(root);
-    if (!normalized || seen.has(normalized)) return false;
-    seen.add(normalized);
-    return true;
+  return rewriteExecutionWorkspaceRoots({
+    sourcePrimary: primaryRoot,
+    targetPrimary: primaryRoot,
+    workspaceRoots,
   });
 }
 
@@ -186,20 +174,11 @@ export function rebaseCodexPendingWorkspacePath(input: {
   readonly sourceWorkspaceRoot: string;
   readonly worktreeWorkspaceRoot: string;
 }): string {
-  const candidate = normalizeWorkspacePathForComparison(input.path);
-  const source = normalizeWorkspacePathForComparison(input.sourceWorkspaceRoot);
-  if (candidate === source) return input.worktreeWorkspaceRoot;
-  if (!candidate.startsWith(`${source}/`)) return input.path;
-
-  const rawCandidate = input.path.trim().replaceAll("\\", "/").replace(/\/+$/, "");
-  const rawSource = input.sourceWorkspaceRoot
-    .trim()
-    .replaceAll("\\", "/")
-    .replace(/\/+$/, "");
-  const suffix = rawCandidate.slice(rawSource.length).replace(/^\/+/, "");
-  return suffix
-    ? `${input.worktreeWorkspaceRoot.replace(/[\\/]+$/, "")}/${suffix}`
-    : input.worktreeWorkspaceRoot;
+  return rewriteExecutionWorkspacePath({
+    path: input.path,
+    sourcePrimary: input.sourceWorkspaceRoot,
+    targetPrimary: input.worktreeWorkspaceRoot,
+  });
 }
 
 /** Replace only the primary source root and retain every other project root. */
@@ -208,14 +187,11 @@ export function rebaseCodexPendingWorkspaceRoots(input: {
   readonly worktreeWorkspaceRoot: string;
   readonly workspaceRoots: readonly string[];
 }): string[] {
-  const rebased = input.workspaceRoots.map((root) =>
-    rebaseCodexPendingWorkspacePath({
-      path: root,
-      sourceWorkspaceRoot: input.sourceWorkspaceRoot,
-      worktreeWorkspaceRoot: input.worktreeWorkspaceRoot,
-    })
-  );
-  return dedupeWorkspaceRoots(input.worktreeWorkspaceRoot, rebased);
+  return rewriteExecutionWorkspaceRoots({
+    sourcePrimary: input.sourceWorkspaceRoot,
+    targetPrimary: input.worktreeWorkspaceRoot,
+    workspaceRoots: input.workspaceRoots,
+  });
 }
 
 export function projectCodexPendingWorktreeLaunchLocation(input: {
@@ -244,12 +220,18 @@ export function projectCodexPendingWorktreeLaunchLocation(input: {
           : {}),
       }
     : input.params.projectAssignment;
+  const cwd = rebasePath(input.params.cwd);
+  const assignmentPath = projectAssignment?.path;
   return {
-    cwd: rebasePath(input.params.cwd),
-    workspaceRoots: rebaseCodexPendingWorkspaceRoots({
-      sourceWorkspaceRoot: input.sourceWorkspaceRoot,
-      worktreeWorkspaceRoot: input.worktreeWorkspaceRoot,
+    cwd,
+    workspaceRoots: rewriteExecutionWorkspaceRoots({
+      sourcePrimary: input.sourceWorkspaceRoot,
+      targetPrimary: input.worktreeWorkspaceRoot,
       workspaceRoots: input.params.workspaceRoots,
+      explicitRoots: [
+        cwd,
+        ...(assignmentPath ? [assignmentPath] : []),
+      ],
     }),
     projectAssignment,
   };

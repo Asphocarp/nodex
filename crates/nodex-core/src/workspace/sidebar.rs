@@ -650,6 +650,9 @@ fn require_thread_owner(
 fn validate_move_metadata(
     metadata: &ProjectWorkspaceThreadMoveMetadataPatch,
 ) -> Result<(), StoreError> {
+    if let Some(host_id) = metadata.execution_host_id.as_deref() {
+        validate_id("execution_host_id", host_id)?;
+    }
     for (name, value) in [
         ("cwd", &metadata.cwd),
         ("managed_worktree_path", &metadata.managed_worktree_path),
@@ -716,15 +719,18 @@ fn move_thread_membership(
     let updated = connection.execute(
         "UPDATE codex_threads SET
            project_id = ?1,
-           cwd = CASE WHEN ?2 = 1 THEN ?3 ELSE cwd END,
-           managed_worktree_path = CASE WHEN ?4 = 1 THEN ?5 ELSE managed_worktree_path END,
-           projectless_output_directory = CASE WHEN ?6 = 1 THEN ?7
+           execution_host_id = CASE WHEN ?2 = 1 THEN ?3 ELSE execution_host_id END,
+           cwd = CASE WHEN ?4 = 1 THEN ?5 ELSE cwd END,
+           managed_worktree_path = CASE WHEN ?6 = 1 THEN ?7 ELSE managed_worktree_path END,
+           projectless_output_directory = CASE WHEN ?8 = 1 THEN ?9
              ELSE projectless_output_directory END,
-           projectless_workspace_browser_root = CASE WHEN ?8 = 1 THEN ?9
+           projectless_workspace_browser_root = CASE WHEN ?10 = 1 THEN ?11
              ELSE projectless_workspace_browser_root END
-         WHERE thread_id = ?10 AND project_id IS ?11",
+         WHERE thread_id = ?12 AND project_id IS ?13",
         params![
             target_project_id,
+            i64::from(metadata.execution_host_id.is_some()),
+            metadata.execution_host_id,
             i64::from(metadata.cwd.is_some()),
             metadata.cwd.as_ref().and_then(Clone::clone),
             i64::from(metadata.managed_worktree_path.is_some()),

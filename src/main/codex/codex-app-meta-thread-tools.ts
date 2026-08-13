@@ -351,12 +351,14 @@ export function buildCodexAppMetaThreadToolSpecs(options?: {
   availableModels?: readonly CodexAppMetaThreadToolModel[];
   crossHostHandoffEnabled?: boolean;
   deferLoading?: boolean;
+  handoffEnabled?: boolean;
 }): DynamicToolSpec[] {
   const deferLoading = options?.deferLoading === true;
   const handoffHosts = options?.availableHandoffHosts ?? [
     { id: CODEX_APP_LOCAL_HOST_ID, displayName: "Local" },
   ];
   const crossHostHandoffEnabled = options?.crossHostHandoffEnabled === true;
+  const handoffEnabled = options?.handoffEnabled === true;
   const availableModels = options?.availableModels ?? [];
   const handoffDestinationHostSchema = crossHostHandoffEnabled
     ? {
@@ -386,53 +388,57 @@ export function buildCodexAppMetaThreadToolSpecs(options?: {
         },
       },
     },
-    {
-      type: "function",
-      name: "handoff_thread",
-      description:
-        "Move another Codex thread and its associated git state between its checkout and Codex worktree on its current host. Running threads are interrupted before handoff. Omit destinationHostId for this current-host toggle. The calling thread cannot move itself, and cloud handoff is not supported. Returns quickly with an operationId and revision. The UI continues to show live progress in the original handoff item. For model-visible completion, call get_handoff_status with afterRevision and a 30000-60000 waitMs, then back off if the revision does not change.",
-      inputSchema: {
-        type: "object",
-        additionalProperties: false,
-        properties: {
-          threadId: {
-            type: "string",
-            description: "Other thread id to hand off.",
+    ...(handoffEnabled
+      ? [
+          {
+            type: "function" as const,
+            name: "handoff_thread",
+            description:
+              "Move another Codex thread and its associated git state. Omit destinationHostId to toggle between its checkout and managed worktree on the current host, or choose another available host to transfer the complete Git state and persisted rollout into a managed worktree there. Running threads are interrupted before handoff. The calling thread cannot move itself, and cloud handoff is not supported. Returns quickly with an operationId and revision. The UI continues to show live progress in the original handoff item. For model-visible completion, call get_handoff_status with afterRevision and a 30000-60000 waitMs, then back off if the revision does not change.",
+            inputSchema: {
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                threadId: {
+                  type: "string",
+                  description: "Other thread id to hand off.",
+                },
+                ...handoffDestinationHostSchema,
+                followUpPrompt: {
+                  type: "string",
+                  description: "Optional prompt to send to the destination thread after handoff succeeds.",
+                },
+              },
+              required: ["threadId"],
+            },
           },
-          ...handoffDestinationHostSchema,
-          followUpPrompt: {
-            type: "string",
-            description: "Optional prompt to send to the destination thread after handoff succeeds.",
+          {
+            type: "function" as const,
+            name: "get_handoff_status",
+            description:
+              "Read status for a handoff_thread operation. The user-facing UI already updates in the original handoff item, so avoid frequent polling. Prefer afterRevision with a 30000-60000 waitMs so the call returns only when progress changes or the timeout expires. Poll once after dispatch, then wait longer/back off; do not repeatedly poll unchanged state or narrate unchanged polls.",
+            inputSchema: {
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                operationId: {
+                  type: "string",
+                  description: "operationId returned by handoff_thread.",
+                },
+                afterRevision: {
+                  type: "number",
+                  description: "Optional last revision already seen. When provided with waitMs, wait until the operation revision is greater than this value or the timeout expires.",
+                },
+                waitMs: {
+                  type: "number",
+                  description: `Optional maximum milliseconds to wait for a status change, from 0 to ${CODEX_APP_HANDOFF_MAX_WAIT_MS}.`,
+                },
+              },
+              required: ["operationId"],
+            },
           },
-        },
-        required: ["threadId"],
-      },
-    },
-    {
-      type: "function",
-      name: "get_handoff_status",
-      description:
-        "Read status for a handoff_thread operation. The user-facing UI already updates in the original handoff item, so avoid frequent polling. Prefer afterRevision with a 30000-60000 waitMs so the call returns only when progress changes or the timeout expires. Poll once after dispatch, then wait longer/back off; do not repeatedly poll unchanged state or narrate unchanged polls.",
-      inputSchema: {
-        type: "object",
-        additionalProperties: false,
-        properties: {
-          operationId: {
-            type: "string",
-            description: "operationId returned by handoff_thread.",
-          },
-          afterRevision: {
-            type: "number",
-            description: "Optional last revision already seen. When provided with waitMs, wait until the operation revision is greater than this value or the timeout expires.",
-          },
-          waitMs: {
-            type: "number",
-            description: `Optional maximum milliseconds to wait for a status change, from 0 to ${CODEX_APP_HANDOFF_MAX_WAIT_MS}.`,
-          },
-        },
-        required: ["operationId"],
-      },
-    },
+        ]
+      : []),
     {
       type: "function",
       name: "list_projects",

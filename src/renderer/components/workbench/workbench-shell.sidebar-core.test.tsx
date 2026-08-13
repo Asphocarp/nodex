@@ -766,6 +766,7 @@ describe("workbench session shell / sidebar-core", () => {
     const snapshotOnlyItem: CodexSidebarThreadItem = {
       key: "local:thread-snapshot-only",
       kind: "local",
+      runLocation: { kind: "local-checkout" },
       hostId: "local",
       threadId: "thread-snapshot-only",
       parentThreadId: null,
@@ -811,6 +812,7 @@ describe("workbench session shell / sidebar-core", () => {
     const snapshotOnlyItem: CodexSidebarThreadItem = {
       key: "local:thread-archive-failure",
       kind: "local",
+      runLocation: { kind: "local-checkout" },
       hostId: "local",
       threadId: "thread-archive-failure",
       parentThreadId: null,

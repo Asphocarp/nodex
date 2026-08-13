@@ -93,13 +93,14 @@ function goalRequest(id = "local:goal-pending"): CodexPendingStartConversationRe
 }
 
 describe("Codex pending worktree runtime", () => {
-  test("publishes allocated roots before setup so cancel can clean a partial creation", async () => {
+  test("keeps allocated roots private until creation succeeds", async () => {
     const creation = deferred<CodexPendingWorktreeCreationResult>();
     const removed: string[] = [];
     const runtime = new CodexPendingWorktreeRuntime({
       ...TEST_RUNTIME_DEFAULTS,
       createWorktree: async (_entry, context) => {
         context.onEvent({
+          operation: "create",
           type: "path-allocated",
           worktreeGitRoot: "/worktrees/a1b2/repo",
           worktreeWorkspaceRoot: "/worktrees/a1b2/repo/packages/app",
@@ -114,15 +115,13 @@ describe("Codex pending worktree runtime", () => {
 
     try {
       runtime.create(request(), 42);
-      expect(runtime.list()[0]?.worktreeGitRoot).toBe("/worktrees/a1b2/repo");
-      expect(runtime.list()[0]?.worktreeWorkspaceRoot).toBe(
-        "/worktrees/a1b2/repo/packages/app",
-      );
+      expect(runtime.list()[0]?.worktreeGitRoot).toBe(null);
+      expect(runtime.list()[0]?.worktreeWorkspaceRoot).toBe(null);
 
       runtime.cancel("local:pending-1");
       await flushAsyncWork();
       expect(runtime.list()).toHaveLength(0);
-      expect(removed).toEqual(["local:/worktrees/a1b2/repo"]);
+      expect(removed).toEqual([]);
     } finally {
       creation.reject(new Error("canceled"));
       runtime.shutdown();
@@ -143,8 +142,8 @@ describe("Codex pending worktree runtime", () => {
         return { threadId: "unexpected" };
       },
       removeWorktree: async () => {},
-      addWorkspaceRoot: (workspaceRoot, label) => {
-        registrations.push(`${label}:${workspaceRoot}`);
+      registerStableProject: (workspaceRoots, label) => {
+        registrations.push(`${label}:${workspaceRoots.join("|")}`);
       },
     });
     const stableRequest: CodexPendingStableWorktreeRequest = {
@@ -152,6 +151,7 @@ describe("Codex pending worktree runtime", () => {
       hostId: "local",
       label: "Persistent project",
       sourceWorkspaceRoot: "/source",
+      sourceWorkspaceRoots: ["/source", "/shared"],
       startingState: { type: "branch", branchName: "HEAD" },
       localEnvironmentConfigPath: null,
       prompt: "Create a persistent project worktree",
@@ -166,7 +166,7 @@ describe("Codex pending worktree runtime", () => {
       await flushAsyncWork();
 
       expect(registrations.join(",")).toBe(
-        "Persistent project:/worktree-stable/packages/app",
+        "Persistent project:/worktree-stable/packages/app|/shared",
       );
       expect(launchCount).toBe(0);
       expect(runtime.list().length).toBe(0);
@@ -188,7 +188,7 @@ describe("Codex pending worktree runtime", () => {
       removeWorktree: async (_hostId, worktreeGitRoot) => {
         removed.push(worktreeGitRoot);
       },
-      addWorkspaceRoot: async () => {
+      registerStableProject: async () => {
         throw new Error("project registration failed");
       },
       onError: (phase, error) => {
@@ -200,6 +200,7 @@ describe("Codex pending worktree runtime", () => {
       hostId: "local",
       label: "Persistent project",
       sourceWorkspaceRoot: "/source",
+      sourceWorkspaceRoots: ["/source"],
       startingState: { type: "branch", branchName: "HEAD" },
       localEnvironmentConfigPath: null,
       prompt: "Create a persistent project worktree",
@@ -217,7 +218,7 @@ describe("Codex pending worktree runtime", () => {
       expect(failed?.phase).toBe("failed");
       expect(failed?.worktreeGitRoot).toBe("/worktree-stable-failed");
       expect(failed?.needsAttention).toBe(true);
-      expect(errors.join(",")).toBe("add-workspace-root:project registration failed");
+      expect(errors.join(",")).toBe("register-stable-project:project registration failed");
 
       runtime.cancel(stableRequest.id);
       await flushAsyncWork();
@@ -236,6 +237,7 @@ describe("Codex pending worktree runtime", () => {
       ...TEST_RUNTIME_DEFAULTS,
       createWorktree: async (_entry, context) => {
         context.onEvent({
+          operation: "create",
           type: "output",
           phase: "worktree",
           stream: "stdout",
@@ -303,18 +305,21 @@ describe("Codex pending worktree runtime", () => {
       expect(beforeLateEvents?.phase).toBe("creating");
 
       attemptEvents[0]?.({
+        operation: "create",
         type: "path-allocated",
         worktreeGitRoot: "/stale/worktree",
         worktreeWorkspaceRoot: "/stale/worktree/packages/app",
       });
-      attemptEvents[0]?.({ type: "setup-started" });
+      attemptEvents[0]?.({ operation: "create", type: "setup-started" });
       attemptEvents[0]?.({
+        operation: "create",
         type: "output",
         phase: "worktree",
         stream: "stderr",
         data: "stale output\n",
       });
       attemptEvents[1]?.({
+        operation: "create",
         type: "output",
         phase: "worktree",
         stream: "stdout",
@@ -323,6 +328,7 @@ describe("Codex pending worktree runtime", () => {
 
       expect(runtime.list()[0]).toBe(beforeLateEvents);
       attemptEvents[1]?.({
+        operation: "create",
         type: "path-allocated",
         worktreeGitRoot: "/current/worktree",
         worktreeWorkspaceRoot: "/current/worktree/packages/app",
@@ -330,8 +336,8 @@ describe("Codex pending worktree runtime", () => {
       expect(runtime.list()[0]).toMatchObject({
         attempt: 2,
         phase: "creating",
-        worktreeGitRoot: "/current/worktree",
-        worktreeWorkspaceRoot: "/current/worktree/packages/app",
+        worktreeGitRoot: null,
+        worktreeWorkspaceRoot: null,
         worktreeOutputText: "[info] Starting worktree creation\n",
       });
     } finally {
@@ -427,7 +433,7 @@ describe("Codex pending worktree runtime", () => {
       launchConversation: async (_entry, _workspaceRoot, context) => {
         events.push("launch");
         context.onThreadCreated("thread-metadata-warning");
-        expect(runtime.resolveThread("client-new-thread:one")?.state).toBe("waiting");
+        expect(runtime.resolveThread("client-new-thread:one")?.state).toBe("starting");
         events.push("metadata");
         throw new Error("owner metadata failed");
       },
@@ -478,7 +484,7 @@ describe("Codex pending worktree runtime", () => {
       await flushAsyncWork();
 
       expect(events.join(",")).toBe("promoting,launched");
-      expect(runtime.resolveThread("client-new-thread:one")?.state).toBe("waiting");
+      expect(runtime.resolveThread("client-new-thread:one")?.state).toBe("starting");
 
       promotion.resolve(undefined);
       await flushAsyncWork();
@@ -523,8 +529,9 @@ describe("Codex pending worktree runtime", () => {
     const runtime = new CodexPendingWorktreeRuntime({
       ...TEST_RUNTIME_DEFAULTS,
       createWorktree: async (_entry, context) => {
-        context.onEvent({ type: "setup-started" });
+        context.onEvent({ operation: "create", type: "setup-started" });
         context.onEvent({
+          operation: "create",
           type: "output",
           phase: "setup",
           stream: "stdout",
@@ -674,7 +681,7 @@ describe("Codex pending worktree runtime", () => {
             });
           });
         }
-        context.onEvent({ type: "setup-started" });
+        context.onEvent({ operation: "create", type: "setup-started" });
         return await firstCreation.promise;
       },
       launchConversation: async () => ({ threadId: "unused" }),

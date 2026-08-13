@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { useEffect, useRef, type ComponentProps } from "react";
+import { useEffect, useRef, useState, type ComponentProps } from "react";
 import { buildCodexFileChangeMap } from "../../../../shared/codex-file-change";
 import type { CodexConversationTurn } from "../../../lib/types";
 import type { VisibleConversationTurnEntry } from "../selectors";
@@ -630,6 +630,7 @@ const steeringParityTurn = buildStoryConversationTurn({
 const worktreeInitTurn = buildStoryConversationTurn({
   turnId: "turn_story_worktree_init",
   status: "completed",
+  durationMs: 10_000,
   items: [
     buildStoryConversationItem({
       turnId: "turn_story_worktree_init",
@@ -643,25 +644,42 @@ const worktreeInitTurn = buildStoryConversationTurn({
         type: "worktreeInit",
         worktreeOutputText: [
           "[info] Starting worktree creation",
-          "[info] \u001b[32mCreated worktree at /workspace/.codex/worktrees/parity-a1b2\u001b[0m",
+          "Preparing worktree (detached HEAD ab60370)",
+          "HEAD is now at ab60370 Preserve observation fields during ARC rehydration",
+          "Worktree created at /workspace/.codex/worktrees/f5b2/nodex",
+          "No local environment selected",
           "",
         ].join("\n"),
-        setup: {
-          outcome: "skipped",
-          outputText: "[info] No local environment selected\n",
-        },
+        setup: null,
       },
       createdAt: 1_000,
       updatedAt: 1_000,
     }),
+    buildStoryConversationItem({
+      turnId: "turn_story_worktree_init",
+      itemId: "user_story_worktree_init",
+      type: "user_message",
+      kind: "userMessage",
+      semanticKind: "userMessage",
+      role: "user",
+      markdownText: "hi",
+      createdAt: 2_000,
+      updatedAt: 2_000,
+    }),
+    buildStoryConversationItem({
+      turnId: "turn_story_worktree_init",
+      itemId: "assistant_story_worktree_init",
+      type: "assistant_message",
+      kind: "assistantMessage",
+      semanticKind: "assistantMessage",
+      role: "assistant",
+      assistantPhase: "final_answer",
+      markdownText: "Hi! What would you like to work on?",
+      createdAt: 3_000,
+      updatedAt: 3_000,
+    }),
   ],
 });
-
-const localWorktreeInitTurn: CodexConversationTurn = {
-  ...worktreeInitTurn,
-  turnId: null,
-  items: worktreeInitTurn.items.map((item) => ({ ...item, turnId: null })),
-};
 
 function storyEntry(
   turn: CodexConversationTurn,
@@ -678,35 +696,51 @@ function storyEntry(
   };
 }
 
-function AutoOpenUserMessage({
-  buttonLabel,
+function ControlledTurnEntry(props: ComponentProps<typeof LocalConversationTurnEntry>) {
+  const [collapsed, setCollapsed] = useState<boolean | undefined>(undefined);
+  return (
+    <LocalConversationTurnEntry
+      {...props}
+      persistedCollapsed={collapsed}
+      onSetCollapsed={setCollapsed}
+    />
+  );
+}
+
+function AutoOpenButtons({
+  buttonLabels,
   ...props
-}: ComponentProps<typeof LocalConversationTurnEntry> & { buttonLabel: string }) {
+}: ComponentProps<typeof LocalConversationTurnEntry> & { buttonLabels: readonly string[] }) {
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const buttonSequence = buttonLabels.join("\0");
 
   useEffect(() => {
+    const labels = buttonSequence.split("\0");
     let attemptsRemaining = 20;
+    let currentLabelIndex = 0;
     let timeoutId = 0;
     const open = () => {
+      const buttonLabel = labels[currentLabelIndex];
+      if (buttonLabel === undefined) return;
       const button = Array.from(rootRef.current?.querySelectorAll("button") ?? []).find(
         (candidate) => candidate.textContent?.trim() === buttonLabel,
       );
       if (button) {
         button.click();
-        return;
+        currentLabelIndex += 1;
       }
       attemptsRemaining -= 1;
-      if (attemptsRemaining > 0) {
+      if (currentLabelIndex < labels.length && attemptsRemaining > 0) {
         timeoutId = window.setTimeout(open, 50);
       }
     };
     timeoutId = window.setTimeout(open, 50);
     return () => window.clearTimeout(timeoutId);
-  }, [buttonLabel]);
+  }, [buttonSequence]);
 
   return (
     <div ref={rootRef}>
-      <LocalConversationTurnEntry {...props} />
+      <ControlledTurnEntry {...props} />
     </div>
   );
 }
@@ -842,14 +876,14 @@ export const LongUserMessageExpanded: Story = {
   args: {
     entry: storyEntry(longUserMessageTurn),
   },
-  render: (args) => <AutoOpenUserMessage {...args} buttonLabel="Show more" />,
+  render: (args) => <AutoOpenButtons {...args} buttonLabels={["Show more"]} />,
 };
 
 export const VeryLargeUserMessageFullSource: Story = {
   args: {
     entry: storyEntry(veryLargeUserMessageTurn),
   },
-  render: (args) => <AutoOpenUserMessage {...args} buttonLabel="View full message" />,
+  render: (args) => <AutoOpenButtons {...args} buttonLabels={["View full message"]} />,
 };
 
 export const MultilineUserMessageCollapsed: Story = {
@@ -874,8 +908,16 @@ export const SteeringParity: Story = {
 
 export const WorktreeInitialization: Story = {
   args: {
-    entry: storyEntry(localWorktreeInitTurn),
+    entry: storyEntry(worktreeInitTurn),
     canEditTurnUserPrefix: false,
     canForkTurn: false,
   },
+  render: (args) => <ControlledTurnEntry {...args} />,
+};
+
+export const WorktreeInitializationExpanded: Story = {
+  args: WorktreeInitialization.args,
+  render: (args) => (
+    <AutoOpenButtons {...args} buttonLabels={["Worked for 10s", "Worktree created"]} />
+  ),
 };

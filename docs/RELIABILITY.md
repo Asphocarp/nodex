@@ -134,7 +134,22 @@ do not hydrate complete transcripts. Resume, fork, archive/delete, pending
 requests, and old-history behavior are specified in
 [Codex Owner/Follower Streaming](product-specs/codex-thread-owner-follower-streaming.md),
 [Codex Thread Transcript Behavior](product-specs/codex-thread-transcript-behavior.md),
-and [Codex Workspace Behavior](product-specs/codex-workspace-behavior.md).
+[Codex Workspace Behavior](product-specs/codex-workspace-behavior.md), and
+[Codex Managed Worktree Lifecycle Behavior](product-specs/codex-managed-worktree-lifecycle-behavior.md).
+
+Core Workspace is the cold-restart authority for a managed Thread's execution
+host, cwd, worktree path, and writable roots. Resume projects that complete
+location into app-server rather than adopting a cold `thread/read` cwd. The
+app-local worktree initialization activity survives renderer replacement in
+Main's live conversation document but intentionally disappears with Main; it
+is never fabricated into durable protocol history.
+
+A retained worktree removal leaves either the physical worktree or a complete
+snapshot ref available. Restore recreates only the authorized durable path and
+keeps the snapshot on failure. Execution-location handoff journals every
+external boundary and reconciles against Core after interruption, preserving at
+least one complete usable source or destination. These guarantees are shared by
+settings, archive, retention, automation, and host-to-host movement.
 
 ### Browser, Computer Use, Terminal, and Files
 
@@ -190,6 +205,8 @@ and [Desktop Notification Behavior](product-specs/desktop-notification-behavior.
 | Document/Canvas stream gap | New exact live barrier plus canonical engine sync |
 | Files external edit during local draft | Preserve local and external versions in explicit conflict state |
 | Browser/Terminal surface unmount | Preserve Main-owned runtime unless explicit lifecycle closes it |
+| Managed-worktree removal interrupted | Preserve the snapshot ref or physical worktree; never clear the durable Chat location to hide failure |
+| Chat handoff interrupted | Reconcile the Main journal against Core's canonical execution location; finish commit or compensate while retaining at least one complete checkout. Cross-host cleanup locates an unknown completed import by its operation-scoped destination ref before deleting any destination artifact. |
 | Backup or maintenance authority lost | Stop/defer remaining work; do not publish retention or notification side effects |
 | Restore interrupted | Journal recovery yields the complete old or complete new Store/assets |
 | Store epoch changed | Invalidate every old transport, outbox, checkpoint, lease, and subscription; relaunch |

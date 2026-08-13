@@ -474,6 +474,23 @@ function runProductionBuild(): void {
     ["exec", "electron-vite", "build", "--logLevel", "warn"],
     { cwd: repositoryRoot, stdio: "inherit" },
   );
+  // SSH hosts cannot load Electron's split Main chunks or its local
+  // node_modules tree. Ship one content-addressable, dependency-contained Node
+  // worker that can be copied to a trusted remote login over stdin.
+  execFileSync(
+    "pnpm",
+    [
+      "exec",
+      "esbuild",
+      "src/main/worktree-worker/stdio-entry.ts",
+      "--bundle",
+      "--platform=node",
+      "--format=cjs",
+      "--target=node20",
+      "--outfile=out/main/remote-worktree-worker.cjs",
+    ],
+    { cwd: repositoryRoot, stdio: "inherit" },
+  );
   recordPreparedElectronBuild(
     { repositoryRoot, manifestPath: defaultManifestPath },
     beforeBuild,

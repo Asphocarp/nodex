@@ -526,6 +526,84 @@ describe("LocalConversationTurnEntry", () => {
     expect(workedForShell?.contains(workedForButton)).toBe(true);
   });
 
+  test("renders first-turn worktree initialization beneath worked time and before the assistant", async () => {
+    const stableRequests: [] = [];
+    const { LocalConversationTurnEntry } = await import("./local-conversation-turn-entry");
+    const turnId = "turn_worktree_init";
+    const worktreeItem: CodexConversationItem = {
+      threadId: "thread_1",
+      turnId,
+      itemId: "worktree_init",
+      type: "worktreeInit",
+      kind: "systemEvent",
+      semanticKind: "worktreeInit",
+      status: "completed",
+      rawItem: {
+        id: "worktree_init",
+        type: "worktreeInit",
+        worktreeOutputText: [
+          "[info] Starting worktree creation",
+          "Worktree created at /tmp/worktrees/task",
+          "No local environment selected",
+        ].join("\n"),
+        setup: null,
+      },
+      createdAt: 1,
+      updatedAt: 1,
+    };
+    const userItem = buildUserEntry(turnId, "worktree_user", "hi");
+    const assistantItem = buildAssistantEntry(
+      turnId,
+      "worktree_assistant",
+      "Hi! What would you like to work on?",
+      { assistantPhase: "final_answer", status: "completed" },
+    );
+    const turn: CodexConversationTurn = {
+      threadId: "thread_1",
+      turnId,
+      status: "completed",
+      durationMs: 10_000,
+      itemIds: [worktreeItem.itemId, userItem.itemId, assistantItem.itemId],
+      items: [worktreeItem, userItem, assistantItem],
+    };
+    const renderWorktreeTurn = (persistedCollapsed?: boolean) =>
+      createElement(
+        TooltipProvider,
+        null,
+        createElement(LocalConversationTurnEntry, {
+          conversationId: "thread_1",
+          entry: buildVisibleTurnEntry(turn, stableRequests, true),
+          cwd: "/tmp/worktrees/task",
+          canEditTurnUserPrefix: false,
+          canForkTurn: false,
+          persistedCollapsed,
+        }),
+      );
+    const view = render(renderWorktreeTurn());
+
+    const userMessage = view.getByText("hi");
+    const workedForButton = view.getByRole("button", { name: "Worked for 10s" });
+    expect(workedForButton.getAttribute("aria-expanded")).toBe("false");
+    expect(view.queryByRole("button", { name: "Worktree created" })).toBe(null);
+
+    view.rerender(renderWorktreeTurn(false));
+
+    const worktreeButton = view.getByRole("button", { name: "Worktree created" });
+    const assistantMessage = view.getByText("Hi! What would you like to work on?");
+    expect(userMessage.compareDocumentPosition(worktreeButton) & Node.DOCUMENT_POSITION_FOLLOWING)
+      .toBeTruthy();
+    expect(worktreeButton.compareDocumentPosition(assistantMessage) & Node.DOCUMENT_POSITION_FOLLOWING)
+      .toBeTruthy();
+    expect(worktreeButton.getAttribute("aria-expanded")).toBe("false");
+
+    await act(async () => {
+      fireEvent.click(worktreeButton);
+      await settleAsyncRender();
+    });
+    expect(worktreeButton.getAttribute("aria-expanded")).toBe("true");
+    expect(view.getByText(/No local environment selected/)).toBeTruthy();
+  });
+
   test("renders active working-for as a plain divider without a toggle button", async () => {
     const stableRequests: [] = [];
     const { LocalConversationTurnEntry } = await import("./local-conversation-turn-entry");

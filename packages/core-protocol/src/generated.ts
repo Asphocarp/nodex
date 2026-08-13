@@ -1271,6 +1271,7 @@ export interface components {
                 /** Format: int64 */
                 readonly created_at: number;
                 readonly cwd?: string | null;
+                readonly execution_host_id: string;
                 readonly forked_from_id?: string | null;
                 readonly harness_id?: string | null;
                 readonly linked_at: string;
@@ -5051,6 +5052,11 @@ export interface components {
                 readonly thread_id: string;
             } | {
                 /** @enum {string} */
+                readonly kind: "set_thread_execution_location";
+                readonly location: components["schemas"]["ProjectWorkspaceThreadExecutionLocation"];
+                readonly thread_id: string;
+            } | {
+                /** @enum {string} */
                 readonly kind: "delete_thread";
                 readonly thread_id: string;
             } | {
@@ -5815,6 +5821,9 @@ export interface components {
                 readonly kind: "managed_worktree_window";
                 readonly project_id?: string | null;
                 readonly window: components["schemas"]["CollectionWindowRequest"];
+            } | {
+                /** @enum {string} */
+                readonly kind: "managed_worktree_lifecycle_snapshot";
             };
         };
         readonly ModuleReadRequest_StoreAdministrationRead: {
@@ -6148,6 +6157,7 @@ export interface components {
             readonly kind: "set_fallback_title";
             readonly title: string;
         } | {
+            readonly execution_location?: null | components["schemas"]["ProjectWorkspaceThreadExecutionLocation"];
             readonly expected_project_id?: string | null;
             /** @enum {string} */
             readonly kind: "link_thread";
@@ -6222,6 +6232,36 @@ export interface components {
             readonly project?: null | components["schemas"]["ProjectWorkspaceProject"];
             readonly thread: components["schemas"]["ProjectWorkspaceThread"];
         };
+        readonly ProjectWorkspaceManagedWorktreeConsumer: {
+            readonly archived: boolean;
+            /** Format: int64 */
+            readonly created_at: number;
+            readonly cwd?: string | null;
+            readonly execution_host_id: string;
+            readonly linked_at: string;
+            readonly managed_worktree_path: string;
+            /** Format: int64 */
+            readonly pinned_order?: number | null;
+            readonly project_id?: string | null;
+            readonly runtime_workspace_roots: readonly string[];
+            readonly session_id?: string | null;
+            readonly status: components["schemas"]["ProjectWorkspaceThreadStatus"];
+            readonly thread_id: string;
+            /** Format: int64 */
+            readonly updated_at: number;
+        };
+        readonly ProjectWorkspaceManagedWorktreeLifecycleSnapshot: {
+            readonly consumers: readonly components["schemas"]["ProjectWorkspaceManagedWorktreeConsumer"][];
+            /** Format: int64 */
+            readonly projection_revision: number;
+            readonly projects: readonly components["schemas"]["ProjectWorkspaceManagedWorktreeProjectProtection"][];
+        };
+        readonly ProjectWorkspaceManagedWorktreeProjectProtection: {
+            readonly lifecycle: components["schemas"]["ProjectLifecycle"];
+            readonly primary_workspace_root?: string | null;
+            readonly project_id: string;
+            readonly sources: readonly components["schemas"]["ProjectSource"][];
+        };
         readonly ProjectWorkspaceProject: {
             readonly appearance: components["schemas"]["ProjectAppearance"];
             /** Format: int64 */
@@ -6290,8 +6330,10 @@ export interface components {
             /** Format: int64 */
             readonly created_at: number;
             readonly cwd?: string | null;
+            readonly execution_host_id: string;
             readonly forked_from_id?: string | null;
             readonly linked_at: string;
+            readonly managed_worktree_path?: string | null;
             readonly parent_thread_id?: string | null;
             readonly project_id?: string | null;
             readonly service_name?: string | null;
@@ -6313,6 +6355,7 @@ export interface components {
             readonly created_at: number;
             readonly cwd?: string | null;
             readonly dynamic_tool_catalogs: readonly components["schemas"]["ProjectWorkspaceDynamicToolCatalog"][];
+            readonly execution_host_id: string;
             readonly forked_from_id?: string | null;
             readonly harness_id?: string | null;
             readonly has_unread_turn: boolean;
@@ -6339,6 +6382,14 @@ export interface components {
             readonly updated_at: number;
             readonly writable_roots: readonly string[];
         };
+        readonly ProjectWorkspaceThreadExecutionLocation: {
+            readonly cwd?: string | null;
+            readonly execution_host_id: string;
+            readonly managed_worktree_path?: string | null;
+            readonly projectless_output_directory?: string | null;
+            readonly projectless_workspace_browser_root?: string | null;
+            readonly runtime_workspace_roots: readonly string[];
+        };
         readonly ProjectWorkspaceThreadLane: {
             /** @enum {string} */
             readonly kind: "project";
@@ -6349,6 +6400,7 @@ export interface components {
         };
         readonly ProjectWorkspaceThreadMoveMetadataPatch: {
             readonly cwd?: string | null;
+            readonly execution_host_id?: string | null;
             readonly managed_worktree_path?: string | null;
             readonly projectless_output_directory?: string | null;
             readonly projectless_workspace_browser_root?: string | null;
@@ -6366,6 +6418,7 @@ export interface components {
             /** Format: int64 */
             readonly created_at?: number | null;
             readonly cwd?: string | null;
+            readonly execution_host_id?: string | null;
             readonly forked_from_id?: string | null;
             readonly harness_id?: string | null;
             readonly linked_at?: string | null;
@@ -7321,6 +7374,10 @@ export interface components {
                     /** @enum {string} */
                     readonly kind: "managed_worktree_window";
                     readonly worktrees: components["schemas"]["CollectionWindow_ProjectWorkspaceManagedWorktreeSummary"];
+                } | {
+                    /** @enum {string} */
+                    readonly kind: "managed_worktree_lifecycle_snapshot";
+                    readonly snapshot: components["schemas"]["ProjectWorkspaceManagedWorktreeLifecycleSnapshot"];
                 };
             };
             /** @enum {string} */

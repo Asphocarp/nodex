@@ -423,6 +423,7 @@ export function makeAttachedSession(overrides: SessionFixtureOverrides = {}): Pr
       threadName: "Alpha thread",
       threadPreview: "Working on the active session",
       modelProvider: "openai",
+      executionHostId: "local",
       cwd: "/Users/asc/repo/nodex",
       statusType: "notLoaded",
       statusActiveFlags: [],
@@ -479,10 +480,20 @@ export function makeSessionViewFixture(session: ProjectSession): WorkbenchSessio
 
 export function makeSidebarSnapshotItemForSession(session: ProjectSession): CodexSidebarThreadItem {
   if (!session.thread) throw new Error("Expected attached session");
+  const hostId = session.thread.executionHostId;
+  const local = hostId === "local";
+  const managedWorktreePath = session.thread.managedWorktreePath ?? null;
   return {
-    key: `local:${session.thread.threadId}`,
-    kind: "local",
-    hostId: "local",
+    key: `${local ? "local" : "remote"}:${session.thread.threadId}`,
+    kind: local ? "local" : "remote",
+    runLocation: managedWorktreePath
+      ? local
+        ? { kind: "local-worktree", path: managedWorktreePath, phase: "ready" }
+        : { kind: "remote-worktree", hostId, path: managedWorktreePath, phase: "ready" }
+      : local
+        ? { kind: "local-checkout" }
+        : { kind: "remote-checkout", hostId },
+    hostId,
     threadId: session.thread.threadId,
     parentThreadId: session.thread.parentThreadId ?? null,
     sessionId: session.id,

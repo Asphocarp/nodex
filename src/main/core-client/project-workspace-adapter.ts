@@ -63,6 +63,10 @@ type CoreBackgroundProcess = Extract<
   ProjectWorkspaceReadSnapshot["value"],
   { kind: "background_process_window" }
 >["processes"]["items"][number];
+type CoreManagedWorktreeLifecycleSnapshot = Extract<
+  ProjectWorkspaceReadSnapshot["value"],
+  { kind: "managed_worktree_lifecycle_snapshot" }
+>["snapshot"];
 
 export interface DesktopProjectWorkspaceThread {
   readonly threadId: string;
@@ -79,6 +83,7 @@ export interface DesktopProjectWorkspaceThread {
   readonly threadPreview: string;
   readonly modelProvider: string;
   readonly executionProfile?: AgentExecutionProfile | null;
+  readonly executionHostId: string;
   readonly cwd: string | null;
   readonly managedWorktreePath: string | null;
   readonly projectlessOutputDirectory: string | null;
@@ -106,6 +111,7 @@ export interface DesktopProjectWorkspaceThreadPatch {
   readonly threadPreview?: string;
   readonly modelProvider?: string;
   readonly executionProfile?: AgentExecutionProfile | null;
+  readonly executionHostId?: string;
   readonly cwd?: string | null;
   readonly managedWorktreePath?: string | null;
   readonly projectlessOutputDirectory?: string | null;
@@ -135,10 +141,20 @@ export interface DesktopProjectWorkspaceThreadMoveInput {
   readonly metadata?: Pick<
     DesktopProjectWorkspaceThreadPatch,
     | "cwd"
+    | "executionHostId"
     | "managedWorktreePath"
     | "projectlessOutputDirectory"
     | "projectlessWorkspaceBrowserRoot"
   >;
+}
+
+export interface DesktopProjectWorkspaceExecutionLocation {
+  readonly executionHostId: string;
+  readonly cwd: string | null;
+  readonly managedWorktreePath: string | null;
+  readonly runtimeWorkspaceRoots: readonly string[];
+  readonly projectlessOutputDirectory: string | null;
+  readonly projectlessWorkspaceBrowserRoot: string | null;
 }
 
 export interface DesktopProjectWorkspaceSidebar {
@@ -169,6 +185,36 @@ export interface DesktopManagedWorktreeWindow {
   readonly items: readonly DesktopManagedWorktreeSummary[];
   readonly nextCursor: string | null;
   readonly projectionRevision: number;
+}
+
+export interface DesktopManagedWorktreeLifecycleConsumer {
+  readonly threadId: string;
+  readonly projectId: string | null;
+  readonly sessionId: string | null;
+  readonly executionHostId: string;
+  readonly cwd: string | null;
+  readonly managedWorktreePath: string;
+  readonly runtimeWorkspaceRoots: readonly string[];
+  readonly archived: boolean;
+  readonly pinnedOrder: number | null;
+  readonly statusType: CodexThreadStatusType;
+  readonly statusActiveFlags: readonly CodexThreadActiveFlag[];
+  readonly createdAt: number;
+  readonly updatedAt: number;
+  readonly linkedAt: string;
+}
+
+export interface DesktopManagedWorktreeProjectProtection {
+  readonly projectId: string;
+  readonly lifecycle: Project["lifecycle"];
+  readonly sourceRoots: readonly string[];
+  readonly primaryWorkspaceRoot: string | null;
+}
+
+export interface DesktopManagedWorktreeLifecycleSnapshot {
+  readonly projectionRevision: number;
+  readonly consumers: readonly DesktopManagedWorktreeLifecycleConsumer[];
+  readonly projects: readonly DesktopManagedWorktreeProjectProtection[];
 }
 
 export interface DesktopAppServerSweepReconcileResult {
@@ -287,6 +333,10 @@ export interface DesktopProjectWorkspacePort {
     threadId: string,
     patch: DesktopProjectWorkspaceThreadPatch,
   ): Promise<DesktopProjectWorkspaceThread | null>;
+  setThreadExecutionLocation(
+    threadId: string,
+    location: DesktopProjectWorkspaceExecutionLocation,
+  ): Promise<DesktopProjectWorkspaceThread | null>;
   moveThread(input: DesktopProjectWorkspaceThreadMoveInput): Promise<{
     readonly thread: DesktopProjectWorkspaceThread;
     readonly sidebar: DesktopProjectWorkspaceSidebar;
@@ -336,6 +386,7 @@ export interface DesktopProjectWorkspacePort {
       first?: number;
     },
   ): Promise<DesktopManagedWorktreeWindow>;
+  readManagedWorktreeLifecycleSnapshot(): Promise<DesktopManagedWorktreeLifecycleSnapshot>;
   upsertBackgroundProcess(
     input: CodexBackgroundProcessRecord,
     options?: { readonly preserveStartedAt?: boolean },
@@ -411,6 +462,7 @@ const fromCoreThread = (
         serviceTier: thread.service_tier ?? null,
       }
     : null,
+  executionHostId: thread.execution_host_id,
   cwd: thread.cwd ?? undefined,
   managedWorktreePath: thread.managed_worktree_path ?? null,
   projectlessOutputDirectory: thread.projectless_output_directory ?? null,
@@ -441,7 +493,9 @@ const fromCoreTaskThread = (
   agentPath: thread.agent_path ?? null,
   threadName: thread.thread_name ?? undefined,
   threadPreview: thread.thread_preview,
+  executionHostId: thread.execution_host_id,
   cwd: thread.cwd ?? undefined,
+  managedWorktreePath: thread.managed_worktree_path ?? null,
   statusType: thread.status.status_type,
   statusActiveFlags: [...thread.status.active_flags],
   archived: thread.archived,
@@ -493,6 +547,7 @@ const fromCoreWorkspaceThread = (
         serviceTier: thread.service_tier ?? null,
       }
     : null,
+  executionHostId: thread.execution_host_id,
   cwd: thread.cwd ?? null,
   managedWorktreePath: thread.managed_worktree_path ?? null,
   projectlessOutputDirectory: thread.projectless_output_directory ?? null,
@@ -564,6 +619,9 @@ const toCoreThreadPatch = (
   ...(Object.prototype.hasOwnProperty.call(patch, "executionProfile")
     ? toCoreExecutionProfilePatch(patch.executionProfile ?? null)
     : {}),
+  ...(patch.executionHostId === undefined
+    ? {}
+    : { execution_host_id: patch.executionHostId }),
   ...(Object.prototype.hasOwnProperty.call(patch, "cwd")
     ? { cwd: patch.cwd ?? null }
     : {}),
@@ -623,6 +681,9 @@ const toCoreThreadMovePlacement = (
 const toCoreThreadMoveMetadata = (
   metadata: DesktopProjectWorkspaceThreadMoveInput["metadata"],
 ) => ({
+  ...(metadata?.executionHostId === undefined
+    ? {}
+    : { execution_host_id: metadata.executionHostId }),
   ...(metadata && Object.prototype.hasOwnProperty.call(metadata, "cwd")
     ? { cwd: metadata.cwd ?? null }
     : {}),
@@ -994,6 +1055,42 @@ export function createCoreProjectWorkspaceAdapter(
     };
   };
 
+  const readManagedWorktreeLifecycleSnapshot = async (
+  ): Promise<DesktopManagedWorktreeLifecycleSnapshot> => {
+    const read = await client.workspaceRead({
+      kind: "managed_worktree_lifecycle_snapshot",
+    });
+    if (read.value.kind !== "managed_worktree_lifecycle_snapshot") {
+      throw new Error("Core returned the wrong managed-worktree lifecycle variant");
+    }
+    const snapshot: CoreManagedWorktreeLifecycleSnapshot = read.value.snapshot;
+    return {
+      projectionRevision: snapshot.projection_revision,
+      consumers: snapshot.consumers.map((consumer) => ({
+        threadId: consumer.thread_id,
+        projectId: consumer.project_id ?? null,
+        sessionId: consumer.session_id ?? null,
+        executionHostId: consumer.execution_host_id,
+        cwd: consumer.cwd ?? null,
+        managedWorktreePath: consumer.managed_worktree_path,
+        runtimeWorkspaceRoots: [...consumer.runtime_workspace_roots],
+        archived: consumer.archived,
+        pinnedOrder: consumer.pinned_order ?? null,
+        statusType: consumer.status.status_type,
+        statusActiveFlags: [...consumer.status.active_flags],
+        createdAt: consumer.created_at,
+        updatedAt: consumer.updated_at,
+        linkedAt: consumer.linked_at,
+      })),
+      projects: snapshot.projects.map((project) => ({
+        projectId: project.project_id,
+        lifecycle: project.lifecycle,
+        sourceRoots: project.sources.map((source) => source.root),
+        primaryWorkspaceRoot: project.primary_workspace_root ?? null,
+      })),
+    };
+  };
+
   const mutationSidebarReceipt = (
     threads: readonly DesktopProjectWorkspaceThread[] = [],
   ): DesktopProjectWorkspaceSidebar => ({
@@ -1295,6 +1392,10 @@ export function createCoreProjectWorkspaceAdapter(
         input,
         "executionProfile",
       );
+      const hasExecutionHostId = Object.prototype.hasOwnProperty.call(
+        input,
+        "executionHostId",
+      );
       await apply({
         kind: "mutate_session",
         session_id: parsed.sessionId,
@@ -1337,20 +1438,30 @@ export function createCoreProjectWorkspaceAdapter(
             ...(hasExecutionProfile
               ? toCoreExecutionProfilePatch(parsed.executionProfile ?? null)
               : {}),
-            ...(parsed.cwd != null ? { cwd: parsed.cwd } : {}),
-            ...(hasManagedWorktreePath
-              ? { managed_worktree_path: parsed.managedWorktreePath ?? null }
-              : {}),
-            ...(parsed.projectlessOutputDirectory != null
+            ...(parsed.runtimeWorkspaceRoots === undefined
               ? {
-                  projectless_output_directory:
-                    parsed.projectlessOutputDirectory,
-                }
-              : {}),
-            ...(parsed.projectlessWorkspaceBrowserRoot != null
-              ? {
-                  projectless_workspace_browser_root:
-                    parsed.projectlessWorkspaceBrowserRoot,
+                  ...(hasExecutionHostId
+                    ? { execution_host_id: parsed.executionHostId }
+                    : {}),
+                  ...(parsed.cwd != null ? { cwd: parsed.cwd } : {}),
+                  ...(hasManagedWorktreePath
+                    ? {
+                        managed_worktree_path:
+                          parsed.managedWorktreePath ?? null,
+                      }
+                    : {}),
+                  ...(parsed.projectlessOutputDirectory != null
+                    ? {
+                        projectless_output_directory:
+                          parsed.projectlessOutputDirectory,
+                      }
+                    : {}),
+                  ...(parsed.projectlessWorkspaceBrowserRoot != null
+                    ? {
+                        projectless_workspace_browser_root:
+                          parsed.projectlessWorkspaceBrowserRoot,
+                      }
+                    : {}),
                 }
               : {}),
             status: {
@@ -1365,6 +1476,23 @@ export function createCoreProjectWorkspaceAdapter(
               ? { updated_at: parsed.updatedAt }
               : {}),
           },
+          ...(parsed.runtimeWorkspaceRoots === undefined
+            ? {}
+            : {
+                execution_location: {
+                  execution_host_id:
+                    parsed.executionHostId
+                    ?? existing?.execution_host_id
+                    ?? "local",
+                  cwd: parsed.cwd ?? null,
+                  managed_worktree_path: parsed.managedWorktreePath ?? null,
+                  runtime_workspace_roots: [...parsed.runtimeWorkspaceRoots],
+                  projectless_output_directory:
+                    parsed.projectlessOutputDirectory ?? null,
+                  projectless_workspace_browser_root:
+                    parsed.projectlessWorkspaceBrowserRoot ?? null,
+                },
+              }),
         },
       });
       const linked = await readSession(parsed.sessionId);
@@ -1405,6 +1533,27 @@ export function createCoreProjectWorkspaceAdapter(
           kind: "update_thread",
           thread_id: threadId,
           patch: toCoreThreadPatch(patch),
+        });
+      } catch (error) {
+        if (!isNotFound(error)) throw error;
+        return null;
+      }
+      return await getThread(threadId);
+    },
+    setThreadExecutionLocation: async (threadId, location) => {
+      try {
+        await apply({
+          kind: "set_thread_execution_location",
+          thread_id: threadId,
+          location: {
+            execution_host_id: location.executionHostId,
+            cwd: location.cwd,
+            managed_worktree_path: location.managedWorktreePath,
+            runtime_workspace_roots: [...location.runtimeWorkspaceRoots],
+            projectless_output_directory: location.projectlessOutputDirectory,
+            projectless_workspace_browser_root:
+              location.projectlessWorkspaceBrowserRoot,
+          },
         });
       } catch (error) {
         if (!isNotFound(error)) throw error;
@@ -1532,6 +1681,7 @@ export function createCoreProjectWorkspaceAdapter(
     },
     listBackgroundProcesses,
     listManagedWorktreeWindow,
+    readManagedWorktreeLifecycleSnapshot,
     upsertBackgroundProcess: async (input, options = {}) => {
       await apply({
         kind: "upsert_background_process",

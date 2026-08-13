@@ -79,6 +79,14 @@ function waiting(entry: CodexPendingWorktreeEntry): CodexPendingWorktreeThreadRe
   };
 }
 
+function starting(entry: StartConversationEntry): CodexPendingWorktreeThreadResolution {
+  return {
+    state: "starting",
+    clientThreadId: entry.clientThreadId,
+    pendingWorktreeId: entry.id,
+  };
+}
+
 const meta = {
   title: "Workbench/Pending worktree route",
   component: PendingWorktreeRouteView,
@@ -158,6 +166,29 @@ export const Creating: Story = {
   },
 };
 
+const checkoutProgressEntry = makeEntry({
+  phase: "creating",
+  worktreeOutputText:
+    "[info] Starting worktree creation\nPreparing worktree (detached HEAD 7e3ad91)\nUpdating files: 43% (43/100)\n",
+});
+
+export const CheckingOutFiles: Story = {
+  args: {
+    entry: checkoutProgressEntry,
+    resolution: waiting(checkoutProgressEntry),
+  },
+};
+
+export const CheckingOutFilesExpanded: Story = {
+  args: CheckingOutFiles.args,
+  play: async ({ canvasElement }) => {
+    const detailsButton = Array.from(canvasElement.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "More details",
+    );
+    detailsButton?.click();
+  },
+};
+
 export const CreatingNarrow: Story = {
   ...Creating,
   parameters: { viewport: narrowViewport },
@@ -215,7 +246,7 @@ const readyEntry = makeEntry({
 export const StartingConversation: Story = {
   args: {
     entry: readyEntry,
-    resolution: waiting(readyEntry),
+    resolution: starting(readyEntry),
   },
 };
 
@@ -229,7 +260,7 @@ const readyWithoutEnvironmentEntry = makeEntry({
 export const StartingConversationWithoutEnvironment: Story = {
   args: {
     entry: readyWithoutEnvironmentEntry,
-    resolution: waiting(readyWithoutEnvironmentEntry),
+    resolution: starting(readyWithoutEnvironmentEntry),
   },
 };
 
@@ -295,7 +326,8 @@ export const SetupFailureActionError: Story = {
 
 const createFailedEntry = makeEntry({
   phase: "failed",
-  worktreeOutputText: "fatal: invalid reference: feature/missing\n",
+  worktreeOutputText:
+    "[info] Starting worktree creation\nfatal: invalid reference: feature/missing\n",
   errorMessage: "Worktree creation failed",
   needsAttention: true,
 });

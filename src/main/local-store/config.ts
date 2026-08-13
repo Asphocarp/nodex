@@ -17,9 +17,11 @@ import type {
   BackupSettings,
   CodexDeveloperInstructionSettings,
   CodexGitSettings,
+  CodexExecutionHostSettings,
   CodexThreadDetailLevel,
   DiagnosticsSettings,
   HistorySettings,
+  ManagedWorktreeSettings,
   TelemetrySettings,
   ThreadNotificationSettings,
   ThreadNotificationTurnMode,
@@ -27,14 +29,17 @@ import type {
   UpdateBackupSettingsInput,
   UpdateCodexDeveloperInstructionSettingsInput,
   UpdateCodexGitSettingsInput,
+  UpdateCodexExecutionHostSettingsInput,
   UpdateDiagnosticsSettingsInput,
   UpdateHistorySettingsInput,
+  UpdateManagedWorktreeSettingsInput,
   UpdateTelemetrySettingsInput,
   UpdateThreadNotificationSettingsInput,
   UpdateWindowRestoreSettingsInput,
   WindowRestorePolicy,
   WindowRestoreSettings,
 } from "../../shared/types";
+import { normalizeCodexSshExecutionHostConfig } from "../codex/codex-ssh-execution-host";
 
 // ─── TOML [server] config (user-level + CWD walk-up for project-level) ───
 
@@ -66,6 +71,11 @@ interface ServerTomlConfig {
   git_branch_prefix?: string;
   git_commit_instructions?: string;
   git_pr_instructions?: string;
+  worktree_root?: string;
+  worktree_known_roots?: string[];
+  worktree_auto_delete_enabled?: boolean;
+  worktree_auto_delete_limit?: number;
+  execution_hosts?: unknown[];
 }
 
 interface RootTomlConfig extends Record<string, unknown> {
@@ -93,6 +103,7 @@ const TELEMETRY_ENVIRONMENT_DEFAULT = "production";
 const TELEMETRY_AUTO_CAPTURE_ENABLED_DEFAULT = false;
 const CODEX_THREAD_DETAIL_LEVEL_DEFAULT: CodexThreadDetailLevel = "STEPS_COMMANDS";
 const CODEX_GIT_BRANCH_PREFIX_DEFAULT = "codex/";
+const WORKTREE_AUTO_DELETE_LIMIT_DEFAULT = 15;
 
 function readServerSection(configPath: string): ServerTomlConfig | null {
   try {
@@ -742,6 +753,129 @@ export function updateCodexGitSettings(input: UpdateCodexGitSettingsInput): Code
   if (input.pullRequestInstructions !== undefined) next.git_pr_instructions = input.pullRequestInstructions;
   writeUserServerTomlConfig(next);
   return getCodexGitSettings();
+}
+
+export function getManagedWorktreeSettings(): ManagedWorktreeSettings {
+  return {
+    worktreeRoot: typeof userServerToml.worktree_root === "string"
+      && userServerToml.worktree_root.trim()
+      ? path.resolve(userServerToml.worktree_root.trim())
+      : null,
+    autoDeleteEnabled: typeof userServerToml.worktree_auto_delete_enabled === "boolean"
+      ? userServerToml.worktree_auto_delete_enabled
+      : true,
+    autoDeleteLimit: typeof userServerToml.worktree_auto_delete_limit === "number"
+      && Number.isSafeInteger(userServerToml.worktree_auto_delete_limit)
+      && userServerToml.worktree_auto_delete_limit >= 1
+      ? userServerToml.worktree_auto_delete_limit
+      : WORKTREE_AUTO_DELETE_LIMIT_DEFAULT,
+  };
+}
+
+export function getKnownManagedWorktreeRoots(): string[] {
+  if (!Array.isArray(userServerToml.worktree_known_roots)) return [];
+  return Array.from(new Set(userServerToml.worktree_known_roots
+    .filter((root): root is string => typeof root === "string" && root.trim().length > 0)
+    .map((root) => path.resolve(root.trim()))));
+}
+
+export function updateManagedWorktreeSettings(
+  input: UpdateManagedWorktreeSettingsInput,
+): ManagedWorktreeSettings {
+  const allowedKeys = new Set([
+    "worktreeRoot",
+    "autoDeleteEnabled",
+    "autoDeleteLimit",
+  ]);
+  if (Object.keys(input).some((key) => !allowedKeys.has(key))) {
+    throw new Error("Unknown managed worktree setting");
+  }
+  if (input.autoDeleteEnabled !== undefined && typeof input.autoDeleteEnabled !== "boolean") {
+    throw new Error("autoDeleteEnabled must be a boolean");
+  }
+  if (
+    input.autoDeleteLimit !== undefined
+    && (!Number.isSafeInteger(input.autoDeleteLimit) || input.autoDeleteLimit < 1)
+  ) {
+    throw new Error("autoDeleteLimit must be an integer of at least one");
+  }
+  if (
+    input.worktreeRoot !== undefined
+    && input.worktreeRoot !== null
+    && typeof input.worktreeRoot !== "string"
+  ) {
+    throw new Error("worktreeRoot must be a string or null");
+  }
+  const next = { ...loadUserServerTomlConfig() };
+  if (input.worktreeRoot !== undefined) {
+    const knownRoots = new Set(
+      Array.isArray(next.worktree_known_roots)
+        ? next.worktree_known_roots.filter((root): root is string => typeof root === "string")
+        : [],
+    );
+    if (typeof next.worktree_root === "string" && next.worktree_root.trim()) {
+      knownRoots.add(path.resolve(next.worktree_root.trim()));
+    }
+    const normalized = input.worktreeRoot?.trim() ?? "";
+    if (normalized) {
+      next.worktree_root = path.resolve(normalized);
+      knownRoots.add(next.worktree_root);
+    }
+    else delete next.worktree_root;
+    next.worktree_known_roots = [...knownRoots].sort();
+  }
+  if (input.autoDeleteEnabled !== undefined) {
+    next.worktree_auto_delete_enabled = input.autoDeleteEnabled;
+  }
+  if (input.autoDeleteLimit !== undefined) {
+    next.worktree_auto_delete_limit = input.autoDeleteLimit;
+  }
+  writeUserServerTomlConfig(next);
+  return getManagedWorktreeSettings();
+}
+
+export function getCodexExecutionHostSettings(): CodexExecutionHostSettings {
+  const hosts = Array.isArray(userServerToml.execution_hosts)
+    ? userServerToml.execution_hosts
+    : [];
+  const sshHosts = hosts.map((candidate, index) => {
+    try {
+      return normalizeCodexSshExecutionHostConfig(candidate as never);
+    } catch (error) {
+      throw new Error(
+        `Invalid SSH execution host at index ${String(index)}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  });
+  const identities = new Set<string>();
+  for (const host of sshHosts) {
+    if (identities.has(host.id)) throw new Error(`Duplicate SSH execution host id: ${host.id}`);
+    identities.add(host.id);
+  }
+  return { sshHosts };
+}
+
+export function updateCodexExecutionHostSettings(
+  input: UpdateCodexExecutionHostSettingsInput,
+): CodexExecutionHostSettings {
+  if (
+    typeof input !== "object"
+    || input === null
+    || Array.isArray(input)
+    || Object.keys(input).some((key) => key !== "sshHosts")
+    || !Array.isArray(input.sshHosts)
+  ) {
+    throw new Error("Invalid execution host settings update");
+  }
+  const normalized = input.sshHosts.map(normalizeCodexSshExecutionHostConfig);
+  const identities = new Set<string>();
+  for (const host of normalized) {
+    if (identities.has(host.id)) throw new Error(`Duplicate SSH execution host id: ${host.id}`);
+    identities.add(host.id);
+  }
+  const next = { ...loadUserServerTomlConfig(), execution_hosts: normalized };
+  writeUserServerTomlConfig(next);
+  return getCodexExecutionHostSettings();
 }
 
 export function getCommandKeybindingOverrides(): CommandKeybindingOverrides {

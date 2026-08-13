@@ -23,30 +23,50 @@ port.on("message", (message) => {
   }
   if (message.type === "cancel") {
     active.delete(message.id);
-    port.postMessage({ type: "result", id: message.id, result: { type: "error", message: "Request canceled" } });
+    port.postMessage({
+      type: "result",
+      id: message.id,
+      operation: message.operation,
+      result: { type: "error", code: "canceled", message: "Request canceled", retryable: true },
+    });
     return;
   }
-  if (message.type === "remove") {
-    port.postMessage({ type: "result", id: message.id, result: { type: "ok", value: null } });
-    return;
-  }
-  if (message.input.threadTitle === "crash") process.exit(23);
+  const request = message.request;
+  if (request.operation !== "create") throw new Error("unexpected fixture operation");
+  if (request.input.threadTitle === "crash") process.exit(23);
   const roots = {
     worktreeGitRoot: "/worktrees/abcd/repo",
     worktreeWorkspaceRoot: "/worktrees/abcd/repo/packages/app",
   };
-  port.postMessage({ type: "event", id: message.id, event: { type: "path-allocated", ...roots } });
-  if (message.input.threadTitle === "hang") {
+  port.postMessage({
+    type: "event",
+    id: message.id,
+    operation: "create",
+    event: { operation: "create", type: "path-allocated", ...roots },
+  });
+  if (request.input.threadTitle === "hang") {
     active.add(message.id);
     return;
   }
   port.postMessage({
     type: "result",
     id: message.id,
-    result: { type: "ok", value: { ...roots, setupError: null, shellEnvironment: null } },
+    operation: "create",
+    result: {
+      type: "ok",
+      success: {
+        operation: "create",
+        value: { ...roots, setupError: null, shellEnvironment: null },
+      },
+    },
   });
 });
-port.postMessage({ type: "ready", epoch: workerData.epoch, protocolVersion: 1 });
+port.postMessage({
+  type: "ready",
+  epoch: workerData.epoch,
+  hostId: workerData.hostId,
+  protocolVersion: 4,
+});
 `, "utf8");
 });
 
@@ -60,6 +80,7 @@ function createInput(threadTitle: string): CodexWorktreeWorkerCreateInput {
     hostId: "local",
     repositoryPath: "/repo",
     nodexHome: "/nodex",
+    managedRoot: "/nodex/worktrees",
     projectId: "project-1",
     targetId: "pending-1",
     threadTitle,
@@ -74,6 +95,7 @@ describe("Codex worktree worker host", () => {
   test("streams events and restarts cleanly after a worker crash", async () => {
     const infrastructureErrors: string[] = [];
     const host = new CodexWorktreeWorkerHost({
+      hostId: "local",
       workerPath: fixturePath,
       onInfrastructureError: (error) => infrastructureErrors.push(error.message),
     });
@@ -97,7 +119,7 @@ describe("Codex worktree worker host", () => {
   });
 
   test("cancels an in-flight request without poisoning the worker", async () => {
-    const host = new CodexWorktreeWorkerHost({ workerPath: fixturePath });
+    const host = new CodexWorktreeWorkerHost({ hostId: "local", workerPath: fixturePath });
     const controller = new AbortController();
     let markAllocated!: () => void;
     const allocated = new Promise<void>((resolve) => {
@@ -124,7 +146,7 @@ describe("Codex worktree worker host", () => {
   });
 
   test("cancels and rejects when an event consumer fails", async () => {
-    const host = new CodexWorktreeWorkerHost({ workerPath: fixturePath });
+    const host = new CodexWorktreeWorkerHost({ hostId: "local", workerPath: fixturePath });
     try {
       await expect(host.create(createInput("hang"), {
         signal: new AbortController().signal,
@@ -134,6 +156,35 @@ describe("Codex worktree worker host", () => {
       })).rejects.toThrow("event consumer failed");
 
       await expect(host.create(createInput("success"), {
+        signal: new AbortController().signal,
+        onEvent: () => undefined,
+      })).resolves.toMatchObject({ setupError: null });
+    } finally {
+      await host.shutdown();
+    }
+  });
+
+  test("rejects protocol drift before spawning or poisoning the worker", async () => {
+    const infrastructureErrors: string[] = [];
+    const host = new CodexWorktreeWorkerHost({
+      hostId: "local",
+      workerPath: fixturePath,
+      onInfrastructureError: (error) => infrastructureErrors.push(error.message),
+    });
+    try {
+      await expect(host.create({
+        ...createInput("invalid"),
+        localEnvironmentConfigPath: "/repo/.codex/environments/environment.toml",
+      }, {
+        signal: new AbortController().signal,
+        onEvent: () => undefined,
+      })).rejects.toThrow("violates protocol version");
+      expect(infrastructureErrors).toEqual([]);
+
+      await expect(host.create({
+        ...createInput("success"),
+        localEnvironmentConfigPath: ".codex/environments/environment.toml",
+      }, {
         signal: new AbortController().signal,
         onEvent: () => undefined,
       })).resolves.toMatchObject({ setupError: null });

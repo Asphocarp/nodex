@@ -915,21 +915,24 @@ describe("LocalConversationThreadBody", () => {
 
     fireEvent.click(getAllByLabelText("Fork from this point")[0]!);
     await settleAsyncRender();
-    expect(Boolean(queryByText("Continue from this message?"))).toBe(true);
-    expect(Boolean(queryByText("Continue in new task"))).toBe(true);
+    expect(Boolean(queryByText("Continue in a new chat"))).toBe(true);
+    expect(Boolean(queryByText("Use this workspace"))).toBe(true);
     expect(Boolean(queryByText("Don't ask again when forking from an older turn"))).toBe(false);
 
-    fireEvent.click(getByRole("button", { name: /Continue in new task/ }));
+    fireEvent.click(getByRole("button", { name: /Use this workspace/ }));
     await settleAsyncRender();
 
     expect(onForkFromTurnCalls.length).toBe(1);
     expect(onForkFromTurnCalls[0]?.turnId).toBe("turn_older");
-    expect(Boolean(queryByText("Continue from this message?"))).toBe(false);
+    expect(Boolean(queryByText("Continue in a new chat"))).toBe(true);
+    expect(getByRole("button", { name: /Use this workspace/ }).hasAttribute("disabled")).toBe(true);
 
     await act(async () => {
       resolveFork();
       await pendingFork;
     });
+    await settleAsyncRender();
+    expect(Boolean(queryByText("Continue in a new chat"))).toBe(false);
   });
 
   test("routes the older-turn worktree choice through the injected target-turn handler", async () => {
@@ -993,9 +996,9 @@ describe("LocalConversationThreadBody", () => {
 
     fireEvent.click(getAllByLabelText("Fork from this point")[0]!);
     await settleAsyncRender();
-    expect(Boolean(queryByText("Continue in new worktree"))).toBe(true);
+    expect(Boolean(queryByText("Use a new worktree"))).toBe(true);
 
-    fireEvent.click(getByRole("button", { name: /Continue in new worktree/ }));
+    fireEvent.click(getByRole("button", { name: /Use a new worktree/ }));
     await settleAsyncRender();
 
     expect(localForkCalls.length).toBe(0);

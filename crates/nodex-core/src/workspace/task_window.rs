@@ -142,7 +142,8 @@ fn read_task_window_in_scope(
              thread.thread_id, thread.project_id, thread.forked_from_id, \
              thread.parent_thread_id, thread.thread_name, thread.thread_source, \
              thread.service_name, thread.agent_nickname, thread.agent_role, thread.agent_path, \
-             substr(thread.thread_preview, 1, 1024), thread.cwd, thread.status_type, \
+             substr(thread.thread_preview, 1, 1024), thread.execution_host_id, thread.cwd, \
+             thread.managed_worktree_path, thread.status_type, \
              thread.status_active_flags_json, thread.archived, thread.created_at, \
              thread.updated_at, thread.linked_at, \
              CASE WHEN session.pinned = 1 THEN 0 ELSE 1 END AS pin_bucket, \
@@ -211,7 +212,7 @@ fn task_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<(ProjectWorkspaceTaskSu
     let thread = thread_id
         .map(
             |thread_id| -> rusqlite::Result<ProjectWorkspaceTaskThreadSummary> {
-                let status_type = match row.get::<_, String>(23)?.as_str() {
+                let status_type = match row.get::<_, String>(25)?.as_str() {
                     "notLoaded" => Ok(CodexThreadStatusType::NotLoaded),
                     "idle" => Ok(CodexThreadStatusType::Idle),
                     "systemError" => Ok(CodexThreadStatusType::SystemError),
@@ -219,7 +220,7 @@ fn task_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<(ProjectWorkspaceTaskSu
                     _ => Err(rusqlite::Error::InvalidQuery),
                 }?;
                 let active_flags =
-                    serde_json::from_str::<Vec<CodexThreadActiveFlag>>(&row.get::<_, String>(24)?)
+                    serde_json::from_str::<Vec<CodexThreadActiveFlag>>(&row.get::<_, String>(26)?)
                         .map_err(|_| rusqlite::Error::InvalidQuery)?;
                 Ok(ProjectWorkspaceTaskThreadSummary {
                     thread_id,
@@ -234,15 +235,17 @@ fn task_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<(ProjectWorkspaceTaskSu
                     agent_role: row.get(19)?,
                     agent_path: row.get(20)?,
                     thread_preview: bounded_preview(&row.get::<_, String>(21)?),
-                    cwd: row.get(22)?,
+                    execution_host_id: row.get(22)?,
+                    cwd: row.get(23)?,
+                    managed_worktree_path: row.get(24)?,
                     status: ProjectWorkspaceThreadStatus {
                         status_type,
                         active_flags,
                     },
-                    archived: row.get::<_, i64>(25)? == 1,
-                    created_at: row.get(26)?,
-                    updated_at: row.get(27)?,
-                    linked_at: row.get(28)?,
+                    archived: row.get::<_, i64>(27)? == 1,
+                    created_at: row.get(28)?,
+                    updated_at: row.get(29)?,
+                    linked_at: row.get(30)?,
                 })
             },
         )
@@ -287,7 +290,7 @@ fn task_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<(ProjectWorkspaceTaskSu
         },
         thread,
     };
-    Ok((task, row.get(29)?, row.get(30)?))
+    Ok((task, row.get(31)?, row.get(32)?))
 }
 
 pub(crate) fn bounded_preview(value: &str) -> String {

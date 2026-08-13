@@ -128,6 +128,7 @@ describe("codex pending worktree setup repair", () => {
       hostId: "local",
       label: "Original task",
       sourceWorkspaceRoot: "/repo",
+      sourceWorkspaceRoots: ["/repo"],
       startingState: { type: "working-tree" as const },
       localEnvironmentConfigPath: ".codex/environments/dev.toml",
       prompt: "Original request",

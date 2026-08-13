@@ -35,7 +35,10 @@ export interface CodexPendingWorktreeRuntimeDependencies {
   ) => Promise<{ readonly threadId: string }>;
   readonly removeWorktree: (hostId: string, worktreeGitRoot: string) => Promise<void>;
   readonly cleanupGoalSources: (entry: CodexPendingWorktreeEntry) => Promise<void>;
-  readonly addWorkspaceRoot?: (workspaceRoot: string, label: string) => Promise<void> | void;
+  readonly registerStableProject?: (
+    workspaceRoots: readonly string[],
+    label: string,
+  ) => Promise<void> | void;
   readonly onConversationThreadMapped?: (input: {
     readonly entry: CodexPendingWorktreeEntry;
     readonly pendingWorktreeId: string;
@@ -44,7 +47,7 @@ export interface CodexPendingWorktreeRuntimeDependencies {
   }) => Promise<void> | void;
   readonly onChanged?: (entries: readonly CodexPendingWorktreeEntry[]) => void;
   readonly onError?: (
-    phase: "create" | "launch" | "remove" | "cleanup-goal-sources" | "add-workspace-root",
+    phase: "create" | "launch" | "remove" | "cleanup-goal-sources" | "register-stable-project",
     error: unknown,
     pendingWorktreeId: string,
   ) => void;
@@ -77,7 +80,7 @@ function errorMessage(error: unknown): string {
 
 type CodexPendingWorktreeProgressAction = Extract<
   CodexPendingWorktreeAction,
-  { readonly type: "appendOutput" | "pathAllocated" | "setupStarted" }
+  { readonly type: "appendOutput" | "setupStarted" }
 >;
 
 function assertNeverCodexPendingWorktreeRuntimeVariant(
@@ -98,9 +101,10 @@ export function projectCodexWorktreeWorkerEventToPendingAction(
   },
   event: CodexWorktreeWorkerEvent,
 ): CodexPendingWorktreeProgressAction | null {
+  if (event.operation !== "create") return null;
   switch (event.type) {
     case "output":
-      if (!event.data) return null;
+      if (!event.data || (event.phase !== "worktree" && event.phase !== "setup")) return null;
       return {
         type: "appendOutput",
         pendingWorktreeId: identity.pendingWorktreeId,
@@ -108,25 +112,17 @@ export function projectCodexWorktreeWorkerEventToPendingAction(
         phase: event.phase,
         output: event.data,
       };
+    // Allocation protects the newborn path inside the main process, but does not
+    // prove that `git worktree add` succeeded. Public roots are published only
+    // by the terminal create/setup result below.
     case "path-allocated":
-      return {
-        type: "pathAllocated",
-        pendingWorktreeId: identity.pendingWorktreeId,
-        attempt: identity.attempt,
-        worktreeGitRoot: event.worktreeGitRoot,
-        worktreeWorkspaceRoot: event.worktreeWorkspaceRoot,
-      };
+      return null;
     case "setup-started":
       return {
         type: "setupStarted",
         pendingWorktreeId: identity.pendingWorktreeId,
         attempt: identity.attempt,
       };
-    default:
-      return assertNeverCodexPendingWorktreeRuntimeVariant(
-        event,
-        "Codex worktree worker event",
-      );
   }
 }
 
@@ -298,11 +294,11 @@ export class CodexPendingWorktreeRuntime {
       case "cleanupGoalSources":
         void this.cleanupGoalSources(effect.pendingWorktreeId, effect.entry);
         return;
-      case "addWorkspaceRoot":
-        this.addWorkspaceRoot(
+      case "registerStableProject":
+        this.registerStableProject(
           effect.pendingWorktreeId,
           effect.attempt,
-          effect.workspaceRoot,
+          effect.workspaceRoots,
           effect.label,
         );
         return;
@@ -535,14 +531,14 @@ export class CodexPendingWorktreeRuntime {
     }
   }
 
-  private addWorkspaceRoot(
+  private registerStableProject(
     pendingWorktreeId: string,
     attempt: number,
-    workspaceRoot: string,
+    workspaceRoots: readonly string[],
     label: string,
   ): void {
     try {
-      const registration = this.dependencies.addWorkspaceRoot?.(workspaceRoot, label);
+      const registration = this.dependencies.registerStableProject?.(workspaceRoots, label);
       if (registration === undefined) {
         this.completeWorkspaceRootRegistration(pendingWorktreeId, attempt);
         return;
@@ -558,7 +554,7 @@ export class CodexPendingWorktreeRuntime {
 
   private completeWorkspaceRootRegistration(pendingWorktreeId: string, attempt: number): void {
     if (this.disposed) return;
-    this.dispatch({ type: "workspaceRootAdded", pendingWorktreeId, attempt });
+    this.dispatch({ type: "stableProjectRegistered", pendingWorktreeId, attempt });
   }
 
   private failWorkspaceRootRegistration(
@@ -573,6 +569,6 @@ export class CodexPendingWorktreeRuntime {
       attempt,
       errorMessage: errorMessage(error),
     });
-    this.dependencies.onError?.("add-workspace-root", error, pendingWorktreeId);
+    this.dependencies.onError?.("register-stable-project", error, pendingWorktreeId);
   }
 }

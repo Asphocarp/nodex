@@ -1,15 +1,17 @@
-import { randomUUID } from "node:crypto";
 import {
   lstat,
-  mkdir,
-  open,
   readFile,
   rename,
   rm,
 } from "node:fs/promises";
-import { basename, dirname, isAbsolute, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import { z } from "zod";
 import { ProjectAppearanceSchema } from "../../shared/schemas/projects";
+import {
+  isMissingPathError,
+  syncDirectory,
+  writeDurableJson,
+} from "../durable-json-file";
 
 const JOURNAL_FILE_NAME = "initial-project-v2.json";
 const JOURNAL_MAX_BYTES = 64 * 1024;
@@ -123,54 +125,6 @@ export class InitialProjectRecoveryJournal {
     this.writeTail = result.catch(() => undefined);
     await result;
   }
-}
-
-export async function writeDurableJson(
-  filePath: string,
-  value: unknown,
-  maxBytes: number,
-): Promise<void> {
-  await mkdir(dirname(filePath), { recursive: true, mode: 0o700 });
-  const payload = `${JSON.stringify(value, null, 2)}\n`;
-  if (Buffer.byteLength(payload, "utf8") > maxBytes) {
-    throw new Error("Durable JSON payload exceeds its size limit");
-  }
-  const temporaryPath = join(
-    dirname(filePath),
-    `.${basename(filePath)}.${process.pid}.${randomUUID()}.tmp`,
-  );
-  try {
-    const handle = await open(temporaryPath, "wx", 0o600);
-    try {
-      await handle.writeFile(payload, "utf8");
-      await handle.sync();
-    } finally {
-      await handle.close();
-    }
-    await rename(temporaryPath, filePath);
-    await syncDirectory(dirname(filePath));
-  } finally {
-    await rm(temporaryPath, { force: true });
-  }
-}
-
-export async function syncDirectory(directoryPath: string): Promise<void> {
-  try {
-    const handle = await open(directoryPath, "r");
-    try {
-      await handle.sync();
-    } finally {
-      await handle.close();
-    }
-  } catch (error) {
-    if (!isMissingPathError(error)) throw error;
-  }
-}
-
-export function isMissingPathError(error: unknown): boolean {
-  return error instanceof Error
-    && "code" in error
-    && error.code === "ENOENT";
 }
 
 export function resolveInitialProjectJournalPath(nodexHome: string): string {

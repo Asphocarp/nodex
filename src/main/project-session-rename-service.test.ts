@@ -75,6 +75,7 @@ describe("renameProjectSessionChat", () => {
         threadId: "thread-1",
         threadPreview: "",
         modelProvider: "openai",
+        executionHostId: "local",
         statusType: "active",
         statusActiveFlags: [],
         archived: false,

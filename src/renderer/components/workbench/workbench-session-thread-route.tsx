@@ -135,7 +135,10 @@ function ConnectedSessionThread({
   onStartNewChatWithPrompt?: NonNullable<
     ThreadStageActions["onStartNewChatWithPrompt"]
   >;
-  onOpenPendingWorktree: (clientThreadId: string) => void;
+  onOpenPendingWorktree: (
+    clientThreadId: string,
+    projectSessionId: string,
+  ) => void;
   newThreadComposerIntent?: CodexComposerIntent | null;
   onConsumeNewThreadComposerIntent?:
     ThreadStageActions["onConsumeNewThreadComposerIntent"];
@@ -370,7 +373,7 @@ function ConnectedSessionThread({
 
   useEffect(() => {
     const cwd = summary?.cwd?.trim();
-    if (!cwd || summary?.managedWorktreePath) {
+    if (!cwd) {
       setCanForkCurrentThreadIntoWorktree(false);
       return;
     }
@@ -396,7 +399,7 @@ function ConnectedSessionThread({
     return () => {
       disposed = true;
     };
-  }, [summary?.cwd, summary?.managedWorktreePath]);
+  }, [summary?.cwd]);
 
   const refreshNewThreadEnvironments = useCallback(async () => {
     if (effectiveProjectId === null) {

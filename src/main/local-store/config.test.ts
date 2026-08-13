@@ -796,6 +796,109 @@ describe("Codex Git settings config", () => {
   });
 });
 
+describe("managed worktree settings config", () => {
+  test("uses safe defaults and persists partial updates without resetting saved values", async () => {
+    await withTempConfigFixture(async ({ tempHome }) => {
+      const config = await importConfigModule();
+      expect(config.getManagedWorktreeSettings()).toEqual({
+        worktreeRoot: null,
+        autoDeleteEnabled: true,
+        autoDeleteLimit: 15,
+      });
+
+      const customRoot = path.join(tempHome, "managed worktrees");
+      config.updateManagedWorktreeSettings({ worktreeRoot: customRoot });
+      config.updateManagedWorktreeSettings({ worktreeRoot: path.join(tempHome, "next root") });
+      expect(config.getKnownManagedWorktreeRoots()).toContain(path.resolve(customRoot));
+      config.updateManagedWorktreeSettings({ worktreeRoot: customRoot });
+      config.updateManagedWorktreeSettings({ autoDeleteEnabled: false });
+      const updated = config.updateManagedWorktreeSettings({ autoDeleteLimit: 23 });
+      expect(updated).toEqual({
+        worktreeRoot: path.resolve(customRoot),
+        autoDeleteEnabled: false,
+        autoDeleteLimit: 23,
+      });
+
+      const reloaded = await importConfigModule();
+      expect(reloaded.getManagedWorktreeSettings()).toEqual(updated);
+    });
+  });
+
+  test("normalizes blank roots and rejects invalid or unknown updates", async () => {
+    await withTempConfigFixture(async () => {
+      const config = await importConfigModule();
+      config.updateManagedWorktreeSettings({ worktreeRoot: "  ./custom-root  " });
+      expect(config.getManagedWorktreeSettings().worktreeRoot).toBe(
+        path.resolve("./custom-root"),
+      );
+      expect(config.updateManagedWorktreeSettings({ worktreeRoot: "  " }).worktreeRoot).toBeNull();
+
+      expect(() => config.updateManagedWorktreeSettings({ autoDeleteLimit: 0 })).toThrow(
+        "autoDeleteLimit must be an integer of at least one",
+      );
+      expect(() => config.updateManagedWorktreeSettings({ autoDeleteLimit: 1.5 })).toThrow(
+        "autoDeleteLimit must be an integer of at least one",
+      );
+      expect(() => config.updateManagedWorktreeSettings({ surprise: true } as never)).toThrow(
+        "Unknown managed worktree setting",
+      );
+    });
+  });
+});
+
+describe("SSH execution host settings config", () => {
+  test("persists only validated non-secret host connection metadata", async () => {
+    await withTempConfigFixture(async ({ tempHome }) => {
+      const config = await importConfigModule();
+      expect(config.getCodexExecutionHostSettings()).toEqual({ sshHosts: [] });
+      const updated = config.updateCodexExecutionHostSettings({
+        sshHosts: [{
+          id: "ssh:build",
+          displayName: "Build Mac",
+          kind: "ssh",
+          sshAlias: "build-mac",
+          port: 2202,
+          managedRoot: "/Users/build/.nodex/worktrees",
+          repositoryRoots: ["/Users/build/src/project"],
+          codexBinary: "/Users/build/bin/codex",
+          codexHome: "/Users/build/.codex",
+          enabled: true,
+        }],
+      });
+      expect(updated.sshHosts).toHaveLength(1);
+      expect(updated.sshHosts[0]?.sshAlias).toBe("build-mac");
+
+      const persisted = fs.readFileSync(path.join(tempHome, ".nodex", "config.toml"), "utf8");
+      expect(persisted).toContain("execution_hosts");
+      expect(persisted).not.toMatch(/private.key|password|identity_file/iu);
+      expect((await importConfigModule()).getCodexExecutionHostSettings()).toEqual(updated);
+    });
+  });
+
+  test("rejects duplicate host identities and SSH option injection", async () => {
+    await withTempConfigFixture(async () => {
+      const config = await importConfigModule();
+      const host = {
+        id: "ssh:build",
+        displayName: "Build Mac",
+        kind: "ssh" as const,
+        sshAlias: "build-mac",
+        port: null,
+        managedRoot: "/tmp/worktrees",
+        repositoryRoots: ["/tmp/repo"],
+        codexBinary: null,
+        codexHome: null,
+        enabled: true,
+      };
+      expect(() => config.updateCodexExecutionHostSettings({ sshHosts: [host, host] }))
+        .toThrow("Duplicate SSH execution host id");
+      expect(() => config.updateCodexExecutionHostSettings({
+        sshHosts: [{ ...host, sshAlias: "-oProxyCommand=bad" }],
+      })).toThrow("SSH alias is invalid");
+    });
+  });
+});
+
 describe("command keybinding config", () => {
   test("persists custom arrays empty unassigned reset-one and reset-all", async () => {
     await withTempConfigFixture(async ({ tempHome }) => {

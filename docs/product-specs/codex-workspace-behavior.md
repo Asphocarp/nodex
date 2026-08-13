@@ -55,6 +55,9 @@ setup, and starts the Thread there. Setup failure preserves a recoverable Sessio
 and draft and does not create duplicate Sessions on retry. The complete target,
 Git/setup, pending-route, handoff, and initialization-activity contract lives in
 [Codex Worktree Creation Behavior](codex-worktree-creation-behavior.md).
+The execution-location identity, post-creation snapshot/removal/restore,
+retention, owner-transfer, and handoff contracts live in
+[Codex Managed Worktree Lifecycle Behavior](codex-managed-worktree-lifecycle-behavior.md).
 
 Stopping an ordinary Turn leaves the Chat resumable. Resume starts a userless
 continuation with current Thread settings and creates no synthetic user message.

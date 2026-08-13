@@ -1946,6 +1946,7 @@ async function initializeDesktopApp(
   startRuntimeStoreMaintenanceScheduler();
   startRuntimeReminderDelivery();
   await codexService.synchronizeAutomationRuntime();
+  codexService.requestManagedWorktreeRetentionSweep();
   startRuntimeScheduledAutomationScheduler();
   registerDesktopActivationHandler();
   setAppInitializationStep({ phase: "done" });
@@ -2856,6 +2857,7 @@ export async function runMainAppStartup(
   });
   disposeGitWorkerIpc = registerGitWorkerIpc(gitWorkerHost);
   worktreeWorkerHost = new CodexWorktreeWorkerHost({
+    hostId: CODEX_APP_LOCAL_HOST_ID,
     workerPath: join(__dirname, "worktree-worker.js"),
     onInfrastructureError: (error) => {
       logger.error("Worktree worker infrastructure failed", {
@@ -2866,7 +2868,12 @@ export async function runMainAppStartup(
       });
     },
   });
-  codexService.setPendingWorktreeWorkerPort(CODEX_APP_LOCAL_HOST_ID, worktreeWorkerHost);
+  codexService.setWorktreeWorkerPort(CODEX_APP_LOCAL_HOST_ID, worktreeWorkerHost);
+  await codexService.reconcileCodexExecutionHosts().catch((error) => {
+    logger.warn("Some configured SSH execution hosts are unavailable", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  });
   rendererClientRouter = new RendererClientRouter();
   const notificationRendererRouter = rendererClientRouter;
   codexThreadNotificationCoordinator = new CodexThreadNotificationCoordinator({

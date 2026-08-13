@@ -4672,6 +4672,7 @@
                 "thread_id",
                 "thread_preview",
                 "model_provider",
+                "execution_host_id",
                 "status",
                 "archived",
                 "created_at",
@@ -4709,6 +4710,9 @@
                     "string",
                     "null"
                   ]
+                },
+                "execution_host_id": {
+                  "type": "string"
                 },
                 "forked_from_id": {
                   "type": [
@@ -20135,6 +20139,28 @@
                 "type": "object",
                 "required": [
                   "thread_id",
+                  "location",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "set_thread_execution_location"
+                    ]
+                  },
+                  "location": {
+                    "$ref": "#/components/schemas/ProjectWorkspaceThreadExecutionLocation"
+                  },
+                  "thread_id": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "thread_id",
                   "kind"
                 ],
                 "properties": {
@@ -23585,6 +23611,20 @@
                     "$ref": "#/components/schemas/CollectionWindowRequest"
                   }
                 }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "managed_worktree_lifecycle_snapshot"
+                    ]
+                  }
+                }
               }
             ]
           }
@@ -24501,6 +24541,16 @@
               "kind"
             ],
             "properties": {
+              "execution_location": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ProjectWorkspaceThreadExecutionLocation"
+                  }
+                ]
+              },
               "expected_project_id": {
                 "type": [
                   "string",
@@ -24828,6 +24878,133 @@
           }
         }
       },
+      "ProjectWorkspaceManagedWorktreeConsumer": {
+        "type": "object",
+        "required": [
+          "thread_id",
+          "execution_host_id",
+          "managed_worktree_path",
+          "runtime_workspace_roots",
+          "archived",
+          "status",
+          "created_at",
+          "updated_at",
+          "linked_at"
+        ],
+        "properties": {
+          "archived": {
+            "type": "boolean"
+          },
+          "created_at": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "cwd": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "execution_host_id": {
+            "type": "string"
+          },
+          "linked_at": {
+            "type": "string"
+          },
+          "managed_worktree_path": {
+            "type": "string"
+          },
+          "pinned_order": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "project_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "runtime_workspace_roots": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "session_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/ProjectWorkspaceThreadStatus"
+          },
+          "thread_id": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "ProjectWorkspaceManagedWorktreeLifecycleSnapshot": {
+        "type": "object",
+        "required": [
+          "projection_revision",
+          "consumers",
+          "projects"
+        ],
+        "properties": {
+          "consumers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProjectWorkspaceManagedWorktreeConsumer"
+            }
+          },
+          "projection_revision": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "projects": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProjectWorkspaceManagedWorktreeProjectProtection"
+            }
+          }
+        }
+      },
+      "ProjectWorkspaceManagedWorktreeProjectProtection": {
+        "type": "object",
+        "required": [
+          "project_id",
+          "lifecycle",
+          "sources"
+        ],
+        "properties": {
+          "lifecycle": {
+            "$ref": "#/components/schemas/ProjectLifecycle"
+          },
+          "primary_workspace_root": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "project_id": {
+            "type": "string"
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProjectSource"
+            }
+          }
+        }
+      },
       "ProjectWorkspaceProject": {
         "type": "object",
         "required": [
@@ -25045,6 +25222,7 @@
         "required": [
           "thread_id",
           "thread_preview",
+          "execution_host_id",
           "status",
           "archived",
           "created_at",
@@ -25083,6 +25261,9 @@
               "null"
             ]
           },
+          "execution_host_id": {
+            "type": "string"
+          },
           "forked_from_id": {
             "type": [
               "string",
@@ -25091,6 +25272,12 @@
           },
           "linked_at": {
             "type": "string"
+          },
+          "managed_worktree_path": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "parent_thread_id": {
             "type": [
@@ -25149,6 +25336,7 @@
           "thread_id",
           "thread_preview",
           "model_provider",
+          "execution_host_id",
           "status",
           "archived",
           "has_unread_turn",
@@ -25195,6 +25383,9 @@
             "items": {
               "$ref": "#/components/schemas/ProjectWorkspaceDynamicToolCatalog"
             }
+          },
+          "execution_host_id": {
+            "type": "string"
           },
           "forked_from_id": {
             "type": [
@@ -25317,6 +25508,48 @@
           }
         }
       },
+      "ProjectWorkspaceThreadExecutionLocation": {
+        "type": "object",
+        "required": [
+          "execution_host_id",
+          "runtime_workspace_roots"
+        ],
+        "properties": {
+          "cwd": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "execution_host_id": {
+            "type": "string"
+          },
+          "managed_worktree_path": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "projectless_output_directory": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "projectless_workspace_browser_root": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "runtime_workspace_roots": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
       "ProjectWorkspaceThreadLane": {
         "oneOf": [
           {
@@ -25357,6 +25590,12 @@
         "type": "object",
         "properties": {
           "cwd": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "execution_host_id": {
             "type": [
               "string",
               "null"
@@ -25436,6 +25675,12 @@
             "format": "int64"
           },
           "cwd": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "execution_host_id": {
             "type": [
               "string",
               "null"
@@ -30445,6 +30690,24 @@
                           },
                           "worktrees": {
                             "$ref": "#/components/schemas/CollectionWindow_ProjectWorkspaceManagedWorktreeSummary"
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "snapshot",
+                          "kind"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "managed_worktree_lifecycle_snapshot"
+                            ]
+                          },
+                          "snapshot": {
+                            "$ref": "#/components/schemas/ProjectWorkspaceManagedWorktreeLifecycleSnapshot"
                           }
                         }
                       }

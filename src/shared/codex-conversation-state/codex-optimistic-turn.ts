@@ -194,19 +194,19 @@ export function appendCodexCanonicalOptimisticTurn(
 }
 
 /**
- * Publish the app-owned worktree preface before the first app-server turn.
- * The preface deliberately occupies its own completed synthetic turn, so it
- * remains above the user prompt before and after the server turn is bound.
+ * Publish worktree initialization into the optimistic first turn before its
+ * app-server items arrive. This keeps the activity in the Turn's collapsible
+ * agent body while the user message still owns the Turn prefix.
  */
 export function appendCodexCanonicalOptimisticFirstTurn(
   state: CodexCanonicalConversationState,
   input: CodexOptimisticTurnInput,
   worktreeInit?: CodexCanonicalWorktreeInitItem,
 ): CodexCanonicalConversationState {
-  const prefaced = worktreeInit
-    ? appendCodexCanonicalWorktreeInitItem(state, worktreeInit)
-    : state;
-  return appendCodexCanonicalOptimisticTurn(prefaced, input);
+  const optimistic = appendCodexCanonicalOptimisticTurn(state, input);
+  return worktreeInit
+    ? appendCodexCanonicalWorktreeInitItem(optimistic, worktreeInit)
+    : optimistic;
 }
 
 /** Bind the matching nullable turn, coalescing any server occurrence that won the race. */

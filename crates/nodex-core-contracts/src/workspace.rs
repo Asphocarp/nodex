@@ -4,7 +4,7 @@ use utoipa::ToSchema;
 use crate::collection::{CollectionWindow, CollectionWindowRequest};
 use crate::{ModuleMutationReceipt, ModuleName, VersionedModuleContract};
 
-pub const PROJECT_WORKSPACE_CONTRACT_VERSION: u32 = 13;
+pub const PROJECT_WORKSPACE_CONTRACT_VERSION: u32 = 14;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -61,6 +61,7 @@ pub enum ProjectWorkspaceRead {
         project_id: Option<String>,
         window: CollectionWindowRequest,
     },
+    ManagedWorktreeLifecycleSnapshot,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
@@ -112,6 +113,9 @@ pub enum ProjectWorkspaceReadValue {
     ManagedWorktreeWindow {
         worktrees: CollectionWindow<ProjectWorkspaceManagedWorktreeSummary>,
     },
+    ManagedWorktreeLifecycleSnapshot {
+        snapshot: ProjectWorkspaceManagedWorktreeLifecycleSnapshot,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -144,6 +148,8 @@ pub enum ProjectWorkspaceThreadLane {
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 pub struct ProjectWorkspaceThreadMoveMetadataPatch {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub execution_host_id: Option<String>,
     #[serde(
         default,
         deserialize_with = "deserialize_present",
@@ -202,6 +208,7 @@ pub struct ProjectWorkspaceThread {
     pub harness_id: Option<String>,
     pub reasoning_effort: Option<String>,
     pub service_tier: Option<String>,
+    pub execution_host_id: String,
     pub cwd: Option<String>,
     pub managed_worktree_path: Option<String>,
     pub projectless_output_directory: Option<String>,
@@ -328,6 +335,48 @@ pub struct ProjectWorkspaceManagedWorktreeSummary {
     pub linked_at: String,
 }
 
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct ProjectWorkspaceThreadExecutionLocation {
+    pub execution_host_id: String,
+    pub cwd: Option<String>,
+    pub managed_worktree_path: Option<String>,
+    pub runtime_workspace_roots: Vec<String>,
+    pub projectless_output_directory: Option<String>,
+    pub projectless_workspace_browser_root: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct ProjectWorkspaceManagedWorktreeConsumer {
+    pub thread_id: String,
+    pub project_id: Option<String>,
+    pub session_id: Option<String>,
+    pub execution_host_id: String,
+    pub cwd: Option<String>,
+    pub managed_worktree_path: String,
+    pub runtime_workspace_roots: Vec<String>,
+    pub archived: bool,
+    pub pinned_order: Option<i64>,
+    pub status: ProjectWorkspaceThreadStatus,
+    pub created_at: i64,
+    pub updated_at: i64,
+    pub linked_at: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct ProjectWorkspaceManagedWorktreeProjectProtection {
+    pub project_id: String,
+    pub lifecycle: ProjectLifecycle,
+    pub sources: Vec<ProjectSource>,
+    pub primary_workspace_root: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct ProjectWorkspaceManagedWorktreeLifecycleSnapshot {
+    pub projection_revision: i64,
+    pub consumers: Vec<ProjectWorkspaceManagedWorktreeConsumer>,
+    pub projects: Vec<ProjectWorkspaceManagedWorktreeProjectProtection>,
+}
+
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 pub struct ProjectWorkspaceThreadPatch {
     #[serde(
@@ -410,6 +459,8 @@ pub struct ProjectWorkspaceThreadPatch {
         skip_serializing_if = "Option::is_none"
     )]
     pub service_tier: Option<Option<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub execution_host_id: Option<String>,
     #[serde(
         default,
         deserialize_with = "deserialize_present",
@@ -595,7 +646,9 @@ pub struct ProjectWorkspaceTaskThreadSummary {
     pub agent_role: Option<String>,
     pub agent_path: Option<String>,
     pub thread_preview: String,
+    pub execution_host_id: String,
     pub cwd: Option<String>,
+    pub managed_worktree_path: Option<String>,
     pub status: ProjectWorkspaceThreadStatus,
     pub archived: bool,
     pub created_at: i64,
@@ -622,6 +675,7 @@ pub struct ProjectWorkspaceThreadSummary {
     pub harness_id: Option<String>,
     pub reasoning_effort: Option<String>,
     pub service_tier: Option<String>,
+    pub execution_host_id: String,
     pub cwd: Option<String>,
     pub managed_worktree_path: Option<String>,
     pub projectless_output_directory: Option<String>,
@@ -712,6 +766,10 @@ pub enum ProjectWorkspaceIntent {
     UpdateThread {
         thread_id: String,
         patch: Box<ProjectWorkspaceThreadPatch>,
+    },
+    SetThreadExecutionLocation {
+        thread_id: String,
+        location: ProjectWorkspaceThreadExecutionLocation,
     },
     DeleteThread {
         thread_id: String,
@@ -824,6 +882,8 @@ pub enum ProjectSessionIntent {
         expected_project_id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         thread_patch: Option<Box<ProjectWorkspaceThreadPatch>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        execution_location: Option<Box<ProjectWorkspaceThreadExecutionLocation>>,
     },
     UnlinkThread {
         thread_id: String,

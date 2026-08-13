@@ -4,7 +4,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use nodex_core_contracts::BoundModuleContext;
 use nodex_core_contracts::workspace::{
     CodexPermissionMode, CodexThreadActiveFlag, CodexThreadStatusType,
-    ProjectWorkspaceDynamicToolCatalog, ProjectWorkspaceThread, ProjectWorkspaceThreadPatch,
+    ProjectWorkspaceDynamicToolCatalog, ProjectWorkspaceThread,
+    ProjectWorkspaceThreadExecutionLocation, ProjectWorkspaceThreadPatch,
     ProjectWorkspaceThreadPlacement, ProjectWorkspaceThreadStatus,
 };
 use rusqlite::{Connection, OptionalExtension, params};
@@ -48,6 +49,7 @@ const THREAD_COLUMNS: &str = "
   thread.harness_id,
   thread.reasoning_effort,
   thread.service_tier,
+  thread.execution_host_id,
   thread.cwd,
   thread.managed_worktree_path,
   thread.projectless_output_directory,
@@ -80,6 +82,7 @@ struct ThreadRow {
     harness_id: Option<String>,
     reasoning_effort: Option<String>,
     service_tier: Option<String>,
+    execution_host_id: String,
     cwd: Option<String>,
     managed_worktree_path: Option<String>,
     projectless_output_directory: Option<String>,
@@ -265,6 +268,98 @@ pub(super) fn update_thread(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
+pub(super) fn set_thread_execution_location(
+    connection: &Connection,
+    library_id: &str,
+    context: &BoundModuleContext,
+    store_epoch: &str,
+    operation_id: &str,
+    request_hash: &str,
+    thread_id: &str,
+    location: &ProjectWorkspaceThreadExecutionLocation,
+) -> Result<ProjectWorkspaceApplyOutcome, StoreError> {
+    let existing = read_stored_thread(connection, thread_id)?
+        .ok_or_else(|| not_found("Codex Thread is unavailable"))?;
+    validate_stored_thread(&existing)?;
+    assert_project_visible(connection, library_id, existing.project_id.as_deref())?;
+    replace_thread_execution_location_records(connection, thread_id, location)?;
+    let session_ids = linked_session_ids(
+        connection,
+        library_id,
+        thread_id,
+        existing.project_id.as_deref(),
+    )?;
+    let project_ids = existing.project_id.into_iter().collect::<Vec<_>>();
+    let scopes = project_session_scopes(&project_ids, &session_ids);
+    finish_thread_mutation(
+        connection,
+        library_id,
+        context,
+        store_epoch,
+        operation_id,
+        request_hash,
+        "set_thread_execution_location",
+        scopes,
+        project_ids,
+        session_ids,
+        vec![thread_id.to_owned()],
+    )
+}
+
+pub(super) fn replace_thread_execution_location_records(
+    connection: &Connection,
+    thread_id: &str,
+    location: &ProjectWorkspaceThreadExecutionLocation,
+) -> Result<(), StoreError> {
+    validate_id("thread_id", thread_id)?;
+    validate_id("execution_host_id", &location.execution_host_id)?;
+    for (name, value) in [
+        ("cwd", location.cwd.as_deref()),
+        (
+            "managed_worktree_path",
+            location.managed_worktree_path.as_deref(),
+        ),
+        (
+            "projectless_output_directory",
+            location.projectless_output_directory.as_deref(),
+        ),
+        (
+            "projectless_workspace_browser_root",
+            location.projectless_workspace_browser_root.as_deref(),
+        ),
+    ] {
+        if let Some(value) = value {
+            validate_text(name, value, MAX_PATH_BYTES)?;
+        }
+    }
+    super::execution::replace_writable_roots_records(
+        connection,
+        thread_id,
+        &location.runtime_workspace_roots,
+    )?;
+    let updated = connection.execute(
+        "UPDATE codex_threads SET \
+           execution_host_id = ?1, cwd = ?2, managed_worktree_path = ?3, \
+           projectless_output_directory = ?4, projectless_workspace_browser_root = ?5 \
+         WHERE thread_id = ?6",
+        params![
+            &location.execution_host_id,
+            location.cwd.as_deref(),
+            location.managed_worktree_path.as_deref(),
+            location.projectless_output_directory.as_deref(),
+            location.projectless_workspace_browser_root.as_deref(),
+            thread_id,
+        ],
+    )?;
+    if updated != 1 {
+        return Err(conflict(
+            "Codex Thread changed during execution-location update",
+        ));
+    }
+    Ok(())
+}
+
 pub(super) fn upsert_thread_records(
     connection: &Connection,
     library_id: &str,
@@ -448,6 +543,15 @@ pub(super) fn upsert_thread_records(
         MAX_REASONING_EFFORT_BYTES,
         true,
     )?;
+    let execution_host_id = match patch.execution_host_id.as_deref() {
+        Some(host_id) => {
+            validate_id("execution_host_id", host_id)?;
+            host_id.to_owned()
+        }
+        None => existing
+            .as_ref()
+            .map_or_else(|| "local".to_owned(), |row| row.execution_host_id.clone()),
+    };
     let status = match &patch.status {
         Some(status) => validate_status(status.clone())?,
         None => existing.as_ref().map(thread_status).transpose()?.unwrap_or(
@@ -505,13 +609,13 @@ pub(super) fn upsert_thread_records(
         "INSERT INTO codex_threads (\
            thread_id, project_id, parent_thread_id, thread_name, thread_source, service_name, \
            agent_nickname, agent_role, agent_path, thread_preview, model_provider, model_id, \
-           harness_id, reasoning_effort, service_tier, cwd, \
+           harness_id, reasoning_effort, service_tier, execution_host_id, cwd, \
            managed_worktree_path, projectless_output_directory, \
            projectless_workspace_browser_root, status_type, status_active_flags_json, archived, \
            created_at, updated_at, linked_at, forked_from_id\
          ) VALUES (\
            ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, \
-           ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26\
+           ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27\
          ) ON CONFLICT(thread_id) DO UPDATE SET \
            project_id = excluded.project_id, parent_thread_id = excluded.parent_thread_id, \
            thread_name = excluded.thread_name, thread_source = excluded.thread_source, \
@@ -520,7 +624,8 @@ pub(super) fn upsert_thread_records(
            thread_preview = excluded.thread_preview, \
            model_provider = excluded.model_provider, model_id = excluded.model_id, \
            harness_id = excluded.harness_id, reasoning_effort = excluded.reasoning_effort, \
-           service_tier = excluded.service_tier, cwd = excluded.cwd, \
+           service_tier = excluded.service_tier, \
+           execution_host_id = excluded.execution_host_id, cwd = excluded.cwd, \
            managed_worktree_path = excluded.managed_worktree_path, \
            projectless_output_directory = excluded.projectless_output_directory, \
            projectless_workspace_browser_root = excluded.projectless_workspace_browser_root, \
@@ -544,6 +649,7 @@ pub(super) fn upsert_thread_records(
             harness_id,
             reasoning_effort,
             service_tier,
+            execution_host_id,
             cwd,
             managed_worktree_path,
             projectless_output_directory,
@@ -1347,6 +1453,7 @@ fn project_workspace_thread(
         harness_id: row.harness_id,
         reasoning_effort: row.reasoning_effort,
         service_tier: row.service_tier,
+        execution_host_id: row.execution_host_id,
         cwd: row.cwd,
         managed_worktree_path: row.managed_worktree_path,
         projectless_output_directory: row.projectless_output_directory,
@@ -1381,18 +1488,19 @@ fn thread_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ThreadRow> {
         harness_id: row.get(13)?,
         reasoning_effort: row.get(14)?,
         service_tier: row.get(15)?,
-        cwd: row.get(16)?,
-        managed_worktree_path: row.get(17)?,
-        projectless_output_directory: row.get(18)?,
-        projectless_workspace_browser_root: row.get(19)?,
-        status_type: row.get(20)?,
-        status_active_flags_json: row.get(21)?,
-        archived: row.get(22)?,
-        pinned_order: row.get(23)?,
-        has_unread_turn: row.get(24)?,
-        created_at: row.get(25)?,
-        updated_at: row.get(26)?,
-        linked_at: row.get(27)?,
+        execution_host_id: row.get(16)?,
+        cwd: row.get(17)?,
+        managed_worktree_path: row.get(18)?,
+        projectless_output_directory: row.get(19)?,
+        projectless_workspace_browser_root: row.get(20)?,
+        status_type: row.get(21)?,
+        status_active_flags_json: row.get(22)?,
+        archived: row.get(23)?,
+        pinned_order: row.get(24)?,
+        has_unread_turn: row.get(25)?,
+        created_at: row.get(26)?,
+        updated_at: row.get(27)?,
+        linked_at: row.get(28)?,
     })
 }
 
@@ -1668,6 +1776,11 @@ fn validate_stored_thread(row: &ThreadRow) -> Result<(), StoreError> {
             row.service_tier.as_deref(),
             MAX_REASONING_EFFORT_BYTES,
         ),
+        (
+            "execution_host_id",
+            Some(row.execution_host_id.as_str()),
+            MAX_ID_BYTES,
+        ),
         ("cwd", row.cwd.as_deref(), MAX_PATH_BYTES),
         (
             "managed_worktree_path",
@@ -1727,10 +1840,16 @@ fn validate_stored_thread(row: &ThreadRow) -> Result<(), StoreError> {
 }
 
 fn thread_status(row: &ThreadRow) -> Result<ProjectWorkspaceThreadStatus, StoreError> {
-    let status_type = parse_status_type(&row.status_type)?;
-    let active_flags =
-        serde_json::from_str::<Vec<CodexThreadActiveFlag>>(&row.status_active_flags_json)
-            .map_err(|_| corrupt("Codex Thread active flags are invalid"))?;
+    decode_thread_status(&row.status_type, &row.status_active_flags_json)
+}
+
+pub(super) fn decode_thread_status(
+    status_type: &str,
+    active_flags_json: &str,
+) -> Result<ProjectWorkspaceThreadStatus, StoreError> {
+    let status_type = parse_status_type(status_type)?;
+    let active_flags = serde_json::from_str::<Vec<CodexThreadActiveFlag>>(active_flags_json)
+        .map_err(|_| corrupt("Codex Thread active flags are invalid"))?;
     validate_status(ProjectWorkspaceThreadStatus {
         status_type,
         active_flags,
@@ -2160,9 +2279,10 @@ mod tests {
         CodexPermissionMode, CodexThreadActiveFlag, CodexThreadStatusType, ProjectSessionIntent,
         ProjectWorkspaceBackgroundProcess, ProjectWorkspaceBackgroundProcessSource,
         ProjectWorkspaceDynamicToolCatalog, ProjectWorkspaceIntent, ProjectWorkspaceRead,
-        ProjectWorkspaceReadValue, ProjectWorkspaceThreadPatch, ProjectWorkspaceThreadPlacement,
-        ProjectWorkspaceThreadStatus, ProjectWorkspaceTurnAuthorityScope,
-        ProjectWorkspaceTurnAuthoritySource, ProjectWorkspaceTurnCoordinate,
+        ProjectWorkspaceReadValue, ProjectWorkspaceThreadExecutionLocation,
+        ProjectWorkspaceThreadPatch, ProjectWorkspaceThreadPlacement, ProjectWorkspaceThreadStatus,
+        ProjectWorkspaceTurnAuthorityScope, ProjectWorkspaceTurnAuthoritySource,
+        ProjectWorkspaceTurnCoordinate,
     };
     use nodex_core_contracts::{
         AdapterKind, BoundModuleContext, CoreErrorCode, LibraryId, ModuleApplyRequest,
@@ -2294,6 +2414,205 @@ mod tests {
     }
 
     #[test]
+    fn execution_location_is_atomic_and_lifecycle_snapshot_keeps_every_consumer() {
+        let (_directory, _kernel, module) = seeded_module();
+        for index in 1..=3 {
+            create_thread(
+                &module,
+                &format!("operation:create:{index}"),
+                &format!("thread:{index}"),
+                Some("project:default"),
+                None,
+            );
+        }
+
+        let ProjectWorkspaceReadValue::Thread { thread } = read(
+            &module,
+            ProjectWorkspaceRead::Thread {
+                thread_id: "thread:1".to_owned(),
+            },
+        ) else {
+            panic!("Thread read");
+        };
+        assert_eq!(thread.execution_host_id, "local");
+
+        let ProjectWorkspaceReadValue::ManagedWorktreeLifecycleSnapshot { snapshot: before } = read(
+            &module,
+            ProjectWorkspaceRead::ManagedWorktreeLifecycleSnapshot,
+        ) else {
+            panic!("lifecycle snapshot");
+        };
+        module
+            .apply(
+                &context(),
+                request(
+                    "operation:location:1",
+                    ProjectWorkspaceIntent::SetThreadExecutionLocation {
+                        thread_id: "thread:1".to_owned(),
+                        location: ProjectWorkspaceThreadExecutionLocation {
+                            execution_host_id: "ssh:build-box".to_owned(),
+                            cwd: Some("/worktrees/shared/nested".to_owned()),
+                            managed_worktree_path: Some("/worktrees/shared".to_owned()),
+                            runtime_workspace_roots: vec![
+                                "/worktrees/shared".to_owned(),
+                                "/workspace/additional".to_owned(),
+                            ],
+                            projectless_output_directory: None,
+                            projectless_workspace_browser_root: None,
+                        },
+                    },
+                ),
+            )
+            .expect("set execution location");
+        let ProjectWorkspaceReadValue::ManagedWorktreeLifecycleSnapshot { snapshot: after } = read(
+            &module,
+            ProjectWorkspaceRead::ManagedWorktreeLifecycleSnapshot,
+        ) else {
+            panic!("lifecycle snapshot");
+        };
+        assert_eq!(after.projection_revision, before.projection_revision + 1);
+        assert_eq!(after.consumers.len(), 1);
+        assert_eq!(after.consumers[0].execution_host_id, "ssh:build-box");
+        assert_eq!(
+            after.consumers[0].runtime_workspace_roots,
+            ["/worktrees/shared", "/workspace/additional"]
+        );
+
+        for index in 2..=3 {
+            module
+                .apply(
+                    &context(),
+                    request(
+                        &format!("operation:location:{index}"),
+                        ProjectWorkspaceIntent::SetThreadExecutionLocation {
+                            thread_id: format!("thread:{index}"),
+                            location: ProjectWorkspaceThreadExecutionLocation {
+                                execution_host_id: "local".to_owned(),
+                                cwd: Some("/worktrees/shared".to_owned()),
+                                managed_worktree_path: Some("/worktrees/shared".to_owned()),
+                                runtime_workspace_roots: vec!["/worktrees/shared".to_owned()],
+                                projectless_output_directory: None,
+                                projectless_workspace_browser_root: None,
+                            },
+                        },
+                    ),
+                )
+                .expect("set shared execution location");
+        }
+        module
+            .apply(
+                &context(),
+                request(
+                    "operation:archive:2",
+                    ProjectWorkspaceIntent::SetThreadArchived {
+                        thread_id: "thread:2".to_owned(),
+                        archived: true,
+                    },
+                ),
+            )
+            .expect("archive consumer");
+        module
+            .apply(
+                &context(),
+                request(
+                    "operation:pin:3",
+                    ProjectWorkspaceIntent::SetThreadPinned {
+                        thread_id: "thread:3".to_owned(),
+                        pinned: true,
+                        placement: None,
+                    },
+                ),
+            )
+            .expect("pin consumer");
+
+        let ProjectWorkspaceReadValue::ManagedWorktreeLifecycleSnapshot { snapshot } = read(
+            &module,
+            ProjectWorkspaceRead::ManagedWorktreeLifecycleSnapshot,
+        ) else {
+            panic!("lifecycle snapshot");
+        };
+        assert_eq!(snapshot.consumers.len(), 3);
+        assert!(
+            snapshot
+                .consumers
+                .iter()
+                .any(|consumer| consumer.thread_id == "thread:2" && consumer.archived)
+        );
+        assert!(
+            snapshot
+                .consumers
+                .iter()
+                .any(|consumer| consumer.thread_id == "thread:3" && consumer.pinned_order.is_some())
+        );
+        assert_eq!(snapshot.projects.len(), 1);
+        assert_eq!(snapshot.projects[0].project_id, "project:default");
+    }
+
+    #[test]
+    fn session_link_publishes_thread_and_execution_location_in_one_revision() {
+        let (_directory, _kernel, module) = seeded_module();
+        create_session(&module, "operation:create-session", "session:atomic-link");
+        let ProjectWorkspaceReadValue::ManagedWorktreeLifecycleSnapshot { snapshot: before } = read(
+            &module,
+            ProjectWorkspaceRead::ManagedWorktreeLifecycleSnapshot,
+        ) else {
+            panic!("lifecycle snapshot");
+        };
+
+        module
+            .apply(
+                &context(),
+                request(
+                    "operation:atomic-link",
+                    ProjectWorkspaceIntent::MutateSession {
+                        session_id: "session:atomic-link".to_owned(),
+                        intent: ProjectSessionIntent::LinkThread {
+                            thread_id: "thread:atomic-link".to_owned(),
+                            expected_project_id: Some("project:default".to_owned()),
+                            thread_patch: Some(Box::new(ProjectWorkspaceThreadPatch {
+                                project_id: Some(Some("project:default".to_owned())),
+                                cwd: Some(Some("/worktrees/atomic/nested".to_owned())),
+                                managed_worktree_path: Some(Some("/worktrees/atomic".to_owned())),
+                                ..ProjectWorkspaceThreadPatch::default()
+                            })),
+                            execution_location: Some(Box::new(
+                                ProjectWorkspaceThreadExecutionLocation {
+                                    execution_host_id: "local".to_owned(),
+                                    cwd: Some("/worktrees/atomic/nested".to_owned()),
+                                    managed_worktree_path: Some("/worktrees/atomic".to_owned()),
+                                    runtime_workspace_roots: vec![
+                                        "/worktrees/atomic".to_owned(),
+                                        "/workspace/additional".to_owned(),
+                                    ],
+                                    projectless_output_directory: None,
+                                    projectless_workspace_browser_root: None,
+                                },
+                            )),
+                        },
+                    },
+                ),
+            )
+            .expect("link Thread with execution location");
+
+        let ProjectWorkspaceReadValue::ManagedWorktreeLifecycleSnapshot { snapshot: after } = read(
+            &module,
+            ProjectWorkspaceRead::ManagedWorktreeLifecycleSnapshot,
+        ) else {
+            panic!("lifecycle snapshot");
+        };
+        assert_eq!(after.projection_revision, before.projection_revision + 1);
+        assert_eq!(after.consumers.len(), 1);
+        assert_eq!(
+            after.consumers[0].session_id.as_deref(),
+            Some("session:atomic-link")
+        );
+        assert_eq!(
+            after.consumers[0].runtime_workspace_roots,
+            ["/worktrees/atomic", "/workspace/additional"]
+        );
+    }
+
+    #[test]
     fn child_metadata_retires_an_existing_sidebar_session_without_archiving_the_thread() {
         let (_directory, kernel, module) = seeded_module();
         create_thread(
@@ -2322,6 +2641,7 @@ mod tests {
                             thread_id: "thread:candidate".to_owned(),
                             expected_project_id: Some("project:default".to_owned()),
                             thread_patch: None,
+                            execution_location: None,
                         },
                     },
                 ),
@@ -2436,6 +2756,7 @@ mod tests {
                             thread_id: "thread:child".to_owned(),
                             expected_project_id: Some("project:default".to_owned()),
                             thread_patch: None,
+                            execution_location: None,
                         },
                     },
                 ),
@@ -2739,6 +3060,7 @@ mod tests {
                             thread_id: "thread-root".to_owned(),
                             expected_project_id: Some("project:default".to_owned()),
                             thread_patch: None,
+                            execution_location: None,
                         },
                     },
                 ),
@@ -2977,6 +3299,7 @@ mod tests {
                             thread_id: "thread-b".to_owned(),
                             expected_project_id: Some("project:default".to_owned()),
                             thread_patch: None,
+                            execution_location: None,
                         },
                     },
                 ),

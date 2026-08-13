@@ -284,8 +284,33 @@ function summarizeRpcParams(method: string, params: unknown): Record<string, unk
   };
 }
 
-type ClientRequestMethod = ClientRequest["method"];
-type ClientRequestParams<TMethod extends ClientRequestMethod> = Extract<ClientRequest, { method: TMethod }>["params"];
+export type ClientRequestMethod = ClientRequest["method"];
+export type ClientRequestParams<TMethod extends ClientRequestMethod> = Extract<
+  ClientRequest,
+  { method: TMethod }
+>["params"];
+
+/**
+ * Narrow process boundary consumed by CodexService. Keeping this structural
+ * lets a host router preserve the generated protocol overloads without making
+ * the service aware of child-process placement.
+ */
+export interface CodexAppServerClientPort extends EventEmitter {
+  dispose(): Promise<void>;
+  getInitializeResponse(): InitializeResponse | null;
+  getState(): CodexConnectionState;
+  notify(method: string, params?: unknown): Promise<void>;
+  request<TMethod extends ClientRequestMethod, TResult>(
+    method: TMethod,
+    ...args: ClientRequestParams<TMethod> extends undefined
+      ? [] | [params: ClientRequestParams<TMethod>]
+      : [params: ClientRequestParams<TMethod>]
+  ): Promise<TResult>;
+  request<TResult>(method: string, params?: unknown): Promise<TResult>;
+  setServerRequestHandler(handler: (request: CodexServerRequest) => Promise<unknown>): void;
+  start(): Promise<void>;
+  stop(): Promise<void>;
+}
 
 export class CodexAppServerClient extends EventEmitter {
   private readonly binaryPath: string;

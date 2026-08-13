@@ -176,6 +176,14 @@ export function bucketizeTurnItems(input: BucketizeTurnItemsInput): ThreadTurnRe
       continue;
     }
 
+    // Worktree initialization is inserted before app-server items, but it is
+    // authored as agent activity for the same first Turn. Keep looking for the
+    // Turn's user prefix after staging this transparent preface.
+    if (beforeAgentSequence && item.type === "worktreeInit") {
+      agentCandidates.push(item);
+      continue;
+    }
+
     beforeAgentSequence = false;
 
     if (item.type === "turnDiff") {

@@ -185,6 +185,14 @@ function waitingResolution(entry: CodexPendingWorktreeEntry): CodexPendingWorktr
   };
 }
 
+function startingResolution(entry: StartConversationEntry): CodexPendingWorktreeThreadResolution {
+  return {
+    state: "starting",
+    clientThreadId: entry.clientThreadId,
+    pendingWorktreeId: entry.id,
+  };
+}
+
 describe("PendingWorktreeRoute", () => {
   test("streams queued and setup output from typed pending-worktree snapshots", async () => {
     const queued = makeEntry();
@@ -198,8 +206,11 @@ describe("PendingWorktreeRoute", () => {
       />,
     );
 
-    const creatingHeader = await view.findByRole("button", { name: "Creating a worktree" });
-    expect(creatingHeader.getAttribute("aria-expanded")).toBe("true");
+    expect(Boolean(await view.findByText("Creating a worktree", {
+      selector: ".loading-shimmer-pure-text",
+    }))).toBe(true);
+    expect(Boolean(view.getByText("Preparing workspace"))).toBe(true);
+    expect(Boolean(view.getByText("Checking out files"))).toBe(true);
     expect(Boolean(view.getByText("Create an isolated workspace and implement the task."))).toBe(true);
     expect(Boolean(view.getByRole("button", { name: "Work locally" }))).toBe(true);
     expect(Boolean(view.getByRole("button", { name: "Cancel" }))).toBe(true);
@@ -217,17 +228,15 @@ describe("PendingWorktreeRoute", () => {
       await Promise.resolve();
     });
 
-    expect(Boolean(await view.findByText("Worktree created"))).toBe(true);
-    expect(Boolean(view.getByText("Setting up the environment", {
-      selector: ".loading-shimmer-pure-text",
-    }))).toBe(true);
+    expect(Boolean(await view.findByText("Setting up environment"))).toBe(true);
+    expect(Boolean(view.getByRole("button", { name: "More details" }))).toBe(true);
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "More details" }));
+      await Promise.resolve();
+    });
     expect(Boolean(view.getByText("bun install"))).toBe(true);
-    expect(view.getByRole("button", { name: "Worktree created" }).getAttribute("aria-expanded"))
-      .toBe("false");
-    expect(
-      view.getByRole("button", { name: "Setting up the environment" })
-        .getAttribute("aria-expanded"),
-    ).toBe("true");
+    expect(view.getByRole("button", { name: "Less details" }).getAttribute("aria-expanded"))
+      .toBe("true");
     expect((view.container.textContent ?? "").includes("\u001b")).toBe(false);
   });
 
@@ -396,7 +405,8 @@ describe("PendingWorktreeRoute", () => {
       await Promise.resolve();
     });
 
-    expect(Boolean(await view.findByText("Failed to create worktree"))).toBe(true);
+    expect(Boolean(await view.findByText("Worktree setup failed"))).toBe(true);
+    expect(Boolean(view.getByText("Worktree creation failed"))).toBe(true);
     expect(
       transport.calls.filter((call) => call.startsWith("clear-attention:")).length,
     ).toBe(1);
@@ -527,8 +537,9 @@ describe("PendingWorktreeRoute", () => {
     const autoFix = view.getByRole("button", { name: "Auto-fix" });
     const continueAnyway = view.getByRole("button", { name: "Continue anyway" });
     expect(view.queryByRole("button", { name: "Cancel" })).toBe(null);
-    expect(Boolean(view.getByText("Failed to set up the environment"))).toBe(true);
-    expect(view.queryByText("Failed to start the conversation")).toBe(null);
+    expect(Boolean(view.getByText("Setting up environment"))).toBe(true);
+    expect(Boolean(view.getByText("Worktree setup failed"))).toBe(true);
+    expect(view.queryByText("Task failed to start")).toBe(null);
 
     await act(async () => {
       fireEvent.click(autoFix);
@@ -582,7 +593,7 @@ describe("PendingWorktreeRoute", () => {
       worktreeGitRoot: "/repo/worktrees/task",
       worktreeWorkspaceRoot: "/repo/worktrees/task",
     });
-    const transport = new TestPendingWorktreeTransport(ready, waitingResolution(ready));
+    const transport = new TestPendingWorktreeTransport(ready, startingResolution(ready));
     const openedThreads: string[] = [];
     let closeCount = 0;
     const view = render(
@@ -599,7 +610,7 @@ describe("PendingWorktreeRoute", () => {
       />,
     );
 
-    expect(Boolean(await view.findByText("Starting the conversation", {
+    expect(Boolean(await view.findByText("Starting a task", {
       selector: ".loading-shimmer-pure-text",
     }))).toBe(true);
     await act(async () => {

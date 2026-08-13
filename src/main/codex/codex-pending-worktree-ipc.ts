@@ -7,6 +7,8 @@ import type {
   CodexPendingWorktreesChangedEvent,
 } from "../../shared/codex-pending-worktree";
 import type { CodexAgentMode } from "../../shared/types";
+import { requireCodexWorktreeEnvironmentConfigPath } from "../../shared/codex-worktree-environment-path";
+import { executionWorkspacePathKey } from "./codex-execution-workspace-roots";
 
 export type CodexPendingWorktreeIpcChannel =
   | "codex:pending-worktrees:list"
@@ -120,6 +122,21 @@ function requireAgentMode(value: CodexAgentMode): CodexAgentMode {
   return value;
 }
 
+function requireSourceWorkspaceRoots(
+  value: readonly string[],
+  sourceWorkspaceRoot: string,
+): readonly string[] {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new Error("Source workspace roots are required");
+  }
+  for (const root of value) requireIdentifier(root, "Source workspace root");
+  const primaryKey = executionWorkspacePathKey(sourceWorkspaceRoot);
+  if (!value.some((root) => executionWorkspacePathKey(root) === primaryKey)) {
+    throw new Error("Source workspace roots must contain the primary root");
+  }
+  return value;
+}
+
 function requireCreateInput(value: CodexPendingWorktreeCreateInput): CodexPendingWorktreeCreateInput {
   if (!value || typeof value !== "object") {
     throw new Error("Pending worktree create input is required");
@@ -128,6 +145,9 @@ function requireCreateInput(value: CodexPendingWorktreeCreateInput): CodexPendin
   requireLabel(value.label);
   requireIdentifier(value.sourceWorkspaceRoot, "Source workspace root");
   requireIdentifier(value.prompt, "Pending worktree prompt");
+  if (value.localEnvironmentConfigPath != null) {
+    requireCodexWorktreeEnvironmentConfigPath(value.localEnvironmentConfigPath);
+  }
   if (
     value.launchMode !== "create-stable-worktree"
     && value.launchMode !== "fork-conversation"
@@ -137,6 +157,10 @@ function requireCreateInput(value: CodexPendingWorktreeCreateInput): CodexPendin
   }
   if (value.launchMode === "fork-conversation") {
     requireIdentifier(value.sourceConversationId, "Source conversation id");
+    requireSourceWorkspaceRoots(value.sourceWorkspaceRoots, value.sourceWorkspaceRoot);
+  }
+  if (value.launchMode === "create-stable-worktree") {
+    requireSourceWorkspaceRoots(value.sourceWorkspaceRoots, value.sourceWorkspaceRoot);
   }
   if (value.launchMode === "start-conversation" && !value.startConversationParamsInput) {
     throw new Error("Pending worktree start parameters are required");
