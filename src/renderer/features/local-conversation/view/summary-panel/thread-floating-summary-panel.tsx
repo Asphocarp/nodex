@@ -110,7 +110,7 @@ import { ThreadSummaryBranchSetupDialog } from "./thread-summary-branch-setup-di
 import { ThreadSummaryPanelToggleButton } from "./thread-summary-panel-toggle";
 import { SubagentAvatar } from "../shared/subagent-avatar";
 import { CodexShimmerText } from "../shared/codex-shimmer-text";
-import { ImagePreviewDialog } from "../shared/user-message-attachments";
+import { ImagePreviewDialog } from "@/features/user-attachment-image-editor";
 import {
   buildMcpAppSidePanelInput,
   resolveMcpAppResourceUri,
@@ -1182,10 +1182,6 @@ export function ThreadSummaryPanelSurface({
     if (nextOpen) return;
 
     setPreviewImage(null);
-    window.setTimeout(() => {
-      previewReturnFocusRef.current?.focus();
-      previewReturnFocusRef.current = null;
-    }, 0);
   }, []);
   const openSummaryOutputInSidePanel = actions?.onOpenSummaryOutputInSidePanel;
   const handleOpenOutput = useCallback((row: ThreadSummaryPanelOutputRow, returnFocusTarget: HTMLDivElement) => {
@@ -1713,6 +1709,12 @@ export function ThreadSummaryPanelSurface({
           onOpenChange={handlePreviewOpenChange}
           src={previewImage.src}
           alt={previewImage.row.label}
+          allowLocalPath
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            previewReturnFocusRef.current?.focus();
+            previewReturnFocusRef.current = null;
+          }}
         />
       ) : null}
       <ThreadSummaryGitActionDialog

@@ -1,5 +1,8 @@
 import type { WorkspaceFilesTab } from "@/features/workspace-files";
 import type {
+  NormalizedUserAttachmentImageEditorOptions,
+} from "@/features/user-attachment-image-editor";
+import type {
   ThreadMcpAppSidePanelInput,
   ThreadOpenSubagentPayload,
 } from "@/features/local-conversation/thread-stage-types";
@@ -137,6 +140,22 @@ export interface ProcessOutputPanelTab {
   terminalSessionId: string | null;
 }
 
+export interface ImageEditorPanelTab {
+  imageEditor: true;
+  id: `image:${string}`;
+  sessionId: string;
+  projectId: string | null;
+  threadId: string | null;
+  panelId: "right";
+  leafId?: string;
+  title: string;
+  tooltip: string;
+  stateKey: number;
+  preview: true;
+  pinBehavior: "automatic";
+  options: NormalizedUserAttachmentImageEditorOptions;
+}
+
 export interface ProcessOutputPanelTarget {
   threadId: string;
   turnId?: string | null;
@@ -155,7 +174,8 @@ export type ProjectSessionRenderableTab =
   | AutomationPanelTab
   | BackgroundAgentPanelTab
   | SubagentsPanelTab
-  | ProcessOutputPanelTab;
+  | ProcessOutputPanelTab
+  | ImageEditorPanelTab;
 
 export function isSideChatPanelTab(
   tab: ProjectSessionRenderableTab,
@@ -206,6 +226,12 @@ export function isProcessOutputPanelTab(
   return "processOutputPanel" in tab && tab.processOutputPanel === true;
 }
 
+export function isImageEditorPanelTab(
+  tab: ProjectSessionRenderableTab,
+): tab is ImageEditorPanelTab {
+  return "imageEditor" in tab && tab.imageEditor === true;
+}
+
 export function isProjectSessionFilesPreviewTab(
   tab: ProjectSessionRenderableTab,
 ): tab is ProjectSessionFilesPreviewTab {
@@ -223,27 +249,37 @@ export function isTransientPanelTab(
   | PlanPanelTab
   | AutomationPanelTab
   | AgentPanelTab
-  | ProcessOutputPanelTab {
+  | ProcessOutputPanelTab
+  | ImageEditorPanelTab {
   return isSideChatPanelTab(tab)
     || isMcpAppPanelTab(tab)
     || isPlanPanelTab(tab)
     || isAutomationPanelTab(tab)
     || isBackgroundAgentPanelTab(tab)
     || isSubagentsPanelTab(tab)
-    || isProcessOutputPanelTab(tab);
+    || isProcessOutputPanelTab(tab)
+    || isImageEditorPanelTab(tab);
 }
 
 export function isRootThreadRightPanelComposerOverlayEligibleTab(
   tab: ProjectSessionRenderableTab | null,
 ): boolean {
   if (!tab) return false;
+  if (isImageEditorPanelTab(tab)) {
+    return tab.options.composerTarget?.placement === "root"
+      || (tab.options.composerTarget === null && tab.threadId !== null);
+  }
   if (isTransientPanelTab(tab)) return false;
 
   return tab.kind === "review"
     || tab.kind === "browser"
     || tab.kind === "db_view"
     || tab.kind === "page_stage"
-    || tab.kind === "canvas_stage";
+    || tab.kind === "canvas_stage"
+    || (
+      tab.kind === "image_editor"
+      && tab.config.composerTarget?.placement === "root"
+    );
 }
 
 export function makeBackgroundAgentPanelTabId(threadId: string): string {
@@ -259,6 +295,32 @@ export function makeProcessOutputPanelTabId(
   itemId: string,
 ): string {
   return `process-output:${encodeURIComponent(threadId)}:${encodeURIComponent(itemId)}`;
+}
+
+export function makeImageEditorPanelTabId(): `image:${string}` {
+  return `image:${crypto.randomUUID()}`;
+}
+
+export function updateImageEditorPanelTabTitle(
+  tabs: readonly ImageEditorPanelTab[],
+  tabId: string,
+  title: string,
+): ImageEditorPanelTab[] {
+  const normalizedTitle = title.trim();
+  if (normalizedTitle.length === 0) return [...tabs];
+  return tabs.map((tab) =>
+    tab.id === tabId
+      && (
+        tab.title !== normalizedTitle
+        || tab.tooltip !== normalizedTitle
+      )
+      ? {
+          ...tab,
+          title: normalizedTitle,
+          tooltip: normalizedTitle,
+        }
+      : tab
+  );
 }
 
 export function resolveProcessOutputPanelTitle(command: string): string {

@@ -50,6 +50,30 @@ describe("composer picked files", () => {
     expect("imageDataUrl" in pickedFile).toBe(false);
   });
 
+  test("does not treat unsupported image formats as Composer images", async () => {
+    const dir = await createTempDir();
+    const imagePath = path.join(dir, "legacy.bmp");
+    await writeFile(imagePath, Buffer.from("image"));
+
+    const pickedFile = await prepareComposerPickedFile(imagePath);
+
+    expect(pickedFile.label).toBe("legacy.bmp");
+    expect("mimeType" in pickedFile).toBe(false);
+    expect("imageDataUrl" in pickedFile).toBe(false);
+  });
+
+  test("does not attach empty image files", async () => {
+    const dir = await createTempDir();
+    const imagePath = path.join(dir, "empty.png");
+    await writeFile(imagePath, Buffer.alloc(0));
+
+    const pickedFile = await prepareComposerPickedFile(imagePath);
+
+    expect(pickedFile.label).toBe("empty.png");
+    expect("mimeType" in pickedFile).toBe(false);
+    expect("imageDataUrl" in pickedFile).toBe(false);
+  });
+
   test("does not embed bytes for oversized images", async () => {
     const dir = await createTempDir();
     const imagePath = path.join(dir, "huge.png");

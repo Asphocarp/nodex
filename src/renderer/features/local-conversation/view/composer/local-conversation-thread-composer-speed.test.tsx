@@ -12,6 +12,22 @@ import {
   installWindowApi,
 } from "@/test/browser-globals";
 import { clearPersistedAtomStoreForTests } from "@/lib/persisted-atom-store";
+import {
+  clearImageEditComposerDraft,
+  getImageEditComposerDraftSnapshot,
+  replaceImageEditComposerDraft,
+  requestImageEditComposerSubmit,
+} from "@/lib/image-edit-composer-channel";
+import {
+  clearOptimisticGeneratedImageEdits,
+  getGeneratedImageLiveCollectionSnapshot,
+} from "@/features/user-attachment-image-editor";
+import { buildRemoveSubmissionIntent } from "@/features/user-attachment-image-editor/model/image-edit-submission";
+import {
+  consumeBrowserImageAttachments,
+  getBrowserImageAttachmentsSnapshot,
+  publishBrowserImageAttachment,
+} from "@/features/browser-sidebar/browser-image-attachments";
 import { NodexModalHost } from "@/lib/modal-registry";
 import type { ThreadGoal } from "@nodex/codex-app-server-protocol/v2";
 import type { AgentProviderCatalog } from "../../../../../shared/agent-runtime";
@@ -21,6 +37,8 @@ import { TestComposerScopePath } from "@/test/maitai-scope-harness";
 
 const FAST_MODE_ICON_PATH =
   "M11.9125 21.4125C11.5292 21.8625 11.0292 22.0958 10.4125 22.1125C9.79586 22.1291 9.29586 21.9208 8.91252 21.4875C8.53752 21.0541 8.45836 20.4541 8.67503 19.6875L9.68752 16H4.57502C4.00836 16 3.56669 15.8375 3.25002 15.5125C2.93336 15.1791 2.77502 14.7791 2.77502 14.3125C2.77502 13.8375 2.92919 13.4125 3.23752 13.0375L12.1375 2.47497C12.5209 2.02497 13.0209 1.79164 13.6375 1.77497C14.2542 1.75831 14.75 1.96664 15.125 2.39997C15.5084 2.83331 15.5917 3.43331 15.375 4.19997L14.3125 7.99998H19.425C19.9917 7.99998 20.4334 8.16664 20.75 8.49997C21.075 8.83331 21.2375 9.23748 21.2375 9.71247C21.2375 10.1791 21.0792 10.5958 20.7625 10.9625L11.9125 21.4125Z";
+const IMAGE_EDIT_COMPOSER_CHANNEL_ID =
+  "AppScope:app/ThreadScope:session:renderer-test::root";
 
 const TEST_AGENT_PROVIDER_CATALOG: AgentProviderCatalog = {
   providers: [
@@ -265,12 +283,18 @@ function installComposerWindowApi(testInvoke?: TestInvoke): void {
         persistedAtomListeners.delete(listener);
       };
     },
+    resolveManagedAssetPath: (source: string) =>
+      source.startsWith("nodex://assets/")
+        ? `/managed/${source.slice("nodex://assets/".length)}`
+        : null,
+    getPathForFile: () => "",
   });
 }
 
 function buildModel(overrides?: Partial<ThreadFooterModel>): ThreadFooterModel {
   return {
     projectId: "project_1",
+    hostId: "default",
     projectWorkspacePath: "/tmp/project",
     threadId: "thread_1",
     cwd: "/tmp/project",
@@ -439,6 +463,7 @@ async function renderComposer(
   overrides?: Partial<ThreadFooterModel>,
   actionOverrides?: Partial<ThreadStageActions>,
   testInvoke?: TestInvoke,
+  onErrorMessage: (message: string | null) => void = () => {},
 ) {
   installAsyncRequestAnimationFrame();
   document.documentElement.dataset.codexWindowType = "electron";
@@ -453,7 +478,7 @@ async function renderComposer(
             model={buildModel(overrides)}
             actions={buildActions(actionOverrides)}
             errorMessage={null}
-            onErrorMessage={() => {}}
+            onErrorMessage={onErrorMessage}
           />
           <NodexModalHost />
         </TestComposerScopePath>
@@ -661,6 +686,632 @@ describe("ThreadComposer speed menu", () => {
     });
   });
 
+  test("pastes an image into the Codex thumbnail shell and submits its local materialization", async () => {
+    resetStorage();
+    const sentPromptInputs: unknown[] = [];
+    const savedImages: unknown[] = [];
+    const view = await renderComposer(
+      undefined,
+      {
+        onSendPrompt: async (_prompt, options) => {
+          sentPromptInputs.push(options?.promptInput ?? null);
+        },
+      },
+      async (channel, ...args) => {
+        if (channel === "asset:image:save") {
+          savedImages.push(args[0]);
+          return { source: "nodex://assets/pasted.png" };
+        }
+        return undefined;
+      },
+    );
+    const composer = view.container.querySelector<HTMLElement>(
+      '[data-codex-composer="true"]',
+    );
+    if (!composer) throw new Error("Expected composer editor");
+    const image = new File(["image"], "diagram.png", { type: "image/png" });
+    Object.defineProperty(image, "arrayBuffer", {
+      configurable: true,
+      value: async () => new TextEncoder().encode("image").buffer,
+    });
+
+    await act(async () => {
+      fireEvent.paste(composer, {
+        clipboardData: {
+          files: [image],
+          items: [{
+            kind: "file",
+            type: image.type,
+            getAsFile: () => image,
+          }],
+          getData: (format: string) => format === "text/plain" ? image.name : "",
+        },
+      });
+      await Promise.resolve();
+    });
+
+    const thumbnail = await view.findByRole("button", { name: "diagram.png" });
+    expect(thumbnail.getAttribute("data-composer-image-attachment-size")).toBe("80");
+    expect(thumbnail.querySelector("img")?.getAttribute("src"))
+      .toMatch(/^data:image\/png;base64,/u);
+    await waitFor(() => expect(savedImages).toHaveLength(1));
+
+    await submitCurrentComposerDraft(view);
+
+    expect(sentPromptInputs).toEqual([{
+      text: "",
+      images: [{ source: "/managed/pasted.png", caption: "diagram.png" }],
+    }]);
+  });
+
+  test("submits Remove area through a projectless New Chat's normal start path", async () => {
+    resetStorage();
+    const starts: Parameters<NonNullable<ThreadStageActions["onStartThreadForSession"]>>[0][] = [];
+    const view = await renderComposer(
+      {
+        projectId: null,
+        threadId: null,
+        conversation: null,
+        isNewThreadTab: true,
+        newThreadTarget: {
+          projectId: null,
+          projectName: "No project",
+          sessionId: "session_1",
+          threadTitle: "New thread",
+          runInTarget: "localProject",
+        },
+      },
+      {
+        onStartThreadForSession: async (input) => {
+          starts.push(input);
+        },
+      },
+    );
+    const original = {
+      id: "original",
+      alt: "Original image",
+      attachmentSrc: "data:image/png;base64,b3JpZ2luYWw=",
+      dataUrl: "data:image/png;base64,b3JpZ2luYWw=",
+      source: "uploaded" as const,
+      src: "data:image/png;base64,b3JpZ2luYWw=",
+    };
+    const mask = {
+      id: "mask",
+      alt: "Removal mask",
+      attachmentSrc: "data:image/png;base64,bWFzaw==",
+      dataUrl: "data:image/png;base64,bWFzaw==",
+      source: "uploaded" as const,
+      src: "data:image/png;base64,bWFzaw==",
+    };
+    let result: Awaited<ReturnType<typeof requestImageEditComposerSubmit>> | null = null;
+
+    await act(async () => {
+      result = await requestImageEditComposerSubmit(
+        IMAGE_EDIT_COMPOSER_CHANNEL_ID,
+        {
+          intent: buildRemoveSubmissionIntent({
+            entrypoint: "image_click",
+            image: original,
+            mask,
+          }),
+          source: "single",
+        },
+      );
+    });
+
+    expect(result).toEqual({ status: "submitted" });
+    expect(starts).toHaveLength(1);
+    expect(starts[0]).toMatchObject({
+      projectId: null,
+      sessionId: "session_1",
+      prompt: "Remove the area marked in the second image from the first image",
+      promptInput: {
+        text: "Remove the area marked in the second image from the first image",
+        images: [
+          {
+            source: original.dataUrl,
+            caption: "Original image",
+          },
+          {
+            source: mask.dataUrl,
+            caption: "image-mask.png",
+          },
+        ],
+      },
+      runInTarget: "localProject",
+    });
+    view.unmount();
+  });
+
+  test("reuses a Send to chat managed image when New Chat submits Remove area", async () => {
+    resetStorage();
+    const sessionId = "session_managed_image_edit";
+    const attachmentId = "browser-managed-original";
+    const managedSource = "nodex://assets/browser-managed-original.png";
+    publishBrowserImageAttachment(sessionId, {
+      id: attachmentId,
+      filename: "browser-managed-original.png",
+      source: managedSource,
+    });
+    const starts: Parameters<NonNullable<ThreadStageActions["onStartThreadForSession"]>>[0][] = [];
+    const errors: string[] = [];
+    const view = await renderComposer(
+      {
+        projectId: null,
+        threadId: null,
+        conversation: null,
+        isNewThreadTab: true,
+        newThreadTarget: {
+          projectId: null,
+          projectName: "No project",
+          sessionId,
+          threadTitle: "New thread",
+          runInTarget: "localProject",
+        },
+      },
+      {
+        onStartThreadForSession: async (input) => {
+          starts.push(input);
+        },
+      },
+      undefined,
+      (message) => {
+        if (message) errors.push(message);
+      },
+    );
+    try {
+      await waitFor(() => {
+        expect(view.getByRole("button", { name: "browser-managed-original.png" }))
+          .toBeDefined();
+      });
+      const editorDescriptor = {
+        id: attachmentId,
+        attachmentId,
+        alt: "User attachment",
+        attachmentSrc: managedSource,
+        dataUrl: managedSource,
+        downloadSrc: managedSource,
+        managedSource,
+        source: "uploaded" as const,
+        src: managedSource,
+      };
+      const mask = {
+        id: "mask",
+        alt: "Removal mask",
+        attachmentSrc: "data:image/png;base64,bWFzaw==",
+        dataUrl: "data:image/png;base64,bWFzaw==",
+        source: "uploaded" as const,
+        src: "data:image/png;base64,bWFzaw==",
+      };
+
+      let result: Awaited<ReturnType<typeof requestImageEditComposerSubmit>> | null = null;
+      await act(async () => {
+        result = await requestImageEditComposerSubmit(
+          IMAGE_EDIT_COMPOSER_CHANNEL_ID,
+          {
+            intent: buildRemoveSubmissionIntent({
+              entrypoint: "image_click",
+              image: editorDescriptor,
+              mask,
+            }),
+            source: "single",
+          },
+        );
+      });
+
+      expect(result).toEqual({ status: "submitted" });
+      expect(errors).toEqual([]);
+      expect(starts).toHaveLength(1);
+      expect(starts[0]?.promptInput?.images).toEqual([
+        {
+          source: managedSource,
+          caption: "browser-managed-original.png",
+        },
+        {
+          source: mask.dataUrl,
+          caption: "image-mask.png",
+        },
+      ]);
+    } finally {
+      view.unmount();
+      consumeBrowserImageAttachments(
+        sessionId,
+        getBrowserImageAttachmentsSnapshot(sessionId).map((attachment) => attachment.id),
+      );
+    }
+  });
+
+  test("reuses a managed image when a projectless task submits Remove area", async () => {
+    resetStorage();
+    const threadId = "thread_1";
+    const attachmentId = "projectless-managed-original";
+    const managedSource = "nodex://assets/projectless-managed-original.png";
+    publishBrowserImageAttachment(threadId, {
+      id: attachmentId,
+      filename: "projectless-managed-original.png",
+      source: managedSource,
+    });
+    const sentPromptInputs: unknown[] = [];
+    const errors: string[] = [];
+    const baseConversation = buildModel().conversation;
+    if (!baseConversation) throw new Error("Expected a conversation fixture");
+    const view = await renderComposer(
+      {
+        projectId: null,
+        projectWorkspacePath: null,
+        conversation: { ...baseConversation, projectId: null },
+      },
+      {
+        onSendPrompt: async (_prompt, options) => {
+          sentPromptInputs.push(options?.promptInput ?? null);
+        },
+      },
+      undefined,
+      (message) => {
+        if (message) errors.push(message);
+      },
+    );
+
+    try {
+      await waitFor(() => {
+        expect(view.getByRole("button", { name: "projectless-managed-original.png" }))
+          .toBeDefined();
+      });
+      let result: Awaited<ReturnType<typeof requestImageEditComposerSubmit>> | null = null;
+      await act(async () => {
+        result = await requestImageEditComposerSubmit(
+          IMAGE_EDIT_COMPOSER_CHANNEL_ID,
+          {
+            intent: buildRemoveSubmissionIntent({
+              entrypoint: "image_click",
+              image: {
+                id: attachmentId,
+                attachmentId,
+                alt: "User attachment",
+                attachmentSrc: managedSource,
+                dataUrl: managedSource,
+                managedSource,
+                source: "uploaded",
+                src: managedSource,
+              },
+              mask: {
+                id: "projectless-mask",
+                alt: "Removal mask",
+                attachmentSrc: "data:image/png;base64,bWFzaw==",
+                dataUrl: "data:image/png;base64,bWFzaw==",
+                source: "uploaded",
+                src: "data:image/png;base64,bWFzaw==",
+              },
+            }),
+            source: "single",
+          },
+        );
+      });
+
+      expect(result).toEqual({ status: "submitted" });
+      expect(errors).toEqual([]);
+      expect(sentPromptInputs).toMatchObject([{
+        text: "Remove the area marked in the second image from the first image",
+        images: [
+          { source: managedSource, caption: "projectless-managed-original.png" },
+          { source: "data:image/png;base64,bWFzaw==", caption: "image-mask.png" },
+        ],
+      }]);
+    } finally {
+      view.unmount();
+      consumeBrowserImageAttachments(
+        threadId,
+        getBrowserImageAttachmentsSnapshot(threadId).map((attachment) => attachment.id),
+      );
+    }
+  });
+
+  test("queues an image edit when the existing task is active", async () => {
+    resetStorage();
+    const queued: Array<{ threadId: string; prompt: string; promptInput: unknown }> = [];
+    const view = await renderComposer(
+      buildRunningComposerModel({ composerIntent: null }),
+      {
+        onEnqueueQueuedFollowUp: async (threadId, prompt, options) => {
+          queued.push({ threadId, prompt, promptInput: options?.promptInput });
+        },
+      },
+    );
+    const image = {
+      id: "selected",
+      alt: "Selected image",
+      attachmentSrc: "data:image/png;base64,c2VsZWN0ZWQ=",
+      dataUrl: "data:image/png;base64,c2VsZWN0ZWQ=",
+      source: "generated" as const,
+      src: "data:image/png;base64,c2VsZWN0ZWQ=",
+    };
+
+    const result = await requestImageEditComposerSubmit(
+      IMAGE_EDIT_COMPOSER_CHANNEL_ID,
+      {
+        intent: {
+          analytics: { hasGeneralInstruction: true, selectedImageCount: 1 },
+          attachmentIds: [image.id],
+          attachments: [{ attachmentId: image.id, image, role: "selected" }],
+          entrypoint: "canvas_button",
+          focusComposerAfterSubmit: true,
+          isImageEditFollowUp: true,
+          mode: "select",
+          promptRaw: "Make the sky warmer",
+          queuePolicy: "queue-while-active",
+        },
+        source: "canvas",
+      },
+    );
+
+    expect(result).toEqual({ status: "queued" });
+    expect(queued).toHaveLength(1);
+    expect(queued[0]).toMatchObject({
+      threadId: "thread_1",
+      prompt: "Make the sky warmer",
+      promptInput: {
+        text: "Make the sky warmer",
+        images: [{ source: image.dataUrl, caption: "Selected image" }],
+      },
+    });
+    view.unmount();
+  });
+
+  test("uses the portable image source when the thread runs on another host", async () => {
+    resetStorage();
+    const sentPromptInputs: unknown[] = [];
+    const view = await renderComposer(
+      { hostId: "ssh:remote" },
+      {
+        onSendPrompt: async (_prompt, options) => {
+          sentPromptInputs.push(options?.promptInput ?? null);
+        },
+      },
+      async (channel) => {
+        if (channel === "asset:image:save") {
+          return { source: "nodex://assets/remote-thread.png" };
+        }
+        return undefined;
+      },
+    );
+    const composer = view.container.querySelector<HTMLElement>(
+      '[data-codex-composer="true"]',
+    );
+    if (!composer) throw new Error("Expected composer editor");
+    const image = new File(["image"], "remote-thread.png", { type: "image/png" });
+    Object.defineProperty(image, "arrayBuffer", {
+      configurable: true,
+      value: async () => new TextEncoder().encode("image").buffer,
+    });
+
+    await act(async () => {
+      fireEvent.paste(composer, {
+        clipboardData: {
+          files: [image],
+          items: [{
+            kind: "file",
+            type: image.type,
+            getAsFile: () => image,
+          }],
+          getData: (format: string) => format === "text/plain" ? image.name : "",
+        },
+      });
+      await Promise.resolve();
+    });
+    expect(await view.findByRole("button", { name: "remote-thread.png" })).toBeDefined();
+
+    await submitCurrentComposerDraft(view);
+
+    expect(sentPromptInputs).toEqual([{
+      text: "",
+      images: [{
+        source: expect.stringMatching(/^data:image\/png;base64,/u),
+        caption: "remote-thread.png",
+      }],
+    }]);
+  });
+
+  test("routes an operating-system image drop through the same thumbnail shell", async () => {
+    resetStorage();
+    const savedImages: unknown[] = [];
+    const view = await renderComposer(
+      undefined,
+      undefined,
+      async (channel, ...args) => {
+        if (channel === "asset:image:save") {
+          savedImages.push(args[0]);
+          return { source: "nodex://assets/dropped.png" };
+        }
+        return undefined;
+      },
+    );
+    const dropTarget = view.container.querySelector<HTMLElement>(
+      '[data-file-drop-active="false"]',
+    );
+    if (!dropTarget) throw new Error("Expected Composer file drop target");
+    const image = new File(["image"], "dropped.png", { type: "image/png" });
+    Object.defineProperty(image, "arrayBuffer", {
+      configurable: true,
+      value: async () => new TextEncoder().encode("image").buffer,
+    });
+    const dataTransfer = {
+      files: [image],
+      items: [{
+        kind: "file",
+        type: image.type,
+        getAsFile: () => image,
+      }],
+      types: ["Files"],
+      getData: () => "",
+      dropEffect: "none",
+    };
+
+    await act(async () => {
+      fireEvent.dragEnter(dropTarget, { dataTransfer });
+      fireEvent.drop(dropTarget, { dataTransfer });
+      await Promise.resolve();
+    });
+
+    const thumbnail = await view.findByRole("button", { name: "dropped.png" });
+    expect(thumbnail.getAttribute("data-composer-image-attachment-size")).toBe("80");
+    await waitFor(() => expect(savedImages).toHaveLength(1));
+    expect(dataTransfer.dropEffect).toBe("copy");
+  });
+
+  test("queues the readable image snapshot while materialization is pending", async () => {
+    resetStorage();
+    let resolveImageSave!: (value: { source: string }) => void;
+    const imageSave = new Promise<{ source: string }>((resolve) => {
+      resolveImageSave = resolve;
+    });
+    const queued: unknown[] = [];
+    const view = await renderComposer(
+      buildRunningComposerModel({ isQueueingEnabled: true }),
+      {
+        onEnqueueQueuedFollowUp: async (_threadId, _prompt, options) => {
+          queued.push(options?.promptInput ?? null);
+        },
+      },
+      async (channel) => {
+        if (channel === "asset:image:save") return await imageSave;
+        return undefined;
+      },
+    );
+    const composer = view.container.querySelector<HTMLElement>(
+      '[data-codex-composer="true"]',
+    );
+    if (!composer) throw new Error("Expected composer editor");
+    const image = new File(["image"], "diagram.png", { type: "image/png" });
+    Object.defineProperty(image, "arrayBuffer", {
+      configurable: true,
+      value: async () => new TextEncoder().encode("image").buffer,
+    });
+
+    await act(async () => {
+      fireEvent.paste(composer, {
+        clipboardData: {
+          files: [image],
+          items: [{
+            kind: "file",
+            type: image.type,
+            getAsFile: () => image,
+          }],
+          getData: (format: string) => format === "text/plain" ? image.name : "",
+        },
+      });
+      await Promise.resolve();
+    });
+    expect(await view.findByRole("button", { name: "diagram.png" })).toBeDefined();
+
+    await keyDownComposer(view, { key: "Enter" });
+    await waitFor(() => expect(queued).toHaveLength(1));
+    expect(queued).toEqual([{
+      text: "Follow up",
+      documentItems: [{ type: "text", text: "Follow up" }],
+      images: [{
+        source: expect.stringMatching(/^data:image\/png;base64,/u),
+        caption: "diagram.png",
+      }],
+    }]);
+    await waitFor(() => {
+      expect(view.queryByRole("button", { name: "diagram.png" })).toBeNull();
+    });
+
+    await act(async () => {
+      resolveImageSave({ source: "nodex://assets/late.png" });
+      await Promise.resolve();
+    });
+    expect(view.queryByRole("button", { name: "diagram.png" })).toBeNull();
+  });
+
+  test("keeps existing images but blocks send after switching to a text-only model", async () => {
+    resetStorage();
+    const sent: unknown[] = [];
+    const errors: string[] = [];
+    const view = await renderComposer(
+      {
+        agentProviderCatalog: TEST_AGENT_PROVIDER_CATALOG,
+        executionProfile: {
+          providerId: "kimi-for-coding",
+          modelId: "kimi-k3",
+          harnessId: "kimi-code",
+          reasoningEffort: "Thinking",
+          serviceTier: null,
+        },
+        composerIntent: {
+          prompt: "Describe this image",
+          focusNonce: 1,
+          promptInput: {
+            text: "Describe this image",
+            images: [{
+              source: "data:image/png;base64,aW1hZ2U=",
+              caption: "diagram.png",
+            }],
+          },
+        },
+      },
+      {
+        onSendPrompt: async (_prompt, options) => {
+          sent.push(options?.promptInput ?? null);
+        },
+      },
+      undefined,
+      (message) => {
+        if (message) errors.push(message);
+      },
+    );
+
+    expect(await view.findByRole("button", { name: "diagram.png" })).toBeDefined();
+    await submitCurrentComposerDraft(view);
+
+    expect(sent).toEqual([]);
+    expect(errors).toContain(
+      "Remove images or switch models to send this message",
+    );
+    expect(view.getByRole("button", { name: "diagram.png" })).toBeDefined();
+  });
+
+  test("blocks a restored local-only image when its execution host changes", async () => {
+    resetStorage();
+    const sent: unknown[] = [];
+    const errors: string[] = [];
+    const view = await renderComposer(
+      {
+        hostId: "ssh:remote",
+        composerIntent: {
+          prompt: "Describe this image",
+          focusNonce: 1,
+          promptInput: {
+            text: "Describe this image",
+            images: [{
+              source: "/managed/local-only.png",
+              caption: "local-only.png",
+            }],
+          },
+        },
+      },
+      {
+        onSendPrompt: async (_prompt, options) => {
+          sent.push(options?.promptInput ?? null);
+        },
+      },
+      undefined,
+      (message) => {
+        if (message) errors.push(message);
+      },
+    );
+
+    const thumbnail = await view.findByRole("button", { name: "local-only.png" });
+    expect(thumbnail.querySelector("img")?.getAttribute("src"))
+      .toBe("file:///managed/local-only.png");
+    await submitCurrentComposerDraft(view);
+
+    expect(sent).toEqual([]);
+    expect(errors).toContain(
+      "One or more images are unavailable on the selected execution host. Remove them or add them again.",
+    );
+  });
+
   test("restores the exact owned paste in one editor replacement and cleans its source", async () => {
     resetStorage();
     const source = `  leading\n${"x".repeat(5_000)}\ntrailing  `;
@@ -793,6 +1444,70 @@ describe("ThreadComposer speed menu", () => {
     });
     expect(alternateSteeredPrompts[0]).toBe("Follow up");
     expect(alternateQueuedPrompts.length).toBe(0);
+  });
+
+  test("image-edit follow-ups serialize positional comments and always queue", async () => {
+    resetStorage();
+    const queued: Array<{ prompt: string; options: unknown }> = [];
+    const steeredPrompts: string[] = [];
+    replaceImageEditComposerDraft(IMAGE_EDIT_COMPOSER_CHANNEL_ID, {
+      attachments: [{
+        asset: {
+          hostId: null,
+          localPath: null,
+          managedSource: null,
+          src: "data:image/png;base64,aW1hZ2U=",
+        },
+        comments: [{ id: "comment-1", text: "Remove the label", x: 0.25, y: 0.75 }],
+        filename: "Generated image 1",
+        id: "image-playground:image-1",
+        imageSource: "generated",
+      }],
+      mode: "comment",
+    });
+
+    try {
+      const view = await renderComposer(
+        buildRunningComposerModel({
+          isQueueingEnabled: true,
+          composerEnterBehavior: "enter",
+        }),
+        {
+          onEnqueueQueuedFollowUp: async (_threadId, prompt, options) => {
+            queued.push({ prompt, options });
+          },
+          onSteerPrompt: async (input) => {
+            steeredPrompts.push(input.prompt);
+          },
+        },
+      );
+
+      await keyDownComposer(view, { key: "Enter", metaKey: true });
+
+      await waitFor(() => expect(queued).toHaveLength(1));
+      expect(queued[0]?.prompt).toBe([
+        "Image 1:",
+        "1. (x: 25%, y: 75%) Remove the label",
+        "",
+        "Additional instructions:",
+        "Follow up",
+      ].join("\n"));
+      expect(queued[0]?.options).toMatchObject({
+        promptInput: {
+          images: [{
+            caption: "Generated image 1",
+            source: "data:image/png;base64,aW1hZ2U=",
+          }],
+        },
+      });
+      expect(steeredPrompts).toEqual([]);
+      expect(getImageEditComposerDraftSnapshot(IMAGE_EDIT_COMPOSER_CHANNEL_ID).mode).toBeNull();
+      expect(getGeneratedImageLiveCollectionSnapshot("thread_1").images.at(-1))
+        .toMatchObject({ loading: true, status: "loading" });
+    } finally {
+      clearImageEditComposerDraft(IMAGE_EDIT_COMPOSER_CHANNEL_ID);
+      clearOptimisticGeneratedImageEdits("thread_1");
+    }
   });
 
   test("cmdIfMultiline keeps cmd-enter primary and cmd-shift-enter alternate for multiline drafts", async () => {
@@ -1417,7 +2132,17 @@ describe("ThreadComposer speed menu", () => {
             fsPath: "/tmp/generated.md",
           },
         }],
-        imageAttachments: [{ id: "image_1", filename: "diagram.png", path: "/tmp/diagram.png", dataUrl: "data:image/png;base64,aW1hZ2U=" }],
+        imageAttachments: [{
+          id: "image_1",
+          filename: "diagram.png",
+          mimeType: "image/png",
+          src: "data:image/png;base64,aW1hZ2U=",
+          origin: "restored",
+          materialization: null,
+          materializationStatus: "failed",
+          uploadStatus: "idle",
+          generation: 0,
+        }],
         appshotContexts: [],
         pastedTextAttachments: [{
           id: "pasted_text_1",
@@ -2565,7 +3290,7 @@ describe("ThreadComposer speed menu", () => {
       objective: "Keep the worktree goal alive",
       imageAttachments: [{
         src: "data:image/png;base64,aW1hZ2U=",
-        localPath: "data:image/png;base64,aW1hZ2U=",
+        localPath: null,
         filename: "diagram.png",
       }],
       pastedTextAttachments: [{
@@ -2651,7 +3376,7 @@ describe("ThreadComposer speed menu", () => {
       objective: "Keep the local goal alive",
       imageAttachments: [{
         src: "data:image/png;base64,aW1hZ2U=",
-        localPath: "data:image/png;base64,aW1hZ2U=",
+        localPath: null,
         filename: "diagram.png",
       }],
       pastedTextAttachments: [{
@@ -2669,7 +3394,7 @@ describe("ThreadComposer speed menu", () => {
       objective: "Keep the local goal alive",
       imageAttachments: [{
         src: "data:image/png;base64,aW1hZ2U=",
-        localPath: "data:image/png;base64,aW1hZ2U=",
+        localPath: null,
         filename: "diagram.png",
       }],
       pastedTextAttachments: [{

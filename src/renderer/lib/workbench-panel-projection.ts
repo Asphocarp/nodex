@@ -16,6 +16,7 @@ import {
   isTransientPanelTab,
   type AgentPanelTab,
   type AutomationPanelTab,
+  type ImageEditorPanelTab,
   type McpAppPanelTab,
   type PlanPanelTab,
   type ProcessOutputPanelTab,
@@ -70,8 +71,20 @@ export interface SessionPanelRenderModelInput {
   backgroundAgentActiveTabByPanel: Record<string, string>;
   processOutputTabsBySession: Record<string, ProcessOutputPanelTab[]>;
   processOutputActiveTabByPanel: Record<string, string>;
+  imageEditorTabsBySession: Record<string, ImageEditorPanelTab[]>;
+  imageEditorActiveTabByPanel: Record<string, string>;
   panelCollapsedOverrides: Record<string, boolean>;
   activePlanKeyBySession: Record<string, string>;
+}
+
+export function shouldExpandImageEditorPanelForViewChange(input: {
+  readonly panelIsFullWidth: boolean;
+  readonly previousView: "playground" | "single";
+  readonly view: "playground" | "single";
+}): boolean {
+  return !input.panelIsFullWidth
+    && input.previousView !== "playground"
+    && input.view === "playground";
 }
 
 function hasDurablePanelTabInLeaf(
@@ -177,6 +190,8 @@ export function buildSessionPanelRenderModel(
     backgroundAgentActiveTabByPanel,
     processOutputTabsBySession,
     processOutputActiveTabByPanel,
+    imageEditorTabsBySession,
+    imageEditorActiveTabByPanel,
     panelCollapsedOverrides,
     activePlanKeyBySession,
   } = input;
@@ -235,6 +250,10 @@ export function buildSessionPanelRenderModel(
         (processOutputTabsBySession[session.id] ?? []).filter(
           matchingLeaf,
         );
+      const imageEditorTabs =
+        (imageEditorTabsBySession[session.id] ?? []).filter(
+          matchingLeaf,
+        );
       const previewTab = getRenderablePanelPreviewTab(
         session,
         panelId,
@@ -249,6 +268,7 @@ export function buildSessionPanelRenderModel(
         ...automationTabs,
         ...backgroundAgentTabs,
         ...processOutputTabs,
+        ...imageEditorTabs,
         ...(previewTab ? [previewTab] : []),
       ];
       const sideChatActiveTabId = activeEphemeralTabId(
@@ -293,6 +313,13 @@ export function buildSessionPanelRenderModel(
         leaf.id,
         activeLeafId,
       );
+      const imageEditorActiveTabId = activeEphemeralTabId(
+        imageEditorActiveTabByPanel,
+        session.id,
+        panelId,
+        leaf.id,
+        activeLeafId,
+      );
 
       renderableTabsByPanelLeaf[panelId][leaf.id] = renderableTabs;
       activeTabIdsByPanelLeaf[panelId][leaf.id] =
@@ -307,6 +334,7 @@ export function buildSessionPanelRenderModel(
             sideChatActiveTabId,
             backgroundAgentActiveTabId,
             processOutputActiveTabId,
+            imageEditorActiveTabId,
           ],
         );
     }
@@ -330,13 +358,13 @@ export function buildSessionPanelRenderModel(
     ] ?? bottomPanel.collapsed;
   const sidePanelOpen = !rightPanelCollapsed;
   const bottomPanelOpen = !bottomPanelCollapsed;
-  const rightPanelFullWidth =
-    sidePanelOpen && (rightPanel.size.fullWidth ?? false);
   const rightActiveRenderableTab = rightActiveTabId
     ? rightRenderableTabs.find(
       (tab) => tab.id === rightActiveTabId,
     ) ?? null
     : null;
+  const rightPanelFullWidth = sidePanelOpen
+    && (rightPanel.size.fullWidth ?? false);
   const browserRetentionTabs = [
     ...session.tabs.filter((tab) => tab.kind === "browser"),
     ...Object.values(previewTabsByPanel).filter(

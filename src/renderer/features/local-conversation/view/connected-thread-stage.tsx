@@ -336,6 +336,7 @@ function ConnectedThreadStageBody({
   activeThreadId,
   input,
   actions,
+  composerScopeIdentity,
   onForkFromTurnIntoWorktree,
   isWorktreeThread,
   onErrorMessage,
@@ -349,6 +350,7 @@ function ConnectedThreadStageBody({
   activeThreadId: string | null;
   input: ConnectedThreadStageInput;
   actions: ThreadStageActions;
+  composerScopeIdentity: string | null;
   onForkFromTurnIntoWorktree?: (input: {
     threadId: string;
     targetTurnId: string;
@@ -418,6 +420,7 @@ function ConnectedThreadStageBody({
     () => ({
       projectId: input.projectId,
       hostId,
+      composerScopeIdentity,
       sessionId: input.sessionId ?? null,
       threadId: activeThreadId,
       isSideChat: Boolean(input.sideChatContext),
@@ -444,6 +447,7 @@ function ConnectedThreadStageBody({
       backgroundAgentRows,
       capabilityFlags,
       childMemberships,
+      composerScopeIdentity,
       conversationSnapshot?.turnPagination,
       conversationSnapshot?.canonicalRequests,
       cwd,
@@ -516,6 +520,7 @@ export function ConnectedThreadStageFooter({
   rightPanelComposerLeadingContent?: ReactNode;
   worktreeRuntimeAvailable?: boolean;
 }) {
+  const hostId = useCodexAppServerManagerForConversationId(activeThreadId).getHostId();
   const turns = useConversationTurns(activeThreadId);
   const conversationSnapshot = useConversation(activeThreadId);
   const requests = useConversationRequests(activeThreadId);
@@ -675,6 +680,7 @@ export function ConnectedThreadStageFooter({
   const model = useMemo<ThreadFooterModel>(
     () => ({
       projectId: input.projectId,
+      hostId,
       projectWorkspacePath: input.projectWorkspacePath ?? null,
       threadId: activeThreadId,
       cwd,
@@ -811,6 +817,7 @@ export function ConnectedThreadStageFooter({
       permissionState,
       input.projectId,
       input.projectWorkspacePath,
+      hostId,
       input.reasoningEffortOptions,
       input.selectedPersonality,
       liveCollaborationMode,
@@ -1240,6 +1247,7 @@ export function ConnectedThreadStage({
             activeThreadId={activeThreadId}
             input={input}
             actions={actions}
+            composerScopeIdentity={composerScopeIdentity}
             isWorktreeThread={activeThreadIsManagedWorktree}
             onForkFromTurnIntoWorktree={onForkFromTurnIntoWorktree}
             onErrorMessage={setErrorMessage}
@@ -1316,6 +1324,7 @@ export function ConnectedThreadStage({
             activeThreadId={activeThreadId}
             input={input}
             actions={actions}
+            composerScopeIdentity={composerScopeIdentity}
             isWorktreeThread={activeThreadIsManagedWorktree}
             onForkFromTurnIntoWorktree={onForkFromTurnIntoWorktree}
             onErrorMessage={setErrorMessage}

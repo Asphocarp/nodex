@@ -12,10 +12,10 @@ import { ReducedMotionProvider } from "@/lib/use-reduced-motion";
 import { readLoadingAnimations } from "@/test/loading-motion";
 import {
   GeneratedImagePlaceholder,
-} from "./generated-image-gallery";
+} from "@/features/user-attachment-image-editor";
 import {
-  getPendingImageAnimationClockSubscriberCount,
-} from "./pending-image-animation-clock";
+  getGeneratedImageAnimationClockSubscriberCount,
+} from "@/features/user-attachment-image-editor/view/generated-image-animation-clock";
 import { CodexShimmerProvider, CodexShimmerText } from "./codex-shimmer-text";
 import { SubagentAvatar } from "./subagent-avatar";
 import "../../../../globals.css";
@@ -49,11 +49,11 @@ describe("loading motion stress topology", () => {
 
             <div className="fixed top-0 left-0 grid grid-cols-3 gap-2">
               <div className="size-48">
-                <GeneratedImagePlaceholder hidden={false} />
+                <GeneratedImagePlaceholder hidden={false} seed="visible" />
               </div>
               {Array.from({ length: 5 }, (_, index) => (
                 <div className="size-48" key={index}>
-                  <GeneratedImagePlaceholder hidden />
+                  <GeneratedImagePlaceholder hidden seed={`hidden-${index}`} />
                 </div>
               ))}
             </div>
@@ -72,7 +72,7 @@ describe("loading motion stress topology", () => {
 
     try {
       await waitFor(() => {
-        expect(getPendingImageAnimationClockSubscriberCount()).toBe(1);
+        expect(getGeneratedImageAnimationClockSubscriberCount()).toBe(1);
       });
       await new Promise((resolve) => setTimeout(resolve, 350));
 
@@ -104,7 +104,7 @@ describe("loading motion stress topology", () => {
     }
 
     await waitFor(() => {
-      expect(getPendingImageAnimationClockSubscriberCount()).toBe(0);
+      expect(getGeneratedImageAnimationClockSubscriberCount()).toBe(0);
     });
   });
 });

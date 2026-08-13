@@ -2,24 +2,21 @@ import { readFile, stat } from "node:fs/promises";
 import * as path from "node:path";
 
 import type { ComposerPickedFile } from "../shared/ipc-api";
+import {
+  isSupportedComposerImageMimeType,
+  resolveComposerImageMimeType,
+} from "../shared/composer-image-input";
+
+export {
+  COMPOSER_IMAGE_FILE_EXTENSIONS,
+  isSupportedComposerImageMimeType,
+} from "../shared/composer-image-input";
 
 export const COMPOSER_PICKED_IMAGE_MAX_BYTES = 25 * 1024 * 1024;
 
 export function resolveComposerFileMimeType(filePath: string): string {
-  const extension = path.extname(filePath).toLowerCase();
-  if (extension === ".jpg" || extension === ".jpeg") return "image/jpeg";
-  if (extension === ".png") return "image/png";
-  if (extension === ".gif") return "image/gif";
-  if (extension === ".webp") return "image/webp";
-  if (extension === ".bmp") return "image/bmp";
-  if (extension === ".tif" || extension === ".tiff") return "image/tiff";
-  if (extension === ".heic") return "image/heic";
-  if (extension === ".heif") return "image/heif";
-  return "application/octet-stream";
-}
-
-function isSupportedComposerImageMimeType(mimeType: string): boolean {
-  return mimeType.startsWith("image/");
+  return resolveComposerImageMimeType({ filename: filePath })
+    ?? "application/octet-stream";
 }
 
 export async function prepareComposerPickedFile(filePath: string): Promise<ComposerPickedFile> {
@@ -38,7 +35,7 @@ export async function prepareComposerPickedFile(filePath: string): Promise<Compo
   if (!stats) {
     return pickedFile;
   }
-  if (!stats.isFile() || stats.size > COMPOSER_PICKED_IMAGE_MAX_BYTES) {
+  if (!stats.isFile() || stats.size === 0 || stats.size > COMPOSER_PICKED_IMAGE_MAX_BYTES) {
     return pickedFile;
   }
 

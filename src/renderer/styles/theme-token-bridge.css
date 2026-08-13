@@ -51,6 +51,7 @@
   --color-token-charts-purple: var(--vscode-charts-purple);
   --color-token-charts-red: var(--vscode-charts-red);
   --color-token-charts-yellow: var(--vscode-charts-yellow);
+  --color-token-image-remove-brush: #6192f6;
   --color-token-checkbox-background: var(--vscode-checkbox-background);
   --color-token-checkbox-border: var(--vscode-checkbox-border);
   --color-token-checkbox-foreground: var(--vscode-checkbox-foreground);

@@ -40,7 +40,7 @@ Neither may mirror Query, Thread, Browser, Terminal, or editor authority.
 | DOM geometry and resize animation | Mounted Workbench runtime | None; only settled sizes enter Window State | `useWorkbenchChromeLayout` MotionValues plus Chrome commands |
 
 Layout v1-v6 remain decode-only Window Session inputs. Canonical writers emit
-v7 with Scene v6 and Session View v4 and never recreate stage, sliding-window, legacy per-resource
+v7 with Scene v7 and Session View v4 and never recreate stage, sliding-window, legacy per-resource
 Scenes, pages/threads/files tab, per-Session view maps, or duplicate
 Project/Session selection fields.
 

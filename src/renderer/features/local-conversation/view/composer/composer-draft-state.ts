@@ -26,17 +26,13 @@ import {
   type PersistedLoadable,
   type ScopeHandle,
 } from "@/lib/maitai";
+import type { ComposerImageAttachment } from "./image-attachments/composer-image-attachment-model";
+
+export type { ComposerImageAttachment } from "./image-attachments/composer-image-attachment-model";
 
 export interface ComposerFileAttachment {
   readonly uiId: string;
   readonly attachment: CodexLiveFileAttachment;
-}
-
-export interface ComposerImageAttachment {
-  readonly id: string;
-  readonly filename: string;
-  readonly path: string;
-  readonly dataUrl: string;
 }
 
 interface ComposerPastedTextAttachmentBase {

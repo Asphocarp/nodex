@@ -1,0 +1,236 @@
+import { buildFileUrl, parseLocalFileLinkHref } from "../../../../shared/file-link-openers";
+import { parseAssetSource } from "../../../../shared/assets";
+import { resolveAssetSourceToDisplayUrl } from "../../../lib/assets";
+import {
+  isCodexImageAssetPointer,
+  parseAbsoluteImagePath,
+} from "../../../lib/codex-conversation-image-assets";
+
+export type ImageAssetSourceKind =
+  | "data"
+  | "local"
+  | "managed"
+  | "pointer"
+  | "remote"
+  | "direct"
+  | "invalid";
+
+export interface ClassifiedImageAssetSource {
+  kind: ImageAssetSourceKind;
+  localPath: string | null;
+  source: string;
+}
+
+export interface ImageAssetMaterializationDependencies {
+  fetchSource?: (source: string) => Promise<string>;
+  readLocalFile?: (path: string) => Promise<string>;
+  readManagedAsset?: (source: string) => Promise<string>;
+  resolvePointer?: (pointer: string) => Promise<string>;
+}
+
+export class ImageAssetResolutionError extends Error {
+  constructor(message: string, readonly status: number | null = null) {
+    super(message);
+    this.name = "ImageAssetResolutionError";
+  }
+}
+
+export function buildImageDataUrl(
+  dataBase64: string,
+  mimeType: string | null | undefined,
+): string {
+  return `data:${mimeType?.trim() || "application/octet-stream"};base64,${dataBase64}`;
+}
+
+function parseLocalImagePath(source: string): string | null {
+  return parseAbsoluteImagePath(source) ?? parseLocalFileLinkHref(source)?.path ?? null;
+}
+
+export function classifyImageAssetSource(rawSource: string): ClassifiedImageAssetSource {
+  const source = rawSource.trim();
+  if (!source) return { kind: "invalid", localPath: null, source };
+  if (/^data:image\//iu.test(source)) return { kind: "data", localPath: null, source };
+  if (isCodexImageAssetPointer(source)) {
+    return { kind: "pointer", localPath: null, source };
+  }
+  if (parseAssetSource(source)) {
+    return { kind: "managed", localPath: null, source };
+  }
+
+  const localPath = parseLocalImagePath(source);
+  if (localPath) return { kind: "local", localPath, source };
+  if (/^https?:\/\//iu.test(source)) return { kind: "remote", localPath: null, source };
+  if (/^(?:app:|blob:|nodex-asset:|nodex-display:|vscode-remote:)/iu.test(source)) {
+    return { kind: "direct", localPath: null, source };
+  }
+  if (/^[a-z][a-z0-9+.-]*:/iu.test(source)) {
+    return { kind: "invalid", localPath: null, source };
+  }
+  return { kind: "direct", localPath: null, source };
+}
+
+export function resolveImageDisplaySource(
+  rawSource: string,
+  options: { allowLocalPath: boolean },
+): string | null {
+  const classified = classifyImageAssetSource(rawSource);
+  switch (classified.kind) {
+    case "data":
+    case "remote":
+    case "direct":
+      return classified.source;
+    case "managed":
+      return resolveAssetSourceToDisplayUrl(classified.source);
+    case "local":
+      return options.allowLocalPath && classified.localPath
+        ? buildFileUrl({ path: classified.localPath })
+        : null;
+    case "pointer":
+    case "invalid":
+      return null;
+  }
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+  }
+  return globalThis.btoa(binary);
+}
+
+export async function blobToDataUrl(blob: Blob): Promise<string> {
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  return buildImageDataUrl(bytesToBase64(bytes), blob.type || null);
+}
+
+export async function fetchImageSourceAsDataUrl(
+  source: string,
+  fetchSource: typeof fetch = globalThis.fetch,
+): Promise<string> {
+  const response = await fetchSource(source);
+  if (!response.ok) {
+    throw new ImageAssetResolutionError(
+      `Image request failed with status ${response.status}`,
+      response.status,
+    );
+  }
+  return await blobToDataUrl(await response.blob());
+}
+
+export async function materializeImageSourceAsDataUrl(
+  rawSource: string,
+  dependencies: ImageAssetMaterializationDependencies = {},
+): Promise<string> {
+  const source = classifyImageAssetSource(rawSource);
+  switch (source.kind) {
+    case "data":
+      return source.source;
+    case "local":
+      if (!source.localPath || !dependencies.readLocalFile) {
+        throw new ImageAssetResolutionError("Local image data is unavailable");
+      }
+      return await dependencies.readLocalFile(source.localPath);
+    case "managed":
+      if (!dependencies.readManagedAsset) {
+        throw new ImageAssetResolutionError("Managed image data is unavailable");
+      }
+      return await dependencies.readManagedAsset(source.source);
+    case "pointer":
+      if (!dependencies.resolvePointer) {
+        throw new ImageAssetResolutionError("Image pointer resolution is unavailable");
+      }
+      return await dependencies.resolvePointer(source.source);
+    case "remote":
+    case "direct":
+      return await (dependencies.fetchSource?.(source.source)
+        ?? fetchImageSourceAsDataUrl(source.source));
+    case "invalid":
+      throw new ImageAssetResolutionError("Image source is empty or unsupported");
+  }
+}
+
+export function dataUrlToBlob(dataUrl: string): Blob {
+  const commaIndex = dataUrl.indexOf(",");
+  if (!dataUrl.startsWith("data:") || commaIndex < 5) {
+    throw new ImageAssetResolutionError("Invalid image data URL");
+  }
+
+  const metadata = dataUrl.slice(5, commaIndex);
+  const payload = dataUrl.slice(commaIndex + 1);
+  const mimeType = metadata.match(/^[^;]+/u)?.[0] || "application/octet-stream";
+  try {
+    if (/;base64(?:;|$)/iu.test(metadata)) {
+      const binary = globalThis.atob(payload);
+      return new Blob([
+        Uint8Array.from(binary, (character) => character.charCodeAt(0)),
+      ], { type: mimeType });
+    }
+    return new Blob([decodeURIComponent(payload)], { type: mimeType });
+  } catch (error) {
+    throw new ImageAssetResolutionError(
+      error instanceof Error ? error.message : "Invalid image data URL",
+    );
+  }
+}
+
+function inferImageExtension(source: string): string | null {
+  const dataMime = /^data:image\/([^;,]+)/iu.exec(source)?.[1];
+  const pathExtension = source.split(/[?#]/u, 1)[0]?.match(/\.([a-z0-9]+)$/iu)?.[1];
+  const extension = (dataMime ?? pathExtension)?.toLowerCase();
+  if (!extension) return null;
+  if (extension === "jpeg") return "jpg";
+  if (extension === "svg+xml") return "svg";
+  return extension.replace(/[^a-z0-9]/gu, "") || null;
+}
+
+export function sanitizeImageDownloadFilename(filename: string): string {
+  const sanitized = filename.trim().replace(/[<>:"/\\|?*\u0000-\u001f]/gu, "_");
+  return sanitized || "image";
+}
+
+export function createImageDownloadFilename(
+  source: string,
+  suggestedFilename?: string,
+  now: Date = new Date(),
+): string {
+  if (suggestedFilename?.trim()) return sanitizeImageDownloadFilename(suggestedFilename);
+  const extension = inferImageExtension(source) ?? "png";
+  const formattedDate = new Intl.DateTimeFormat(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).format(now);
+  return sanitizeImageDownloadFilename(`Nodex Image ${formattedDate}.${extension}`);
+}
+
+export function downloadImageDataUrl(
+  dataUrl: string,
+  filename: string,
+  environment: {
+    document?: Document;
+    url?: Pick<typeof URL, "createObjectURL" | "revokeObjectURL">;
+    setTimeout?: typeof window.setTimeout;
+  } = {},
+): void {
+  const documentRef = environment.document ?? globalThis.document;
+  const urlApi = environment.url ?? globalThis.URL;
+  const schedule = environment.setTimeout ?? globalThis.setTimeout;
+  if (!documentRef || typeof urlApi?.createObjectURL !== "function") {
+    throw new ImageAssetResolutionError("Image download is unavailable");
+  }
+
+  const objectUrl = urlApi.createObjectURL(dataUrlToBlob(dataUrl));
+  const anchor = documentRef.createElement("a");
+  anchor.href = objectUrl;
+  anchor.download = sanitizeImageDownloadFilename(filename);
+  anchor.style.display = "none";
+  documentRef.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  schedule(() => urlApi.revokeObjectURL(objectUrl), 0);
+}

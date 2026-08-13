@@ -161,7 +161,7 @@ vi.mock("../../../../lib/api", () => ({
   }),
 }));
 
-vi.mock("../shared/user-message-attachments", () => ({
+vi.mock("@/features/user-attachment-image-editor", () => ({
   ImagePreviewDialog: ({
     open,
     src,

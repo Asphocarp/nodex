@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
+  BrowserSidebarContextMenuActionEventSchema,
   parseBrowserSidebarCommand,
   parseBrowserSidebarWebviewDestroyed,
   parseBrowserSidebarWebviewHostCreated,
@@ -108,5 +109,26 @@ describe("Browser IPC schemas", () => {
       disposition: "destroyed",
       webContentsId: 42,
     }).teardownId).toBe("teardown-1");
+  });
+
+  test("accepts only canonical managed assets for Send to chat images", () => {
+    expect(BrowserSidebarContextMenuActionEventSchema.safeParse({
+      ...identity,
+      action: "image-attached",
+      attachment: {
+        id: "image-1",
+        fileName: "image.png",
+        source: "nodex://assets/01234567-89ab-cdef-0123-456789abcdef.png",
+      },
+    }).success).toBe(true);
+    expect(BrowserSidebarContextMenuActionEventSchema.safeParse({
+      ...identity,
+      action: "image-attached",
+      attachment: {
+        id: "image-1",
+        fileName: "image.png",
+        source: "nodex://assets/folder/image.png",
+      },
+    }).success).toBe(false);
   });
 });

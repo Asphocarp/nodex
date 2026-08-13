@@ -564,7 +564,7 @@ describe("projectCodexCanonicalTurnViews", () => {
         type: "image",
         id: `${TURN_ID}:input:attachment:local-image:2`,
         source: "/workspace/project/screenshot.png",
-        sourceKind: "local",
+        sourceKind: "local-image",
       },
     ]);
   });

@@ -1,6 +1,7 @@
 import type {
   AgentPanelTab,
   AutomationPanelTab,
+  ImageEditorPanelTab,
   McpAppPanelTab,
   PlanPanelTab,
   ProcessOutputPanelTab,
@@ -24,6 +25,8 @@ export interface WorkbenchEphemeralPanelState {
   readonly backgroundAgentActiveTabByPanel: Record<string, string>;
   readonly processOutputTabsBySession: Record<string, ProcessOutputPanelTab[]>;
   readonly processOutputActiveTabByPanel: Record<string, string>;
+  readonly imageEditorTabsBySession: Record<string, ImageEditorPanelTab[]>;
+  readonly imageEditorActiveTabByPanel: Record<string, string>;
   readonly pendingProcessOutputOpen: ProcessOutputPanelTarget | null;
   readonly activePlanKeyBySession: Record<string, string>;
   readonly panelCollapsedOverrides: Record<string, boolean>;
@@ -58,6 +61,7 @@ export type WorkbenchEphemeralPanelAction =
         | "automationActiveTabByPanel"
         | "backgroundAgentActiveTabByPanel"
         | "processOutputActiveTabByPanel"
+        | "imageEditorActiveTabByPanel"
         | null;
       readonly tabId: string | null;
       readonly sessionId: string;
@@ -71,14 +75,16 @@ export type WorkbenchEphemeralPanelAction =
         | "planTabsBySession"
         | "automationTabsBySession"
         | "backgroundAgentTabsBySession"
-        | "processOutputTabsBySession";
+        | "processOutputTabsBySession"
+        | "imageEditorTabsBySession";
       readonly activeField:
         | "sideChatActiveTabByPanel"
         | "mcpAppActiveTabByPanel"
         | "planActiveTabByPanel"
         | "automationActiveTabByPanel"
         | "backgroundAgentActiveTabByPanel"
-        | "processOutputActiveTabByPanel";
+        | "processOutputActiveTabByPanel"
+        | "imageEditorActiveTabByPanel";
       readonly sessionId: string;
       readonly tabId: string;
       readonly slotKeys: readonly string[];
@@ -105,6 +111,8 @@ WorkbenchEphemeralPanelState {
     backgroundAgentActiveTabByPanel: {},
     processOutputTabsBySession: {},
     processOutputActiveTabByPanel: {},
+    imageEditorTabsBySession: {},
+    imageEditorActiveTabByPanel: {},
     pendingProcessOutputOpen: null,
     activePlanKeyBySession: {},
     panelCollapsedOverrides: {},
@@ -192,6 +200,14 @@ function pruneSession(
       state.processOutputActiveTabByPanel,
       sessionId,
     ),
+    imageEditorTabsBySession: removeRecordKey(
+      state.imageEditorTabsBySession,
+      sessionId,
+    ),
+    imageEditorActiveTabByPanel: removeSessionSlotKeys(
+      state.imageEditorActiveTabByPanel,
+      sessionId,
+    ),
     activePlanKeyBySession: removeRecordKey(
       state.activePlanKeyBySession,
       sessionId,
@@ -210,6 +226,7 @@ const ACTIVE_SELECTION_FIELDS = [
   "automationActiveTabByPanel",
   "backgroundAgentActiveTabByPanel",
   "processOutputActiveTabByPanel",
+  "imageEditorActiveTabByPanel",
 ] as const;
 
 function clearKeys<Value>(

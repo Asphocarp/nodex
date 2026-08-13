@@ -21,6 +21,7 @@ import type {
 } from "../types";
 import { WorkbenchViewSchema } from "./workbench";
 import { WorkbenchReviewConfigSchema } from "./workbench-review";
+import { WorkbenchImageEditorSurfaceConfigSchema } from "./workbench-image-editor";
 import {
   CodexCollaborationModeKindSchema,
   CodexThreadActiveFlagSchema,
@@ -91,6 +92,9 @@ export function parseWorkbenchProjectionTabConfig<Kind extends WorkbenchTabKind>
   else if (kind === "browser") parsed = WorkbenchProjectionBrowserTabConfigSchema.parse(config);
   else if (kind === "review") parsed = WorkbenchProjectionReviewTabConfigSchema.parse(config);
   else if (kind === "files") parsed = WorkbenchProjectionFilesTabConfigSchema.parse(config);
+  else if (kind === "image_editor") {
+    parsed = WorkbenchImageEditorSurfaceConfigSchema.parse(config);
+  }
   else {
     throw new Error(`Unknown project session tab kind: ${String(kind)}`);
   }

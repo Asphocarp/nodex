@@ -144,6 +144,7 @@
     "postinstall": "electron-builder install-app-deps && node scripts/ensure-node-pty-permissions.mjs"
   },
   "dependencies": {
+    "@radix-ui/react-slider": "1.4.7",
     "@sentry/electron": "7.13.0",
     "immer": "11.1.8",
     "node-pty": "^1.1.0",

@@ -78,6 +78,7 @@ export interface AppShellTabItem {
   iconElement?: ReactNode;
   closable?: boolean;
   preview?: boolean;
+  pinBehavior?: "automatic" | "disabled";
   reorderable?: boolean;
   splittable?: boolean;
   isLabel?: boolean;
@@ -409,6 +410,7 @@ export function AppShellTabs({
 
   const pinPreviewTabFromPanelEvent = (event: SyntheticEvent<HTMLElement>) => {
     if (!activeTab?.preview) return;
+    if (activeTab.pinBehavior === "disabled") return;
     if (isPreviewPinExemptEvent(event.nativeEvent)) return;
     pinTab(activeTab.id);
   };
@@ -463,7 +465,11 @@ export function AppShellTabs({
               onDirectClose={tab.closable ? closeTabFromDirectInteraction : undefined}
               onCloseModeExit={exitTabCloseMode}
               onTabNodeChange={registerTabNode}
-              onPin={tab.preview ? pinTab : undefined}
+              onPin={
+                tab.preview && tab.pinBehavior !== "disabled"
+                  ? pinTab
+                  : undefined
+              }
               onMove={onMoveTab}
               onSplit={onSplitTab}
               reducedMotion={Boolean(reducedMotion)}

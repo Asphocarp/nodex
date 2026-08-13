@@ -1,6 +1,6 @@
 import { describe, expect, test, vi } from "vitest";
 
-import { createPendingImageAnimationClock } from "./pending-image-animation-clock";
+import { createGeneratedImageAnimationClock } from "../../../user-attachment-image-editor/view/generated-image-animation-clock";
 
 describe("pending image animation clock", () => {
   test("shares one frame across subscribers and stops it with the last unsubscribe", () => {
@@ -10,7 +10,7 @@ describe("pending image animation clock", () => {
     const cancelFrame = vi.fn((frameId: number) => {
       frames.delete(frameId);
     });
-    const clock = createPendingImageAnimationClock({
+    const clock = createGeneratedImageAnimationClock({
       cancelFrame,
       now: () => nowMs,
       requestFrame: (callback) => {
@@ -46,7 +46,7 @@ describe("pending image animation clock", () => {
 
   test("never reports time moving backwards", () => {
     let nowMs = 20;
-    const clock = createPendingImageAnimationClock({
+    const clock = createGeneratedImageAnimationClock({
       cancelFrame: () => undefined,
       now: () => nowMs,
       requestFrame: () => 1,

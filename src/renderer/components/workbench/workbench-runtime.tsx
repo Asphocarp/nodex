@@ -102,6 +102,7 @@ import {
 import {
   APP_SHELL_GLOBAL_HEADER_LAYER_CLASS,
 } from "@/lib/app-shell-layers";
+import { registerUserAttachmentImagePreviewOpener } from "@/features/user-attachment-image-editor";
 import {
   invoke,
   readDatabaseViewWindow,
@@ -805,6 +806,8 @@ export function WorkbenchRuntime({
     backgroundAgentActiveTabByPanel,
     processOutputTabsBySession,
     processOutputActiveTabByPanel,
+    imageEditorTabsBySession,
+    imageEditorActiveTabByPanel,
     activePlanKeyBySession,
     panelCollapsedOverrides,
   } = panelController;
@@ -1353,6 +1356,8 @@ export function WorkbenchRuntime({
     backgroundAgentActiveTabByPanel,
     processOutputTabsBySession,
     processOutputActiveTabByPanel,
+    imageEditorTabsBySession,
+    imageEditorActiveTabByPanel,
     panelCollapsedOverrides,
     activePlanKeyBySession,
   }) : null, [
@@ -1370,6 +1375,8 @@ export function WorkbenchRuntime({
     previewTabsByPanel,
     processOutputActiveTabByPanel,
     processOutputTabsBySession,
+    imageEditorActiveTabByPanel,
+    imageEditorTabsBySession,
     sideChatActiveTabByPanel,
     sideChatTabsBySession,
   ]);
@@ -1435,14 +1442,29 @@ export function WorkbenchRuntime({
     [pageStageHistoryModal, projects],
   );
   const pageStageHistoryPanelProjectId = pageStageHistoryModal?.projectId ?? activeProject?.id ?? null;
+  const rightActiveRenderableTab = activeSessionPanelModel?.rightActiveRenderableTab ?? null;
   const rightPanelFullWidth = sidePanelOpen
     && (rightPanel?.size.fullWidth ?? false);
-  const rightActiveRenderableTab = activeSessionPanelModel?.rightActiveRenderableTab ?? null;
+  const activeImageEditorOwnsRootComposer = Boolean(
+    rightActiveRenderableTab
+    && isRootThreadRightPanelComposerOverlayEligibleTab(
+      rightActiveRenderableTab,
+    )
+    && (
+      "kind" in rightActiveRenderableTab
+        ? rightActiveRenderableTab.kind === "image_editor"
+        : "imageEditor" in rightActiveRenderableTab
+    ),
+  );
   const rightPanelComposerOverlayEnabled = Boolean(
-    activeSession?.thread
+    activeSession
     && sidePanelOpen
     && rightPanelFullWidth
     && rightPanelComposerOverlayTarget
+    && (
+      activeImageEditorOwnsRootComposer
+      || Boolean(activeSession.thread)
+    )
     && isRootThreadRightPanelComposerOverlayEligibleTab(rightActiveRenderableTab),
   );
   const rightPanelComposerOverlayCompact =
@@ -2102,6 +2124,9 @@ export function WorkbenchRuntime({
     pendingPageDeepLinkOpen,
     onPageDeepLinkHandled,
   });
+  useEffect(() => registerUserAttachmentImagePreviewOpener(
+    panelOpeners.openImagePreview,
+  ), [panelOpeners.openImagePreview]);
   const {
     openSideChat,
     openExistingSideChat,

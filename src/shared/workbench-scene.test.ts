@@ -94,6 +94,9 @@ function sceneV2Fields(
 function toLegacySurface(
   surface: WorkbenchSurfaceDescriptor,
 ): WorkbenchSurfaceDescriptorV3 {
+  if (surface.kind === "image_editor") {
+    throw new Error("Image editor surfaces did not exist in legacy Scenes");
+  }
   if (
     surface.kind !== "db_view"
     && surface.kind !== "page_stage"
@@ -184,6 +187,81 @@ describe("WorkbenchScene", () => {
       panelId: "bottom",
       surface: browserSurface(),
     })).toBe(withBrowser);
+  });
+
+  test("persists image editors only through stable asset locators", () => {
+    const session = materializeInitialWorkbenchScene({
+      kind: "session",
+      sessionId: "session-image",
+    });
+    const imageSurface = {
+      id: "image-editor-surface",
+      kind: "image_editor",
+      titleSnapshot: "User attachment",
+      config: {
+        availableImageCount: 1,
+        composerTarget: {
+          channelId: "AppScope:app/ThreadScope:session:session-image::root",
+          placement: "root",
+        },
+        entrypoint: "image_click",
+        imageSource: "uploaded",
+        images: [{
+          id: "attachment-1",
+          alt: "User attachment",
+          source: "uploaded",
+          attachmentId: "attachment-1",
+          locator: {
+            kind: "managed",
+            source: "nodex://assets/image-1",
+          },
+        }],
+        initialImageId: "attachment-1",
+        initialPlaygroundTool: "navigate",
+        initialView: "single",
+        projectId: null,
+        threadId: null,
+        tooltip: "User attachment",
+      },
+      stateKey: 0,
+      state: null,
+    };
+    const durable = createWorkbenchSceneSurface(session, {
+      panelId: "right",
+      surface: imageSurface as WorkbenchSurfaceDescriptor,
+    });
+
+    expect(WorkbenchSceneSnapshotSchema.parse(durable)).toEqual(durable);
+    expect(getWorkbenchSurfaceReuseKey(
+      imageSurface as WorkbenchSurfaceDescriptor,
+    )).toBeNull();
+
+    const unsafe = structuredClone(durable) as unknown as Record<string, unknown>;
+    const unsafeSurface = (
+      unsafe.panelSurfacesById as Record<string, Record<string, unknown>>
+    )[imageSurface.id]!;
+    const unsafeConfig = unsafeSurface.config as Record<string, unknown>;
+    const unsafeImages = unsafeConfig.images as Array<Record<string, unknown>>;
+    unsafeImages[0] = {
+      ...unsafeImages[0],
+      locator: { kind: "remote", url: "data:image/png;base64,AA==" },
+    };
+    expect(() => WorkbenchSceneSnapshotSchema.parse(unsafe)).toThrow();
+
+    const malformedManaged = structuredClone(durable) as unknown as Record<
+      string,
+      unknown
+    >;
+    const malformedSurface = (
+      malformedManaged.panelSurfacesById as Record<string, Record<string, unknown>>
+    )[imageSurface.id]!;
+    const malformedConfig = malformedSurface.config as Record<string, unknown>;
+    const malformedImages = malformedConfig.images as Array<Record<string, unknown>>;
+    malformedImages[0] = {
+      ...malformedImages[0],
+      locator: { kind: "managed", source: "nodex://assets/folder/image.png" },
+    };
+    expect(() => WorkbenchSceneSnapshotSchema.parse(malformedManaged)).toThrow();
   });
 
   test("treats every Pages surface as ordinary and permits an empty tablist", () => {
@@ -497,7 +575,7 @@ describe("WorkbenchScene", () => {
       newDraftId: `agent-draft:${canonical.primary.id}`,
     });
     const currentSnapshot = WorkbenchSceneSnapshotSchema.parse(canonical);
-    expect(currentSnapshot.version).toBe(6);
+    expect(currentSnapshot.version).toBe(7);
     expect(WorkbenchSceneSnapshotSchema.parse(legacy)).toEqual(currentSnapshot);
   });
 
@@ -573,7 +651,7 @@ describe("WorkbenchScene", () => {
 
     const migrated = WorkbenchSceneSnapshotSchema.parse(legacy);
 
-    expect(migrated.version).toBe(6);
+    expect(migrated.version).toBe(7);
     expect(migrated.primary?.config).not.toHaveProperty("view");
     expect(WorkbenchSceneSnapshotSchema.parse(migrated)).toEqual(migrated);
   });

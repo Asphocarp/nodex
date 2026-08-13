@@ -121,7 +121,7 @@ import {
   type BlockReferenceHostRuntime,
   useBlockReferenceHostRuntime,
 } from "@/components/block-documents/block-reference-runtime-context";
-import { ImagePreviewDialog } from "./image-preview-dialog";
+import { ImagePreviewDialog } from "@/features/user-attachment-image-editor";
 import {
   isSpaceShortcut,
   resolveImagePreviewByBlockId,
@@ -2833,8 +2833,14 @@ function NfmEditorInstance({
       {imagePreview && (
         <ImagePreviewDialog
           open={imagePreview !== null}
-          source={imagePreview.source}
+          src={imagePreview.source}
           alt={imagePreview.alt}
+          allowLocalPath
+          closeOnSpace
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            restoreEditorFocus();
+          }}
           onOpenChange={(nextOpen) => {
             if (!nextOpen) {
               setImagePreview(null);

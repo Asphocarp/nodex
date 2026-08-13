@@ -32,6 +32,7 @@ import type {
   CodexThreadGoalMaterializedDraft,
 } from "@/lib/types";
 import type { ComposerPickedFile } from "../../../../../shared/ipc-api";
+import { DEFAULT_CODEX_HOST_ID } from "../../../../../shared/codex-host";
 import { dedupeCodexLiveFileAttachments } from "../../../../../shared/codex-live-file-attachments";
 import { useCodexServiceTierSettings } from "@/lib/use-codex-service-tier-settings";
 import {
@@ -210,9 +211,22 @@ import {
   useComposerPromptDraft,
   type ComposerCompletedDraftSnapshot,
   type ComposerFileAttachment,
-  type ComposerImageAttachment,
   type ComposerPastedTextAttachment,
 } from "./composer-draft-state";
+import {
+  buildComposerImagePromptInputs,
+  classifyComposerDataTransfer,
+  ComposerImageAttachmentRow,
+  createResolvedComposerImageAttachment,
+  isSupportedComposerImageMetadata,
+  openComposerImageAttachment,
+  selectComposerImagePromptSource,
+  useComposerImageAttachments,
+  type ComposerImageAttachment,
+  type ComposerPastedFiles,
+  type ResolvedComposerImageInput,
+} from "./image-attachments";
+import { buildComposerImageEditAttachments } from "./image-attachments/image-edit-intent-attachments";
 import {
   useScopedAtom,
   useScopedAtomValue,
@@ -223,7 +237,7 @@ import {
   useSetPersistedAtom,
 } from "@/lib/maitai";
 import { openModal } from "@/lib/modal-registry";
-import { ComposerScope } from "@/lib/workbench-ui-scopes";
+import { ComposerScope, ThreadScope } from "@/lib/workbench-ui-scopes";
 import { ProviderCredentialDialog } from "./provider-credential-dialog";
 import {
   useComposerIntelligenceController,
@@ -258,6 +272,26 @@ import {
   getBrowserImageDragSnapshot,
   subscribeBrowserImageDragState,
 } from "../../../browser-sidebar/browser-image-drag-state";
+import {
+  clearImageEditComposerDraft,
+  compileImageEditComposerPrompt,
+  getImageEditComposerDraftSnapshot,
+  isImageEditComposerAttachmentId,
+  registerImageEditComposerChannel,
+  removeImageEditComposerAttachment,
+  subscribeImageEditComposerDraft,
+  type ImageEditComposerSubmitRequest,
+  type ImageEditComposerSubmitResult,
+} from "@/lib/image-edit-composer-channel";
+import {
+  beginOptimisticGeneratedImageEdit,
+  resolveImageInputSupport,
+  trackImageEditSubmit,
+  trackImageEditSubmitOutcome,
+  type ImageEditSubmissionIntent,
+} from "@/features/user-attachment-image-editor";
+import { uploadResourceAsset } from "@/lib/assets";
+import { resolveImageEditComposerTarget } from "../../image-edit-composer-target";
 
 interface ThreadComposerProps {
   model: ThreadFooterModel;
@@ -334,19 +368,6 @@ function formatCompactCodexModelLabel(modelId: string, models: ThreadFooterModel
   return compact || label;
 }
 
-const COMPOSER_IMAGE_FILE_EXTENSIONS = new Set([
-  "png",
-  "jpg",
-  "jpeg",
-  "gif",
-  "webp",
-  "bmp",
-  "tiff",
-  "tif",
-  "heic",
-  "heif",
-]);
-
 interface ComposerAttachmentState {
   fileAttachments: readonly ComposerFileAttachment[];
   addedFiles: readonly ComposerFileAttachment[];
@@ -376,9 +397,17 @@ function getComposerPickedFileName(file: ComposerPickedFile): string {
 }
 
 function isComposerImageFile(file: ComposerPickedFile): boolean {
-  const name = getComposerPickedFileName(file);
-  const extension = name.split(".").at(-1)?.toLowerCase() ?? "";
-  return COMPOSER_IMAGE_FILE_EXTENSIONS.has(extension);
+  return isSupportedComposerImageMetadata({
+    filename: getComposerPickedFileName(file),
+    mimeType: file.mimeType,
+    size: file.bytes,
+  });
+}
+
+function hasComposerFileDataTransfer(dataTransfer: DataTransfer): boolean {
+  return Array.from(dataTransfer.items ?? []).some((item) => item.kind === "file")
+    || Array.from(dataTransfer.types ?? []).includes("Files")
+    || (dataTransfer.files?.length ?? 0) > 0;
 }
 
 function extractComposerPromptMentions(prompt: string): {
@@ -434,13 +463,17 @@ function extractComposerPromptMentions(prompt: string): {
 function buildComposerPromptInput(input: {
   prompt: string;
   attachments: ComposerAttachmentState;
+  executionHostId?: string | null;
 }): CodexPromptInput | undefined {
   const parsedPrompt = extractComposerPromptMentions(input.prompt);
   const text = parsedPrompt.text;
-  const images = input.attachments.imageAttachments.map((attachment) => ({
-    source: attachment.dataUrl,
-    caption: attachment.filename,
-  }));
+  const executionHostId = input.executionHostId === undefined
+    ? DEFAULT_CODEX_HOST_ID
+    : input.executionHostId;
+  const images = [...buildComposerImagePromptInputs(
+    input.attachments.imageAttachments,
+    executionHostId,
+  )];
   const appshots = input.attachments.appshotContexts.map((context) => ({
     ...context,
   }));
@@ -597,12 +630,29 @@ function buildComposerAttachmentStateFromPromptInput(promptInput?: CodexPromptIn
     attachment: { ...attachment },
   }));
   return {
-    imageAttachments: (promptInput?.images ?? []).map((image) => ({
-      id: createComposerAttachmentId("image"),
-      filename: image.caption?.trim() || getComposerAttachmentNameFromPath(image.source, "Image"),
-      path: image.source,
-      dataUrl: image.source,
-    })),
+    imageAttachments: (promptInput?.images ?? []).flatMap((image) => {
+      const source = image.source.trim();
+      const isAbsoluteLocalPath = source.startsWith("/")
+        || /^[a-zA-Z]:[\\/]/u.test(source);
+      const restored = createResolvedComposerImageAttachment({
+        id: createComposerAttachmentId("image"),
+        generation: 0,
+        value: {
+          filename: image.caption?.trim()
+            || getComposerAttachmentNameFromPath(source, "Image"),
+          mimeType: source.match(/^data:([^;,]+)/iu)?.[1] ?? "image/png",
+          src: source,
+          origin: "restored",
+          ...(isAbsoluteLocalPath
+            ? {
+                hostId: DEFAULT_CODEX_HOST_ID,
+                localPath: source,
+              }
+            : {}),
+        },
+      });
+      return restored ? [restored] : [];
+    }),
     appshotContexts: (promptInput?.appshots ?? []).map((context) => ({
       ...context,
     })),
@@ -691,14 +741,22 @@ function summarizeComposerPastedText(text: string): string {
 function buildThreadGoalSubmissionDraft(
   draft: ComposerThreadGoalDraft,
   attachments: ComposerAttachmentState,
+  executionHostId: string,
 ): ThreadGoalSubmissionDraft {
+  const imageAttachments = attachments.imageAttachments.flatMap((attachment) => {
+    const src = selectComposerImagePromptSource(attachment, executionHostId);
+    if (!src) return [];
+    return [{
+      src,
+      localPath: attachment.materialization?.hostId === executionHostId
+        ? attachment.materialization.localPath
+        : null,
+      filename: attachment.filename,
+    }];
+  });
   return {
     ...draft,
-    imageAttachments: attachments.imageAttachments.map((attachment) => ({
-      src: attachment.dataUrl,
-      localPath: attachment.path,
-      filename: attachment.filename,
-    })),
+    imageAttachments,
     pastedTextAttachments: attachments.pastedTextAttachments.flatMap((attachment) => (
       attachment.status === "ready"
         ? [{ ...attachment.attachment, file: { ...attachment.attachment.file } }]
@@ -708,7 +766,8 @@ function buildThreadGoalSubmissionDraft(
       || attachments.addedFiles.length > 0
       || attachments.appshotContexts.length > 0
       || attachments.commentAttachments.length > 0
-      || attachments.browserAnnotationAttachments.length > 0,
+      || attachments.browserAnnotationAttachments.length > 0
+      || imageAttachments.length !== attachments.imageAttachments.length,
   };
 }
 
@@ -2029,7 +2088,7 @@ function ControlledThreadComposer(
         setImageAttachments((current) => appendUniqueBy(
           current,
           restored.imageAttachments,
-          (attachment) => attachment.path || attachment.dataUrl,
+          (attachment) => attachment.id,
         ));
         setAppshotContexts((current) => appendUniqueBy(
           current,
@@ -2183,6 +2242,8 @@ function HydratedThreadComposer({
   intelligenceController,
 }: HydratedThreadComposerProps) {
   const { floating: isFloatingComposer } = useRightPanelComposerPresentation();
+  const composerScopeKey = useScopeHandle(ComposerScope).path;
+  const threadScopePath = useScopeHandle(ThreadScope).path;
   const canStartNewThread = canStartNewThreadTarget(model);
   const [busyAction, setBusyAction] = useState<StageThreadsBusyAction>(null);
   const [permissionState, setPermissionState] = useState<CodexPermissionState | null>(null);
@@ -2215,11 +2276,13 @@ function HydratedThreadComposer({
   const [compactInputWidthPx, setCompactInputWidthPx] = useState<number | null>(
     null,
   );
+  const [isFileDragActive, setFileDragActive] = useState(false);
   const promptEditorRef = useRef<ComposerPromptEditorHandle>(null);
   const addContextMenuRef = useRef<ComposerAddContextMenuHandle>(null);
   const appendPromptToHistoryRef = useRef<(text: string) => void>(() => {});
   const resetPromptHistorySelectionRef = useRef<() => void>(() => {});
   const dictationShortcutActiveRef = useRef(false);
+  const fileDragDepthRef = useRef(0);
   const attachmentGenerationRef = useRef(0);
   const pastedTextSourcesRef = useRef(new Map<string, string>());
   const pastedTextOperationGenerationRef = useRef(new Map<string, number>());
@@ -2228,6 +2291,12 @@ function HydratedThreadComposer({
   const resumeInFlightRef = useRef(false);
   const { serviceTierSettings, setServiceTier } = useCodexServiceTierSettings();
   const composerThreadId = model.conversation?.threadId ?? model.threadId;
+  const imageEditComposerTarget = resolveImageEditComposerTarget({
+    composerScopeIdentity: model.composerScopeIdentity,
+    isSideChat: model.conversation?.source?.sideConversation === true,
+    threadScopePath,
+  });
+  const imageEditComposerChannelId = imageEditComposerTarget.channelId;
   useEffect(() => {
     promptEditorRef.current?.syncMentionMetadata({
       apps: model.composerApps ?? [],
@@ -2269,20 +2338,72 @@ function HydratedThreadComposer({
     getBrowserImageDrag,
     getBrowserImageDrag,
   );
+  const getImageEditDraftSnapshot = useCallback(
+    () => getImageEditComposerDraftSnapshot(imageEditComposerChannelId),
+    [imageEditComposerChannelId],
+  );
+  const subscribeImageEditDraft = useCallback(
+    (listener: () => void) => subscribeImageEditComposerDraft(
+      imageEditComposerChannelId,
+      listener,
+    ),
+    [imageEditComposerChannelId],
+  );
+  const imageEditDraft = useSyncExternalStore(
+    subscribeImageEditDraft,
+    getImageEditDraftSnapshot,
+    getImageEditDraftSnapshot,
+  );
+  const imageInputSupported = resolveImageInputSupport({
+    catalog: model.agentProviderCatalog ?? null,
+    executionProfile: model.executionProfile ?? null,
+  });
+  const imageAttachmentsRef = useRef(imageAttachments);
+  imageAttachmentsRef.current = imageAttachments;
+  const handleOpenComposerImage = useCallback((attachmentId: string) => {
+    const attachment = imageAttachmentsRef.current.find(
+      (candidate) => candidate.id === attachmentId,
+    );
+    if (!attachment) return;
+    void openComposerImageAttachment({
+      attachment,
+      attachmentCount: imageAttachmentsRef.current.length,
+      composerTarget: imageEditComposerTarget,
+      policy: "edit_button",
+      projectId: model.projectId,
+      threadId: composerThreadId,
+    });
+  }, [composerThreadId, imageEditComposerTarget, model.projectId]);
+  const imageAttachmentController = useComposerImageAttachments({
+    attachments: imageAttachments,
+    setAttachments: setImageAttachments,
+    scopeKey: composerScopeKey,
+    enabled: imageInputSupported,
+    onError: (message) => onErrorMessage(message),
+    onOpen: handleOpenComposerImage,
+    onRemove: (attachmentId) => {
+      if (isImageEditComposerAttachmentId(attachmentId)) {
+        removeImageEditComposerAttachment(
+          imageEditComposerChannelId,
+          attachmentId,
+        );
+      }
+    },
+  });
   useEffect(() => {
     if (browserImageAttachments.length === 0) return;
     const attachmentIds = browserImageAttachments.map((attachment) => attachment.id);
-    setImageAttachments((current) => {
-      const existing = new Set(
-        current.flatMap((attachment) => [attachment.id, attachment.path]),
-      );
-      return [
-        ...current,
-        ...browserImageAttachments.filter((attachment) =>
-          !existing.has(attachment.id) && !existing.has(attachment.path)
-        ),
-      ];
-    });
+    imageAttachmentController.addResolvedImages(
+      browserImageAttachments.map((attachment): ResolvedComposerImageInput => ({
+        id: attachment.id,
+        filename: attachment.filename,
+        mimeType: attachment.source.match(/^data:([^;,]+)/iu)?.[1] ?? "image/png",
+        src: attachment.source,
+        origin: "browser",
+        hostId: DEFAULT_CODEX_HOST_ID,
+        managedSource: attachment.source,
+      })),
+    );
     consumeBrowserImageAttachments(
       browserAnnotationConversationId,
       attachmentIds,
@@ -2290,8 +2411,30 @@ function HydratedThreadComposer({
   }, [
     browserAnnotationConversationId,
     browserImageAttachments,
-    setImageAttachments,
+    imageAttachmentController,
   ]);
+  useEffect(() => {
+    imageAttachmentController.syncResolvedImages(
+      "image-editor",
+      imageEditDraft.attachments.map((attachment): ResolvedComposerImageInput => {
+        const { asset } = attachment;
+        return {
+          filename: attachment.filename,
+          id: attachment.id,
+          mimeType: asset.src.match(/^data:([^;,]+)/iu)?.[1] ?? "image/png",
+          src: asset.src,
+          origin: "image-editor",
+          ...(asset.hostId && (asset.localPath || asset.managedSource)
+            ? {
+                hostId: asset.hostId,
+                localPath: asset.localPath,
+                managedSource: asset.managedSource,
+              }
+            : {}),
+        };
+      }),
+    );
+  }, [imageAttachmentController, imageEditDraft]);
   const commentAttachments = useScopedAtomValue(
     composerReviewCommentAttachmentsFamily(composerThreadId),
   );
@@ -2314,6 +2457,12 @@ function HydratedThreadComposer({
   ]);
   const hasAttachments = hasComposerAttachmentStateContent(attachmentState);
   const hasSubmittableAttachments = hasSubmittableComposerAttachmentState(attachmentState);
+  const hasVisibleNonImageAttachments = fileAttachments.length > 0
+    || addedFiles.length > 0
+    || appshotContexts.length > 0
+    || pastedTextAttachments.length > 0
+    || commentAttachments.length > 0
+    || browserAnnotationAttachments.length > 0;
   const hasPendingPastedTextAttachments = pastedTextAttachments.some(
     (attachment) => attachment.status === "pending",
   );
@@ -2408,6 +2557,70 @@ function HydratedThreadComposer({
     return true;
   }, [runPastedTextMaterialization, setPastedTextAttachments]);
 
+  const addOrdinaryComposerFiles = useCallback(async (
+    files: readonly File[],
+    source: "paste" | "drop",
+  ): Promise<void> => {
+    if (files.length === 0) return;
+    if (model.isCloudNewThreadTarget) {
+      onErrorMessage("Only images can be added to this composer");
+      return;
+    }
+
+    const results = await Promise.allSettled(files.map(async (file) => {
+      let localPath = source === "drop"
+        ? window.api?.getPathForFile?.(file).trim() ?? ""
+        : "";
+      if (!localPath) {
+        const saved = await uploadResourceAsset(file);
+        localPath = window.api?.resolveManagedAssetPath?.(saved.source)?.trim() ?? "";
+      }
+      if (!localPath) throw new Error(`Could not materialize ${file.name || "file"}`);
+      return {
+        uiId: createComposerAttachmentId("file"),
+        attachment: {
+          label: file.name.trim() || getComposerAttachmentNameFromPath(localPath, "Attachment"),
+          path: localPath,
+          fsPath: localPath,
+        },
+      } satisfies ComposerFileAttachment;
+    }));
+    if (!composerMountedRef.current) return;
+
+    const completed = results.flatMap((result): ComposerFileAttachment[] =>
+      result.status === "fulfilled" ? [result.value] : []);
+    if (completed.length > 0) {
+      setFileAttachments((current) => {
+        const combined = [...current, ...completed];
+        const retained = new Set(dedupeCodexLiveFileAttachments(
+          combined.map((item) => item.attachment),
+        ));
+        return combined.filter((item) => retained.has(item.attachment));
+      });
+    }
+
+    const failure = results.find(
+      (result): result is PromiseRejectedResult => result.status === "rejected",
+    );
+    if (failure) {
+      onErrorMessage(
+        failure.reason instanceof Error
+          ? failure.reason.message
+          : "Could not add one or more files",
+      );
+    }
+  }, [model.isCloudNewThreadTarget, onErrorMessage, setFileAttachments]);
+
+  const handlePasteFiles = useCallback((payload: ComposerPastedFiles): boolean => {
+    if (payload.imageFiles.length > 0) {
+      void imageAttachmentController.addFiles(payload.imageFiles, "paste");
+    }
+    if (payload.otherFiles.length > 0) {
+      void addOrdinaryComposerFiles(payload.otherFiles, "paste");
+    }
+    return payload.imageFiles.length > 0 || payload.otherFiles.length > 0;
+  }, [addOrdinaryComposerFiles, imageAttachmentController]);
+
   const handleRetryPastedTextAttachment = useCallback((attachmentId: string) => {
     const text = pastedTextSourcesRef.current.get(attachmentId);
     const attachment = pastedTextAttachmentsRef.current.find((item) => item.id === attachmentId);
@@ -2454,10 +2667,12 @@ function HydratedThreadComposer({
     recordSuccessfulPromptSubmit(text);
     incrementAttachmentGeneration();
     clearBrowserAnnotationAttachments(browserAnnotationConversationId);
+    clearImageEditComposerDraft(imageEditComposerChannelId);
     clearSubmittedDraft();
   }, [
     browserAnnotationConversationId,
     clearSubmittedDraft,
+    imageEditComposerChannelId,
     incrementAttachmentGeneration,
     recordSuccessfulPromptSubmit,
   ]);
@@ -2587,14 +2802,54 @@ function HydratedThreadComposer({
     input: {
       prompt: string;
       submitAction: StageThreadsComposerSubmitAction | null;
+      imageEditIntent?: ImageEditSubmissionIntent;
     },
-  ) => {
-    if (hasPendingPastedTextAttachments) return;
-    const nextPrompt = input.prompt;
+  ): Promise<boolean> => {
+    if (hasPendingPastedTextAttachments) return false;
+    if (!imageInputSupported && (imageAttachments.length > 0 || input.imageEditIntent)) {
+      onErrorMessage("Remove images or switch models to send this message");
+      return false;
+    }
+    const executionHostId = model.isCloudNewThreadTarget
+      ? null
+      : model.hostId;
+    const intentImageAttachments = input.imageEditIntent
+      ? buildComposerImageEditAttachments({
+          currentAttachments: imageAttachments,
+          intent: input.imageEditIntent,
+          executionHostId,
+          generation: attachmentGenerationRef.current,
+        })
+      : null;
+    if (input.imageEditIntent && !intentImageAttachments) {
+      onErrorMessage("One or more images could not be read. Add them again and retry.");
+      return false;
+    }
+    const effectiveImageAttachments = intentImageAttachments ?? imageAttachments;
+    const effectiveAttachmentState: ComposerAttachmentState = input.imageEditIntent
+      ? { ...attachmentState, imageAttachments: effectiveImageAttachments }
+      : attachmentState;
+    const nextPrompt = input.imageEditIntent?.promptRaw
+      ?? compileImageEditComposerPrompt({
+        draft: imageEditDraft,
+        generalInstructions: input.prompt,
+      });
+    const isImageEditFollowUp = Boolean(input.imageEditIntent)
+      || imageEditDraft.mode !== null;
     const trimmedPrompt = nextPrompt.trim();
+    if (
+      buildComposerImagePromptInputs(effectiveImageAttachments, executionHostId).length
+      !== effectiveImageAttachments.length
+    ) {
+      onErrorMessage(
+        "One or more images are unavailable on the selected execution host. Remove them or add them again.",
+      );
+      return false;
+    }
     const promptInput = buildComposerPromptInput({
       prompt: nextPrompt,
-      attachments: attachmentState,
+      attachments: effectiveAttachmentState,
+      executionHostId,
     });
     const hasPromptAttachments = promptInput !== undefined;
     const target = model.newThreadTarget;
@@ -2602,20 +2857,26 @@ function HydratedThreadComposer({
       ? Boolean(actions.onSetThreadGoal)
       : Boolean(actions.onStartThreadForSession) && canStartNewThread;
     const goalDraftResult = buildComposerThreadGoalDraft({
-      promptRaw: input.prompt,
+      promptRaw: nextPrompt,
       goalActionAvailable,
-      goalModeActive,
-      hasAttachments: hasSubmittableAttachments,
+      goalModeActive: isImageEditFollowUp ? false : goalModeActive,
+      hasAttachments: hasSubmittableComposerAttachmentState(
+        effectiveAttachmentState,
+      ),
     });
 
     if (goalDraftResult.status === "empty") {
       setGoalModeActive(false);
-      return;
+      return false;
     }
 
     if (goalDraftResult.status === "ready") {
       const currentGoal = model.conversation?.threadGoal ?? null;
-      const submissionDraft = buildThreadGoalSubmissionDraft(goalDraftResult.draft, attachmentState);
+      const submissionDraft = buildThreadGoalSubmissionDraft(
+        goalDraftResult.draft,
+        effectiveAttachmentState,
+        model.hostId,
+      );
       if (
         currentGoal
         && (
@@ -2626,15 +2887,14 @@ function HydratedThreadComposer({
         setGoalReplacementConfirmation({
           draft: submissionDraft,
         });
-        return;
+        return false;
       }
 
-      await submitThreadGoalDraft(submissionDraft);
-      return;
+      return submitThreadGoalDraft(submissionDraft);
     }
 
     if (!trimmedPrompt && !hasPromptAttachments) {
-      return;
+      return false;
     }
 
     const sideChatPrompt = parseSideChatCommand(trimmedPrompt);
@@ -2643,13 +2903,13 @@ function HydratedThreadComposer({
         toast.danger("'/side' is unavailable in side chats. Return to the main thread first", {
           id: "side-chat-unavailable-in-side-chat",
         });
-        return;
+        return false;
       }
       if (!model.conversation || !actions.onOpenSideChat) {
         toast.danger("Failed to open side chat", {
           id: "side-chat-open-failed",
         });
-        return;
+        return false;
       }
 
       setBusyAction("send");
@@ -2657,7 +2917,8 @@ function HydratedThreadComposer({
       try {
         const sideChatPromptInput = buildComposerPromptInput({
           prompt: sideChatPrompt,
-          attachments: attachmentState,
+          attachments: effectiveAttachmentState,
+          executionHostId: model.hostId,
         });
         await actions.onOpenSideChat({
           prompt: sideChatPrompt,
@@ -2665,26 +2926,38 @@ function HydratedThreadComposer({
         });
         await cleanupSubmittedPastedTextAttachments();
         completeSuccessfulSubmission(sideChatPrompt);
+        return true;
       } catch {
         toast.danger("Failed to open side chat", {
           id: "side-chat-open-failed",
         });
+        return false;
       } finally {
         setBusyAction(null);
       }
-      return;
     }
 
     setBusyAction("send");
     onErrorMessage(null);
+    const optimisticImageEdit = isImageEditFollowUp
+      && model.conversation
+      && (input.imageEditIntent
+        ? input.imageEditIntent.attachments.some(
+            (attachment) => attachment.image.source === "generated",
+          )
+        : imageEditDraft.attachments.some(
+            (attachment) => attachment.imageSource === "generated",
+          ))
+      ? beginOptimisticGeneratedImageEdit(model.conversation.threadId)
+      : null;
 
     try {
       if (!model.conversation) {
-        if (!target) return;
+        if (!target) return false;
         if (target.sessionId) {
           if (!actions.onStartThreadForSession) {
             onErrorMessage("Session thread creation is not available.");
-            return;
+            return false;
           }
           await actions.onStartThreadForSession({
             projectId: target.projectId,
@@ -2698,10 +2971,10 @@ function HydratedThreadComposer({
           });
         } else {
           onErrorMessage("Select a session before starting a new thread.");
-          return;
+          return false;
         }
       } else if (model.isThreadRunning) {
-        if (input.submitAction === "queue") {
+        if (isImageEditFollowUp || input.submitAction === "queue") {
           await actions.onEnqueueQueuedFollowUp(model.conversation.threadId, nextPrompt, {
             collaborationMode: model.selectedCollaborationMode,
             promptInput,
@@ -2709,7 +2982,7 @@ function HydratedThreadComposer({
         } else if (input.submitAction === "steer") {
           if (!model.activeTurn || model.activeTurn.turnId === null) {
             onErrorMessage("Nodex is already running. Wait for the active turn to load or queue the follow-up instead.");
-            return;
+            return false;
           }
           await actions.onSteerPrompt({
             expectedTurnId: model.activeTurn.turnId,
@@ -2719,7 +2992,7 @@ function HydratedThreadComposer({
           });
         } else {
           onErrorMessage("Nodex is already running. Choose Queue or Steer before submitting a follow-up.");
-          return;
+          return false;
         }
       } else {
         await intelligenceController.flush();
@@ -2732,9 +3005,41 @@ function HydratedThreadComposer({
       if (target?.runInTarget !== "newWorktree") {
         await cleanupSubmittedPastedTextAttachments();
       }
+      if (isImageEditFollowUp) {
+        if (input.imageEditIntent) {
+          trackImageEditSubmit({
+            ...input.imageEditIntent.analytics,
+            imageSource: input.imageEditIntent.attachments[0]?.image.source
+              ?? "uploaded",
+            mode: input.imageEditIntent.mode,
+          });
+        } else {
+          for (const imageSource of ["generated", "uploaded"] as const) {
+            const attachments = imageEditDraft.attachments.filter(
+              (attachment) => attachment.imageSource === imageSource,
+            );
+            if (attachments.length === 0) continue;
+            const commentCount = attachments.reduce(
+              (count, attachment) => count + attachment.comments.length,
+              0,
+            );
+            if (imageSource === "uploaded" && commentCount === 0) continue;
+            trackImageEditSubmit({
+              commentCount: commentCount > 0 ? commentCount : undefined,
+              hasGeneralInstruction: input.prompt.trim().length > 0,
+              imageSource,
+              mode: commentCount > 0 ? "comment" : "select",
+              selectedImageCount: attachments.length,
+            });
+          }
+        }
+      }
       completeSuccessfulSubmission(nextPrompt);
+      return true;
     } catch (error) {
+      optimisticImageEdit?.rollback();
       onErrorMessage(error instanceof Error ? error.message : "Could not send prompt");
+      return false;
     } finally {
       setBusyAction(null);
     }
@@ -2744,11 +3049,15 @@ function HydratedThreadComposer({
     canStartNewThread,
     completeSuccessfulSubmission,
     goalModeActive,
-    hasSubmittableAttachments,
     hasPendingPastedTextAttachments,
+    imageAttachments,
+    imageEditDraft,
+    imageInputSupported,
     intelligenceController,
     model.activeTurn,
     model.conversation,
+    model.hostId,
+    model.isCloudNewThreadTarget,
     model.isThreadRunning,
     model.newThreadTarget,
     model.selectedCollaborationMode,
@@ -2843,7 +3152,7 @@ function HydratedThreadComposer({
       }
 
       const nextFileAttachments: ComposerFileAttachment[] = [];
-      const nextImageAttachments: ComposerImageAttachment[] = [];
+      const nextImageFiles: ComposerPickedFile[] = [];
 
       for (const pickedFile of pickedFiles) {
         if (!isComposerImageFile(pickedFile)) {
@@ -2860,13 +3169,7 @@ function HydratedThreadComposer({
           continue;
         }
 
-        if (!pickedFile.imageDataUrl) continue;
-        nextImageAttachments.push({
-          id: createComposerAttachmentId("image"),
-          filename: getComposerPickedFileName(pickedFile),
-          path: pickedFile.path,
-          dataUrl: pickedFile.imageDataUrl,
-        });
+        if (pickedFile.imageDataUrl) nextImageFiles.push(pickedFile);
       }
 
       if (attachmentGenerationRef.current !== generation) {
@@ -2881,13 +3184,11 @@ function HydratedThreadComposer({
           return combined.filter((item) => retained.has(item.attachment));
         });
       }
-      if (nextImageAttachments.length > 0) {
-        setImageAttachments((current) => [...current, ...nextImageAttachments]);
-      }
+      imageAttachmentController.addPickedFiles(nextImageFiles);
     } catch (error) {
       onErrorMessage(error instanceof Error ? error.message : "Could not add files");
     }
-  }, [model.isCloudNewThreadTarget, onErrorMessage, setFileAttachments, setImageAttachments]);
+  }, [imageAttachmentController, model.isCloudNewThreadTarget, onErrorMessage, setFileAttachments]);
 
   const handleCaptureAppshot = useCallback(async (
     target: CodexComposerAppshotTarget,
@@ -2913,10 +3214,31 @@ function HydratedThreadComposer({
     }
   }, [setAppshotContexts]);
 
-  const handleBrowserImageDragOver = useCallback((
+  const handleComposerDragEnter = useCallback((
     event: DragEvent<HTMLDivElement>,
   ) => {
-    if (!browserImageDrag) return;
+    if (!browserImageDrag && !hasComposerFileDataTransfer(event.dataTransfer)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.dataTransfer.dropEffect = "copy";
+    fileDragDepthRef.current += 1;
+    setFileDragActive(true);
+  }, [browserImageDrag]);
+
+  const handleComposerDragLeave = useCallback((
+    event: DragEvent<HTMLDivElement>,
+  ) => {
+    if (fileDragDepthRef.current === 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    fileDragDepthRef.current = Math.max(0, fileDragDepthRef.current - 1);
+    if (fileDragDepthRef.current === 0) setFileDragActive(false);
+  }, []);
+
+  const handleComposerDragOver = useCallback((
+    event: DragEvent<HTMLDivElement>,
+  ) => {
+    if (!browserImageDrag && !hasComposerFileDataTransfer(event.dataTransfer)) return;
     event.preventDefault();
     event.stopPropagation();
     event.dataTransfer.dropEffect = "copy";
@@ -2948,6 +3270,35 @@ function HydratedThreadComposer({
     browserAnnotationConversationId,
     browserImageDrag,
     onErrorMessage,
+  ]);
+
+  const handleComposerDrop = useCallback((event: DragEvent<HTMLDivElement>) => {
+    fileDragDepthRef.current = 0;
+    setFileDragActive(false);
+    if (browserImageDrag) {
+      void handleBrowserImageDrop(event);
+      return;
+    }
+
+    const classification = classifyComposerDataTransfer(event.dataTransfer);
+    if (
+      classification.imageFiles.length === 0
+      && classification.otherFiles.length === 0
+    ) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.dataTransfer.dropEffect = "copy";
+    if (classification.imageFiles.length > 0) {
+      void imageAttachmentController.addFiles(classification.imageFiles, "drop");
+    }
+    if (classification.otherFiles.length > 0) {
+      void addOrdinaryComposerFiles(classification.otherFiles, "drop");
+    }
+  }, [
+    addOrdinaryComposerFiles,
+    browserImageDrag,
+    handleBrowserImageDrop,
+    imageAttachmentController,
   ]);
 
   const showDictationToast = useCallback((message: string) => {
@@ -3144,11 +3495,6 @@ function HydratedThreadComposer({
       attachment.uiId !== attachmentId
     ));
   }, [incrementAttachmentGeneration, setAddedFiles]);
-
-  const handleRemoveImageAttachment = useCallback((attachmentId: string) => {
-    incrementAttachmentGeneration();
-    setImageAttachments((current) => current.filter((attachment) => attachment.id !== attachmentId));
-  }, [incrementAttachmentGeneration, setImageAttachments]);
 
   const handleRemoveAppshotContext = useCallback((contextId: string) => {
     incrementAttachmentGeneration();
@@ -3657,6 +4003,83 @@ function HydratedThreadComposer({
     latestTurnStatus,
     canResumeInterruptedTurn,
   });
+  useEffect(() => {
+    return registerImageEditComposerChannel(imageEditComposerChannelId, async (
+      request: ImageEditComposerSubmitRequest,
+    ): Promise<ImageEditComposerSubmitResult> => {
+      const imageSource = request.intent?.attachments[0]?.image.source
+        ?? imageEditDraft.attachments[0]?.imageSource
+        ?? "uploaded";
+      const mode = request.intent?.mode
+        ?? (imageEditDraft.mode === "comment" ? "comment" : "select");
+      const route = !model.conversation
+        ? "new_thread"
+        : model.isThreadRunning
+          ? "queued"
+          : "existing_thread";
+      if (!imageInputSupported) {
+        trackImageEditSubmitOutcome({
+          failureReason: "image-input-unsupported",
+          imageSource,
+          mode,
+          outcome: "unavailable",
+          route,
+        });
+        return { status: "unavailable", reason: "image-input-unsupported" };
+      }
+      if (
+        request.intent
+        && !buildComposerImageEditAttachments({
+          currentAttachments: imageAttachments,
+          intent: request.intent,
+          executionHostId: model.isCloudNewThreadTarget ? null : model.hostId,
+          generation: attachmentGenerationRef.current,
+        })
+      ) {
+        trackImageEditSubmitOutcome({
+          failureReason: "asset-unresolvable",
+          imageSource,
+          mode,
+          outcome: "unavailable",
+          route,
+        });
+        return { status: "unavailable", reason: "asset-unresolvable" };
+      }
+
+      const queued = model.isThreadRunning;
+      const submitted = await submitPrompt({
+        prompt,
+        submitAction: queued
+          ? "queue"
+          : composerActionState.primarySubmitAction,
+        ...(request.intent ? { imageEditIntent: request.intent } : {}),
+      });
+      trackImageEditSubmitOutcome({
+        ...(!submitted ? { failureReason: "transport" as const } : {}),
+        imageSource,
+        mode,
+        outcome: submitted
+          ? queued ? "queued" : "submitted"
+          : "failed",
+        route,
+      });
+      return submitted
+        ? { status: queued ? "queued" : "submitted" }
+        : { status: "failed", reason: "transport" };
+    });
+  }, [
+    composerActionState.primarySubmitAction,
+    imageEditComposerChannelId,
+    imageEditDraft,
+    imageAttachments,
+    imageInputSupported,
+    model.conversation,
+    model.hostId,
+    model.isCloudNewThreadTarget,
+    model.isThreadRunning,
+    prompt,
+    submitPrompt,
+  ]);
   const isSendPending = busyAction === "send" && composerActionState.action === "send";
   const isInterruptPending = busyAction === "interrupt" && composerActionState.action === "stop";
   const isResumePending = busyAction === "resume" && composerActionState.action === "resume";
@@ -3845,6 +4268,7 @@ function HydratedThreadComposer({
       }}
       onKeyDown={handleKeyDown}
       onLargeTextPaste={handleLargeTextPaste}
+      onPasteFiles={handlePasteFiles}
       onSuggestionStateChange={handleSuggestionStateChange}
       onSuggestionAction={handleSuggestionAction}
       onIntrinsicContentWidthChange={isFloatingComposer
@@ -3978,14 +4402,15 @@ function HydratedThreadComposer({
       <div
         className={cn(
           "relative",
-          browserImageDrag
+          (browserImageDrag || isFileDragActive)
             && "rounded-[20px] ring-2 ring-token-focus-border ring-offset-2 ring-offset-transparent",
         )}
         data-browser-image-drop-active={browserImageDrag ? "true" : "false"}
-        onDragOver={handleBrowserImageDragOver}
-        onDrop={(event) => {
-          void handleBrowserImageDrop(event);
-        }}
+        data-file-drop-active={isFileDragActive ? "true" : "false"}
+        onDragEnter={handleComposerDragEnter}
+        onDragLeave={handleComposerDragLeave}
+        onDragOver={handleComposerDragOver}
+        onDrop={handleComposerDrop}
       >
         <ComposerAddContextMenu
           ref={addContextMenuRef}
@@ -4087,22 +4512,15 @@ function HydratedThreadComposer({
               <div
                 className="_attachmentsDefault_1u8sk_2"
                 data-composer-attachments="true"
+                data-composer-spacing="default"
+                data-visible-attachments={hasAttachments ? "true" : undefined}
               >
                 {hasAttachments ? (
-                  <div className="composer-attachment-surface flex flex-wrap items-center gap-1">
-                  {imageAttachments.map((attachment) => (
-                    <button
-                      key={attachment.id}
-                      type="button"
-                      className="inline-flex max-w-48 items-center gap-1 rounded-full bg-token-foreground/5 px-2 py-1 text-xs text-token-foreground hover:bg-token-foreground/10"
-                      onClick={() => handleRemoveImageAttachment(attachment.id)}
-                      title={`Remove ${attachment.filename}`}
-                    >
-                      <span className="size-3 rounded-sm bg-token-text-link-foreground/20" />
-                      <span className="min-w-0 truncate">{attachment.filename}</span>
-                      <span className="text-token-description-foreground">x</span>
-                    </button>
-                  ))}
+                  <ComposerImageAttachmentRow
+                    attachments={imageAttachments}
+                    controller={imageAttachmentController}
+                    hasVisibleNonImageAttachments={hasVisibleNonImageAttachments}
+                  >
                   {appshotContexts.map((context) => (
                     <div
                       key={context.id}
@@ -4262,7 +4680,7 @@ function HydratedThreadComposer({
                       </button>
                     );
                   })}
-                  </div>
+                  </ComposerImageAttachmentRow>
                 ) : null}
               </div>
             ) : null}

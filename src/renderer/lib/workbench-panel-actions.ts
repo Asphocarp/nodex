@@ -149,7 +149,7 @@ export function isPanelActionTargetAllowed(
 
 export function isWorkbenchTabKind(
   kind: PanelNewTabActionKind,
-): kind is WorkbenchTabProjection["kind"] {
+): kind is Exclude<WorkbenchTabProjection["kind"], "image_editor"> {
   return kind !== "side_chat";
 }
 
@@ -273,5 +273,6 @@ export function matchesPanelActionShortcut(
 export function getDefaultPanelIdForTabKind(
   kind: WorkbenchTabProjection["kind"],
 ): PanelId {
+  if (kind === "image_editor") return "right";
   return getPanelNewTabAction(kind).defaultPanelId;
 }

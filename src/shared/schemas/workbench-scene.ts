@@ -24,6 +24,7 @@ import {
 import { BrowserSidebarDeviceToolbarStateSchema } from "../browser/browser-schemas";
 import { WorkbenchViewSchema } from "./workbench";
 import { WorkbenchReviewConfigSchema } from "./workbench-review";
+import { WorkbenchImageEditorSurfaceConfigSchema } from "./workbench-image-editor";
 import {
   MAX_WORKBENCH_SESSION_VIEW_JSON_BYTES,
   WorkbenchPanelStateSchema,
@@ -213,6 +214,11 @@ export const WorkbenchSurfaceDescriptorSchema = z.discriminatedUnion("kind", [
     ...surfaceBaseSchema,
     kind: z.literal("files"),
     config: WorkbenchFilesSurfaceConfigSchema,
+  }).strict(),
+  z.object({
+    ...surfaceBaseSchema,
+    kind: z.literal("image_editor"),
+    config: WorkbenchImageEditorSurfaceConfigSchema,
   }).strict(),
 ]).superRefine((surface, context) => {
   if (encodedJsonBytes(surface.config) > MAX_WORKBENCH_SESSION_VIEW_JSON_BYTES) {
@@ -548,7 +554,7 @@ function migrateWorkbenchSceneSnapshot(value: unknown): unknown {
   const record = value && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
     : null;
-  if (record?.version === 5) {
+  if (record?.version === 5 || record?.version === 6) {
     return {
       ...stripDatabaseLayoutsFromScene(value) as Record<string, unknown>,
       version: WORKBENCH_SCENE_VERSION,
