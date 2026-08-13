@@ -1,10 +1,12 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useMemo, useState } from "react";
 import { TextActionLinkIcon } from "@/components/shared/icons";
+import { NodexFloatingLayerProvider } from "@/components/ui/floating-layer";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
 import type { CommandPaletteThread } from "@/lib/command-palette";
 import type { BoardSummary, DatabasePageSummary, CodexThreadSummary, Project } from "@/lib/types";
 import { plainTextToPortableRichText } from "../../../../shared/block-documents";
+import { NFM_EDITOR_FLOATING_UI_Z_INDEX } from "./nfm-blocknote-floating-ui";
 import { writeTextActionRecentColors } from "@/lib/text-action-color-recents";
 import { NfmMoveToMenuSurface } from "./nfm-move-to-menu";
 import { writeNfmSendToThreadMode } from "./nfm-send-to-thread-mode-settings";
@@ -173,65 +175,67 @@ function TextActionMenuStorySurface(
   return (
     <NodexTooltipProvider>
       <div className="flex min-h-screen items-start justify-center bg-token-editor-background p-12 text-token-foreground">
-        <NfmTextActionMenuSurface
-          currentBlockTypeLabel="Normal Text"
-          blockTypeItems={[
-            {
-              key: "paragraph",
-              label: "Normal Text",
-              type: "paragraph",
-              isSelected: true,
-            },
-            {
-              key: "heading-1",
-              label: "Heading 1",
-              type: "heading",
-              props: { level: 1, isToggleable: false },
-              isSelected: false,
-            },
-            {
-              key: "heading-2",
-              label: "Heading 2",
-              type: "heading",
-              props: { level: 2, isToggleable: false },
-              isSelected: false,
-            },
-          ]}
-          activeStyles={{
-            bold: false,
-            italic: false,
-            underline: false,
-            strike: false,
-            code: false,
-          }}
-          textColor="default"
-          backgroundColor="default"
-          canUseTextColor={true}
-          canUseBackgroundColor={true}
-          canClearFormat={true}
-          linkControl={(
-            <button
-              type="button"
-              aria-label="Link"
-              className="flex h-7 w-8 items-center justify-center rounded-[6px] text-token-foreground hover:bg-token-list-hover-background"
-            >
-              <TextActionLinkIcon />
-            </button>
-          )}
-          nodexRows={[]}
-          showReferenceMocks
-          sourceProjectId={null}
-          sourcePageId={null}
-          onSelectBlockType={() => undefined}
-          onToggleStyle={() => undefined}
-          onSetTextColor={() => undefined}
-          onSetBackgroundColor={() => undefined}
-          onClearFormat={() => undefined}
-          onOpenBlockActions={() => undefined}
-          onNodexRow={() => undefined}
-          onMoveBlocksToDestination={() => undefined}
-          {...props}
-        />
+        <NodexFloatingLayerProvider zIndex={NFM_EDITOR_FLOATING_UI_Z_INDEX}>
+          <NfmTextActionMenuSurface
+            currentBlockTypeLabel="Normal Text"
+            blockTypeItems={[
+              {
+                key: "paragraph",
+                label: "Normal Text",
+                type: "paragraph",
+                isSelected: true,
+              },
+              {
+                key: "heading-1",
+                label: "Heading 1",
+                type: "heading",
+                props: { level: 1, isToggleable: false },
+                isSelected: false,
+              },
+              {
+                key: "heading-2",
+                label: "Heading 2",
+                type: "heading",
+                props: { level: 2, isToggleable: false },
+                isSelected: false,
+              },
+            ]}
+            activeStyles={{
+              bold: false,
+              italic: false,
+              underline: false,
+              strike: false,
+              code: false,
+            }}
+            textColor="default"
+            backgroundColor="default"
+            canUseTextColor={true}
+            canUseBackgroundColor={true}
+            canClearFormat={true}
+            linkControl={(
+              <button
+                type="button"
+                aria-label="Link"
+                className="flex h-7 w-8 items-center justify-center rounded-[6px] text-token-foreground hover:bg-token-list-hover-background"
+              >
+                <TextActionLinkIcon />
+              </button>
+            )}
+            nodexRows={[]}
+            showReferenceMocks
+            sourceProjectId={null}
+            sourcePageId={null}
+            onSelectBlockType={() => undefined}
+            onToggleStyle={() => undefined}
+            onSetTextColor={() => undefined}
+            onSetBackgroundColor={() => undefined}
+            onClearFormat={() => undefined}
+            onOpenBlockActions={() => undefined}
+            onNodexRow={() => undefined}
+            onMoveBlocksToDestination={() => undefined}
+            {...props}
+          />
+        </NodexFloatingLayerProvider>
       </div>
     </NodexTooltipProvider>
   );
@@ -345,59 +349,61 @@ function TextActionMoreHandoffStorySurface() {
             )}
           />
         ) : (
-          <NfmTextActionMenuSurface
-            currentBlockTypeLabel="Normal Text"
-            blockTypeItems={[
-              {
-                key: "paragraph",
-                label: "Normal Text",
-                type: "paragraph",
-                isSelected: true,
-              },
-            ]}
-            activeStyles={{
-              bold: false,
-              italic: false,
-              underline: false,
-              strike: false,
-              code: false,
-            }}
-            textColor="default"
-            backgroundColor="default"
-            canUseTextColor={true}
-            canUseBackgroundColor={true}
-            canClearFormat={true}
-            linkControl={(
-              <button
-                type="button"
-                aria-label="Link"
-                className="flex h-7 w-8 items-center justify-center rounded-[6px] text-token-foreground hover:bg-token-list-hover-background"
-              >
-                <TextActionLinkIcon />
-              </button>
-            )}
-            nodexRows={[
-              {
-                key: "move-to",
-                label: "Move to",
-                enabled: true,
-              },
-            ]}
-            showReferenceMocks
-            sourceProjectId="default"
-            sourcePageId="source-card"
-            onSelectBlockType={() => undefined}
-            onToggleStyle={() => undefined}
-            onSetTextColor={() => undefined}
-            onSetBackgroundColor={() => undefined}
-            onClearFormat={() => undefined}
-            onOpenBlockActions={() => {
-              setShowFocusedBlockSelection(false);
-              setShowBlockActions(true);
-            }}
-            onNodexRow={() => undefined}
-            onMoveBlocksToDestination={() => undefined}
-          />
+          <NodexFloatingLayerProvider zIndex={NFM_EDITOR_FLOATING_UI_Z_INDEX}>
+            <NfmTextActionMenuSurface
+              currentBlockTypeLabel="Normal Text"
+              blockTypeItems={[
+                {
+                  key: "paragraph",
+                  label: "Normal Text",
+                  type: "paragraph",
+                  isSelected: true,
+                },
+              ]}
+              activeStyles={{
+                bold: false,
+                italic: false,
+                underline: false,
+                strike: false,
+                code: false,
+              }}
+              textColor="default"
+              backgroundColor="default"
+              canUseTextColor={true}
+              canUseBackgroundColor={true}
+              canClearFormat={true}
+              linkControl={(
+                <button
+                  type="button"
+                  aria-label="Link"
+                  className="flex h-7 w-8 items-center justify-center rounded-[6px] text-token-foreground hover:bg-token-list-hover-background"
+                >
+                  <TextActionLinkIcon />
+                </button>
+              )}
+              nodexRows={[
+                {
+                  key: "move-to",
+                  label: "Move to",
+                  enabled: true,
+                },
+              ]}
+              showReferenceMocks
+              sourceProjectId="default"
+              sourcePageId="source-card"
+              onSelectBlockType={() => undefined}
+              onToggleStyle={() => undefined}
+              onSetTextColor={() => undefined}
+              onSetBackgroundColor={() => undefined}
+              onClearFormat={() => undefined}
+              onOpenBlockActions={() => {
+                setShowFocusedBlockSelection(false);
+                setShowBlockActions(true);
+              }}
+              onNodexRow={() => undefined}
+              onMoveBlocksToDestination={() => undefined}
+            />
+          </NodexFloatingLayerProvider>
         )}
       </div>
     </NodexTooltipProvider>
@@ -430,7 +436,7 @@ const meta = {
     layout: "fullscreen",
     docs: {
       description: {
-        component: "Floating text action menu for expanded NFM rich-text selections. Its exit transition preserves the final open geometry even when the selected content is deleted, while globally portalled action tooltips remain above the editor-owned menu layer.",
+        component: "Floating text action menu for expanded NFM rich-text selections. Portalled child menus inherit the editor-owned floating scope and stack above the toolbar, while action tooltips remain above both layers.",
       },
     },
   },

@@ -21,6 +21,10 @@ import { APP_SHELL_FLOATING_UI_LAYER_CLASS } from "@/lib/app-shell-layers";
 import { cn } from "@/lib/utils";
 import { NODEX_RAISED_CONTROL_CHROME_CLASS_NAME } from "./control-chrome";
 import {
+  NodexFloatingLayerProvider,
+  useNodexFloatingLayerIndex,
+} from "./floating-layer";
+import {
   NodexPopover,
   NodexPopoverContent,
   NodexPopoverTrigger,
@@ -107,6 +111,7 @@ const NodexDropdownSubmenuContent = forwardRef<
 >(function NodexDropdownSubmenuContent(
   {
     className,
+    children,
     style,
     collisionPadding = 6,
     sideOffset = 4,
@@ -117,6 +122,8 @@ const NodexDropdownSubmenuContent = forwardRef<
   },
   ref,
 ) {
+  const layerIndex = useNodexFloatingLayerIndex(style?.zIndex);
+
   return (
     <DropdownMenuPrimitive.SubContent
       ref={ref}
@@ -124,7 +131,7 @@ const NodexDropdownSubmenuContent = forwardRef<
       collisionPadding={collisionPadding}
       sideOffset={sideOffset}
       alignOffset={alignOffset}
-      style={{ ...CONTENT_BOUNDARY_STYLE, ...style }}
+      style={{ ...CONTENT_BOUNDARY_STYLE, zIndex: layerIndex, ...style }}
       className={cn(
         surface === "bare"
           ? cn(
@@ -142,7 +149,11 @@ const NodexDropdownSubmenuContent = forwardRef<
       )}
       {...props}
       data-nodex-keyboard-scope="local"
-    />
+    >
+      <NodexFloatingLayerProvider zIndex={layerIndex}>
+        {children}
+      </NodexFloatingLayerProvider>
+    </DropdownMenuPrimitive.SubContent>
   );
 });
 
@@ -320,12 +331,14 @@ export const NodexDropdownContent = forwardRef<
   },
   ref,
 ) {
+  const layerIndex = useNodexFloatingLayerIndex(style?.zIndex);
+
   return (
     <DropdownMenuPrimitive.Content
       ref={ref}
       align={align}
       collisionPadding={collisionPadding}
-      style={{ ...CONTENT_BOUNDARY_STYLE, ...style }}
+      style={{ ...CONTENT_BOUNDARY_STYLE, zIndex: layerIndex, ...style }}
       className={cn(
         dropdownContentSurfaceClassName,
         motion === "default"
@@ -338,7 +351,9 @@ export const NodexDropdownContent = forwardRef<
       {...props}
       data-nodex-keyboard-scope="local"
     >
-      {children}
+      <NodexFloatingLayerProvider zIndex={layerIndex}>
+        {children}
+      </NodexFloatingLayerProvider>
     </DropdownMenuPrimitive.Content>
   );
 });
@@ -1033,13 +1048,20 @@ export function NodexDropdownSeparator({
 export const NodexDropdownSurface = forwardRef<
   HTMLDivElement,
   ComponentPropsWithoutRef<"div">
->(function NodexDropdownSurface({ className, ...props }, ref) {
+>(function NodexDropdownSurface({ children, className, style, ...props }, ref) {
+  const layerIndex = useNodexFloatingLayerIndex(style?.zIndex);
+
   return (
     <div
       ref={ref}
       className={cn(dropdownContentSurfaceClassName, className)}
+      style={{ zIndex: layerIndex, ...style }}
       {...props}
-    />
+    >
+      <NodexFloatingLayerProvider zIndex={layerIndex}>
+        {children}
+      </NodexFloatingLayerProvider>
+    </div>
   );
 });
 

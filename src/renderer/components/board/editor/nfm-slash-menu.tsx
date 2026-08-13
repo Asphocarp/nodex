@@ -28,6 +28,7 @@ import {
   NodexDropdownSurface,
 } from "@/components/ui/dropdown";
 import { NodexTooltip } from "@/components/ui/tooltip";
+import { NodexFloatingLayerProvider } from "@/components/ui/floating-layer";
 import { useProjects } from "@/lib/use-projects";
 import type { Project } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -53,6 +54,7 @@ import {
   NFM_SUGGESTION_MENU_FLOATING_OPTIONS,
   NFM_SUGGESTION_MENU_PORTAL_ELEMENT,
   NFM_SUGGESTION_MENU_TOOLTIP_Z_INDEX,
+  NFM_SUGGESTION_MENU_Z_INDEX,
 } from "./nfm-blocknote-floating-ui";
 import { createEmptyThreadSectionBlock } from "./thread-section";
 import { formatThreadMentionShortUuid } from "@/lib/nfm/thread-mention-display";
@@ -531,7 +533,7 @@ export function NfmSlashMenu({
   );
 
   return (
-    <>
+    <NodexFloatingLayerProvider zIndex={NFM_SUGGESTION_MENU_Z_INDEX}>
       <SuggestionMenuController
         triggerCharacter="/"
         getItems={getItems}
@@ -542,7 +544,7 @@ export function NfmSlashMenu({
         activeProjectId={executionProjectId}
         allowPageReferences={allowPageReferences}
       />
-    </>
+    </NodexFloatingLayerProvider>
   );
 }
 
