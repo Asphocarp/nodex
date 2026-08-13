@@ -3,7 +3,10 @@ import type {
   ProjectionCoordinate,
   ProjectionDelivery,
 } from "../../shared/projection-stream";
-import { CausalProjectionRuntime } from "./causal-projection-runtime";
+import {
+  CausalProjectionRuntime,
+  INTERACTIVE_PROJECTION_REPAIR_BURST,
+} from "./causal-projection-runtime";
 
 const scope = {
   schema_version: 1,
@@ -72,6 +75,8 @@ const flush = async (): Promise<void> => {
   await new Promise<void>((resolve) => setTimeout(resolve, 0));
 };
 
+const immediateRepairBurst = { quietMs: 0, maxMs: 0 } as const;
+
 describe("CausalProjectionRuntime", () => {
   test("applies a contiguous patch synchronously before background repair", async () => {
     let current = coordinate(0, 0);
@@ -83,6 +88,7 @@ describe("CausalProjectionRuntime", () => {
     const runtime = new CausalProjectionRuntime({
       scopeKey: scope.canonical_key,
       schemaVersion: 1,
+      repairBurst: immediateRepairBurst,
       getCoordinate: () => current,
       apply: (effect) => {
         visibleRevision = effect.resultRevision;
@@ -107,6 +113,7 @@ describe("CausalProjectionRuntime", () => {
     const runtime = new CausalProjectionRuntime({
       scopeKey: scope.canonical_key,
       schemaVersion: 1,
+      repairBurst: immediateRepairBurst,
       getCoordinate: () => current,
       apply: (effect) => {
         applied.push(effect.resultRevision);
@@ -132,6 +139,7 @@ describe("CausalProjectionRuntime", () => {
     const runtime = new CausalProjectionRuntime({
       scopeKey: scope.canonical_key,
       schemaVersion: 1,
+      repairBurst: immediateRepairBurst,
       getCoordinate: () => current,
       apply,
       readAtLeast: repair,
@@ -156,6 +164,7 @@ describe("CausalProjectionRuntime", () => {
     const runtime = new CausalProjectionRuntime({
       scopeKey: scope.canonical_key,
       schemaVersion: 1,
+      repairBurst: immediateRepairBurst,
       getCoordinate: () => current,
       apply: vi.fn(),
       readAtLeast: repair,
@@ -177,6 +186,95 @@ describe("CausalProjectionRuntime", () => {
     }));
   });
 
+  test("bounds buffered effects and canonical reads during a sustained patchless burst", async () => {
+    vi.useFakeTimers();
+    try {
+      let current = coordinate(0, 0);
+      const repair = vi.fn(async (request: {
+        readonly minimumRevision: number;
+        readonly minimumCommitSeq: number;
+      }) => {
+        current = coordinate(
+          request.minimumRevision,
+          request.minimumCommitSeq,
+        );
+      });
+      const runtime = new CausalProjectionRuntime({
+        scopeKey: scope.canonical_key,
+        schemaVersion: 1,
+        getCoordinate: () => current,
+        apply: vi.fn(),
+        readAtLeast: repair,
+      });
+
+      for (let revision = 1; revision <= 300; revision += 1) {
+        runtime.accept(delivery(revision, { patch: false }));
+        await vi.advanceTimersByTimeAsync(1);
+      }
+
+      expect(runtime.diagnostics().bufferedEffects).toBeLessThanOrEqual(128);
+      await vi.advanceTimersByTimeAsync(
+        INTERACTIVE_PROJECTION_REPAIR_BURST.quietMs,
+      );
+      await vi.runAllTicks();
+
+      expect(repair).toHaveBeenCalledOnce();
+      expect(repair).toHaveBeenLastCalledWith(expect.objectContaining({
+        minimumRevision: 300,
+        minimumCommitSeq: 300,
+      }));
+      expect(current.revision).toBe(300);
+      expect(runtime.diagnostics().bufferedEffects).toBe(0);
+      runtime.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("keeps a long continuous editing stream inside the repair budget", async () => {
+    vi.useFakeTimers();
+    try {
+      let current = coordinate(0, 0);
+      const repair = vi.fn(async (request: {
+        readonly minimumRevision: number;
+        readonly minimumCommitSeq: number;
+      }) => {
+        current = coordinate(
+          request.minimumRevision,
+          request.minimumCommitSeq,
+        );
+      });
+      const runtime = new CausalProjectionRuntime({
+        scopeKey: scope.canonical_key,
+        schemaVersion: 1,
+        getCoordinate: () => current,
+        apply: vi.fn(),
+        readAtLeast: repair,
+      });
+
+      for (let revision = 1; revision <= 400; revision += 1) {
+        runtime.accept(delivery(revision, { patch: false }));
+        await vi.advanceTimersByTimeAsync(100);
+      }
+      await vi.advanceTimersByTimeAsync(
+        INTERACTIVE_PROJECTION_REPAIR_BURST.quietMs,
+      );
+      await vi.runAllTicks();
+
+      expect(repair.mock.calls.length).toBeGreaterThan(1);
+      expect(repair.mock.calls.length).toBeLessThanOrEqual(9);
+      expect(repair).toHaveBeenLastCalledWith(expect.objectContaining({
+        minimumRevision: 400,
+        minimumCommitSeq: 400,
+      }));
+      expect(current.revision).toBe(400);
+      expect(runtime.diagnostics().bufferedEffects).toBe(0);
+      runtime.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   test("stops a failed repair loop after its owner disposes the runtime", async () => {
     vi.useFakeTimers();
     try {
@@ -186,6 +284,7 @@ describe("CausalProjectionRuntime", () => {
       const runtime = new CausalProjectionRuntime({
         scopeKey: scope.canonical_key,
         schemaVersion: 1,
+        repairBurst: immediateRepairBurst,
         getCoordinate: () => coordinate(0, 0),
         apply: vi.fn(),
         readAtLeast: repair,
@@ -205,6 +304,46 @@ describe("CausalProjectionRuntime", () => {
         repairing: false,
         requiredRepair: null,
       });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("backs off failed repairs while routine effects keep arriving", async () => {
+    vi.useFakeTimers();
+    try {
+      const repair = vi.fn(async () => {
+        throw new Error("Core unavailable");
+      });
+      const runtime = new CausalProjectionRuntime({
+        scopeKey: scope.canonical_key,
+        schemaVersion: 1,
+        repairBurst: immediateRepairBurst,
+        getCoordinate: () => coordinate(0, 0),
+        apply: vi.fn(),
+        readAtLeast: repair,
+      });
+
+      runtime.accept(delivery(1, { patch: false }));
+      await vi.runAllTicks();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(repair).toHaveBeenCalledOnce();
+
+      for (let revision = 2; revision <= 80; revision += 1) {
+        runtime.accept(delivery(revision, { patch: false }));
+      }
+      await vi.runAllTicks();
+      await vi.advanceTimersByTimeAsync(99);
+      expect(repair).toHaveBeenCalledOnce();
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(repair).toHaveBeenCalledTimes(2);
+      await vi.advanceTimersByTimeAsync(199);
+      expect(repair).toHaveBeenCalledTimes(2);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(repair).toHaveBeenCalledTimes(3);
+
+      runtime.dispose();
     } finally {
       vi.useRealTimers();
     }

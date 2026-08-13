@@ -11,6 +11,10 @@ import {
   projectionScopeKey,
 } from "../../shared/projection-stream";
 import type { CausalProjectionRuntime } from "./causal-projection-runtime";
+import {
+  BoundedBurstScheduler,
+  type BoundedBurstTiming,
+} from "./bounded-burst-scheduler";
 
 export interface ProjectionResourceDependencies {
   readonly pageIds?: readonly string[];
@@ -64,6 +68,7 @@ type SubscribeRevocations = (
 
 interface ConsumerState {
   readonly registrations: Map<symbol, ProjectionRegistration>;
+  scheduler: BoundedBurstScheduler | null;
   running: boolean;
   pending: ProjectionInvalidationCause | null;
   required: ProjectionInvalidationCause | null;
@@ -82,13 +87,19 @@ export class ProjectionInvalidationRegistry {
   readonly #subscribeProjection: SubscribeProjection;
   readonly #subscribeRevocations: SubscribeRevocations;
   readonly #scopes = new Map<string, ScopeState>();
+  readonly #effectRepairBurst: BoundedBurstTiming;
 
   constructor(input: {
     readonly subscribeProjection: SubscribeProjection;
     readonly subscribeRevocations: SubscribeRevocations;
+    readonly effectRepairBurst?: BoundedBurstTiming;
   }) {
     this.#subscribeProjection = input.subscribeProjection;
     this.#subscribeRevocations = input.subscribeRevocations;
+    this.#effectRepairBurst = input.effectRepairBurst ?? {
+      quietMs: 0,
+      maxMs: 0,
+    };
   }
 
   register(registration: ProjectionRegistration): () => void {
@@ -102,13 +113,7 @@ export class ProjectionInvalidationRegistry {
     };
     this.#scopes.set(scopeKey, scope);
     const existingConsumer = scope.consumers.get(registration.consumerKey);
-    const consumer = existingConsumer ?? {
-      registrations: new Map<symbol, ProjectionRegistration>(),
-      running: false,
-      pending: null,
-      required: null,
-      initialCheckpointObserved: false,
-    };
+    const consumer = existingConsumer ?? this.#createConsumer();
     scope.consumers.set(registration.consumerKey, consumer);
     const token = Symbol(registration.consumerKey);
     consumer.registrations.set(token, registration);
@@ -141,6 +146,7 @@ export class ProjectionInvalidationRegistry {
       active = false;
       consumer.registrations.delete(token);
       if (consumer.registrations.size === 0) {
+        consumer.scheduler?.dispose();
         scope.consumers.delete(registration.consumerKey);
       }
       if (scope.consumers.size > 0) return;
@@ -156,8 +162,27 @@ export class ProjectionInvalidationRegistry {
     for (const scope of this.#scopes.values()) {
       scope.unsubscribeProjection?.();
       scope.unsubscribeRevocations?.();
+      for (const consumer of scope.consumers.values()) {
+        consumer.scheduler?.dispose();
+      }
     }
     this.#scopes.clear();
+  }
+
+  #createConsumer(): ConsumerState {
+    const consumer: ConsumerState = {
+      registrations: new Map<symbol, ProjectionRegistration>(),
+      scheduler: null,
+      running: false,
+      pending: null,
+      required: null,
+      initialCheckpointObserved: false,
+    };
+    consumer.scheduler = new BoundedBurstScheduler({
+      ...this.#effectRepairBurst,
+      onReady: () => this.#startDrain(consumer),
+    });
+    return consumer;
   }
 
   #handle(scope: ScopeState, message: ProjectionInvalidationCause): void {
@@ -241,18 +266,27 @@ export class ProjectionInvalidationRegistry {
     }
     consumer.pending = laterCause(consumer.pending, message);
     if (consumer.running) return;
+    consumer.scheduler?.request(
+      consumer.pending.kind === "effect" ? "deferred" : "immediate",
+    );
+  }
+
+  #startDrain(consumer: ConsumerState): void {
+    if (consumer.running || !consumer.pending) return;
     consumer.running = true;
-    void this.#drain(consumer).finally(() => {
+    void this.#drainOne(consumer).finally(() => {
       consumer.running = false;
-      if (consumer.pending) this.#schedule(consumer, consumer.pending);
+      const pending = consumer.pending;
+      if (pending) this.#schedule(consumer, pending);
     });
   }
 
-  async #drain(consumer: ConsumerState): Promise<void> {
+  async #drainOne(consumer: ConsumerState): Promise<void> {
     let failureRetryBudget = 1;
-    while (consumer.pending) {
-      const cause = consumer.pending;
-      consumer.pending = null;
+    const cause = consumer.pending;
+    if (!cause) return;
+    consumer.pending = null;
+    while (true) {
       const registration = consumer.registrations.values().next().value as
         | ProjectionRegistration
         | undefined;
@@ -262,19 +296,19 @@ export class ProjectionInvalidationRegistry {
         && cause.kind !== "revocation"
         && projectionCursorCovers(registration.getCursor(), cause.stream)
       ) {
-        continue;
+        return;
       }
       try {
         await registration.invalidate(cause);
       } catch {
         if (failureRetryBudget > 0) {
           failureRetryBudget -= 1;
-          consumer.pending = laterCause(consumer.pending, cause);
           continue;
         }
         consumer.required = laterCause(consumer.required, cause);
         return;
       }
+      return;
     }
   }
 }

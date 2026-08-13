@@ -19,7 +19,7 @@ An ordinary title or body edit stays inside Yjs and ProseMirror:
 
 1. The editor applies the local transaction immediately.
 2. `NodexYProvider` captures the binary incremental update.
-3. Pending updates are sent sequentially to Rust Core and may be merged while queued.
+3. Pending updates are burst-merged before crossing IPC, then sent sequentially to Rust Core with at most one apply in flight. A quiet window avoids turning one visible gesture into many commits, while a maximum delay bounds durability during continuous typing; an explicit flush bypasses both timers.
 4. Core validates and commits the update, head, Block registry/index, exact-head materialization, search/assets, receipt, and change evidence atomically.
 5. The provider clears pending state only after the durable ACK; other subscribed surfaces receive the committed update.
 
@@ -44,6 +44,12 @@ coordinates against SQLite and swaps the cached Document only after commit.
 
 If validation or persistence fails, the provider remains pending/failed and exposes retry or reload. There is no synchronous main-process fallback and no snapshot overwrite action.
 
+The disposable renderer recovery cache stores merged local Yjs deltas. It does
+not repeatedly encode the complete Y.Doc, checkpoint remote updates already
+owned by Core, or serialize one IndexedDB write per editor transaction. Normal
+cache writes use a quiet/max burst boundary; persist, close, and structural
+flush boundaries can force the current pending delta immediately.
+
 ## Sync Status
 
 Fast successful updates are visually quiet. `BlockDocumentSyncStatus` surfaces only actionable or sustained states:
@@ -66,6 +72,14 @@ High-frequency Board state uses `BoardSummary`. Each Card summary contains bound
 - intrinsic Block properties.
 
 Full bodies never enter the shared Board snapshot. Card detail, reference summaries, notification summaries, Calendar, and search are separate read projections and must reject stale Document/property coordinates. A committed Document event can patch summary caches, but no summary or detail payload may seed or refresh an already mounted editor.
+
+When a Document effect has no complete projection patch, each affected renderer
+consumer collapses the burst into one latest canonical repair after 300 ms of
+quiet, with a 5 second starvation bound during uninterrupted input and at most
+one read in flight. Reset, revocation, integrity, and true causal-gap boundaries
+remain immediate. A stalled consumer retains at most 128 future effects; the
+canonical read replaces any compacted tail. Inactive alternative Database
+layouts issue no speculative window reads.
 
 This is a one-way graph:
 
@@ -138,17 +152,24 @@ Nested surfaces are lazy and bounded by a renderer activation budget. Expansion,
 - Reference surfaces never store a foreign body in their host Document.
 - Retained inactive tabs clear Awareness and do not own active shell refs.
 - Restore/store-reset boundaries reject old epoch checkpoints and outboxes.
+- Sustained editing has bounded amplification: queued Yjs transactions merge,
+  disposable recovery stores local deltas, canonical projection repair is
+  single-flight, and future-effect buffers and grouped window reads are capped.
 
 ## Testing Expectations
 
 Meaningful regression coverage belongs at behavior boundaries:
 
-- `nodex-y-provider.test.ts`: convergence, duplicate/out-of-order updates, durable ACK ordering, retry, checkpoint recovery, and epoch reset.
+- `nodex-y-provider.node.test.ts`: convergence, duplicate/out-of-order updates, durable ACK ordering, retry, delta-only checkpoint recovery, epoch reset, and bounded commit/cache-write amplification under sustained edits.
 - `block-document-surface.test.tsx` and runtime tests: descriptor validation, subscribe/sync before mount, bounded persist/close, reload, and inactive Awareness.
 - collaborative title and Card Stage component tests: direct Y.Text/body binding, local undo ownership, retained-tab identity, and fail-closed descriptor errors.
 - Rust Document Module tests: snapshot+tail reconstruction, schema/identity validation, atomic materialization/index commit, cache eviction, and post-commit recovery.
 - relocation/Document operation tests: leases, exact-head conflicts, fault injection, stale update recovery, and all-old/all-new outcomes.
-- Board/read-model tests: exact-head summary projection, bounded payloads, and rejection of stale projections.
+- causal projection, invalidation, List-window, and Board-store tests: exact-head
+  convergence, bounded effect buffers, long-burst read budgets, single-flight
+  first windows, bounded grouped reads, and rejection of stale projections.
+- LocalCommit ingress tests: bounded inline Document validation concurrency
+  without weakening atomic packet admission or integrity checks.
 - reference surface tests: idle collapsed rows create no provider; explicit Card-title engagement or expanded visibility mounts only the target Document within the provider cap; cycles remain navigation-only.
 
 Use Storybook and manual multi-window review for sync/error chrome and retained editor UX. Do not add tests that merely assert styling strings.

@@ -254,6 +254,55 @@ describe("WorkbenchDatabaseViewSurface", () => {
     expect(api.readLibraryDatabaseViewGroups).not.toHaveBeenCalled();
   });
 
+  test("bounds grouped window reads for high-cardinality Views", async () => {
+    const groups = Array.from({ length: 24 }, (_, index) => ({
+      groupKey: `group-${index}`,
+      subgroupKey: null,
+      totalRows: 1,
+    }));
+    let activeReads = 0;
+    let maxActiveReads = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    api.readLibraryDatabaseViewGroups.mockResolvedValue({
+      ...makeGroups(null),
+      grouped: true,
+      totalRows: groups.length,
+      totalGroups: groups.length,
+      groups,
+    });
+    api.readLibraryDatabaseViewWindow.mockImplementation(async () => {
+      activeReads += 1;
+      maxActiveReads = Math.max(maxActiveReads, activeReads);
+      await gate;
+      activeReads -= 1;
+      return makeWindow(null);
+    });
+
+    render(
+      <TestQueryProvider>
+        <WorkbenchDatabaseViewSurface
+          accessContext={{ kind: "library" }}
+          target={{ kind: "database-default", databaseId }}
+          onOpenPage={vi.fn()}
+        />
+      </TestQueryProvider>,
+    );
+
+    await waitFor(() => {
+      expect(api.readLibraryDatabaseViewWindow).toHaveBeenCalledTimes(8);
+    });
+    expect(maxActiveReads).toBe(8);
+
+    release();
+    await waitFor(() => {
+      expect(api.readLibraryDatabaseViewWindow).toHaveBeenCalledTimes(24);
+    });
+    expect(maxActiveReads).toBe(8);
+  });
+
   test("hides read transport details behind a recoverable database error", async () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
     api.readLibraryDatabaseViewGroups.mockRejectedValueOnce(

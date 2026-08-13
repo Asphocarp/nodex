@@ -3,6 +3,10 @@ import type {
   ProjectionDelivery,
   ProjectionEffect,
 } from "../../shared/projection-stream";
+import {
+  BoundedBurstScheduler,
+  type BoundedBurstTiming,
+} from "./bounded-burst-scheduler";
 
 export type ProjectionRepairReason =
   | "initial_subscription_gap"
@@ -27,6 +31,7 @@ export interface CausalProjectionRuntimeInput {
   apply(effect: ProjectionEffect): void;
   readAtLeast(request: ProjectionRepairRequest): Promise<void>;
   onIntegrityFailure?(error: Error): void;
+  readonly repairBurst?: BoundedBurstTiming;
 }
 
 interface BufferedEffect {
@@ -48,6 +53,21 @@ const maxRepair = (
   };
 };
 
+export const INTERACTIVE_PROJECTION_REPAIR_BURST = Object.freeze({
+  quietMs: 300,
+  maxMs: 5_000,
+}) satisfies BoundedBurstTiming;
+
+const MAX_BUFFERED_PROJECTION_EFFECTS = 128;
+const REPAIR_RETRY_INITIAL_MS = 100;
+const REPAIR_RETRY_MAX_MS = 5_000;
+
+const bufferKey = (delivery: ProjectionDelivery): string =>
+  JSON.stringify([delivery.storeEpoch, delivery.effect.baseRevision]);
+
+const repairCanWaitForBurst = (reason: ProjectionRepairReason): boolean =>
+  reason === "patch_unavailable" || reason === "effect_requires_read";
+
 /**
  * Orders one exact projection scope by its Core-owned revision. Patches make
  * local commits visible synchronously; canonical reads only close gaps and
@@ -55,15 +75,24 @@ const maxRepair = (
  */
 export class CausalProjectionRuntime {
   readonly #input: CausalProjectionRuntimeInput;
-  readonly #buffer = new Map<number, BufferedEffect>();
+  readonly #buffer = new Map<string, BufferedEffect>();
+  readonly #repairScheduler: BoundedBurstScheduler;
   #repairing = false;
   #requiredRepair: ProjectionRepairRequest | null = null;
+  #repairUrgent = false;
   #initialCheckpointObserved = false;
   #disposed = false;
   #retryTimer: ReturnType<typeof setTimeout> | null = null;
+  #repairRetryAttempt = 0;
 
   constructor(input: CausalProjectionRuntimeInput) {
     this.#input = input;
+    const repairBurst = input.repairBurst
+      ?? INTERACTIVE_PROJECTION_REPAIR_BURST;
+    this.#repairScheduler = new BoundedBurstScheduler({
+      ...repairBurst,
+      onReady: () => this.#beginRepair(),
+    });
   }
 
   accept(delivery: ProjectionDelivery): void {
@@ -120,11 +149,13 @@ export class CausalProjectionRuntime {
   diagnostics(): {
     readonly bufferedEffects: number;
     readonly repairing: boolean;
+    readonly repairScheduled: boolean;
     readonly requiredRepair: ProjectionRepairRequest | null;
   } {
     return {
       bufferedEffects: this.#buffer.size,
       repairing: this.#repairing,
+      repairScheduled: this.#repairScheduler.scheduled,
       requiredRepair: this.#requiredRepair,
     };
   }
@@ -134,6 +165,9 @@ export class CausalProjectionRuntime {
     this.#disposed = true;
     this.#buffer.clear();
     this.#requiredRepair = null;
+    this.#repairUrgent = false;
+    this.#repairRetryAttempt = 0;
+    this.#repairScheduler.dispose();
     if (this.#retryTimer !== null) clearTimeout(this.#retryTimer);
     this.#retryTimer = null;
   }
@@ -161,8 +195,17 @@ export class CausalProjectionRuntime {
       return;
     }
     if (current.revision < effect.baseRevision) {
+      const predecessor = this.#buffer.get(JSON.stringify([
+        delivery.storeEpoch,
+        effect.baseRevision - 1,
+      ]));
       this.#bufferEffect(delivery);
-      this.#requestRepairFor(delivery, "effect_gap");
+      this.#requestRepairFor(
+        delivery,
+        predecessor?.delivery.effect.resultRevision === effect.baseRevision
+          ? "patch_unavailable"
+          : "effect_gap",
+      );
       return;
     }
     if (current.revision !== effect.baseRevision) {
@@ -201,7 +244,8 @@ export class CausalProjectionRuntime {
 
   #bufferEffect(delivery: ProjectionDelivery): void {
     const effect = delivery.effect;
-    const existing = this.#buffer.get(effect.baseRevision);
+    const key = bufferKey(delivery);
+    const existing = this.#buffer.get(key);
     if (existing?.delivery.effect.effectHash === effect.effectHash) return;
     if (existing) {
       this.#failIntegrity(
@@ -210,16 +254,23 @@ export class CausalProjectionRuntime {
       );
       return;
     }
-    this.#buffer.set(effect.baseRevision, { delivery });
+    if (this.#buffer.size >= MAX_BUFFERED_PROJECTION_EFFECTS) {
+      // Every buffered edge is recoverable from the already-required canonical
+      // read. Compacting here prevents a stalled renderer/Core boundary from
+      // retaining an unbounded stream tail.
+      this.#buffer.clear();
+    }
+    this.#buffer.set(key, { delivery });
   }
 
   #drainBuffered(): void {
     while (true) {
       const current = this.#input.getCoordinate();
       if (!current) return;
-      const buffered = this.#buffer.get(current.revision);
+      const key = JSON.stringify([current.storeEpoch, current.revision]);
+      const buffered = this.#buffer.get(key);
       if (!buffered) return;
-      this.#buffer.delete(current.revision);
+      this.#buffer.delete(key);
       const before = current.revision;
       this.#acceptEffect(buffered.delivery);
       if (this.#input.getCoordinate()?.revision === before) return;
@@ -241,55 +292,92 @@ export class CausalProjectionRuntime {
 
   #requestRepair(request: ProjectionRepairRequest): void {
     if (this.#disposed) return;
+    const incomingUrgent = !repairCanWaitForBurst(request.reason);
     this.#requiredRepair = maxRepair(this.#requiredRepair, request);
+    this.#repairUrgent ||= incomingUrgent;
     if (this.#repairing) return;
-    this.#repairing = true;
-    queueMicrotask(() => void this.#drainRepairs());
+    if (this.#retryTimer !== null) {
+      // A routine effect cannot turn an unavailable canonical reader into one
+      // retry per notification. A new integrity/reset boundary may preempt the
+      // backoff because stale authority has already been fenced.
+      if (!incomingUrgent) return;
+      clearTimeout(this.#retryTimer);
+      this.#retryTimer = null;
+    }
+    this.#repairScheduler.request(
+      this.#repairUrgent ? "immediate" : "deferred",
+    );
   }
 
-  async #drainRepairs(): Promise<void> {
+  #beginRepair(): void {
+    if (this.#disposed || this.#repairing || !this.#requiredRepair) return;
+    this.#repairing = true;
+    void this.#drainOneRepair();
+  }
+
+  async #drainOneRepair(): Promise<void> {
+    const request = this.#requiredRepair;
+    if (!request) {
+      this.#repairing = false;
+      return;
+    }
+    this.#requiredRepair = null;
+    this.#repairUrgent = false;
+    let retry = false;
     try {
-      while (!this.#disposed && this.#requiredRepair) {
-        const request = this.#requiredRepair;
-        this.#requiredRepair = null;
-        try {
-          await this.#input.readAtLeast(request);
-        } catch {
-          this.#requiredRepair = maxRepair(this.#requiredRepair, request);
-          return;
-        }
-        const current = this.#input.getCoordinate();
-        if (
-          !current
-          || current.storeEpoch !== request.storeEpoch
-          || current.scopeKey !== request.scopeKey
-          || current.revision < request.minimumRevision
-          || current.coveredCommitSeq < request.minimumCommitSeq
-        ) {
-          this.#requiredRepair = maxRepair(this.#requiredRepair, request);
-          return;
-        }
+      await this.#input.readAtLeast(request);
+      const current = this.#input.getCoordinate();
+      if (
+        !current
+        || current.storeEpoch !== request.storeEpoch
+        || current.scopeKey !== request.scopeKey
+        || current.revision < request.minimumRevision
+        || current.coveredCommitSeq < request.minimumCommitSeq
+      ) {
+        this.#requiredRepair = maxRepair(this.#requiredRepair, request);
+        this.#repairUrgent = true;
+        retry = true;
+      } else {
+        this.#repairRetryAttempt = 0;
         this.#dropCoveredBuffer(current);
         this.#drainBuffered();
       }
+    } catch {
+      this.#requiredRepair = maxRepair(this.#requiredRepair, request);
+      this.#repairUrgent = true;
+      retry = true;
     } finally {
       this.#repairing = false;
-      if (!this.#disposed && this.#requiredRepair) {
-        // Retry on a later task so a temporarily unavailable canonical read
-        // cannot create a tight microtask loop.
-        this.#retryTimer = setTimeout(() => {
-          this.#retryTimer = null;
-          if (this.#disposed || this.#repairing || !this.#requiredRepair) return;
-          this.#repairing = true;
-          void this.#drainRepairs();
-        }, 100);
-      }
     }
+
+    if (this.#disposed || !this.#requiredRepair) return;
+    if (retry) {
+      // Exponential backoff keeps a missing Core/read boundary from becoming
+      // persistent IPC pressure while retaining a finite convergence retry.
+      const retryDelayMs = Math.min(
+        REPAIR_RETRY_INITIAL_MS * (2 ** this.#repairRetryAttempt),
+        REPAIR_RETRY_MAX_MS,
+      );
+      this.#repairRetryAttempt += 1;
+      this.#retryTimer = setTimeout(() => {
+        this.#retryTimer = null;
+        if (this.#disposed || !this.#requiredRepair) return;
+        this.#repairScheduler.request("immediate");
+      }, retryDelayMs);
+      return;
+    }
+    this.#repairScheduler.request(
+      this.#repairUrgent ? "immediate" : "deferred",
+    );
   }
 
   #dropCoveredBuffer(current: ProjectionCoordinate): void {
-    for (const [baseRevision, buffered] of this.#buffer) {
+    for (const [key, buffered] of this.#buffer) {
       const effect = buffered.delivery.effect;
+      if (buffered.delivery.storeEpoch !== current.storeEpoch) {
+        this.#buffer.delete(key);
+        continue;
+      }
       if (effect.resultRevision > current.revision) continue;
       if (
         effect.resultRevision === current.revision
@@ -301,7 +389,7 @@ export class CausalProjectionRuntime {
         );
         return;
       }
-      this.#buffer.delete(baseRevision);
+      this.#buffer.delete(key);
     }
   }
 

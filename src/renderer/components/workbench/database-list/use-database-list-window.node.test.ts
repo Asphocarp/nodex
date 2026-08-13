@@ -130,7 +130,7 @@ describe("Database List window stitching", () => {
     )).toEqual({ kind: "restart" });
   });
 
-  test("preloads List while Board is active and atomically replaces retained rows", async () => {
+  test("atomically replaces retained rows when an active List advances", async () => {
     let resolveReplacement!: (value: DatabaseListWindowSnapshot) => void;
     const replacement = new Promise<DatabaseListWindowSnapshot>((resolve) => {
       resolveReplacement = resolve;
@@ -150,6 +150,7 @@ describe("Database List window stitching", () => {
       },
     });
     const store = registry.getStore(model(4));
+    const unsubscribe = store.subscribe(() => undefined);
     store.setRequest(model(4), effective);
     await waitForStore();
 
@@ -188,6 +189,7 @@ describe("Database List window stitching", () => {
     expect(sameStore.getSnapshot().rows).toMatchObject([
       { occurrenceKey: "stable-new-order" },
     ]);
+    unsubscribe();
   });
 
   test("retains the accepted List order when a background replacement fails", async () => {
@@ -204,6 +206,7 @@ describe("Database List window stitching", () => {
       },
     });
     const store = registry.getStore(model(4));
+    const unsubscribe = store.subscribe(() => undefined);
     store.setRequest(model(4), effective);
     await waitForStore();
 
@@ -216,6 +219,93 @@ describe("Database List window stitching", () => {
       error: "Couldn’t load the authoritative List window.",
       rows: [{ occurrenceKey: "accepted-order" }],
     });
+    unsubscribe();
+  });
+
+  test("does not read an inactive List and activates only its latest coordinate", async () => {
+    const requestCommitSeqs: number[] = [];
+    const registry = createDatabaseListWindowStoreRegistry({
+      readWindow: async (request) => {
+        const commitSeq = request.input.minimumCommitCursor?.commitSeq ?? -1;
+        requestCommitSeqs.push(commitSeq);
+        return snapshot({
+          rows: [{ occurrenceKey: "latest" }],
+          windowStart: 0,
+          commitSeq,
+        });
+      },
+    });
+    const store = registry.getStore(model(1));
+    for (let commitSeq = 1; commitSeq <= 100; commitSeq += 1) {
+      store.setRequest(model(commitSeq), effective);
+    }
+    await waitForStore();
+    expect(requestCommitSeqs).toEqual([]);
+
+    const unsubscribe = store.subscribe(() => undefined);
+    await waitForStore();
+
+    expect(requestCommitSeqs).toEqual([100]);
+    expect(store.getSnapshot().rows).toMatchObject([
+      { occurrenceKey: "latest" },
+    ]);
+    unsubscribe();
+  });
+
+  test("keeps rapid first-window replacements single-flight and reads only the latest target", async () => {
+    const pending: Array<(
+      value: DatabaseListWindowSnapshot,
+    ) => void> = [];
+    let requestCount = 0;
+    let activeReads = 0;
+    let maxActiveReads = 0;
+    const registry = createDatabaseListWindowStoreRegistry({
+      readWindow: async () => {
+        requestCount += 1;
+        activeReads += 1;
+        maxActiveReads = Math.max(maxActiveReads, activeReads);
+        return await new Promise<DatabaseListWindowSnapshot>((resolve) => {
+          pending.push((value) => {
+            activeReads -= 1;
+            resolve(value);
+          });
+        });
+      },
+    });
+    const store = registry.getStore(model(1));
+    const unsubscribe = store.subscribe(() => undefined);
+    store.setRequest(model(1), effective);
+    await Promise.resolve();
+
+    for (let commitSeq = 2; commitSeq <= 100; commitSeq += 1) {
+      store.setRequest(model(commitSeq), effective);
+    }
+    expect(requestCount).toBe(1);
+    expect(maxActiveReads).toBe(1);
+
+    pending.shift()?.(snapshot({
+      rows: [{ occurrenceKey: "obsolete" }],
+      windowStart: 0,
+      commitSeq: 1,
+    }));
+    await waitForStore();
+    expect(requestCount).toBe(2);
+    expect(maxActiveReads).toBe(1);
+
+    pending.shift()?.(snapshot({
+      rows: [{ occurrenceKey: "latest" }],
+      windowStart: 0,
+      commitSeq: 100,
+    }));
+    await waitForStore();
+
+    expect(requestCount).toBe(2);
+    expect(maxActiveReads).toBe(1);
+    expect(store.getSnapshot()).toMatchObject({
+      loading: false,
+      rows: [{ occurrenceKey: "latest" }],
+    });
+    unsubscribe();
   });
 
   test("hard-fences retained List rows across a Store epoch replacement", async () => {
@@ -237,6 +327,7 @@ describe("Database List window stitching", () => {
       },
     });
     const store = registry.getStore(model(4));
+    const unsubscribe = store.subscribe(() => undefined);
     store.setRequest(model(4), effective);
     await waitForStore();
 
@@ -261,5 +352,6 @@ describe("Database List window stitching", () => {
       loading: false,
       rows: [{ occurrenceKey: "new-epoch-row" }],
     });
+    unsubscribe();
   });
 });
