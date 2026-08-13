@@ -9,7 +9,7 @@ use std::collections::BTreeSet;
 
 use nodex_core_contracts::administration::StoreAdministrationEvent;
 use nodex_core_contracts::automation::AutomationEvent;
-use nodex_core_contracts::database::DatabaseEvent;
+use nodex_core_contracts::database::{DatabaseEvent, DatabasePersonalViewChange};
 use nodex_core_contracts::events::{
     AuthorizedOwnedDocumentEvent, CoreModuleEventPayload, DeliveryAtomKind, DeliveryAtomPayload,
     ResourceKey,
@@ -348,11 +348,10 @@ fn compile_database(library_id: &str, event: DatabaseEvent) -> Vec<DeliveryAtomD
             base.iter().cloned().chain([ResourceKey::Database {
                 database_id: database_id.clone(),
             }]),
-            vec![database_id.clone()],
-            Vec::new(),
-            Vec::new(),
-            Vec::new(),
-            Vec::new(),
+            DatabaseDeliveryChanges {
+                database_ids: vec![database_id.clone()],
+                ..Default::default()
+            },
         ));
     }
     for data_source_id in &event.data_source_ids {
@@ -362,11 +361,10 @@ fn compile_database(library_id: &str, event: DatabaseEvent) -> Vec<DeliveryAtomD
             base.iter().cloned().chain([ResourceKey::DataSource {
                 data_source_id: data_source_id.clone(),
             }]),
-            Vec::new(),
-            vec![data_source_id.clone()],
-            Vec::new(),
-            Vec::new(),
-            Vec::new(),
+            DatabaseDeliveryChanges {
+                data_source_ids: vec![data_source_id.clone()],
+                ..Default::default()
+            },
         ));
     }
     for page_id in &event.page_ids {
@@ -376,11 +374,10 @@ fn compile_database(library_id: &str, event: DatabaseEvent) -> Vec<DeliveryAtomD
             base.iter().cloned().chain([ResourceKey::Page {
                 page_id: page_id.clone(),
             }]),
-            Vec::new(),
-            Vec::new(),
-            vec![page_id.clone()],
-            Vec::new(),
-            Vec::new(),
+            DatabaseDeliveryChanges {
+                page_ids: vec![page_id.clone()],
+                ..Default::default()
+            },
         ));
     }
     for view_id in &event.view_ids {
@@ -390,11 +387,10 @@ fn compile_database(library_id: &str, event: DatabaseEvent) -> Vec<DeliveryAtomD
             base.iter().cloned().chain([ResourceKey::View {
                 view_id: view_id.clone(),
             }]),
-            Vec::new(),
-            Vec::new(),
-            Vec::new(),
-            vec![view_id.clone()],
-            Vec::new(),
+            DatabaseDeliveryChanges {
+                view_ids: vec![view_id.clone()],
+                ..Default::default()
+            },
         ));
     }
     for change in &event.personal_view_changes {
@@ -404,11 +400,10 @@ fn compile_database(library_id: &str, event: DatabaseEvent) -> Vec<DeliveryAtomD
             base.iter().cloned().chain([ResourceKey::View {
                 view_id: change.view_id().to_owned(),
             }]),
-            Vec::new(),
-            Vec::new(),
-            Vec::new(),
-            Vec::new(),
-            vec![change.clone()],
+            DatabaseDeliveryChanges {
+                personal_view_changes: vec![change.clone()],
+                ..Default::default()
+            },
         ));
     }
     if atoms.is_empty() {
@@ -416,25 +411,26 @@ fn compile_database(library_id: &str, event: DatabaseEvent) -> Vec<DeliveryAtomD
             library_id,
             &event,
             base,
-            Vec::new(),
-            Vec::new(),
-            Vec::new(),
-            Vec::new(),
-            Vec::new(),
+            DatabaseDeliveryChanges::default(),
         ));
     }
     atoms
+}
+
+#[derive(Default)]
+struct DatabaseDeliveryChanges {
+    database_ids: Vec<String>,
+    data_source_ids: Vec<String>,
+    page_ids: Vec<String>,
+    view_ids: Vec<String>,
+    personal_view_changes: Vec<DatabasePersonalViewChange>,
 }
 
 fn database_atom(
     library_id: &str,
     source: &DatabaseEvent,
     requirements: impl IntoIterator<Item = ResourceKey>,
-    database_ids: Vec<String>,
-    data_source_ids: Vec<String>,
-    page_ids: Vec<String>,
-    view_ids: Vec<String>,
-    personal_view_changes: Vec<nodex_core_contracts::database::DatabasePersonalViewChange>,
+    changes: DatabaseDeliveryChanges,
 ) -> DeliveryAtomDraft {
     atom(
         DeliveryAtomKind::DatabaseChanged,
@@ -444,11 +440,11 @@ fn database_atom(
             event: DatabaseEvent {
                 kind: source.kind,
                 project_id: source.project_id.clone(),
-                database_ids,
-                data_source_ids,
-                page_ids,
-                view_ids,
-                personal_view_changes,
+                database_ids: changes.database_ids,
+                data_source_ids: changes.data_source_ids,
+                page_ids: changes.page_ids,
+                view_ids: changes.view_ids,
+                personal_view_changes: changes.personal_view_changes,
             },
         },
     )

@@ -26,10 +26,10 @@ use crate::database::{
 };
 use crate::document::{
     BlockDocumentSchema, DocumentAuthorityRow, DocumentBlockOperation, DocumentMaterialization,
-    NewDocumentCheckpoint, PersistYjsCommit, PersistYjsGenesis, PortableSubtreeDocumentHead,
-    PortableSubtreeTransferKind, PortableSubtreeTransferRequest, PreparedDocumentOperationUpdate,
-    YrsDocumentEngine, decode_block_document, insert_document_checkpoint,
-    materialize_decoded_document, persist_yjs_commit_with_local_commit,
+    DocumentPlacementEvidence, NewDocumentCheckpoint, PersistYjsCommit, PersistYjsGenesis,
+    PortableSubtreeDocumentHead, PortableSubtreeTransferKind, PortableSubtreeTransferRequest,
+    PreparedDocumentOperationUpdate, YrsDocumentEngine, decode_block_document,
+    insert_document_checkpoint, materialize_decoded_document, persist_yjs_commit_with_local_commit,
     persist_yjs_genesis_with_local_commit, prepare_document_operation_update,
     prepare_page_yjs_genesis_with_content, prepare_portable_subtree_transfer_updates,
     prepare_yjs_clone_genesis, read_document_authority, reconstruct_yjs_engine, sha256,
@@ -450,6 +450,7 @@ pub(super) fn apply_agent_page_document_batch(
     let mut commits = Vec::with_capacity(batch.documents.len());
     for (index, entry) in batch.documents.into_values().enumerate() {
         let placement_block_ids = aggregate_owned_placement_block_ids(&entry.operations);
+        let structurally_detached_block_ids = deleted_operation_block_ids(&entry.operations);
         let update_id = format!(
             "agent-page-document-batch:{}:{index}",
             sha256(operation_id.as_bytes())
@@ -467,6 +468,7 @@ pub(super) fn apply_agent_page_document_batch(
             operation_id,
             store_epoch,
             TransferDocumentPlacement::Preapplied(&placement_block_ids),
+            &structurally_detached_block_ids,
             scope.evidence(),
         )?);
     }
@@ -867,6 +869,10 @@ fn apply_with_authority(
             let target_update = prepared.prepared.target.clone();
             let mut document_commits = Vec::new();
             if let Some(source_update) = source_update {
+                let structurally_detached_block_ids = removed_document_block_ids(
+                    &prepared.source_materialization,
+                    &source_update.materialization,
+                );
                 let update_id = format!("relocation:{request_hash}:source");
                 let commit = persist_prepared_update(
                     connection,
@@ -878,7 +884,11 @@ fn apply_with_authority(
                     &update_id,
                     operation_id,
                     store_epoch,
-                    TransferDocumentPlacement::Derived,
+                    TransferDocumentPlacement::Derived {
+                        advances: &[],
+                        exact_moves: &[],
+                    },
+                    &structurally_detached_block_ids,
                     scope.evidence(),
                 )?;
                 document_commits.push(commit);
@@ -898,7 +908,19 @@ fn apply_with_authority(
                 &target_update_id,
                 operation_id,
                 store_epoch,
-                TransferDocumentPlacement::Derived,
+                TransferDocumentPlacement::Derived {
+                    advances: if moves_between_documents {
+                        &prepared.prepared.inserted_forest.block_ids
+                    } else {
+                        &[]
+                    },
+                    exact_moves: if moves_between_documents {
+                        &[]
+                    } else {
+                        &intent.root_block_ids
+                    },
+                },
+                &[],
                 scope.evidence(),
             )?;
             document_commits.push(target_commit);
@@ -1983,7 +2005,11 @@ fn apply_page_ownership_transfer(
                 &update_id,
                 operation_id,
                 store_epoch,
-                TransferDocumentPlacement::Preapplied(&root_page_ids),
+                TransferDocumentPlacement::Derived {
+                    advances: &[],
+                    exact_moves: &[],
+                },
+                &root_page_ids,
                 scope.evidence(),
             )?);
         }
@@ -2124,6 +2150,7 @@ fn apply_page_ownership_transfer(
                 operation_id,
                 store_epoch,
                 TransferDocumentPlacement::Preapplied(&root_page_ids),
+                &[],
                 scope.evidence(),
             )?);
         }
@@ -2436,6 +2463,7 @@ fn apply_page_ownership_copy(
             operation_id,
             store_epoch,
             TransferDocumentPlacement::Genesis(&result_root_block_ids),
+            &[],
             scope.evidence(),
         )?;
         committed_revisions.insert(
@@ -2929,6 +2957,11 @@ fn apply_page_parent_transfer(
             let mut document_commits = Vec::new();
             let source_persistence_started_at = Instant::now();
             if let Some(source_update) = prepared.source_update.take() {
+                let structurally_detached_block_ids = prepared
+                    .roots
+                    .iter()
+                    .flat_map(|root| root.source_block_ids.iter().cloned())
+                    .collect::<Vec<_>>();
                 let update_id = format!("block-transfer:{request_hash}:source");
                 document_commits.push(persist_prepared_update(
                     connection,
@@ -2940,7 +2973,11 @@ fn apply_page_parent_transfer(
                     &update_id,
                     operation_id,
                     store_epoch,
-                    TransferDocumentPlacement::Derived,
+                    TransferDocumentPlacement::Derived {
+                        advances: &[],
+                        exact_moves: &[],
+                    },
+                    &structurally_detached_block_ids,
                     scope.evidence(),
                 )?);
             }
@@ -3327,9 +3364,7 @@ pub(super) fn stage_prepared_fresh_page_in_library(
             full_state: &full_state,
             store_epoch,
             operation_id: &update_id,
-            placement_genesis_block_ids: &[],
-            placement_preapplied_block_ids: &[],
-            placement_mutation_block_ids: &[],
+            placement: DocumentPlacementEvidence::STRUCTURAL,
             emit_event: false,
         },
         commit_context,
@@ -3536,13 +3571,12 @@ fn persist_page_parent_genesis(
             full_state: &full_state,
             store_epoch,
             operation_id: &update_id,
-            placement_genesis_block_ids: &[],
-            placement_preapplied_block_ids: &[],
             // A Move can reuse the promoted Block's descendants (or an entire
             // wrapped subtree) in the new Page Document. Their source index
             // entries were detached during staging, but their placement
             // revisions still advance exactly once here at the new authority.
-            placement_mutation_block_ids: &stage.placement_mutation_block_ids,
+            placement: DocumentPlacementEvidence::STRUCTURAL
+                .with_advances(&stage.placement_mutation_block_ids),
             emit_event: true,
         },
         attached_commit,
@@ -3671,12 +3705,14 @@ fn affected_page_ids(prepared: &PreparedTransfer) -> Vec<String> {
     page_ids
 }
 
-/// Declares which aggregate owns the placement revision represented by a
-/// prepared Document update. Ordinary Block moves derive it from the Yjs
-/// write fence. Typed Page moves advance it before rebuilding Document indexes,
-/// while copied Page shells enter their first placement at revision one.
+/// Declares which aggregate owns cross-authority placement revisions in a
+/// prepared Document update. Exact local moves are derived from the operation
+/// compiler below and never from the write fence.
 enum TransferDocumentPlacement<'a> {
-    Derived,
+    Derived {
+        advances: &'a [String],
+        exact_moves: &'a [String],
+    },
     Preapplied(&'a [String]),
     Genesis(&'a [String]),
 }
@@ -3686,8 +3722,8 @@ fn aggregate_owned_placement_block_ids(operations: &[DocumentBlockOperation]) ->
         .iter()
         .filter_map(|operation| match operation {
             DocumentBlockOperation::InsertBlock { block, .. } => Some(block.id.clone()),
-            DocumentBlockOperation::DeleteBlock { block_id }
-            | DocumentBlockOperation::MoveBlock { block_id, .. } => Some(block_id.clone()),
+            DocumentBlockOperation::MoveBlock { block_id, .. } => Some(block_id.clone()),
+            DocumentBlockOperation::DeleteBlock { .. } => None,
             DocumentBlockOperation::SetTitle { .. }
             | DocumentBlockOperation::SetRichTitle { .. }
             | DocumentBlockOperation::UpdateBlock { .. } => None,
@@ -3696,6 +3732,35 @@ fn aggregate_owned_placement_block_ids(operations: &[DocumentBlockOperation]) ->
     block_ids.sort();
     block_ids.dedup();
     block_ids
+}
+
+fn deleted_operation_block_ids(operations: &[DocumentBlockOperation]) -> Vec<String> {
+    let mut block_ids = operations
+        .iter()
+        .filter_map(|operation| match operation {
+            DocumentBlockOperation::DeleteBlock { block_id } => Some(block_id.clone()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    block_ids.sort();
+    block_ids.dedup();
+    block_ids
+}
+
+fn removed_document_block_ids(
+    base: &DocumentMaterialization,
+    result: &DocumentMaterialization,
+) -> Vec<String> {
+    let resulting_ids = result
+        .search_units
+        .iter()
+        .map(|unit| unit.block_id.as_str())
+        .collect::<BTreeSet<_>>();
+    base.search_units
+        .iter()
+        .filter(|unit| !resulting_ids.contains(unit.block_id.as_str()))
+        .map(|unit| unit.block_id.clone())
+        .collect()
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -3710,6 +3775,7 @@ fn persist_prepared_update(
     operation_id: &str,
     store_epoch: &str,
     placement: TransferDocumentPlacement<'_>,
+    structurally_detached_block_ids: &[String],
     attached_commit: &local_commit::CommitContext,
 ) -> Result<PersistedTransferCommit, StoreError> {
     let candidate = engine
@@ -3725,26 +3791,19 @@ fn persist_prepared_update(
         "block-transfer-document:{}",
         sha256(format!("{operation_id}\0{}", authority.head.id).as_bytes())
     );
-    let resulting_block_ids = update
-        .materialization
-        .search_units
-        .iter()
-        .map(|unit| unit.block_id.as_str())
-        .collect::<BTreeSet<_>>();
-    let structurally_detached_block_ids = base_materialization
-        .search_units
-        .iter()
-        .filter(|unit| !resulting_block_ids.contains(unit.block_id.as_str()))
-        .map(|unit| unit.block_id.clone())
-        .collect::<Vec<_>>();
-    let (placement_genesis_block_ids, placement_preapplied_block_ids, placement_mutation_block_ids) =
-        match placement {
-            TransferDocumentPlacement::Derived => {
-                (&[][..], &[][..], update.write_fence_block_ids.as_slice())
-            }
-            TransferDocumentPlacement::Preapplied(block_ids) => (&[][..], block_ids, &[][..]),
-            TransferDocumentPlacement::Genesis(block_ids) => (block_ids, &[][..], &[][..]),
-        };
+    let (
+        placement_genesis_block_ids,
+        placement_preapplied_block_ids,
+        placement_advance_block_ids,
+        exact_moved_block_ids,
+    ) = match placement {
+        TransferDocumentPlacement::Derived {
+            advances,
+            exact_moves,
+        } => (&[][..], &[][..], advances, exact_moves),
+        TransferDocumentPlacement::Preapplied(block_ids) => (&[][..], block_ids, &[][..], &[][..]),
+        TransferDocumentPlacement::Genesis(block_ids) => (block_ids, &[][..], &[][..], &[][..]),
+    };
     let input = PersistYjsCommit {
         authority,
         actor_project_id,
@@ -3762,10 +3821,13 @@ fn persist_prepared_update(
         event_kind: "document_updated",
         write_fence_block_ids: &update.write_fence_block_ids,
         title_write_fence_required: false,
-        structurally_detached_block_ids: &structurally_detached_block_ids,
-        placement_genesis_block_ids,
-        placement_preapplied_block_ids,
-        placement_mutation_block_ids,
+        document_write_fence_required: false,
+        placement: DocumentPlacementEvidence::STRUCTURAL
+            .with_structural_detaches(structurally_detached_block_ids)
+            .with_genesis(placement_genesis_block_ids)
+            .with_preapplied(placement_preapplied_block_ids)
+            .with_advances(placement_advance_block_ids)
+            .with_exact_moves(exact_moved_block_ids),
     };
     let persisted = persist_yjs_commit_with_local_commit(connection, input, attached_commit)?;
     Ok(PersistedTransferCommit {
