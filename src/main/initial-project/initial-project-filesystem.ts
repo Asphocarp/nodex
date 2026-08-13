@@ -6,6 +6,7 @@ import {
 } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { z } from "zod";
+import { resolveNodexProjectsDirectory } from "../nodex-projects-directory";
 import type { InitialProjectJournal } from "./initial-project-journal-store";
 import {
   isMissingPathError,
@@ -35,10 +36,7 @@ export function resolveInitialProjectProjectsDirectory(input: {
     }
     return configured;
   }
-  if (!isAbsolute(input.documentsDirectory)) {
-    throw new Error("Electron Documents directory must be absolute");
-  }
-  return join(input.documentsDirectory, "Nodex");
+  return resolveNodexProjectsDirectory(input.documentsDirectory);
 }
 
 export async function ensureRealDirectory(

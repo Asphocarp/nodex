@@ -125,7 +125,7 @@ export const CreateProject: Story = {
   parameters: {
     docs: {
       description: {
-        story: "The direct add-project destination. Submitting the empty source-folder picker provisions a new Documents workspace automatically.",
+        story: "The direct add-project destination. Submitting the empty source-folder picker provisions a new Documents/Nodex workspace automatically.",
       },
     },
   },

@@ -117,4 +117,10 @@ describe("resolveInitialProjectProjectsDirectory", () => {
       documentsDirectory: "/Users/alex/Documents",
     })).toThrow("must be an absolute path");
   });
+
+  test("rejects a relative Electron Documents directory", () => {
+    expect(() => resolveInitialProjectProjectsDirectory({
+      documentsDirectory: "Documents",
+    })).toThrow("Electron Documents directory must be absolute");
+  });
 });
