@@ -21,7 +21,10 @@ import {
   inspectClipboardPasteItems,
   readClipboardPastePayload,
 } from "./clipboard-paste-inspector";
-import { prepareComposerPickedFiles } from "./composer-picked-files";
+import {
+  COMPOSER_IMAGE_FILE_EXTENSIONS,
+  prepareComposerPickedFiles,
+} from "./composer-picked-files";
 import { registerPersistedAtomIpc } from "./persisted-atom-ipc";
 import {
   browserSidebarService,
@@ -2678,6 +2681,11 @@ export function registerIpcHandlers(
   registerHandle("shell:open-file-link", (_, target, openerId) =>
     openFileLinkTarget(target, openerId),
   );
+  registerHandle("shell:open-path-default", async (_, inputPath) => {
+    const normalizedPath = inputPath.trim();
+    if (!isAbsolute(normalizedPath)) return false;
+    return await shell.openPath(normalizedPath) === "";
+  });
   registerHandle("shell:path-context:get", () => ({
     homeDirectory: homedir(),
     separator: sep === "\\" ? ("\\" as const) : ("/" as const),
@@ -2997,18 +3005,7 @@ export function registerIpcHandlers(
               filters: [
                 {
                   name: "Images",
-                  extensions: [
-                    "png",
-                    "jpg",
-                    "jpeg",
-                    "gif",
-                    "webp",
-                    "bmp",
-                    "tiff",
-                    "tif",
-                    "heic",
-                    "heif",
-                  ],
+                  extensions: [...COMPOSER_IMAGE_FILE_EXTENSIONS],
                 },
               ],
             }

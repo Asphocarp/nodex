@@ -587,8 +587,7 @@ export function BrowserSidebarPanel({
           {
             id: event.attachment.id,
             filename: event.attachment.fileName,
-            path: event.attachment.source,
-            dataUrl: event.attachment.source,
+            source: event.attachment.source,
           },
         );
         setClearDataStatus("Browser image added to composer");

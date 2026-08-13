@@ -27,5 +27,8 @@
   "src/renderer/features/local-conversation/view/shared/tools/command-tool-call.tsx": 1,
   "src/renderer/features/local-conversation/view/shared/tools/worktree-init-activity-list.tsx": 1,
   "src/renderer/features/local-conversation/view/shared/turn-diff-surface.tsx": 1,
+  "src/renderer/features/user-attachment-image-editor/adapters/resolved-image-asset.node.test.ts": 1,
+  "src/renderer/features/user-attachment-image-editor/view/image-preview-dialog.stories.tsx": 1,
+  "src/renderer/features/user-attachment-image-editor/view/user-attachment-image-editor.stories.tsx": 1,
   "src/renderer/lib/status-chip.tsx": 1
 }

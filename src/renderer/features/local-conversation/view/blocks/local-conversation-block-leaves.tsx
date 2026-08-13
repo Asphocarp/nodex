@@ -1255,8 +1255,10 @@ export function ThreadGeneratedImageGalleryBlock({ block }: ThreadSpecialBlockPr
   return (
     <div className="flex w-full flex-col gap-3">
       <GeneratedImageGallery
+        groupId={block.id}
         images={block.images}
         pendingImageCount={block.pendingImageCount}
+        turnStartedAtMs={block.createdAt}
       />
     </div>
   );

@@ -14,8 +14,13 @@ import {
   SidePanelTerminalIcon,
   ComposerPlanModeIcon,
   ComposerPluginsIcon,
+  ImageEditorTabIcon,
 } from "@/components/shared/icons";
 import { BrowserTabFavicon } from "@/features/browser-sidebar/browser-tab-favicon";
+import {
+  restoreNormalizedImageEditorOptions,
+  UserAttachmentImageEditorSurface,
+} from "@/features/user-attachment-image-editor";
 import { SubagentAvatar, SubagentGlyphIcon } from "@/features/local-conversation/view/shared/subagent-avatar";
 import {
   getWorkspaceFileDomTabId,
@@ -46,6 +51,7 @@ import type {
 } from "@/lib/use-workbench-session-commands";
 import {
   collectPanelPresentedPageIds,
+  shouldExpandImageEditorPanelForViewChange,
   type SessionPanelRenderModel,
 } from "@/lib/workbench-panel-projection";
 import {
@@ -55,14 +61,15 @@ import {
 import {
   isAutomationPanelTab,
   isBackgroundAgentPanelTab,
+  isImageEditorPanelTab,
   isMcpAppPanelTab,
   isPanelTabClosable,
   isPlanPanelTab,
   isProcessOutputPanelTab,
-  isProjectSessionFilesPreviewTab,
   isSideChatPanelTab,
   isSubagentsPanelTab,
   isTransientPanelTab,
+  updateImageEditorPanelTabTitle,
   type ProjectSessionRenderableTab,
 } from "@/lib/workbench-panel-tab-model";
 import type {
@@ -107,7 +114,7 @@ type ProjectSession = WorkbenchSessionRenderProjection;
 type SurfaceProps = ComponentProps<typeof WorkbenchTabProjectionPanel>;
 type PanelLifecycle = Pick<
   ReturnType<typeof useWorkbenchPanelLifecycle>,
-  "closeEphemeralPanelTab" | "closeTab"
+  "closeEphemeralPanelTab" | "closeTab" | "updateActivePanel"
 >;
 type PanelOpeners = Pick<
   ReturnType<typeof useWorkbenchPanelOpeners>,
@@ -205,6 +212,7 @@ interface WorkbenchPanelProjectionInput {
 function getTabIcon(
   kind: WorkbenchTabProjection["kind"],
 ): ComponentType<{ className?: string }> {
+  if (kind === "image_editor") return ImageEditorTabIcon;
   return getPanelNewTabAction(kind).Icon;
 }
 
@@ -221,6 +229,7 @@ function resolveProjectTargetTabChromeContext(
     || isBackgroundAgentPanelTab(tab)
     || isSubagentsPanelTab(tab)
     || isProcessOutputPanelTab(tab)
+    || isImageEditorPanelTab(tab)
   ) return {};
   if (
     tab.kind !== "db_view"
@@ -317,6 +326,7 @@ export function useWorkbenchPanelProjection({
   const {
     closeEphemeralPanelTab,
     closeTab,
+    updateActivePanel,
   } = lifecycle;
   const {
     openCanvasStage,
@@ -367,6 +377,8 @@ export function useWorkbenchPanelProjection({
     void terminalSessionVersion;
     const makeItem = (tab: ProjectSessionRenderableTab): AppShellTabItem => {
       const transientPanelTab = isTransientPanelTab(tab);
+      const durableImageEditorTab = !transientPanelTab
+        && tab.kind === "image_editor";
       const title = !transientPanelTab
           && tab.kind === "terminal"
           && "terminalSessionId" in tab.config
@@ -423,7 +435,11 @@ export function useWorkbenchPanelProjection({
             : undefined,
         title,
         titleSource: pageStageTitleSource,
-        ...chromeContext,
+        ...(isImageEditorPanelTab(tab)
+          ? { tooltip: tab.tooltip }
+          : durableImageEditorTab
+            ? { tooltip: tab.config.tooltip }
+          : chromeContext),
         icon: isSideChatPanelTab(tab)
           ? SidePanelSideChatIcon
           : isMcpAppPanelTab(tab)
@@ -438,10 +454,11 @@ export function useWorkbenchPanelProjection({
                     ? SubagentGlyphIcon
                     : isProcessOutputPanelTab(tab)
                       ? SidePanelTerminalIcon
-                    : filesIcon
-                        ?? (isProjectSessionFilesPreviewTab(tab)
-                          ? getTabIcon(tab.kind)
-                          : getTabIcon(tab.kind)),
+                      : isImageEditorPanelTab(tab)
+                        ? ImageEditorTabIcon
+                        : durableImageEditorTab
+                          ? ImageEditorTabIcon
+                        : filesIcon ?? getTabIcon(tab.kind),
         iconElement: !transientPanelTab && tab.kind === "browser" ? (
           <BrowserTabFavicon
             className="icon-xs"
@@ -453,7 +470,14 @@ export function useWorkbenchPanelProjection({
           />
         ) : undefined,
         closable: isPanelTabClosable(tab),
-        preview: transientPanelTab ? undefined : tab.preview,
+        preview: isImageEditorPanelTab(tab)
+          ? tab.preview
+          : transientPanelTab
+            ? undefined
+            : tab.preview,
+        pinBehavior: isImageEditorPanelTab(tab)
+          ? tab.pinBehavior
+          : undefined,
         reorderable: transientPanelTab ? false : tab.preview !== true,
         splittable: !transientPanelTab && tab.preview !== true,
         contextMenuItems: !transientPanelTab && tab.kind === "browser"
@@ -601,6 +625,118 @@ export function useWorkbenchPanelProjection({
               <ProcessOutputPanelTabView
                 key={`${session.id}:${tab.id}:${tab.stateKey}`}
                 tab={tab}
+              />
+            );
+          }
+          if (isImageEditorPanelTab(tab)) {
+            return (
+              <UserAttachmentImageEditorSurface
+                key={`${session.id}:${tab.id}:${tab.stateKey}`}
+                fullWidth={model.rightPanelFullWidth}
+                options={tab.options}
+                onStateChange={(state) => {
+                  if (shouldExpandImageEditorPanelForViewChange({
+                    panelIsFullWidth: model.rightPanelFullWidth,
+                    previousView: tab.options.initialView,
+                    view: state.view,
+                  })) {
+                    void updateActivePanel("right", {
+                      size: {
+                        ...model.rightPanel.size,
+                        fullWidth: true,
+                      },
+                    });
+                  }
+                  panelControllerRef.current.updateImageEditorTabsBySession(
+                    (current) => {
+                      const tabs = current[session.id] ?? [];
+                      let changed = false;
+                      const nextTabs = tabs.map((candidate) => {
+                        if (candidate.id !== tab.id) return candidate;
+                        if (
+                          candidate.options.initialImageId === state.activeImageId
+                          && candidate.options.initialPlaygroundTool === state.playgroundTool
+                          && candidate.options.initialView === state.view
+                        ) return candidate;
+                        changed = true;
+                        return {
+                          ...candidate,
+                          options: {
+                            ...candidate.options,
+                            initialImageId: state.activeImageId,
+                            initialPlaygroundTool: state.playgroundTool,
+                            initialView: state.view,
+                          },
+                        };
+                      });
+                      return changed
+                        ? { ...current, [session.id]: nextTabs }
+                        : current;
+                    },
+                  );
+                }}
+                onTitleChange={(nextTitle: string) => {
+                  const title = nextTitle.trim() || tab.options.title;
+                  panelControllerRef.current
+                    .updateImageEditorTabsBySession((current) => {
+                      const tabs = current[session.id] ?? [];
+                      const nextTabs = updateImageEditorPanelTabTitle(
+                        tabs,
+                        tab.id,
+                        title,
+                      );
+                      return nextTabs.some(
+                        (candidate, index) =>
+                          candidate !== tabs[index],
+                      )
+                        ? { ...current, [session.id]: nextTabs }
+                        : current;
+                    });
+                }}
+              />
+            );
+          }
+          if (durableImageEditorTab) {
+            return (
+              <UserAttachmentImageEditorSurface
+                key={`${session.id}:${tab.id}:${tab.stateKey}`}
+                fullWidth={model.rightPanelFullWidth}
+                options={restoreNormalizedImageEditorOptions(
+                  tab.config,
+                  tab.title,
+                )}
+                onStateChange={(state) => {
+                  if (shouldExpandImageEditorPanelForViewChange({
+                    panelIsFullWidth: model.rightPanelFullWidth,
+                    previousView: tab.config.initialView,
+                    view: state.view,
+                  })) {
+                    void updateActivePanel("right", {
+                      size: {
+                        ...model.rightPanel.size,
+                        fullWidth: true,
+                      },
+                    });
+                  }
+                  if (
+                    tab.config.initialImageId === state.activeImageId
+                    && tab.config.initialPlaygroundTool === state.playgroundTool
+                    && tab.config.initialView === state.view
+                  ) return;
+                  onUpdateSessionViewTab(tab.id, {
+                    config: {
+                      ...tab.config,
+                      initialImageId: state.activeImageId,
+                      initialPlaygroundTool: state.playgroundTool,
+                      initialView: state.view,
+                    },
+                  });
+                }}
+                onTitleChange={(nextTitle: string) => {
+                  const title = nextTitle.trim() || tab.title;
+                  if (title === tab.title) return;
+                  onUpdateSessionViewTab(tab.id, { title });
+                }}
               />
             );
           }
@@ -785,6 +921,7 @@ export function useWorkbenchPanelProjection({
     surface,
     terminalSessionVersion,
     threadQueueFollowUpsEnabled,
+    updateActivePanel,
   ]);
 
   const panelGroupTabs = useMemo<PanelGroupTabsByPanel>(() => {

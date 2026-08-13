@@ -1,26 +1,25 @@
-export interface PendingImageAnimationClock {
+export interface GeneratedImageAnimationClock {
   subscribe(listener: (nowMs: number) => void): () => void;
   now(): number;
 }
 
-export interface PendingImageAnimationClockRuntime {
+export interface GeneratedImageAnimationClockRuntime {
   cancelFrame(frameId: number): void;
   now(): number;
   requestFrame(callback: (nowMs: number) => void): number;
 }
 
-export interface PendingImageAnimationClockController
-extends PendingImageAnimationClock {
+export interface GeneratedImageAnimationClockController
+extends GeneratedImageAnimationClock {
   getSubscriberCount(): number;
 }
 
-export function createPendingImageAnimationClock(
-  runtime: PendingImageAnimationClockRuntime,
-): PendingImageAnimationClockController {
+export function createGeneratedImageAnimationClock(
+  runtime: GeneratedImageAnimationClockRuntime,
+): GeneratedImageAnimationClockController {
   const listeners = new Set<(nowMs: number) => void>();
   let frameId: number | null = null;
   let lastNowMs = Number.NEGATIVE_INFINITY;
-
   const readNow = (candidate = runtime.now()) => {
     lastNowMs = Math.max(lastNowMs, candidate);
     return lastNowMs;
@@ -35,7 +34,6 @@ export function createPendingImageAnimationClock(
     for (const listener of [...listeners]) listener(nowMs);
     schedule();
   };
-
   return {
     subscribe(listener) {
       listeners.add(listener);
@@ -52,16 +50,16 @@ export function createPendingImageAnimationClock(
   };
 }
 
-const sharedPendingImageAnimationClock = createPendingImageAnimationClock({
+const sharedClock = createGeneratedImageAnimationClock({
   cancelFrame: (frameId) => cancelAnimationFrame(frameId),
   now: () => performance.now(),
   requestFrame: (callback) => requestAnimationFrame(callback),
 });
 
-export function getPendingImageAnimationClock(): PendingImageAnimationClock {
-  return sharedPendingImageAnimationClock;
+export function getGeneratedImageAnimationClock(): GeneratedImageAnimationClock {
+  return sharedClock;
 }
 
-export function getPendingImageAnimationClockSubscriberCount(): number {
-  return sharedPendingImageAnimationClock.getSubscriberCount();
+export function getGeneratedImageAnimationClockSubscriberCount(): number {
+  return sharedClock.getSubscriberCount();
 }

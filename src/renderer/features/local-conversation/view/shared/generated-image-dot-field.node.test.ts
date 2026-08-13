@@ -2,8 +2,9 @@ import { describe, expect, test } from "vitest";
 
 import {
   createGeneratedImageDotFieldConfig,
+  resolveGeneratedImageDotFieldGridSpacing,
   resolveGeneratedImageDotFieldFrame,
-} from "./generated-image-dot-field";
+} from "../../../user-attachment-image-editor/model/generated-image-loading-presentation";
 
 describe("generated image dot field", () => {
   test("freezes all random channels into a once-per-mount configuration", () => {
@@ -45,5 +46,12 @@ describe("generated image dot field", () => {
     expect(Object.values(first).every(Number.isFinite)).toBe(true);
     expect(first.firstSize).toBeGreaterThan(0);
     expect(first.secondSize).toBeGreaterThan(0);
+  });
+
+  test("uses device pixels only for the default field density", () => {
+    expect(resolveGeneratedImageDotFieldGridSpacing("default", 2)).toBe(6);
+    expect(resolveGeneratedImageDotFieldGridSpacing("single", 2)).toBe(6);
+    expect(resolveGeneratedImageDotFieldGridSpacing("playground", 2)).toBe(14);
+    expect(resolveGeneratedImageDotFieldGridSpacing("thumbnail", 2)).toBe(6);
   });
 });

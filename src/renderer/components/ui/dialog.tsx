@@ -81,6 +81,8 @@ export function NodexDialogContent({
   children,
   showCloseButton = true,
   closeButtonAriaLabel = "Close",
+  closeButtonClassName,
+  closeIconClassName,
   size = "default",
   unstyledContent = false,
   ...props
@@ -88,6 +90,8 @@ export function NodexDialogContent({
   showCloseButton?: boolean;
   overlayClassName?: string;
   closeButtonAriaLabel?: string;
+  closeButtonClassName?: string;
+  closeIconClassName?: string;
   size?: NodexDialogSize;
   unstyledContent?: boolean;
 }) {
@@ -112,10 +116,13 @@ export function NodexDialogContent({
         {children}
         {showCloseButton ? (
           <DialogPrimitive.Close
-            className="no-drag absolute top-4 right-4 cursor-interaction rounded p-1 leading-none text-token-foreground/80 hover:bg-token-toolbar-hover-background focus:outline-none focus-visible:ring-1 focus-visible:ring-token-focus-border"
+            className={cn(
+              "no-drag absolute top-4 right-4 cursor-interaction rounded p-1 leading-none text-token-foreground/80 hover:bg-token-toolbar-hover-background focus:outline-none focus-visible:ring-1 focus-visible:ring-token-focus-border",
+              closeButtonClassName,
+            )}
             aria-label={closeButtonAriaLabel}
           >
-            <CloseIcon className="icon-xs" />
+            <CloseIcon className={closeIconClassName ?? "icon-xs"} />
           </DialogPrimitive.Close>
         ) : null}
       </DialogPrimitive.Content>

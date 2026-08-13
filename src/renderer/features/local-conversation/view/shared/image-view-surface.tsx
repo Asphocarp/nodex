@@ -1,15 +1,85 @@
-import { useCallback, useState, type KeyboardEvent } from "react";
-import { ImageIcon } from "@/components/shared/icons/generic-icons";
-import { buildFileUrl } from "../../../../../shared/file-link-openers";
-import { ImagePreviewDialog } from "./user-message-attachments";
+import { useRef, useState } from "react";
+import { ImageIcon, LoaderCircleIcon } from "@/components/shared/icons/generic-icons";
+import {
+  ImagePreviewDialog,
+  resolveImageDisplaySource,
+} from "@/features/user-attachment-image-editor";
 import { ThreadActivityShell, ThreadRichActivityHeader } from "./tools/tool-primitives";
+import { useConversationImageAsset } from "./use-conversation-image-asset";
 
-export function resolveInspectedImageSource(source: string): string {
-  if (/^(?:blob:|data:image\/|file:|https?:\/\/|nodex:\/\/)/iu.test(source)) return source;
-  if (source.startsWith("/") || /^[a-zA-Z]:[\\/]/u.test(source)) {
-    return buildFileUrl({ path: source });
+function InspectedImageButton({
+  alt,
+  displaySrc,
+  onImageError,
+  onOpen,
+}: {
+  alt: string;
+  displaySrc: string;
+  onImageError: () => void;
+  onOpen: (trigger: HTMLButtonElement) => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="size-20 cursor-interaction rounded-lg border border-token-border-heavy focus:outline-none focus-visible:ring-1 focus-visible:ring-token-focus-border"
+      aria-label={alt}
+      onClick={(event) => onOpen(event.currentTarget)}
+    >
+      <img
+        src={displaySrc}
+        className="h-full w-full rounded-md object-cover"
+        referrerPolicy="no-referrer"
+        alt={alt}
+        onError={onImageError}
+      />
+    </button>
+  );
+}
+
+function ResolvedInspectedImageThumbnail({
+  alt,
+  onOpen,
+  source,
+}: {
+  alt: string;
+  onOpen: (trigger: HTMLButtonElement) => void;
+  source: string;
+}) {
+  const asset = useConversationImageAsset(source, { shouldLoadFileDataUrl: true });
+
+  if (asset.isLoading && !asset.dataUrl) {
+    return (
+      <div
+        aria-label={`Loading ${alt.toLowerCase()}`}
+        className="flex size-20 items-center justify-center rounded-lg border border-token-border-heavy text-token-description-foreground"
+        role="status"
+      >
+        <LoaderCircleIcon aria-hidden="true" className="icon-xs animate-spin" />
+      </div>
+    );
   }
-  return source;
+
+  if (asset.isError || !asset.previewSrc) {
+    return (
+      <button
+        aria-label={`Retry ${alt.toLowerCase()}`}
+        className="size-20 cursor-interaction rounded-lg border border-token-border-heavy text-sm text-token-description-foreground focus:outline-none focus-visible:ring-1 focus-visible:ring-token-focus-border"
+        type="button"
+        onClick={() => void asset.refetch()}
+      >
+        Image unavailable
+      </button>
+    );
+  }
+
+  return (
+    <InspectedImageButton
+      alt={alt}
+      displaySrc={asset.previewSrc}
+      onImageError={() => void asset.refetch()}
+      onOpen={onOpen}
+    />
+  );
 }
 
 function InspectedImageThumbnail({
@@ -18,43 +88,36 @@ function InspectedImageThumbnail({
   source,
 }: {
   alt: string;
-  onOpen: () => void;
+  onOpen: (trigger: HTMLButtonElement) => void;
   source: string;
 }) {
-  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.key !== "Enter" && event.key !== " ") return;
-    event.preventDefault();
-    onOpen();
-  };
+  const [shouldResolve, setShouldResolve] = useState(false);
+  const displaySrc = resolveImageDisplaySource(source, { allowLocalPath: true });
+
+  if (shouldResolve || !displaySrc) {
+    return <ResolvedInspectedImageThumbnail alt={alt} onOpen={onOpen} source={source} />;
+  }
 
   return (
-    <div
-      className="size-20 cursor-interaction rounded-lg border border-token-border-heavy focus:outline-none focus-visible:ring-1 focus-visible:ring-token-focus-border"
-      role="button"
-      tabIndex={0}
-      aria-label={alt}
-      onClick={onOpen}
-      onKeyDown={handleKeyDown}
-    >
-      <img
-        src={source}
-        className="h-full w-full rounded-md object-cover"
-        referrerPolicy="no-referrer"
-        alt={alt}
-      />
-    </div>
+    <InspectedImageButton
+      alt={alt}
+      displaySrc={displaySrc}
+      onImageError={() => setShouldResolve(true)}
+      onOpen={onOpen}
+    />
   );
 }
 
 export function ImageViewSurface({ imagePaths }: { imagePaths: readonly string[] }) {
   const [expanded, setExpanded] = useState(false);
   const [openIndex, setOpenIndex] = useState<number | null>(null);
-  const sources = imagePaths.map(resolveInspectedImageSource);
+  const previewTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const sources = imagePaths;
   const canExpand = sources.length > 0;
   const summary = sources.length === 1 ? "Viewed an image" : `Viewed ${sources.length} images`;
-  const handleOpenChange = useCallback((open: boolean) => {
+  const handleOpenChange = (open: boolean) => {
     if (!open) setOpenIndex(null);
-  }, []);
+  };
   const activeSource = openIndex === null ? null : sources[openIndex] ?? null;
 
   return (
@@ -83,7 +146,8 @@ export function ImageViewSurface({ imagePaths }: { imagePaths: readonly string[]
                     key={`${source}:${index}`}
                     alt="Inspected image"
                     source={source}
-                    onOpen={() => {
+                    onOpen={(trigger) => {
+                      previewTriggerRef.current = trigger;
                       setOpenIndex(index);
                     }}
                   />
@@ -99,6 +163,11 @@ export function ImageViewSurface({ imagePaths }: { imagePaths: readonly string[]
           onOpenChange={handleOpenChange}
           src={activeSource}
           alt="Inspected image"
+          allowLocalPath
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            previewTriggerRef.current?.focus();
+          }}
           onPreviousImage={openIndex !== null && openIndex > 0 ? () => {
             setOpenIndex(openIndex - 1);
           } : undefined}

@@ -23,6 +23,7 @@ import {
 } from "./workbench-panel-layout";
 import type { BrowserSidebarDeviceToolbarState } from "./browser-sidebar";
 import type { WorkbenchReviewConfig } from "./workbench-review-context";
+import type { WorkbenchImageEditorSurfaceConfig } from "./workbench-image-editor";
 
 export const WORKBENCH_SESSION_VIEW_VERSION = 4 as const;
 export const WORKBENCH_SESSION_VIEW_MAX_TABS = 2_048;
@@ -56,7 +57,8 @@ export type WorkbenchSessionViewTabKind =
   | "terminal"
   | "browser"
   | "review"
-  | "files";
+  | "files"
+  | "image_editor";
 
 export interface WorkbenchDbViewTabConfig {
   projectId: string;
@@ -107,6 +109,7 @@ export interface WorkbenchSessionViewTabConfigByKind {
   browser: WorkbenchBrowserTabConfig;
   review: WorkbenchReviewTabConfig;
   files: WorkbenchFilesTabConfig;
+  image_editor: WorkbenchImageEditorSurfaceConfig;
 }
 
 type WorkbenchSessionViewTabVariant = {

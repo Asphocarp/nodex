@@ -29,6 +29,7 @@ import { ThreadComposer } from "./local-conversation-thread-composer";
 import {
   composerAppshotContextsAtom,
   composerFileAttachmentsAtom,
+  composerImageAttachmentsAtom,
   composerPastedTextAttachmentsAtom,
 } from "./composer-draft-state";
 import { PROMPT_HISTORY_ATOM_KEY } from "./thread-composer-prompt-history";
@@ -52,6 +53,7 @@ interface ComposerSendButtonStoryProps {
   seedPromptHistory: boolean;
   seedCompletedContext: boolean;
   seedAppshot: boolean;
+  seedImageAttachment: boolean;
   pastedTextState: "none" | "pending" | "ready" | "failed";
   multiProviderCatalog: boolean;
 }
@@ -611,20 +613,29 @@ function buildActions(): ThreadStageActions {
 function ComposerCompletedContextSeeder({
   enabled,
   seedAppshot,
+  seedImageAttachment,
   pastedTextState,
 }: {
   enabled: boolean;
   seedAppshot: boolean;
+  seedImageAttachment: boolean;
   pastedTextState: ComposerSendButtonStoryProps["pastedTextState"];
 }) {
   const setAppshotContexts = useSetScopedAtom(composerAppshotContextsAtom);
   const setFileAttachments = useSetScopedAtom(composerFileAttachmentsAtom);
+  const setImageAttachments = useSetScopedAtom(composerImageAttachmentsAtom);
   const setPastedTextAttachments = useSetScopedAtom(composerPastedTextAttachmentsAtom);
 
   useLayoutEffect(() => {
-    if (!enabled && !seedAppshot && pastedTextState === "none") {
+    if (
+      !enabled
+      && !seedAppshot
+      && !seedImageAttachment
+      && pastedTextState === "none"
+    ) {
       setAppshotContexts([]);
       setFileAttachments([]);
+      setImageAttachments([]);
       setPastedTextAttachments([]);
       return;
     }
@@ -646,6 +657,17 @@ function ComposerCompletedContextSeeder({
       imageName: "Safari Appshot.png",
       imageDataUrl: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='720' height='480'%3E%3Crect width='720' height='480' fill='%23e8edf3'/%3E%3Crect x='24' y='24' width='672' height='48' rx='12' fill='%23ffffff'/%3E%3Crect x='24' y='96' width='672' height='360' rx='12' fill='%23ffffff'/%3E%3Cpath d='M72 150h440M72 196h520M72 242h360' stroke='%239aa6b2' stroke-width='16' stroke-linecap='round'/%3E%3C/svg%3E",
       appIconDataUrl: null,
+    }] : []);
+    setImageAttachments(seedImageAttachment ? [{
+      id: "story-composer-image",
+      filename: "painted-mountain.png",
+      mimeType: "image/png",
+      src: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='320' height='320'%3E%3Cdefs%3E%3ClinearGradient id='g' x2='1' y2='1'%3E%3Cstop stop-color='%23ffb37b'/%3E%3Cstop offset='1' stop-color='%23ca4b5f'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='320' height='320' fill='url(%23g)'/%3E%3Ccircle cx='220' cy='95' r='52' fill='%23ffe5ba' fill-opacity='.9'/%3E%3Cpath d='M0 270L85 165l58 67 48-46 129 134H0z' fill='%23532855' fill-opacity='.72'/%3E%3C/svg%3E",
+      origin: "restored",
+      materialization: null,
+      materializationStatus: "failed",
+      uploadStatus: "idle",
+      generation: 1,
     }] : []);
 
     const resolvedPastedTextState = pastedTextState === "none" && enabled
@@ -686,14 +708,17 @@ function ComposerCompletedContextSeeder({
     return () => {
       setAppshotContexts([]);
       setFileAttachments([]);
+      setImageAttachments([]);
       setPastedTextAttachments([]);
     };
   }, [
     enabled,
     pastedTextState,
     seedAppshot,
+    seedImageAttachment,
     setAppshotContexts,
     setFileAttachments,
+    setImageAttachments,
     setPastedTextAttachments,
   ]);
 
@@ -739,6 +764,7 @@ function ComposerSendButtonStory(args: ComposerSendButtonStoryProps) {
             <ComposerCompletedContextSeeder
               enabled={args.seedCompletedContext}
               seedAppshot={args.seedAppshot}
+              seedImageAttachment={args.seedImageAttachment}
               pastedTextState={args.pastedTextState}
             />
             <ThreadComposer
@@ -776,6 +802,7 @@ const meta = {
     seedPromptHistory: false,
     seedCompletedContext: false,
     seedAppshot: false,
+    seedImageAttachment: false,
     pastedTextState: "none",
     multiProviderCatalog: false,
   },
@@ -839,6 +866,9 @@ const meta = {
       control: "boolean",
     },
     seedAppshot: {
+      control: "boolean",
+    },
+    seedImageAttachment: {
       control: "boolean",
     },
     pastedTextState: {
@@ -1002,6 +1032,34 @@ export const AppshotAttachment: Story = {
     docs: {
       description: {
         story: "A captured foreground macOS application, including its screenshot and accessibility context, attached above the composer.",
+      },
+    },
+  },
+};
+
+export const ImageAttachment: Story = {
+  args: {
+    seedImageAttachment: true,
+  },
+  parameters: {
+    docs: {
+      description: {
+        story: "The image-only Composer state uses the full-size thumbnail shell above the prompt.",
+      },
+    },
+  },
+};
+
+export const ImageAndFileAttachments: Story = {
+  args: {
+    seedCompletedContext: true,
+    seedImageAttachment: true,
+    surfaceWidth: "narrow",
+  },
+  parameters: {
+    docs: {
+      description: {
+        story: "A mixed attachment row compacts the image while preserving one shared scrolling baseline.",
       },
     },
   },

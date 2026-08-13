@@ -14,6 +14,7 @@ import {
 function buildModel(overrides?: Partial<ThreadFooterModel>): ThreadFooterModel {
   return {
     projectId: "project_1",
+    hostId: "default",
     projectWorkspacePath: "/tmp/project",
     threadId: "thread_1",
     cwd: "/tmp/project",

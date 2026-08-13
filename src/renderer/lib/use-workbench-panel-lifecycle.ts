@@ -8,6 +8,10 @@ import {
 import { invoke } from "./api";
 import { toast } from "@/components/ui/toast";
 import {
+  materializeWorkbenchImageEditorSurfaceConfig,
+  trackImageEditorPinOutcome,
+} from "@/features/user-attachment-image-editor";
+import {
   terminalSessionStore,
 } from "./terminal-session-store";
 import {
@@ -127,6 +131,7 @@ export function useWorkbenchPanelLifecycle({
     automationTabsBySession,
     backgroundAgentTabsBySession,
     processOutputTabsBySession,
+    imageEditorTabsBySession,
   } = controller;
 
 const updateSessionPanel = useCallback(async (
@@ -272,13 +277,18 @@ const updateSessionPanel = useCallback(async (
       if (tab.id === excludedTabId) return false;
       return tab.panelId === panelId && (tab.leafId ?? activeLeafId) === leafId;
     }).length;
+    const imageEditorCount = (imageEditorTabsBySession[activeSession.id] ?? []).filter((tab) => {
+      if (tab.id === excludedTabId) return false;
+      return tab.panelId === panelId && (tab.leafId ?? activeLeafId) === leafId;
+    }).length;
     const previewTab = getRenderablePanelPreviewTab(activeSession, panelId, leafId, previewTabsByPanel);
     const previewCount = previewTab && previewTab.id !== excludedTabId ? 1 : 0;
-    return durableCount + sideChatCount + mcpAppCount + planCount + automationCount + backgroundAgentCount + processOutputCount + previewCount;
+    return durableCount + sideChatCount + mcpAppCount + planCount + automationCount + backgroundAgentCount + processOutputCount + imageEditorCount + previewCount;
   }, [
     activeSession,
     automationTabsBySession,
     backgroundAgentTabsBySession,
+    imageEditorTabsBySession,
     mcpAppTabsBySession,
     planTabsBySession,
     processOutputTabsBySession,
@@ -689,6 +699,65 @@ const updateSessionPanel = useCallback(async (
   const pinPreviewTab = useCallback(async (panelId: PanelId, tabId: string, leafId?: string) => {
     if (!activeSession) return;
     const targetLeafId = leafId ?? resolveSessionPanelActiveLeafId(activeSession, panelId);
+    const imagePreview = (imageEditorTabsBySession[activeSession.id] ?? [])
+      .find((tab) =>
+        tab.id === tabId
+        && tab.preview === true
+        && tab.panelId === panelId
+        && (tab.leafId ?? targetLeafId) === targetLeafId
+      );
+    if (imagePreview) {
+      if (pinningPreviewTabIdsRef.current.has(tabId)) return;
+      pinningPreviewTabIdsRef.current.add(tabId);
+      try {
+        const config = await materializeWorkbenchImageEditorSurfaceConfig(
+          imagePreview.options,
+        );
+        if (!config) {
+          trackImageEditorPinOutcome({
+            entrypoint: imagePreview.options.entrypoint,
+            imageSource: imagePreview.options.imageSource,
+            outcome: "failed",
+            reason: "asset-materialization",
+          });
+          toast.danger("Could not keep this image tab open");
+          return;
+        }
+        const created = createSessionViewTab({
+          sessionId: activeSession.id,
+          panelId,
+          targetLeafId,
+          clientTabId: imagePreview.id,
+          title: imagePreview.title,
+          kind: "image_editor",
+          config,
+        });
+        if (!created) {
+          trackImageEditorPinOutcome({
+            entrypoint: imagePreview.options.entrypoint,
+            imageSource: imagePreview.options.imageSource,
+            outcome: "failed",
+            reason: "scene-create",
+          });
+          toast.danger("Could not keep this image tab open");
+          return;
+        }
+        panelControllerRef.current.removeEphemeralTab({
+          sessionId: activeSession.id,
+          panelId,
+          leafId: targetLeafId,
+          tabId,
+        });
+        trackImageEditorPinOutcome({
+          entrypoint: imagePreview.options.entrypoint,
+          imageSource: imagePreview.options.imageSource,
+          outcome: "pinned",
+        });
+      } finally {
+        pinningPreviewTabIdsRef.current.delete(tabId);
+      }
+      return;
+    }
     const previewTab = previewTabsByPanel[makeWorkbenchSessionPanelSlotKey(activeSession.id, panelId, targetLeafId)]
       ?? previewTabsByPanel[makeWorkbenchSessionPanelSlotKey(activeSession.id, panelId)];
     if (!previewTab || previewTab.id !== tabId) return;
@@ -720,6 +789,7 @@ const updateSessionPanel = useCallback(async (
     activeSession,
     clearPanelPreviewTab,
     createSessionViewTab,
+    imageEditorTabsBySession,
     pinningPreviewTabIdsRef,
     previewTabsByPanel,
   ]);

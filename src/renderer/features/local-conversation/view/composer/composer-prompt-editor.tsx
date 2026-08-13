@@ -27,6 +27,10 @@ import {
   type ComposerSuggestionState,
   type ComposerSuggestionTransactionMeta,
 } from "./composer-suggestion-state";
+import {
+  handleComposerFilePaste,
+  type ComposerPastedFiles,
+} from "./image-attachments/composer-image-data-transfer";
 
 export type ComposerPromptMentionKind =
   | "agent"
@@ -636,6 +640,15 @@ function handleComposerLargeTextPaste(
   return true;
 }
 
+function handleComposerPaste(
+  event: ClipboardEvent,
+  onPasteFiles: ((payload: ComposerPastedFiles) => boolean) | undefined,
+  onLargeTextPaste: ((text: string) => boolean) | undefined,
+): boolean {
+  return handleComposerFilePaste(event, onPasteFiles)
+    || handleComposerLargeTextPaste(event, onLargeTextPaste);
+}
+
 const promptEditingKeymapPlugin = keymap({
   ...baseKeymap,
   "Shift-Enter": baseKeymap.Enter,
@@ -703,6 +716,7 @@ interface ComposerPromptEditorProps {
   onChange: (value: string) => void;
   onKeyDown: (event: KeyboardEvent) => boolean;
   onLargeTextPaste?: (text: string) => boolean;
+  onPasteFiles?: (payload: ComposerPastedFiles) => boolean;
   onSuggestionStateChange?: (state: ComposerSuggestionState) => void;
   onSuggestionAction?: (action: ComposerSuggestionAction) => boolean;
   onIntrinsicContentWidthChange?: (widthPx: number) => void;
@@ -1031,6 +1045,7 @@ export const ComposerPromptEditor = forwardRef<ComposerPromptEditorHandle, Compo
     onChange,
     onKeyDown,
     onLargeTextPaste,
+    onPasteFiles,
     onSuggestionStateChange,
     onSuggestionAction,
     onIntrinsicContentWidthChange,
@@ -1043,6 +1058,7 @@ export const ComposerPromptEditor = forwardRef<ComposerPromptEditorHandle, Compo
     const onChangeRef = useRef(onChange);
     const onKeyDownRef = useRef(onKeyDown);
     const onLargeTextPasteRef = useRef(onLargeTextPaste);
+    const onPasteFilesRef = useRef(onPasteFiles);
     const onSuggestionStateChangeRef = useRef(onSuggestionStateChange);
     const onSuggestionActionRef = useRef(onSuggestionAction);
     const onIntrinsicContentWidthChangeRef = useRef(
@@ -1055,6 +1071,7 @@ export const ComposerPromptEditor = forwardRef<ComposerPromptEditorHandle, Compo
     onChangeRef.current = onChange;
     onKeyDownRef.current = onKeyDown;
     onLargeTextPasteRef.current = onLargeTextPaste;
+    onPasteFilesRef.current = onPasteFiles;
     onSuggestionStateChangeRef.current = onSuggestionStateChange;
     onSuggestionActionRef.current = onSuggestionAction;
     onIntrinsicContentWidthChangeRef.current = onIntrinsicContentWidthChange;
@@ -1385,8 +1402,9 @@ export const ComposerPromptEditor = forwardRef<ComposerPromptEditorHandle, Compo
         handleKeyDown: (currentView, event) =>
           handleSuggestionKeyDown(currentView, event)
           || onKeyDownRef.current(event),
-        handlePaste: (_view, event) => handleComposerLargeTextPaste(
+        handlePaste: (_view, event) => handleComposerPaste(
           event,
+          onPasteFilesRef.current,
           onLargeTextPasteRef.current,
         ),
         dispatchTransaction(transaction) {
@@ -1429,8 +1447,9 @@ export const ComposerPromptEditor = forwardRef<ComposerPromptEditorHandle, Compo
         handleKeyDown: (currentView, event) =>
           handleSuggestionKeyDown(currentView, event)
           || onKeyDownRef.current(event),
-        handlePaste: (_currentView, event) => handleComposerLargeTextPaste(
+        handlePaste: (_currentView, event) => handleComposerPaste(
           event,
+          onPasteFilesRef.current,
           onLargeTextPasteRef.current,
         ),
       });

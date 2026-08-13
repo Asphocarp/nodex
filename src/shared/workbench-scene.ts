@@ -6,6 +6,7 @@ import {
   type ContentAccessContext,
 } from "./content-access-context";
 import type { DatabaseId } from "./database-identities";
+import type { WorkbenchImageEditorSurfaceConfig } from "./workbench-image-editor";
 import type { LibraryResourceTarget } from "./library-module";
 import {
   resolveWorkbenchReviewContext,
@@ -49,7 +50,7 @@ import {
   type WorkbenchPanelSplitSide,
 } from "./workbench-panel-layout";
 
-export const WORKBENCH_SCENE_VERSION = 6 as const;
+export const WORKBENCH_SCENE_VERSION = 7 as const;
 export const WORKBENCH_SCENE_MAX_PANEL_SURFACES = 2_048;
 
 export type WorkbenchSceneOwner =
@@ -103,7 +104,8 @@ export type WorkbenchSurfaceKind =
   | "terminal"
   | "browser"
   | "review"
-  | "files";
+  | "files"
+  | "image_editor";
 
 export interface WorkbenchConversationSurfaceConfig {
   readonly sessionId: string;
@@ -180,6 +182,7 @@ export interface WorkbenchSurfaceConfigByKind {
   readonly browser: WorkbenchBrowserSurfaceConfig;
   readonly review: WorkbenchReviewSurfaceConfig;
   readonly files: WorkbenchFilesSurfaceConfig;
+  readonly image_editor: WorkbenchImageEditorSurfaceConfig;
 }
 
 type WorkbenchSurfaceVariant = {
@@ -262,7 +265,13 @@ type WorkbenchLegacyResourceSurfaceDescriptor =
 export type WorkbenchSurfaceDescriptorV3 =
   | Exclude<
       WorkbenchSurfaceDescriptor,
-      { readonly kind: "db_view" | "page_stage" | "canvas_stage" }
+      {
+        readonly kind:
+          | "db_view"
+          | "page_stage"
+          | "canvas_stage"
+          | "image_editor";
+      }
     >
   | WorkbenchLegacyResourceSurfaceDescriptor;
 
@@ -1364,6 +1373,7 @@ export function getWorkbenchSurfaceReuseKey(
     }
     case "files":
       return `files:${surface.config.projectId ?? "projectless"}:${surface.config.path ?? "root"}`;
+    case "image_editor":
     case "browser":
     case "terminal":
       return null;

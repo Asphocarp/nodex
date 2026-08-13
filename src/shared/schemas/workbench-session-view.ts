@@ -11,6 +11,7 @@ import {
   WORKBENCH_SESSION_VIEW_VERSION,
 } from "../workbench-session-view";
 import { WorkbenchReviewConfigSchema } from "./workbench-review";
+import { WorkbenchImageEditorSurfaceConfigSchema } from "./workbench-image-editor";
 import { BrowserSidebarDeviceToolbarStateSchema } from "../browser/browser-schemas";
 import { primaryCanvasBlockId } from "../block-documents/canvas-document-identity";
 
@@ -184,6 +185,11 @@ export const WorkbenchSessionViewTabSchema = z.discriminatedUnion("kind", [
     ...tabBaseSchema,
     kind: z.literal("files"),
     config: WorkbenchFilesTabConfigSchema,
+  }).strict(),
+  z.object({
+    ...tabBaseSchema,
+    kind: z.literal("image_editor"),
+    config: WorkbenchImageEditorSurfaceConfigSchema,
   }).strict(),
 ]).superRefine((tab, context) => {
   if (encodedJsonBytes(tab.config) > MAX_WORKBENCH_SESSION_VIEW_JSON_BYTES) {

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { parseAssetSource } from "../assets";
 import type {
   BrowserBrowsingDataKind,
   BrowserLocalServerPreferencesUpdate,
@@ -21,6 +22,10 @@ const MAX_BROWSER_IPC_BYTES = 64 * 1024;
 
 const BrowserIdSchema = z.string().trim().min(1).max(MAX_ID_LENGTH);
 const BrowserUrlSchema = z.string().max(MAX_URL_LENGTH);
+const BrowserManagedAssetSourceSchema = BrowserUrlSchema.refine(
+  (source) => parseAssetSource(source) !== null,
+  "Expected a managed Browser image asset",
+);
 const BrowserTitleSchema = z.string().max(MAX_TITLE_LENGTH);
 const BrowserTextSchema = z.string().max(MAX_TEXT_LENGTH);
 const FiniteNumberSchema = z.number().finite();
@@ -70,7 +75,7 @@ export const BrowserSidebarContextMenuActionEventSchema = z.discriminatedUnion(
       attachment: z.object({
         id: BrowserIdSchema,
         fileName: BrowserIdSchema,
-        source: BrowserUrlSchema,
+        source: BrowserManagedAssetSourceSchema,
       }).strict(),
     }).strict(),
     BrowserSidebarTabIdentitySchema.extend({

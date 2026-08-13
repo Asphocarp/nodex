@@ -24,16 +24,14 @@ describe("browser image attachments", () => {
     publishBrowserImageAttachment(conversationId, {
       id: "image-1",
       filename: "preview.png",
-      path: "nodex://assets/image-1.png",
-      dataUrl: "nodex://assets/image-1.png",
+      source: "nodex://assets/image-1.png",
     });
 
     expect(getBrowserImageAttachmentsSnapshot(conversationId)).toEqual([
       {
         id: "image-1",
         filename: "preview.png",
-        path: "nodex://assets/image-1.png",
-        dataUrl: "nodex://assets/image-1.png",
+        source: "nodex://assets/image-1.png",
       },
     ]);
     consumeBrowserImageAttachments(conversationId, ["image-1"]);
@@ -46,8 +44,7 @@ describe("browser image attachments", () => {
     const base = {
       id: "image-1",
       filename: "first.png",
-      path: "nodex://assets/image-1.png",
-      dataUrl: "nodex://assets/image-1.png",
+      source: "nodex://assets/image-1.png",
     };
     publishBrowserImageAttachment(conversationId, base);
     publishBrowserImageAttachment(conversationId, {
@@ -58,5 +55,13 @@ describe("browser image attachments", () => {
     expect(getBrowserImageAttachmentsSnapshot(conversationId)).toHaveLength(1);
     expect(getBrowserImageAttachmentsSnapshot(conversationId)[0]?.filename)
       .toBe("renamed.png");
+  });
+
+  test("rejects display URLs that cannot cross the app-server attachment boundary", () => {
+    expect(() => publishBrowserImageAttachment(conversationId, {
+      id: "image-1",
+      filename: "preview.png",
+      source: "nodex-asset://managed/image-1.png",
+    })).toThrow("Browser image attachment is incomplete");
   });
 });

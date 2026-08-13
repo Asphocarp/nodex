@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- Added shared image preview and restorable right-panel editing for uploaded and generated images, including direct Composer entry, New Chat and queued edit submission, zoom and pan, positional comments, removal masks, aspect-ratio edits, and Focused/Canvas generated-image workflows.
 - Added interactive MCP Apps with thread-scoped tools and resources, stable inline/right-panel/fullscreen presentation, and a Main-owned isolated Electron sandbox that denies guest permissions, popups, navigation, downloads, and unauthorized network access.
 - Added a dense, virtualized task List with Core-backed grouping, nested sub-pages, automatic windows, shared Board selection, inline Property editing, keyboard and bulk actions, atomic drag-and-drop, conflict recovery, and Undo.
 - Added short, searchable IDs for Database Pages, with Core-confirmed prefix setup, default-on List and optional Board display controls, consistent copy actions, authorized historical lookup after moves or prefix changes, explicit ambiguity handling, and CLI/Agent resolution alongside canonical UUID identity.

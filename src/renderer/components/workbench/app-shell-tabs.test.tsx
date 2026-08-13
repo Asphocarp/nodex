@@ -411,6 +411,63 @@ describe("AppShellTabs", () => {
     expect(pinned).toEqual(["preview-file"]);
   });
 
+  test("keeps a pin-disabled preview ephemeral across panel and label interactions", async () => {
+    const pinned: string[] = [];
+    const view = renderAppShellTabs({
+      activeTabId: "image-preview",
+      onPinTab: (tabId) => pinned.push(tabId),
+      tabs: [{
+        id: "image-preview",
+        title: "User attachment",
+        preview: true,
+        pinBehavior: "disabled",
+        renderPanel: () => <button type="button">Comment</button>,
+      }],
+    });
+
+    await act(async () => {
+      fireEvent.pointerDown(view.getByRole("button", { name: "Comment" }));
+      fireEvent.keyDown(view.getByRole("button", { name: "Comment" }), {
+        key: "Enter",
+      });
+      fireEvent.doubleClick(view.getByRole("tab", {
+        name: "User attachment",
+      }));
+      await Promise.resolve();
+    });
+
+    expect(pinned).toEqual([]);
+    expect(
+      view.getByRole("tabpanel").getAttribute(
+        "data-app-shell-tabpanel-preview",
+      ),
+    ).toBe("true");
+  });
+
+  test("pins an automatic image preview when its tab label is double-clicked", async () => {
+    const pinned: string[] = [];
+    const view = renderAppShellTabs({
+      activeTabId: "image-preview",
+      onPinTab: (tabId) => pinned.push(tabId),
+      tabs: [{
+        id: "image-preview",
+        title: "User attachment",
+        preview: true,
+        pinBehavior: "automatic",
+        renderPanel: () => <div>Image editor</div>,
+      }],
+    });
+
+    await act(async () => {
+      fireEvent.doubleClick(view.getByRole("tab", {
+        name: "User attachment",
+      }));
+      await Promise.resolve();
+    });
+
+    expect(pinned).toEqual(["image-preview"]);
+  });
+
   test("removes a focused inactive panel after active tab changes", () => {
     const tabs: AppShellTabItem[] = [
       {
