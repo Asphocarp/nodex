@@ -401,6 +401,7 @@ export type {
   WorktreeEnvironmentDefinition,
   WorktreeEnvironmentConfigState,
   WorktreeEnvironmentConfigRecord,
+  WorktreeEnvironmentSaveResult,
   WorktreeEnvironmentSettingsSnapshot,
   UpdateWorktreeEnvironmentConfigInput,
   WorktreeStartMode,

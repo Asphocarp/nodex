@@ -1,355 +1,304 @@
-import { describe, expect, test, vi } from "vitest";
-import { fireEvent } from "@testing-library/react";
+import { act, fireEvent, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, test, vi } from "vitest";
+import { NodexSettingsPageSurface } from "@/components/ui/settings";
+import { NodexTooltipProvider } from "@/components/ui/tooltip";
+import { installWindowApi } from "@/test/browser-globals";
+import { render } from "@/test/dom";
+import { TestQueryProvider } from "@/test/query";
 import type {
   Project,
   UpdateWorktreeEnvironmentConfigInput,
+  WorktreeEnvironmentSaveResult,
   WorktreeEnvironmentSettingsSnapshot,
 } from "@/lib/types";
-import { render, settleAsyncRender, textContent } from "../../test/dom";
 import { LocalEnvironmentsSettingsPage } from "./local-environments-settings-page";
-import { NodexSettingsPageSurface as SettingsPageSurface } from "../ui/settings";
 
-vi.mock("@/lib/use-theme", () => ({
-  useTheme: () => ({ resolved: "dark" }),
+vi.mock("@/components/ui/lazy-source-viewer", () => ({
+  LazySourceViewer: ({ value, ariaLabel }: { value: string; ariaLabel: string }) => (
+    <pre aria-label={ariaLabel}>{value}</pre>
+  ),
 }));
 
-const PROJECTS: Project[] = [
-  {
-    id: "project-alpha",
-    libraryId: "library:test",
-    databaseId: "database:test:primary",
-    defaultDatabaseViewId: "view:test:primary",
-    lifecycle: "active",
-    bindingRevision: 1,
-    name: "Alpha",
-    description: "",
-    appearance: { color: "blue", marker: { kind: "icon", icon: "terminal" } },
-    sources: [{ root: "/tmp/alpha", order: 0 }],
-    primaryWorkspaceRoot: "/tmp/alpha",
-    pinned: false,
-    pinnedOrder: null,
-    created: new Date("2026-03-01T00:00:00.000Z"),
-    updated: new Date("2026-03-01T00:00:00.000Z"),
-  },
-  {
-    id: "project-beta",
-    libraryId: "library:test",
-    databaseId: "database:test:primary",
-    defaultDatabaseViewId: "view:test:primary",
-    lifecycle: "active",
-    bindingRevision: 1,
-    name: "Beta",
-    description: "",
-    appearance: { color: "orange", marker: { kind: "icon", icon: "flask" } },
-    sources: [{ root: "/tmp/beta", order: 0 }],
-    primaryWorkspaceRoot: "/tmp/beta",
-    pinned: false,
-    pinnedOrder: null,
-    created: new Date("2026-03-02T00:00:00.000Z"),
-    updated: new Date("2026-03-02T00:00:00.000Z"),
-  },
-];
+const PROJECT: Project = {
+  id: "project-alpha",
+  libraryId: "library:test",
+  databaseId: "database:test:primary",
+  defaultDatabaseViewId: "view:test:primary",
+  lifecycle: "active",
+  bindingRevision: 1,
+  name: "Alpha",
+  description: "",
+  appearance: { color: "blue", marker: { kind: "icon", icon: "terminal" } },
+  sources: [{ root: "/tmp/alpha", order: 0 }],
+  primaryWorkspaceRoot: "/tmp/alpha",
+  pinned: false,
+  pinnedOrder: null,
+  created: new Date("2026-03-01T00:00:00.000Z"),
+  updated: new Date("2026-03-01T00:00:00.000Z"),
+};
 
-function buildSnapshot(projectId: string, overrides?: Partial<WorktreeEnvironmentSettingsSnapshot>): WorktreeEnvironmentSettingsSnapshot {
-  const project = PROJECTS.find((candidate) => candidate.id === projectId) ?? PROJECTS[0];
-
-  return {
-    projectId: project.id,
-    projectName: project.name,
-    workspacePath: project.primaryWorkspaceRoot ?? "",
+function buildSnapshot(
+  overrides: Partial<WorktreeEnvironmentSettingsSnapshot> = {},
+): WorktreeEnvironmentSettingsSnapshot {
+  const environment = {
+    version: 1,
+    name: "Alpha environment",
+    setup: {
+      script: "default setup",
+      platformScripts: { linux: "linux setup" },
+    },
+    cleanup: { script: null, platformScripts: {} },
+    actions: [{
+      name: "Run tests",
+      icon: "test" as const,
+      command: "bun test\n--watch",
+      platform: null,
+    }],
+  };
+  const config = {
     configPath: ".codex/environments/environment.toml",
+    fileName: "environment.toml",
+    state: "success" as const,
+    exists: true,
+    name: environment.name,
+    hasSetupScript: true,
+    hasCleanupScript: false,
+    actionCount: 1,
+    parseErrorMessage: null,
+    readErrorMessage: null,
+    environment,
+  };
+  return {
+    projectId: PROJECT.id,
+    projectName: PROJECT.name,
+    workspacePath: PROJECT.primaryWorkspaceRoot ?? "",
+    configPath: config.configPath,
     nextConfigPath: ".codex/environments/environment-2.toml",
     configExists: true,
-    configs: [
-      {
-        configPath: ".codex/environments/environment.toml",
-        fileName: "environment.toml",
-        state: "success",
-        exists: true,
-        name: `${project.name} env`,
-        hasSetupScript: true,
-        hasCleanupScript: false,
-        actionCount: 1,
-        parseErrorMessage: null,
-        readErrorMessage: null,
-        environment: {
-          version: 1,
-          name: `${project.name} env`,
-          setup: {
-            script: "bun install",
-            platformScripts: {},
-          },
-          cleanup: {
-            script: null,
-            platformScripts: {},
-          },
-          actions: [
-            {
-              id: "action-1",
-              name: "Run tests",
-              icon: "test",
-              command: "bun test",
-              platform: null,
-            },
-          ],
-        },
-      },
-    ],
-    environment: {
-      version: 1,
-      name: `${project.name} env`,
-      setup: {
-        script: "bun install",
-        platformScripts: {},
-      },
-      cleanup: {
-        script: null,
-        platformScripts: {},
-      },
-      actions: [
-        {
-          id: "action-1",
-          name: "Run tests",
-          icon: "test",
-          command: "bun test",
-          platform: null,
-        },
-      ],
-    },
+    revision: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    configs: [config],
+    environment,
     parseErrorMessage: null,
     readErrorMessage: null,
     ...overrides,
   };
 }
 
-function findButtonByText(container: HTMLElement, label: string): HTMLButtonElement | null {
-  return Array.from(container.querySelectorAll("button"))
-    .find((node) => node.textContent?.replace(/\s+/g, " ").trim().includes(label)) as HTMLButtonElement | null;
+function renderPage() {
+  return render(
+    <TestQueryProvider>
+      <NodexTooltipProvider>
+        <LocalEnvironmentsSettingsPage
+        open
+        active
+        projects={[PROJECT]}
+        activeProjectId={PROJECT.id}
+        initialProjectId={PROJECT.id}
+        initialConfigPath=".codex/environments/environment.toml"
+        renderShell={({ title, subtitle, backSlot, action, children }) => (
+          <NodexSettingsPageSurface
+            title={title}
+            subtitle={subtitle}
+            backSlot={backSlot}
+            action={action}
+          >
+            {children}
+          </NodexSettingsPageSurface>
+        )}
+        />
+      </NodexTooltipProvider>
+    </TestQueryProvider>,
+  );
 }
 
 describe("LocalEnvironmentsSettingsPage", () => {
-  test("presents oversized environment files as a distinct non-editable state", async () => {
-    const tooLargeSnapshot = buildSnapshot("project-alpha", {
-      configs: [{
-        configPath: ".codex/environments/environment.toml",
-        fileName: "environment.toml",
-        state: "tooLarge",
-        exists: true,
-        name: "environment.toml",
-        hasSetupScript: false,
-        hasCleanupScript: false,
-        actionCount: 0,
-        parseErrorMessage: null,
-        readErrorMessage: null,
-        tooLargeMessage: "Environment file exceeds 262,144 bytes",
-        environment: null,
-      }],
+  let snapshot: WorktreeEnvironmentSettingsSnapshot;
+  let saveResult: WorktreeEnvironmentSaveResult;
+  let saveInputs: UpdateWorktreeEnvironmentConfigInput[];
+  let readCalls: number;
+  let failReadsAfterSave: boolean;
+
+  beforeEach(() => {
+    snapshot = buildSnapshot();
+    saveResult = { type: "success" };
+    saveInputs = [];
+    readCalls = 0;
+    failReadsAfterSave = false;
+    installWindowApi({
+      invoke: async (channel: string, ...args: unknown[]) => {
+        if (channel === "worktrees:environments:config:read") {
+          readCalls += 1;
+          if (failReadsAfterSave && saveInputs.length > 0) {
+            throw new Error("Snapshot refresh failed");
+          }
+          return snapshot;
+        }
+        if (channel === "worktrees:environments:config:save") {
+          saveInputs.push(args[0] as UpdateWorktreeEnvironmentConfigInput);
+          return saveResult;
+        }
+        if (channel === "worktrees:environments:configs:list") return snapshot.configs;
+        if (channel === "worktrees:environments:list") return [];
+        throw new Error(`Unexpected channel: ${channel}`);
+      },
+    });
+  });
+
+  test("renders the environment-name summary with platform fallback and action disclosure", async () => {
+    const view = renderPage();
+    expect(await view.findByRole("heading", { level: 1, name: "Alpha environment" })).toBeTruthy();
+    expect(view.getByRole("button", { name: "Edit local environment" })).toBeTruthy();
+
+    fireEvent.click(view.getByRole("button", { name: "macOS" }));
+    expect(view.getByText("No platform override. Using the default script")).toBeTruthy();
+    expect(view.getByLabelText("Setup script").textContent).toContain("default setup");
+
+    const disclosure = view.getByRole("button", { name: "Show full command for Run tests" });
+    fireEvent.click(disclosure);
+    expect(view.getByRole("button", { name: "Hide full command for Run tests" })).toBeTruthy();
+    expect(document.getElementById(disclosure.getAttribute("aria-controls")!)?.textContent)
+      .toBe("bun test\n--watch");
+  });
+
+  test("gates every submit path and saves with the snapshot revision", async () => {
+    const view = renderPage();
+    fireEvent.click(await view.findByRole("button", { name: "Edit local environment" }));
+
+    const save = view.getByRole("button", { name: "Save" }) as HTMLButtonElement;
+    expect(save.disabled).toBe(true);
+    await act(async () => {
+      fireEvent.submit(save.closest("form")!);
+      await Promise.resolve();
+    });
+    expect(saveInputs).toHaveLength(0);
+
+    const name = view.getAllByRole("textbox", { name: "Name" })[0]!;
+    fireEvent.change(name, { target: { value: "Updated environment" } });
+    expect((view.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(view.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(saveInputs).toHaveLength(1));
+    expect(saveInputs[0]).toMatchObject({
+      projectId: PROJECT.id,
+      configPath: ".codex/environments/environment.toml",
+      expectedRevision: snapshot.revision,
+      environment: { name: "Updated environment" },
+    });
+  });
+
+  test("distinguishes blank actions from incomplete actions", async () => {
+    const view = renderPage();
+    fireEvent.click(await view.findByRole("button", { name: "Edit local environment" }));
+    fireEvent.click(view.getByRole("button", { name: "Add action" }));
+
+    const actionNames = view.getAllByRole("textbox", { name: "Name" });
+    const blankName = actionNames.at(-1)!;
+    expect(blankName.getAttribute("aria-invalid")).toBe("false");
+    expect((view.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(false);
+
+    fireEvent.change(blankName, { target: { value: "Deploy" } });
+    expect(view.getByText("Enter an action command")).toBeTruthy();
+    expect((view.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  test("returns focus after closing Variables and the action icon menu with Escape", async () => {
+    const view = renderPage();
+    fireEvent.click(await view.findByRole("button", { name: "Edit local environment" }));
+
+    const variables = view.getByRole("button", { name: "Variables" });
+    fireEvent.click(variables);
+    const dialog = await view.findByRole("dialog", { name: "Setup script environment variables" });
+    await act(async () => {
+      dialog.focus();
+      fireEvent.keyDown(document, { key: "Escape" });
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(document.activeElement).toBe(variables));
+
+    const iconTrigger = view.getByRole("button", { name: "Test" });
+    await act(async () => {
+      fireEvent.pointerDown(iconTrigger, { button: 0, ctrlKey: false });
+      await Promise.resolve();
+    });
+    await view.findByRole("menu");
+    expect(view.getAllByRole("menuitem").map((item) => item.textContent)).toEqual([
+      "Tool",
+      "Run",
+      "Debug",
+      "Test",
+    ]);
+    await act(async () => {
+      fireEvent.keyDown(document, { key: "Escape" });
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(document.activeElement).toBe(iconTrigger));
+  });
+
+  test("keeps the draft on conflict and only refetches after explicit discard", async () => {
+    saveResult = { type: "conflict" };
+    const view = renderPage();
+    fireEvent.click(await view.findByRole("button", { name: "Edit local environment" }));
+    fireEvent.change(view.getAllByRole("textbox", { name: "Name" })[0]!, {
+      target: { value: "My draft" },
+    });
+    fireEvent.click(view.getByRole("button", { name: "Save" }));
+
+    expect(await view.findByText("This environment changed on disk. Continuing will discard your unsaved edits"))
+      .toBeTruthy();
+    expect((view.getAllByRole("textbox", { name: "Name" })[0] as HTMLInputElement).value).toBe("My draft");
+    const callsBeforeDiscard = readCalls;
+
+    snapshot = buildSnapshot({
+      revision: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      environment: { ...snapshot.environment!, name: "External environment" },
+    });
+    fireEvent.click(view.getByRole("button", { name: "Discard edits" }));
+
+    expect(await view.findByRole("heading", { level: 1, name: "External environment" })).toBeTruthy();
+    expect(readCalls).toBeGreaterThan(callsBeforeDiscard);
+  });
+
+  test("does not report a disk save as failed when selecting the refreshed snapshot fails", async () => {
+    failReadsAfterSave = true;
+    const view = renderPage();
+    fireEvent.click(await view.findByRole("button", { name: "Edit local environment" }));
+    fireEvent.change(view.getAllByRole("textbox", { name: "Name" })[0]!, {
+      target: { value: "Saved environment" },
+    });
+    fireEvent.click(view.getByRole("button", { name: "Save" }));
+
+    expect(await view.findAllByText("Saved the environment file, but could not select it"))
+      .not.toHaveLength(0);
+    expect(view.getByRole("button", { name: "Retry loading" })).toBeTruthy();
+    expect(saveInputs).toHaveLength(1);
+
+    failReadsAfterSave = false;
+    snapshot = buildSnapshot({
+      revision: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      environment: { ...snapshot.environment!, name: "Saved environment" },
+    });
+    fireEvent.click(view.getByRole("button", { name: "Retry loading" }));
+
+    expect(await view.findByRole("heading", { level: 1, name: "Saved environment" })).toBeTruthy();
+    expect(saveInputs).toHaveLength(1);
+  });
+
+  test("keeps oversized files non-editable", async () => {
+    snapshot = buildSnapshot({
+      revision: null,
       environment: null,
       tooLargeMessage: "Environment file exceeds 262,144 bytes",
+      configs: [{
+        ...buildSnapshot().configs[0]!,
+        state: "tooLarge",
+        environment: null,
+        tooLargeMessage: "Environment file exceeds 262,144 bytes",
+      }],
     });
-    const view = render(
-      <LocalEnvironmentsSettingsPage
-        open={true}
-        active={true}
-        projects={PROJECTS}
-        activeProjectId="project-alpha"
-        initialProjectId="project-alpha"
-        initialConfigPath=".codex/environments/environment.toml"
-        renderShell={({ title, subtitle, backSlot, children }) => (
-          <SettingsPageSurface title={title} subtitle={subtitle} backSlot={backSlot}>
-            {children}
-          </SettingsPageSurface>
-        )}
-        service={{
-          listConfigs: async () => tooLargeSnapshot.configs,
-          readConfig: async () => tooLargeSnapshot,
-          saveConfig: async () => {
-            throw new Error("Oversized files cannot be edited");
-          },
-        }}
-      />,
-    );
-    await settleAsyncRender();
+    const view = renderPage();
 
-    expect(textContent(view.container)).toContain("Local environment file is too large to load");
-    expect(view.container.querySelector("textarea")).toBeNull();
-  });
-
-  test("loads each workspace config list once per mount in workspace mode", async () => {
-    const listCalls: string[] = [];
-    const snapshots = new Map<string, WorktreeEnvironmentSettingsSnapshot>([
-      ["project-alpha", buildSnapshot("project-alpha")],
-      ["project-beta", buildSnapshot("project-beta")],
-    ]);
-
-    render(
-      <LocalEnvironmentsSettingsPage
-        open={true}
-        active={true}
-        projects={PROJECTS}
-        activeProjectId="project-alpha"
-        initialProjectId={null}
-        initialConfigPath={null}
-        renderShell={({ title, subtitle, backSlot, children }) => (
-          <SettingsPageSurface title={title} subtitle={subtitle} backSlot={backSlot}>
-            {children}
-          </SettingsPageSurface>
-        )}
-        service={{
-          listConfigs: async (projectId) => {
-            listCalls.push(projectId);
-            return (snapshots.get(projectId) ?? buildSnapshot(projectId)).configs;
-          },
-          readConfig: async (projectId) => snapshots.get(projectId) ?? buildSnapshot(projectId),
-          saveConfig: async (input) => buildSnapshot(input.projectId, {
-            environment: input.environment,
-          }),
-        }}
-      />,
-    );
-
-    await settleAsyncRender();
-    expect(listCalls.length).toBe(2);
-
-    await settleAsyncRender();
-    expect(listCalls.length).toBe(2);
-  });
-
-  test("switches workspaces and saves through the injected service", async () => {
-    const readCalls: Array<[string, string | null | undefined]> = [];
-    const listCalls: string[] = [];
-    const saveCalls: UpdateWorktreeEnvironmentConfigInput[] = [];
-    const snapshots = new Map<string, WorktreeEnvironmentSettingsSnapshot>([
-      ["project-alpha", buildSnapshot("project-alpha")],
-      ["project-beta", buildSnapshot("project-beta")],
-    ]);
-
-    const view = render(
-      <LocalEnvironmentsSettingsPage
-        open={true}
-        active={true}
-        projects={PROJECTS}
-        activeProjectId="project-alpha"
-        initialProjectId="project-alpha"
-        renderShell={({ title, subtitle, backSlot, children }) => (
-          <SettingsPageSurface title={title} subtitle={subtitle} backSlot={backSlot}>
-            {children}
-          </SettingsPageSurface>
-        )}
-        service={{
-          listConfigs: async (projectId) => {
-            listCalls.push(projectId);
-            return (snapshots.get(projectId) ?? buildSnapshot(projectId)).configs;
-          },
-          readConfig: async (projectId, configPath) => {
-            readCalls.push([projectId, configPath]);
-            return snapshots.get(projectId) ?? buildSnapshot(projectId);
-          },
-          saveConfig: async (input) => {
-            saveCalls.push(input);
-            const nextSnapshot = buildSnapshot(input.projectId, {
-              environment: input.environment,
-              configs: [
-                {
-                  configPath: input.configPath,
-                  fileName: "environment.toml",
-                  state: "success",
-                  exists: true,
-                  name: input.environment.name,
-                  hasSetupScript: Boolean(input.environment.setup.script),
-                  hasCleanupScript: Boolean(input.environment.cleanup.script),
-                  actionCount: input.environment.actions.length,
-                  parseErrorMessage: null,
-                  readErrorMessage: null,
-                  environment: input.environment,
-                },
-              ],
-            });
-            snapshots.set(input.projectId, nextSnapshot);
-            return nextSnapshot;
-          },
-        }}
-      />,
-    );
-
-    await settleAsyncRender();
-
-    expect(textContent(view.container).includes("Alpha env")).toBe(true);
-    expect(readCalls.length).toBe(1);
-    expect(readCalls[0]?.[0]).toBe("project-alpha");
-
-    const backButton = findButtonByText(view.container, "Back");
-    if (!(backButton instanceof HTMLButtonElement)) {
-      throw new Error("Expected a Back button when returning to the workspace list.");
-    }
-    fireEvent.click(backButton);
-    await settleAsyncRender();
-    expect(textContent(view.container).includes("Beta")).toBe(true);
-    expect(listCalls.length).toBe(4);
-
-    const betaButton = findButtonByText(view.container, "Beta");
-    if (!(betaButton instanceof HTMLButtonElement)) {
-      throw new Error("Expected a Beta project button in the workspace list.");
-    }
-    fireEvent.click(betaButton);
-    await settleAsyncRender();
-
-    expect(textContent(view.container).includes("Beta env")).toBe(true);
-    expect(readCalls.length).toBe(2);
-    expect(readCalls[1]?.[0]).toBe("project-beta");
-    expect(listCalls.length).toBe(4);
-
-    const editButton = findButtonByText(view.container, "Edit local environment");
-    if (!(editButton instanceof HTMLButtonElement)) {
-      throw new Error("Expected an Edit local environment button on the summary view.");
-    }
-    fireEvent.click(editButton);
-    await settleAsyncRender();
-    const editForm = view.container.querySelector("form");
-    if (!(editForm instanceof HTMLFormElement)) {
-      throw new Error("Expected an edit form before saving.");
-    }
-    fireEvent.submit(editForm);
-    await settleAsyncRender();
-
-    expect(saveCalls.length).toBe(1);
-    expect(saveCalls[0]?.projectId).toBe("project-beta");
-    expect(saveCalls[0]?.configPath).toBe(".codex/environments/environment.toml");
-    expect(Boolean(view.container.querySelector("form"))).toBe(false);
-  });
-
-  test("opens the action icon dropdown in edit mode", async () => {
-    const view = render(
-      <LocalEnvironmentsSettingsPage
-        open={true}
-        active={true}
-        projects={PROJECTS}
-        activeProjectId="project-alpha"
-        initialProjectId="project-alpha"
-        renderShell={({ title, subtitle, backSlot, children }) => (
-          <SettingsPageSurface title={title} subtitle={subtitle} backSlot={backSlot}>
-            {children}
-          </SettingsPageSurface>
-        )}
-        service={{
-          listConfigs: async (projectId) => buildSnapshot(projectId).configs,
-          readConfig: async (projectId) => buildSnapshot(projectId),
-          saveConfig: async (input) => buildSnapshot(input.projectId, {
-            environment: input.environment,
-          }),
-        }}
-      />,
-    );
-
-    await settleAsyncRender();
-
-    fireEvent.click(view.getByText("Edit local environment"));
-    await settleAsyncRender();
-
-    fireEvent.pointerDown(view.getByLabelText("Action 1 icon"));
-    await settleAsyncRender();
-
-    expect(textContent(document.body).includes("Debug")).toBe(true);
-    expect(textContent(document.body).includes("Test")).toBe(true);
+    expect(await view.findByText("Environment file exceeds 262,144 bytes")).toBeTruthy();
+    expect(view.queryByRole("button", { name: "Edit local environment" })).toBeNull();
+    expect(view.queryByRole("textbox")).toBeNull();
   });
 });

@@ -9631,7 +9631,13 @@ describe("codex-service pending managed worktree setup", () => {
       fs.mkdirSync(environmentsDir, { recursive: true });
       fs.writeFileSync(
         path.join(environmentsDir, "environment.toml"),
-        ['name = "pending-setup-cancel"', ""].join("\n"),
+        [
+          'name = "pending-setup-cancel"',
+          "",
+          "[setup]",
+          'script = ""',
+          "",
+        ].join("\n"),
         "utf8",
       );
       const service = createService();

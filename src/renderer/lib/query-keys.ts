@@ -173,6 +173,7 @@ export const queryKeys = {
     all: () => ["localEnvironments"] as const,
     options: (projectId: string) => ["localEnvironments", "options", projectId] as const,
     configs: (projectId: string) => ["localEnvironments", "configs", projectId] as const,
+    configScope: (projectId: string) => ["localEnvironments", "config", projectId] as const,
     config: (projectId: string, configPath?: string | null) =>
       ["localEnvironments", "config", projectId, normalizeNullable(configPath)] as const,
   },
