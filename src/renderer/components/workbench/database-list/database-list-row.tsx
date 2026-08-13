@@ -1,4 +1,4 @@
-import type { DragEvent, MouseEvent, ReactNode } from "react";
+import type { MouseEvent, ReactNode } from "react";
 
 import { PropertyOptionPicker } from "@/components/database/property-option-picker";
 import { NodexButton } from "@/components/ui/button";
@@ -7,31 +7,20 @@ import { StatusIcon } from "@/lib/status-presentation";
 import { usePresentedPageTitle } from "@/lib/page-title-projection-context";
 import { cn } from "@/lib/utils";
 import { isPriority } from "../../../../shared/priority";
-import type { DatabaseListDropPosition } from "./compile-list-drop-intent";
 import { DatabaseListPriorityIcon } from "./database-list-icons";
+import { databaseListPageIdentifier } from "./database-list-grid";
 import type { DatabaseListPageRow } from "./database-list-model";
 import {
+  databaseListDropIndicatorLeft,
   DatabaseListNestingLines,
   DATABASE_LIST_NESTING_DEPTH_PX,
 } from "./database-list-nesting-lines";
-import { resolveDatabaseListRowDropPosition } from "./database-list-row-interaction";
+import {
+  DATABASE_LIST_DND_INTERACTIVE_SELECTOR,
+  useDatabaseListPageDnd,
+} from "./database-list-dnd";
 
-const shortIdentifier = (pageId: string): string => {
-  const normalized = pageId.replace(/^page[-_:]?/i, "").replace(/[^a-z0-9]/gi, "");
-  return (normalized || pageId).slice(0, 7).toUpperCase();
-};
-
-export const DATABASE_LIST_INTERACTIVE_SELECTOR = [
-  "button",
-  "a",
-  "input",
-  "textarea",
-  "select",
-  "[role=checkbox]",
-  "[role=combobox]",
-  "[role=menu]",
-  "[contenteditable=true]",
-].join(",");
+export const DATABASE_LIST_INTERACTIVE_SELECTOR = DATABASE_LIST_DND_INTERACTIVE_SELECTOR;
 
 export function DatabaseListRow({
   item,
@@ -40,18 +29,12 @@ export function DatabaseListRow({
   selectedBefore,
   selectedAfter,
   active,
-  dragging,
   presented,
   inlineProperties,
   trailingCells,
   onSelect,
   onActivate,
   onOpen,
-  onDragStart,
-  onDragEnd,
-  dropPosition,
-  onDragTargetChange,
-  onDrop,
   statusOptions,
   priorityOptions,
   onSetStatus,
@@ -70,21 +53,12 @@ export function DatabaseListRow({
   readonly selectedBefore: boolean;
   readonly selectedAfter: boolean;
   readonly active: boolean;
-  readonly dragging: boolean;
   readonly presented: boolean;
   readonly inlineProperties: ReactNode;
   readonly trailingCells: ReactNode;
   readonly onSelect: (mode: "replace" | "toggle" | "range") => void;
   readonly onActivate: () => void;
   readonly onOpen: (titleSnapshot: string) => void;
-  readonly onDragStart: (event: DragEvent<HTMLDivElement>) => void;
-  readonly onDragEnd: () => void;
-  readonly dropPosition: DatabaseListDropPosition | null;
-  readonly onDragTargetChange: (position: DatabaseListDropPosition | null) => void;
-  readonly onDrop: (
-    event: DragEvent<HTMLDivElement>,
-    position: DatabaseListDropPosition,
-  ) => void;
   readonly statusOptions: readonly { readonly id: string; readonly name: string }[];
   readonly priorityOptions: readonly { readonly id: string; readonly name: string }[];
   readonly onSetStatus: (optionId: string | null) => void;
@@ -97,6 +71,7 @@ export function DatabaseListRow({
   readonly nestingContinuations: readonly boolean[];
   readonly ariaRowIndex: number;
 }) {
+  const dnd = useDatabaseListPageDnd(item);
   const presentedTitle = usePresentedPageTitle(
     item.pageId,
     item.row.title,
@@ -110,11 +85,13 @@ export function DatabaseListRow({
   const depthOffset = item.depth * DATABASE_LIST_NESTING_DEPTH_PX;
   return (
     <div
+      {...dnd.attributes}
+      {...dnd.listeners}
+      ref={dnd.setNodeRef}
       role="row"
       aria-rowindex={ariaRowIndex}
       aria-selected={selected}
       tabIndex={active ? 0 : -1}
-      draggable={item.transientKind === "none"}
       data-list-row="true"
       data-list-key={item.key}
       data-database-view-page-id={item.pageId}
@@ -130,8 +107,10 @@ export function DatabaseListRow({
       data-first-in-group={item.firstInGroup || undefined}
       data-last-in-group={item.lastInGroup || undefined}
       data-apply-background="true"
-      data-raise-row={active || dragging || undefined}
-      data-drop-position={dropPosition ?? undefined}
+      data-raise-row={active || dnd.active || undefined}
+      data-drop-position={dnd.target?.kind === "page"
+        ? dnd.target.indicatorEdge
+        : undefined}
       data-database-view-page-presented={presented ? "true" : undefined}
       data-list-transient-kind={item.transientKind === "none"
         ? undefined
@@ -146,8 +125,10 @@ export function DatabaseListRow({
         active && "focus-visible:before:ring-1 focus-visible:before:ring-inset focus-visible:before:ring-[var(--database-list-focus)]",
         item.transientKind !== "none"
           && "before:opacity-60 [&>[role=gridcell]]:opacity-60",
-        dragging && "opacity-70",
-        dropPosition === "nest" && "before:ring-1 before:ring-inset before:ring-[var(--database-list-drop-indicator)]",
+        dnd.active && "opacity-70",
+        dnd.target?.kind === "page"
+          && dnd.target.indicatorEdge === "inside"
+          && "before:ring-1 before:ring-inset before:ring-[var(--database-list-drop-indicator)]",
       )}
       onFocus={(event) => {
         if (event.target === event.currentTarget) onActivate();
@@ -163,56 +144,31 @@ export function DatabaseListRow({
           onSelect(selectionMode(event));
           return;
         }
-        if (dragging) return;
+        if (dnd.active || dnd.suppressesNextClick()) return;
         onActivate();
         onOpen(presentedTitle);
       }}
-      onDragStart={(event) => {
-        if (item.transientKind !== "none") {
-          event.preventDefault();
-          return;
-        }
-        if ((event.target as HTMLElement).closest(DATABASE_LIST_INTERACTIVE_SELECTOR)) {
-          event.preventDefault();
-          return;
-        }
-        onDragStart(event);
-      }}
-      onDragEnd={onDragEnd}
-      onDragOver={(event) => {
-        if (!event.dataTransfer.types.includes("application/vnd.nodex.database-view-pages.v1+json")) return;
-        event.preventDefault();
-        event.dataTransfer.dropEffect = "move";
-        const rect = event.currentTarget.getBoundingClientRect();
-        onDragTargetChange(resolveDatabaseListRowDropPosition({
-          clientY: event.clientY,
-          rowTop: rect.top,
-          rowHeight: rect.height,
-          explicitNest: event.altKey,
-        }));
-      }}
-      onDragLeave={(event) => {
-        if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
-        onDragTargetChange(null);
-      }}
-      onDrop={(event) => {
-        const rect = event.currentTarget.getBoundingClientRect();
-        onDrop(event, resolveDatabaseListRowDropPosition({
-          clientY: event.clientY,
-          rowTop: rect.top,
-          rowHeight: rect.height,
-          explicitNest: event.altKey,
-        }));
-      }}
     >
-      {dropPosition === "before" || dropPosition === "after" ? (
+      {dnd.target?.kind === "page"
+        && (dnd.target.indicatorEdge === "before"
+          || dnd.target.indicatorEdge === "after") ? (
         <span
           aria-hidden="true"
+          data-list-drop-indicator="true"
+          data-prospective-depth={dnd.target.prospectiveDepth}
           className={cn(
-            "pointer-events-none absolute inset-x-2 z-[3] h-0.5 rounded-full bg-[var(--database-list-drop-indicator)]",
-            dropPosition === "before" ? "top-0" : "bottom-0",
+            "pointer-events-none absolute right-2 z-[3] h-0.5 rounded-full bg-[var(--database-list-drop-indicator)]",
+            dnd.target.indicatorEdge === "before" ? "top-0" : "bottom-0",
           )}
-        />
+          style={{
+            left: databaseListDropIndicatorLeft(dnd.target.prospectiveDepth),
+          }}
+        >
+          <span
+            data-list-drop-indicator-anchor="true"
+            className="absolute left-0 top-1/2 size-2 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-[var(--database-list-drop-indicator)] bg-[var(--database-list-surface)]"
+          />
+        </span>
       ) : null}
       <div
         role="gridcell"
@@ -293,7 +249,7 @@ export function DatabaseListRow({
           }}
           title={item.pageId}
         >
-          {shortIdentifier(item.pageId)}
+          {databaseListPageIdentifier(item.pageId)}
         </div>
       ) : null}
       {showStatus ? (

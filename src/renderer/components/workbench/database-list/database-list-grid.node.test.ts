@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 
 import type { DatabaseViewField } from "../../../../shared/database-kernel";
 import {
+  databaseListPageIdentifier,
   databaseListGridTemplate,
   partitionDatabaseListFields,
   withForcedDatabaseListField,
@@ -14,6 +15,10 @@ const fields: readonly DatabaseViewField[] = [
 ];
 
 describe("Database List field registry", () => {
+  test("presents the same compact Page identity in rows and drag previews", () => {
+    expect(databaseListPageIdentifier("page-019ff012-abcd")).toBe("019FF01");
+    expect(databaseListPageIdentifier("---")).toBe("---");
+  });
   test("packs properties into the title cell and reserves grid tracks only for timestamps", () => {
     const partition = partitionDatabaseListFields([
       { kind: "intrinsic", field: "page_id" },

@@ -6,14 +6,12 @@ import {
   useRef,
   useState,
   type CSSProperties,
-  type DragEvent,
   type KeyboardEvent,
   type ReactNode,
 } from "react";
 
 import { ActivitySpinnerIcon } from "@/components/shared/icons";
 import { NodexButton } from "@/components/ui/button";
-import { toast } from "@/components/ui/toast";
 import { usePropertyOptionRegistries } from "@/components/database/use-property-option-registries";
 import type { ColumnPaginationState } from "@/lib/board-store";
 import {
@@ -57,6 +55,7 @@ import type {
 import { isPriority } from "../../../../shared/priority";
 import type {
   DatabaseApplyOperationV2,
+  DatabaseListMoveUndoRecipeV2,
   DatabaseViewDisclosureTargetV2,
 } from "../../../../shared/database-module-v2";
 import type {
@@ -108,17 +107,28 @@ import { DatabaseListSelectionActionBar } from "./database-list-selection-action
 import { useDatabaseListGrid } from "./use-database-list-grid";
 import { withForcedDatabaseListField } from "./database-list-grid";
 import {
-  compileDatabaseListDropIntent,
-  type DatabaseListDragSourceOccurrence,
-  type DatabaseListDropPosition,
-} from "./compile-list-drop-intent";
-import { useDatabaseListWindow } from "./use-database-list-window";
-import { buildDatabaseListDropUndoOperations } from "./database-list-undo";
+  databaseListDragTargetChangesPlacement,
+  databaseListProjectionReflectsMove,
+  resolveDatabaseListDragPreviewPlacement,
+} from "./database-list-drag-model";
+import {
+  DatabaseListDndProvider,
+  DatabaseListGroupDropTarget,
+  type DatabaseListDndCommit,
+} from "./database-list-dnd";
+import {
+  databaseListPresentationOverride,
+  useDatabaseListWindow,
+  type DatabaseListWindowState,
+} from "./use-database-list-window";
+import {
+  handleDatabaseViewMutationHistoryKeyDown,
+  useDatabaseViewMutationHistory,
+  type DatabaseViewMutationHistory,
+} from "../database-view-mutation-history";
 import { databaseListNestingContinuations } from "./database-list-nesting-lines";
 import { DATABASE_LIST_THEME_CLASS_NAME } from "./database-list-theme";
 
-const DATABASE_VIEW_PAGE_DRAG_MIME =
-  "application/vnd.nodex.database-view-pages.v1+json";
 const INITIAL_OVERSCAN = 100;
 const IDLE_OVERSCAN_STEP = 600;
 const IDLE_OVERSCAN_PASSES = 3;
@@ -144,6 +154,7 @@ interface DatabaseListProps {
   readonly forcedDisplayField?: DatabaseViewField | null;
   readonly pageCreateSurfaceId?: string;
   readonly onRequestCreatePage?: (groupKey: string) => void;
+  readonly mutationHistory?: DatabaseViewMutationHistory;
 }
 
 interface DatabaseListCommitOptions {
@@ -151,7 +162,6 @@ interface DatabaseListCommitOptions {
   readonly errorMessage?: string;
   readonly inlineError?: boolean;
   readonly propagateError?: boolean;
-  readonly settleDrag?: boolean;
   readonly deferError?: boolean;
   readonly modelOverride?: DatabaseViewRenderModel;
 }
@@ -159,6 +169,21 @@ interface DatabaseListCommitOptions {
 interface DatabaseListFocusRequest {
   readonly id: number;
   readonly occurrenceKey: string;
+}
+
+interface DatabaseListOptimisticMove {
+  readonly sessionId: number;
+  readonly rootOccurrenceKeys: ReadonlySet<string>;
+  readonly rootPageIds: ReadonlySet<string>;
+  readonly targetOccurrenceKey: string;
+  readonly position: "before" | "after" | "nest" | "root";
+  readonly groupKey: string | null;
+  readonly subgroupKey: string | null;
+  readonly receiptCommitSeq: number | null;
+  readonly normalizedTarget: Extract<
+    NonNullable<DatabaseViewMutationReceipt>["operationOutcomes"][number],
+    { readonly kind: "list_occurrence_move" }
+  >["normalizedTarget"] | null;
 }
 
 interface DatabaseListInteractionState {
@@ -226,52 +251,6 @@ const updateMutationCounts = (
     else next.set(key, count);
   }
   return next;
-};
-
-interface DatabaseListDragPayload {
-  readonly pageIds: readonly string[];
-  readonly sourceOccurrences: readonly DatabaseListDragSourceOccurrence[];
-}
-
-const readDatabaseListDragPayload = (
-  dataTransfer: DataTransfer,
-): DatabaseListDragPayload | null => {
-  const serialized = dataTransfer.getData(DATABASE_VIEW_PAGE_DRAG_MIME);
-  if (!serialized) return null;
-  try {
-    const payload = JSON.parse(serialized) as {
-      pageIds?: unknown;
-      sourceOccurrences?: unknown;
-    };
-    if (!Array.isArray(payload.pageIds)) return null;
-    const pageIds = payload.pageIds.filter(
-      (value): value is string => typeof value === "string" && value.length > 0,
-    );
-    if (pageIds.length !== payload.pageIds.length) return null;
-    const allowedPageIds = new Set(pageIds);
-    const sourceOccurrences = Array.isArray(payload.sourceOccurrences)
-      ? payload.sourceOccurrences.flatMap((value): DatabaseListDragSourceOccurrence[] => {
-          if (typeof value !== "object" || value === null || Array.isArray(value)) return [];
-          const occurrence = value as Record<string, unknown>;
-          if (
-            typeof occurrence.occurrenceKey !== "string"
-            || typeof occurrence.pageId !== "string"
-            || !allowedPageIds.has(occurrence.pageId)
-            || !(typeof occurrence.groupKey === "string" || occurrence.groupKey === null)
-            || !(typeof occurrence.subgroupKey === "string" || occurrence.subgroupKey === null)
-          ) return [];
-          return [{
-            occurrenceKey: occurrence.occurrenceKey,
-            pageId: occurrence.pageId,
-            groupKey: occurrence.groupKey,
-            subgroupKey: occurrence.subgroupKey,
-          }];
-        })
-      : [];
-    return { pageIds: [...new Set(pageIds)], sourceOccurrences };
-  } catch {
-    return null;
-  }
 };
 
 const searchablePropertyValues = (
@@ -414,17 +393,22 @@ export function DatabaseList({
   forcedDisplayField = null,
   pageCreateSurfaceId,
   onRequestCreatePage,
+  mutationHistory: providedMutationHistory,
 }: DatabaseListProps) {
+  const localMutationHistory = useDatabaseViewMutationHistory(
+    `${model.storeEpoch}:${model.databaseViewId}`,
+  );
+  const mutationHistory = providedMutationHistory ?? localMutationHistory;
   const hostRef = useRef<HTMLDivElement | null>(null);
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const inFlightScopesRef = useRef(new Set<string>());
-  const dragSettlingRef = useRef(false);
   const previousProjectionRef = useRef<readonly DatabaseListProjectionRow[]>([]);
   const scrollFrameRef = useRef<number | null>(null);
   const scrollDelayRef = useRef<number | null>(null);
   const latestScrollTopRef = useRef(0);
   const lastScrollCommitAtRef = useRef(0);
   const pointerTimerRef = useRef<number | null>(null);
+  const moveSessionIdRef = useRef(0);
   const restoredScrollStateKeyRef = useRef<string | null>(null);
   const lastReportedSelectionRef = useRef<{
     readonly handler: NonNullable<DatabaseListProps["onSelectedPageIdsChange"]>;
@@ -478,14 +462,8 @@ export function DatabaseList({
   const [viewportHeight, setViewportHeight] = useState(0);
   const [overscan, setOverscan] = useState(INITIAL_OVERSCAN);
   const [pointerSuppressed, setPointerSuppressed] = useState(false);
-  const [draggingPageIds, setDraggingPageIds] = useState<ReadonlySet<string>>(new Set());
-  const [dropTarget, setDropTarget] = useState<{
-    readonly occurrenceKey: string;
-    readonly position: DatabaseListDropPosition;
-  } | null>(null);
-  const [optimisticProjection, setOptimisticProjection] = useState<
-    readonly DatabaseListProjectionRow[] | null
-  >(null);
+  const [dndActive, setDndActive] = useState(false);
+  const [optimisticMove, setOptimisticMove] = useState<DatabaseListOptimisticMove | null>(null);
   const [pendingMutationCount, setPendingMutationCount] = useState(0);
   const [pendingMutationKeys, setPendingMutationKeys] = useState<ReadonlyMap<string, number>>(
     new Map(),
@@ -599,7 +577,18 @@ export function DatabaseList({
     coreRows: coreProjection.rows,
     clientRows: clientProjection,
   });
-  const projection = optimisticProjection ?? authoritativeProjection;
+  // Recompute the optimistic hierarchy over each fresh authoritative row set,
+  // so concurrent title/Property updates keep flowing during a pending move.
+  const projection = useMemo(() => optimisticMove
+    ? applyOptimisticDatabaseListDrop({
+        rows: authoritativeProjection,
+        occurrenceKeys: optimisticMove.rootOccurrenceKeys,
+        targetOccurrenceKey: optimisticMove.targetOccurrenceKey,
+        position: optimisticMove.position,
+        groupKey: optimisticMove.groupKey,
+        subgroupKey: optimisticMove.subgroupKey,
+      })
+    : authoritativeProjection, [authoritativeProjection, optimisticMove]);
   const authorityByPageId = useMemo(() => {
     const authority = new Map(model.query.rows.map((row) => [
       row.page.pageId,
@@ -645,6 +634,8 @@ export function DatabaseList({
   mutationModelRef.current = mutationModel;
   const effectiveRef = useRef(effective);
   effectiveRef.current = effective;
+  const coreWindowRef = useRef(coreWindow);
+  coreWindowRef.current = coreWindow;
   const [interaction, dispatchInteraction] = useReducer(
     reduceDatabaseListInteraction,
     {
@@ -700,8 +691,8 @@ export function DatabaseList({
     projection,
     scrollTop,
     viewportHeight,
-    overscan,
-  ), [overscan, projection, scrollTop, viewportHeight]);
+    dndActive ? Math.max(overscan, 1_200) : overscan,
+  ), [dndActive, overscan, projection, scrollTop, viewportHeight]);
   const renderedRows = projection.slice(
     virtualWindow.startIndex,
     virtualWindow.endIndex,
@@ -744,11 +735,6 @@ export function DatabaseList({
   const activePage = projection.find((row): row is DatabaseListPageRow =>
     row.kind === "page" && row.key === selection.activeOccurrenceKey
   ) ?? null;
-  const listOrderReady = !usesCoreAuthority
-    || (coreWindow.active && !coreWindow.loading);
-  const allMatchingReady = listOrderReady && (
-    !selection.allMatching || !usesCoreAuthority || coreWindow.isComplete
-  );
   const selectionCount = selection.allMatching && coreWindow.active
     ? coreWindow.isComplete
       ? selectedPageIds.size
@@ -769,6 +755,32 @@ export function DatabaseList({
   }, [projection]);
 
   useEffect(() => {
+    if (!optimisticMove) return;
+    const receiptCommitSeq = optimisticMove.receiptCommitSeq;
+    if (
+      receiptCommitSeq === null
+      || receiptCommitSeq === undefined
+      || !coreWindow.active
+      || coreWindow.storeEpoch !== model.storeEpoch
+      || coreWindow.commitSeq < receiptCommitSeq
+      || !optimisticMove.normalizedTarget
+      || !databaseListProjectionReflectsMove({
+        rows: authoritativeProjection,
+        moveRootPageIds: [...optimisticMove.rootPageIds],
+        normalizedTarget: optimisticMove.normalizedTarget,
+      })
+    ) return;
+    setOptimisticMove(null);
+  }, [
+    authoritativeProjection,
+    coreWindow.active,
+    coreWindow.commitSeq,
+    coreWindow.storeEpoch,
+    model.storeEpoch,
+    optimisticMove,
+  ]);
+
+  useEffect(() => {
     if (!onSelectedPageIdsChange) {
       lastReportedSelectionRef.current = null;
       return;
@@ -786,11 +798,6 @@ export function DatabaseList({
     };
     onSelectedPageIdsChange(selectedPageIds);
   }, [onSelectedPageIdsChange, selectedPageIds]);
-
-  useEffect(() => {
-    if (!selection.allMatching || !coreWindow.active || coreWindow.isComplete) return;
-    coreWindow.loadMore();
-  }, [coreWindow, selection.allMatching]);
 
   useEffect(() => {
     const scroller = scrollerRef.current;
@@ -981,13 +988,6 @@ export function DatabaseList({
       if (options.propagateError) throw cause;
       return null;
     } finally {
-      if (options.settleDrag) {
-        await new Promise<void>((resolve) => globalThis.setTimeout(resolve, 100));
-        dragSettlingRef.current = false;
-        setOptimisticProjection(null);
-        setDraggingPageIds(new Set());
-        setDropTarget(null);
-      }
       setPendingMutationCount((current) => Math.max(0, current - 1));
       setPendingMutationKeys((current) => updateMutationCounts(current, mutationKeys, -1));
     }
@@ -1209,111 +1209,119 @@ export function DatabaseList({
     onRelationValueStale: () => void onCommitted?.(),
   };
 
-  const dropPages = (
-    event: DragEvent<HTMLElement>,
-    target: {
-      readonly occurrenceKey: string;
-      readonly groupKey: string | null;
-      readonly subgroupKey: string | null;
-      readonly targetPageId?: string;
-      readonly position: DatabaseListDropPosition;
-    },
-  ): void => {
-    const dragPayload = readDatabaseListDragPayload(event.dataTransfer);
-    if (!dragPayload || dragPayload.pageIds.length === 0) return;
-    const { pageIds, sourceOccurrences } = dragPayload;
-    event.preventDefault();
-    event.stopPropagation();
-    const compiled = compileDatabaseListDropIntent({
-      model: mutationModel,
-      effective: effectivePresentation ?? {
-        layout: "list",
-        presentation,
-      },
-      pageIds,
-      sourceOccurrences,
-      targetPageId: target.targetPageId,
-      position: target.position,
-      groupKey: target.groupKey,
-      subgroupKey: target.subgroupKey,
-    });
-    if (!compiled.ok) {
-      setMutationError(compiled.reason);
-      setDraggingPageIds(new Set());
-      setDropTarget(null);
+  const undoListMove = async (recipe: DatabaseListMoveUndoRecipeV2): Promise<boolean> => {
+    try {
+      const receipt = await commit([{
+        kind: "undo_list_occurrence_move",
+        recipe,
+      }], {
+        mutationKeys: recipe.postParentGuards.map((guard) => pageMutationKey(guard.pageId)),
+        errorMessage: "Couldn’t safely undo this List move.",
+        propagateError: true,
+      });
+      return receipt !== null;
+    } catch {
+      setMutationError(
+        "This move can’t be undone because one of its Pages changed afterward.",
+      );
+      return false;
+    }
+  };
+
+  const dropPages = (drop: DatabaseListDndCommit): void => {
+    const windowState = coreWindowRef.current;
+    if (!windowState.active || !windowState.projection) {
+      setMutationError("Wait for the authoritative List to finish loading before dragging.");
       return;
     }
+    const previewPlacement = resolveDatabaseListDragPreviewPlacement({
+      rows: authoritativeProjection,
+      target: drop.previewTarget,
+    });
+    if (!previewPlacement) {
+      setMutationError("This drop target is no longer available.");
+      return;
+    }
+    if (!databaseListDragTargetChangesPlacement({
+      rows: authoritativeProjection,
+      sources: drop.sources,
+      target: drop.previewTarget,
+    })) {
+      setMutationError(null);
+      return;
+    }
+    const optimistic: DatabaseListOptimisticMove = {
+      sessionId: ++moveSessionIdRef.current,
+      rootOccurrenceKeys: new Set(drop.sources.rootRows.map((row) => row.key)),
+      rootPageIds: new Set(drop.sources.rootRows.map((row) => row.pageId)),
+      targetOccurrenceKey: previewPlacement.targetOccurrenceKey,
+      position: previewPlacement.position,
+      groupKey: previewPlacement.groupKey,
+      subgroupKey: previewPlacement.subgroupKey,
+      receiptCommitSeq: null,
+      normalizedTarget: null,
+    };
+    setOptimisticMove(optimistic);
+    setMutationError(null);
     void (async () => {
-      let attempt = compiled.value;
-      let attemptModel = mutationModel;
+      let attemptWindow: DatabaseListWindowState = windowState;
       for (let attemptIndex = 0; attemptIndex < 2; attemptIndex += 1) {
-        dragSettlingRef.current = true;
-        setOptimisticProjection(applyOptimisticDatabaseListDrop({
-          rows: authoritativeProjection,
-          pageIds: new Set(attempt.pageIds),
-          targetOccurrenceKey: target.occurrenceKey,
-          position: target.position,
-          groupKey: target.groupKey,
-          subgroupKey: target.subgroupKey,
-        }));
+        const latestProjection = attemptWindow.projection;
+        if (!attemptWindow.active || !latestProjection) break;
+        const operation: DatabaseApplyOperationV2 = {
+          kind: "move_list_occurrences",
+          viewId: model.databaseViewId,
+          presentationOverride: databaseListPresentationOverride(effectiveRef.current),
+          expectedProjection: {
+            scopeKey: latestProjection.scopeKey,
+            schemaVersion: latestProjection.schemaVersion,
+            revision: latestProjection.revision,
+            coveredCommitSeq: latestProjection.coveredCommitSeq,
+            effectHash: latestProjection.effectHash,
+          },
+          initiatorOccurrenceKey: drop.initiatorOccurrenceKey,
+          selection: drop.sources.selection,
+          target: drop.target,
+        };
         try {
-          const receipt = await commit(attempt.operations, {
-          mutationKeys: pageIds.map(pageMutationKey),
-          errorMessage: "Couldn’t move these Pages. Try again.",
-          propagateError: true,
-          deferError: attemptIndex === 0,
-          settleDrag: true,
-          modelOverride: attemptModel,
-        });
-        if (!receipt) return;
-        const undoOperations = buildDatabaseListDropUndoOperations({
-          model: attemptModel,
-          compiled: attempt,
-          receipt,
-        });
-        toast.success("Pages moved", {
-          ...(undoOperations && undoOperations.length > 0
+          const receipt = await commit([operation], {
+            mutationKeys: drop.sources.rootRows.map((row) => pageMutationKey(row.pageId)),
+            errorMessage: "Couldn’t move these Pages. Try again.",
+            propagateError: true,
+            deferError: attemptIndex === 0,
+            modelOverride: mutationModelRef.current,
+          });
+          const outcome = receipt?.operationOutcomes.find(
+            (candidate) => candidate.kind === "list_occurrence_move"
+              && candidate.operationIndex === 0,
+          );
+          if (!receipt || !outcome || outcome.kind !== "list_occurrence_move") {
+            throw new Error("The List move receipt omitted its semantic outcome");
+          }
+          mutationHistory.registerListMove(outcome.undoRecipe);
+          setOptimisticMove((current) => current
+            && current.sessionId === optimistic.sessionId
             ? {
-                action: {
-                  label: "Undo",
-                  onClick: () => {
-                    void commit(undoOperations, {
-                      mutationKeys: pageIds.map(pageMutationKey),
-                      errorMessage: "Couldn’t undo this move. Refresh and try again.",
-                    });
-                  },
-                },
+                ...current,
+                receiptCommitSeq: receipt.commitSeq,
+                normalizedTarget: outcome.normalizedTarget,
               }
-            : {}),
-        });
+            : current);
           return;
         } catch (cause) {
           const canRebase = attemptIndex === 0
             && cause instanceof DatabaseViewMutationError
             && cause.commandError.code === "revision_conflict";
-          if (!canRebase) {
-            setMutationError("Couldn’t move these Pages. Review the latest order and try again.");
-            return;
-          }
-          await new Promise<void>((resolve) => globalThis.setTimeout(resolve, 0));
-          attemptModel = mutationModelRef.current;
-          const rebased = compileDatabaseListDropIntent({
-            model: attemptModel,
-            effective: effectiveRef.current,
-            pageIds,
-            sourceOccurrences,
-            targetPageId: target.targetPageId,
-            position: target.position,
-            groupKey: target.groupKey,
-            subgroupKey: target.subgroupKey,
-          });
-          if (!rebased.ok) {
-            setMutationError(rebased.reason);
-            return;
-          }
-          attempt = rebased.value;
+          if (!canRebase) break;
+          attemptWindow = await coreWindowRef.current.refresh();
         }
       }
+      setOptimisticMove((current) =>
+        current?.sessionId === optimistic.sessionId ? null : current
+      );
+      setMutationError(
+        "Couldn’t move these Pages. Review the latest hierarchy and try again.",
+      );
     })();
   };
 
@@ -1340,6 +1348,12 @@ export function DatabaseList({
   }]);
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
+    if (event.defaultPrevented || dndActive) return;
+    if (handleDatabaseViewMutationHistoryKeyDown({
+      event,
+      history: mutationHistory,
+      undoListMove,
+    })) return;
     if ((event.target as HTMLElement).closest(DATABASE_LIST_INTERACTIVE_SELECTOR)) return;
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
@@ -1427,20 +1441,6 @@ export function DatabaseList({
       && isDatabaseListOccurrenceSelected(selection, previousRow.key);
     const selectedAfter = nextRow?.kind === "page"
       && isDatabaseListOccurrenceSelected(selection, nextRow.key);
-    const selectedForDrag = selected
-      ? projection.filter((row): row is DatabaseListPageRow =>
-          row.kind === "page" && isDatabaseListOccurrenceSelected(selection, row.key)
-        )
-      : [item];
-    const uniqueDragPageIds = [...new Set(selectedForDrag.map((row) => row.pageId))];
-    const dragSourceOccurrences: readonly DatabaseListDragSourceOccurrence[] = selectedForDrag.map(
-      (row) => ({
-        occurrenceKey: row.key,
-        pageId: row.pageId,
-        groupKey: row.groupKey,
-        subgroupKey: row.subgroupKey,
-      }),
-    );
     const groupComplete = isGroupComplete([item.pageId]);
     const canMoveUp = canMoveDatabaseViewPage({
       model: mutationModel,
@@ -1462,7 +1462,6 @@ export function DatabaseList({
         selectedBefore={selectedBefore}
         selectedAfter={selectedAfter}
         active={mountedActiveOccurrenceKey === item.key}
-        dragging={draggingPageIds.has(item.pageId)}
         presented={presentedPageIds?.has(item.pageId) ?? false}
         inlineProperties={(
           <DatabaseListInlineProperties
@@ -1491,53 +1490,6 @@ export function DatabaseList({
             : { ...current, activeOccurrenceKey: item.key }
         )}
         onOpen={(titleSnapshot) => onOpenPage(item.pageId, titleSnapshot)}
-        onDragStart={(event) => {
-          if (!allMatchingReady) {
-            event.preventDefault();
-            setMutationError(coreWindow.loading
-              ? "Wait for the List to finish refreshing before dragging."
-              : "Finish loading the full selection before dragging it.");
-            return;
-          }
-          event.dataTransfer.setData(
-            DATABASE_VIEW_PAGE_DRAG_MIME,
-            JSON.stringify({
-              pageIds: uniqueDragPageIds,
-              sourceOccurrences: dragSourceOccurrences,
-            }),
-          );
-          event.dataTransfer.effectAllowed = "move";
-          const rowElement = event.currentTarget.closest<HTMLElement>(
-            '[data-list-row="true"]',
-          );
-          if (rowElement) {
-            const rect = rowElement.getBoundingClientRect();
-            event.dataTransfer.setDragImage(
-              rowElement,
-              Math.max(0, Math.min(rect.width, event.clientX - rect.left)),
-              Math.max(0, Math.min(rect.height, event.clientY - rect.top)),
-            );
-          }
-          setDraggingPageIds(new Set(uniqueDragPageIds));
-        }}
-        onDragEnd={() => {
-          if (dragSettlingRef.current) return;
-          setDraggingPageIds(new Set());
-          setDropTarget(null);
-        }}
-        dropPosition={dropTarget?.occurrenceKey === item.key
-          ? dropTarget.position
-          : null}
-        onDragTargetChange={(position) => setDropTarget(position
-          ? { occurrenceKey: item.key, position }
-          : null)}
-        onDrop={(event, position) => dropPages(event, {
-          occurrenceKey: item.key,
-          groupKey: item.groupKey,
-          subgroupKey: item.subgroupKey,
-          targetPageId: item.pageId,
-          position,
-        })}
         statusOptions={statusOptions}
         priorityOptions={priorityOptions}
         onSetStatus={(optionId) => setProperty(item.pageId, "status", optionId)}
@@ -1584,7 +1536,7 @@ export function DatabaseList({
 
   const selectedIds = [...selectedPageIds];
   const canMoveSelection = (direction: "up" | "down"): boolean => {
-    if (!allMatchingReady) return false;
+    if (selection.allMatching && usesCoreAuthority && !coreWindow.isComplete) return false;
     try {
       return buildDatabaseViewMovePageRunOperations({
         model: mutationModel,
@@ -1600,29 +1552,42 @@ export function DatabaseList({
   const canMoveSelectionDown = canMoveSelection("down");
 
   return (
-    <div
-      ref={hostRef}
-      data-database-view-id={model.databaseViewId}
-      data-page-create-surface-id={pageCreateSurfaceId}
-      className={cn(
-        "relative h-full min-h-0 min-w-0 bg-[var(--database-list-surface)] text-[var(--database-list-text-primary)]",
-        DATABASE_LIST_THEME_CLASS_NAME,
-      )}
+    <DatabaseListDndProvider
+      rows={projection}
+      selection={selection}
+      scrollerRef={scrollerRef}
+      disabled={model.readOnlyReason !== null || !coreWindow.active || optimisticMove !== null}
+      overlayColumns={{
+        priority: coreColumnVisibility.priority,
+        identifier: showIdentifier,
+        status: coreColumnVisibility.status,
+      }}
+      onActiveChange={setDndActive}
+      onCommit={dropPages}
     >
       <div
-        ref={scrollerRef}
-        role="grid"
-        aria-label="Database List"
-        aria-rowcount={projection.length + logicalExtraRows}
-        aria-busy={mutationPending || coreWindow.loading || undefined}
-        data-list-container="true"
+        ref={hostRef}
+        data-database-view-id={model.databaseViewId}
+        data-page-create-surface-id={pageCreateSurfaceId}
         className={cn(
-          "h-full min-h-0 overflow-auto overscroll-contain [scrollbar-gutter:stable]",
-          selectionCount > 0 ? "pb-16" : "pb-2",
-          pointerSuppressed && "[&_[data-list-row=true]]:pointer-events-none",
+          "relative h-full min-h-0 min-w-0 bg-[var(--database-list-surface)] text-[var(--database-list-text-primary)]",
+          DATABASE_LIST_THEME_CLASS_NAME,
         )}
-        onKeyDown={handleKeyDown}
-        onScroll={(event) => {
+      >
+        <div
+          ref={scrollerRef}
+          role="grid"
+          aria-label="Database List"
+          aria-rowcount={projection.length + logicalExtraRows}
+          aria-busy={mutationPending || coreWindow.loading || undefined}
+          data-list-container="true"
+          className={cn(
+            "h-full min-h-0 overflow-auto overscroll-contain [scrollbar-gutter:stable]",
+            selectionCount > 0 ? "pb-16" : "pb-2",
+            pointerSuppressed && !dndActive && "[&_[data-list-row=true]]:pointer-events-none",
+          )}
+          onKeyDown={handleKeyDown}
+          onScroll={(event) => {
           const nextTop = event.currentTarget.scrollTop;
           latestScrollTopRef.current = nextTop;
           const flushScroll = (): void => {
@@ -1659,16 +1624,8 @@ export function DatabaseList({
             setPointerSuppressed(false);
             pointerTimerRef.current = null;
           }, 100);
-        }}
-        onDragOver={(event) => {
-          if (!event.dataTransfer.types.includes(DATABASE_VIEW_PAGE_DRAG_MIME)) return;
-          const rect = event.currentTarget.getBoundingClientRect();
-          const distanceFromTop = event.clientY - rect.top;
-          const distanceFromBottom = rect.bottom - event.clientY;
-          if (distanceFromTop < 40) event.currentTarget.scrollBy({ top: -18 });
-          else if (distanceFromBottom < 40) event.currentTarget.scrollBy({ top: 18 });
-        }}
-      >
+          }}
+        >
         {visibleError ? (
           <div
             role="alert"
@@ -1721,24 +1678,14 @@ export function DatabaseList({
               if (item.kind === "page") return renderPage(item, logicalIndex);
               if (item.kind === "subgroup") {
                 return (
-                  <div
+                  <DatabaseListGroupDropTarget
+                    item={item}
                     key={item.key}
                     role="row"
                     aria-rowindex={logicalIndex + 1}
                     data-list-row="true"
                     data-list-key={item.key}
                     className="sticky top-[35.5px] z-[9] grid h-8 items-center gap-x-2 bg-[var(--database-list-surface)] [grid-template-columns:subgrid] [grid-column:1/-1]"
-                    onDragOver={(event) => {
-                      if (!event.dataTransfer.types.includes(DATABASE_VIEW_PAGE_DRAG_MIME)) return;
-                      event.preventDefault();
-                      event.dataTransfer.dropEffect = "move";
-                    }}
-                    onDrop={(event) => dropPages(event, {
-                      occurrenceKey: item.key,
-                      groupKey: item.groupKey,
-                      subgroupKey: item.subgroupKey,
-                      position: "root",
-                    })}
                   >
                     <div
                       role="gridcell"
@@ -1770,7 +1717,7 @@ export function DatabaseList({
                         </span>
                       </span>
                     </div>
-                  </div>
+                  </DatabaseListGroupDropTarget>
                 );
               }
               const resolvedGroupLabel = groupLabel(
@@ -1785,24 +1732,14 @@ export function DatabaseList({
                 ? { status: item.groupKey, request: onRequestCreatePage }
                 : null;
               return (
-                <div
+                <DatabaseListGroupDropTarget
+                  item={item}
                   key={item.key}
                   role="row"
                   aria-rowindex={logicalIndex + 1}
                   data-list-row="true"
                   data-list-key={item.key}
                   className="sticky top-[-0.5px] z-10 mb-0.5 grid h-9 items-center gap-x-2 bg-[var(--database-list-surface)] [grid-template-columns:subgrid] [grid-column:1/-1]"
-                  onDragOver={(event) => {
-                    if (!event.dataTransfer.types.includes(DATABASE_VIEW_PAGE_DRAG_MIME)) return;
-                    event.preventDefault();
-                    event.dataTransfer.dropEffect = "move";
-                  }}
-                  onDrop={(event) => dropPages(event, {
-                    occurrenceKey: item.key,
-                    groupKey: item.groupKey,
-                    subgroupKey: null,
-                    position: "root",
-                  })}
                 >
                   <div
                     role="gridcell"
@@ -1863,7 +1800,7 @@ export function DatabaseList({
                       ) : null}
                     </span>
                   </div>
-                </div>
+                </DatabaseListGroupDropTarget>
               );
             })}
             {virtualWindow.paddingEnd > 0 ? (
@@ -1883,20 +1820,21 @@ export function DatabaseList({
             Loading more…
           </div>
         ) : null}
+        </div>
+        <DatabaseListSelectionActionBar
+          count={selectionCount}
+          canMoveUp={canMoveSelectionUp}
+          canMoveDown={canMoveSelectionDown}
+          onMove={(direction) => movePages(selectedIds, direction)}
+          onClear={() => updateSelection((current) => ({
+            ...current,
+            selectedOccurrenceKeys: new Set(),
+            allMatching: false,
+            excludedOccurrenceKeys: new Set(),
+            anchorOccurrenceKey: null,
+          }))}
+        />
       </div>
-      <DatabaseListSelectionActionBar
-        count={selectionCount}
-        canMoveUp={canMoveSelectionUp}
-        canMoveDown={canMoveSelectionDown}
-        onMove={(direction) => movePages(selectedIds, direction)}
-        onClear={() => updateSelection((current) => ({
-          ...current,
-          selectedOccurrenceKeys: new Set(),
-          allMatching: false,
-          excludedOccurrenceKeys: new Set(),
-          anchorOccurrenceKey: null,
-        }))}
-      />
-    </div>
+    </DatabaseListDndProvider>
   );
 }

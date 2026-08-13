@@ -348,16 +348,18 @@ async function dragListRowWithMouse({
   sourceRow,
   targetRow,
   position,
+  expectedOverlayCount = 1,
 }: {
   page: Page;
   sourceRow: Locator;
   targetRow: Locator;
   position: "before" | "after" | "center" | "nest";
+  expectedOverlayCount?: number;
 }): Promise<void> {
   await sourceRow.scrollIntoViewIfNeeded();
   await sourceRow.hover();
-  await expect(sourceRow).toHaveAttribute("draggable", "true");
-  const dragSurface = sourceRow.locator('[data-list-grid-column="identifier"]');
+  await expect(sourceRow).not.toHaveAttribute("draggable", "true");
+  const dragSurface = sourceRow.locator('[data-list-grid-column="indent"]');
   const handleBox = await dragSurface.boundingBox();
   if (!handleBox) throw new Error("List row drag surface has no layout box");
   const sourcePoint = {
@@ -382,11 +384,25 @@ async function dragListRowWithMouse({
     await page.mouse.move(sourcePoint.x, sourcePoint.y);
     await page.mouse.down();
     await page.mouse.move(sourcePoint.x + 12, sourcePoint.y, { steps: 4 });
+    const overlay = page.locator('[data-database-list-drag-overlay="true"]');
+    await expect(overlay).toBeVisible();
+    if (expectedOverlayCount > 1) {
+      await expect(overlay.getByText(String(expectedOverlayCount), { exact: true }))
+        .toBeVisible();
+    }
+    await expect(sourceRow).toHaveCSS("opacity", "0.7");
     await page.mouse.move(targetPoint.x, targetPoint.y, { steps: 24 });
     await page.mouse.move(targetPoint.x + 1, targetPoint.y);
     await page.mouse.move(targetPoint.x + 2, targetPoint.y);
+    if (position !== "nest") {
+      await expect(targetRow).toHaveAttribute(
+        "data-drop-position",
+        position === "before" ? "before" : "after",
+      );
+    }
     await page.mouse.up();
     mouseReleased = true;
+    await expect(overlay).toBeHidden();
   } finally {
     if (!mouseReleased) await page.mouse.up().catch(() => undefined);
     if (altPressed) await page.keyboard.up("Alt").catch(() => undefined);
@@ -2219,7 +2235,7 @@ test("moves a Block into a Board with native DnD @dnd-smoke", async () => {
   }
 });
 
-test("opens and center-reorders a List row without nesting @list-dnd-smoke", async () => {
+test("opens and pointer-reorders a nested List subtree without changing its internal parent @list-dnd-smoke", async () => {
   test.setTimeout(120_000);
   const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nx-list-dnd-smoke-"));
   const nodexHome = path.join(fixtureRoot, "profile");
@@ -2257,6 +2273,46 @@ test("opens and center-reorders a List row without nesting @list-dnd-smoke", asy
       "List fixture three",
       "Third List Page",
     );
+    const listDescriptor = requireIpcValue<{ readonly dataSourceId: string }>(
+      await invokeIpc(
+        page,
+        "database:list-window:get",
+        project.projectId,
+        { databaseViewId: project.defaultDatabaseViewId, first: 50 },
+      ),
+      "Read List Data Source",
+    );
+    await requireIpcValue(
+      await invokeIpc(
+        page,
+        "database-module:apply",
+        project.projectId,
+        {
+          version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+          operationId: createUuidV7(),
+          projectId: project.projectId,
+          storeEpoch: project.storeEpoch,
+          actor: { kind: "electron_e2e" },
+          operations: [{
+            kind: "set_task_parent",
+            dataSourceId: listDescriptor.dataSourceId,
+            pages: [{
+              pageId: secondFixture.pageId,
+              expectedValueRevision: 1,
+            }],
+            parentPageId: firstFixture.pageId,
+          }, {
+            kind: "put_view_personal_presentation",
+            viewId: project.defaultDatabaseViewId,
+            expectedRevision: 0,
+            presentationOverride: {
+              hierarchy: { showSubPages: true, nestedSubPages: true },
+            },
+          }],
+        },
+      ),
+      "Nest List child fixture",
+    );
 
     await page.getByRole("button", {
       name: "Open Native List DnD smoke",
@@ -2290,8 +2346,9 @@ test("opens and center-reorders a List row without nesting @list-dnd-smoke", asy
       ));
       return initialOrder;
     }, { timeout: 15_000 }).toEqual(expect.arrayContaining(fixturePageIds));
-    const targetPageId = firstFixture.pageId;
-    const sourcePageId = thirdFixture.pageId;
+    const sourcePageId = firstFixture.pageId;
+    const childPageId = secondFixture.pageId;
+    const targetPageId = thirdFixture.pageId;
     const sourceRow = grid.locator(
       `[data-list-row="true"][data-database-view-page-id="${sourcePageId}"]`,
     );
@@ -2304,14 +2361,18 @@ test("opens and center-reorders a List row without nesting @list-dnd-smoke", asy
       sourceRow,
       targetRow,
       position: "center",
+      expectedOverlayCount: 2,
     });
 
-    const orderWithoutSource = initialOrder.filter((pageId) => pageId !== sourcePageId);
+    const orderWithoutSource = initialOrder.filter((pageId) =>
+      pageId !== sourcePageId && pageId !== childPageId
+    );
     const targetIndex = orderWithoutSource.indexOf(targetPageId);
     expect(targetIndex).toBeGreaterThanOrEqual(0);
     const expectedOrder = [
       ...orderWithoutSource.slice(0, targetIndex + 1),
       sourcePageId,
+      childPageId,
       ...orderWithoutSource.slice(targetIndex + 1),
     ];
     await expect.poll(async () => await rows.evaluateAll((elements) => elements.map((element) =>
@@ -2330,7 +2391,14 @@ test("opens and center-reorders a List row without nesting @list-dnd-smoke", asy
         page,
         "database:list-window:get",
         project.projectId,
-        { databaseViewId: project.defaultDatabaseViewId, first: 50 },
+        {
+          databaseViewId: project.defaultDatabaseViewId,
+          first: 50,
+          presentationOverride: {
+            layout: "list",
+            hierarchy: { showSubPages: true, nestedSubPages: true },
+          },
+        },
       ), "Read reordered List window");
       const order = result.rows.flatMap((row) =>
         row.kind === "page" && row.row?.page?.pageId ? [row.row.page.pageId] : []
@@ -2338,20 +2406,27 @@ test("opens and center-reorders a List row without nesting @list-dnd-smoke", asy
       const source = result.rows.find((row) =>
         row.kind === "page" && row.row?.page?.pageId === sourcePageId
       );
+      const child = result.rows.find((row) =>
+        row.kind === "page" && row.row?.page?.pageId === childPageId
+      );
       return {
         order,
         sourceParentPageId: source?.row?.taskParent?.parentPageId ?? null,
+        childParentPageId: child?.row?.taskParent?.parentPageId ?? null,
       };
     }, { timeout: 15_000 }).toEqual({
       order: expectedOrder,
       sourceParentPageId: null,
+      childParentPageId: sourcePageId,
     });
 
-    await targetRow.locator('[data-list-grid-column="identifier"]').click();
+    await targetRow.locator('[data-list-grid-column="indent"]').click();
     const pageStage = page.locator('[data-page-stage-surface="true"]:visible');
     await expect(pageStage).toBeVisible({ timeout: 15_000 });
     await expect(pageStage.getByRole("textbox", { name: "Page title" }))
-      .toHaveText(firstTitle, { timeout: 15_000 });
+      .toHaveText("List fixture three", { timeout: 15_000 });
+    await expect(page.locator('[data-slot="toast-item"] [role="alert"]'))
+      .toHaveCount(0);
   } finally {
     if (application) await stopApplication(application);
     await shutdownTemporaryCore(nodexHome);

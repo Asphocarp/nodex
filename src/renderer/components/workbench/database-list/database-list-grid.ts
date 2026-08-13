@@ -6,6 +6,11 @@ export const DATABASE_LIST_CHECKBOX_WIDTH = 18;
 export const DATABASE_LIST_PRIORITY_WIDTH = 16;
 export const DATABASE_LIST_END_PADDING_WIDTH = 18;
 
+export const databaseListPageIdentifier = (pageId: string): string => {
+  const normalized = pageId.replace(/^page[-_:]?/i, "").replace(/[^a-z0-9]/gi, "");
+  return (normalized || pageId).slice(0, 7).toUpperCase();
+};
+
 export interface DatabaseListCoreColumnVisibility {
   readonly priority: boolean;
   readonly status: boolean;

@@ -409,6 +409,10 @@ const readBoundedDatabaseListWindow = async <
         ancestorPageIds: row.ancestor_page_ids,
         depth: row.depth,
         hasChildren: row.has_children,
+        subtreeOccurrenceCount: row.subtree_occurrence_count,
+        concreteSubtreePageCount: row.concrete_subtree_page_count,
+        subtreeHeight: row.subtree_height,
+        firstChildOccurrenceKey: row.first_child_occurrence_key ?? null,
         transientKind: row.transient_kind,
       };
     }),

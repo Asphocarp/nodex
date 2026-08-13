@@ -7,11 +7,13 @@ import type {
 import {
   DATABASE_LIST_CHECKBOX_WIDTH,
   DATABASE_LIST_FIELD_GAP,
+  DATABASE_LIST_INDENT_WIDTH,
   DATABASE_LIST_PRIORITY_WIDTH,
 } from "./database-list-grid";
 
 export const DATABASE_LIST_NESTING_DEPTH_PX = 24;
 export const DATABASE_LIST_NESTING_OVERLAY_LEFT_PX = 6;
+export const DATABASE_LIST_NESTING_LINE_WIDTH_PX = 1;
 export const DATABASE_LIST_PAGE_ROW_HEIGHT_PX = 44;
 // The visible 1px guide is centered on the leading identity icon lane.
 export const DATABASE_LIST_NESTING_ANCHOR_PX = DATABASE_LIST_CHECKBOX_WIDTH
@@ -24,6 +26,18 @@ export const databaseListNestingLineLeft = (level: number): number =>
 
 export const databaseListNestingLineInset = (level: number): number =>
   databaseListNestingLineLeft(level) - DATABASE_LIST_NESTING_OVERLAY_LEFT_PX;
+
+/**
+ * Anchors the pin at the parent branch for a prospective nested row. Root
+ * slots keep the ordinary row inset because they have no hierarchy branch.
+ */
+export const databaseListDropIndicatorLeft = (prospectiveDepth: number): number =>
+  prospectiveDepth <= 0
+    ? DATABASE_LIST_INDENT_WIDTH
+    : DATABASE_LIST_INDENT_WIDTH
+      + DATABASE_LIST_FIELD_GAP
+      + databaseListNestingLineLeft(prospectiveDepth - 1)
+      + DATABASE_LIST_NESTING_LINE_WIDTH_PX / 2;
 
 export const databaseListNestingGeometry = (rowHeight: number) => ({
   fullVerticalLineHeight: rowHeight / 2 - 6,

@@ -48,6 +48,9 @@ const snapshot = (input: {
 
 const state = (first: DatabaseListWindowSnapshot): DatabaseListWindowState => ({
   active: true,
+  storeEpoch: first.storeEpoch,
+  commitSeq: first.commitSeq,
+  projection: first.projection,
   rows: first.rows,
   groups: first.groups,
   totalProjectionRowCount: first.totalProjectionRowCount,
@@ -219,6 +222,33 @@ describe("Database List window stitching", () => {
       error: "Couldn’t load the authoritative List window.",
       rows: [{ occurrenceKey: "accepted-order" }],
     });
+    unsubscribe();
+  });
+
+  test("revalidates the first window before a semantic conflict retry", async () => {
+    let requestCount = 0;
+    const registry = createDatabaseListWindowStoreRegistry({
+      readWindow: async () => {
+        requestCount += 1;
+        return snapshot({
+          rows: [{ occurrenceKey: requestCount === 1 ? "stale" : "rebased" }],
+          windowStart: 0,
+          commitSeq: requestCount === 1 ? 4 : 5,
+        });
+      },
+    });
+    const store = registry.getStore(model(4));
+    const unsubscribe = store.subscribe(() => undefined);
+    store.setRequest(model(4), effective);
+    await waitForStore();
+
+    await expect(store.refresh()).resolves.toMatchObject({
+      active: true,
+      loading: false,
+      commitSeq: 5,
+      rows: [{ occurrenceKey: "rebased" }],
+    });
+    expect(requestCount).toBe(2);
     unsubscribe();
   });
 

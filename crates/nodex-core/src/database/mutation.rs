@@ -1,7 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use nodex_core_contracts::database::{
-    DatabaseCommitValue, DatabaseEvent, DatabaseEventKind, DatabaseIntent, DatabasePagePosition,
+    DatabaseCommitValue, DatabaseEvent, DatabaseEventKind, DatabaseIntent,
+    DatabaseListMoveSelection, DatabaseListMoveTarget, DatabaseListMoveUndoRecipe,
+    DatabaseListProjectionExpectation, DatabaseOperationOutcome, DatabasePagePosition,
     DatabasePagePropertyAddress, DatabasePersonalViewChange, DatabasePropertyCapabilities,
     DatabasePropertyFilterOperator, DatabasePropertySchema, DatabasePropertySetDelta,
     DatabasePropertyValueEdit, DatabasePropertyValueInput, DatabasePropertyValueMutation,
@@ -61,6 +63,7 @@ struct MutationEffects {
     revisions: BTreeMap<String, i64>,
     personal_presentations: BTreeMap<String, DatabaseViewPersonalPresentation>,
     occurrence_disclosures: BTreeMap<(String, DatabaseViewDisclosureTarget), bool>,
+    operation_outcomes: Vec<DatabaseOperationOutcome>,
 }
 
 struct DatabaseMutationAuthority {
@@ -173,13 +176,15 @@ pub(crate) fn apply_in_transaction(
         },
         |scope| {
             let mut effects = MutationEffects::default();
-            for intent in &request.intent {
+            for (operation_index, intent) in request.intent.iter().enumerate() {
                 apply_intent(
                     scope.connection(),
                     context.profile_id.0.as_str(),
                     library_id,
                     &authority,
                     intent,
+                    u32::try_from(operation_index)
+                        .map_err(|_| internal("Database operation index"))?,
                     &now,
                     &mut effects,
                 )?;
@@ -242,13 +247,15 @@ pub(crate) fn apply_as_collaborator(
     }
     let authority = mutation_authority(connection, library_id, context)?;
     let mut effects = MutationEffects::default();
-    for intent in intents {
+    for (operation_index, intent) in intents.iter().enumerate() {
         apply_intent(
             connection,
             context.profile_id.0.as_str(),
             library_id,
             &authority,
             intent,
+            u32::try_from(operation_index)
+                .map_err(|_| internal("Database collaborator operation index"))?,
             committed_at,
             &mut effects,
         )?;
@@ -270,6 +277,7 @@ pub(crate) fn apply_as_collaborator(
             .map(database_intent_kind)
             .map(str::to_owned)
             .collect(),
+        operation_outcomes: effects.operation_outcomes,
         committed_revisions: effects.revisions,
         commit_seq: 0,
         committed_at: committed_at.to_owned(),
@@ -310,6 +318,155 @@ fn validate_request(request: &ModuleApplyRequest<Vec<DatabaseIntent>>) -> Result
         if let DatabaseIntent::SetViewOccurrenceDisclosure { target, .. } = intent {
             validate_disclosure_target(target)?;
         }
+        if let DatabaseIntent::MoveListOccurrences {
+            view_id,
+            initiator_occurrence_key,
+            selection,
+            target,
+            expected_projection,
+            ..
+        } = intent
+        {
+            validate_id(view_id, "view_id", MAX_ID_LENGTH)?;
+            validate_id(
+                initiator_occurrence_key,
+                "initiator_occurrence_key",
+                MAX_OCCURRENCE_KEY_LENGTH,
+            )?;
+            validate_list_move_selection(selection)?;
+            validate_list_move_target(target)?;
+            validate_id(
+                &expected_projection.scope_key,
+                "expected_projection.scope_key",
+                MAX_OCCURRENCE_KEY_LENGTH,
+            )?;
+            if expected_projection.revision < 0 || expected_projection.covered_commit_seq < 0 {
+                return Err(invalid("List projection revisions cannot be negative"));
+            }
+        }
+        if let DatabaseIntent::UndoListOccurrenceMove { recipe } = intent {
+            validate_list_move_undo_recipe(recipe)?;
+        }
+    }
+    Ok(())
+}
+
+fn validate_occurrence_keys(
+    keys: &[String],
+    label: &str,
+    allow_empty: bool,
+) -> Result<(), StoreError> {
+    if (!allow_empty && keys.is_empty()) || keys.len() > MAX_BULK_VALUES {
+        return Err(invalid(format!(
+            "{label} must contain between {} and {MAX_BULK_VALUES} occurrence keys",
+            usize::from(!allow_empty),
+        )));
+    }
+    let mut unique = HashSet::with_capacity(keys.len());
+    for key in keys {
+        validate_id(key, label, MAX_OCCURRENCE_KEY_LENGTH)?;
+        if !unique.insert(key) {
+            return Err(invalid(format!(
+                "{label} contains duplicate occurrence keys"
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn validate_list_move_selection(selection: &DatabaseListMoveSelection) -> Result<(), StoreError> {
+    match selection {
+        DatabaseListMoveSelection::Explicit { occurrence_keys } => {
+            validate_occurrence_keys(occurrence_keys, "selection.occurrence_keys", false)
+        }
+        DatabaseListMoveSelection::AllMatching {
+            excluded_occurrence_keys,
+        } => validate_occurrence_keys(
+            excluded_occurrence_keys,
+            "selection.excluded_occurrence_keys",
+            true,
+        ),
+    }
+}
+
+fn validate_list_move_target(target: &DatabaseListMoveTarget) -> Result<(), StoreError> {
+    let occurrence_key = match target {
+        DatabaseListMoveTarget::Page { occurrence_key, .. }
+        | DatabaseListMoveTarget::Group { occurrence_key } => occurrence_key,
+    };
+    validate_id(
+        occurrence_key,
+        "target.occurrence_key",
+        MAX_OCCURRENCE_KEY_LENGTH,
+    )
+}
+
+fn validate_list_move_undo_recipe(recipe: &DatabaseListMoveUndoRecipe) -> Result<(), StoreError> {
+    validate_id(&recipe.view_id, "recipe.view_id", MAX_ID_LENGTH)?;
+    validate_id(
+        &recipe.data_source_id,
+        "recipe.data_source_id",
+        MAX_ID_LENGTH,
+    )?;
+    if recipe.property_states.len() > MAX_BULK_VALUES
+        || recipe.post_parent_guards.is_empty()
+        || recipe.post_parent_guards.len() > MAX_BULK_VALUES
+        || recipe.restore_runs.is_empty()
+        || recipe.restore_runs.len() > MAX_BULK_VALUES
+    {
+        return Err(invalid("List move Undo recipe exceeds its bounded shape"));
+    }
+    let mut guard_pages = HashSet::new();
+    for guard in &recipe.post_parent_guards {
+        validate_id(&guard.page_id, "recipe.page_id", MAX_ID_LENGTH)?;
+        if !guard_pages.insert(guard.page_id.as_str()) {
+            return Err(invalid("List move Undo recipe repeats a root Page"));
+        }
+        if let Some(parent_page_id) = &guard.parent_page_id {
+            validate_id(parent_page_id, "recipe.parent_page_id", MAX_ID_LENGTH)?;
+        }
+    }
+    if let Some(before_page_id) = &recipe.post_before_page_id {
+        validate_id(before_page_id, "recipe.post_before_page_id", MAX_ID_LENGTH)?;
+    }
+    let mut restored_pages = HashSet::new();
+    for run in &recipe.restore_runs {
+        if run.page_ids.is_empty() || run.page_ids.len() > MAX_BULK_VALUES {
+            return Err(invalid("List move Undo restore run is empty or too large"));
+        }
+        for page_id in &run.page_ids {
+            validate_id(page_id, "recipe.restore_page_id", MAX_ID_LENGTH)?;
+            if !restored_pages.insert(page_id.as_str()) {
+                return Err(invalid("List move Undo recipe restores a Page twice"));
+            }
+        }
+        if let Some(parent_page_id) = &run.parent_page_id {
+            validate_id(
+                parent_page_id,
+                "recipe.restore_parent_page_id",
+                MAX_ID_LENGTH,
+            )?;
+        }
+        if let Some(before_page_id) = &run.before_page_id {
+            validate_id(
+                before_page_id,
+                "recipe.restore_before_page_id",
+                MAX_ID_LENGTH,
+            )?;
+        }
+    }
+    if restored_pages != guard_pages {
+        return Err(invalid(
+            "List move Undo restore roots do not match its post-state guards",
+        ));
+    }
+    for state in &recipe.property_states {
+        validate_id(&state.page_id, "recipe.property_page_id", MAX_ID_LENGTH)?;
+        validate_id(
+            &state.property_id,
+            "recipe.property_id",
+            MAX_PROPERTY_ID_LENGTH,
+        )?;
     }
     Ok(())
 }
@@ -327,6 +484,8 @@ fn database_intent_kind(intent: &DatabaseIntent) -> &'static str {
         DatabaseIntent::PositionPage { .. } => "position_page",
         DatabaseIntent::PositionPages { .. } => "position_pages",
         DatabaseIntent::SetTaskParent { .. } => "set_task_parent",
+        DatabaseIntent::MoveListOccurrences { .. } => "move_list_occurrences",
+        DatabaseIntent::UndoListOccurrenceMove { .. } => "undo_list_occurrence_move",
         DatabaseIntent::PutViewPersonalPresentation { .. } => "put_view_personal_presentation",
         DatabaseIntent::SetViewOccurrenceDisclosure { .. } => "set_view_occurrence_disclosure",
     }
@@ -352,6 +511,8 @@ fn page_detail_dependency_ids(intents: &[DatabaseIntent]) -> (BTreeSet<String>, 
             | DatabaseIntent::PositionPage { .. }
             | DatabaseIntent::PositionPages { .. }
             | DatabaseIntent::SetTaskParent { .. }
+            | DatabaseIntent::MoveListOccurrences { .. }
+            | DatabaseIntent::UndoListOccurrenceMove { .. }
             | DatabaseIntent::PutViewPersonalPresentation { .. }
             | DatabaseIntent::SetViewOccurrenceDisclosure { .. } => {}
         }
@@ -359,12 +520,14 @@ fn page_detail_dependency_ids(intents: &[DatabaseIntent]) -> (BTreeSet<String>, 
     (data_source_ids, database_ids)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn apply_intent(
     connection: &Connection,
     profile_id: &str,
     library_id: &str,
     authority: &DatabaseMutationAuthority,
     intent: &DatabaseIntent,
+    operation_index: u32,
     now: &str,
     effects: &mut MutationEffects,
 ) -> Result<(), StoreError> {
@@ -563,6 +726,39 @@ fn apply_intent(
             pages,
             parent_page_id.as_deref(),
             before_page_id.as_deref(),
+            now,
+            effects,
+            library_scope,
+        ),
+        DatabaseIntent::MoveListOccurrences {
+            view_id,
+            presentation_override,
+            expected_projection,
+            initiator_occurrence_key,
+            selection,
+            target,
+        } => move_list_occurrences(
+            connection,
+            library_id,
+            project_id,
+            authority.project_id.as_deref(),
+            view_id,
+            presentation_override,
+            expected_projection,
+            initiator_occurrence_key,
+            selection,
+            target,
+            operation_index,
+            now,
+            effects,
+            library_scope,
+        ),
+        DatabaseIntent::UndoListOccurrenceMove { recipe } => undo_list_occurrence_move(
+            connection,
+            library_id,
+            project_id,
+            recipe,
+            operation_index,
             now,
             effects,
             library_scope,
@@ -3958,6 +4154,170 @@ fn set_task_parent(
     record_relation_outcomes(connection, library_id, &affected_values, None, now, effects)
 }
 
+#[allow(clippy::too_many_arguments)]
+fn move_list_occurrences(
+    connection: &Connection,
+    library_id: &str,
+    project_id: &str,
+    projection_project_id: Option<&str>,
+    view_id: &str,
+    presentation_override: &DatabaseViewPresentationOverrideInput,
+    expected_projection: &DatabaseListProjectionExpectation,
+    initiator_occurrence_key: &str,
+    selection: &DatabaseListMoveSelection,
+    target: &DatabaseListMoveTarget,
+    operation_index: u32,
+    now: &str,
+    effects: &mut MutationEffects,
+    library_scope: bool,
+) -> Result<(), StoreError> {
+    let store_epoch = read_store_epoch(connection)?;
+    let projection = super::window::presented_list_projection(
+        connection,
+        library_id,
+        view_id,
+        presentation_override,
+        &store_epoch,
+        projection_project_id,
+    )?;
+    let plan = super::list_drag::plan_list_occurrence_move(
+        connection,
+        &projection,
+        expected_projection,
+        initiator_occurrence_key,
+        selection,
+        target,
+    )?;
+    if plan.view_id != view_id {
+        return Err(corrupt("Semantic List move crossed its View boundary"));
+    }
+    let source = require_source(connection, library_id, &plan.data_source_id)?;
+    if source.database_id != plan.database_id {
+        return Err(corrupt(
+            "Semantic List move crossed its Data Source boundary",
+        ));
+    }
+    authorize_write(
+        connection,
+        project_id,
+        &plan.database_id,
+        DatabaseWriteAction::Write,
+        library_scope,
+    )?;
+    for edit in &plan.property_edits {
+        edit_property_value(
+            connection,
+            library_id,
+            project_id,
+            edit,
+            now,
+            effects,
+            library_scope,
+        )?;
+    }
+    if let Some(parent_run) = &plan.parent_run {
+        set_task_parent(
+            connection,
+            library_id,
+            project_id,
+            &plan.data_source_id,
+            &parent_run.pages,
+            parent_run.parent_page_id.as_deref(),
+            parent_run.before_page_id.as_deref(),
+            now,
+            effects,
+            library_scope,
+        )?;
+    }
+    if let Some(position_run) = &plan.position_run {
+        position_pages(
+            connection,
+            library_id,
+            project_id,
+            &plan.view_id,
+            &position_run.pages,
+            position_run.before_page_id.as_deref(),
+            now,
+            effects,
+            library_scope,
+        )?;
+    }
+    effects.database_ids.insert(plan.database_id);
+    effects.data_source_ids.insert(plan.data_source_id);
+    effects.view_ids.insert(plan.view_id);
+    effects
+        .operation_outcomes
+        .push(DatabaseOperationOutcome::ListOccurrenceMove {
+            operation_index,
+            moved_page_ids: plan.moved_page_ids,
+            move_root_page_ids: plan.move_root_page_ids,
+            normalized_target: plan.normalized_target,
+            undo_recipe: Box::new(plan.undo_recipe),
+        });
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn undo_list_occurrence_move(
+    connection: &Connection,
+    library_id: &str,
+    project_id: &str,
+    recipe: &DatabaseListMoveUndoRecipe,
+    operation_index: u32,
+    now: &str,
+    effects: &mut MutationEffects,
+    library_scope: bool,
+) -> Result<(), StoreError> {
+    let plan = super::list_drag::plan_list_occurrence_move_undo(connection, recipe)?;
+    for edit in &plan.property_edits {
+        edit_property_value(
+            connection,
+            library_id,
+            project_id,
+            edit,
+            now,
+            effects,
+            library_scope,
+        )?;
+    }
+    for parent_run in &plan.parent_runs {
+        set_task_parent(
+            connection,
+            library_id,
+            project_id,
+            &plan.data_source_id,
+            &parent_run.pages,
+            parent_run.parent_page_id.as_deref(),
+            parent_run.before_page_id.as_deref(),
+            now,
+            effects,
+            library_scope,
+        )?;
+    }
+    for position_run in &plan.position_runs {
+        position_pages(
+            connection,
+            library_id,
+            project_id,
+            &plan.view_id,
+            &position_run.pages,
+            position_run.before_page_id.as_deref(),
+            now,
+            effects,
+            library_scope,
+        )?;
+    }
+    effects.view_ids.insert(plan.view_id);
+    effects.data_source_ids.insert(plan.data_source_id);
+    effects
+        .operation_outcomes
+        .push(DatabaseOperationOutcome::ListOccurrenceMoveUndo {
+            operation_index,
+            restored_page_ids: plan.restored_page_ids,
+        });
+    Ok(())
+}
+
 fn presentation_override_is_empty(presentation: &DatabaseViewPresentationOverrideInput) -> bool {
     presentation.layout.is_none()
         && presentation.sort.is_none()
@@ -5311,6 +5671,7 @@ fn seal_commit(
     let page_ids = effects.page_ids.into_iter().collect::<Vec<_>>();
     let view_ids = effects.view_ids.into_iter().collect::<Vec<_>>();
     let committed_revisions = effects.revisions;
+    let operation_outcomes = effects.operation_outcomes;
     let personal_view_changes =
         effects
             .personal_presentations
@@ -5406,6 +5767,7 @@ fn seal_commit(
         affected_page_ids: page_ids.clone(),
         affected_view_ids: view_ids.clone(),
         operation_kinds,
+        operation_outcomes,
         committed_revisions,
         commit_seq: scope.commit_seq(),
         committed_at: now.to_owned(),

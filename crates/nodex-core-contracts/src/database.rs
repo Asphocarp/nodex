@@ -9,7 +9,7 @@ use crate::collection::{CollectionWindow, CollectionWindowRequest};
 use crate::events::ProjectionSnapshotAuthority;
 use crate::{ModuleMutationReceipt, ModuleName, VersionedModuleContract};
 
-pub const DATABASE_CONTRACT_VERSION: u32 = 16;
+pub const DATABASE_CONTRACT_VERSION: u32 = 17;
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
@@ -730,6 +730,18 @@ pub enum DatabaseListProjectionRow {
         ancestor_page_ids: Vec<String>,
         depth: u32,
         has_children: bool,
+        /// Number of Page occurrences in this visible occurrence subtree,
+        /// including transient context rows and this row.
+        subtree_occurrence_count: u32,
+        /// Number of concrete Page occurrences in this subtree. Transient
+        /// rows are skipped, but their descendants remain part of the count.
+        concrete_subtree_page_count: u32,
+        /// Maximum number of Parent edges below this occurrence.
+        subtree_height: u32,
+        /// Stable occurrence identity of the first direct child when one is
+        /// present. This lets a bounded renderer preview the normalized
+        /// "after parent" slot without materializing the whole subtree.
+        first_child_occurrence_key: Option<String>,
         transient_kind: DatabaseListTransientKind,
     },
 }
@@ -936,6 +948,17 @@ pub enum DatabaseIntent {
         parent_page_id: Option<String>,
         before_page_id: Option<String>,
     },
+    MoveListOccurrences {
+        view_id: String,
+        presentation_override: DatabaseViewPresentationOverrideInput,
+        expected_projection: DatabaseListProjectionExpectation,
+        initiator_occurrence_key: String,
+        selection: DatabaseListMoveSelection,
+        target: DatabaseListMoveTarget,
+    },
+    UndoListOccurrenceMove {
+        recipe: DatabaseListMoveUndoRecipe,
+    },
     PutViewPersonalPresentation {
         view_id: String,
         expected_revision: i64,
@@ -1028,7 +1051,120 @@ pub enum DatabaseTransferTarget {
     DataSource { data_source_id: String },
 }
 
+/// Selection semantics for one Database List drag. Occurrence identities are
+/// resolved against the exact effective List projection inside Core; callers
+/// never materialize descendant Page IDs themselves.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum DatabaseListMoveSelection {
+    Explicit {
+        occurrence_keys: Vec<String>,
+    },
+    AllMatching {
+        excluded_occurrence_keys: Vec<String>,
+    },
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DatabaseListMoveEdge {
+    Before,
+    After,
+    Inside,
+}
+
+/// A raw pointer target. Page target normalization (including
+/// `after(parent) -> before(first child)`) remains a Core responsibility.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum DatabaseListMoveTarget {
+    Page {
+        occurrence_key: String,
+        edge: DatabaseListMoveEdge,
+    },
+    Group {
+        occurrence_key: String,
+    },
+}
+
+/// Renderer-visible causal coordinate. The canonical scope body is omitted
+/// because callers only need to prove that the scope identity and revision
+/// they rendered are still current.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct DatabaseListProjectionExpectation {
+    pub scope_key: String,
+    pub schema_version: u32,
+    pub revision: i64,
+    pub covered_commit_seq: i64,
+    pub effect_hash: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct DatabaseListMoveNormalizedTarget {
+    pub target_occurrence_key: String,
+    pub target_page_id: Option<String>,
+    pub parent_page_id: Option<String>,
+    pub before_page_id: Option<String>,
+    pub group_key: Option<String>,
+    pub subgroup_key: Option<String>,
+    pub depth: u32,
+    pub edge: DatabaseListMoveEdge,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
+pub struct DatabaseListMovePropertyState {
+    pub page_id: String,
+    pub property_id: String,
+    pub before_value: DatabasePropertyValueInput,
+    pub after_value: DatabasePropertyValueInput,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct DatabaseListMoveParentGuard {
+    pub page_id: String,
+    pub parent_page_id: Option<String>,
+}
+
+/// One contiguous source run restored by semantic Undo. A null parent means
+/// the Page run belonged at List root; `before_page_id` is always outside the
+/// moved closure.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct DatabaseListMoveRestoreRun {
+    pub page_ids: Vec<String>,
+    pub parent_page_id: Option<String>,
+    pub before_page_id: Option<String>,
+}
+
+/// Opaque-to-UI inverse recipe. Core validates the move's logical post-image
+/// before restoring these runs, so session Undo cannot overwrite a later edit.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
+pub struct DatabaseListMoveUndoRecipe {
+    pub view_id: String,
+    pub data_source_id: String,
+    pub property_states: Vec<DatabaseListMovePropertyState>,
+    pub post_parent_guards: Vec<DatabaseListMoveParentGuard>,
+    pub post_before_page_id: Option<String>,
+    pub post_order_guard: bool,
+    pub restore_runs: Vec<DatabaseListMoveRestoreRun>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum DatabaseOperationOutcome {
+    ListOccurrenceMove {
+        operation_index: u32,
+        moved_page_ids: Vec<String>,
+        move_root_page_ids: Vec<String>,
+        normalized_target: DatabaseListMoveNormalizedTarget,
+        undo_recipe: Box<DatabaseListMoveUndoRecipe>,
+    },
+    ListOccurrenceMoveUndo {
+        operation_index: u32,
+        restored_page_ids: Vec<String>,
+    },
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
 pub struct DatabaseReceipt {
     #[serde(flatten)]
     pub mutation: ModuleMutationReceipt,
@@ -1037,6 +1173,8 @@ pub struct DatabaseReceipt {
     pub affected_page_ids: Vec<String>,
     pub affected_view_ids: Vec<String>,
     pub operation_kinds: Vec<String>,
+    #[serde(default)]
+    pub operation_outcomes: Vec<DatabaseOperationOutcome>,
     pub committed_revisions: BTreeMap<String, i64>,
     pub commit_seq: i64,
     pub committed_at: String,

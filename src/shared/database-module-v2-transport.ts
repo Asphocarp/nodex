@@ -27,6 +27,8 @@ import {
   MAX_DATABASE_MODULE_V2_OPERATIONS,
   type DatabaseApplyOperationV2,
   type DatabaseApplyReceiptV2,
+  type DatabaseListMoveUndoRecipeV2,
+  type DatabaseOperationOutcomeV2,
   type DatabasePropertyValueInputV2,
   type DatabaseApplyResultV2,
   type DatabaseApplyV2,
@@ -67,6 +69,7 @@ import { MAX_PAGE_DESCRIPTION_LENGTH } from "./page-limits";
 
 const MAX_ID_LENGTH = 512;
 const MAX_NAME_LENGTH = 256;
+const MAX_DATABASE_LIST_MOVE_PAGES = 4_096;
 
 const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
@@ -119,6 +122,12 @@ const readOptionalString = (
   maximumLength = MAX_ID_LENGTH,
 ): string | undefined =>
   value === undefined ? undefined : readString(value, label, maximumLength);
+
+const readNullableString = (
+  value: unknown,
+  label: string,
+  maximumLength = MAX_ID_LENGTH,
+): string | null => value === null ? null : readString(value, label, maximumLength);
 
 const readUtf8String = (
   value: unknown,
@@ -411,6 +420,128 @@ const parsePropertyValueInput = (
     return { kind, optionIds: readOptionIdArray(input.optionIds, propertyId, `${label}.optionIds`) };
   }
   throw new TypeError(`${label}.kind is unsupported`);
+};
+
+const readBoundedUniqueStrings = (
+  value: unknown,
+  label: string,
+  options: { readonly allowEmpty: boolean; readonly maximum?: number },
+): readonly string[] => {
+  const maximum = options.maximum ?? MAX_DATABASE_LIST_MOVE_PAGES;
+  if (
+    !Array.isArray(value)
+    || (!options.allowEmpty && value.length === 0)
+    || value.length > maximum
+  ) {
+    throw new TypeError(`${label} has an invalid bounded length`);
+  }
+  const entries = value.map((entry, index) =>
+    readString(entry, `${label}[${index}]`, 1_024)
+  );
+  if (new Set(entries).size !== entries.length) {
+    throw new TypeError(`${label} must contain unique identities`);
+  }
+  return entries;
+};
+
+const parseDatabaseListMoveUndoRecipe = (
+  value: unknown,
+  label: string,
+): DatabaseListMoveUndoRecipeV2 => {
+  const recipe = readRecord(value, label);
+  assertExactKeys(recipe, label, [
+    "viewId",
+    "dataSourceId",
+    "propertyStates",
+    "postParentGuards",
+    "postBeforePageId",
+    "postOrderGuard",
+    "restoreRuns",
+  ]);
+  if (
+    !Array.isArray(recipe.propertyStates)
+    || recipe.propertyStates.length > MAX_DATABASE_LIST_MOVE_PAGES
+    || !Array.isArray(recipe.postParentGuards)
+    || recipe.postParentGuards.length < 1
+    || recipe.postParentGuards.length > MAX_DATABASE_LIST_MOVE_PAGES
+    || !Array.isArray(recipe.restoreRuns)
+    || recipe.restoreRuns.length < 1
+    || recipe.restoreRuns.length > MAX_DATABASE_LIST_MOVE_PAGES
+  ) {
+    throw new TypeError(`${label} has an invalid bounded shape`);
+  }
+  const propertyStates = recipe.propertyStates.map((entry, index) => {
+    const entryLabel = `${label}.propertyStates[${index}]`;
+    const state = readRecord(entry, entryLabel);
+    assertExactKeys(state, entryLabel, [
+      "pageId",
+      "propertyId",
+      "beforeValue",
+      "afterValue",
+    ]);
+    const propertyId = readPropertyId(state.propertyId, `${entryLabel}.propertyId`);
+    return {
+      pageId: readString(state.pageId, `${entryLabel}.pageId`),
+      propertyId,
+      beforeValue: parsePropertyValueInput(
+        state.beforeValue,
+        propertyId,
+        `${entryLabel}.beforeValue`,
+      ),
+      afterValue: parsePropertyValueInput(
+        state.afterValue,
+        propertyId,
+        `${entryLabel}.afterValue`,
+      ),
+    };
+  });
+  const postParentGuards = recipe.postParentGuards.map((entry, index) => {
+    const entryLabel = `${label}.postParentGuards[${index}]`;
+    const guard = readRecord(entry, entryLabel);
+    assertExactKeys(guard, entryLabel, ["pageId", "parentPageId"]);
+    return {
+      pageId: readString(guard.pageId, `${entryLabel}.pageId`),
+      parentPageId: readNullableString(
+        guard.parentPageId,
+        `${entryLabel}.parentPageId`,
+      ),
+    };
+  });
+  if (new Set(postParentGuards.map((guard) => guard.pageId)).size !== postParentGuards.length) {
+    throw new TypeError(`${label}.postParentGuards repeats a Page identity`);
+  }
+  const restoreRuns = recipe.restoreRuns.map((entry, index) => {
+    const entryLabel = `${label}.restoreRuns[${index}]`;
+    const run = readRecord(entry, entryLabel);
+    assertExactKeys(run, entryLabel, ["pageIds", "parentPageId", "beforePageId"]);
+    return {
+      pageIds: readBoundedUniqueStrings(run.pageIds, `${entryLabel}.pageIds`, {
+        allowEmpty: false,
+      }),
+      parentPageId: readNullableString(run.parentPageId, `${entryLabel}.parentPageId`),
+      beforePageId: readNullableString(run.beforePageId, `${entryLabel}.beforePageId`),
+    };
+  });
+  const restored = restoreRuns.flatMap((run) => run.pageIds);
+  if (
+    new Set(restored).size !== restored.length
+    || restored.length !== postParentGuards.length
+    || restored.some((pageId) => !postParentGuards.some((guard) => guard.pageId === pageId))
+  ) {
+    throw new TypeError(`${label}.restoreRuns do not match its guarded roots`);
+  }
+  return {
+    viewId: readViewId(recipe.viewId, `${label}.viewId`),
+    dataSourceId: readDataSourceId(recipe.dataSourceId, `${label}.dataSourceId`),
+    propertyStates,
+    postParentGuards,
+    postBeforePageId: readNullableString(
+      recipe.postBeforePageId,
+      `${label}.postBeforePageId`,
+    ),
+    postOrderGuard: readBoolean(recipe.postOrderGuard, `${label}.postOrderGuard`),
+    restoreRuns,
+  };
 };
 
 const parseApplyOperation = (
@@ -896,6 +1027,130 @@ const parseApplyOperation = (
       pages,
       ...(parentPageId === undefined ? {} : { parentPageId }),
       ...(beforePageId === undefined ? {} : { beforePageId }),
+    };
+  }
+
+  if (operation.kind === "move_list_occurrences") {
+    assertExactKeys(operation, label, [
+      "kind",
+      "viewId",
+      "presentationOverride",
+      "expectedProjection",
+      "initiatorOccurrenceKey",
+      "selection",
+      "target",
+    ]);
+    const expectedProjectionLabel = `${label}.expectedProjection`;
+    const expectedProjection = readRecord(
+      operation.expectedProjection,
+      expectedProjectionLabel,
+    );
+    assertExactKeys(expectedProjection, expectedProjectionLabel, [
+      "scopeKey",
+      "schemaVersion",
+      "revision",
+      "coveredCommitSeq",
+      "effectHash",
+    ]);
+    const selectionLabel = `${label}.selection`;
+    const selection = readRecord(operation.selection, selectionLabel);
+    let parsedSelection: Extract<
+      DatabaseApplyOperationV2,
+      { readonly kind: "move_list_occurrences" }
+    >["selection"];
+    if (selection.kind === "explicit") {
+      assertExactKeys(selection, selectionLabel, ["kind", "occurrenceKeys"]);
+      parsedSelection = {
+        kind: selection.kind,
+        occurrenceKeys: readBoundedUniqueStrings(
+          selection.occurrenceKeys,
+          `${selectionLabel}.occurrenceKeys`,
+          { allowEmpty: false },
+        ),
+      };
+    } else if (selection.kind === "all_matching") {
+      assertExactKeys(selection, selectionLabel, ["kind", "excludedOccurrenceKeys"]);
+      parsedSelection = {
+        kind: selection.kind,
+        excludedOccurrenceKeys: readBoundedUniqueStrings(
+          selection.excludedOccurrenceKeys,
+          `${selectionLabel}.excludedOccurrenceKeys`,
+          { allowEmpty: true },
+        ),
+      };
+    } else {
+      throw new TypeError(`${selectionLabel}.kind is unsupported`);
+    }
+    const targetLabel = `${label}.target`;
+    const target = readRecord(operation.target, targetLabel);
+    let parsedTarget: Extract<
+      DatabaseApplyOperationV2,
+      { readonly kind: "move_list_occurrences" }
+    >["target"];
+    if (target.kind === "page") {
+      assertExactKeys(target, targetLabel, ["kind", "occurrenceKey", "edge"]);
+      if (target.edge !== "before" && target.edge !== "after" && target.edge !== "inside") {
+        throw new TypeError(`${targetLabel}.edge is unsupported`);
+      }
+      parsedTarget = {
+        kind: target.kind,
+        occurrenceKey: readString(target.occurrenceKey, `${targetLabel}.occurrenceKey`, 1_024),
+        edge: target.edge,
+      };
+    } else if (target.kind === "group") {
+      assertExactKeys(target, targetLabel, ["kind", "occurrenceKey"]);
+      parsedTarget = {
+        kind: target.kind,
+        occurrenceKey: readString(target.occurrenceKey, `${targetLabel}.occurrenceKey`, 1_024),
+      };
+    } else {
+      throw new TypeError(`${targetLabel}.kind is unsupported`);
+    }
+    return {
+      kind: operation.kind,
+      viewId: readViewId(operation.viewId, `${label}.viewId`),
+      presentationOverride: parseDatabaseViewPresentationOverride(
+        operation.presentationOverride,
+      ),
+      expectedProjection: {
+        scopeKey: readString(
+          expectedProjection.scopeKey,
+          `${expectedProjectionLabel}.scopeKey`,
+          1_024,
+        ),
+        schemaVersion: readRevision(
+          expectedProjection.schemaVersion,
+          `${expectedProjectionLabel}.schemaVersion`,
+        ),
+        revision: readRevision(
+          expectedProjection.revision,
+          `${expectedProjectionLabel}.revision`,
+        ),
+        coveredCommitSeq: readRevision(
+          expectedProjection.coveredCommitSeq,
+          `${expectedProjectionLabel}.coveredCommitSeq`,
+        ),
+        effectHash: readNullableString(
+          expectedProjection.effectHash,
+          `${expectedProjectionLabel}.effectHash`,
+          256,
+        ),
+      },
+      initiatorOccurrenceKey: readString(
+        operation.initiatorOccurrenceKey,
+        `${label}.initiatorOccurrenceKey`,
+        1_024,
+      ),
+      selection: parsedSelection,
+      target: parsedTarget,
+    };
+  }
+
+  if (operation.kind === "undo_list_occurrence_move") {
+    assertExactKeys(operation, label, ["kind", "recipe"]);
+    return {
+      kind: operation.kind,
+      recipe: parseDatabaseListMoveUndoRecipe(operation.recipe, `${label}.recipe`),
     };
   }
 
@@ -2133,9 +2388,93 @@ const OPERATION_KINDS = new Set<DatabaseApplyOperationV2["kind"]>([
   "position_page",
   "position_pages",
   "set_task_parent",
+  "move_list_occurrences",
+  "undo_list_occurrence_move",
   "put_view_personal_presentation",
   "set_view_occurrence_disclosure",
 ]);
+
+const parseDatabaseOperationOutcome = (
+  value: unknown,
+  index: number,
+): DatabaseOperationOutcomeV2 => {
+  const label = `databaseApplyV2.receipt.operationOutcomes[${index}]`;
+  const outcome = readRecord(value, label);
+  if (outcome.kind === "list_occurrence_move") {
+    assertExactKeys(outcome, label, [
+      "kind",
+      "operationIndex",
+      "movedPageIds",
+      "moveRootPageIds",
+      "normalizedTarget",
+      "undoRecipe",
+    ]);
+    const targetLabel = `${label}.normalizedTarget`;
+    const target = readRecord(outcome.normalizedTarget, targetLabel);
+    assertExactKeys(target, targetLabel, [
+      "targetOccurrenceKey",
+      "targetPageId",
+      "parentPageId",
+      "beforePageId",
+      "groupKey",
+      "subgroupKey",
+      "depth",
+      "edge",
+    ]);
+    if (target.edge !== "before" && target.edge !== "after" && target.edge !== "inside") {
+      throw new TypeError(`${targetLabel}.edge is unsupported`);
+    }
+    return {
+      kind: outcome.kind,
+      operationIndex: readRevision(outcome.operationIndex, `${label}.operationIndex`),
+      movedPageIds: readBoundedUniqueStrings(
+        outcome.movedPageIds,
+        `${label}.movedPageIds`,
+        { allowEmpty: false },
+      ),
+      moveRootPageIds: readBoundedUniqueStrings(
+        outcome.moveRootPageIds,
+        `${label}.moveRootPageIds`,
+        { allowEmpty: false },
+      ),
+      normalizedTarget: {
+        targetOccurrenceKey: readString(
+          target.targetOccurrenceKey,
+          `${targetLabel}.targetOccurrenceKey`,
+          1_024,
+        ),
+        targetPageId: readNullableString(target.targetPageId, `${targetLabel}.targetPageId`),
+        parentPageId: readNullableString(target.parentPageId, `${targetLabel}.parentPageId`),
+        beforePageId: readNullableString(target.beforePageId, `${targetLabel}.beforePageId`),
+        groupKey: readNullableString(target.groupKey, `${targetLabel}.groupKey`, 1_024),
+        subgroupKey: readNullableString(target.subgroupKey, `${targetLabel}.subgroupKey`, 1_024),
+        depth: readRevision(target.depth, `${targetLabel}.depth`),
+        edge: target.edge,
+      },
+      undoRecipe: parseDatabaseListMoveUndoRecipe(
+        outcome.undoRecipe,
+        `${label}.undoRecipe`,
+      ),
+    };
+  }
+  if (outcome.kind === "list_occurrence_move_undo") {
+    assertExactKeys(outcome, label, [
+      "kind",
+      "operationIndex",
+      "restoredPageIds",
+    ]);
+    return {
+      kind: outcome.kind,
+      operationIndex: readRevision(outcome.operationIndex, `${label}.operationIndex`),
+      restoredPageIds: readBoundedUniqueStrings(
+        outcome.restoredPageIds,
+        `${label}.restoredPageIds`,
+        { allowEmpty: false },
+      ),
+    };
+  }
+  throw new TypeError(`${label}.kind is unsupported`);
+};
 
 const parseDatabaseApplyReceiptBody = (
   receipt: Readonly<Record<string, unknown>>,
@@ -2156,6 +2495,12 @@ const parseDatabaseApplyReceiptBody = (
     }
     throw new TypeError(`${label} contains an unsupported operation kind`);
   });
+  if (!Array.isArray(receipt.operationOutcomes)) {
+    throw new TypeError(`${label}.operationOutcomes must be an array`);
+  }
+  const operationOutcomes = receipt.operationOutcomes.map(
+    parseDatabaseOperationOutcome,
+  );
   const committedRevisionRecord = readRecord(
     receipt.committedRevisions,
     `${label}.committedRevisions`,
@@ -2173,6 +2518,7 @@ const parseDatabaseApplyReceiptBody = (
     storeEpoch: readString(receipt.storeEpoch, `${label}.storeEpoch`),
     duplicate: readBoolean(receipt.duplicate, `${label}.duplicate`),
     operationKinds,
+    operationOutcomes,
     affectedDatabaseIds: readUniqueIdentityArray(
       receipt.affectedDatabaseIds,
       `${label}.affectedDatabaseIds`,
@@ -2218,6 +2564,7 @@ export const parseDatabaseApplyResultV2 = (
     "storeEpoch",
     "duplicate",
     "operationKinds",
+    "operationOutcomes",
     "affectedDatabaseIds",
     "affectedDataSourceIds",
     "affectedPageIds",
@@ -2303,6 +2650,7 @@ export const parseLibraryDatabaseApplyResultV2 = (
     "storeEpoch",
     "duplicate",
     "operationKinds",
+    "operationOutcomes",
     "affectedDatabaseIds",
     "affectedDataSourceIds",
     "affectedPageIds",
