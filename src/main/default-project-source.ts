@@ -12,7 +12,7 @@ const logger = getLogger({ subsystem: "default-project-source" });
 type CreateProject = (input: ProjectCreateInput) => Promise<Project>;
 
 interface CreateProjectWithDefaultSourceOptions {
-  documentsDirectory: string;
+  projectsDirectory: string;
   createProject: CreateProject;
   createDirectory?: (path: string) => Promise<void>;
   pathExists?: (path: string) => Promise<boolean>;
@@ -73,7 +73,7 @@ export function sanitizeDefaultProjectDirectoryName(name: string): string {
 }
 
 export async function findAvailableDefaultProjectSource(
-  documentsDirectory: string,
+  projectsDirectory: string,
   directoryName: string,
   pathExists: (path: string) => Promise<boolean> = defaultPathExists,
 ): Promise<string> {
@@ -81,7 +81,7 @@ export async function findAvailableDefaultProjectSource(
   while (true) {
     const candidateName =
       suffix === null ? directoryName : `${directoryName} ${suffix}`;
-    const candidate = join(documentsDirectory, candidateName);
+    const candidate = join(projectsDirectory, candidateName);
     if (!await pathExists(candidate)) return candidate;
     suffix = suffix === null ? 2 : suffix + 1;
   }
@@ -97,7 +97,7 @@ export async function createProjectWithDefaultSource(
 
   const directoryName = sanitizeDefaultProjectDirectoryName(input.name ?? "");
   const source = await findAvailableDefaultProjectSource(
-    options.documentsDirectory,
+    options.projectsDirectory,
     directoryName,
     options.pathExists,
   );
