@@ -203,7 +203,7 @@ const pageLocationSnapshot = () => ({
   authorization: null,
   value: {
     kind: "page_location" as const,
-    value: { page_id: "page:one", project_id: "project:test" },
+    value: { page_id: "page:one", access_project_id: "project:test" },
   },
 });
 
@@ -218,7 +218,7 @@ const viewLocationSnapshot = () => ({
       view_id: "view:test",
       data_source_id: "source:test",
       database_id: "database:test",
-      project_id: "project:test",
+      access_project_id: "project:test",
     },
   },
 });

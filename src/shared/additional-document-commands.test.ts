@@ -100,7 +100,7 @@ describe("additional document command contract", () => {
         documentId: "document:synced",
         initialBlocks: [paragraph("synced:root")],
         placement: {
-          kind: "space",
+          kind: "library",
           before: { blockId: "top:anchor", expectedLocationRevision: 5 },
         },
       }),
@@ -131,7 +131,7 @@ describe("additional document command contract", () => {
         documentId: "document:template",
         displayName: "Review template",
         initialBlocks: [paragraph("template:root")],
-        placement: { kind: "space" },
+        placement: { kind: "library" },
       }),
       request(
         {
@@ -225,7 +225,7 @@ describe("additional document command contract", () => {
             documentId: "document:template",
             displayName: "Template",
             initialBlocks: [],
-            placement: { kind: "space" },
+            placement: { kind: "library" },
           },
           lease([hostHead]),
         ),
@@ -319,7 +319,7 @@ describe("additional document command contract", () => {
       sourceBlockId: "synced:source",
       documentId: "document:synced",
       initialBlocks: [paragraph("block:1")],
-      placement: { kind: "space" },
+      placement: { kind: "library" },
     } as const;
     expectContractError(() =>
       parseAdditionalDocumentCommandRequest({
@@ -372,7 +372,7 @@ describe("additional document command contract", () => {
         request({
           ...validOperation,
           placement: {
-            kind: "space",
+            kind: "library",
             before: {
               blockId: validOperation.sourceBlockId,
               expectedLocationRevision: 1,
@@ -409,7 +409,7 @@ describe("additional document command contract", () => {
           documentId: "document:template",
           displayName: "Template",
           initialBlocks: tooMany,
-          placement: { kind: "space" },
+          placement: { kind: "library" },
         }),
       ),
     );
@@ -429,7 +429,7 @@ describe("additional document command contract", () => {
           sourceBlockId: "synced:source",
           documentId: "document:synced",
           initialBlocks: [nested],
-          placement: { kind: "space" },
+          placement: { kind: "library" },
         }),
       ),
     );
@@ -441,7 +441,7 @@ describe("additional document command contract", () => {
           sourceBlockId: "synced:source",
           documentId: "document:synced",
           initialBlocks: [paragraph("synced:root")],
-          placement: { kind: "space" },
+          placement: { kind: "library" },
         }),
         actor: { evidence: "x".repeat(65 * 1024) },
       }),

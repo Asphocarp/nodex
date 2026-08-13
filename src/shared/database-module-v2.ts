@@ -150,7 +150,7 @@ export interface DataSourcePageRowV2 {
   readonly effectiveSubgroupKey: string | null;
   /** Exact-head Page body projection supplied by native Database authority. */
   readonly bodyNfm?: string;
-  /** Page-intrinsic properties needed by compatibility row projections. */
+  /** Exact-head intrinsic values requested by complete Page projections. */
   readonly intrinsicProperties?: readonly PageIntrinsicPropertyValueV2[];
   /** Projection of the standard Parent Relation, independent from structural ownership. */
   readonly taskParent: {

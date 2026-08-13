@@ -301,7 +301,7 @@ pub(super) fn search(
            JOIN pages owner_page ON owner_page.block_id = owner.id \
            WHERE {}\
          ) \
-         SELECT project_id, owner_block_id, document_id, block_id, block_type, \
+         SELECT library_id, owner_block_id, document_id, block_id, block_type, \
            document_generation, projected_seq, source_kind, field_key, excerpt, rank, search_rowid \
          FROM ranked \
          WHERE ? = 0 OR (rank, owner_block_id, block_id, search_rowid) > (?, ?, ?, ?) \
@@ -700,7 +700,7 @@ fn search_hit(
         ));
     }
     Ok(LibrarySearchHit {
-        project_id: row.0,
+        library_id: row.0,
         owner_page_id: row.1,
         document_id: row.2,
         block_id: row.3,

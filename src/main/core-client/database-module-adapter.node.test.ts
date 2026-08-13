@@ -1379,7 +1379,7 @@ describe("Core Database Module Adapter", () => {
     });
   });
 
-  test("maps Library Database events without a compatibility Project", () => {
+  test("maps Library Database events without a Project coordinate", () => {
     const envelope = {
       transport_version: 4,
       packet: createCoreLocalCommitFixture({

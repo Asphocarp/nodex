@@ -50,7 +50,6 @@ struct CopyPreflight {
     destination: LibraryPageCopyDestination,
     destination_document: Option<LibraryAgentDocumentHead>,
     destination_database_id: Option<String>,
-    destination_project_id: String,
     source: SourceAuthority,
     page_id: String,
     body_block_count: u32,
@@ -63,7 +62,8 @@ pub(super) struct ResolvedDestination {
     pub(super) authorization_fingerprint: String,
     pub(super) document_heads: Vec<LibraryAgentDocumentHead>,
     pub(super) database_id: Option<String>,
-    pub(super) project_id: String,
+    /// Project-scoped actor/event-delivery coordinate; never a content owner.
+    pub(super) actor_project_id: String,
 }
 
 pub(super) struct PreparePageCopyInput {
@@ -204,7 +204,6 @@ pub(super) fn prepare_page_copy(
                         destination: None,
                         destination_document: None,
                         destination_database_id: None,
-                        destination_project_id: None,
                         committed: Some(committed),
                     }),
                 },
@@ -237,7 +236,6 @@ pub(super) fn prepare_page_copy(
                         destination: Some(preflight.destination),
                         destination_document: preflight.destination_document,
                         destination_database_id: preflight.destination_database_id,
-                        destination_project_id: Some(preflight.destination_project_id),
                         committed: None,
                     }),
                 },
@@ -373,7 +371,7 @@ pub(super) fn execute_page_copy(
                     &agent_context,
                     &operation_id,
                     MutationEffects {
-                        project_id: execution.project_id,
+                        project_id: execution.actor_project_id,
                         operation_kind: "agent_duplicate_page",
                         change_kind: "library.changed",
                         did_mutate: true,
@@ -447,7 +445,7 @@ fn compile_preflight(
         authorization_fingerprint: destination_fingerprint,
         document_heads: mut destination_heads,
         database_id: destination_database_id,
-        project_id: destination_project_id,
+        actor_project_id,
     } = resolved_destination;
     let destination_document = if matches!(
         request.destination,
@@ -512,7 +510,7 @@ fn compile_preflight(
         &source.document_generation,
         &source.document_head_seq,
         &destination,
-        &destination_project_id,
+        &actor_project_id,
         &document_heads,
     ))?;
     let footprint_hash = hash_serializable(&footprint)?;
@@ -528,7 +526,6 @@ fn compile_preflight(
         destination,
         destination_document,
         destination_database_id,
-        destination_project_id,
         source,
         page_id: preview.page_id,
         body_block_count: preview.body_block_count,
@@ -600,7 +597,7 @@ pub(super) fn resolve_destination(
                 },
                 AgentProjectResourceAction::CreateChild,
             )?;
-            let project_id = authorization.provenance.authority.actor_project_id.as_str();
+            let actor_project_id = authorization.provenance.authority.actor_project_id.as_str();
             let ids = connection
                 .prepare(
                     "SELECT placement.block_id FROM library_block_placements placement \
@@ -620,7 +617,7 @@ pub(super) fn resolve_destination(
                 authorization_fingerprint: fingerprint,
                 document_heads: Vec::new(),
                 database_id: None,
-                project_id: project_id.to_owned(),
+                actor_project_id: actor_project_id.to_owned(),
             })
         }
         LibraryAgentPageDestination::Page { page_id, at } => {
@@ -684,7 +681,7 @@ pub(super) fn resolve_destination(
                     expected_head_seq: head_seq,
                 }],
                 database_id: None,
-                project_id: authorization.provenance.authority.actor_project_id.clone(),
+                actor_project_id: authorization.provenance.authority.actor_project_id.clone(),
             })
         }
         LibraryAgentPageDestination::DataSource {
@@ -823,7 +820,7 @@ fn resolve_data_source_destination(
         authorization_fingerprint: fingerprint,
         document_heads: Vec::new(),
         database_id: Some(database_id),
-        project_id: authorization.provenance.authority.actor_project_id.clone(),
+        actor_project_id: authorization.provenance.authority.actor_project_id.clone(),
     })
 }
 

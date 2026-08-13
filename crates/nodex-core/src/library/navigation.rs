@@ -312,7 +312,7 @@ pub(super) fn read(
                         |project_id| {
                             project_id.map(|project_id| LibraryPageLocation {
                                 page_id,
-                                project_id,
+                                access_project_id: project_id,
                             })
                         },
                     )
@@ -375,7 +375,7 @@ pub(super) fn read(
                                 view_id,
                                 data_source_id,
                                 database_id,
-                                project_id,
+                                access_project_id: project_id,
                             })
                         })
                 })

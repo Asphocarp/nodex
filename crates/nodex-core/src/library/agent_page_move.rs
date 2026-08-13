@@ -56,7 +56,6 @@ struct PreparedMoveStep {
     source: LibraryBlockTransferSource,
     source_document_id: Option<String>,
     source_database_id: Option<String>,
-    actor_project_id: String,
     same_data_source: bool,
     source_authorization_fingerprint: String,
     source_state_hash: String,
@@ -70,7 +69,7 @@ struct MovePreflight {
     destination: LibraryPageCopyDestination,
     destination_document: Option<LibraryAgentDocumentHead>,
     destination_database_id: Option<String>,
-    destination_project_id: String,
+    actor_project_id: String,
     destination_authority_hash: String,
     steps: Vec<PreparedMoveStep>,
     batch_documents: Option<PreparedAgentPageDocumentBatch>,
@@ -204,7 +203,6 @@ pub(super) fn prepare_move_pages(
                     destination: None,
                     destination_document: None,
                     destination_database_id: None,
-                    destination_project_id: None,
                     committed: Some(committed),
                 }),
             },
@@ -235,7 +233,6 @@ pub(super) fn prepare_move_pages(
                         destination: Some(preflight.destination),
                         destination_document: preflight.destination_document,
                         destination_database_id: preflight.destination_database_id,
-                        destination_project_id: Some(preflight.destination_project_id),
                         committed: None,
                     }),
                 },
@@ -388,7 +385,7 @@ pub(super) fn execute_move_pages(
                     &agent_context,
                     &operation_id,
                     MutationEffects {
-                        project_id: preflight.destination_project_id,
+                        project_id: preflight.actor_project_id,
                         operation_kind: "agent_move_pages",
                         change_kind: "library.changed",
                         did_mutate: true,
@@ -483,8 +480,7 @@ fn apply_pages(
             &preflight.destination,
             authorization,
         )?;
-        let transfer_authority =
-            transfer_authority(&preflight.destination, &preflight.destination_project_id)?;
+        let transfer_authority = transfer_authority(&preflight.actor_project_id);
         let prepared_transfer = step
             .prepared_transfer
             .take()
@@ -505,7 +501,6 @@ fn apply_pages(
             &intent,
             assets_root,
             &transfer_authority,
-            None,
             scope,
             prepared_transfer,
         )?;
@@ -560,7 +555,7 @@ fn apply_pages(
         let finalization = finalize_agent_moved_pages_in_data_source_prevalidated(
             connection,
             library_id,
-            &preflight.destination_project_id,
+            &preflight.actor_project_id,
             &request.page_ids,
             &destination,
             now,
@@ -614,7 +609,7 @@ fn compile_preflight(
         authorization_fingerprint: destination_fingerprint,
         document_heads: destination_heads,
         database_id: destination_database_id,
-        project_id: destination_project_id,
+        actor_project_id,
     } = resolve_destination(
         connection,
         context,
@@ -640,16 +635,11 @@ fn compile_preflight(
         &destination,
         &destination_heads,
         &destination_database_id,
-        &destination_project_id,
+        &actor_project_id,
     ))?;
     let mut source_fingerprints = Vec::with_capacity(request.page_ids.len());
     let mut steps = Vec::with_capacity(request.page_ids.len());
     let mut document_heads = destination_heads;
-    let actor_project_id = context
-        .project_id
-        .as_ref()
-        .map(|project_id| project_id.0.as_str())
-        .ok_or_else(|| unauthorized("Agent Page movement requires a Project context"))?;
     for (index, page_id) in request.page_ids.iter().enumerate() {
         let source_fingerprint = super::agent_authorization::authorize_execution(
             connection,
@@ -698,7 +688,7 @@ fn compile_preflight(
                 &destination,
                 authorization,
             )?;
-            let transfer_authority = transfer_authority(&destination, &destination_project_id)?;
+            let transfer_authority = transfer_authority(&actor_project_id);
             let prepared = super::block_transfer::prepare_for_agent_page_move(
                 connection,
                 document_runtime_cache,
@@ -716,7 +706,6 @@ fn compile_preflight(
             source: source.source,
             source_document_id: source.source_document_id,
             source_database_id: source.source_database_id,
-            actor_project_id: actor_project_id.to_owned(),
             same_data_source,
             source_authorization_fingerprint: source_fingerprint,
             source_state_hash,
@@ -779,7 +768,7 @@ fn compile_preflight(
         destination_fingerprint,
         store_epoch,
         &destination,
-        &destination_project_id,
+        &actor_project_id,
         &steps,
         &document_heads,
     ))?;
@@ -796,7 +785,7 @@ fn compile_preflight(
         destination,
         destination_document,
         destination_database_id,
-        destination_project_id,
+        actor_project_id,
         destination_authority_hash,
         steps,
         batch_documents: Some(batch_documents),
@@ -820,7 +809,7 @@ fn revalidate_preflight(
         authorization_fingerprint: destination_fingerprint,
         document_heads: destination_heads,
         database_id: destination_database_id,
-        project_id: destination_project_id,
+        actor_project_id,
     } = resolve_destination(
         connection,
         context,
@@ -840,10 +829,10 @@ fn revalidate_preflight(
         &destination,
         destination_heads,
         destination_database_id,
-        &destination_project_id,
+        &actor_project_id,
     ))?;
     if destination_authority_hash != preflight.destination_authority_hash
-        || destination_project_id != preflight.destination_project_id
+        || actor_project_id != preflight.actor_project_id
     {
         return Err(stale_preflight("Agent Page-move destination changed"));
     }
@@ -1173,13 +1162,10 @@ fn data_source_destination(
     })
 }
 
-fn transfer_authority(
-    _destination: &LibraryPageCopyDestination,
-    target_project_id: &str,
-) -> Result<AgentPageMoveTransferAuthority, StoreError> {
-    Ok(AgentPageMoveTransferAuthority {
-        target_project_id: target_project_id.to_owned(),
-    })
+fn transfer_authority(actor_project_id: &str) -> AgentPageMoveTransferAuthority {
+    AgentPageMoveTransferAuthority {
+        actor_project_id: actor_project_id.to_owned(),
+    }
 }
 
 fn resolve_move_destination(
@@ -1401,8 +1387,6 @@ fn page_preparation(step: &PreparedMoveStep) -> LibraryAgentMovePagePreparation 
         source: step.source.clone(),
         source_document_id: step.source_document_id.clone(),
         source_database_id: step.source_database_id.clone(),
-        source_project_id: step.actor_project_id.clone(),
-        target_project_id: step.actor_project_id.clone(),
     }
 }
 

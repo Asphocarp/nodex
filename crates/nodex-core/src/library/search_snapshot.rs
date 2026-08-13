@@ -557,11 +557,10 @@ pub(super) fn prepare(
                 "Search snapshot projected bytes exceed their bound",
             ));
         }
-        let evidence = page_evidence(connection, library_id, project_id, &page_id)?;
+        let evidence = page_evidence(connection, library_id, &page_id)?;
         pages.push(LibrarySearchSnapshotPage {
             page_id: page_id.clone(),
             title_markdown: metadata.title_markdown.clone(),
-            storage_project_id: evidence.storage_project_id,
             database_id: evidence.database_id,
             data_source_id: evidence.data_source_id,
             ownership_path,
@@ -595,7 +594,7 @@ pub(super) fn prepare(
             version: SNAPSHOT_VERSION,
             projection_version: PROJECTION_VERSION,
             library_id: library_id.to_owned(),
-            project_id: project_id.to_owned(),
+            access_project_id: project_id.to_owned(),
             store_epoch: store_epoch.to_owned(),
             commit_head,
             scope,
@@ -608,7 +607,6 @@ pub(super) fn prepare(
 
 #[derive(Default)]
 struct PageEvidence {
-    storage_project_id: String,
     database_id: Option<String>,
     data_source_id: Option<String>,
     data_source_schema_revision: Option<i64>,
@@ -620,7 +618,6 @@ struct PageEvidence {
 fn page_evidence(
     connection: &Connection,
     library_id: &str,
-    actor_project_id: &str,
     page_id: &str,
 ) -> Result<PageEvidence, StoreError> {
     let (parent_kind, parent_id) = connection
@@ -640,7 +637,6 @@ fn page_evidence(
         .map(|data_source_id| database_for_data_source(connection, library_id, data_source_id))
         .transpose()?;
     let mut evidence = PageEvidence {
-        storage_project_id: actor_project_id.to_owned(),
         database_id,
         data_source_id: terminal_data_source,
         schedule_revision: connection

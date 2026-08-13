@@ -11,9 +11,9 @@ use rusqlite::{Connection, OptionalExtension, params};
 use crate::database::{
     PageCopyDataSourceDestination, PageCopyPositionAnchor, PageCopyValueDraft,
     PageCopyViewPlacement, copy_relation_edges, place_copied_page_in_data_source,
-    place_copied_page_in_data_source_prevalidated, resolve_page_copy_data_source_project,
-    resolve_page_copy_data_source_project_prevalidated,
-    synchronize_membership_completion_timestamp,
+    place_copied_page_in_data_source_prevalidated, synchronize_membership_completion_timestamp,
+    validate_page_copy_data_source_destination,
+    validate_page_copy_data_source_destination_prevalidated,
 };
 use crate::document::{
     BlockDocumentSchema, DocumentMaterialization, PersistYjsGenesis, clone_canvas_genesis,
@@ -95,7 +95,7 @@ pub(super) struct PageCopyPlanPreview {
 }
 
 pub(super) struct PageCopyExecution {
-    pub(super) project_id: String,
+    pub(super) actor_project_id: String,
     pub(super) parent_key: String,
     pub(super) affected_page_ids: Vec<String>,
     pub(super) affected_database_ids: Vec<String>,
@@ -269,7 +269,7 @@ pub(super) fn copy_page(
                 context,
                 operation_id,
                 MutationEffects {
-                    project_id: execution.project_id,
+                    project_id: execution.actor_project_id,
                     operation_kind: "copy_page",
                     change_kind: "library.changed",
                     did_mutate: true,
@@ -398,8 +398,8 @@ pub(super) fn execute_page_copy(
         ));
     }
     if let Some(destination) = &data_source_destination {
-        resolved_parent.project_id = if access_prevalidated {
-            resolve_page_copy_data_source_project_prevalidated(
+        if access_prevalidated {
+            validate_page_copy_data_source_destination_prevalidated(
                 connection,
                 library_id,
                 requesting_project_id,
@@ -407,14 +407,14 @@ pub(super) fn execute_page_copy(
                 destination.expected_data_source_revision,
             )?
         } else {
-            resolve_page_copy_data_source_project(
+            validate_page_copy_data_source_destination(
                 connection,
                 library_id,
                 requesting_project_id,
                 &destination.data_source_id,
                 destination.expected_data_source_revision,
             )?
-        };
+        }
         resolved_parent.parent_key = format!("data_source:{}", destination.data_source_id);
     }
     let plan = build_copy_plan(
@@ -620,7 +620,7 @@ pub(super) fn execute_page_copy(
     )
     .map_err(|error| internal(format!("Copied Page ETags could not be minted: {error:?}")))?;
     Ok(PageCopyExecution {
-        project_id: resolved_parent.project_id,
+        actor_project_id: resolved_parent.actor_project_id,
         parent_key: resolved_parent.parent_key,
         affected_page_ids,
         affected_database_ids: data_source_placement
@@ -712,7 +712,7 @@ pub(crate) fn clone_page_for_occurrence(
     let resolved_parent = super::mutation::ResolvedWriteParent {
         parent_key: format!("library:{library_id}"),
         page_id: None,
-        project_id: input.actor_project_id.to_owned(),
+        actor_project_id: input.actor_project_id.to_owned(),
         creator_project_id: Some(input.actor_project_id.to_owned()),
         document: None,
         before_block_id: None,
@@ -2891,20 +2891,20 @@ mod tests {
         let module = LibraryModule::new("profile-1", "library-1", &kernel);
         create_page(
             &module,
-            "operation:create-agent-rehome-source",
-            "page:agent-rehome-source",
-            "document:agent-rehome-source",
-            "Rehome source",
+            "operation:create-agent-cross-project-source",
+            "page:agent-cross-project-source",
+            "document:agent-cross-project-source",
+            "Cross-project source",
             LibraryWriteParent::Library { before: None },
         );
         create_page(
             &module,
-            "operation:create-agent-rehome-child",
-            "page:agent-rehome-child",
-            "document:agent-rehome-child",
-            "Rehome child",
+            "operation:create-agent-cross-project-child",
+            "page:agent-cross-project-child",
+            "document:agent-cross-project-child",
+            "Cross-project child",
             LibraryWriteParent::Page {
-                page_id: "page:agent-rehome-source".to_owned(),
+                page_id: "page:agent-cross-project-source".to_owned(),
                 expected_document_generation: 1,
                 expected_document_head_seq: 1,
                 before: None,
@@ -2926,12 +2926,12 @@ mod tests {
                 &context_for("project-2"),
                 ModuleApplyRequest {
                     contract_version: LIBRARY_CONTRACT_VERSION,
-                    operation_id: "operation:create-agent-rehome-target".to_owned(),
+                    operation_id: "operation:create-agent-cross-project-target".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::CreatePage {
-                        page_id: "page:agent-rehome-target".to_owned(),
-                        document_id: "document:agent-rehome-target".to_owned(),
-                        title: "Rehome target".to_owned(),
+                        page_id: "page:agent-cross-project-target".to_owned(),
+                        document_id: "document:agent-cross-project-target".to_owned(),
+                        title: "Cross-project target".to_owned(),
                         parent: LibraryWriteParent::Library { before: None },
                     },
                 },
@@ -2939,12 +2939,15 @@ mod tests {
             .expect("create cross-Project target Page");
         let authorization = agent_move_authorization(
             &kernel,
-            &["page:agent-rehome-source", "page:agent-rehome-target"],
+            &[
+                "page:agent-cross-project-source",
+                "page:agent-cross-project-target",
+            ],
         );
         let request = LibraryAgentMovePagesRequest {
-            page_ids: vec!["page:agent-rehome-source".to_owned()],
+            page_ids: vec!["page:agent-cross-project-source".to_owned()],
             destination: LibraryAgentPageDestination::Page {
-                page_id: "page:agent-rehome-target".to_owned(),
+                page_id: "page:agent-cross-project-target".to_owned(),
                 at: None,
             },
         };
@@ -2954,7 +2957,7 @@ mod tests {
                 ModuleReadRequest {
                     contract_version: LIBRARY_CONTRACT_VERSION,
                     read: LibraryRead::PrepareAgentMovePages {
-                        operation_id: "operation:agent-rehome-move".to_owned(),
+                        operation_id: "operation:agent-cross-project-move".to_owned(),
                         store_epoch: "epoch-1".to_owned(),
                         authorization: Box::new(authorization.clone()),
                         request: Box::new(request.clone()),
@@ -2965,13 +2968,12 @@ mod tests {
         let LibraryReadValue::AgentMovePagesPreparation { value } = prepared.value else {
             panic!("cross-Project Agent Page-move preparation");
         };
-        assert_eq!(value.destination_project_id.as_deref(), Some("project-1"));
         module
             .apply(
                 &context(),
                 ModuleApplyRequest {
                     contract_version: LIBRARY_CONTRACT_VERSION,
-                    operation_id: "operation:agent-rehome-move".to_owned(),
+                    operation_id: "operation:agent-cross-project-move".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::ExecutePreparedAgentMovePages {
                         authorization: Box::new(AgentPreparedExecution {
@@ -2993,10 +2995,10 @@ mod tests {
                      FROM blocks root JOIN pages root_page ON root_page.block_id = root.id \
                      JOIN document_block_index root_entry ON root_entry.block_id = root.id \
                      JOIN documents root_document ON root_document.id = root_page.document_id \
-                     JOIN blocks child ON child.id = 'page:agent-rehome-child' \
+                     JOIN blocks child ON child.id = 'page:agent-cross-project-child' \
                      JOIN pages child_page ON child_page.block_id = child.id \
                      JOIN documents child_document ON child_document.id = child_page.document_id \
-                     WHERE root.id = 'page:agent-rehome-source'",
+                     WHERE root.id = 'page:agent-cross-project-source'",
                     [],
                     |row| {
                         Ok((
@@ -3014,18 +3016,18 @@ mod tests {
                     evidence,
                     (
                         "library-1".to_owned(),
-                        "document:agent-rehome-target".to_owned(),
-                        "page:agent-rehome-target".to_owned(),
+                        "document:agent-cross-project-target".to_owned(),
+                        "page:agent-cross-project-target".to_owned(),
                         "library-1".to_owned(),
                         "library-1".to_owned(),
-                        "page:agent-rehome-source".to_owned(),
+                        "page:agent-cross-project-source".to_owned(),
                         "library-1".to_owned(),
                     )
                 );
                 let wrong_search_owner = connection.query_row(
                     "SELECT count(*) FROM block_search_units \
                      WHERE owner_block_id IN \
-                       ('page:agent-rehome-source', 'page:agent-rehome-child') \
+                       ('page:agent-cross-project-source', 'page:agent-cross-project-child') \
                        AND library_id <> 'library-1'",
                     [],
                     |row| row.get::<_, i64>(0),
@@ -3038,11 +3040,11 @@ mod tests {
                 assert_eq!(foreign_keys, 0);
                 Ok(())
             })
-            .expect("verify cross-Project ownership rehome");
+            .expect("verify Library-stable cross-Project Page move");
     }
 
     #[test]
-    fn agent_page_move_changes_parent_without_rehoming_library_content() {
+    fn agent_page_move_changes_parent_while_preserving_library_content_identity() {
         let (_directory, kernel) = seeded_kernel();
         let module = LibraryModule::new("profile-1", "library-1", &kernel);
         create_page(
@@ -3220,7 +3222,7 @@ mod tests {
                 assert!(state.6.is_some());
                 Ok(())
             })
-            .expect("verify rehomed Library storage");
+            .expect("verify stable Library storage");
     }
 
     #[test]

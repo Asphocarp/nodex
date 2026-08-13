@@ -10712,12 +10712,6 @@
               }
             ]
           },
-          "destination_project_id": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
           "document_heads": {
             "type": "array",
             "items": {
@@ -10852,9 +10846,7 @@
         "type": "object",
         "required": [
           "page_id",
-          "source",
-          "source_project_id",
-          "target_project_id"
+          "source"
         ],
         "properties": {
           "page_id": {
@@ -10874,12 +10866,6 @@
               "string",
               "null"
             ]
-          },
-          "source_project_id": {
-            "type": "string"
-          },
-          "target_project_id": {
-            "type": "string"
           }
         }
       },
@@ -10925,12 +10911,6 @@
               {
                 "$ref": "#/components/schemas/LibraryAgentDocumentHead"
               }
-            ]
-          },
-          "destination_project_id": {
-            "type": [
-              "string",
-              "null"
             ]
           },
           "document_heads": {
@@ -11059,12 +11039,6 @@
               {
                 "$ref": "#/components/schemas/LibraryAgentDocumentHead"
               }
-            ]
-          },
-          "destination_project_id": {
-            "type": [
-              "string",
-              "null"
             ]
           },
           "document_heads": {
@@ -15558,13 +15532,13 @@
         "type": "object",
         "required": [
           "page_id",
-          "project_id"
+          "access_project_id"
         ],
         "properties": {
-          "page_id": {
+          "access_project_id": {
             "type": "string"
           },
-          "project_id": {
+          "page_id": {
             "type": "string"
           }
         }
@@ -16225,7 +16199,7 @@
       "LibrarySearchHit": {
         "type": "object",
         "required": [
-          "project_id",
+          "library_id",
           "owner_page_id",
           "document_id",
           "block_id",
@@ -16257,10 +16231,10 @@
           "field_key": {
             "type": "string"
           },
-          "owner_page_id": {
+          "library_id": {
             "type": "string"
           },
-          "project_id": {
+          "owner_page_id": {
             "type": "string"
           },
           "projected_seq": {
@@ -16335,7 +16309,7 @@
           "version",
           "projection_version",
           "library_id",
-          "project_id",
+          "access_project_id",
           "store_epoch",
           "commit_head",
           "scope",
@@ -16343,6 +16317,9 @@
           "warnings"
         ],
         "properties": {
+          "access_project_id": {
+            "type": "string"
+          },
           "commit_head": {
             "type": "integer",
             "format": "int64"
@@ -16355,9 +16332,6 @@
             "items": {
               "$ref": "#/components/schemas/LibrarySearchSnapshotPage"
             }
-          },
-          "project_id": {
-            "type": "string"
           },
           "projection_version": {
             "type": "integer",
@@ -16416,7 +16390,6 @@
         "required": [
           "page_id",
           "title_markdown",
-          "storage_project_id",
           "ownership_path",
           "metadata_revision",
           "document_generation",
@@ -16490,9 +16463,6 @@
               "null"
             ],
             "format": "int64"
-          },
-          "storage_project_id": {
-            "type": "string"
           },
           "title_markdown": {
             "type": "string"
@@ -16620,16 +16590,16 @@
           "view_id",
           "data_source_id",
           "database_id",
-          "project_id"
+          "access_project_id"
         ],
         "properties": {
+          "access_project_id": {
+            "type": "string"
+          },
           "data_source_id": {
             "type": "string"
           },
           "database_id": {
-            "type": "string"
-          },
-          "project_id": {
             "type": "string"
           },
           "view_id": {

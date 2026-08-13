@@ -1,7 +1,7 @@
 import type {
   BlockId,
   DocumentId,
-  LibraryOwnedDocumentDescriptor,
+  LibraryAccessedDocumentDescriptor,
   OwnedDocumentDescriptor,
 } from "../../shared/block-documents/contracts";
 import {
@@ -41,7 +41,7 @@ export interface ReadyPageBlockDocumentDescriptor extends OwnedDocumentDescripto
 }
 
 export interface ReadyLibraryPageBlockDocumentDescriptor
-  extends LibraryOwnedDocumentDescriptor {
+  extends LibraryAccessedDocumentDescriptor {
   readonly ownerType: "page";
   readonly ownerLifecycle: "active";
   readonly schemaKey: typeof PAGE_BLOCK_DOCUMENT_SCHEMA_KEY;
@@ -150,8 +150,8 @@ export const unwrapOwnedBlockDocumentPreparationResult = (
 };
 
 export const unwrapLibraryOwnedBlockDocumentPreparationResult = (
-  result: DocumentSyncCommandResult<LibraryOwnedDocumentDescriptor>,
-): LibraryOwnedDocumentDescriptor => {
+  result: DocumentSyncCommandResult<LibraryAccessedDocumentDescriptor>,
+): LibraryAccessedDocumentDescriptor => {
   if (result.ok) return result.value;
   throw new OwnedBlockDocumentBoundaryError(
     result.error.code,

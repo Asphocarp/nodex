@@ -18,12 +18,11 @@ use serde_json::Value;
 
 use crate::database::{
     ExistingPageTransferTarget, PageCopyDataSourceDestination, StagedPagePlacementRevisions,
-    place_staged_page_in_data_source, resolve_page_copy_data_source_source,
-    resolve_page_transfer_data_source_destination,
+    place_staged_page_in_data_source, resolve_page_transfer_data_source_destination,
     resolve_page_transfer_data_source_destination_prevalidated,
-    resolve_page_transfer_data_source_source,
-    resolve_page_transfer_data_source_source_prevalidated,
     transfer_existing_page_for_agent_move_prevalidated, transfer_existing_page_for_block_transfer,
+    validate_page_copy_data_source_source, validate_page_transfer_data_source_source,
+    validate_page_transfer_data_source_source_prevalidated,
 };
 use crate::document::{
     BlockDocumentSchema, DocumentAuthorityRow, DocumentBlockOperation, DocumentMaterialization,
@@ -121,11 +120,8 @@ fn record_page_parent_prepare(
 
 #[derive(Clone, Debug, Serialize)]
 pub(super) struct AgentPageMoveTransferAuthority {
-    pub(super) target_project_id: String,
+    pub(super) actor_project_id: String,
 }
-
-type AgentPageMoveRehome<'a> =
-    dyn FnMut(&Connection, &[String], &str) -> Result<(), StoreError> + 'a;
 
 pub(super) struct PreparedTransfer {
     source_authority: DocumentAuthorityRow,
@@ -164,7 +160,7 @@ pub(super) struct PreparedPageParentTransfer {
     roots: Vec<PreparedPageParentRoot>,
     expected_location_revisions: BTreeMap<String, i64>,
     copied_block_ids: BTreeMap<String, String>,
-    target_project_id: String,
+    actor_project_id: String,
     target: PreparedPageParentTarget,
 }
 
@@ -737,7 +733,6 @@ pub(super) fn apply(
         assets_root,
         None,
         None,
-        None,
         prepared,
     )
 }
@@ -753,7 +748,6 @@ pub(super) fn apply_agent_page_move(
     intent: &LibraryBlockTransferLogicalIntent,
     assets_root: &Path,
     authority: &AgentPageMoveTransferAuthority,
-    rehome: Option<&mut AgentPageMoveRehome<'_>>,
     scope: &DurableMutationScope<'_>,
     prepared: PreparedBlockTransfer,
 ) -> Result<LibraryApplyOutcome, StoreError> {
@@ -767,7 +761,6 @@ pub(super) fn apply_agent_page_move(
         intent,
         assets_root,
         Some(authority),
-        rehome,
         Some(scope),
         prepared,
     )
@@ -784,7 +777,6 @@ fn apply_with_authority(
     intent: &LibraryBlockTransferLogicalIntent,
     assets_root: &Path,
     agent_authority: Option<&AgentPageMoveTransferAuthority>,
-    rehome: Option<&mut AgentPageMoveRehome<'_>>,
     attached_scope: Option<&DurableMutationScope<'_>>,
     prepared_transfer: PreparedBlockTransfer,
 ) -> Result<LibraryApplyOutcome, StoreError> {
@@ -818,12 +810,11 @@ fn apply_with_authority(
             intent,
             assets_root,
             agent_authority,
-            rehome,
             attached_scope,
             *prepared,
         );
     }
-    if agent_authority.is_some() || rehome.is_some() || attached_scope.is_some() {
+    if agent_authority.is_some() || attached_scope.is_some() {
         return Err(invalid(
             "Agent Page-move authority requires Page ownership roots",
         ));
@@ -1340,37 +1331,30 @@ fn prepare_page_ownership_transfer(
             PreparedPageOwnershipSource::Library
         }
         LibraryBlockTransferSource::DataSource { data_source_id } => {
-            let resolved = if intent.mode == LibraryBlockTransferMode::Copy {
-                resolve_page_copy_data_source_source(
+            if intent.mode == LibraryBlockTransferMode::Copy {
+                validate_page_copy_data_source_source(
                     connection,
                     library_id,
                     requesting_project_id,
                     data_source_id,
                 )?
             } else if agent_authority.is_some() {
-                resolve_page_transfer_data_source_source_prevalidated(
+                validate_page_transfer_data_source_source_prevalidated(
                     connection,
                     library_id,
                     requesting_project_id,
                     data_source_id,
                 )?
             } else {
-                resolve_page_transfer_data_source_source(
+                validate_page_transfer_data_source_source(
                     connection,
                     library_id,
                     requesting_project_id,
                     data_source_id,
                 )?
             };
-            if intent.mode == LibraryBlockTransferMode::Move
-                && resolved.project_id != requesting_project_id
-            {
-                return Err(unauthorized(
-                    "Block transfer source Data Source belongs to another Project",
-                ));
-            }
             PreparedPageOwnershipSource::DataSource {
-                data_source_id: resolved.data_source_id,
+                data_source_id: data_source_id.clone(),
             }
         }
         LibraryBlockTransferSource::Page { page_id } => {
@@ -1471,24 +1455,18 @@ fn prepare_page_ownership_transfer(
             {
                 return Err(invalid("A moved Page cannot be its own placement anchor"));
             }
-            let resolved = if let Some(authority) = agent_authority {
-                let resolved = resolve_page_transfer_data_source_destination_prevalidated(
+            let destination = if let Some(authority) = agent_authority {
+                resolve_page_transfer_data_source_destination_prevalidated(
                     connection,
                     library_id,
-                    &authority.target_project_id,
+                    &authority.actor_project_id,
                     data_source_id,
                     view_id,
                     group_key.as_deref(),
                     before_page_id.as_deref(),
-                )?;
-                if resolved.project_id != authority.target_project_id {
-                    return Err(corrupt(
-                        "Agent Page-move target Project diverged from its Data Source authority",
-                    ));
-                }
-                resolved
+                )?
             } else {
-                let resolved = resolve_page_transfer_data_source_destination(
+                resolve_page_transfer_data_source_destination(
                     connection,
                     library_id,
                     requesting_project_id,
@@ -1496,12 +1474,9 @@ fn prepare_page_ownership_transfer(
                     view_id,
                     group_key.as_deref(),
                     before_page_id.as_deref(),
-                )?;
-                resolved
+                )?
             };
-            PreparedPageOwnershipTarget::DataSource {
-                destination: resolved.destination,
-            }
+            PreparedPageOwnershipTarget::DataSource { destination }
         }
         LibraryBlockTransferTarget::Page {
             page_id,
@@ -1959,7 +1934,6 @@ fn apply_page_ownership_transfer(
     intent: &LibraryBlockTransferLogicalIntent,
     assets_root: &Path,
     agent_authority: Option<&AgentPageMoveTransferAuthority>,
-    mut rehome: Option<&mut AgentPageMoveRehome<'_>>,
     attached_scope: Option<&DurableMutationScope<'_>>,
     mut prepared: PreparedPageOwnershipTransfer,
 ) -> Result<LibraryApplyOutcome, StoreError> {
@@ -2132,9 +2106,6 @@ fn apply_page_ownership_transfer(
                     .entry(format!("membership:{data_source_id}:{membership_id}"))
                     .or_insert(1);
             }
-        }
-        if let Some(rehome) = rehome.as_mut() {
-            rehome(connection, &root_page_ids, &now)?;
         }
         if let Some(mut document) = prepared.target_document.take() {
             let update_id = format!(
@@ -2400,7 +2371,7 @@ fn apply_page_ownership_copy(
     let mut committed_revisions = BTreeMap::new();
     let mut document_commits = Vec::new();
     let mut checkpoint_commits = Vec::new();
-    let mut target_project_id = None;
+    let mut actor_project_id = None;
     let mut affected_parent_keys = BTreeSet::new();
     let parent_document_mode = if prepared.target_document.is_some() {
         PageCopyParentDocumentMode::Defer
@@ -2429,15 +2400,15 @@ fn apply_page_ownership_copy(
             assets_root,
             now,
         )?;
-        if target_project_id
+        if actor_project_id
             .as_ref()
-            .is_some_and(|project_id| project_id != &execution.project_id)
+            .is_some_and(|project_id| project_id != &execution.actor_project_id)
         {
             return Err(corrupt(
-                "Page copy roots resolved to different target Projects",
+                "Page copy roots resolved to different actor Projects",
             ));
         }
-        target_project_id = Some(execution.project_id.clone());
+        actor_project_id = Some(execution.actor_project_id.clone());
         affected_parent_keys.insert(execution.parent_key);
         affected_page_ids.extend(execution.affected_page_ids);
         affected_database_ids.extend(execution.affected_database_ids);
@@ -2497,15 +2468,15 @@ fn apply_page_ownership_copy(
         move_etags: BTreeMap::new(),
         page_view_placements: BTreeMap::new(),
     };
-    let target_project_id = target_project_id
-        .ok_or_else(|| corrupt("Page copy produced no target Project authority"))?;
+    let actor_project_id =
+        actor_project_id.ok_or_else(|| corrupt("Page copy produced no actor Project"))?;
     let affected_block_ids = copied_block_ids.values().cloned().collect::<Vec<_>>();
     seal_mutation_with(
         scope,
         context,
         operation_id,
         MutationEffects {
-            project_id: target_project_id.clone(),
+            project_id: actor_project_id.clone(),
             operation_kind: "transfer_blocks",
             change_kind: "block_mutation",
             did_mutate: true,
@@ -2533,7 +2504,7 @@ fn apply_page_ownership_copy(
             persist_mutation_ledger(
                 connection,
                 operation_id,
-                &target_project_id,
+                &actor_project_id,
                 store_epoch,
                 request_hash,
                 intent,
@@ -2565,7 +2536,7 @@ fn prepare_page_parent_transfer(
     let prepare_started_at = Instant::now();
     let project_id = bound_project_id(context)?;
     require_project_in_library(connection, project_id, library_id)?;
-    let (target_project_id, target) = match &intent.target {
+    let (actor_project_id, target) = match &intent.target {
         LibraryBlockTransferTarget::Library {
             library_id: target_library_id,
             before_block_id,
@@ -2588,7 +2559,7 @@ fn prepare_page_parent_transfer(
             group_key,
             before_page_id,
         } => {
-            let resolved = resolve_page_transfer_data_source_destination(
+            let destination = resolve_page_transfer_data_source_destination(
                 connection,
                 library_id,
                 project_id,
@@ -2598,10 +2569,8 @@ fn prepare_page_parent_transfer(
                 before_page_id.as_deref(),
             )?;
             (
-                resolved.project_id,
-                PreparedPageParentTarget::DataSource {
-                    destination: resolved.destination,
-                },
+                project_id.to_owned(),
+                PreparedPageParentTarget::DataSource { destination },
             )
         }
         _ => {
@@ -2781,7 +2750,7 @@ fn prepare_page_parent_transfer(
         roots,
         expected_location_revisions,
         copied_block_ids,
-        target_project_id,
+        actor_project_id,
         target,
     })
 }
@@ -3108,7 +3077,7 @@ fn apply_page_parent_transfer(
                 context,
                 operation_id,
                 MutationEffects {
-                    project_id: prepared.target_project_id.clone(),
+                    project_id: prepared.actor_project_id.clone(),
                     operation_kind: "transfer_blocks",
                     change_kind: "block_mutation",
                     did_mutate: true,
@@ -3143,7 +3112,7 @@ fn apply_page_parent_transfer(
                     persist_mutation_ledger(
                         connection,
                         operation_id,
-                        &prepared.target_project_id,
+                        &prepared.actor_project_id,
                         store_epoch,
                         request_hash,
                         intent,
@@ -3246,7 +3215,7 @@ pub(super) fn stage_fresh_page_in_library(
     connection: &Connection,
     commit_context: &local_commit::CommitContext,
     library_id: &str,
-    project_id: &str,
+    actor_project_id: &str,
     operation_id: &str,
     store_epoch: &str,
     page_id: &str,
@@ -3268,7 +3237,7 @@ pub(super) fn stage_fresh_page_in_library(
         connection,
         commit_context,
         library_id,
-        project_id,
+        actor_project_id,
         operation_id,
         store_epoch,
         page_id,
@@ -3284,7 +3253,7 @@ pub(super) fn stage_prepared_fresh_page_in_library(
     connection: &Connection,
     commit_context: &local_commit::CommitContext,
     library_id: &str,
-    project_id: &str,
+    actor_project_id: &str,
     operation_id: &str,
     store_epoch: &str,
     page_id: &str,
@@ -3348,7 +3317,7 @@ pub(super) fn stage_prepared_fresh_page_in_library(
         connection,
         PersistYjsGenesis {
             authority: &authority,
-            actor_project_id: project_id,
+            actor_project_id,
             materialization: &prepared.materialization,
             update_id: &update_id,
             client_session_id: "rust:nodex-page-create",
@@ -3491,7 +3460,7 @@ fn stage_page_parent_root(
     if matches!(&prepared.target, PreparedPageParentTarget::Library { .. }) {
         super::mutation::insert_creator_resource_grant(
             connection,
-            &prepared.target_project_id,
+            &prepared.actor_project_id,
             library_id,
             "page",
             &root.page_id,
@@ -3938,14 +3907,14 @@ fn revalidate_command_authority(
         }
         LibraryBlockTransferSource::DataSource { data_source_id } => {
             if intent.mode == LibraryBlockTransferMode::Move {
-                resolve_page_transfer_data_source_source(
+                validate_page_transfer_data_source_source(
                     connection,
                     library_id,
                     project_id,
                     data_source_id,
                 )?;
             } else {
-                resolve_page_copy_data_source_source(
+                validate_page_copy_data_source_source(
                     connection,
                     library_id,
                     project_id,

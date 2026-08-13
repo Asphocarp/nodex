@@ -364,7 +364,7 @@ describe("workbench session shell / routes-threads", () => {
       within(dbToolbarTabList).getByRole("tab", { name: "List" })
         .getAttribute("aria-selected"),
     ).toBe("true");
-    expect(screen.getByRole("grid", { name: "Board List" })).toBeTruthy();
+    expect(screen.getByRole("grid", { name: "Database List" })).toBeTruthy();
     const preferenceWrite = invokeCalls.find((call) =>
       call[0] === "database-module:apply"
       && call[1] === "alpha"

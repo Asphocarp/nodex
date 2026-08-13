@@ -41,9 +41,11 @@ import {
   type BlockPropertyMutationCommandResultV2,
   type BlockPropertyMutationFieldResultV2,
   type BlockPropertyMutationRequestV2,
+  type BlockPropertyMutationResultV2,
   type LibraryBlockPropertyMutationCommandResultV2,
   type LibraryBlockPropertyMutationRequestV2,
 } from "../../shared/block-property-mutations-v2";
+import type { LocalCommitApply } from "../../shared/local-commit-delivery";
 import { parsePage } from "../../shared/page";
 import {
   PAGE_LIFECYCLE_PREFLIGHT_V2_VERSION,
@@ -1545,14 +1547,24 @@ export const createCoreLibraryModuleAdapter = (
     );
   };
 
-  const applyBlockProperty = async (request: {
+  type CoreBlockPropertyApplyRequest = {
     readonly mutationId: string;
-    readonly projectId: string;
     readonly storeEpoch: string;
     readonly clientSessionId?: string;
     readonly actor: BlockPropertyMutationRequestV2["actor"];
     readonly fields: BlockPropertyMutationRequestV2["fields"];
-  }): Promise<BlockPropertyMutationCommandResultV2> => {
+  };
+  type CoreBlockPropertyApplyResult =
+    | {
+        readonly ok: true;
+        readonly localCommit: LocalCommitApply;
+        readonly value: Omit<BlockPropertyMutationResultV2, "projectId">;
+      }
+    | Extract<BlockPropertyMutationCommandResultV2, { readonly ok: false }>;
+
+  const applyCoreBlockProperty = async (
+    request: CoreBlockPropertyApplyRequest,
+  ): Promise<CoreBlockPropertyApplyResult> => {
     if (request.storeEpoch !== input.storeEpoch) {
       return {
         ok: false,
@@ -1596,13 +1608,12 @@ export const createCoreLibraryModuleAdapter = (
       if (receipt.outcome.status !== "committed") {
         throw new Error("Core returned an invalid Property mutation outcome");
       }
-      return parseBlockPropertyMutationCommandResultV2({
+      return {
         ok: true,
         localCommit: rendererLocalCommitApply(committed),
         value: {
           version: 2,
           mutationId: request.mutationId,
-          projectId: request.projectId,
           storeEpoch,
           duplicate: committed.receipt.duplicate,
           fields: receipt.outcome.fields.map(fromCoreBlockPropertyField),
@@ -1611,10 +1622,21 @@ export const createCoreLibraryModuleAdapter = (
           commitSeq: applyResultCursor(committed),
           committedAt: committed.receipt.committed_at,
         },
-      });
+      };
     } catch (error) {
       return blockPropertyFailure(request.mutationId, error);
     }
+  };
+
+  const applyBlockProperty = async (
+    request: CoreBlockPropertyApplyRequest & { readonly projectId: string },
+  ): Promise<BlockPropertyMutationCommandResultV2> => {
+    const result = await applyCoreBlockProperty(request);
+    if (!result.ok) return result;
+    return parseBlockPropertyMutationCommandResultV2({
+      ...result,
+      value: { ...result.value, projectId: request.projectId },
+    });
   };
 
   return {
@@ -1860,10 +1882,10 @@ export const createCoreLibraryModuleAdapter = (
       }
       const value = snapshot.value.value;
       if (!value) return null;
-      if (value.page_id !== pageId || !value.project_id) {
+      if (value.page_id !== pageId || !value.access_project_id) {
         throw new Error("Core Page location escaped its requested identity");
       }
-      return { pageId: value.page_id, projectId: value.project_id };
+      return { pageId: value.page_id, projectId: value.access_project_id };
     },
     findViewLocation: async (viewId) => {
       const snapshot = await input.client.libraryRead({
@@ -1875,14 +1897,14 @@ export const createCoreLibraryModuleAdapter = (
       }
       const value = snapshot.value.value;
       if (!value) return null;
-      if (value.view_id !== viewId || !value.project_id) {
+      if (value.view_id !== viewId || !value.access_project_id) {
         throw new Error("Core View location escaped its requested identity");
       }
       return {
         viewId: value.view_id,
         dataSourceId: value.data_source_id,
         databaseId: value.database_id,
-        projectId: value.project_id,
+        projectId: value.access_project_id,
       };
     },
     readPageLifecyclePreflight: async (projectId, pageId) => {
@@ -1985,10 +2007,8 @@ export const createCoreLibraryModuleAdapter = (
     applyBlockPropertyMutation: async (request) =>
       await applyBlockProperty(request),
     applyLibraryBlockPropertyMutation: async ({ request, actor }) => {
-      const compatibilityProjectId = `library:${input.libraryId}`;
-      const result = await applyBlockProperty({
+      const result = await applyCoreBlockProperty({
         ...request,
-        projectId: compatibilityProjectId,
         actor,
       });
       if (!result.ok) return result;

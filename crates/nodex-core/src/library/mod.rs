@@ -2732,7 +2732,10 @@ mod tests {
         else {
             panic!("Page location");
         };
-        assert_eq!(value.expect("active Page location").project_id, "project-1");
+        assert_eq!(
+            value.expect("active Page location").access_project_id,
+            "project-1"
+        );
         let LibraryReadValue::ViewLocation { value } = module
             .read(
                 &context(),
@@ -2754,7 +2757,7 @@ mod tests {
                 view_id: VIEW.to_owned(),
                 data_source_id: SOURCE.to_owned(),
                 database_id: DATABASE.to_owned(),
-                project_id: "project-1".to_owned(),
+                access_project_id: "project-1".to_owned(),
             }
         );
         let LibraryReadValue::ViewLocation { value } = module
@@ -6140,7 +6143,7 @@ mod tests {
                 )?;
                 Ok(())
             })
-            .expect("archive compatibility storage Project");
+            .expect("archive local actor Project");
         let mut library_context = persistent_context.clone();
         library_context.project_id = None;
         let property_write = module

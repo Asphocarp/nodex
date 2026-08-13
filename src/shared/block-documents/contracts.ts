@@ -55,19 +55,19 @@ export interface OwnedDocumentDescriptor
   readonly sync: OwnedDocumentSyncEngine;
 }
 
-export interface ProjectOwnedDocumentDescriptor
+export interface ProjectAccessedDocumentDescriptor
   extends OwnedDocumentDescriptor {
   readonly accessContext: ProjectContentAccessContext;
 }
 
-export interface LibraryOwnedDocumentDescriptor
+export interface LibraryAccessedDocumentDescriptor
   extends OwnedDocumentDescriptor {
   readonly accessContext: LibraryContentAccessContext;
 }
 
-export const requireLibraryOwnedDocumentDescriptor = (
+export const requireLibraryAccessedDocumentDescriptor = (
   descriptor: OwnedDocumentDescriptor,
-): LibraryOwnedDocumentDescriptor => {
+): LibraryAccessedDocumentDescriptor => {
   if (descriptor.accessContext.kind === "library") {
     return { ...descriptor, accessContext: descriptor.accessContext };
   }
@@ -76,10 +76,10 @@ export const requireLibraryOwnedDocumentDescriptor = (
   );
 };
 
-export const requireProjectOwnedDocumentDescriptor = (
+export const requireProjectAccessedDocumentDescriptor = (
   descriptor: OwnedDocumentDescriptor,
   projectId: string,
-): ProjectOwnedDocumentDescriptor => {
+): ProjectAccessedDocumentDescriptor => {
   if (
     descriptor.accessContext.kind === "project" &&
     descriptor.accessContext.projectId === projectId
@@ -117,27 +117,6 @@ export type BlockLocation =
       readonly databaseBlockId: BlockId;
       readonly dataSourceId: string;
     };
-
-export interface BlockRecord {
-  readonly id: BlockId;
-  readonly projectId: string;
-  readonly type: string;
-  readonly lifecycle: BlockLifecycle;
-  readonly location: BlockLocation;
-  readonly locationRevision: number;
-  readonly metadataRevision: number;
-}
-
-/** @deprecated Yjs-shaped compatibility contract; use `OwnedDocumentHead`. */
-export interface DocumentHead {
-  readonly documentId: DocumentId;
-  readonly ownerBlockId: BlockId;
-  readonly generation: number;
-  readonly headSeq: number;
-  readonly schemaKey: string;
-  readonly schemaVersion: number;
-  readonly stateVector: Uint8Array;
-}
 
 export interface ApplyDocumentUpdate {
   readonly documentId: DocumentId;

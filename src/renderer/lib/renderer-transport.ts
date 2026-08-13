@@ -42,21 +42,21 @@ export interface RendererTransport {
     projectId: string,
     ownerBlockId: string,
   ) => Promise<
-    import("../../shared/block-documents/contracts").ProjectOwnedDocumentDescriptor
+    import("../../shared/block-documents/contracts").ProjectAccessedDocumentDescriptor
   >;
   prepareOwnedBlockDocument: (
     projectId: string,
     ownerBlockId: string,
   ) => Promise<
     import("../../shared/block-documents/document-sync").DocumentSyncCommandResult<
-      import("../../shared/block-documents/contracts").ProjectOwnedDocumentDescriptor
+      import("../../shared/block-documents/contracts").ProjectAccessedDocumentDescriptor
     >
   >;
   prepareLibraryOwnedBlockDocument: (
     ownerBlockId: string,
   ) => Promise<
     import("../../shared/block-documents/document-sync").DocumentSyncCommandResult<
-      import("../../shared/block-documents/contracts").LibraryOwnedDocumentDescriptor
+      import("../../shared/block-documents/contracts").LibraryAccessedDocumentDescriptor
     >
   >;
   mutateDocument: (

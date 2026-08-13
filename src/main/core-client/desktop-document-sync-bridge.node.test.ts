@@ -1448,7 +1448,7 @@ describe("Desktop Document sync bridge", () => {
     });
 
     await expect(bridge.applyAdditionalDocumentCommand({
-      version: 1,
+      version: 2,
       operationId: "owner:create",
       projectId: "project:one",
       storeEpoch: "epoch:test",
@@ -1465,7 +1465,7 @@ describe("Desktop Document sync bridge", () => {
           props: {},
           children: [],
         }],
-        placement: { kind: "space" },
+        placement: { kind: "library" },
       },
     })).resolves.toMatchObject({
       ok: true,

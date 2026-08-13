@@ -4,6 +4,7 @@ import type { components } from "@nodex/core-protocol";
 import { revocationsFromVisibilityDelta } from "../../shared/local-commit-delivery";
 
 import {
+  ADDITIONAL_DOCUMENT_COMMAND_VERSION,
   encodeAdditionalDocumentCommandSemanticHashInput,
   parseAdditionalDocumentCommandRequest,
   parseAdditionalDocumentCommandResult,
@@ -11,7 +12,7 @@ import {
   type AdditionalDocumentCommandRequest,
   type AdditionalDocumentCommandResult,
   type AdditionalDocumentHeadRevision,
-  type AdditionalDocumentSpacePlacement,
+  type AdditionalDocumentLibraryPlacement,
 } from "../../shared/additional-document-commands";
 import { stableStringifyBlockPropertyJson } from "../../shared/block-property-mutations";
 import type {
@@ -195,7 +196,7 @@ const coreHead = (
   };
 };
 
-const coreSpaceAnchor = (placement: AdditionalDocumentSpacePlacement) => {
+const coreLibraryAnchor = (placement: AdditionalDocumentLibraryPlacement) => {
   const before = placement.before;
   return before
     ? {
@@ -216,7 +217,7 @@ const coreOwnerCommand = (
         source_block_id: operation.sourceBlockId,
         document_id: operation.documentId,
         initial_blocks: operation.initialBlocks,
-        before: coreSpaceAnchor(operation.placement),
+        before: coreLibraryAnchor(operation.placement),
       };
     case "promote_synced_source":
       return {
@@ -242,7 +243,7 @@ const coreOwnerCommand = (
         document_id: operation.documentId,
         display_name: operation.displayName,
         initial_blocks: operation.initialBlocks,
-        before: coreSpaceAnchor(operation.placement),
+        before: coreLibraryAnchor(operation.placement),
       };
     case "instantiate_template":
       return {
@@ -1095,7 +1096,7 @@ export const createCoreDocumentSyncAdapter = (
           ok: true,
           localCommit: rendererLocalCommitApply(committed),
           value: {
-            version: 1,
+            version: ADDITIONAL_DOCUMENT_COMMAND_VERSION,
             operationId: request.operationId,
             projectId: request.projectId,
             storeEpoch,

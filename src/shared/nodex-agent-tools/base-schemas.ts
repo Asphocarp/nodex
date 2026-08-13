@@ -124,15 +124,18 @@ export const PageOutputSchema = z.strictObject({
 });
 
 export const BlockLocationSchema = z.discriminatedUnion("kind", [
-  z.strictObject({ kind: z.literal("space") }),
+  z.strictObject({
+    kind: z.literal("library"),
+    libraryId: LibraryIdSchema,
+  }),
   z.strictObject({
     kind: z.literal("document"),
     documentId: DocumentIdSchema,
     parentBlockId: BlockIdSchema.optional(),
   }),
   z.strictObject({
-    kind: z.literal("database"),
-    databaseBlockId: BlockIdSchema,
+    kind: z.literal("data_source"),
+    dataSourceId: DataSourceIdSchema,
   }),
 ]);
 

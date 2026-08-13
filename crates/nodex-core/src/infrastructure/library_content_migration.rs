@@ -2351,6 +2351,35 @@ pub(super) fn validate_v117_library_content_ownership(
     Ok(())
 }
 
+/// Removes the temporary composite index name that survived the v117 table
+/// rename. The canonical composite index already enforces the same parent key,
+/// so retaining both only doubles write maintenance for `block_documents`.
+pub(super) fn ensure_v119_library_content_index_cleanup(
+    connection: &Connection,
+) -> Result<(), StoreError> {
+    connection
+        .execute_batch("DROP INDEX IF EXISTS idx_block_documents_owner_document_library_v117")?;
+    validate_v119_library_content_index_cleanup(connection)
+}
+
+pub(super) fn validate_v119_library_content_index_cleanup(
+    connection: &Connection,
+) -> Result<(), StoreError> {
+    let obsolete_index_count = connection.query_row(
+        "SELECT count(*) FROM sqlite_schema \
+         WHERE type = 'index' \
+           AND name = 'idx_block_documents_owner_document_library_v117'",
+        [],
+        |row| row.get::<_, i64>(0),
+    )?;
+    if obsolete_index_count != 0 {
+        return Err(corrupt(
+            "Library content schema retained the duplicate v117 Block-Document index",
+        ));
+    }
+    Ok(())
+}
+
 fn corrupt(message: impl Into<String>) -> StoreError {
     StoreError::new(StoreErrorCode::StoreCorrupt, message, false)
 }

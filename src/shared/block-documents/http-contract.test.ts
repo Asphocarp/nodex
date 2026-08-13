@@ -3,7 +3,7 @@ import {
   decodeOwnedDocumentDescriptorHttp,
   decodeCanvasSceneSyncHttpRequest,
   decodeCanvasSceneSyncHttpResponse,
-  decodeLibraryOwnedDocumentDescriptorHttp,
+  decodeLibraryAccessedDocumentDescriptorHttp,
   decodeDocumentApplyHttpAck,
   decodeDocumentApplyHttpRequest,
   decodeDocumentAwarenessHttpRequest,
@@ -21,7 +21,7 @@ import {
   encodeDocumentSyncHttpRequest,
   encodeDocumentSyncHttpResponse,
   encodeOwnedDocumentDescriptorHttp,
-  encodeLibraryOwnedDocumentDescriptorHttp,
+  encodeLibraryAccessedDocumentDescriptorHttp,
 } from "./http-contract";
 import {
   CANVAS_SCENE_SYNC_VERSION,
@@ -92,9 +92,9 @@ const documentDelivery = (): AuthorizedDeliveryPacket => ({
 });
 
 describe("Document HTTP contract", () => {
-  test("round-trips Library descriptors without a compatibility Project", () => {
-    const descriptor = decodeLibraryOwnedDocumentDescriptorHttp(
-      encodeLibraryOwnedDocumentDescriptorHttp({
+  test("round-trips Library descriptors without a Project coordinate", () => {
+    const descriptor = decodeLibraryAccessedDocumentDescriptorHttp(
+      encodeLibraryAccessedDocumentDescriptorHttp({
         libraryId: "library-1",
         accessContext: { kind: "library" },
         ownerBlockId: "page-1",
@@ -114,8 +114,8 @@ describe("Document HTTP contract", () => {
     expect(descriptor.accessContext).toEqual({ kind: "library" });
     expect(descriptor.libraryId).toBe("library-1");
     expect("projectId" in descriptor).toBe(false);
-    expect(() => decodeLibraryOwnedDocumentDescriptorHttp(JSON.stringify({
-      ...JSON.parse(encodeLibraryOwnedDocumentDescriptorHttp(descriptor)),
+    expect(() => decodeLibraryAccessedDocumentDescriptorHttp(JSON.stringify({
+      ...JSON.parse(encodeLibraryAccessedDocumentDescriptorHttp(descriptor)),
       projectId: "forged",
     }))).toThrow("unsupported fields");
   });

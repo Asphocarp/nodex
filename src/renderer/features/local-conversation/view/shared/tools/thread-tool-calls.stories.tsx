@@ -2222,17 +2222,17 @@ export const NodexDynamicToolCalls: Story = {
             tool: "create_pages",
             completed: true,
             args: {
-              destination: { kind: "space" },
-              cards: [{
+              destination: { kind: "library" },
+              pages: [{
                 title: "Migration plan",
                 markdown: "# Migration plan\n\n## Checklist\n- [ ] Back up data",
               }],
             },
             contentText: JSON.stringify({
               data: {
-                cards: [{
+                pages: [{
                   pageId: "card-migration-plan",
-                  location: { kind: "space" },
+                  location: { kind: "library", libraryId: "library-story" },
                   bodyBlocksCreated: 3,
                 }],
                 created: 1,

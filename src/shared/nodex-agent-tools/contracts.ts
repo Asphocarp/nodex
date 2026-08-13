@@ -82,7 +82,7 @@ export const NODEX_AGENT_TOOL_CONTRACTS = {
   }),
   create: defineNodexAgentToolContract({
     description:
-      "Internal compatibility compiler for atomically creating one complete Page before returning canonical Library, Page, or Data Source coordinates.",
+      "Internal compiler for atomically creating one complete Page before returning canonical Library, Page, or Data Source coordinates.",
     inputSchema: CreateInputSchema,
     outputSchema: CreateOutputSchema,
     deferLoading: true,
@@ -109,7 +109,7 @@ export const NODEX_AGENT_TOOL_CONTRACTS = {
   }),
   transfer_blocks: defineNodexAgentToolContract({
     description:
-      "Internal compatibility compiler for moving or copying bounded Page roots before returning canonical Library, Page, or Data Source coordinates.",
+      "Internal compiler for moving or copying bounded Page roots before returning canonical Library, Page, or Data Source coordinates.",
     inputSchema: TransferBlocksInputSchema,
     outputSchema: TransferBlocksOutputSchema,
     deferLoading: true,

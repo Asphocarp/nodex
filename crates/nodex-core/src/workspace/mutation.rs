@@ -1747,7 +1747,6 @@ fn create_project_records(
                 crate::library::page_genesis::PageGenesisInput {
                     commit_context,
                     library_id,
-                    project_id,
                     actor_project_id: project_id,
                     placement_access_project_id: None,
                     operation_id: identity_namespace,
@@ -1756,7 +1755,7 @@ fn create_project_records(
                     document_id: &request.page.document_id,
                     title_markdown: &request.page.title_markdown,
                     nfm: &request.page.nfm,
-                    destination: &destination.destination,
+                    destination: &destination,
                     now: &now,
                 },
             )

@@ -26,6 +26,7 @@ import {
   MAX_DATABASE_MODULE_V2_BULK_ENTRIES,
   MAX_DATABASE_MODULE_V2_OPERATIONS,
   type DatabaseApplyOperationV2,
+  type DatabaseApplyReceiptV2,
   type DatabasePropertyValueInputV2,
   type DatabaseApplyResultV2,
   type DatabaseApplyV2,
@@ -35,11 +36,12 @@ import {
   type DatabaseModuleErrorV2,
   type DatabaseModuleReadRequestV2,
   type DatabaseModuleReadResultV2,
+  type DatabaseModuleReadSnapshotV2,
   type LibraryDatabaseModuleReadRequestV2,
   type LibraryDatabaseModuleReadResultV2,
-  type LibraryDatabaseReadV2,
   type LibraryDatabaseApplyV2,
   type LibraryDatabaseApplyResultV2,
+  type DatabaseReadV2,
   type DatabaseReadValueV2,
   type DatabaseViewQueryResultV2,
   type DatabaseViewDisclosureTargetV2,
@@ -939,6 +941,30 @@ export interface TrustedDatabaseModuleIdentityV2 {
   readonly actor: Readonly<Record<string, DatabaseJsonValue>>;
 }
 
+const parseDatabaseApplyRequestBody = (
+  request: Readonly<Record<string, unknown>>,
+  label: string,
+): Omit<DatabaseApplyV2, "projectId" | "actor"> => {
+  if (request.version !== DATABASE_MODULE_V2_CONTRACT_VERSION) {
+    throw new TypeError("Unsupported Database Module v2 contract version");
+  }
+  if (
+    !Array.isArray(request.operations) ||
+    request.operations.length < 1 ||
+    request.operations.length > MAX_DATABASE_MODULE_V2_OPERATIONS
+  ) {
+    throw new TypeError(
+      `${label}.operations must contain between 1 and ${MAX_DATABASE_MODULE_V2_OPERATIONS} operations`,
+    );
+  }
+  return {
+    version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+    operationId: readString(request.operationId, `${label}.operationId`),
+    storeEpoch: readString(request.storeEpoch, `${label}.storeEpoch`),
+    operations: request.operations.map(parseApplyOperation),
+  };
+};
+
 export const bindDatabaseApplyV2 = (
   raw: unknown,
   routeProjectId: unknown,
@@ -953,35 +979,19 @@ export const bindDatabaseApplyV2 = (
     "actor",
     "operations",
   ]);
-  if (request.version !== DATABASE_MODULE_V2_CONTRACT_VERSION) {
-    throw new TypeError("Unsupported Database Module v2 contract version");
-  }
   const projectId = readString(routeProjectId, "projectId");
   if (readString(request.projectId, "databaseApplyV2.projectId") !== projectId) {
     throw new TypeError("Database apply v2 does not match its Project route scope");
   }
-  if (
-    !Array.isArray(request.operations) ||
-    request.operations.length < 1 ||
-    request.operations.length > MAX_DATABASE_MODULE_V2_OPERATIONS
-  ) {
-    throw new TypeError(
-      `databaseApplyV2.operations must contain between 1 and ${MAX_DATABASE_MODULE_V2_OPERATIONS} operations`,
-    );
-  }
   return {
-    version: DATABASE_MODULE_V2_CONTRACT_VERSION,
-    operationId: readString(request.operationId, "databaseApplyV2.operationId"),
+    ...parseDatabaseApplyRequestBody(request, "databaseApplyV2"),
     projectId,
-    storeEpoch: readString(request.storeEpoch, "databaseApplyV2.storeEpoch"),
     actor: readJsonRecord(trusted.actor, "trusted.actor"),
-    operations: request.operations.map(parseApplyOperation),
   };
 };
 
 export const bindLibraryDatabaseApplyV2 = (
   raw: unknown,
-  trusted: TrustedDatabaseModuleIdentityV2,
 ): LibraryDatabaseApplyV2 => {
   const request = readRecord(raw, "libraryDatabaseApplyV2");
   assertExactKeys(request, "libraryDatabaseApplyV2", [
@@ -990,21 +1000,212 @@ export const bindLibraryDatabaseApplyV2 = (
     "storeEpoch",
     "operations",
   ]);
-  const bound = bindDatabaseApplyV2(
-    {
-      ...request,
-      projectId: "local-library-boundary",
-      actor: {},
-    },
-    "local-library-boundary",
-    trusted,
-  );
-  return {
-    version: bound.version,
-    operationId: bound.operationId,
-    storeEpoch: bound.storeEpoch,
-    operations: bound.operations,
-  };
+  return parseDatabaseApplyRequestBody(request, "libraryDatabaseApplyV2");
+};
+
+const parseDatabaseReadV2 = (value: unknown): DatabaseReadV2 => {
+  const read = readRecord(value, "databaseModuleReadV2.read");
+  const target = readRecord(read.target, "databaseModuleReadV2.read.target");
+  const mode = read.mode;
+  const minimumCommitSeq = read.minimumCommitSeq === undefined
+    ? undefined
+    : readRevision(
+        read.minimumCommitSeq,
+        "databaseModuleReadV2.read.minimumCommitSeq",
+      );
+  const readBarrier = minimumCommitSeq === undefined
+    ? {}
+    : { minimumCommitSeq };
+
+  if (target.kind === "project_default") {
+    assertExactKeys(target, "databaseModuleReadV2.read.target", ["kind"]);
+    if (mode === "database") {
+      assertExactKeys(
+        read,
+        "databaseModuleReadV2.read",
+        ["target", "mode"],
+        ["minimumCommitSeq"],
+      );
+      return {
+        target: { kind: "project_default" },
+        mode,
+        ...readBarrier,
+      };
+    }
+    if (mode !== "catalog_window") {
+      throw new TypeError("Project-default Database read v2 mode is unsupported");
+    }
+    assertExactKeys(
+      read,
+      "databaseModuleReadV2.read",
+      ["target", "mode"],
+      ["window", "minimumCommitSeq"],
+    );
+    const window = parseReadWindow(read.window, "Database catalog");
+    return {
+      target: { kind: "project_default" },
+      mode,
+      ...(window === undefined ? {} : { window }),
+      ...readBarrier,
+    };
+  }
+
+  if (target.kind === "database" && mode === "database") {
+    assertExactKeys(target, "databaseModuleReadV2.read.target", ["kind", "databaseId"]);
+    assertExactKeys(
+      read,
+      "databaseModuleReadV2.read",
+      ["target", "mode"],
+      ["minimumCommitSeq"],
+    );
+    return {
+      target: {
+        kind: "database",
+        databaseId: readDatabaseId(
+          target.databaseId,
+          "databaseModuleReadV2.databaseId",
+        ),
+      },
+      mode,
+      ...readBarrier,
+    };
+  }
+
+  if (target.kind === "data_source" && mode === "data_source") {
+    assertExactKeys(target, "databaseModuleReadV2.read.target", ["kind", "dataSourceId"]);
+    assertExactKeys(
+      read,
+      "databaseModuleReadV2.read",
+      ["target", "mode"],
+      ["minimumCommitSeq"],
+    );
+    return {
+      target: {
+        kind: "data_source",
+        dataSourceId: readDataSourceId(
+          target.dataSourceId,
+          "databaseModuleReadV2.dataSourceId",
+        ),
+      },
+      mode,
+      ...readBarrier,
+    };
+  }
+
+  if (target.kind === "data_source" && mode === "relation_candidate_window") {
+    assertExactKeys(target, "databaseModuleReadV2.read.target", ["kind", "dataSourceId"]);
+    assertExactKeys(
+      read,
+      "databaseModuleReadV2.read",
+      ["target", "mode"],
+      ["query", "window", "minimumCommitSeq"],
+    );
+    const query = read.query === undefined
+      ? undefined
+      : readUtf8String(read.query, "databaseModuleReadV2.read.query", 512);
+    const window = parseReadWindow(read.window, "Relation candidate");
+    return {
+      target: {
+        kind: "data_source",
+        dataSourceId: readDataSourceId(
+          target.dataSourceId,
+          "databaseModuleReadV2.dataSourceId",
+        ),
+      },
+      mode,
+      ...(query === undefined ? {} : { query }),
+      ...(window === undefined ? {} : { window }),
+      ...readBarrier,
+    };
+  }
+
+  if (target.kind === "view" && mode === "view") {
+    assertExactKeys(target, "databaseModuleReadV2.read.target", ["kind", "viewId"]);
+    assertExactKeys(
+      read,
+      "databaseModuleReadV2.read",
+      ["target", "mode"],
+      ["minimumCommitSeq"],
+    );
+    return {
+      target: {
+        kind: "view",
+        viewId: readViewId(target.viewId, "databaseModuleReadV2.viewId"),
+      },
+      mode,
+      ...readBarrier,
+    };
+  }
+
+  if (
+    target.kind === "view"
+    && (mode === "view_personal_presentation" || mode === "view_collapsed_occurrences")
+  ) {
+    assertExactKeys(target, "databaseModuleReadV2.read.target", ["kind", "viewId"]);
+    assertExactKeys(
+      read,
+      "databaseModuleReadV2.read",
+      ["target", "mode"],
+      ["minimumCommitSeq"],
+    );
+    return {
+      target: {
+        kind: "view",
+        viewId: readViewId(target.viewId, "databaseModuleReadV2.viewId"),
+      },
+      mode,
+      ...readBarrier,
+    };
+  }
+
+  if (target.kind === "page_property" && mode === "relation_target_window") {
+    assertExactKeys(target, "databaseModuleReadV2.read.target", [
+      "kind", "pageId", "dataSourceId", "propertyId",
+    ]);
+    assertExactKeys(
+      read,
+      "databaseModuleReadV2.read",
+      ["target", "mode"],
+      ["window", "minimumCommitSeq"],
+    );
+    const window = parseReadWindow(read.window, "Relation target");
+    return {
+      target: {
+        kind: "page_property",
+        pageId: readString(target.pageId, "databaseModuleReadV2.pageId"),
+        dataSourceId: readDataSourceId(target.dataSourceId, "databaseModuleReadV2.dataSourceId"),
+        propertyId: readPropertyId(target.propertyId, "databaseModuleReadV2.propertyId"),
+      },
+      mode,
+      ...(window === undefined ? {} : { window }),
+      ...readBarrier,
+    };
+  }
+
+  if (target.kind === "property" && mode === "option_window") {
+    assertExactKeys(target, "databaseModuleReadV2.read.target", [
+      "kind", "dataSourceId", "propertyId",
+    ]);
+    assertExactKeys(
+      read,
+      "databaseModuleReadV2.read",
+      ["target", "mode"],
+      ["window", "minimumCommitSeq"],
+    );
+    const window = parseReadWindow(read.window, "Property option");
+    return {
+      target: {
+        kind: "property",
+        dataSourceId: readDataSourceId(target.dataSourceId, "databaseModuleReadV2.dataSourceId"),
+        propertyId: readPropertyId(target.propertyId, "databaseModuleReadV2.propertyId"),
+      },
+      mode,
+      ...(window === undefined ? {} : { window }),
+      ...readBarrier,
+    };
+  }
+
+  throw new TypeError("Database Module v2 read target and mode are incompatible");
 };
 
 export const bindDatabaseModuleReadV2 = (
@@ -1020,218 +1221,19 @@ export const bindDatabaseModuleReadV2 = (
   if (readString(request.projectId, "databaseModuleReadV2.projectId") !== projectId) {
     throw new TypeError("Database read v2 does not match its Project route scope");
   }
-  const read = readRecord(request.read, "databaseModuleReadV2.read");
-  const target = readRecord(read.target, "databaseModuleReadV2.read.target");
-  const mode = read.mode;
-
-  if (target.kind === "project_default") {
-    assertExactKeys(target, "databaseModuleReadV2.read.target", ["kind"]);
-    if (mode === "database") {
-      assertExactKeys(read, "databaseModuleReadV2.read", ["target", "mode"]);
-      return {
-        version: DATABASE_MODULE_V2_CONTRACT_VERSION,
-        projectId,
-        read: { target: { kind: "project_default" }, mode },
-      };
-    }
-    if (mode !== "catalog_window") {
-      throw new TypeError("Project-default Database read v2 mode is unsupported");
-    }
-    assertExactKeys(read, "databaseModuleReadV2.read", ["target", "mode"], ["window"]);
-    const window = parseReadWindow(read.window, "Database catalog");
-    return {
-      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
-      projectId,
-      read: {
-        target: { kind: "project_default" },
-        mode,
-        ...(window === undefined ? {} : { window }),
-      },
-    };
-  }
-
-  if (target.kind === "database" && mode === "database") {
-    assertExactKeys(target, "databaseModuleReadV2.read.target", ["kind", "databaseId"]);
-    assertExactKeys(read, "databaseModuleReadV2.read", ["target", "mode"]);
-    return {
-      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
-      projectId,
-      read: {
-        target: {
-          kind: "database",
-          databaseId: readDatabaseId(
-            target.databaseId,
-            "databaseModuleReadV2.databaseId",
-          ),
-        },
-        mode,
-      },
-    };
-  }
-
-  if (target.kind === "data_source" && mode === "data_source") {
-    assertExactKeys(target, "databaseModuleReadV2.read.target", ["kind", "dataSourceId"]);
-    assertExactKeys(read, "databaseModuleReadV2.read", ["target", "mode"]);
-    return {
-      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
-      projectId,
-      read: {
-        target: {
-          kind: "data_source",
-          dataSourceId: readDataSourceId(
-            target.dataSourceId,
-            "databaseModuleReadV2.dataSourceId",
-          ),
-        },
-        mode,
-      },
-    };
-  }
-
-  if (target.kind === "data_source" && mode === "relation_candidate_window") {
-    assertExactKeys(target, "databaseModuleReadV2.read.target", ["kind", "dataSourceId"]);
-    assertExactKeys(
-      read,
-      "databaseModuleReadV2.read",
-      ["target", "mode"],
-      ["query", "window"],
-    );
-    const query = read.query === undefined
-      ? undefined
-      : readUtf8String(read.query, "databaseModuleReadV2.read.query", 512);
-    const window = parseReadWindow(read.window, "Relation candidate");
-    return {
-      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
-      projectId,
-      read: {
-        target: {
-          kind: "data_source",
-          dataSourceId: readDataSourceId(
-            target.dataSourceId,
-            "databaseModuleReadV2.dataSourceId",
-          ),
-        },
-        mode,
-        ...(query === undefined ? {} : { query }),
-        ...(window === undefined ? {} : { window }),
-      },
-    };
-  }
-
-  if (target.kind === "view" && mode === "view") {
-    assertExactKeys(target, "databaseModuleReadV2.read.target", ["kind", "viewId"]);
-    assertExactKeys(read, "databaseModuleReadV2.read", ["target", "mode"]);
-    return {
-      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
-      projectId,
-      read: {
-        target: {
-          kind: "view",
-          viewId: readViewId(target.viewId, "databaseModuleReadV2.viewId"),
-        },
-        mode,
-      },
-    };
-  }
-
-  if (
-    target.kind === "view"
-    && (mode === "view_personal_presentation" || mode === "view_collapsed_occurrences")
-  ) {
-    assertExactKeys(target, "databaseModuleReadV2.read.target", ["kind", "viewId"]);
-    assertExactKeys(read, "databaseModuleReadV2.read", ["target", "mode"]);
-    return {
-      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
-      projectId,
-      read: {
-        target: {
-          kind: "view",
-          viewId: readViewId(target.viewId, "databaseModuleReadV2.viewId"),
-        },
-        mode,
-      },
-    };
-  }
-
-  if (target.kind === "page_property" && mode === "relation_target_window") {
-    assertExactKeys(target, "databaseModuleReadV2.read.target", [
-      "kind", "pageId", "dataSourceId", "propertyId",
-    ]);
-    assertExactKeys(read, "databaseModuleReadV2.read", ["target", "mode"], ["window"]);
-    let window;
-    if (read.window !== undefined) {
-      const rawWindow = readRecord(read.window, "databaseModuleReadV2.read.window");
-      assertExactKeys(rawWindow, "databaseModuleReadV2.read.window", [], ["after", "first"]);
-      const first = rawWindow.first === undefined
-        ? undefined
-        : readRevision(rawWindow.first, "databaseModuleReadV2.read.window.first");
-      if (first !== undefined && (first < 1 || first > 100)) {
-        throw new TypeError("Relation target window first must be between 1 and 100");
-      }
-      const after = rawWindow.after === undefined || rawWindow.after === null
-        ? rawWindow.after
-        : readString(rawWindow.after, "databaseModuleReadV2.read.window.after", 4096);
-      window = {
-        ...(after === undefined ? {} : { after }),
-        ...(first === undefined ? {} : { first }),
-      };
-    }
-    return {
-      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
-      projectId,
-      read: {
-        target: {
-          kind: "page_property",
-          pageId: readString(target.pageId, "databaseModuleReadV2.pageId"),
-          dataSourceId: readDataSourceId(target.dataSourceId, "databaseModuleReadV2.dataSourceId"),
-          propertyId: readPropertyId(target.propertyId, "databaseModuleReadV2.propertyId"),
-        },
-        mode,
-        ...(window === undefined ? {} : { window }),
-      },
-    };
-  }
-
-  if (target.kind === "property" && mode === "option_window") {
-    assertExactKeys(target, "databaseModuleReadV2.read.target", [
-      "kind", "dataSourceId", "propertyId",
-    ]);
-    assertExactKeys(read, "databaseModuleReadV2.read", ["target", "mode"], ["window"]);
-    let window;
-    if (read.window !== undefined) {
-      const rawWindow = readRecord(read.window, "databaseModuleReadV2.read.window");
-      assertExactKeys(rawWindow, "databaseModuleReadV2.read.window", [], ["after", "first"]);
-      const first = rawWindow.first === undefined
-        ? undefined
-        : readRevision(rawWindow.first, "databaseModuleReadV2.read.window.first");
-      if (first !== undefined && (first < 1 || first > 100)) {
-        throw new TypeError("Property option window first must be between 1 and 100");
-      }
-      const after = rawWindow.after === undefined || rawWindow.after === null
-        ? rawWindow.after
-        : readString(rawWindow.after, "databaseModuleReadV2.read.window.after", 4096);
-      window = {
-        ...(after === undefined ? {} : { after }),
-        ...(first === undefined ? {} : { first }),
-      };
-    }
-    return {
-      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
-      projectId,
-      read: {
-        target: {
-          kind: "property",
-          dataSourceId: readDataSourceId(target.dataSourceId, "databaseModuleReadV2.dataSourceId"),
-          propertyId: readPropertyId(target.propertyId, "databaseModuleReadV2.propertyId"),
-        },
-        mode,
-        ...(window === undefined ? {} : { window }),
-      },
-    };
-  }
-
-  throw new TypeError("Database Module v2 read target and mode are incompatible");
+  return {
+    version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+    projectId,
+    read: parseDatabaseReadV2(request.read),
+  };
 };
+
+const isProjectDefaultDatabaseRead = (
+  read: DatabaseReadV2,
+): read is Extract<
+  DatabaseReadV2,
+  { readonly target: { readonly kind: "project_default" } }
+> => read.target.kind === "project_default";
 
 const parseReadWindow = (
   value: unknown,
@@ -1260,16 +1262,19 @@ export const bindLibraryDatabaseModuleReadV2 = (
 ): LibraryDatabaseModuleReadRequestV2 => {
   const request = readRecord(raw, "libraryDatabaseModuleReadV2");
   assertExactKeys(request, "libraryDatabaseModuleReadV2", ["version", "read"]);
-  const bound = bindDatabaseModuleReadV2(
-    { ...request, projectId: "local-library-boundary" },
-    "local-library-boundary",
-  );
-  if (bound.read.target.kind === "project_default") {
+  if (request.version !== DATABASE_MODULE_V2_CONTRACT_VERSION) {
+    throw new TypeError("Unsupported Database Module v2 read contract version");
+  }
+  const read = parseDatabaseReadV2(request.read);
+  if (isProjectDefaultDatabaseRead(read)) {
     throw new TypeError(
       "Library Database reads require a concrete Database, Data Source, or View",
     );
   }
-  return { version: bound.version, read: bound.read as LibraryDatabaseReadV2 };
+  return {
+    version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+    read,
+  };
 };
 
 const DATABASE_MODULE_ERROR_CODES = new Set<DatabaseModuleErrorCodeV2>([
@@ -2052,6 +2057,25 @@ const parseResultEnvelope = (
   return result;
 };
 
+const parseDatabaseModuleReadSnapshotBody = (
+  snapshot: Readonly<Record<string, unknown>>,
+  label: string,
+): Omit<DatabaseModuleReadSnapshotV2, "projectId"> => {
+  if (snapshot.version !== DATABASE_MODULE_V2_CONTRACT_VERSION) {
+    throw new TypeError(`${label} version is invalid`);
+  }
+  return {
+    version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+    libraryId: readString(snapshot.libraryId, `${label}.libraryId`),
+    storeEpoch: readString(snapshot.storeEpoch, `${label}.storeEpoch`),
+    commitSeq: readRevision(snapshot.commitSeq, `${label}.commitSeq`),
+    authorization: snapshot.authorization === null
+      ? null
+      : parseAuthorizedReadStamp(snapshot.authorization),
+    value: parseReadValue(snapshot.value),
+  };
+};
+
 export const parseDatabaseModuleReadResultV2 = (
   value: unknown,
 ): DatabaseModuleReadResultV2 => {
@@ -2072,21 +2096,14 @@ export const parseDatabaseModuleReadResultV2 = (
     "authorization",
     "value",
   ]);
-  if (snapshot.version !== DATABASE_MODULE_V2_CONTRACT_VERSION) {
-    throw new TypeError("Database Module v2 read snapshot version is invalid");
-  }
   return {
     ok: true,
     value: {
-      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+      ...parseDatabaseModuleReadSnapshotBody(
+        snapshot,
+        "databaseModuleReadV2.snapshot",
+      ),
       projectId: readString(snapshot.projectId, "databaseModuleReadV2.snapshot.projectId"),
-      libraryId: readString(snapshot.libraryId, "databaseModuleReadV2.snapshot.libraryId"),
-      storeEpoch: readString(snapshot.storeEpoch, "databaseModuleReadV2.snapshot.storeEpoch"),
-      commitSeq: readRevision(snapshot.commitSeq, "databaseModuleReadV2.snapshot.commitSeq"),
-      authorization: snapshot.authorization === null
-        ? null
-        : parseAuthorizedReadStamp(snapshot.authorization),
-      value: parseReadValue(snapshot.value),
     },
   };
 };
@@ -2120,6 +2137,68 @@ const OPERATION_KINDS = new Set<DatabaseApplyOperationV2["kind"]>([
   "set_view_occurrence_disclosure",
 ]);
 
+const parseDatabaseApplyReceiptBody = (
+  receipt: Readonly<Record<string, unknown>>,
+  label: string,
+): Omit<DatabaseApplyReceiptV2, "projectId"> => {
+  if (receipt.version !== DATABASE_MODULE_V2_CONTRACT_VERSION) {
+    throw new TypeError(`${label} version is invalid`);
+  }
+  if (!Array.isArray(receipt.operationKinds)) {
+    throw new TypeError(`${label}.operationKinds must be an array`);
+  }
+  const operationKinds = receipt.operationKinds.map((entry) => {
+    if (
+      typeof entry === "string"
+      && OPERATION_KINDS.has(entry as DatabaseApplyOperationV2["kind"])
+    ) {
+      return entry as DatabaseApplyOperationV2["kind"];
+    }
+    throw new TypeError(`${label} contains an unsupported operation kind`);
+  });
+  const committedRevisionRecord = readRecord(
+    receipt.committedRevisions,
+    `${label}.committedRevisions`,
+  );
+  const committedRevisions = Object.fromEntries(
+    Object.entries(committedRevisionRecord).map(([key, entry]) => [
+      readString(key, `${label}.committedRevisions key`, 4_096),
+      readRevision(entry, `${label}.committedRevisions.${key}`),
+    ]),
+  );
+  return {
+    version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+    operationId: readString(receipt.operationId, `${label}.operationId`),
+    libraryId: readString(receipt.libraryId, `${label}.libraryId`),
+    storeEpoch: readString(receipt.storeEpoch, `${label}.storeEpoch`),
+    duplicate: readBoolean(receipt.duplicate, `${label}.duplicate`),
+    operationKinds,
+    affectedDatabaseIds: readUniqueIdentityArray(
+      receipt.affectedDatabaseIds,
+      `${label}.affectedDatabaseIds`,
+      readDatabaseId,
+    ),
+    affectedDataSourceIds: readUniqueIdentityArray(
+      receipt.affectedDataSourceIds,
+      `${label}.affectedDataSourceIds`,
+      readDataSourceId,
+    ),
+    affectedPageIds: readUniqueIdentityArray(
+      receipt.affectedPageIds,
+      `${label}.affectedPageIds`,
+      (entry, entryLabel) => readString(entry, entryLabel),
+    ),
+    affectedViewIds: readUniqueIdentityArray(
+      receipt.affectedViewIds,
+      `${label}.affectedViewIds`,
+      readViewId,
+    ),
+    committedRevisions,
+    commitSeq: readRevision(receipt.commitSeq, `${label}.commitSeq`),
+    committedAt: readTimestamp(receipt.committedAt, `${label}.committedAt`),
+  };
+};
+
 export const parseDatabaseApplyResultV2 = (
   value: unknown,
 ): DatabaseApplyResultV2 => {
@@ -2147,62 +2226,12 @@ export const parseDatabaseApplyResultV2 = (
     "commitSeq",
     "committedAt",
   ]);
-  if (receipt.version !== DATABASE_MODULE_V2_CONTRACT_VERSION) {
-    throw new TypeError("Database Module v2 apply receipt version is invalid");
-  }
-  if (!Array.isArray(receipt.operationKinds)) {
-    throw new TypeError("databaseApplyV2.receipt.operationKinds must be an array");
-  }
-  const operationKinds = receipt.operationKinds.map((entry) => {
-    if (typeof entry === "string" && OPERATION_KINDS.has(entry as DatabaseApplyOperationV2["kind"])) {
-      return entry as DatabaseApplyOperationV2["kind"];
-    }
-    throw new TypeError("databaseApplyV2.receipt contains an unsupported operation kind");
-  });
-  const committedRevisionRecord = readRecord(
-    receipt.committedRevisions,
-    "databaseApplyV2.receipt.committedRevisions",
-  );
-  const committedRevisions = Object.fromEntries(
-    Object.entries(committedRevisionRecord).map(([key, entry]) => [
-      readString(key, "databaseApplyV2.receipt.committedRevisions key", 4_096),
-      readRevision(entry, `databaseApplyV2.receipt.committedRevisions.${key}`),
-    ]),
-  );
   return {
     ok: true,
     localCommit: parseLocalCommitApply(result.localCommit),
     value: {
-      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
-      operationId: readString(receipt.operationId, "databaseApplyV2.receipt.operationId"),
+      ...parseDatabaseApplyReceiptBody(receipt, "databaseApplyV2.receipt"),
       projectId: readString(receipt.projectId, "databaseApplyV2.receipt.projectId"),
-      libraryId: readString(receipt.libraryId, "databaseApplyV2.receipt.libraryId"),
-      storeEpoch: readString(receipt.storeEpoch, "databaseApplyV2.receipt.storeEpoch"),
-      duplicate: readBoolean(receipt.duplicate, "databaseApplyV2.receipt.duplicate"),
-      operationKinds,
-      affectedDatabaseIds: readUniqueIdentityArray(
-        receipt.affectedDatabaseIds,
-        "databaseApplyV2.receipt.affectedDatabaseIds",
-        readDatabaseId,
-      ),
-      affectedDataSourceIds: readUniqueIdentityArray(
-        receipt.affectedDataSourceIds,
-        "databaseApplyV2.receipt.affectedDataSourceIds",
-        readDataSourceId,
-      ),
-      affectedPageIds: readUniqueIdentityArray(
-        receipt.affectedPageIds,
-        "databaseApplyV2.receipt.affectedPageIds",
-        (entry, label) => readString(entry, label),
-      ),
-      affectedViewIds: readUniqueIdentityArray(
-        receipt.affectedViewIds,
-        "databaseApplyV2.receipt.affectedViewIds",
-        readViewId,
-      ),
-      committedRevisions,
-      commitSeq: readRevision(receipt.commitSeq, "databaseApplyV2.receipt.commitSeq"),
-      committedAt: readTimestamp(receipt.committedAt, "databaseApplyV2.receipt.committedAt"),
     },
   };
 };
@@ -2239,22 +2268,13 @@ export const parseLibraryDatabaseModuleReadResultV2 = (
     snapshot.accessContext,
     "libraryDatabaseModuleReadV2.snapshot.accessContext",
   );
-  const { accessContext: _accessContext, ...standardSnapshot } = snapshot;
-  void _accessContext;
-  const parsed = parseDatabaseModuleReadResultV2({
-    ok: true,
-    value: {
-      ...standardSnapshot,
-      projectId: "local-library",
-    },
-  });
-  if (!parsed.ok) return parsed;
-  const { projectId: _privateProjectId, ...publicSnapshot } = parsed.value;
-  void _privateProjectId;
   return {
     ok: true,
     value: {
-      ...publicSnapshot,
+      ...parseDatabaseModuleReadSnapshotBody(
+        snapshot,
+        "libraryDatabaseModuleReadV2.snapshot",
+      ),
       accessContext: { kind: "library" },
     },
   };
@@ -2295,21 +2315,14 @@ export const parseLibraryDatabaseApplyResultV2 = (
     receipt.accessContext,
     "libraryDatabaseApplyV2.receipt.accessContext",
   );
-  const { accessContext: _accessContext, ...standardReceipt } = receipt;
-  void _accessContext;
-  const parsed = parseDatabaseApplyResultV2({
-    ok: true,
-    localCommit: result.localCommit,
-    value: { ...standardReceipt, projectId: "local-library" },
-  });
-  if (!parsed.ok) return parsed;
-  const { projectId: _privateProjectId, ...publicReceipt } = parsed.value;
-  void _privateProjectId;
   return {
     ok: true,
-    localCommit: parsed.localCommit,
+    localCommit: parseLocalCommitApply(result.localCommit),
     value: {
-      ...publicReceipt,
+      ...parseDatabaseApplyReceiptBody(
+        receipt,
+        "libraryDatabaseApplyV2.receipt",
+      ),
       accessContext: { kind: "library" },
     },
   };

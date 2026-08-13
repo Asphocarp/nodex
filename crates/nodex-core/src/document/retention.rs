@@ -26,7 +26,7 @@ const DOCUMENT_BEARING_BLOCK_TYPES: [&str; 4] = [
     CANVAS_OWNER_TYPE,
 ];
 
-const KNOWN_INBOUND_AUTHORITY_TABLES: [&str; 32] = [
+const KNOWN_INBOUND_AUTHORITY_TABLES: [&str; 31] = [
     "block_asset_refs",
     "block_documents",
     "block_properties",
@@ -58,7 +58,6 @@ const KNOWN_INBOUND_AUTHORITY_TABLES: [&str; 32] = [
     "reminder_receipts",
     "reminder_snoozes",
     "scheduled_page_index",
-    "top_level_block_placements",
 ];
 
 #[derive(Debug, Default, PartialEq, Eq)]

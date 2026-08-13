@@ -1,5 +1,6 @@
 import type { BlockPropertyJsonValue } from "./block-property-mutations";
 import {
+  ADDITIONAL_DOCUMENT_COMMAND_VERSION,
   AdditionalDocumentCommandContractError,
   additionalDocumentCommandCapability,
   parseAdditionalDocumentCommandRequest,
@@ -49,7 +50,7 @@ const readOperationKindHint = (
   if (typeof kind !== "string") return null;
   try {
     const request = parseAdditionalDocumentCommandRequest({
-      version: 1,
+      version: ADDITIONAL_DOCUMENT_COMMAND_VERSION,
       operationId: readOperationIdHint(value),
       projectId: "hint",
       storeEpoch: "hint",

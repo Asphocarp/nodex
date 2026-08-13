@@ -64,7 +64,8 @@ struct MutationEffects {
 }
 
 struct DatabaseMutationAuthority {
-    ledger_project_id: String,
+    /// Actor/delivery coordinate for the change ledger; never a content owner.
+    actor_project_id: String,
     project_id: Option<String>,
 }
 
@@ -368,7 +369,7 @@ fn apply_intent(
     now: &str,
     effects: &mut MutationEffects,
 ) -> Result<(), StoreError> {
-    let project_id = authority.ledger_project_id.as_str();
+    let project_id = authority.actor_project_id.as_str();
     let library_scope = authority.is_library();
     match intent {
         DatabaseIntent::PutProperty {
@@ -1623,16 +1624,6 @@ pub(crate) struct StagedPagePlacementRevisions {
     pub(crate) parent_revision: i64,
 }
 
-pub(crate) struct ResolvedPageTransferDataSourceDestination {
-    pub(crate) project_id: String,
-    pub(crate) destination: PageCopyDataSourceDestination,
-}
-
-pub(crate) struct ResolvedPageTransferDataSourceSource {
-    pub(crate) project_id: String,
-    pub(crate) data_source_id: String,
-}
-
 pub(crate) enum ExistingPageTransferTarget<'a> {
     Library,
     Page { page_id: &'a str },
@@ -1657,12 +1648,12 @@ pub(crate) struct AgentMoveDataSourceFinalization {
     pub(crate) committed_revisions: BTreeMap<String, i64>,
 }
 
-pub(crate) fn resolve_page_transfer_data_source_source(
+pub(crate) fn validate_page_transfer_data_source_source(
     connection: &Connection,
     library_id: &str,
     requesting_project_id: &str,
     data_source_id: &str,
-) -> Result<ResolvedPageTransferDataSourceSource, StoreError> {
+) -> Result<(), StoreError> {
     let source = require_source(connection, library_id, data_source_id)?;
     authorize_write(
         connection,
@@ -1671,32 +1662,26 @@ pub(crate) fn resolve_page_transfer_data_source_source(
         DatabaseWriteAction::Write,
         false,
     )?;
-    Ok(ResolvedPageTransferDataSourceSource {
-        project_id: requesting_project_id.to_owned(),
-        data_source_id: source.id,
-    })
+    Ok(())
 }
 
-pub(crate) fn resolve_page_transfer_data_source_source_prevalidated(
+pub(crate) fn validate_page_transfer_data_source_source_prevalidated(
     connection: &Connection,
     library_id: &str,
     requesting_project_id: &str,
     data_source_id: &str,
-) -> Result<ResolvedPageTransferDataSourceSource, StoreError> {
-    let source = require_source(connection, library_id, data_source_id)?;
+) -> Result<(), StoreError> {
+    require_source(connection, library_id, data_source_id)?;
     crate::library::require_project_in_library(connection, requesting_project_id, library_id)?;
-    Ok(ResolvedPageTransferDataSourceSource {
-        project_id: requesting_project_id.to_owned(),
-        data_source_id: source.id,
-    })
+    Ok(())
 }
 
-pub(crate) fn resolve_page_copy_data_source_source(
+pub(crate) fn validate_page_copy_data_source_source(
     connection: &Connection,
     library_id: &str,
     requesting_project_id: &str,
     data_source_id: &str,
-) -> Result<ResolvedPageTransferDataSourceSource, StoreError> {
+) -> Result<(), StoreError> {
     let source = require_source(connection, library_id, data_source_id)?;
     let primary = project_primary_database(connection, library_id, requesting_project_id)?;
     authorize_required(
@@ -1705,10 +1690,7 @@ pub(crate) fn resolve_page_copy_data_source_source(
         primary.as_deref(),
         &source.database_id,
     )?;
-    Ok(ResolvedPageTransferDataSourceSource {
-        project_id: requesting_project_id.to_owned(),
-        data_source_id: source.id,
-    })
+    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1720,7 +1702,7 @@ pub(crate) fn resolve_page_transfer_data_source_destination(
     view_id: &str,
     group_key: Option<&str>,
     before_page_id: Option<&str>,
-) -> Result<ResolvedPageTransferDataSourceDestination, StoreError> {
+) -> Result<PageCopyDataSourceDestination, StoreError> {
     resolve_page_transfer_data_source_destination_with_access(
         connection,
         library_id,
@@ -1742,7 +1724,7 @@ pub(crate) fn resolve_page_transfer_data_source_destination_prevalidated(
     view_id: &str,
     group_key: Option<&str>,
     before_page_id: Option<&str>,
-) -> Result<ResolvedPageTransferDataSourceDestination, StoreError> {
+) -> Result<PageCopyDataSourceDestination, StoreError> {
     resolve_page_transfer_data_source_destination_with_access(
         connection,
         library_id,
@@ -1765,7 +1747,7 @@ fn resolve_page_transfer_data_source_destination_with_access(
     group_key: Option<&str>,
     before_page_id: Option<&str>,
     require_access: bool,
-) -> Result<ResolvedPageTransferDataSourceDestination, StoreError> {
+) -> Result<PageCopyDataSourceDestination, StoreError> {
     let source = require_source(connection, library_id, data_source_id)?;
     if require_access {
         authorize_write(
@@ -1824,30 +1806,27 @@ fn resolve_page_transfer_data_source_destination_with_access(
             })
         })
         .transpose()?;
-    Ok(ResolvedPageTransferDataSourceDestination {
-        project_id: requesting_project_id.to_owned(),
-        destination: PageCopyDataSourceDestination {
-            data_source_id: source.id,
-            expected_data_source_revision: source.revision,
-            values,
-            view: Some(PageCopyViewPlacement {
-                view_id: view.id,
-                expected_view_revision: view.revision,
-                group_key: group_key.map(str::to_owned),
-                before,
-            }),
-        },
+    Ok(PageCopyDataSourceDestination {
+        data_source_id: source.id,
+        expected_data_source_revision: source.revision,
+        values,
+        view: Some(PageCopyViewPlacement {
+            view_id: view.id,
+            expected_view_revision: view.revision,
+            group_key: group_key.map(str::to_owned),
+            before,
+        }),
     })
 }
 
-pub(crate) fn resolve_page_copy_data_source_project(
+pub(crate) fn validate_page_copy_data_source_destination(
     connection: &Connection,
     library_id: &str,
     requesting_project_id: &str,
     data_source_id: &str,
     expected_data_source_revision: i64,
-) -> Result<String, StoreError> {
-    resolve_page_copy_data_source_project_with_access(
+) -> Result<(), StoreError> {
+    validate_page_copy_data_source_destination_with_access(
         connection,
         library_id,
         requesting_project_id,
@@ -1857,14 +1836,14 @@ pub(crate) fn resolve_page_copy_data_source_project(
     )
 }
 
-pub(crate) fn resolve_page_copy_data_source_project_prevalidated(
+pub(crate) fn validate_page_copy_data_source_destination_prevalidated(
     connection: &Connection,
     library_id: &str,
     requesting_project_id: &str,
     data_source_id: &str,
     expected_data_source_revision: i64,
-) -> Result<String, StoreError> {
-    resolve_page_copy_data_source_project_with_access(
+) -> Result<(), StoreError> {
+    validate_page_copy_data_source_destination_with_access(
         connection,
         library_id,
         requesting_project_id,
@@ -1874,14 +1853,14 @@ pub(crate) fn resolve_page_copy_data_source_project_prevalidated(
     )
 }
 
-fn resolve_page_copy_data_source_project_with_access(
+fn validate_page_copy_data_source_destination_with_access(
     connection: &Connection,
     library_id: &str,
     requesting_project_id: &str,
     data_source_id: &str,
     expected_data_source_revision: i64,
     require_access: bool,
-) -> Result<String, StoreError> {
+) -> Result<(), StoreError> {
     let source = require_source(connection, library_id, data_source_id)?;
     require_revision(
         expected_data_source_revision,
@@ -1912,7 +1891,7 @@ fn resolve_page_copy_data_source_project_with_access(
         ));
     }
     crate::library::require_project_in_library(connection, requesting_project_id, library_id)?;
-    Ok(requesting_project_id.to_owned())
+    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2373,7 +2352,7 @@ pub(crate) fn transfer_existing_page_for_block_transfer(
 pub(crate) fn transfer_existing_page_for_agent_move_prevalidated(
     connection: &Connection,
     library_id: &str,
-    source_project_id: &str,
+    actor_project_id: &str,
     page_id: &str,
     expected_parent_revision: i64,
     expected_active_membership_revision: i64,
@@ -2384,7 +2363,7 @@ pub(crate) fn transfer_existing_page_for_agent_move_prevalidated(
     transfer_existing_page_for_structural_move(
         connection,
         library_id,
-        source_project_id,
+        actor_project_id,
         page_id,
         expected_parent_revision,
         expected_active_membership_revision,
@@ -5406,7 +5385,7 @@ fn seal_commit(
     let event_sequence = append_change_log(
         connection,
         NewChangeLogEntry {
-            project_id: &authority.ledger_project_id,
+            project_id: &authority.actor_project_id,
             store_epoch,
             kind: "database.changed",
             operation_id: Some(&request.operation_id),
@@ -5657,7 +5636,7 @@ fn mutation_authority(
             .optional()?
             .ok_or_else(|| unauthorized("Bound Project is not active in this Library"))?;
         return Ok(DatabaseMutationAuthority {
-            ledger_project_id: project_id.clone(),
+            actor_project_id: project_id.clone(),
             project_id: Some(project_id),
         });
     }
@@ -5666,16 +5645,10 @@ fn mutation_authority(
             "Database mutations require a Project or trusted Library scope",
         ));
     }
-    let ledger_project_id = connection
-        .query_row(
-            "SELECT id FROM projects WHERE library_id = ?1 ORDER BY created, id LIMIT 1",
-            [library_id],
-            |row| row.get::<_, String>(0),
-        )
-        .optional()?
-        .ok_or_else(|| not_found("Local Library has no storage Project"))?;
+    let actor_project_id =
+        crate::library::resolve_library_actor_project_id(connection, library_id)?;
     Ok(DatabaseMutationAuthority {
-        ledger_project_id,
+        actor_project_id,
         project_id: None,
     })
 }

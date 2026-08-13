@@ -25,13 +25,14 @@ pub(crate) use mutation::{
     place_copied_page_in_data_source, place_copied_page_in_data_source_prevalidated,
     place_staged_page_in_data_source, place_staged_page_in_data_source_prevalidated,
     refresh_transferred_page_projection as refresh_copied_page_projection,
-    resolve_page_copy_data_source_project, resolve_page_copy_data_source_project_prevalidated,
-    resolve_page_copy_data_source_source, resolve_page_transfer_data_source_destination,
+    resolve_page_transfer_data_source_destination,
     resolve_page_transfer_data_source_destination_prevalidated,
-    resolve_page_transfer_data_source_source,
-    resolve_page_transfer_data_source_source_prevalidated,
     synchronize_membership_completion_timestamp, synchronize_relation_value_projections,
     transfer_existing_page_for_agent_move_prevalidated, transfer_existing_page_for_block_transfer,
+    validate_page_copy_data_source_destination,
+    validate_page_copy_data_source_destination_prevalidated, validate_page_copy_data_source_source,
+    validate_page_transfer_data_source_source,
+    validate_page_transfer_data_source_source_prevalidated,
 };
 pub(crate) use projection_delta::{
     record_local_projection_delta, record_page_detail_projection_delta,

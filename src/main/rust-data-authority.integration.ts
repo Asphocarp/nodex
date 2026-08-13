@@ -337,7 +337,7 @@ describe("Electron native data authority", () => {
       const nativeContentBlockId = "01981e00-0000-7000-8000-000000000003";
       const nativeEmptyBlockId = "01981e00-0000-7000-8000-000000000004";
       const createSyncedSource = {
-        version: 1 as const,
+        version: 2 as const,
         operationId: "electron-document-create-synced-source",
         projectId,
         storeEpoch: runtime.rootClient.handshake.store_epoch,
@@ -368,7 +368,7 @@ describe("Electron native data authority", () => {
             content: [],
             children: [],
           }],
-          placement: { kind: "space" as const },
+          placement: { kind: "library" as const },
         },
       };
       const createdSyncedSource = await projectDocuments
@@ -609,7 +609,7 @@ describe("Electron native data authority", () => {
       const nativeTargetAnchorBlockId = "01981e00-0000-7000-8000-000000000007";
       const createdTransferTarget = await projectDocuments
         .applyAdditionalDocumentCommand({
-          version: 1,
+          version: 2,
           operationId: "electron-block-transfer-create-target",
           projectId,
           storeEpoch: runtime.rootClient.handshake.store_epoch,
@@ -630,7 +630,7 @@ describe("Electron native data authority", () => {
               content: [],
               children: [],
             }],
-            placement: { kind: "space" },
+            placement: { kind: "library" },
           },
         });
       if (!createdTransferTarget.ok) {
@@ -2568,7 +2568,7 @@ describe("Electron native data authority", () => {
       });
       // Library providers intentionally use the unscoped root client. Core binds
       // that transport to its trusted local Library capability instead of
-      // accepting an Adapter-selected storage Project.
+      // accepting an Adapter-selected content owner.
       const firstProvider = new NodexYProvider({
         documentId: firstDocument.guid,
         document: firstDocument,

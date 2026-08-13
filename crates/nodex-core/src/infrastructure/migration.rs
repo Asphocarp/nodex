@@ -38,7 +38,8 @@ use nodex_core_contracts::workspace::ProjectMarker;
 
 use super::document_repository::{DocumentHeadRow, DocumentReadRepository};
 use super::library_content_migration::{
-    ensure_v117_library_content_ownership, validate_v117_library_content_ownership,
+    ensure_v117_library_content_ownership, ensure_v119_library_content_index_cleanup,
+    validate_v117_library_content_ownership, validate_v119_library_content_index_cleanup,
 };
 use super::resource_grant_migration::{
     ensure_v118_canvas_resource_grants, validate_v118_canvas_resource_grants,
@@ -2075,6 +2076,7 @@ pub fn prepare_profile_store_with_observer(
         validate_database_priority_invariants(connection)?;
         validate_v117_library_content_ownership(connection)?;
         validate_v118_canvas_resource_grants(connection)?;
+        validate_v119_library_content_index_cleanup(connection)?;
         return Ok(StorePreparation {
             schema_version: CORE_SCHEMA_VERSION,
             created_fresh: true,
@@ -2104,6 +2106,7 @@ pub fn prepare_profile_store_with_observer(
         validate_database_priority_invariants(connection)?;
         validate_v117_library_content_ownership(connection)?;
         validate_v118_canvas_resource_grants(connection)?;
+        validate_v119_library_content_index_cleanup(connection)?;
         return Ok(StorePreparation {
             schema_version: CORE_SCHEMA_VERSION,
             created_fresh: false,
@@ -2162,6 +2165,7 @@ pub fn prepare_profile_store_with_observer(
     validate_database_priority_invariants(connection)?;
     validate_v117_library_content_ownership(connection)?;
     validate_v118_canvas_resource_grants(connection)?;
+    validate_v119_library_content_index_cleanup(connection)?;
     Ok(StorePreparation {
         schema_version: CORE_SCHEMA_VERSION,
         created_fresh: false,
@@ -2222,6 +2226,7 @@ pub(crate) fn prepare_legacy_import_candidate(
     validate_database_priority_invariants(connection)?;
     validate_v117_library_content_ownership(connection)?;
     validate_v118_canvas_resource_grants(connection)?;
+    validate_v119_library_content_index_cleanup(connection)?;
     Ok(StorePreparation {
         schema_version: CORE_SCHEMA_VERSION,
         created_fresh: false,
@@ -2308,6 +2313,7 @@ fn upgrade_owned_store(
         115 => validate_exact_v115_schema(connection)?,
         116 => validate_exact_v116_schema(connection)?,
         117 => validate_exact_v117_schema(connection)?,
+        118 => validate_exact_v118_schema(connection)?,
         _ => return Err(corrupt("Rust Core forward-migration source is unsupported")),
     }
 
@@ -2441,6 +2447,7 @@ fn upgrade_owned_store(
         ensure_v116_view_personal_state(transaction)?;
         ensure_v117_library_content_ownership(transaction)?;
         ensure_v118_canvas_resource_grants(transaction)?;
+        ensure_v119_library_content_index_cleanup(transaction)?;
         let updated = transaction.execute(
             "UPDATE core_store_metadata SET store_format_version = ?1 \
              WHERE id = 1 AND schema_owner = ?2 AND store_format_version = ?3",
@@ -2466,6 +2473,7 @@ fn upgrade_owned_store(
     validate_database_priority_invariants(connection)?;
     validate_v117_library_content_ownership(connection)?;
     validate_v118_canvas_resource_grants(connection)?;
+    validate_v119_library_content_index_cleanup(connection)?;
     Ok(StorePreparation {
         schema_version: CORE_SCHEMA_VERSION,
         created_fresh: false,
@@ -2908,6 +2916,7 @@ fn publish_current_store(
         ensure_v116_view_personal_state(transaction)?;
         ensure_v117_library_content_ownership(transaction)?;
         ensure_v118_canvas_resource_grants(transaction)?;
+        ensure_v119_library_content_index_cleanup(transaction)?;
         import_legacy_writable_roots(transaction, profile_home, now)?;
         import_automation_jitter_salt(transaction, profile_home, now)
     })
@@ -2958,6 +2967,7 @@ fn create_fresh_store(
         ensure_v116_view_personal_state(transaction)?;
         ensure_v117_library_content_ownership(transaction)?;
         ensure_v118_canvas_resource_grants(transaction)?;
+        ensure_v119_library_content_index_cleanup(transaction)?;
         import_legacy_writable_roots(transaction, profile_home, now)?;
         import_automation_jitter_salt(transaction, profile_home, now)
     })
@@ -6730,6 +6740,10 @@ fn validate_exact_v117_schema(connection: &Connection) -> Result<(), StoreError>
     validate_exact_core_schema(connection, true, true, true, true, true, true, true, 117)
 }
 
+fn validate_exact_v118_schema(connection: &Connection) -> Result<(), StoreError> {
+    validate_exact_core_schema(connection, true, true, true, true, true, true, true, 118)
+}
+
 fn validate_exact_current_schema(connection: &Connection) -> Result<(), StoreError> {
     validate_exact_core_schema(
         connection,
@@ -6903,6 +6917,9 @@ fn build_expected_core_schema_inventory(
     if schema_version >= 118 {
         ensure_v118_canvas_resource_grants(&expected)?;
     }
+    if schema_version >= 119 {
+        ensure_v119_library_content_index_cleanup(&expected)?;
+    }
 
     read_schema_inventory(&expected)
 }
@@ -7042,6 +7059,9 @@ pub fn expected_store_schema_fingerprint(version: i64) -> Result<String, StoreEr
     }
     if version >= 118 {
         ensure_v118_canvas_resource_grants(&expected)?;
+    }
+    if version >= 119 {
+        ensure_v119_library_content_index_cleanup(&expected)?;
     }
     read_schema_inventory(&expected).map(|inventory| schema_inventory_fingerprint(&inventory))
 }
@@ -8699,6 +8719,65 @@ mod tests {
         drop(kernel);
         let reopened = SqliteStoreKernel::open(&home).expect("reopen current store");
         assert!(!reopened.preparation().created_fresh);
+    }
+
+    #[test]
+    fn v118_upgrade_removes_the_duplicate_block_document_index_once() {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        let current = SqliteStoreKernel::open(&home).expect("fresh current Store");
+        drop(current);
+
+        let connection = open_writer(&home.join("nodex.db")).expect("current writer");
+        connection
+            .execute_batch(
+                "CREATE UNIQUE INDEX idx_block_documents_owner_document_library_v117 \
+                   ON block_documents(block_id, document_id, library_id); \
+                 UPDATE core_store_metadata SET store_format_version = 118 \
+                   WHERE id = 1 AND schema_owner = 'rust_core'; \
+                 PRAGMA user_version = 118;",
+            )
+            .expect("reconstruct exact v118 schema");
+        drop(connection);
+
+        let upgraded = SqliteStoreKernel::open(&home).expect("upgrade v118 Store");
+        assert_eq!(upgraded.preparation().migrated_from_version, Some(118));
+        let obsolete_indexes = upgraded
+            .readers()
+            .read_default(|connection| {
+                connection
+                    .query_row(
+                        "SELECT count(*) FROM sqlite_schema \
+                         WHERE type = 'index' \
+                           AND name = 'idx_block_documents_owner_document_library_v117'",
+                        [],
+                        |row| row.get::<_, i64>(0),
+                    )
+                    .map_err(StoreError::from)
+            })
+            .expect("read current Block-Document indexes");
+        assert_eq!(obsolete_indexes, 0);
+
+        let backup_path = upgraded
+            .preparation()
+            .migration_backup_path
+            .as_ref()
+            .expect("v118 migration backup");
+        let backup = open_immutable_reader(backup_path).expect("v118 backup");
+        let backed_up_index = backup
+            .query_row(
+                "SELECT count(*) FROM sqlite_schema \
+                 WHERE type = 'index' \
+                   AND name = 'idx_block_documents_owner_document_library_v117'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .expect("read backed-up v118 index");
+        assert_eq!(backed_up_index, 1);
+
+        drop(upgraded);
+        let reopened = SqliteStoreKernel::open(&home).expect("reopen current Store");
+        assert_eq!(reopened.preparation().migrated_from_version, None);
     }
 
     #[test]

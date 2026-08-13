@@ -5,6 +5,12 @@
 - Owners: Nodex maintainers
 - Scope: Accepted for `block_tree`; its proposed Canvas/Yjs extension is superseded by ADR 0005
 
+## Current applicability
+
+ADR 0017 renames the document-bearing Card to Page and replaces Space content
+ownership with Library ownership. The explicit per-owner Document and Yjs-root
+decisions remain current; Project is only an access/execution coordinate.
+
 ## Context
 
 The legacy Card editor serializes a whole BlockNote document to NFM, debounces the snapshot, and later replaces editor content when another window's Card snapshot arrives. Two windows therefore edit separate snapshots rather than one shared causal document. A later full save can overwrite an earlier save, and deferring external replacement merely delays the conflict.
@@ -24,7 +30,7 @@ Title and body therefore participate in the same causal history and durable upda
 
 Only selected document-bearing Block types own independent Documents: Card, Synced Block sources, Reusable Template sources, and Canvas. This ADR governs the Yjs `block_tree` owners; ADR 0005 governs Canvas's `canvas_scene` engine. Promotion, instantiation, and ownership changes are explicit transactions; content size never promotes an ordinary Block.
 
-A Synced Block source is a system-managed document-bearing Block with schema `nodex.synced-block@1`. Its Y.Doc has only `Y.XmlFragment("body")`; it must not manufacture a Card title root. Every visible occurrence is a childless `syncedBlockRef` that stores only `sourceBlockId` and lazy-mounts the source's independent surface. Nodex deliberately uses a library-source model: the source Block has a real Space placement so its relational location is total, but normal Card/Database/top-level navigation does not present it as another Card or standalone page. Exact owner lookup, reference expansion, history, search materialization, and maintenance may address it. The original promotion location becomes the first reference; this hidden source placement is product policy, not an accidental extra page.
+A Synced Block source is a system-managed document-bearing Block with schema `nodex.synced-block@1`. Its Y.Doc has only `Y.XmlFragment("body")`; it must not manufacture a Page title root. Every visible occurrence is a childless `syncedBlockRef` that stores only `sourceBlockId` and lazy-mounts the source's independent surface. Nodex deliberately uses a library-source model: the source Block has a real Library placement so its relational location is total, but normal Page/Database/top-level navigation does not present it as another Page. Exact owner lookup, reference expansion, history, search materialization, and maintenance may address it. The original promotion location becomes the first reference; this hidden source placement is product policy, not an accidental extra Page.
 
 Promotion moves the original subtree's application Block IDs into the new source Document, creates a new UUID-v7 reference identity at the host location, and commits both Documents/registry/evidence atomically. Copy allocates fresh UUID-v7 IDs for the source body. Demotion is allowed only when exactly one current reference can be proven from exact-head projections. It requires one lease covering both host and source heads, relocates the source roots back with their existing IDs, leaves the source Y.Doc at a durable empty head/projection, and tombstones the source resource and reference in the same SQLite transaction. Typed deletion and physical GC must pass the same exact-head reference scan and reject any source with a live reference.
 

@@ -101,6 +101,13 @@ history-scoped content owner. Its identity is `documentId`; its registration
 selects schema, content model, and sync engine. Document is an implementation
 coordinate and is never exposed as a Page parent noun.
 
+The public identity of an authorized Document observation is
+`(libraryId, accessContext, documentId)`. Library names the physical content
+lifetime; `accessContext` names either direct Library authority or one
+authorized Project path. Mounted sessions, sync subscriptions, caches, and
+Canvas outboxes retain that complete identity and never synthesize a Project
+owner for Library-authorized content.
+
 A `block_tree` Page Document uses Yjs and has exactly two roots:
 
 - `Y.Text("title")` is canonical rich title authority; its validated Delta
@@ -308,15 +315,18 @@ or deletion never deletes Library resources.
 
 ### Project resource grant
 
-A Project resource grant authorizes `read` or `read_write` access to one Page or
-Database root and its ownership closure. Active Project binding supplies an
-implicit recursive read-write grant to the primary Database. All foreign
-resources require either an explicit grant or a bounded Agent consent overlay.
+A Project resource grant authorizes `read` or `read_write` access to one Page,
+Database, or Library-parented Canvas root and its ownership closure. Active
+Project binding supplies an implicit recursive read-write grant to the primary
+Database. All foreign resources require either an explicit grant or a bounded
+Agent consent overlay.
 
 Database closure includes owned Data Sources, hosted Views, Source-parented
 Pages, nested Pages, owned Documents, and assets. Page closure includes nested
 Pages, physically nested Databases, Documents, and assets. Closure never follows
 `pageRef`, relation, linked View, mention, backlink, or ordinary link edges.
+Canvas closure includes its owned scene Document and managed assets. A
+Page-parented Canvas inherits the host Page grant and has no independent grant.
 
 A grant to one Source-parented Page exposes only the read-only schema slice
 needed to interpret that Page's current values. It never permits sibling query
@@ -355,9 +365,10 @@ asset references, Page read models, and schedule indexes may lag, be discarded,
 and be rebuilt. They never reconstruct an already-existing Document.
 
 `document_versions` is immutable semantic revision authority rather than a
-projection. `block_mutations` and relocation records retain idempotency/history
-evidence. Projections carry exact Library, Document generation/head, Block
-metadata/property, and Source coordinates needed to reject stale reads.
+projection. `block_mutations` and Library-scoped relocation records retain
+idempotency/history evidence. Projections carry exact Library, Document
+generation/head, Block metadata/property, and Source coordinates needed to
+reject stale reads.
 
 ### Nested Markdown (internal NFM)
 
@@ -378,10 +389,10 @@ The host binds Profile, Library, explicit content authority, Session, actor, and
 store epoch; public callers cannot forge scope. Project-scoped mutations
 evaluate current Project lifecycle, binding/grant/access revisions, and
 independent approval policy. Trusted local Library mutations instead evaluate
-Library identity, target lifecycle, and store epoch. When the physical schema
-still needs a private compatibility `project_id`, Core derives that storage and
-event-ledger coordinate inside the writer transaction; it is not caller
-authority and its Project need not be active.
+Library identity, target lifecycle, and store epoch. Durable content mutations
+are Library-scoped. Any Project ID retained on a receipt, change, automation,
+recovery, or delivery record is the actor/execution/delivery coordinate and
+never changes the content lifetime.
 
 For `nodex_app`, the host also binds one immutable authority snapshot to the
 exact Codex Turn. Ordinary snapshots have Project scope and continue to resolve
@@ -403,14 +414,11 @@ fresh ownership identities and never follows reference targets. Move rejects
 any edge that would make a Page own itself transitively; prepare provides early
 feedback and the committing transaction rechecks current authority. Project is
 not a product content owner; ordinary access changes through binding/grants.
-When a Full-access Agent operation crosses private compatibility owners, the
-writer rehomes the complete owned Block/Document closure in one transaction and
-records actor, source owner, final owner, and every relocation member without
-changing stable content identity. The writer freezes that rehome plan before
-mutation, changes the logical Page parent, applies the rehome, and only then
-materializes the target Document projection. Page and Document IDs remain
-Library-global throughout; private `project_id` compatibility is an execution-
-owner invariant checked by typed authority guards, not part of either identity.
+Moving between resources reached through different Project access paths changes
+only the logical Page parent/placement and its associated Source or host-shell
+state. Block and Document Library ownership remains stable. Mutation evidence
+records the logical transfer, affected Documents, and actor/delivery Project;
+there is no physical owner transition to plan or replay.
 
 A Document operation batch addresses application Block IDs and validates the
 complete result on a current-head clone before atomically committing the engine
@@ -485,7 +493,7 @@ state is rejected rather than replayed.
 14. Restore appends a forward engine mutation and never rewinds causal history.
 15. Deletion tombstones identity before collection; projections never restore
     authority except explicit one-time genesis migration.
-16. Cross-owner relocation commits engine, registry, parent, Source, View,
+16. Cross-Document relocation commits engine, registry, parent, Source, View,
     history, receipt, and change records atomically.
 17. Database creation atomically creates Container, initial Source, initial
     View, and default View authority from independently allocated identities.

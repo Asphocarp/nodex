@@ -5,9 +5,16 @@
 - Owners: Nodex maintainers
 - Supersedes: the Canvas/Yjs extension described by ADR 0002
 
+## Current applicability
+
+ADR 0017 and ADR 0018 refine the ownership and authorization coordinates used
+below. An Owned Document has a Library-scoped physical lifetime and is observed
+through an explicit Library or Project access context; Project never owns or
+rehomes its content. The scene-native synchronization decision remains current.
+
 ## Context
 
-Nodex models every independently loaded, synchronized, persisted, and history-scoped content owner as an Owned Document. Cards and other BlockNote-backed owners use Yjs because their `block_tree` content benefits directly from fine-grained CRDT text and tree operations.
+Nodex models every independently loaded, synchronized, persisted, and history-scoped content owner as an Owned Document. Pages and other BlockNote-backed owners use Yjs because their `block_tree` content benefits directly from fine-grained CRDT text and tree operations.
 
 The first Block-first Canvas implementation extended the same Yjs storage engine to Excalidraw. It stored complete immutable Excalidraw element revisions in Yjs maps, resolved concurrent contenders with Excalidraw's own `version` and `versionNonce` rules, and then persisted a complete JSON scene materialization in SQLite for references, assets, search, backup validation, and reads.
 
@@ -17,7 +24,12 @@ The prior whole-scene Canvas row was also insufficient because renderers debounc
 
 ## Decision
 
-Owned Document is the engine-neutral domain boundary. It owns identity, Project scope, owner Block, schema, generation, monotonically increasing durable head, lifecycle, history identity, subscriptions, write leases, backup/retention participation, and projection coordinates. Content synchronization is selected explicitly by the registered schema:
+Owned Document is the engine-neutral domain boundary. It owns identity, Library
+lifetime, owner Block, schema, generation, monotonically increasing durable
+head, lifecycle, history identity, subscriptions, write leases,
+backup/retention participation, and projection coordinates. An authorized
+observation additionally carries its explicit Library or Project access
+context. Content synchronization is selected by the registered schema:
 
 - `block_tree` schemas use the `yjs` sync engine.
 - `scene_graph` Canvas schemas use the `canvas_scene` sync engine.
@@ -48,13 +60,18 @@ Canvas authority is normalized in SQLite:
 - immutable mutation receipts bind a caller mutation identity to its canonical request and first durable outcome;
 - rebuildable reference, asset, search, preview, and summary projections remain separate from authority.
 
-A renderer submits a bounded mutation containing changed element candidates, expected/value app-state field intent, and newly uploaded managed file metadata. Element absence never means deletion; an Excalidraw tombstone is an explicit candidate. The single SQLite writer compares candidates with the current authority using Excalidraw's ordering: greater `version` wins, equal versions use the lower `versionNonce`, and a canonical payload hash breaks malformed ties deterministically. A stale base head may merge; a future head, wrong generation, wrong Project, or wrong store epoch fails closed. The writer validates every resulting managed asset and Card reference, advances the scene head only for an effective change, refreshes projections, appends the change evidence, and records the mutation receipt in one transaction.
+A renderer submits a bounded mutation containing changed element candidates, expected/value app-state field intent, and newly uploaded managed file metadata. Element absence never means deletion; an Excalidraw tombstone is an explicit candidate. The single SQLite writer compares candidates with the current authority using Excalidraw's ordering: greater `version` wins, equal versions use the lower `versionNonce`, and a canonical payload hash breaks malformed ties deterministically. A stale base head may merge; a future head, wrong generation, wrong Library or access context, or wrong store epoch fails closed. The writer validates every resulting managed asset and Page reference, advances the scene head only for an effective change, refreshes projections, appends the change evidence, and records the mutation receipt in one transaction.
 
 Scene subscriptions publish committed canonical deltas with the resulting head. A renderer that observes a gap, reconnects, completes a write lease, or receives an ambiguous event reloads one bounded full canonical scene. The renderer keeps Excalidraw as the immediate local editing and undo authority, coalesces frequent observations before durable mutation, uploads assets before references, and presents remote canonical scenes through Excalidraw reconciliation with `CaptureUpdateAction.NEVER`. Its persistent local outbox contains exact immutable scene mutations, not Yjs checkpoints, and is invalidated by store-epoch or generation changes.
 
 Document history revisions use an explicit checkpoint format. Canvas stores bounded canonical scene JSON. Historical Yjs checkpoints retain their full update plus causal vector metadata, while new BlockTree revisions use the semantic snapshot selected by ADR 0014. Restore is always forward: Canvas restore compiles newer element versions and explicit tombstones, then commits one ordinary scene mutation after the same mounted-surface flush/freeze lease used by other identity-sensitive Document commands.
 
-The existing process-wide Hub remains the owner of Project-scoped subscription identity, connection lifetime, store reset, resync requests, and write leases, but engine payloads are discriminated. Yjs Awareness remains a Yjs-engine concern. Canvas presence is not persisted and will use a future engine-neutral presence protocol if the product exposes collaborative pointers.
+The existing process-wide Hub remains the owner of the complete
+`libraryId + accessContext + documentId` subscription identity, connection
+lifetime, store reset, resync requests, and write leases, but engine payloads
+are discriminated. Yjs Awareness remains a Yjs-engine concern. Canvas presence
+is not persisted and will use a future engine-neutral presence protocol if the
+product exposes collaborative pointers.
 
 ## Consequences
 
@@ -65,8 +82,8 @@ The renderer and main process gain parallel engine-specific providers and transp
 Inline Page Canvas and `canvas_stage` tabs are separate surface runtimes over
 the same public Canvas ID and durable scene. They keep independent selection,
 tool, undo, presence client, and surface-scoped camera. Window Session state may
-persist Project authorization, Canvas ID, and a fallback title, but never
-Document identity or scene content. The retired Database Canvas presentation
+persist an access context, Canvas ID, and a fallback title, but never Document
+identity or scene content. The retired Database Canvas presentation
 normalizes to List so Database View and whiteboard semantics cannot converge
 again accidentally.
 

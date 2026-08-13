@@ -125,7 +125,7 @@ fn create_internal(
     validate_uuid_v7("document_id", document_id)?;
     let display_name = validate_display_name(display_name)?;
     let resolved = resolve_destination(connection, context, library_id, destination)?;
-    let actor_project_id = resolved.parent.project_id.clone();
+    let actor_project_id = resolved.parent.actor_project_id.clone();
     let now = sqlite_now(connection)?;
     let commit_result = durable_mutation::run(
         connection,
@@ -371,7 +371,7 @@ pub(super) fn move_canvas(
         return Err(conflict("Canvas location changed"));
     }
     let resolved = resolve_destination(connection, context, library_id, destination)?;
-    let actor_project_id = resolved.parent.project_id.clone();
+    let actor_project_id = resolved.parent.actor_project_id.clone();
     let source_document = canvas
         .containing_document_id
         .as_deref()
@@ -1004,7 +1004,7 @@ fn resolved_current_location(
                 .as_ref()
                 .map_or_else(|| "library".to_owned(), |id| format!("page:{id}")),
             page_id,
-            project_id: actor_project_id.to_owned(),
+            actor_project_id: actor_project_id.to_owned(),
             creator_project_id: None,
             document: None,
             before_block_id: None,
@@ -1053,7 +1053,7 @@ fn seal_canvas_mutation(
         context,
         operation_id,
         MutationEffects {
-            project_id: resolved.parent.project_id.clone(),
+            project_id: resolved.parent.actor_project_id.clone(),
             operation_kind,
             change_kind: "library.changed",
             did_mutate: true,

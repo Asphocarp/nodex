@@ -86,11 +86,11 @@ pub(super) struct ResolvedWriteParent {
     pub(super) page_id: Option<String>,
     /// Project whose command is responsible for the mutation. Content remains
     /// Library-owned even when it is inserted into a Page reached by a grant.
-    pub(super) project_id: String,
+    pub(super) actor_project_id: String,
     /// A real Project actor that should receive an explicit grant when this
     /// command creates or moves a root resource. Trusted Library-wide commands
-    /// use a compatibility Project only for receipts and therefore leave this
-    /// coordinate empty.
+    /// do not mint a durable Project grant and therefore leave this coordinate
+    /// empty.
     pub(super) creator_project_id: Option<String>,
     pub(super) document: Option<ResolvedParentDocument>,
     pub(super) before_block_id: Option<String>,
@@ -696,7 +696,7 @@ fn move_block(
             return Err(invalid("A Page cannot move below itself"));
         }
     }
-    let actor_project_id = resolved_parent.project_id.clone();
+    let actor_project_id = resolved_parent.actor_project_id.clone();
     let source_parent_key = resource_parent_key(connection, &authority)?;
     let source_document_id = authority.containing_document_id.clone();
     let source_document = source_document_id
@@ -1719,7 +1719,7 @@ fn resolve_write_parent_with_access(
         return Ok(ResolvedWriteParent {
             parent_key: "library".to_owned(),
             page_id: None,
-            project_id: requesting_project_id.to_owned(),
+            actor_project_id: requesting_project_id.to_owned(),
             creator_project_id: grant_creator_access.then(|| requesting_project_id.to_owned()),
             document: None,
             before_block_id: before.as_ref().map(|anchor| anchor.block_id.clone()),
@@ -1811,7 +1811,7 @@ fn resolve_write_parent_with_access(
     Ok(ResolvedWriteParent {
         parent_key: format!("page:{page_id}"),
         page_id: Some(page_id.clone()),
-        project_id: requesting_project_id.to_owned(),
+        actor_project_id: requesting_project_id.to_owned(),
         creator_project_id: grant_creator_access.then(|| requesting_project_id.to_owned()),
         document: Some(ResolvedParentDocument {
             authority,
@@ -2123,7 +2123,7 @@ fn create_database(
             false,
         ));
     }
-    let project_id = resolved_parent.project_id.clone();
+    let project_id = resolved_parent.actor_project_id.clone();
     let now = sqlite_now(connection)?;
     let commit_result = durable_mutation::run(
         connection,
@@ -2289,7 +2289,7 @@ fn create_page(
             false,
         ));
     }
-    let project_id = resolved_parent.project_id.clone();
+    let project_id = resolved_parent.actor_project_id.clone();
     let now = sqlite_now(connection)?;
     let commit_result = durable_mutation::run(
         connection,
@@ -3669,7 +3669,7 @@ mod tests {
         (directory, kernel, module)
     }
 
-    fn archive_storage_project(kernel: &SqliteStoreKernel) {
+    fn archive_actor_project(kernel: &SqliteStoreKernel) {
         kernel
             .writer()
             .call(|connection| {
@@ -3679,13 +3679,13 @@ mod tests {
                 )?;
                 Ok(())
             })
-            .expect("archive compatibility storage Project");
+            .expect("archive actor Project");
     }
 
     #[test]
     fn trusted_library_authority_creates_root_resources_without_an_active_project() {
         let (_directory, kernel, module) = seeded_library();
-        archive_storage_project(&kernel);
+        archive_actor_project(&kernel);
 
         let page = module
             .apply(
@@ -3735,7 +3735,7 @@ mod tests {
     #[test]
     fn trusted_library_authority_owns_the_complete_canvas_lifecycle() {
         let (_directory, kernel, module) = seeded_library();
-        archive_storage_project(&kernel);
+        archive_actor_project(&kernel);
         let canvas_id = "018f0000-0000-7000-8000-000000000010";
         let duplicate_id = "018f0000-0000-7000-8000-000000000012";
 
@@ -3823,7 +3823,7 @@ mod tests {
     }
 
     #[test]
-    fn trusted_library_authority_reorders_a_root_canvas_across_compatibility_projects() {
+    fn trusted_library_authority_reorders_a_root_canvas_from_an_archived_actor_project() {
         let (_directory, kernel, module) = seeded_library();
         kernel
             .writer()
@@ -3836,7 +3836,7 @@ mod tests {
                 )?;
                 Ok(())
             })
-            .expect("seed second compatibility Project");
+            .expect("seed second actor Project");
         let mut project_context = context();
         project_context.project_id = Some(ProjectId("project-2".to_owned()));
         let canvas_id = "018f0000-0000-7000-8000-000000000020";
@@ -3865,7 +3865,7 @@ mod tests {
                 )?;
                 Ok(())
             })
-            .expect("archive Canvas compatibility Project");
+            .expect("archive Canvas actor Project");
 
         module
             .apply(
@@ -3881,7 +3881,7 @@ mod tests {
                     },
                 },
             )
-            .expect("Library authority reorders a root Canvas without rehoming storage");
+            .expect("Library authority reorders a Library-owned root Canvas");
     }
 
     #[test]
@@ -5999,7 +5999,7 @@ mod tests {
                     Ok(())
                 })
             })
-            .expect("seed destination storage Project");
+            .expect("seed destination access Project");
         let mut storage_context = context();
         storage_context.project_id = Some(ProjectId("project-storage".to_owned()));
         storage_context.connection_id = "connection:database-storage".to_owned();

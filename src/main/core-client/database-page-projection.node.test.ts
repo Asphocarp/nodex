@@ -267,7 +267,7 @@ describe("native Database Page projections", () => {
     }).values.tags?.value).toEqual(["o_AAAAAAAA"]);
   });
 
-  test("builds the complete compatibility Page from one native query row", () => {
+  test("builds the complete renderer Page from one native query row", () => {
     const page = projectDatabasePage(makeRow("page:one"), 3);
 
     expect(page).toMatchObject({

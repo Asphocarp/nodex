@@ -38,7 +38,7 @@ describe("Nodex Agent result budgets", () => {
             kind: "page",
             blockId: "card-1",
             documentId: "document-1",
-            location: { kind: "space" },
+            location: { kind: "library", libraryId: "library-1" },
             bodyBlockCount: 12,
           },
         },
@@ -55,7 +55,7 @@ describe("Nodex Agent result budgets", () => {
           results: [{
             sourceBlockId: "card-1",
             resultBlockId: "card-1",
-            location: { kind: "space" },
+            location: { kind: "library", libraryId: "library-1" },
             transformation: "preserved",
           }],
         },
@@ -85,7 +85,7 @@ describe("Nodex Agent result budgets", () => {
             type: "page",
             title: { value: { kind: "plain", text: "Card" }, etag: ETAG },
             lifecycle: "active",
-            location: { kind: "space" },
+            location: { kind: "library", libraryId: "library-1" },
           },
         },
       }),
@@ -95,7 +95,7 @@ describe("Nodex Agent result budgets", () => {
             blockId: "card-1",
             type: "page",
             lifecycle: "active",
-            location: { kind: "space" },
+            location: { kind: "library", libraryId: "library-1" },
           },
           document: {
             documentId: "document-1",
@@ -110,7 +110,7 @@ describe("Nodex Agent result budgets", () => {
             blockId: "card-1",
             type: "page",
             lifecycle: "active",
-            location: { kind: "space" },
+            location: { kind: "library", libraryId: "library-1" },
           },
           document: {
             documentId: "document-1",
@@ -146,7 +146,7 @@ describe("Nodex Agent result budgets", () => {
           blockId: "card-1",
           type: "page",
           lifecycle: "active",
-          location: { kind: "space" },
+          location: { kind: "library", libraryId: "library-1" },
         },
         document: {
           documentId: "document-1",

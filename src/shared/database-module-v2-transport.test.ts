@@ -4,6 +4,8 @@ import { noOpLocalCommit } from "./testing/local-commit";
 import {
   bindDatabaseApplyV2,
   bindDatabaseModuleReadV2,
+  bindLibraryDatabaseApplyV2,
+  bindLibraryDatabaseModuleReadV2,
   databaseModuleFailureV2,
   databaseModuleHttpStatusV2,
   parseDatabaseApplyResultV2,
@@ -400,8 +402,12 @@ describe("Database Module v2 transport boundary", () => {
         target: { kind: "project_default" },
         mode: "catalog_window",
         window: { first: 100 },
+        minimumCommitSeq: 7,
       },
-    }, "project-1").read.mode).toBe("catalog_window");
+    }, "project-1").read).toMatchObject({
+      mode: "catalog_window",
+      minimumCommitSeq: 7,
+    });
 
     expect(bindDatabaseModuleReadV2({
       version: DATABASE_MODULE_V2_CONTRACT_VERSION,
@@ -814,7 +820,54 @@ describe("Database Module v2 transport boundary", () => {
     ).toThrow("must contain unique identities");
   });
 
-  test("keeps compatibility Project identity out of Library read and write receipts", () => {
+  test("binds and parses Library reads and writes without a Project coordinate", () => {
+    const boundRead = bindLibraryDatabaseModuleReadV2({
+      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+      read: {
+        target: { kind: "data_source", dataSourceId: "source-1" },
+        mode: "data_source",
+        minimumCommitSeq: 4,
+      },
+    });
+    expect(boundRead).toEqual({
+      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+      read: {
+        target: { kind: "data_source", dataSourceId: "source-1" },
+        mode: "data_source",
+        minimumCommitSeq: 4,
+      },
+    });
+    expect(() => bindLibraryDatabaseModuleReadV2({
+      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+      read: { target: { kind: "project_default" }, mode: "database" },
+    })).toThrow("require a concrete Database");
+
+    expect(bindLibraryDatabaseApplyV2({
+      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+      operationId: "library-operation-1",
+      storeEpoch: "epoch-1",
+      operations: [{
+        kind: "put_option",
+        dataSourceId: "source-1",
+        propertyId: CUSTOM_PROPERTY_ID,
+        optionId: CUSTOM_OPTION_ID,
+        name: "Platform",
+        expectedPropertyRevision: 2,
+      }],
+    })).toEqual({
+      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+      operationId: "library-operation-1",
+      storeEpoch: "epoch-1",
+      operations: [{
+        kind: "put_option",
+        dataSourceId: "source-1",
+        propertyId: CUSTOM_PROPERTY_ID,
+        optionId: CUSTOM_OPTION_ID,
+        name: "Platform",
+        expectedPropertyRevision: 2,
+      }],
+    });
+
     const read = parseLibraryDatabaseModuleReadResultV2({
       ok: true,
       value: {

@@ -485,7 +485,7 @@ describe("Core Document sync adapter", () => {
     });
 
     const result = await adapter.applyAdditionalDocumentCommand({
-      version: 1,
+      version: 2,
       operationId: "owner:create",
       projectId: "project:one",
       storeEpoch: "epoch:test",
@@ -502,7 +502,7 @@ describe("Core Document sync adapter", () => {
           props: {},
           children: [],
         }],
-        placement: { kind: "space" },
+        placement: { kind: "library" },
       },
     });
 
@@ -966,7 +966,7 @@ describe("Core Document sync adapter", () => {
     });
 
     await expect(adapter.applyAdditionalDocumentCommand({
-      version: 1,
+      version: 2,
       operationId: "owner:delete",
       projectId: "project:one",
       storeEpoch: "epoch:test",
@@ -1010,7 +1010,7 @@ describe("Core Document sync adapter", () => {
       }),
     );
     const request = {
-      version: 1 as const,
+      version: 2 as const,
       operationId: "owner:create-conflict",
       projectId: "project:one",
       storeEpoch: "epoch:test",
@@ -1027,7 +1027,7 @@ describe("Core Document sync adapter", () => {
           props: {},
           children: [],
         }],
-        placement: { kind: "space" as const },
+        placement: { kind: "library" as const },
       },
     };
 

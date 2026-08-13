@@ -1,6 +1,9 @@
 import {
+  assertLibraryBlockPropertyMutationExecutionV2,
   BlockPropertyMutationV2ContractError,
+  parseBlockPropertyMutationActorV2,
   parseBlockPropertyMutationRequestV2,
+  parseLibraryBlockPropertyMutationRequestV2,
   type BlockPropertyJsonValueV2,
   type BlockPropertyMutationCommandErrorV2,
   type BlockPropertyMutationCommandResultV2,
@@ -130,8 +133,7 @@ export const bindTrustedBlockPropertyMutationV2 = (
 
 /**
  * Bind a local Library mutation without accepting a caller-authored Project
- * coordinate or audit actor. The sentinel Project exists only long enough to
- * reuse the canonical request parser; it never crosses the trusted boundary.
+ * coordinate or audit actor.
  */
 export const bindTrustedLibraryBlockPropertyMutationV2 = (
   rawRequest: unknown,
@@ -166,24 +168,14 @@ export const bindTrustedLibraryBlockPropertyMutationV2 = (
   }
 
   try {
-    const bound = parseBlockPropertyMutationRequestV2({
+    const value = parseLibraryBlockPropertyMutationRequestV2({
       ...requestRecord,
-      projectId: "local-library-boundary",
-      actor: identity.actor,
       ...(identity.clientSessionId === undefined
-        ? {}
+        ? { clientSessionId: undefined }
         : { clientSessionId: identity.clientSessionId }),
     });
-    const value: LibraryBlockPropertyMutationRequestV2 = {
-      version: bound.version,
-      mutationId: bound.mutationId,
-      storeEpoch: bound.storeEpoch,
-      ...(bound.clientSessionId === undefined
-        ? {}
-        : { clientSessionId: bound.clientSessionId }),
-      fields: bound.fields,
-    };
-    const actor = bound.actor;
+    const actor = parseBlockPropertyMutationActorV2(identity.actor);
+    assertLibraryBlockPropertyMutationExecutionV2(value, actor);
     return { ok: true, value, actor };
   } catch (error) {
     return {

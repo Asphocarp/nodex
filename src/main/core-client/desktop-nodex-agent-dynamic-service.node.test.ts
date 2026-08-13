@@ -224,7 +224,6 @@ describe("native desktop Nodex Agent dynamic service", () => {
               expected_head_seq: 4,
             },
             destination_database_id: null,
-            destination_project_id: "project-native-agent",
             committed: null,
           },
         },
@@ -393,8 +392,6 @@ describe("native desktop Nodex Agent dynamic service", () => {
               },
               source_document_id: null,
               source_database_id: "database-move",
-              source_project_id: "project-native-agent",
-              target_project_id: "project-native-agent",
             }, {
               page_id: "page-move-library",
               source: {
@@ -403,8 +400,6 @@ describe("native desktop Nodex Agent dynamic service", () => {
               },
               source_document_id: null,
               source_database_id: null,
-              source_project_id: "project-native-agent",
-              target_project_id: "project-native-agent",
             }],
             document_heads: [{
               document_id: "document-move-target",
@@ -424,7 +419,6 @@ describe("native desktop Nodex Agent dynamic service", () => {
               expected_head_seq: 8,
             },
             destination_database_id: null,
-            destination_project_id: "project-native-agent",
             committed: null,
           },
         },
@@ -599,7 +593,6 @@ describe("native desktop Nodex Agent dynamic service", () => {
               expected_head_seq: 8,
             },
             destination_database_id: null,
-            destination_project_id: "project-native-agent",
             committed: null,
           },
         },

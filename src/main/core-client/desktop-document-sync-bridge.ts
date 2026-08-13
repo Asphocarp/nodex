@@ -47,10 +47,10 @@ import type {
   CanvasSceneCompactionRequest,
 } from "../../shared/block-documents/canvas-scene-maintenance";
 import {
-  requireLibraryOwnedDocumentDescriptor,
-  requireProjectOwnedDocumentDescriptor,
-  type LibraryOwnedDocumentDescriptor,
-  type ProjectOwnedDocumentDescriptor,
+  requireLibraryAccessedDocumentDescriptor,
+  requireProjectAccessedDocumentDescriptor,
+  type LibraryAccessedDocumentDescriptor,
+  type ProjectAccessedDocumentDescriptor,
 } from "../../shared/block-documents/contracts";
 import type {
   ExecuteNodexAgentCreatePagesResult,
@@ -144,14 +144,14 @@ export interface DesktopDocumentSyncPort {
   getOwnedDocumentDescriptor(
     projectId: string,
     ownerBlockId: string,
-  ): Promise<ProjectOwnedDocumentDescriptor>;
+  ): Promise<ProjectAccessedDocumentDescriptor>;
   prepareOwnedBlockDocument(
     projectId: string,
     ownerBlockId: string,
-  ): Promise<DocumentSyncCommandResult<ProjectOwnedDocumentDescriptor>>;
+  ): Promise<DocumentSyncCommandResult<ProjectAccessedDocumentDescriptor>>;
   prepareLibraryOwnedBlockDocument(
     ownerBlockId: string,
-  ): Promise<DocumentSyncCommandResult<LibraryOwnedDocumentDescriptor>>;
+  ): Promise<DocumentSyncCommandResult<LibraryAccessedDocumentDescriptor>>;
   subscribe(
     scope: DesktopDocumentSyncScope,
     target: DocumentSyncClientTarget,
@@ -1398,7 +1398,7 @@ export function createDesktopDocumentSyncBridge(
           ownerBlockId,
           clientSessionId: "electron:owned-document:descriptor",
         });
-      return requireProjectOwnedDocumentDescriptor(descriptor, projectId);
+      return requireProjectAccessedDocumentDescriptor(descriptor, projectId);
     },
     prepareOwnedBlockDocument: async (projectId, ownerBlockId) =>
       await withRuntime(async (runtime) => {
@@ -1415,7 +1415,7 @@ export function createDesktopDocumentSyncBridge(
         if (!prepared.ok) return prepared;
         return {
           ok: true,
-          value: requireProjectOwnedDocumentDescriptor(
+          value: requireProjectAccessedDocumentDescriptor(
             prepared.value,
             projectId,
           ),
@@ -1436,7 +1436,7 @@ export function createDesktopDocumentSyncBridge(
         if (!prepared.ok) return prepared;
         return {
           ok: true,
-          value: requireLibraryOwnedDocumentDescriptor(prepared.value),
+          value: requireLibraryAccessedDocumentDescriptor(prepared.value),
         };
       }),
     subscribe: async (scope, target, request) => await withRuntime(async (runtime) => {

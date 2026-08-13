@@ -12,7 +12,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::{Value, json};
 
 use crate::database::{
-    resolve_page_copy_data_source_project, resolve_page_transfer_data_source_destination,
+    resolve_page_transfer_data_source_destination, validate_page_copy_data_source_destination,
 };
 use crate::infrastructure::durable_mutation::{self, OperationIdentity};
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
@@ -88,7 +88,7 @@ fn create_page_in_data_source(
     let requesting_project_id = bound_project_id(context)?;
     let destination = super::page_copy::data_source_destination(destination)
         .ok_or_else(|| corrupt("Created Page lost its Data Source destination"))?;
-    let project_id = resolve_page_copy_data_source_project(
+    validate_page_copy_data_source_destination(
         connection,
         library_id,
         requesting_project_id,
@@ -113,7 +113,6 @@ fn create_page_in_data_source(
                 super::page_genesis::PageGenesisInput {
                     commit_context: scope.evidence(),
                     library_id,
-                    project_id: &project_id,
                     actor_project_id: requesting_project_id,
                     placement_access_project_id: Some(requesting_project_id),
                     operation_id,
@@ -134,7 +133,7 @@ fn create_page_in_data_source(
                 context,
                 operation_id,
                 MutationEffects {
-                    project_id: created.project_id,
+                    project_id: requesting_project_id.to_owned(),
                     operation_kind: "create_page",
                     change_kind: "library.changed",
                     did_mutate: true,
@@ -478,7 +477,7 @@ fn resolve_destination(
                 .collect::<rusqlite::Result<Vec<_>>>()?;
             let before_page_id =
                 resolve_before_id(ids, at.as_ref(), moving_page_id, "Destination View")?;
-            let resolved = resolve_page_transfer_data_source_destination(
+            let destination = resolve_page_transfer_data_source_destination(
                 connection,
                 library_id,
                 project_id,
@@ -487,7 +486,6 @@ fn resolve_destination(
                 group_key.as_deref(),
                 before_page_id.as_deref(),
             )?;
-            let destination = resolved.destination;
             Ok(LibraryPageCopyDestination::DataSource {
                 data_source_id: destination.data_source_id,
                 expected_data_source_revision: destination.expected_data_source_revision,

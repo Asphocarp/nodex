@@ -29,7 +29,7 @@ const committed = (bound: BlockTransferIntent): BlockTransferCommandResult => ({
     observed: { store_epoch: bound.storeEpoch, commit_head: 9 },
   },
   value: {
-    version: 1,
+    version: 2,
     operationId: bound.operationId,
     projectId: bound.projectId,
     storeEpoch: bound.storeEpoch,

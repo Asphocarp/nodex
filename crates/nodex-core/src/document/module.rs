@@ -8962,7 +8962,7 @@ mod tests {
     }
 
     #[test]
-    fn trusted_library_realtime_scope_crosses_document_storage_projects() {
+    fn trusted_library_realtime_scope_crosses_project_access_paths() {
         let seeded = seeded_module();
         let adapter = OwnedDocumentRealtimeAdapter::new(seeded.module.clone());
         let library_context = library_context_for("renderer:library", AdapterKind::Test);

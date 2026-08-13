@@ -2791,7 +2791,6 @@ export interface components {
             readonly destination?: null | components["schemas"]["LibraryPageCopyDestination"];
             readonly destination_database_id?: string | null;
             readonly destination_document?: null | components["schemas"]["LibraryAgentDocumentHead"];
-            readonly destination_project_id?: string | null;
             readonly document_heads: readonly components["schemas"]["LibraryAgentDocumentHead"][];
             readonly pages: readonly components["schemas"]["LibraryAgentCreatePagePreparation"][];
             readonly preparation: components["schemas"]["AgentOperationPreparation"];
@@ -2823,15 +2822,12 @@ export interface components {
             readonly source: components["schemas"]["LibraryBlockTransferSource"];
             readonly source_database_id?: string | null;
             readonly source_document_id?: string | null;
-            readonly source_project_id: string;
-            readonly target_project_id: string;
         };
         readonly LibraryAgentMovePagesPreparation: {
             readonly committed?: null | components["schemas"]["ApplyResponse_LibraryCommitValue_LibraryReceipt"];
             readonly destination?: null | components["schemas"]["LibraryPageCopyDestination"];
             readonly destination_database_id?: string | null;
             readonly destination_document?: null | components["schemas"]["LibraryAgentDocumentHead"];
-            readonly destination_project_id?: string | null;
             readonly document_heads: readonly components["schemas"]["LibraryAgentDocumentHead"][];
             readonly pages: readonly components["schemas"]["LibraryAgentMovePagePreparation"][];
             readonly preparation: components["schemas"]["AgentOperationPreparation"];
@@ -2852,7 +2848,6 @@ export interface components {
             readonly destination?: null | components["schemas"]["LibraryPageCopyDestination"];
             readonly destination_database_id?: string | null;
             readonly destination_document?: null | components["schemas"]["LibraryAgentDocumentHead"];
-            readonly destination_project_id?: string | null;
             readonly document_heads: readonly components["schemas"]["LibraryAgentDocumentHead"][];
             readonly page_id: string;
             readonly preparation: components["schemas"]["AgentOperationPreparation"];
@@ -3928,8 +3923,8 @@ export interface components {
             readonly page_id: string;
         };
         readonly LibraryPageLocation: {
+            readonly access_project_id: string;
             readonly page_id: string;
-            readonly project_id: string;
         };
         readonly LibraryPageMembership: {
             readonly created_at: string;
@@ -4082,8 +4077,8 @@ export interface components {
             readonly document_id: string;
             readonly excerpt: string;
             readonly field_key: string;
+            readonly library_id: string;
             readonly owner_page_id: string;
-            readonly project_id: string;
             /** Format: int64 */
             readonly projected_seq: number;
             /** Format: double */
@@ -4106,11 +4101,11 @@ export interface components {
             readonly physical_root: string;
         };
         readonly LibrarySearchSnapshotManifest: {
+            readonly access_project_id: string;
             /** Format: int64 */
             readonly commit_head: number;
             readonly library_id: string;
             readonly pages: readonly components["schemas"]["LibrarySearchSnapshotPage"][];
-            readonly project_id: string;
             /** Format: int32 */
             readonly projection_version: number;
             readonly scope: components["schemas"]["LibrarySearchSnapshotScope"];
@@ -4146,7 +4141,6 @@ export interface components {
             };
             /** Format: int64 */
             readonly schedule_revision?: number | null;
-            readonly storage_project_id: string;
             readonly title_markdown: string;
             readonly title_sha256: string;
             readonly value_revisions: {
@@ -4178,9 +4172,9 @@ export interface components {
         /** @enum {string} */
         readonly LibrarySearchSourceKind: "document_title" | "document_block";
         readonly LibraryViewLocation: {
+            readonly access_project_id: string;
             readonly data_source_id: string;
             readonly database_id: string;
-            readonly project_id: string;
             readonly view_id: string;
         };
         readonly LibraryWriteParent: {

@@ -5,7 +5,7 @@ import {
   MAX_DOCUMENT_TOUCHED_BLOCK_IDS,
   type DocumentReadiness,
   type OwnedDocumentDescriptor,
-  type LibraryOwnedDocumentDescriptor,
+  type LibraryAccessedDocumentDescriptor,
 } from "./contracts";
 import type { ContentAccessContext } from "../content-access-context";
 import {
@@ -733,17 +733,17 @@ export const decodeOwnedDocumentDescriptorHttp = (
   };
 };
 
-export const encodeLibraryOwnedDocumentDescriptorHttp = (
-  descriptor: LibraryOwnedDocumentDescriptor,
+export const encodeLibraryAccessedDocumentDescriptorHttp = (
+  descriptor: LibraryAccessedDocumentDescriptor,
 ): string => encodeOwnedDocumentDescriptorHttp(descriptor);
 
-export const decodeLibraryOwnedDocumentDescriptorHttp = (
+export const decodeLibraryAccessedDocumentDescriptorHttp = (
   serialized: string,
-): LibraryOwnedDocumentDescriptor => {
+): LibraryAccessedDocumentDescriptor => {
   const descriptor = decodeOwnedDocumentDescriptorHttp(serialized);
   if (descriptor.accessContext.kind !== "library") {
     throw new DocumentHttpWireError(
-      "Library Owned Document access context must be library",
+      "Library-accessed Document context must be library",
     );
   }
   return { ...descriptor, accessContext: descriptor.accessContext };

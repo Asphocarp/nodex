@@ -162,7 +162,7 @@ describe("Page Detail contract", () => {
     });
   });
 
-  test("parses Library Page Detail without a compatibility Project identity", () => {
+  test("parses Library Page Detail without a Project coordinate", () => {
     const result = memberResult();
     if (!result.ok) return;
     const { projectId: _projectId, ...detail } = result.value;

@@ -9,9 +9,7 @@ use nodex_core_contracts::library::{
     LibraryBlockPropertyMutationErrorCode, LibraryBlockPropertyMutationOutcome,
     LibraryBlockPropertyMutationReceipt, LibraryCommitValue, LibraryReceipt,
 };
-use nodex_core_contracts::{
-    AdapterKind, BoundModuleContext, ModuleMutationReceipt, ModuleName, StoreEpoch,
-};
+use nodex_core_contracts::{BoundModuleContext, ModuleMutationReceipt, ModuleName, StoreEpoch};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::{Map, Value, json};
 
@@ -144,10 +142,10 @@ pub(super) fn apply(
     let now = committed_at
         .map(str::to_owned)
         .map_or_else(|| sqlite_now(connection), Ok)?;
-    let ledger_project_id = ledger_project_id(connection, context, library_id)?;
+    let actor_project_id = actor_project_id(connection, context, library_id)?;
     let evidence = match validate_request(
-        context,
-        &ledger_project_id,
+        library_id,
+        &actor_project_id,
         store_epoch,
         operation_id,
         mutation,
@@ -157,17 +155,22 @@ pub(super) fn apply(
             if compound_mutation {
                 return Err(rejection_store_error(error));
             }
-            let evidence =
-                minimal_evidence(&ledger_project_id, store_epoch, operation_id, mutation)?;
+            let evidence = minimal_evidence(
+                library_id,
+                &actor_project_id,
+                store_epoch,
+                operation_id,
+                mutation,
+            )?;
             persist_property_ledger(
                 connection,
-                &ledger_project_id,
+                &actor_project_id,
                 store_epoch,
                 operation_id,
                 mutation.client_session_id.as_deref(),
                 &evidence,
                 "rejected",
-                &public_error_json(operation_id, &error),
+                &ledger_error_json(operation_id, &error),
                 &json!({}),
                 None,
                 &now,
@@ -187,7 +190,7 @@ pub(super) fn apply(
 
     if let Some(collision) = read_ledger_collision(
         connection,
-        &ledger_project_id,
+        &actor_project_id,
         store_epoch,
         operation_id,
         mutation.client_session_id.as_deref(),
@@ -215,13 +218,13 @@ pub(super) fn apply(
             }
             persist_property_ledger(
                 connection,
-                &ledger_project_id,
+                &actor_project_id,
                 store_epoch,
                 operation_id,
                 mutation.client_session_id.as_deref(),
                 &evidence,
                 "rejected",
-                &public_error_json(operation_id, &error),
+                &ledger_error_json(operation_id, &error),
                 &json!({}),
                 None,
                 &now,
@@ -338,7 +341,7 @@ pub(super) fn apply(
                 context,
                 operation_id,
                 MutationEffects {
-                    project_id: ledger_project_id.clone(),
+                    project_id: actor_project_id.clone(),
                     operation_kind: MUTATION_KIND,
                     change_kind: "block_mutation",
                     did_mutate: true,
@@ -377,9 +380,10 @@ pub(super) fn apply(
     // change_log effect. The public receipt cursor is the semantic
     // LocalCommit sequence and may differ after a multi-effect mutation.
     let event_sequence = result.committed.event_sequence;
-    let public_result = public_success_json(
+    let ledger_result = ledger_success_json(
         operation_id,
-        &ledger_project_id,
+        library_id,
+        &actor_project_id,
         store_epoch,
         &field_results,
         &block_metadata_revisions,
@@ -388,13 +392,13 @@ pub(super) fn apply(
     );
     persist_property_ledger(
         connection,
-        &ledger_project_id,
+        &actor_project_id,
         store_epoch,
         operation_id,
         mutation.client_session_id.as_deref(),
         &evidence,
         "committed",
-        &public_result,
+        &ledger_result,
         &Value::Object(
             field_results
                 .iter()
@@ -412,10 +416,9 @@ pub(super) fn apply(
     Ok(result)
 }
 
-#[allow(clippy::too_many_arguments)]
 fn validate_request(
-    context: &BoundModuleContext,
-    project_id: &str,
+    library_id: &str,
+    actor_project_id: &str,
     store_epoch: &str,
     operation_id: &str,
     mutation: &LibraryBlockPropertyMutation,
@@ -457,8 +460,8 @@ fn validate_request(
         validate_field_shape(field, &path)?;
     }
     make_evidence(
-        context,
-        project_id,
+        library_id,
+        actor_project_id,
         store_epoch,
         operation_id,
         mutation,
@@ -960,10 +963,17 @@ fn authorize_page(
     page: &PageAuthority,
     path: &str,
 ) -> Result<(), PropertyApplyError> {
-    let Some(project_id) = context.project_id.as_ref() else {
+    let Some(requesting_project_id) = context.project_id.as_ref() else {
         return Ok(());
     };
-    if require_page_write_access(connection, library_id, &project_id.0, &page.page_id).is_ok() {
+    if require_page_write_access(
+        connection,
+        library_id,
+        &requesting_project_id.0,
+        &page.page_id,
+    )
+    .is_ok()
+    {
         return Ok(());
     }
     Err(rejected(
@@ -975,7 +985,7 @@ fn authorize_page(
     ))
 }
 
-fn ledger_project_id(
+fn actor_project_id(
     connection: &Connection,
     context: &BoundModuleContext,
     library_id: &str,
@@ -984,8 +994,8 @@ fn ledger_project_id(
 }
 
 fn make_evidence(
-    _context: &BoundModuleContext,
-    project_id: &str,
+    library_id: &str,
+    actor_project_id: &str,
     store_epoch: &str,
     operation_id: &str,
     mutation: &LibraryBlockPropertyMutation,
@@ -998,9 +1008,11 @@ fn make_evidence(
         .map(public_field_json)
         .collect::<Result<Vec<_>, _>>()?;
     let request = json!({
-        "version": 2,
+        "version": 3,
         "mutationId": operation_id,
-        "projectId": project_id,
+        "accessContext": { "kind": "library" },
+        "libraryId": library_id,
+        "actorProjectId": actor_project_id,
         "storeEpoch": store_epoch,
         "clientSessionId": mutation.client_session_id,
         "actor": mutation.actor,
@@ -1055,21 +1067,15 @@ fn make_evidence(
 }
 
 fn minimal_evidence(
-    project_id: &str,
+    library_id: &str,
+    actor_project_id: &str,
     store_epoch: &str,
     operation_id: &str,
     mutation: &LibraryBlockPropertyMutation,
 ) -> Result<MutationEvidence, StoreError> {
-    let context = BoundModuleContext {
-        profile_id: nodex_core_contracts::ProfileId(String::new()),
-        library_id: nodex_core_contracts::LibraryId(String::new()),
-        project_id: None,
-        connection_id: String::new(),
-        adapter: AdapterKind::Test,
-    };
     let mut evidence = make_evidence(
-        &context,
-        project_id,
+        library_id,
+        actor_project_id,
         store_epoch,
         operation_id,
         mutation,
@@ -1141,7 +1147,7 @@ fn change_payload(
 #[allow(clippy::too_many_arguments)]
 fn persist_property_ledger(
     connection: &Connection,
-    project_id: &str,
+    actor_project_id: &str,
     store_epoch: &str,
     operation_id: &str,
     client_session_id: Option<&str>,
@@ -1163,7 +1169,7 @@ fn persist_property_ledger(
                    ?13, ?14, ?15, '{}', ?16, ?17)",
         params![
             operation_id,
-            project_id,
+            actor_project_id,
             store_epoch,
             MUTATION_KIND,
             evidence.actor_json,
@@ -1186,7 +1192,7 @@ fn persist_property_ledger(
 
 fn read_ledger_collision(
     connection: &Connection,
-    project_id: &str,
+    actor_project_id: &str,
     store_epoch: &str,
     operation_id: &str,
     client_session_id: Option<&str>,
@@ -1219,7 +1225,7 @@ fn read_ledger_collision(
     let Some(existing) = existing else {
         return Ok(None);
     };
-    let exact = existing.0 == project_id
+    let exact = existing.0 == actor_project_id
         && existing.1 == store_epoch
         && existing.2 == MUTATION_KIND
         && existing.3 == evidence.actor_json
@@ -1251,9 +1257,10 @@ fn read_ledger_collision(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn public_success_json(
+fn ledger_success_json(
     operation_id: &str,
-    project_id: &str,
+    library_id: &str,
+    actor_project_id: &str,
     store_epoch: &str,
     fields: &[LibraryBlockPropertyFieldResult],
     block_metadata_revisions: &BTreeMap<String, i64>,
@@ -1261,9 +1268,11 @@ fn public_success_json(
     now: &str,
 ) -> Value {
     json!({
-        "version": 2,
+        "version": 3,
         "mutationId": operation_id,
-        "projectId": project_id,
+        "accessContext": { "kind": "library" },
+        "libraryId": library_id,
+        "actorProjectId": actor_project_id,
         "storeEpoch": store_epoch,
         "duplicate": false,
         "fields": fields.iter().map(public_field_result_json).collect::<Vec<_>>(),
@@ -1294,7 +1303,7 @@ fn public_field_result_json(field: &LibraryBlockPropertyFieldResult) -> Value {
     }
 }
 
-fn public_error_json(operation_id: &str, error: &LibraryBlockPropertyMutationError) -> Value {
+fn ledger_error_json(operation_id: &str, error: &LibraryBlockPropertyMutationError) -> Value {
     omit_null_members(json!({
         "code": property_error_code(error.code),
         "message": error.message,

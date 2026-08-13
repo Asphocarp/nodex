@@ -1419,7 +1419,7 @@ describe("DatabaseViewTabSurface", () => {
         onSelectedPageIdsChange={(pageIds) => selectedSnapshots.push(pageIds)}
       />,
     );
-    const grid = screen.getByRole("grid", { name: "Focused List" });
+    const grid = screen.getByRole("grid", { name: "Database List" });
     expect(screen.getByRole("button", { name: "Open Page Next Page" })).toBeTruthy();
 
     await act(async () => {

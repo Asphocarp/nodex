@@ -1614,7 +1614,7 @@ export function DatabaseList({
       <div
         ref={scrollerRef}
         role="grid"
-        aria-label={`${model.viewName} List`}
+        aria-label="Database List"
         aria-rowcount={projection.length + logicalExtraRows}
         aria-busy={mutationPending || coreWindow.loading || undefined}
         data-list-container="true"
