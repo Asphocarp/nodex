@@ -196,6 +196,11 @@ uses local state and a submit-time guard.
   local clipping or ownership boundary requires otherwise. Fix pointer/focus
   ownership at the responsible DOM layer; do not mask it with arbitrary z-index
   escalation or full-surface pointer overlays.
+- A floating owner above the ordinary app-shell floating layer establishes a
+  `NodexFloatingLayerProvider`. Shared Dropdown and Popover primitives derive
+  each portalled descendant's next layer through React context, including
+  recursively nested surfaces. Feature callers do not assign child-menu
+  z-indexes or move them into clipping ancestors.
 - Use the named layer constants in `src/renderer/lib/app-shell-layers.ts` and
   shared portal primitives. Exact layer values are executable code, not prose.
 

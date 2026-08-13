@@ -2,8 +2,19 @@ import { BlockNoteEditor } from "@blocknote/core";
 import { DropCursorExtension } from "@blocknote/core/extensions";
 import { BlockNoteViewRaw } from "@blocknote/react";
 import { TextSelection } from "@tiptap/pm/state";
+import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu";
 import { act, fireEvent, render } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
+import "../../../globals.css";
+import {
+  NodexDropdownContent,
+  NodexDropdownItem,
+} from "@/components/ui/dropdown";
+import {
+  NodexPopover,
+  NodexPopoverAnchor,
+  NodexPopoverContent,
+} from "@/components/ui/popover";
 import { NfmFormattingToolbarController } from "./nfm-formatting-toolbar-controller";
 import { NfmSideMenuOpenProvider } from "./nfm-side-menu";
 
@@ -154,7 +165,28 @@ describe("BlockNote view lifecycle in Chromium", () => {
       >
         <NfmSideMenuOpenProvider>
           <NfmFormattingToolbarController
-            formattingToolbar={() => <div data-testid="formatting-toolbar-portal-probe" />}
+            formattingToolbar={() => (
+              <div data-testid="formatting-toolbar-portal-probe">
+                <NodexPopover open>
+                  <NodexPopoverAnchor asChild>
+                    <button type="button">Nested action</button>
+                  </NodexPopoverAnchor>
+                  <NodexPopoverContent data-testid="formatting-toolbar-nested-popover">
+                    Nested floating content
+                  </NodexPopoverContent>
+                </NodexPopover>
+                <DropdownMenuPrimitive.Root open>
+                  <DropdownMenuPrimitive.Trigger>
+                    Nested menu
+                  </DropdownMenuPrimitive.Trigger>
+                  <DropdownMenuPrimitive.Portal>
+                    <NodexDropdownContent data-testid="formatting-toolbar-nested-dropdown">
+                      <NodexDropdownItem>Nested menu content</NodexDropdownItem>
+                    </NodexDropdownContent>
+                  </DropdownMenuPrimitive.Portal>
+                </DropdownMenuPrimitive.Root>
+              </div>
+            )}
           />
         </NfmSideMenuOpenProvider>
       </BlockNoteViewRaw>,
@@ -174,6 +206,21 @@ describe("BlockNote view lifecycle in Chromium", () => {
       const toolbar = await view.findByTestId("formatting-toolbar-portal-probe");
       expect(document.body.contains(toolbar)).toBe(true);
       expect(view.container.contains(toolbar)).toBe(false);
+
+      const toolbarLayer = toolbar.closest<HTMLElement>(".notion-text-action-menu");
+      if (!toolbarLayer) throw new Error("Expected the editor-owned formatting toolbar layer.");
+      const nestedPopover = await view.findByTestId("formatting-toolbar-nested-popover");
+      expect(document.body.contains(nestedPopover)).toBe(true);
+      expect(toolbarLayer.contains(nestedPopover)).toBe(false);
+      expect(Number(getComputedStyle(nestedPopover).zIndex)).toBeGreaterThan(
+        Number(getComputedStyle(toolbarLayer).zIndex),
+      );
+      const nestedDropdown = await view.findByTestId("formatting-toolbar-nested-dropdown");
+      expect(document.body.contains(nestedDropdown)).toBe(true);
+      expect(toolbarLayer.contains(nestedDropdown)).toBe(false);
+      expect(Number(getComputedStyle(nestedDropdown).zIndex)).toBeGreaterThan(
+        Number(getComputedStyle(toolbarLayer).zIndex),
+      );
     } finally {
       view.unmount();
       editor._tiptapEditor.destroy();

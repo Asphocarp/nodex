@@ -2,6 +2,10 @@ import * as PopoverPrimitive from "@radix-ui/react-popover";
 import { forwardRef, type ComponentPropsWithoutRef, type CSSProperties } from "react";
 import { APP_SHELL_FLOATING_UI_LAYER_CLASS } from "@/lib/app-shell-layers";
 import { cn } from "@/lib/utils";
+import {
+  NodexFloatingLayerProvider,
+  useNodexFloatingLayerIndex,
+} from "./floating-layer";
 
 const CODEX_POPOVER_BOUNDARY_STYLE: CSSProperties = {
   maxWidth: "min(var(--radix-popover-content-available-width), calc(100vw - 16px))",
@@ -41,6 +45,7 @@ export const NodexPopoverContent = forwardRef<
   NodexPopoverContentProps
 >(function NodexPopoverContent(
   {
+    children,
     className,
     align = "start",
     sideOffset = 4,
@@ -52,6 +57,7 @@ export const NodexPopoverContent = forwardRef<
   },
   ref,
 ) {
+  const layerIndex = useNodexFloatingLayerIndex(style?.zIndex);
   const content = (
     <PopoverPrimitive.Content
       ref={ref}
@@ -64,10 +70,14 @@ export const NodexPopoverContent = forwardRef<
         APP_SHELL_FLOATING_UI_LAYER_CLASS,
         className,
       )}
-      style={{ ...CODEX_POPOVER_BOUNDARY_STYLE, ...style }}
+      style={{ ...CODEX_POPOVER_BOUNDARY_STYLE, zIndex: layerIndex, ...style }}
       {...props}
       data-nodex-keyboard-scope="local"
-    />
+    >
+      <NodexFloatingLayerProvider zIndex={layerIndex}>
+        {children}
+      </NodexFloatingLayerProvider>
+    </PopoverPrimitive.Content>
   );
 
   if (!portalled) return content;

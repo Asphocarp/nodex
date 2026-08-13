@@ -2,6 +2,7 @@ import { LinkToolbarExtension } from "@blocknote/core/extensions";
 import type { Range } from "@tiptap/core";
 import { useEffect, useMemo, useState, type FC } from "react";
 import { flip, offset, shift } from "@floating-ui/react";
+import { NodexFloatingLayerProvider } from "@/components/ui/floating-layer";
 import {
   NfmFloatingPopover,
   useBlockNoteEditor,
@@ -174,13 +175,15 @@ export function NfmLinkToolbarController(props: {
       {...floatingUIOptions}
     >
       {link && (
-        <Component
-          url={link.url}
-          text={link.text}
-          range={link.range}
-          setToolbarOpen={setToolbarOpen}
-          setToolbarPositionFrozen={setToolbarPositionFrozen}
-        />
+        <NodexFloatingLayerProvider zIndex={NFM_EDITOR_FLOATING_UI_Z_INDEX}>
+          <Component
+            url={link.url}
+            text={link.text}
+            range={link.range}
+            setToolbarOpen={setToolbarOpen}
+            setToolbarPositionFrozen={setToolbarPositionFrozen}
+          />
+        </NodexFloatingLayerProvider>
       )}
     </NfmFloatingPopover>
   );

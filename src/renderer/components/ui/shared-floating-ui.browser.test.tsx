@@ -8,6 +8,12 @@ import {
   NodexDropdownButtonTrigger,
   NodexOptionPicker,
 } from "./dropdown";
+import { NodexHoverCard, NodexHoverCardProvider } from "./hover-card";
+import {
+  NodexPopover,
+  NodexPopoverAnchor,
+  NodexPopoverContent,
+} from "./popover";
 import {
   __resetNodexToastStoreForTests,
   NodexToastProvider,
@@ -157,5 +163,66 @@ describe("shared floating UI in Chromium", () => {
     if (!tooltip) throw new Error("Expected a tooltip content surface.");
     const tooltipZIndex = Number(getComputedStyle(tooltip).zIndex);
     expect(tooltipZIndex).toBeGreaterThan(NFM_EDITOR_FLOATING_UI_Z_INDEX);
+  });
+
+  test("increments the layer for recursively portalled floating surfaces", async () => {
+    const view = render(
+      <NodexPopover open>
+        <NodexPopoverAnchor asChild>
+          <button type="button">Outer floating action</button>
+        </NodexPopoverAnchor>
+        <NodexPopoverContent data-testid="outer-floating-surface">
+          <NodexPopover open>
+            <NodexPopoverAnchor asChild>
+              <button type="button">Inner floating action</button>
+            </NodexPopoverAnchor>
+            <NodexPopoverContent data-testid="inner-floating-surface">
+              Nested floating content
+            </NodexPopoverContent>
+          </NodexPopover>
+        </NodexPopoverContent>
+      </NodexPopover>,
+    );
+
+    await act(settleFloatingSurface);
+    const outerSurface = view.getByTestId("outer-floating-surface");
+    const innerSurface = view.getByTestId("inner-floating-surface");
+    expect(document.body.contains(outerSurface)).toBe(true);
+    expect(document.body.contains(innerSurface)).toBe(true);
+    expect(outerSurface.contains(innerSurface)).toBe(false);
+    expect(Number(getComputedStyle(innerSurface).zIndex)).toBe(
+      Number(getComputedStyle(outerSurface).zIndex) + 1,
+    );
+  });
+
+  test("carries the floating layer through Floating UI and Radix portals", async () => {
+    const view = render(
+      <NodexHoverCardProvider>
+        <NodexHoverCard
+          defaultOpen
+          ariaLabel="Floating owner"
+          hoverCardContent={(
+            <NodexPopover open>
+              <NodexPopoverAnchor asChild>
+                <button type="button">Nested hover-card action</button>
+              </NodexPopoverAnchor>
+              <NodexPopoverContent data-testid="hover-card-child-surface">
+                Nested child
+              </NodexPopoverContent>
+            </NodexPopover>
+          )}
+        >
+          <button type="button">Hover-card trigger</button>
+        </NodexHoverCard>
+      </NodexHoverCardProvider>,
+    );
+
+    await act(settleFloatingSurface);
+    const hoverCard = view.getByRole("dialog", { name: "Floating owner" });
+    const childSurface = view.getByTestId("hover-card-child-surface");
+    expect(hoverCard.contains(childSurface)).toBe(false);
+    expect(Number(getComputedStyle(childSurface).zIndex)).toBe(
+      Number(getComputedStyle(hoverCard).zIndex) + 1,
+    );
   });
 });

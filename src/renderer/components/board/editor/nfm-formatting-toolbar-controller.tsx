@@ -16,6 +16,7 @@ import {
   type FormattingToolbarProps,
 } from "@blocknote/react";
 import { useMemo, useRef, type FC } from "react";
+import { NodexFloatingLayerProvider } from "@/components/ui/floating-layer";
 import {
   isBlockLevelSelection,
   shouldUseTextActionMenu,
@@ -319,7 +320,9 @@ export function NfmFormattingToolbarController(props: {
       {...floatingUIOptions}
     >
       {presentation.open ? (
-        Component ? <Component mode={presentation.mode} /> : <FormattingToolbar />
+        <NodexFloatingLayerProvider zIndex={NFM_EDITOR_FLOATING_UI_Z_INDEX}>
+          {Component ? <Component mode={presentation.mode} /> : <FormattingToolbar />}
+        </NodexFloatingLayerProvider>
       ) : null}
     </PositionPopover>
   );
