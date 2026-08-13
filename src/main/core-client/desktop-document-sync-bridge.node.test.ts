@@ -313,20 +313,24 @@ const activateYjsSubscription = async (
 
 const canvasSubscribeRequest = {
   version: CANVAS_SCENE_SYNC_VERSION,
-  projectId: "project:canvas",
+  accessContext: {
+    kind: "project" as const,
+    projectId: "project:canvas",
+  },
   documentId: "document:canvas",
   clientSessionId: "renderer:canvas",
 } as const;
 
-const canvasSyncSnapshot = (syncRequestId: string) => ({
+const canvasSyncSnapshot = (
+  syncRequestId: string,
+  accessContext: typeof canvasSubscribeRequest.accessContext
+    | { readonly kind: "library" } = canvasSubscribeRequest.accessContext,
+) => ({
   kind: "snapshot" as const,
   version: CANVAS_SCENE_SYNC_VERSION,
   syncRequestId,
   libraryId: "library:test",
-  accessContext: {
-    kind: "project" as const,
-    projectId: canvasSubscribeRequest.projectId,
-  },
+  accessContext,
   documentId: canvasSubscribeRequest.documentId,
   storeEpoch: "epoch:canvas",
   generation: 1,
@@ -1909,7 +1913,7 @@ describe("Desktop Document sync bridge", () => {
       clientSessionId: subscribeRequest.clientSessionId,
     })).resolves.toMatchObject({
       ok: false,
-      error: { code: "project_scope_mismatch" },
+      error: { code: "access_scope_mismatch" },
     });
 
     await expect(bridge.subscribeCanvasScene(
@@ -1921,7 +1925,7 @@ describe("Desktop Document sync bridge", () => {
       { ...canvasSubscribeRequest, syncRequestId: "sync:foreign" },
     )).resolves.toMatchObject({
       ok: false,
-      error: { code: "project_scope_mismatch" },
+      error: { code: "access_scope_mismatch" },
     });
     await expect(bridge.syncCanvasScene(
       canvasTarget,
@@ -1930,10 +1934,7 @@ describe("Desktop Document sync bridge", () => {
       ok: true,
       value: {
         libraryId: "library:test",
-        accessContext: {
-          kind: "project",
-          projectId: canvasSubscribeRequest.projectId,
-        },
+        accessContext: canvasSubscribeRequest.accessContext,
         documentId: canvasSubscribeRequest.documentId,
         headSeq: 0,
         kind: "snapshot",
@@ -1945,6 +1946,52 @@ describe("Desktop Document sync bridge", () => {
       ...canvasSubscribeRequest,
       syncRequestId: "sync:canvas",
     }]);
+  });
+
+  test("binds Library Canvas sync directly to Library authority", async () => {
+    const rootClient = new FakeCoreClient();
+    const projectClient = new FakeCoreClient();
+    const accessContext = { kind: "library" } as const;
+    const request = {
+      ...canvasSubscribeRequest,
+      accessContext,
+      clientSessionId: "renderer:library-canvas",
+    };
+    rootClient.enqueueDocumentCanvasSync(
+      canvasSyncSnapshot("sync:library-canvas", accessContext),
+    );
+    const bridge = createDesktopDocumentSyncBridge({
+      authority: Promise.resolve(rustRuntime(rootClient, projectClient)),
+    });
+    const target = new FakeTarget(31);
+
+    await expect(bridge.subscribeCanvasScene(new FakeTarget(30), {
+      ...request,
+      accessContext: { kind: "forged" } as never,
+    })).resolves.toMatchObject({
+      ok: false,
+      error: { code: "access_scope_mismatch" },
+    });
+    await expect(bridge.subscribeCanvasScene(target, request)).resolves.toEqual({
+      ok: true,
+      value: { subscribed: true },
+    });
+    await expect(bridge.syncCanvasScene(target, {
+      ...request,
+      syncRequestId: "sync:library-canvas",
+    })).resolves.toMatchObject({
+      ok: true,
+      value: {
+        libraryId: "library:test",
+        accessContext,
+        documentId: request.documentId,
+      },
+    });
+    expect(rootClient.documentCanvasSyncs).toEqual([{
+      ...request,
+      syncRequestId: "sync:library-canvas",
+    }]);
+    expect(projectClient.documentCanvasSyncs).toHaveLength(0);
   });
 
   test("delivers an identity repair across the previous Canvas Store boundary", async () => {
@@ -2021,7 +2068,7 @@ describe("Desktop Document sync bridge", () => {
     const coreApplyCount = projectClient.documentApplies.length;
 
     await expect(bridge.publishCanvasPresence(targetA, {
-      projectId: requestA.projectId,
+      accessContext: requestA.accessContext,
       clientSessionId: requestA.clientSessionId,
       publication: {
         version: 1,
@@ -2103,7 +2150,8 @@ describe("Desktop Document sync bridge", () => {
       version: CANVAS_SCENE_MAINTENANCE_VERSION,
       kind: "tombstone_compaction" as const,
       operationId,
-      projectId: canvasSubscribeRequest.projectId,
+      libraryId: "library:test",
+      accessContext: canvasSubscribeRequest.accessContext,
       documentId: canvasSubscribeRequest.documentId,
       storeEpoch,
       previousGeneration: 1,

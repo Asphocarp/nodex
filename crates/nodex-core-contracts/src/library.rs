@@ -13,7 +13,7 @@ use crate::document::DocumentHeadRevision;
 use crate::workspace::{ProjectAppearance, ProjectLifecycle};
 use crate::{ApplyResponse, ModuleMutationReceipt, ModuleName, VersionedModuleContract};
 
-pub const LIBRARY_CONTRACT_VERSION: u32 = 16;
+pub const LIBRARY_CONTRACT_VERSION: u32 = 17;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -686,7 +686,6 @@ pub enum LibraryCanvasLocation {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 pub struct LibraryCanvasSummary {
     pub canvas_id: String,
-    pub project_id: String,
     pub title: String,
     pub lifecycle: String,
     pub is_primary: bool,

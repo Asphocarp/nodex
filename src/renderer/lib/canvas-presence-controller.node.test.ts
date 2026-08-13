@@ -102,7 +102,8 @@ describe("CanvasPresenceController", () => {
     controller.receive({
       type: "canvas_presence_snapshot",
       version: DOCUMENT_PRESENCE_VERSION,
-      projectId: "project-1",
+      libraryId: "library-1",
+      accessContext: { kind: "project", projectId: "project-1" },
       documentId: "document-1",
       generation: 1,
       presences: [visible],
@@ -117,14 +118,16 @@ describe("CanvasPresenceController", () => {
     controller.receive({
       type: "canvas_presence_updated",
       version: DOCUMENT_PRESENCE_VERSION,
-      projectId: "project-1",
+      libraryId: "library-1",
+      accessContext: { kind: "project", projectId: "project-1" },
       presence: remotePresence(1, null),
     });
     expect(observations.at(-1)?.size).toBe(1);
     controller.receive({
       type: "canvas_presence_updated",
       version: DOCUMENT_PRESENCE_VERSION,
-      projectId: "project-1",
+      libraryId: "library-1",
+      accessContext: { kind: "project", projectId: "project-1" },
       presence: remotePresence(2, null),
     });
     expect(observations.at(-1)?.size).toBe(0);

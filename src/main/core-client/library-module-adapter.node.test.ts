@@ -1527,7 +1527,6 @@ describe("Core Library Module Adapter", () => {
           status: "available",
           summary: {
             canvas_id: canvasId,
-            project_id: "project:test",
             title: "Design map",
             lifecycle: "active",
             is_primary: false,
@@ -1636,7 +1635,6 @@ describe("Core Library Module Adapter", () => {
           status: "available",
           summary: {
             canvas_id: canvasId,
-            project_id: "project:test",
             title: "Canvas",
             lifecycle: "active",
             is_primary: true,

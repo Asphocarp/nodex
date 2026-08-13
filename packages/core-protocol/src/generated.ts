@@ -3203,7 +3203,6 @@ export interface components {
             readonly location_revision: number;
             /** Format: int64 */
             readonly metadata_revision: number;
-            readonly project_id: string;
             readonly title: string;
             readonly updated_at: string;
         };

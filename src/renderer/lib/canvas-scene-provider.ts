@@ -24,10 +24,15 @@ import {
   type CanvasPresenceValue,
   type PortableCanvasScene,
 } from "../../shared/block-documents";
+import {
+  contentAccessContextKey,
+  type ContentAccessContext,
+  type ContentAccessIdentity,
+} from "../../shared/content-access-context";
 import type { CanvasSceneOutbox } from "./canvas-scene-outbox";
 export interface CanvasSceneSyncAdapter {
   subscribe: (
-    request: Pick<CanvasSceneSyncRequest, "projectId" | "documentId" | "clientSessionId">,
+    request: Pick<CanvasSceneSyncRequest, "accessContext" | "documentId" | "clientSessionId">,
     listener: (event: CanvasSceneRealtimeEvent) => void,
     presenceListener?: (event: CanvasPresenceRealtimeEvent) => void,
   ) => () => void;
@@ -78,8 +83,7 @@ export type CanvasSceneProviderScheduler = (
   delayMs: number,
 ) => () => void;
 
-export interface CanvasSceneProviderOptions {
-  readonly projectId: string;
+export interface CanvasSceneProviderOptions extends ContentAccessIdentity {
   readonly documentId: string;
   readonly clientSessionId: string;
   readonly expectedStoreEpoch?: string;
@@ -206,6 +210,11 @@ const invalidResponseError = (message: string): CanvasSceneMutationError => ({
   retryable: false,
   resetRequired: false,
 });
+
+const sameAccessContext = (
+  left: ContentAccessContext,
+  right: ContentAccessContext,
+): boolean => contentAccessContextKey(left) === contentAccessContextKey(right);
 
 const sameValue = (left: unknown, right: unknown): boolean =>
   canonicalStringifyCanvasScene(left) === canonicalStringifyCanvasScene(right);
@@ -342,6 +351,9 @@ export class CanvasSceneProvider {
   private status: CanvasSceneProviderStatus;
 
   constructor(options: CanvasSceneProviderOptions) {
+    if (options.outbox.libraryId !== options.libraryId) {
+      throw new TypeError("Canvas outbox crossed its Library boundary");
+    }
     this.options = options;
     this.coalesceDelayMs = options.coalesceDelayMs ?? 150;
     this.schedule = options.schedule ?? defaultScheduler;
@@ -387,7 +399,7 @@ export class CanvasSceneProvider {
     }
     try {
       return await this.options.adapter.publishPresence({
-        projectId: this.options.projectId,
+        accessContext: this.options.accessContext,
         clientSessionId,
         publication: canonicalizeCanvasPresencePublication({
           version: 1,
@@ -519,10 +531,18 @@ export class CanvasSceneProvider {
     if (this.closePromise) {
       return this.closePromise
         .catch(() => undefined)
-        .then(() => this.options.outbox.clear(this.options.documentId));
+        .then(() =>
+          this.options.outbox.clear(
+            this.options.accessContext,
+            this.options.documentId,
+          )
+        );
     }
     if (this.closed) {
-      return this.options.outbox.clear(this.options.documentId);
+      return this.options.outbox.clear(
+        this.options.accessContext,
+        this.options.documentId,
+      );
     }
     const promise = this.retireOwnerInternal().finally(() => {
       if (this.closePromise === promise) this.closePromise = null;
@@ -557,7 +577,10 @@ export class CanvasSceneProvider {
     const failure = new Error("Canvas owner was deleted");
     this.rejectAll(failure);
     try {
-      await this.options.outbox.clear(this.options.documentId);
+      await this.options.outbox.clear(
+        this.options.accessContext,
+        this.options.documentId,
+      );
     } finally {
       this.finalizeClosed();
     }
@@ -585,7 +608,7 @@ export class CanvasSceneProvider {
     if (!this.unsubscribeRealtime) {
       this.unsubscribeRealtime = this.options.adapter.subscribe(
         {
-          projectId: this.options.projectId,
+          accessContext: this.options.accessContext,
           documentId: this.options.documentId,
           clientSessionId: this.options.clientSessionId,
         },
@@ -602,16 +625,22 @@ export class CanvasSceneProvider {
       this.pump();
       return;
     }
-    const recovered = await this.options.outbox.list(this.options.documentId);
+    const recovered = await this.options.outbox.list(
+      this.options.accessContext,
+      this.options.documentId,
+    );
     if (
       recovered.some(
         (intent) =>
-          intent.projectId !== this.options.projectId
+          !sameAccessContext(intent.accessContext, this.options.accessContext)
           || intent.storeEpoch !== this.storeEpoch
           || intent.generation !== this.generation,
       )
     ) {
-      await this.options.outbox.clear(this.options.documentId);
+      await this.options.outbox.clear(
+        this.options.accessContext,
+        this.options.documentId,
+      );
       this.enterReset("Canvas outbox crossed a store epoch or generation boundary");
       return;
     }
@@ -648,7 +677,7 @@ export class CanvasSceneProvider {
       result = await this.options.adapter.sync({
         version: CANVAS_SCENE_SYNC_VERSION,
         syncRequestId,
-        projectId: this.options.projectId,
+        accessContext: this.options.accessContext,
         documentId: this.options.documentId,
         clientSessionId: this.options.clientSessionId,
         ...(this.storeEpoch ? { knownStoreEpoch: this.storeEpoch } : {}),
@@ -672,11 +701,11 @@ export class CanvasSceneProvider {
       return;
     }
     if (
-      response.accessContext.kind !== "project"
-      || response.accessContext.projectId !== this.options.projectId
+      response.libraryId !== this.options.libraryId
+      || !sameAccessContext(response.accessContext, this.options.accessContext)
       || response.documentId !== this.options.documentId
     ) {
-      this.enterFatal("Canvas sync response crossed its Project or Document boundary");
+      this.enterFatal("Canvas sync response crossed its Library, access, or Document boundary");
       return;
     }
     const expectedEpoch = this.storeEpoch ?? this.options.expectedStoreEpoch;
@@ -685,7 +714,10 @@ export class CanvasSceneProvider {
       (expectedEpoch !== undefined && expectedEpoch !== response.storeEpoch)
       || (expectedGeneration !== undefined && expectedGeneration !== response.generation)
     ) {
-      await this.options.outbox.clear(this.options.documentId);
+      await this.options.outbox.clear(
+        this.options.accessContext,
+        this.options.documentId,
+      );
       this.enterReset("Canvas sync response crossed its store epoch or generation boundary");
       return;
     }
@@ -820,7 +852,7 @@ export class CanvasSceneProvider {
     return canonicalizeCanvasSceneMutationIntent({
       version: CANVAS_SCENE_SYNC_VERSION,
       mutationId: this.createMutationId(),
-      projectId: this.options.projectId,
+      accessContext: this.options.accessContext,
       documentId: this.options.documentId,
       storeEpoch: this.storeEpoch,
       generation: this.generation,
@@ -921,7 +953,11 @@ export class CanvasSceneProvider {
     }
     if (
       result.value.version !== CANVAS_SCENE_SYNC_VERSION
-      || result.value.projectId !== current.intent.projectId
+      || result.value.libraryId !== this.options.libraryId
+      || !sameAccessContext(
+        result.value.accessContext,
+        current.intent.accessContext,
+      )
       || result.value.documentId !== current.intent.documentId
       || result.value.storeEpoch !== current.intent.storeEpoch
       || result.value.generation !== current.intent.generation
@@ -940,6 +976,7 @@ export class CanvasSceneProvider {
     }
     try {
       await this.options.outbox.remove(
+        current.intent.accessContext,
         current.intent.documentId,
         current.intent.mutationId,
       );
@@ -1015,17 +1052,21 @@ export class CanvasSceneProvider {
   ): void => {
     if (this.closed || this.error) return;
     if (
-      event.projectId !== this.options.projectId
+      event.libraryId !== this.options.libraryId
+      || !sameAccessContext(event.accessContext, this.options.accessContext)
       || event.documentId !== this.options.documentId
     ) {
-      this.enterFatal("Canvas realtime event crossed its Project or Document boundary");
+      this.enterFatal("Canvas realtime event crossed its Library, access, or Document boundary");
       return;
     }
     if (
       (this.storeEpoch && event.storeEpoch !== this.storeEpoch)
       || (this.generation !== null && event.generation !== this.generation)
     ) {
-      void this.options.outbox.clear(this.options.documentId);
+      void this.options.outbox.clear(
+        this.options.accessContext,
+        this.options.documentId,
+      );
       this.enterReset("Canvas realtime event crossed its store epoch or generation boundary");
       return;
     }
@@ -1063,7 +1104,8 @@ export class CanvasSceneProvider {
       ? event.generation
       : event.presence.generation;
     if (
-      event.projectId !== this.options.projectId
+      event.libraryId !== this.options.libraryId
+      || !sameAccessContext(event.accessContext, this.options.accessContext)
       || documentId !== this.options.documentId
     ) {
       return;
@@ -1088,7 +1130,10 @@ export class CanvasSceneProvider {
 
   private handleCommandError(error: CanvasSceneMutationError): void {
     if (error.resetRequired) {
-      void this.options.outbox.clear(this.options.documentId);
+      void this.options.outbox.clear(
+        this.options.accessContext,
+        this.options.documentId,
+      );
       this.error = error;
       this.connected = false;
       this.rejectAll(new Error(error.message));

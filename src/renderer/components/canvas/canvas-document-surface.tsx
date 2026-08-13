@@ -43,7 +43,10 @@ import {
 import { CanvasSceneBinding } from "@/lib/canvas-scene-binding";
 import { CanvasSceneProvider } from "@/lib/canvas-scene-provider";
 import { canvasDocumentSessionRegistry } from "@/lib/canvas-document-session";
-import { projectContentAccess } from "../../../shared/content-access-context";
+import type {
+  ContentAccessContext,
+  ContentPageNavigationTarget,
+} from "../../../shared/content-access-context";
 import { canvasSceneSurfaceRegistry } from "@/lib/canvas-scene-surface-runtime";
 import type { ReadyRegisteredOwnedBlockDocumentDescriptor } from "@/lib/owned-block-document";
 import { LayoutGrid } from "@/components/shared/icons/generic-icons";
@@ -85,14 +88,10 @@ export interface CanvasPagePaletteCapability {
   readonly createPage: () => Promise<DatabasePageSummary | null>;
 }
 
-export interface CanvasOpenPageInput {
-  readonly projectId: string;
-  readonly pageId: string;
-  readonly titleSnapshot?: string;
-}
+export type CanvasOpenPageInput = ContentPageNavigationTarget;
 
 export interface CanvasDocumentSurfaceProps {
-  readonly projectId: string;
+  readonly accessContext: ContentAccessContext;
   readonly canvasBlockId: string;
   readonly surfaceKey: string;
   readonly viewportPreferenceScope: string;
@@ -105,7 +104,7 @@ export interface CanvasDocumentSurfaceProps {
 }
 
 export function CanvasDocumentSurface({
-  projectId,
+  accessContext,
   canvasBlockId,
   surfaceKey,
   viewportPreferenceScope,
@@ -119,7 +118,7 @@ export function CanvasDocumentSurface({
   if (!active) return null;
   return (
     <RegisteredOwnedBlockDocumentBoundary
-      accessContext={projectContentAccess(projectId)}
+      accessContext={accessContext}
       ownerBlockId={canvasBlockId}
     >
       {(model, controls) => {
@@ -152,7 +151,6 @@ export function CanvasDocumentSurface({
               model.descriptor.documentId,
               viewportPreferenceScope,
             ])}
-            projectId={projectId}
             surfaceKey={surfaceKey}
             viewportPreferenceScope={viewportPreferenceScope}
             variant={variant}
@@ -171,7 +169,7 @@ export function CanvasDocumentSurface({
 
 interface CanvasEditorProps extends Omit<
   CanvasDocumentSurfaceProps,
-  "active" | "canvasBlockId"
+  "active" | "accessContext" | "canvasBlockId"
 > {
   readonly descriptor: ReadyRegisteredOwnedBlockDocumentDescriptor & {
     readonly sync: { readonly kind: "canvas_scene" };
@@ -180,7 +178,6 @@ interface CanvasEditorProps extends Omit<
 }
 
 function CanvasEditor({
-  projectId,
   surfaceKey,
   viewportPreferenceScope,
   variant,
@@ -299,20 +296,25 @@ function CanvasEditor({
     let binding: CanvasSceneBinding | null = null;
     let presence: CanvasPresenceController | null = null;
     const documentSession = canvasDocumentSessionRegistry.acquire({
-      projectId,
+      libraryId: descriptor.libraryId,
+      accessContext: descriptor.accessContext,
       ownerBlockId: descriptor.ownerBlockId,
       documentId: descriptor.documentId,
       storeEpoch: descriptor.storeEpoch,
       generation: descriptor.generation,
       createProvider: ({ onScene, onPresence }) =>
         new CanvasSceneProvider({
-          projectId,
+          libraryId: descriptor.libraryId,
+          accessContext: descriptor.accessContext,
           documentId: descriptor.documentId,
           clientSessionId: documentClientSessionIdRef.current,
           expectedStoreEpoch: descriptor.storeEpoch,
           expectedGeneration: descriptor.generation,
-          adapter: createCanvasSceneSyncAdapter(projectId),
-          outbox: createDefaultCanvasSceneOutbox(),
+          adapter: createCanvasSceneSyncAdapter({
+            libraryId: descriptor.libraryId,
+            accessContext: descriptor.accessContext,
+          }),
+          outbox: createDefaultCanvasSceneOutbox(descriptor.libraryId),
           onScene,
           onPresence,
         }),
@@ -399,7 +401,7 @@ function CanvasEditor({
       maintainIfIdle: async () => {
         const request = {
           version: CANVAS_SCENE_MAINTENANCE_VERSION,
-          projectId,
+          accessContext: descriptor.accessContext,
           documentId: descriptor.documentId,
           clientSessionId: documentClientSessionIdRef.current,
         };
@@ -512,7 +514,7 @@ function CanvasEditor({
         .release(surfaceKey, runtime)
         .catch(() => undefined);
     };
-  }, [descriptor, onReload, projectId, surfaceKey]);
+  }, [descriptor, onReload, surfaceKey]);
 
   // Sync card labels when board changes
   useEffect(() => {
@@ -580,12 +582,12 @@ function CanvasEditor({
       }
 
       onOpenPage?.({
-        projectId,
+        accessContext: descriptor.accessContext,
         pageId,
         titleSnapshot: getPageTitleHintFromElement(element),
       });
     },
-    [activePageId, onCloseActivePage, onOpenPage, projectId],
+    [activePageId, descriptor.accessContext, onCloseActivePage, onOpenPage],
   );
 
   // Place an existing card on the canvas

@@ -58,7 +58,9 @@ describe("DatabaseViewReferenceSurface", () => {
         displayHint=""
         model={model}
         accessContext={{ kind: "library" }}
-        onOpenPage={(input) => opened.push(input)}
+        onOpenPage={(input) => {
+          opened.push(input);
+        }}
       />,
     );
 

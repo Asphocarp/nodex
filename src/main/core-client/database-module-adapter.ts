@@ -6,6 +6,7 @@ import type {
   DatabaseModuleReadRequestV2,
   DatabaseModuleReadResultV2,
   DatabaseReadV2,
+  DatabaseReadValueV2,
   DatabaseContainerDescriptorV2,
   DataSourceDescriptorV2,
   DataSourcePropertyRecordV2,
@@ -765,7 +766,7 @@ const hydrateCoreDatabase = async (
 const hydrateCoreReadValue = async (
   client: CoreClientPort,
   value: DatabaseReadSnapshot["value"],
-): Promise<unknown> => {
+): Promise<DatabaseReadValueV2> => {
   if (value.kind === "catalog_window") {
     const databases: DatabaseContainerDescriptorV2[] = [];
     for (const compact of value.databases.items) {
@@ -790,6 +791,12 @@ const hydrateCoreReadValue = async (
     return {
       kind: value.kind,
       value: await hydrateCoreDataSource(client, value.value),
+    };
+  }
+  if (value.kind === "view") {
+    return {
+      kind: value.kind,
+      value: mapCoreViewRecord(value.value),
     };
   }
   if (value.kind === "view_personal_presentation") {
@@ -862,7 +869,7 @@ const hydrateCoreReadValue = async (
       },
     };
   }
-  return value;
+  throw new Error(`Core returned unsupported Database read kind ${value.kind}`);
 };
 
 export const createCoreDatabaseModuleAdapter = (

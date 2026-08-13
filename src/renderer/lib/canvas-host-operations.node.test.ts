@@ -103,7 +103,6 @@ function makeRuntime(input: {
 
 const canvasSummary = (canvasId: string): LibraryCanvasSummary => ({
   canvasId,
-  projectId: "project-1",
   title: "Canvas",
   lifecycle: "active",
   isPrimary: false,
@@ -449,10 +448,10 @@ describe("Canvas host operations", () => {
       readTarget: async (receivedAccessContext) => {
         expect(receivedAccessContext).toEqual(accessContext);
         return {
+          libraryId: "library-1",
           storeEpoch: "epoch-1",
           summary: {
             canvasId: "canvas-1",
-            projectId: "project-1",
             title: "Canvas",
             lifecycle: "active",
             isPrimary: false,
@@ -489,7 +488,10 @@ describe("Canvas host operations", () => {
         },
       },
     });
-    expect(retireOwner).toHaveBeenCalledWith("project-1", "canvas-1");
+    expect(retireOwner).toHaveBeenCalledWith({
+      libraryId: "library-1",
+      accessContext,
+    }, "canvas-1");
   });
 
   test("resolves after-position as before-next or append at the same nesting level", () => {

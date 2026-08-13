@@ -1,6 +1,6 @@
 import type { AuthorizedReadStamp } from "../authorized-read-stamp";
 import type {
-  ContentAccessContext,
+  ContentAccessIdentity,
   LibraryContentAccessContext,
   ProjectContentAccessContext,
 } from "../content-access-context";
@@ -15,9 +15,7 @@ export type DocumentReadiness = "pending_genesis" | "ready" | "failed";
  */
 export type BlockLifecycle = "active" | "archived" | "deleted";
 
-export interface OwnedDocumentIdentity {
-  readonly libraryId: string;
-  readonly accessContext: ContentAccessContext;
+export interface OwnedDocumentIdentity extends ContentAccessIdentity {
   readonly ownerBlockId: BlockId;
   readonly ownerType: string;
   readonly ownerLifecycle: BlockLifecycle;

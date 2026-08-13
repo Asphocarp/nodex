@@ -88,6 +88,10 @@ import {
 import { decodeCanvasSceneSseEvent } from "../../shared/block-documents/canvas-scene-http-contract";
 import type { DesktopDataAuthorityRuntime } from "./desktop-data-authority";
 import {
+  contentAccessContextKey,
+  type ContentAccessContext,
+} from "../../shared/content-access-context";
+import {
   createCoreCanvasSceneAdapter,
   type CoreCanvasSceneAdapter,
 } from "./core-canvas-scene-adapter";
@@ -105,9 +109,7 @@ import type { CoreAuthorizedDeliveryPacket } from "./types";
 
 const DOCUMENT_SYNC_EVENT_CHANNEL = "document-sync:event";
 
-export type DesktopDocumentSyncScope =
-  | { readonly kind: "project"; readonly projectId: string }
-  | { readonly kind: "library" };
+export type DesktopDocumentSyncScope = ContentAccessContext;
 
 type NativeNodexAgentMutationResult =
   | ExecuteNodexAgentCreatePagesResult
@@ -255,6 +257,7 @@ interface NativeSubscription {
   readonly engine: "yjs" | "canvas_scene";
   readonly bindingKey: string;
   readonly scope: DesktopDocumentSyncScope;
+  readonly libraryId?: string;
   readonly documentId: string;
   readonly clientSessionId: string;
   readonly target: DocumentSyncClientTarget;
@@ -284,7 +287,7 @@ type NativeSubscriptionReservation =
     };
 
 const scopeKey = (scope: DesktopDocumentSyncScope): string =>
-  scope.kind === "project" ? `project:${scope.projectId}` : "library";
+  contentAccessContextKey(scope);
 
 const authorizationScopeMatchesDocumentScope = (
   authorization: CoreAuthorizedDeliveryPacket["authorization_scope"],
@@ -329,7 +332,7 @@ const canvasSceneSubscriptionKey = (
 ): string => JSON.stringify([
   "canvas_scene",
   target.id,
-  `project:${request.projectId}`,
+  contentAccessContextKey(request.accessContext),
   request.clientSessionId,
   request.documentId,
 ]);
@@ -397,7 +400,7 @@ const canvasSceneFailure = (
 const canvasSceneUnauthorized = (
   mutationId?: string,
 ): CanvasCommandFailure => canvasSceneFailure(
-  "project_scope_mismatch",
+  "access_scope_mismatch",
   "An exact Canvas scene subscription is required",
   { mutationId },
 );
@@ -430,10 +433,27 @@ const canvasPresenceFailure = (
 
 const hasCanvasSceneIdentity = (
   request: CanvasSceneSubscribeRequest,
-): boolean => request.version === 1
-  && request.projectId.length > 0
-  && request.documentId.length > 0
-  && request.clientSessionId.length > 0;
+): boolean => {
+  if (
+    request?.version !== 1
+    || typeof request.documentId !== "string"
+    || request.documentId.length === 0
+    || request.documentId.length > 512
+    || request.documentId.trim() !== request.documentId
+    || typeof request.clientSessionId !== "string"
+    || request.clientSessionId.length === 0
+    || request.clientSessionId.length > 512
+    || request.clientSessionId.trim() !== request.clientSessionId
+  ) {
+    return false;
+  }
+  try {
+    contentAccessContextKey(request.accessContext);
+    return true;
+  } catch {
+    return false;
+  }
+};
 
 export function createDesktopDocumentSyncBridge(
   input: DesktopDocumentSyncBridgeInput,
@@ -467,12 +487,21 @@ export function createDesktopDocumentSyncBridge(
 
   const canvasSceneAdapterFor = (
     runtime: Extract<DesktopDataAuthorityRuntime, { backend: "rust" }>,
-    projectId: string,
+    accessContext: ContentAccessContext,
   ): CoreCanvasSceneAdapter => {
-    let adapter = canvasSceneAdapters.get(projectId);
+    const key = contentAccessContextKey(accessContext);
+    let adapter = canvasSceneAdapters.get(key);
     if (adapter) return adapter;
-    adapter = createCoreCanvasSceneAdapter(runtime.clientForProject(projectId));
-    canvasSceneAdapters.set(projectId, adapter);
+    adapter = createCoreCanvasSceneAdapter(
+      accessContext.kind === "project"
+        ? runtime.clientForProject(accessContext.projectId)
+        : runtime.rootClient,
+      {
+        libraryId: runtime.identity.libraryId,
+        accessContext,
+      },
+    );
+    canvasSceneAdapters.set(key, adapter);
     return adapter;
   };
 
@@ -925,7 +954,8 @@ export function createDesktopDocumentSyncBridge(
       const delivered = sendCanvasRealtimeEvent(key, target, {
         type: "canvas_scene_resync_required",
         version: 1,
-        projectId: event.projectId,
+        libraryId: event.libraryId,
+        accessContext: event.accessContext,
         documentId: event.documentId,
         storeEpoch: event.storeEpoch,
         generation: event.generation,
@@ -943,7 +973,8 @@ export function createDesktopDocumentSyncBridge(
       const delivered = sendCanvasRealtimeEvent(key, target, {
         type: "canvas_scene_resync_required",
         version: 1,
-        projectId: event.projectId,
+        libraryId: event.libraryId,
+        accessContext: event.accessContext,
         documentId: event.documentId,
         storeEpoch: event.storeEpoch,
         generation: subscription.generation,
@@ -995,6 +1026,7 @@ export function createDesktopDocumentSyncBridge(
     target: DocumentSyncClientTarget,
     request: CanvasSceneSubscribeRequest,
   ): boolean => {
+    if (!hasCanvasSceneIdentity(request)) return false;
     const subscription = subscriptions.get(canvasSceneSubscriptionKey(
       target,
       request,
@@ -1066,7 +1098,7 @@ export function createDesktopDocumentSyncBridge(
       ) {
         return canvasSceneUnauthorized(request.mutationId);
       }
-      const adapter = canvasSceneAdapterFor(runtime, request.projectId);
+      const adapter = canvasSceneAdapterFor(runtime, request.accessContext);
       const eligibility = await adapter.readCompaction(request);
       if (!eligibility.ok) return eligibility;
       if (!eligibility.value.eligible) {
@@ -1231,14 +1263,16 @@ export function createDesktopDocumentSyncBridge(
           }
           continue;
         }
-        if (subscription.engine !== "canvas_scene" || subscription.scope.kind !== "project") {
+        if (subscription.engine !== "canvas_scene") {
           continue;
         }
+        if (!subscription.libraryId) continue;
         if (event.kind === "canvas_generation_changed") {
           const delivered = deliverCanvasRealtimeEvent(key, subscription.target, {
             type: "canvas_scene_resync_required",
             version: 1,
-            projectId: subscription.scope.projectId,
+            libraryId: subscription.libraryId,
+            accessContext: subscription.scope,
             documentId: event.document_id,
             storeEpoch: identity.store_epoch,
             generation: event.generation,
@@ -1260,7 +1294,8 @@ export function createDesktopDocumentSyncBridge(
           realtimeEvent = decodeCanvasSceneSseEvent(JSON.stringify({
             type: "canvas_scene_committed",
             version: 1,
-            projectId: subscription.scope.projectId,
+            libraryId: subscription.libraryId,
+            accessContext: subscription.scope,
             documentId: event.document_id,
             storeEpoch: identity.store_epoch,
             generation: event.generation,
@@ -1545,7 +1580,7 @@ export function createDesktopDocumentSyncBridge(
         if (target.isDestroyed() || !hasCanvasSceneIdentity(request)) {
           return canvasSceneUnauthorized();
         }
-        const adapter = canvasSceneAdapterFor(runtime, request.projectId);
+        const adapter = canvasSceneAdapterFor(runtime, request.accessContext);
         const key = canvasSceneSubscriptionKey(target, request);
         const ownerKey = bindingKey(request);
         bindTargetLifecycle(target);
@@ -1603,7 +1638,8 @@ export function createDesktopDocumentSyncBridge(
             const subscribed = addNativeSubscription(key, {
               engine: "canvas_scene",
               bindingKey: ownerKey,
-              scope: { kind: "project", projectId: request.projectId },
+              scope: request.accessContext,
+              libraryId: runtime.identity.libraryId,
               documentId: request.documentId,
               clientSessionId: request.clientSessionId,
               target,
@@ -1615,7 +1651,8 @@ export function createDesktopDocumentSyncBridge(
             openingEvents.forEach(deliver);
             canvasPresenceHub.register({
               key,
-              projectId: request.projectId,
+              libraryId: runtime.identity.libraryId,
+              accessContext: request.accessContext,
               documentId: request.documentId,
               clientSessionId: request.clientSessionId,
               targetId: target.id,
@@ -1655,7 +1692,7 @@ export function createDesktopDocumentSyncBridge(
         }
         const key = canvasSceneSubscriptionKey(target, request);
         suspendSubscriptionBoundary(key);
-        const result = await canvasSceneAdapterFor(runtime, request.projectId)
+        const result = await canvasSceneAdapterFor(runtime, request.accessContext)
           .sync(request);
         if (result.ok) {
           adoptSubscriptionBoundary(key, result.value);
@@ -1668,7 +1705,7 @@ export function createDesktopDocumentSyncBridge(
         if (!hasNativeCanvasSceneSubscription(target, request)) {
           return canvasSceneUnauthorized(request.mutationId);
         }
-        const result = await canvasSceneAdapterFor(runtime, request.projectId)
+        const result = await canvasSceneAdapterFor(runtime, request.accessContext)
           .applyMutation(request);
         return result;
       }, request.mutationId),
@@ -1684,7 +1721,7 @@ export function createDesktopDocumentSyncBridge(
       }
       const subscriptionRequest: CanvasSceneSubscribeRequest = {
         version: 1,
-        projectId: parsed.projectId,
+        accessContext: parsed.accessContext,
         documentId: parsed.publication.documentId,
         clientSessionId: parsed.clientSessionId,
       };
@@ -1721,7 +1758,7 @@ export function createDesktopDocumentSyncBridge(
         if (!hasNativeCanvasSceneSubscription(target, request)) {
           return canvasSceneUnauthorized();
         }
-        return await canvasSceneAdapterFor(runtime, request.projectId)
+        return await canvasSceneAdapterFor(runtime, request.accessContext)
           .readCompaction(request);
       }),
     compactCanvasScene,

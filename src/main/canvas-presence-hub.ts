@@ -11,6 +11,10 @@ import {
   type CanvasPresenceUser,
   type CanvasPresenceValue,
 } from "../shared/block-documents/document-presence";
+import {
+  contentAccessContextKey,
+  type ContentAccessIdentity,
+} from "../shared/content-access-context";
 
 const PRESENCE_COLORS = [
   "#1971c2",
@@ -23,9 +27,8 @@ const PRESENCE_COLORS = [
   "#087f5b",
 ] as const;
 
-export interface CanvasPresenceHubBinding {
+export interface CanvasPresenceHubBinding extends ContentAccessIdentity {
   readonly key: string;
-  readonly projectId: string;
   readonly documentId: string;
   readonly clientSessionId: string;
   readonly targetId: number;
@@ -108,7 +111,9 @@ const sameBoundary = (
   left: PresenceEntry,
   right: PresenceEntry,
 ): boolean =>
-  left.binding.projectId === right.binding.projectId
+  left.binding.libraryId === right.binding.libraryId
+  && contentAccessContextKey(left.binding.accessContext)
+    === contentAccessContextKey(right.binding.accessContext)
   && left.binding.documentId === right.binding.documentId
   && left.generation !== null
   && left.generation === right.generation;
@@ -129,7 +134,8 @@ export const createCanvasPresenceHub = (
       recipient.binding.send({
         type: "canvas_presence_updated",
         version: DOCUMENT_PRESENCE_VERSION,
-        projectId: recipient.binding.projectId,
+        libraryId: recipient.binding.libraryId,
+        accessContext: recipient.binding.accessContext,
         presence: event,
       });
     }
@@ -209,7 +215,8 @@ export const createCanvasPresenceHub = (
           canonicalizeCanvasPresenceRealtimeEvent({
             type: "canvas_presence_snapshot",
             version: DOCUMENT_PRESENCE_VERSION,
-            projectId: entry.binding.projectId,
+            libraryId: entry.binding.libraryId,
+            accessContext: entry.binding.accessContext,
             documentId: entry.binding.documentId,
             generation,
             presences: [...snapshotPresences, presence],
@@ -222,7 +229,8 @@ export const createCanvasPresenceHub = (
       entry.binding.send({
         type: "canvas_presence_snapshot",
         version: DOCUMENT_PRESENCE_VERSION,
-        projectId: entry.binding.projectId,
+        libraryId: entry.binding.libraryId,
+        accessContext: entry.binding.accessContext,
         documentId: entry.binding.documentId,
         generation,
         presences: snapshotPresences,
@@ -231,7 +239,8 @@ export const createCanvasPresenceHub = (
         entry.binding.send(canonicalizeCanvasPresenceRealtimeEvent({
           type: "canvas_presence_updated",
           version: DOCUMENT_PRESENCE_VERSION,
-          projectId: entry.binding.projectId,
+          libraryId: entry.binding.libraryId,
+          accessContext: entry.binding.accessContext,
           presence,
         }));
       }
@@ -262,7 +271,8 @@ export const createCanvasPresenceHub = (
       canonicalizeCanvasPresenceRealtimeEvent({
         type: "canvas_presence_updated",
         version: DOCUMENT_PRESENCE_VERSION,
-        projectId: entry.binding.projectId,
+        libraryId: entry.binding.libraryId,
+        accessContext: entry.binding.accessContext,
         presence: {
           ...publication,
           clientSessionId: entry.binding.clientSessionId,

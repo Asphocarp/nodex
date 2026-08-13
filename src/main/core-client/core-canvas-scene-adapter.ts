@@ -32,6 +32,11 @@ import {
 } from "./document-live-stream-supervisor";
 import { executeWithDocumentSubscription } from "./core-document-subscription-lifecycle";
 import {
+  contentAccessContextKey,
+  type ContentAccessContext,
+  type ContentAccessIdentity,
+} from "../../shared/content-access-context";
+import {
   findCoreModulePayload,
   rendererLocalCommitApply,
   type CoreClientPort,
@@ -46,6 +51,8 @@ interface CoreCanvasSceneAdapterOptions {
   readonly maxRetryDelayMs?: number;
   readonly maxInitialOpenAttempts?: number;
 }
+
+export type CoreCanvasSceneAdapterBinding = ContentAccessIdentity;
 
 type CanvasFailure = Extract<
   CanvasSceneMutationCommandResult,
@@ -87,9 +94,18 @@ const subscriptionKey = (
 
 export const createCoreCanvasSceneAdapter = (
   client: CoreClientPort,
+  binding: CoreCanvasSceneAdapterBinding,
   options: CoreCanvasSceneAdapterOptions = {},
 ): CoreCanvasSceneAdapter => {
   const subscriptions = new Map<string, ActiveSubscription>();
+  const bindingAccessKey = contentAccessContextKey(binding.accessContext);
+
+  const assertBoundAccess = (accessContext: ContentAccessContext): void => {
+    if (contentAccessContextKey(accessContext) === bindingAccessKey) return;
+    throw new CanvasSceneAdapterContractError(
+      "Canvas request escaped its access boundary",
+    );
+  };
 
   const subscriptionFor = (
     request: Pick<CanvasSceneSubscribeRequest, "clientSessionId" | "documentId">,
@@ -103,6 +119,7 @@ export const createCoreCanvasSceneAdapter = (
     request: CanvasSceneSubscribeRequest,
     listener: (event: CanvasSceneRealtimeEvent) => void,
   ): SupervisedDocumentLiveSubscription => {
+    assertBoundAccess(request.accessContext);
     const key = subscriptionKey(request);
     const predecessor = subscriptions.get(key);
     predecessor?.close();
@@ -128,7 +145,7 @@ export const createCoreCanvasSceneAdapter = (
         );
       },
       onEvent: (envelope) => {
-        const event = canvasEvent(request, envelope);
+        const event = canvasEvent(binding, request, envelope);
         if (!event) return;
         listener(event);
       },
@@ -136,7 +153,8 @@ export const createCoreCanvasSceneAdapter = (
         listener({
           type: "canvas_scene_resync_required",
           version: CANVAS_SCENE_SYNC_VERSION,
-          projectId: request.projectId,
+          libraryId: binding.libraryId,
+          accessContext: binding.accessContext,
           documentId: repair.document_id,
           storeEpoch: repair.store_epoch,
           generation: repair.document_generation,
@@ -148,7 +166,8 @@ export const createCoreCanvasSceneAdapter = (
         listener({
           type: "canvas_scene_resync_required",
           version: CANVAS_SCENE_SYNC_VERSION,
-          projectId: request.projectId,
+          libraryId: binding.libraryId,
+          accessContext: binding.accessContext,
           documentId: barrier.document_id,
           storeEpoch: barrier.store_epoch,
           generation: barrier.document_generation,
@@ -172,6 +191,7 @@ export const createCoreCanvasSceneAdapter = (
       subscribeWithLifecycle(request, listener).close,
     sync: async (request) => {
       try {
+        assertBoundAccess(request.accessContext);
         const key = subscriptionKey(request);
         const subscription = subscriptionFor(request);
         const response = await executeWithDocumentSubscription(
@@ -185,11 +205,11 @@ export const createCoreCanvasSceneAdapter = (
           );
         }
         if (
-          response.accessContext.kind !== "project" ||
-          response.accessContext.projectId !== request.projectId
+          response.libraryId !== binding.libraryId
+          || contentAccessContextKey(response.accessContext) !== bindingAccessKey
         ) {
           throw new CanvasSceneAdapterContractError(
-            "Core Canvas sync escaped its Project access boundary",
+            "Core Canvas sync escaped its Library or access boundary",
           );
         }
         return {
@@ -202,6 +222,7 @@ export const createCoreCanvasSceneAdapter = (
     },
     applyMutation: async (request) => {
       try {
+        assertBoundAccess(request.accessContext);
         const canonical = canonicalizeCanvasSceneMutationRequest(request);
         const key = subscriptionKey(request);
         const subscription = subscriptionFor(request);
@@ -235,6 +256,8 @@ export const createCoreCanvasSceneAdapter = (
         if (
           value.documentId !== canonical.documentId
           || value.mutationId !== canonical.mutationId
+          || value.libraryId !== binding.libraryId
+          || contentAccessContextKey(value.accessContext) !== bindingAccessKey
         ) {
           throw new CanvasSceneAdapterContractError(
             "Core Canvas mutation escaped its request boundary",
@@ -243,7 +266,7 @@ export const createCoreCanvasSceneAdapter = (
         return {
           ok: true,
           localCommit: rendererLocalCommitApply(committed),
-          value: { ...value, projectId: canonical.projectId },
+          value,
         };
       } catch (error) {
         return canvasErrorResult(error, request.mutationId);
@@ -251,6 +274,7 @@ export const createCoreCanvasSceneAdapter = (
     },
     readCompaction: async (request) => {
       try {
+        assertBoundAccess(request.accessContext);
         const key = subscriptionKey(request);
         const subscription = subscriptionFor(request);
         const snapshot = await executeWithDocumentSubscription(
@@ -279,6 +303,7 @@ export const createCoreCanvasSceneAdapter = (
     },
     compact: async (request, stats) => {
       try {
+        assertBoundAccess(request.accessContext);
         const key = subscriptionKey(request);
         const subscription = subscriptionFor(request);
         const committed = await executeWithDocumentSubscription(
@@ -305,6 +330,8 @@ export const createCoreCanvasSceneAdapter = (
         if (
           value.documentId !== request.documentId
           || value.operationId !== request.mutationId
+          || value.libraryId !== binding.libraryId
+          || contentAccessContextKey(value.accessContext) !== bindingAccessKey
         ) {
           throw new CanvasSceneAdapterContractError(
             "Core Canvas compaction escaped its request boundary",
@@ -313,7 +340,7 @@ export const createCoreCanvasSceneAdapter = (
         return {
           ok: true,
           localCommit: rendererLocalCommitApply(committed),
-          value: { ...value, projectId: request.projectId },
+          value,
         };
       } catch (error) {
         return canvasErrorResult(error, request.mutationId);
@@ -323,6 +350,7 @@ export const createCoreCanvasSceneAdapter = (
 };
 
 const canvasEvent = (
+  binding: CoreCanvasSceneAdapterBinding,
   request: CanvasSceneSubscribeRequest,
   envelope: CoreEventEnvelope,
 ): CanvasSceneRealtimeEvent | null => {
@@ -336,7 +364,8 @@ const canvasEvent = (
     return {
       type: "canvas_scene_resync_required",
       version: CANVAS_SCENE_SYNC_VERSION,
-      projectId: request.projectId,
+      libraryId: binding.libraryId,
+      accessContext: binding.accessContext,
       documentId: event.document_id,
       storeEpoch: envelope.packet.manifest.identity.store_epoch,
       generation: event.generation,
@@ -352,7 +381,8 @@ const canvasEvent = (
     return decodeCanvasSceneSseEvent(JSON.stringify({
       type: "canvas_scene_committed",
       version: CANVAS_SCENE_SYNC_VERSION,
-      projectId: request.projectId,
+      libraryId: binding.libraryId,
+      accessContext: binding.accessContext,
       documentId: event.document_id,
       storeEpoch: envelope.packet.manifest.identity.store_epoch,
       generation: event.generation,
@@ -417,7 +447,7 @@ const mapCoreErrorCode = (
 ): CanvasSceneMutationError["code"] => {
   switch (code) {
     case "unauthorized":
-      return "project_scope_mismatch";
+      return "access_scope_mismatch";
     case "not_found":
       return "document_not_found";
     case "stale_store_epoch":

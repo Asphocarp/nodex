@@ -683,7 +683,6 @@ const mapReadValue = (snapshot: LibraryReadSnapshot): LibraryReadValue => {
               status: value.value.status,
               summary: {
                 canvasId: value.value.summary.canvas_id,
-                projectId: value.value.summary.project_id,
                 title: value.value.summary.title,
                 lifecycle: value.value.summary.lifecycle,
                 isPrimary: value.value.summary.is_primary,

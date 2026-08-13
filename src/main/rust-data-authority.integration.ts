@@ -535,6 +535,11 @@ describe("Electron native data authority", () => {
         },
       };
       const restored = await projectDocuments.restoreVersion(restoreRequest);
+      if (!restored.ok) {
+        throw new Error(
+          `Core Document restore failed: ${restored.error.code}: ${restored.error.message}`,
+        );
+      }
       expect(restored).toMatchObject({
         ok: true,
         value: {
@@ -678,7 +683,9 @@ describe("Electron native data authority", () => {
             documentId: nativeTargetDocumentId,
           },
         },
-        finalLocationRevisions: { [nativeContentBlockId]: 2 },
+        // Delete, snapshot reattachment, and this transfer each advance the
+        // canonical placement revision after its genesis revision.
+        finalLocationRevisions: { [nativeContentBlockId]: 4 },
         documentCommits: expect.arrayContaining([
           expect.objectContaining({
             documentId: nativeSourceDocumentId,
@@ -698,7 +705,7 @@ describe("Electron native data authority", () => {
           value: {
             operationId: transferIntent.operationId,
             duplicate: true,
-            finalLocationRevisions: { [nativeContentBlockId]: 2 },
+            finalLocationRevisions: { [nativeContentBlockId]: 4 },
           },
         });
       const promoteToLibraryIntent = {
@@ -743,7 +750,7 @@ describe("Electron native data authority", () => {
             rankKey: expect.any(String),
           },
         },
-        finalLocationRevisions: { [nativeContentBlockId]: 3 },
+        finalLocationRevisions: { [nativeContentBlockId]: 5 },
         documentCommits: expect.arrayContaining([
           expect.objectContaining({
             documentId: nativeTargetDocumentId,
@@ -2184,15 +2191,22 @@ describe("Electron native data authority", () => {
       ).resolves.toMatchObject({ value: { kind: "catalog_window" } });
 
       const canvasDocumentId = primaryCanvasDocumentId(projectId);
+      const canvasAccessContext = { kind: "project", projectId } as const;
+      const canvasBinding = {
+        libraryId: runtime.identity.libraryId,
+        accessContext: canvasAccessContext,
+      };
       const firstCanvas = createCoreCanvasSceneAdapter(
         runtime.clientForProject(projectId),
+        canvasBinding,
       );
       const secondCanvas = createCoreCanvasSceneAdapter(
         runtime.clientForProject(projectId),
+        canvasBinding,
       );
       const firstCanvasRequest = {
         version: CANVAS_SCENE_SYNC_VERSION,
-        projectId,
+        accessContext: canvasAccessContext,
         documentId: canvasDocumentId,
         clientSessionId: "renderer:electron-canvas:first",
       } as const;
@@ -2368,7 +2382,9 @@ describe("Electron native data authority", () => {
         ok: true,
         value: {
           operationKind: "grant_project_access",
-          didMutate: true,
+          // A Project-created Library-root Page grants its creator read/write
+          // access atomically; repeating that grant is a semantic no-op.
+          didMutate: false,
         },
       });
       await expect(library.readProjectPageDetail(

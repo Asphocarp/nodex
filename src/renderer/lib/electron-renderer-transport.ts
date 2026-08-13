@@ -21,6 +21,7 @@ import type {
   ProjectionStreamMessage,
 } from "../../shared/projection-stream";
 import type { ResourceRevocationMessage } from "../../shared/resource-revocation-stream";
+import type { ContentAccessIdentity } from "../../shared/content-access-context";
 import {
   RECIPIENT_DELIVERY_VERSION,
   deliveryAddressKey,
@@ -237,8 +238,8 @@ export function createElectronRendererTransport(
     createLibraryDocumentSyncAdapter() {
       return createElectronLibraryDocumentSyncAdapter(bridge);
     },
-    createCanvasSceneSyncAdapter(projectId: string) {
-      return createElectronCanvasSceneSyncAdapter(bridge, projectId);
+    createCanvasSceneSyncAdapter(identity: ContentAccessIdentity) {
+      return createElectronCanvasSceneSyncAdapter(bridge, identity);
     },
     mutateDocument(
       projectId: string,

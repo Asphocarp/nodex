@@ -24,6 +24,12 @@ reactivates the mover's grant atomically. Access management shows inherited
 Page access separately from direct Canvas access and never treats another
 Project in the same Library as implicit authorization.
 
+Every resolved Canvas Document is observed through the complete identity
+`libraryId + accessContext + documentId`. `libraryId` names physical lifetime;
+`accessContext` is explicitly either Library or one authorized Project. Canvas
+target summaries, adapters, sessions, and receipts must preserve that identity
+and must not invent a routing Project for Library access.
+
 ## Inline and Stage presentation
 
 An inline Canvas begins as a lightweight named shell and mounts its editor only
@@ -37,10 +43,10 @@ in Canvas Stage. Opening it again focuses the existing target where appropriate.
 Deleted or inaccessible targets retain an explicit closable state instead of
 silently opening another Canvas.
 
-Inline and Stage surfaces share one process-local Canvas session per authorized
-Document while retaining independent camera, selection, tools, undo, and
-presence. Camera and inline height may persist as local presentation
-preferences; they never enter the scene or host Page.
+Inline and Stage surfaces share one process-local Canvas session only when the
+complete authorized Document identity matches. They retain independent camera,
+selection, tools, undo, and presence. Camera and inline height may persist as
+local presentation preferences; they never enter the scene or host Page.
 
 ## Scene and assets
 
@@ -62,14 +68,18 @@ The renderer coalesces observations and persists each pending local scene
 mutation to a bounded active outbox before transport. Response loss retries the
 same mutation. Deterministic rejection quarantines that mutation, repairs from
 canonical state, and allows later work to continue. Store-epoch or Document-
-generation changes invalidate stale pending rows.
+generation changes invalidate stale pending rows. Active and quarantined rows
+are partitioned by the complete authorized Document identity, so one Library or
+access context can never replay or clear another boundary's pending work.
 
 Subscriptions begin before canonical synchronization. Missing or out-of-order
 heads, reconnect, and completed write leases repair through one bounded full
 scene. Remote updates do not enter local Excalidraw undo.
 
-Open surfaces share best-effort bounded cursor, selection, and active/idle
-presence. Presence never changes scene authority, history, or offline state.
+Open surfaces on the same complete authorized Document identity share
+best-effort bounded cursor, selection, and active/idle presence. Presence never
+crosses Library or access boundaries and never changes scene authority,
+history, or offline state.
 
 ## History and maintenance
 

@@ -239,6 +239,85 @@ describe("Core Database Module Adapter", () => {
     }]);
   });
 
+  test("maps the Core View descriptor into the renderer contract", async () => {
+    const client = new FakeCoreClient();
+    const config = upgradeDatabaseViewConfigV2({
+      schemaKey: "nodex.database-view" as const,
+      schemaVersion: 2 as const,
+      filter: { kind: "group" as const, operator: "and" as const, children: [] },
+      sort: [{
+        field: { kind: "manual" as const },
+        direction: "asc" as const,
+        nulls: "last" as const,
+      }],
+      group: null,
+      display: { propertyIds: [], showTitle: true },
+    });
+    client.enqueueDatabaseRead({
+      contract_version: 10,
+      store_epoch: identity.storeEpoch,
+      commit_head: 23,
+      authorization: viewAuthorization(23),
+      value: {
+        kind: "view",
+        value: {
+          view_id: "view:test",
+          database_id: "database:test",
+          data_source_id: "source:test",
+          name: "All tasks",
+          layout: "list",
+          definition: {
+            filter: config.filter,
+            presentation: config.presentation,
+          },
+          is_default: true,
+          revision: 2,
+          rank_key: "a",
+          lifecycle: "active",
+          created_at: "2026-07-25T00:00:00.000Z",
+          updated_at: "2026-07-25T00:00:00.000Z",
+        },
+      },
+    });
+    const adapter = createCoreDatabaseModuleAdapter({ client, ...identity });
+
+    await expect(adapter.read({
+      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+      projectId: identity.projectId,
+      read: {
+        target: { kind: "view", viewId: parseDatabaseViewId("view:test") },
+        mode: "view",
+      },
+    })).resolves.toEqual({
+      ok: true,
+      value: {
+        version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+        projectId: identity.projectId,
+        libraryId: identity.libraryId,
+        storeEpoch: identity.storeEpoch,
+        commitSeq: 23,
+        authorization: viewAuthorization(23),
+        value: {
+          kind: "view",
+          value: {
+            viewId: "view:test",
+            databaseId: "database:test",
+            dataSourceId: "source:test",
+            name: "All tasks",
+            defaultLayout: "list",
+            config,
+            isDefault: true,
+            revision: 2,
+            rankKey: "a",
+            lifecycle: "active",
+            createdAt: "2026-07-25T00:00:00.000Z",
+            updatedAt: "2026-07-25T00:00:00.000Z",
+          },
+        },
+      },
+    });
+  });
+
   test("hydrates authorized catalog entries and maps Relation candidates", async () => {
     const catalogClient = new FakeCoreClient();
     catalogClient.enqueueDatabaseRead({

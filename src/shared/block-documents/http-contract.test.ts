@@ -288,7 +288,7 @@ describe("Document HTTP contract", () => {
     const request = {
       version: CANVAS_SCENE_SYNC_VERSION,
       syncRequestId: "sync-1",
-      projectId: "project-1",
+      accessContext: { kind: "project", projectId: "project-1" },
       documentId: "canvas-1",
       clientSessionId: "client-1",
       knownStoreEpoch: "store-1",
@@ -299,7 +299,7 @@ describe("Document HTTP contract", () => {
     expect(
       decodeCanvasSceneSyncHttpRequest(
         request.documentId,
-        request.projectId,
+        request.accessContext,
         encodeCanvasSceneSyncHttpRequest(request),
       ),
     ).toEqual(request);
@@ -309,7 +309,7 @@ describe("Document HTTP contract", () => {
       version: CANVAS_SCENE_SYNC_VERSION,
       syncRequestId: request.syncRequestId,
       libraryId: "library-1",
-      accessContext: { kind: "project", projectId: request.projectId },
+      accessContext: request.accessContext,
       documentId: request.documentId,
       storeEpoch: request.knownStoreEpoch,
       generation: request.knownGeneration,
@@ -330,7 +330,7 @@ describe("Document HTTP contract", () => {
       version: CANVAS_SCENE_SYNC_VERSION,
       syncRequestId: request.syncRequestId,
       libraryId: "library-1",
-      accessContext: { kind: "project", projectId: request.projectId },
+      accessContext: request.accessContext,
       documentId: request.documentId,
       storeEpoch: request.knownStoreEpoch,
       generation: request.knownGeneration,
@@ -344,7 +344,7 @@ describe("Document HTTP contract", () => {
       version: CANVAS_SCENE_SYNC_VERSION,
       syncRequestId: "sync-2",
       libraryId: "library-1",
-      accessContext: { kind: "project", projectId: request.projectId },
+      accessContext: request.accessContext,
       documentId: request.documentId,
       storeEpoch: request.knownStoreEpoch,
       generation: request.knownGeneration,

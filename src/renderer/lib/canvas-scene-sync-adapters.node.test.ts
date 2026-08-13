@@ -33,7 +33,8 @@ test("Electron Canvas adapter awaits subscription and carries presence", async (
             kind: "snapshot",
             version: 1,
             syncRequestId: request.syncRequestId,
-            projectId: "project-1",
+            libraryId: "library-1",
+            accessContext: { kind: "project", projectId: "project-1" },
             documentId: request.documentId,
             storeEpoch: "store-1",
             generation: 1,
@@ -53,16 +54,20 @@ test("Electron Canvas adapter awaits subscription and carries presence", async (
       return () => listeners.delete(listener);
     },
   } as unknown as ElectronRendererBridge;
-  const adapter = createElectronCanvasSceneSyncAdapter(bridge, "project-1");
+  const accessContext = { kind: "project", projectId: "project-1" } as const;
+  const adapter = createElectronCanvasSceneSyncAdapter(bridge, {
+    libraryId: "library-1",
+    accessContext,
+  });
   const unsubscribe = adapter.subscribe({
-    projectId: "project-1",
+    accessContext,
     documentId: "canvas-1",
     clientSessionId: "client-1",
   }, () => undefined, (event) => presenceEvents.push(event));
   const result = await adapter.sync({
     version: 1,
     syncRequestId: "sync-1",
-    projectId: "project-1",
+    accessContext,
     documentId: "canvas-1",
     clientSessionId: "client-1",
   });
@@ -71,14 +76,25 @@ test("Electron Canvas adapter awaits subscription and carries presence", async (
   listeners.forEach((listener) => listener({
     type: "canvas_presence_snapshot",
     version: 1,
-    projectId: "project-1",
+    libraryId: "library-1",
+    accessContext,
+    documentId: "canvas-1",
+    generation: 1,
+    presences: [],
+  }));
+  expect(presenceEvents).toHaveLength(1);
+  listeners.forEach((listener) => listener({
+    type: "canvas_presence_snapshot",
+    version: 1,
+    libraryId: "library-foreign",
+    accessContext,
     documentId: "canvas-1",
     generation: 1,
     presences: [],
   }));
   expect(presenceEvents).toHaveLength(1);
   await expect(adapter.publishPresence?.({
-    projectId: "project-1",
+    accessContext,
     clientSessionId: "client-1",
     publication: {
       version: 1,
@@ -113,7 +129,8 @@ test("Electron Canvas keeps a revived exact session ahead of stale teardown", as
             kind: "snapshot",
             version: 1,
             syncRequestId: request.syncRequestId,
-            projectId: "project-1",
+            libraryId: "library-1",
+            accessContext: { kind: "project", projectId: "project-1" },
             documentId: request.documentId,
             storeEpoch: "store-1",
             generation: 1,
@@ -127,9 +144,13 @@ test("Electron Canvas keeps a revived exact session ahead of stale teardown", as
     },
     on: () => () => undefined,
   } as unknown as ElectronRendererBridge;
-  const adapter = createElectronCanvasSceneSyncAdapter(bridge, "project-1");
+  const accessContext = { kind: "project", projectId: "project-1" } as const;
+  const adapter = createElectronCanvasSceneSyncAdapter(bridge, {
+    libraryId: "library-1",
+    accessContext,
+  });
   const request = {
-    projectId: "project-1",
+    accessContext,
     documentId: "canvas-1",
     clientSessionId: "client-1",
   } as const;

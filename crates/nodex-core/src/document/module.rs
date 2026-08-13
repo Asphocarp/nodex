@@ -1988,6 +1988,7 @@ impl OwnedDocumentModule {
                                 Some(scope.evidence()),
                                 &authority,
                                 &actor_project_id,
+                                &document_access_context(&context),
                                 &store_epoch,
                                 &operation_id,
                                 base_head_seq,
@@ -2033,6 +2034,7 @@ impl OwnedDocumentModule {
                         None,
                         &authority,
                         &actor_project_id,
+                        &document_access_context(&context),
                         &store_epoch,
                         &operation_id,
                         base_head_seq,
@@ -2297,7 +2299,7 @@ impl OwnedDocumentModule {
                                 "kind": "tombstone_compaction",
                                 "operationId": operation_id,
                                 "libraryId": authority.head.library_id,
-                                "actorProjectId": actor_project_id,
+                                "accessContext": document_access_context(&context),
                                 "documentId": authority.head.id,
                                 "storeEpoch": store_epoch,
                                 "previousGeneration": authority.head.generation,
@@ -2357,7 +2359,7 @@ impl OwnedDocumentModule {
                         "kind": "tombstone_compaction",
                         "operationId": operation_id,
                         "libraryId": authority.head.library_id,
-                        "actorProjectId": actor_project_id,
+                        "accessContext": document_access_context(&context),
                         "documentId": authority.head.id,
                         "storeEpoch": store_epoch,
                         "previousGeneration": authority.head.generation,
@@ -3326,6 +3328,7 @@ impl OwnedDocumentModule {
                             Some(scope.evidence()),
                             &authority,
                             bound_actor_project_id(&context)?,
+                            &document_access_context(&context),
                             &store_epoch,
                             &operation_id,
                             authority.head.head_seq,
@@ -6796,7 +6799,18 @@ mod tests {
             applied.committed.value.outcome,
             DocumentCommitOutcome::Committed
         );
-        assert!(applied.committed.value.canvas.is_some());
+        let canvas_result = applied
+            .committed
+            .value
+            .canvas
+            .as_ref()
+            .expect("Canvas mutation result");
+        assert_eq!(canvas_result["libraryId"], LIBRARY_ID);
+        assert_eq!(
+            canvas_result["accessContext"],
+            json!({ "kind": "project", "projectId": PROJECT_ID })
+        );
+        assert!(canvas_result.get("projectId").is_none());
         assert!(matches!(
             applied.events.first().map(|event| &event.payload),
             Some(CoreModuleEventPayload::OwnedDocument(
@@ -8956,6 +8970,20 @@ mod tests {
         let wrong_project = context_for_project("renderer:wrong", "project:other");
 
         let canvas = canvas_module();
+        canvas
+            .module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
+                    operation_id: "canvas:library-access:prepare".to_owned(),
+                    store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                    intent: OwnedDocumentIntent::PrepareOwner {
+                        owner_block_id: OWNER_BLOCK_ID.to_owned(),
+                    },
+                },
+            )
+            .expect("prepare Library-accessed Canvas");
         let canvas_adapter = OwnedDocumentRealtimeAdapter::new(canvas.module);
         let canvas_subscription = canvas_adapter
             .subscribe(
@@ -8968,6 +8996,25 @@ mod tests {
             canvas_subscription.engine,
             DocumentSubscriptionEngine::CanvasScene
         );
+        let library_canvas_applied = canvas_adapter
+            .apply(
+                &library_context,
+                "client:library-canvas",
+                canvas_mutation_request("canvas:library-access", 0, 1, "Library access"),
+            )
+            .expect("trusted Library scope mutates the registered Canvas");
+        let library_canvas_result = library_canvas_applied
+            .committed
+            .value
+            .canvas
+            .as_ref()
+            .expect("Library Canvas mutation result");
+        assert_eq!(library_canvas_result["libraryId"], LIBRARY_ID);
+        assert_eq!(
+            library_canvas_result["accessContext"],
+            json!({ "kind": "library" })
+        );
+        assert!(library_canvas_result.get("projectId").is_none());
 
         let unauthorized_library = adapter
             .subscribe(

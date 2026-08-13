@@ -10,7 +10,7 @@ import {
 const request = () => ({
   version: CANVAS_SCENE_SYNC_VERSION,
   mutationId: "mutation-1",
-  projectId: "project-1",
+  accessContext: { kind: "project", projectId: "project-1" },
   documentId: "document-1",
   storeEpoch: "epoch-1",
   generation: 1,

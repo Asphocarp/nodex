@@ -339,11 +339,6 @@ const assertRouteDocument = (routeDocumentId: string): string => {
   throw new DocumentHttpWireError("route documentId must be non-empty");
 };
 
-const readIdentity = (value: string, field: string): string => {
-  if (value.length > 0 && value === value.trim()) return value;
-  throw new DocumentHttpWireError(`${field} must be non-empty`);
-};
-
 const parseSyncRequestMetadata = (value: unknown): SyncRequestMetadata => {
   const record = readRecord(value);
   assertExactKeys(
@@ -842,7 +837,7 @@ export const encodeCanvasSceneSyncHttpRequest = (
 
 export const decodeCanvasSceneSyncHttpRequest = (
   routeDocumentId: string,
-  projectId: string,
+  accessContext: ContentAccessContext,
   bytes: Uint8Array,
 ): CanvasSceneSyncRequest => {
   const envelope = decodeDocumentHttpEnvelope(
@@ -853,7 +848,7 @@ export const decodeCanvasSceneSyncHttpRequest = (
   return {
     version: CANVAS_SCENE_SYNC_VERSION,
     syncRequestId: envelope.metadata.syncRequestId,
-    projectId: readIdentity(projectId, "projectId"),
+    accessContext,
     documentId: assertRouteDocument(routeDocumentId),
     clientSessionId: envelope.metadata.clientSessionId,
     ...(envelope.metadata.knownStoreEpoch === undefined

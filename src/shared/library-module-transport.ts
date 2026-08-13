@@ -1363,7 +1363,6 @@ const parseCanvasTarget = (
         summary.canvasId,
         `${label}.summary.canvasId`,
       ),
-      projectId: string(summary.projectId, `${label}.summary.projectId`),
       title: string(summary.title, `${label}.summary.title`, 256),
       lifecycle: string(
         summary.lifecycle,

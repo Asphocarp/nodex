@@ -3,7 +3,10 @@ import {
   resolveRendererTransport,
 } from "./renderer-transport";
 import type { IpcApi } from "../../shared/ipc-api";
-import type { ContentAccessContext } from "../../shared/content-access-context";
+import type {
+  ContentAccessContext,
+  ContentAccessIdentity,
+} from "../../shared/content-access-context";
 import {
   isCursorRejectionCode,
   type CoreReadError,
@@ -155,11 +158,11 @@ export function createDocumentSyncAdapterForContentAccess(
 }
 
 export function createCanvasSceneSyncAdapter(
-  projectId: string,
+  identity: ContentAccessIdentity,
 ): CanvasSceneSyncAdapter {
   const transport = resolveRendererTransport();
   const createAdapter = transport.createCanvasSceneSyncAdapter;
-  if (createAdapter) return createAdapter(projectId);
+  if (createAdapter) return createAdapter(identity);
   throw new Error("Canvas scene sync is unavailable for this renderer transport");
 }
 

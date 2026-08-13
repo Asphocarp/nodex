@@ -12,7 +12,11 @@ import {
   type CanvasSceneSyncRequest,
 } from "./canvas-scene-sync";
 import { parseLocalCommitApply } from "../local-commit-delivery";
-import { parseContentAccessContext } from "../content-access-context";
+import {
+  contentAccessContextKey,
+  parseContentAccessContext,
+  type ContentAccessContext,
+} from "../content-access-context";
 import {
   canonicalizeCanvasSceneElement,
   canonicalizeCanvasSceneFile,
@@ -72,7 +76,7 @@ const requireStringArray = (value: unknown, field: string): readonly string[] =>
 const requireError = (value: unknown): CanvasSceneMutationError => {
   if (!isRecord(value)) throw new TypeError("Canvas scene error is invalid");
   const codes = new Set([
-    "invalid_canvas_scene_mutation", "store_epoch_mismatch", "project_scope_mismatch",
+    "invalid_canvas_scene_mutation", "store_epoch_mismatch", "access_scope_mismatch",
     "document_not_found", "document_not_ready", "document_engine_mismatch",
     "document_generation_mismatch", "future_base_head", "mutation_id_collision",
     "canvas_scene_corrupt", "unknown",
@@ -99,7 +103,8 @@ const parseRealtimeValue = (value: unknown): CanvasSceneRealtimeEvent => {
   }
   const common = {
     version: CANVAS_SCENE_SYNC_VERSION,
-    projectId: requireCanvasSceneIdentity(value.projectId, "projectId"),
+    libraryId: requireCanvasSceneIdentity(value.libraryId, "libraryId"),
+    accessContext: parseContentAccessContext(value.accessContext),
     documentId: requireCanvasSceneIdentity(value.documentId, "documentId"),
     storeEpoch: requireCanvasSceneIdentity(value.storeEpoch, "storeEpoch"),
     generation: requireInteger(value.generation, "generation", 1),
@@ -144,16 +149,20 @@ export const encodeCanvasSceneSyncRequestHttp = (
 
 export const decodeCanvasSceneSyncRequestHttp = (
   serialized: string,
-  routeProjectId: string,
+  routeAccessContext: ContentAccessContext,
   routeDocumentId: string,
 ): CanvasSceneSyncRequest => {
   const value = parseBoundedJson(serialized, MAX_CANVAS_SCENE_MUTATION_BYTES);
   if (!isRecord(value) || value.version !== CANVAS_SCENE_SYNC_VERSION) {
     throw new TypeError("Canvas scene sync request is invalid");
   }
-  const projectId = requireCanvasSceneIdentity(value.projectId, "projectId");
+  const accessContext = parseContentAccessContext(value.accessContext);
   const documentId = requireCanvasSceneIdentity(value.documentId, "documentId");
-  if (projectId !== routeProjectId || documentId !== routeDocumentId) {
+  if (
+    contentAccessContextKey(accessContext)
+      !== contentAccessContextKey(routeAccessContext)
+    || documentId !== routeDocumentId
+  ) {
     throw new TypeError("Canvas scene sync request does not match its route");
   }
   const clientSessionId = requireCanvasSceneIdentity(
@@ -180,7 +189,7 @@ export const decodeCanvasSceneSyncRequestHttp = (
       value.syncRequestId,
       "syncRequestId",
     ),
-    projectId,
+    accessContext,
     documentId,
     clientSessionId,
     ...(knownStoreEpoch ? { knownStoreEpoch } : {}),
@@ -204,14 +213,15 @@ export const encodeCanvasSceneMutationRequestHttp = (
 
 export const decodeCanvasSceneMutationRequestHttp = (
   serialized: string,
-  routeProjectId: string,
+  routeAccessContext: ContentAccessContext,
   routeDocumentId: string,
 ): CanvasSceneMutationRequest => {
   const request = canonicalizeCanvasSceneMutationRequest(
     parseBoundedJson(serialized, MAX_CANVAS_SCENE_MUTATION_BYTES),
   );
   if (
-    request.projectId === routeProjectId &&
+    contentAccessContextKey(request.accessContext)
+      === contentAccessContextKey(routeAccessContext) &&
     request.documentId === routeDocumentId
   ) {
     return request;

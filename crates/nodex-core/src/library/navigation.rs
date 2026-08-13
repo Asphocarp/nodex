@@ -1778,17 +1778,7 @@ fn canvas_target(
             library_id: library_id.to_owned(),
         });
     }
-    let project_id = match (primary_project_id, host_page_id.as_deref()) {
-        (Some(project_id), _) => project_id,
-        (None, Some(page_id)) => {
-            first_active_project_with_page_access(connection, library_id, page_id)?
-                .ok_or_else(|| not_found("Canvas host Page has no routable Project"))?
-        }
-        (None, None) => active_project_ids(connection, library_id)?
-            .into_iter()
-            .next()
-            .ok_or_else(|| not_found("Canvas has no routable Project"))?,
-    };
+    let is_primary = primary_project_id.is_some();
     let location = match containing_document_id {
         None => LibraryCanvasLocation::Library,
         Some(document_id) => LibraryCanvasLocation::Page {
@@ -1797,11 +1787,9 @@ fn canvas_target(
             document_id,
         },
     };
-    let is_primary = is_primary_canvas_block_id(canvas_id, &project_id);
     Ok(LibraryCanvasTarget::Available {
         summary: LibraryCanvasSummary {
             canvas_id: canvas_id.to_owned(),
-            project_id,
             title: title.unwrap_or_else(|| "Canvas".to_owned()),
             lifecycle,
             is_primary,

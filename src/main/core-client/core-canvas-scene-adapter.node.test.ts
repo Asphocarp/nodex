@@ -18,6 +18,9 @@ import type {
 } from "./types";
 
 const PROJECT_ID = "project:canvas";
+const LIBRARY_ID = "library:canvas";
+const ACCESS_CONTEXT = { kind: "project", projectId: PROJECT_ID } as const;
+const BINDING = { libraryId: LIBRARY_ID, accessContext: ACCESS_CONTEXT };
 const DOCUMENT_ID = "document:canvas";
 const CLIENT_SESSION_ID = "renderer:canvas";
 const STORE_EPOCH = "epoch:canvas";
@@ -63,8 +66,8 @@ const syncSnapshot = (syncRequestId: string) => ({
   kind: "snapshot" as const,
   version: CANVAS_SCENE_SYNC_VERSION,
   syncRequestId,
-  libraryId: "library:canvas",
-  accessContext: { kind: "project" as const, projectId: PROJECT_ID },
+  libraryId: LIBRARY_ID,
+  accessContext: ACCESS_CONTEXT,
   documentId: DOCUMENT_ID,
   storeEpoch: STORE_EPOCH,
   generation: 1,
@@ -76,7 +79,8 @@ const syncSnapshot = (syncRequestId: string) => ({
 const mutationResult = {
   version: CANVAS_SCENE_SYNC_VERSION,
   mutationId: "canvas-mutation:one",
-  projectId: PROJECT_ID,
+  libraryId: LIBRARY_ID,
+  accessContext: ACCESS_CONTEXT,
   documentId: DOCUMENT_ID,
   storeEpoch: STORE_EPOCH,
   generation: 1,
@@ -155,11 +159,11 @@ const committedEvent = (): CoreEventEnvelope => ({
 describe("Core Canvas scene adapter", () => {
   test("classifies an invalid Canvas snapshot as a terminal protocol error", async () => {
     const client = new InvalidSnapshotCanvasClient();
-    const adapter = createCoreCanvasSceneAdapter(client);
+    const adapter = createCoreCanvasSceneAdapter(client, BINDING);
     const request = {
       version: CANVAS_SCENE_SYNC_VERSION,
       syncRequestId: "sync:invalid",
-      projectId: PROJECT_ID,
+      accessContext: ACCESS_CONTEXT,
       documentId: DOCUMENT_ID,
       clientSessionId: CLIENT_SESSION_ID,
     } as const;
@@ -181,11 +185,15 @@ describe("Core Canvas scene adapter", () => {
   test("reconnects and retries once when Core reports a lost subscription lease", async () => {
     const client = new SubscriptionLossCanvasClient();
     client.enqueueDocumentCanvasSync(syncSnapshot("sync:one"));
-    const adapter = createCoreCanvasSceneAdapter(client, { retryDelayMs: 0 });
+    const adapter = createCoreCanvasSceneAdapter(
+      client,
+      BINDING,
+      { retryDelayMs: 0 },
+    );
     const request = {
       version: CANVAS_SCENE_SYNC_VERSION,
       syncRequestId: "sync:one",
-      projectId: PROJECT_ID,
+      accessContext: ACCESS_CONTEXT,
       documentId: DOCUMENT_ID,
       clientSessionId: CLIENT_SESSION_ID,
     } as const;
@@ -202,11 +210,11 @@ describe("Core Canvas scene adapter", () => {
 
   test("syncs, applies, and maps durable Canvas events behind one subscription", async () => {
     const client = new FakeCoreClient();
-    const adapter = createCoreCanvasSceneAdapter(client);
+    const adapter = createCoreCanvasSceneAdapter(client, BINDING);
     const events: CanvasSceneRealtimeEvent[] = [];
     const subscription = {
       version: CANVAS_SCENE_SYNC_VERSION,
-      projectId: PROJECT_ID,
+      accessContext: ACCESS_CONTEXT,
       documentId: DOCUMENT_ID,
       clientSessionId: CLIENT_SESSION_ID,
     } as const;
@@ -253,7 +261,8 @@ describe("Core Canvas scene adapter", () => {
     await expect.poll(() => events).toEqual([{
       type: "canvas_scene_committed",
       version: CANVAS_SCENE_SYNC_VERSION,
-      projectId: PROJECT_ID,
+      libraryId: LIBRARY_ID,
+      accessContext: ACCESS_CONTEXT,
       documentId: DOCUMENT_ID,
       storeEpoch: STORE_EPOCH,
       generation: 1,
@@ -279,10 +288,10 @@ describe("Core Canvas scene adapter", () => {
 
   test("rejects Canvas sync access drift instead of rewriting Core identity", async () => {
     const client = new FakeCoreClient();
-    const adapter = createCoreCanvasSceneAdapter(client);
+    const adapter = createCoreCanvasSceneAdapter(client, BINDING);
     const subscription = {
       version: CANVAS_SCENE_SYNC_VERSION,
-      projectId: PROJECT_ID,
+      accessContext: ACCESS_CONTEXT,
       documentId: DOCUMENT_ID,
       clientSessionId: CLIENT_SESSION_ID,
     } as const;
@@ -310,7 +319,10 @@ describe("Core Canvas scene adapter", () => {
           ...physicalMutation.outcome,
         canvas: {
           ...mutationResult,
-          projectId: "project:compatibility-storage",
+          accessContext: {
+            kind: "project",
+            projectId: "project:wrong-authority",
+          },
         },
       },
     });
@@ -324,19 +336,19 @@ describe("Core Canvas scene adapter", () => {
       appStateIntents: {},
       fileAdditions: {},
     })).resolves.toMatchObject({
-      ok: true,
-      value: { projectId: PROJECT_ID, documentId: DOCUMENT_ID },
+      ok: false,
+      error: { code: "canvas_scene_corrupt" },
     });
     close();
   });
 
   test("reads compaction evidence, applies generation rollover, and maps its reset event", async () => {
     const client = new FakeCoreClient();
-    const adapter = createCoreCanvasSceneAdapter(client);
+    const adapter = createCoreCanvasSceneAdapter(client, BINDING);
     const events: CanvasSceneRealtimeEvent[] = [];
     const subscription = {
       version: CANVAS_SCENE_SYNC_VERSION,
-      projectId: PROJECT_ID,
+      accessContext: ACCESS_CONTEXT,
       documentId: DOCUMENT_ID,
       clientSessionId: CLIENT_SESSION_ID,
     } as const;
@@ -361,7 +373,7 @@ describe("Core Canvas scene adapter", () => {
     const request = {
       version: CANVAS_SCENE_MAINTENANCE_VERSION,
       mutationId: "canvas-compaction:one",
-      projectId: PROJECT_ID,
+      accessContext: ACCESS_CONTEXT,
       documentId: DOCUMENT_ID,
       clientSessionId: CLIENT_SESSION_ID,
       trigger: "automatic_idle",
@@ -381,7 +393,8 @@ describe("Core Canvas scene adapter", () => {
       version: CANVAS_SCENE_MAINTENANCE_VERSION,
       kind: "tombstone_compaction" as const,
       operationId: request.mutationId,
-      projectId: PROJECT_ID,
+      libraryId: LIBRARY_ID,
+      accessContext: ACCESS_CONTEXT,
       documentId: DOCUMENT_ID,
       storeEpoch: STORE_EPOCH,
       previousGeneration: 1,
@@ -404,10 +417,7 @@ describe("Core Canvas scene adapter", () => {
         generation: 2,
         head_seq: 1,
         outcome: "committed",
-        canvas: {
-          ...compactionResult,
-          projectId: "project:compatibility-storage",
-        },
+        canvas: compactionResult,
       },
       receipt: {
         operation_id: request.mutationId,
@@ -457,7 +467,8 @@ describe("Core Canvas scene adapter", () => {
     await expect.poll(() => events).toEqual([{
       type: "canvas_scene_resync_required",
       version: CANVAS_SCENE_SYNC_VERSION,
-      projectId: PROJECT_ID,
+      libraryId: LIBRARY_ID,
+      accessContext: ACCESS_CONTEXT,
       documentId: DOCUMENT_ID,
       storeEpoch: STORE_EPOCH,
       generation: 2,

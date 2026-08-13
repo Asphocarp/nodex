@@ -14,6 +14,15 @@ export type LibraryContentAccessContext = Extract<
   { readonly kind: "library" }
 >;
 
+/**
+ * Complete identity of one content authorization boundary. Library identifies
+ * physical lifetime; accessContext identifies how that content is observed.
+ */
+export interface ContentAccessIdentity {
+  readonly libraryId: string;
+  readonly accessContext: ContentAccessContext;
+}
+
 export interface ContentPageNavigationTarget {
   readonly accessContext: ContentAccessContext;
   readonly pageId: string;
@@ -106,6 +115,16 @@ export const projectIdFromContentAccessContext = (
 
 export const contentAccessContextKey = (
   context: ContentAccessContext,
-): string => context.kind === "project"
-  ? `project:${context.projectId}`
-  : "library";
+): string => {
+  const parsed = parseContentAccessContext(context);
+  return parsed.kind === "project"
+    ? `project:${parsed.projectId}`
+    : "library";
+};
+
+export const contentAccessIdentityKey = (
+  identity: ContentAccessIdentity,
+): string => JSON.stringify([
+  canonicalId(identity.libraryId, "contentAccessIdentity.libraryId"),
+  contentAccessContextKey(identity.accessContext),
+]);

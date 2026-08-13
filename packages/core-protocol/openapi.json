@@ -12537,7 +12537,6 @@
         "type": "object",
         "required": [
           "canvas_id",
-          "project_id",
           "title",
           "lifecycle",
           "is_primary",
@@ -12576,9 +12575,6 @@
           "metadata_revision": {
             "type": "integer",
             "format": "int64"
-          },
-          "project_id": {
-            "type": "string"
           },
           "title": {
             "type": "string"

@@ -11,7 +11,7 @@ import type { DatabaseApplyOperationV2 } from "./database-module-v2";
 import type { LocalCommitCommandSuccess } from "./local-commit-delivery";
 import type { AuthorizedReadStamp } from "./authorized-read-stamp";
 
-export const LIBRARY_MODULE_CONTRACT_VERSION = 12 as const;
+export const LIBRARY_MODULE_CONTRACT_VERSION = 13 as const;
 export const DEFAULT_LIBRARY_READ_LIMIT = 20 as const;
 export const MAX_LIBRARY_READ_LIMIT = 100 as const;
 export const MAX_LIBRARY_CURSOR_LENGTH = 2_048 as const;
@@ -177,7 +177,6 @@ export type LibraryCanvasLocation =
 
 export interface LibraryCanvasSummary {
   readonly canvasId: string;
-  readonly projectId: string;
   readonly title: string;
   readonly lifecycle: string;
   readonly isPrimary: boolean;
