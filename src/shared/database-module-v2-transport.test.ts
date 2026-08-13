@@ -97,7 +97,7 @@ const propertyRecord = () => ({
 
 describe("Database Module v2 transport boundary", () => {
   test("exposes the View-global ordering contract version", () => {
-    expect(DATABASE_MODULE_V2_CONTRACT_VERSION).toBe(11);
+    expect(DATABASE_MODULE_V2_CONTRACT_VERSION).toBe(12);
   });
 
   test("rejects Property option counts outside the canonical schema bound", () => {
@@ -799,6 +799,7 @@ describe("Database Module v2 transport boundary", () => {
         storeEpoch: "epoch-1",
         duplicate: false,
         operationKinds: ["put_option", "edit_property_values"],
+        operationOutcomes: [],
         affectedDatabaseIds: ["database-1"],
         affectedDataSourceIds: ["source-1"],
         affectedPageIds: ["page-1"],
@@ -903,6 +904,7 @@ describe("Database Module v2 transport boundary", () => {
         storeEpoch: "epoch-1",
         duplicate: false,
         operationKinds: ["put_option"],
+        operationOutcomes: [],
         affectedDatabaseIds: ["database-1"],
         affectedDataSourceIds: ["source-1"],
         affectedPageIds: [],

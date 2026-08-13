@@ -17,7 +17,7 @@ import type {
 } from "./database-kernel";
 import type { Page } from "./page";
 
-export const DATABASE_MODULE_V2_CONTRACT_VERSION = 11 as const;
+export const DATABASE_MODULE_V2_CONTRACT_VERSION = 12 as const;
 export const MAX_DATABASE_MODULE_V2_OPERATIONS = 64 as const;
 export const MAX_DATABASE_MODULE_V2_BULK_ENTRIES = 100 as const;
 
@@ -570,6 +570,104 @@ export interface SetDatabaseTaskParentOperationV2 {
   readonly beforePageId?: string;
 }
 
+export type DatabaseListMoveSelectionV2 =
+  | {
+      readonly kind: "explicit";
+      readonly occurrenceKeys: readonly string[];
+    }
+  | {
+      readonly kind: "all_matching";
+      readonly excludedOccurrenceKeys: readonly string[];
+    };
+
+export type DatabaseListMoveEdgeV2 = "before" | "after" | "inside";
+
+export type DatabaseListMoveTargetV2 =
+  | {
+      readonly kind: "page";
+      readonly occurrenceKey: string;
+      readonly edge: DatabaseListMoveEdgeV2;
+    }
+  | {
+      readonly kind: "group";
+      readonly occurrenceKey: string;
+    };
+
+export interface DatabaseListProjectionExpectationV2 {
+  readonly scopeKey: string;
+  readonly schemaVersion: number;
+  readonly revision: number;
+  readonly coveredCommitSeq: number;
+  readonly effectHash: string | null;
+}
+
+export interface MoveDatabaseListOccurrencesOperationV2 {
+  readonly kind: "move_list_occurrences";
+  readonly viewId: DatabaseViewId;
+  readonly presentationOverride: DatabaseViewPresentationOverride;
+  readonly expectedProjection: DatabaseListProjectionExpectationV2;
+  readonly initiatorOccurrenceKey: string;
+  readonly selection: DatabaseListMoveSelectionV2;
+  readonly target: DatabaseListMoveTargetV2;
+}
+
+export interface DatabaseListMovePropertyStateV2 {
+  readonly pageId: string;
+  readonly propertyId: DataSourcePropertyId;
+  readonly beforeValue: DatabasePropertyValueInputV2;
+  readonly afterValue: DatabasePropertyValueInputV2;
+}
+
+export interface DatabaseListMoveParentGuardV2 {
+  readonly pageId: string;
+  readonly parentPageId: string | null;
+}
+
+export interface DatabaseListMoveRestoreRunV2 {
+  readonly pageIds: readonly string[];
+  readonly parentPageId: string | null;
+  readonly beforePageId: string | null;
+}
+
+export interface DatabaseListMoveUndoRecipeV2 {
+  readonly viewId: DatabaseViewId;
+  readonly dataSourceId: DataSourceId;
+  readonly propertyStates: readonly DatabaseListMovePropertyStateV2[];
+  readonly postParentGuards: readonly DatabaseListMoveParentGuardV2[];
+  readonly postBeforePageId: string | null;
+  readonly postOrderGuard: boolean;
+  readonly restoreRuns: readonly DatabaseListMoveRestoreRunV2[];
+}
+
+export interface UndoDatabaseListOccurrenceMoveOperationV2 {
+  readonly kind: "undo_list_occurrence_move";
+  readonly recipe: DatabaseListMoveUndoRecipeV2;
+}
+
+export type DatabaseOperationOutcomeV2 =
+  | {
+      readonly kind: "list_occurrence_move";
+      readonly operationIndex: number;
+      readonly movedPageIds: readonly string[];
+      readonly moveRootPageIds: readonly string[];
+      readonly normalizedTarget: {
+        readonly targetOccurrenceKey: string;
+        readonly targetPageId: string | null;
+        readonly parentPageId: string | null;
+        readonly beforePageId: string | null;
+        readonly groupKey: string | null;
+        readonly subgroupKey: string | null;
+        readonly depth: number;
+        readonly edge: DatabaseListMoveEdgeV2;
+      };
+      readonly undoRecipe: DatabaseListMoveUndoRecipeV2;
+    }
+  | {
+      readonly kind: "list_occurrence_move_undo";
+      readonly operationIndex: number;
+      readonly restoredPageIds: readonly string[];
+    };
+
 export interface PutDatabaseViewPersonalPresentationOperationV2 {
   readonly kind: "put_view_personal_presentation";
   readonly viewId: DatabaseViewId;
@@ -596,6 +694,8 @@ export type DatabaseApplyOperationV2 =
   | PositionDatabaseViewPageOperationV2
   | PositionDatabaseViewPagesOperationV2
   | SetDatabaseTaskParentOperationV2
+  | MoveDatabaseListOccurrencesOperationV2
+  | UndoDatabaseListOccurrenceMoveOperationV2
   | PutDatabaseViewPersonalPresentationOperationV2
   | SetDatabaseViewOccurrenceDisclosureOperationV2;
 
@@ -621,6 +721,7 @@ export interface DatabaseApplyReceiptV2 {
   readonly storeEpoch: string;
   readonly duplicate: boolean;
   readonly operationKinds: readonly DatabaseApplyOperationV2["kind"][];
+  readonly operationOutcomes: readonly DatabaseOperationOutcomeV2[];
   readonly affectedDatabaseIds: readonly DatabaseId[];
   readonly affectedDataSourceIds: readonly DataSourceId[];
   readonly affectedPageIds: readonly string[];

@@ -131,6 +131,7 @@ const committed = (request: DatabaseApplyV2): DatabaseApplyResultV2 => ({
     storeEpoch: request.storeEpoch,
     duplicate: false,
     operationKinds: request.operations.map((operation) => operation.kind),
+    operationOutcomes: [],
     affectedDatabaseIds: [databaseId],
     affectedDataSourceIds: [dataSourceId],
     affectedPageIds: [],

@@ -63,6 +63,7 @@ import {
 import { requestPageCreate } from "@/lib/page-create-workflow";
 import { toast } from "@/components/ui/toast";
 import { isWorkflowStatus } from "../../../shared/workflow-status";
+import { useDatabaseViewMutationHistory } from "./database-view-mutation-history";
 
 const DB_VIEW_TABS: Array<{
   id: "board" | "list";
@@ -161,6 +162,9 @@ export function DatabaseViewTabSurface({
   readonly pageCreateSurfaceId?: string;
   readonly onRequestCreatePage?: (groupKey: string) => void;
 }) {
+  const mutationHistory = useDatabaseViewMutationHistory(
+    `${model.storeEpoch}:${model.databaseViewId}`,
+  );
   return (
     <div className="flex h-full min-h-0 flex-col bg-token-main-surface-primary">
       <DbViewToolbar
@@ -201,6 +205,7 @@ export function DatabaseViewTabSurface({
                 pageCreateSurfaceId={pageCreateSurfaceId}
                 onRequestCreatePage={onRequestCreatePage}
                 scrollStateKey={`database-view:${model.databaseViewId}:list`}
+                mutationHistory={mutationHistory}
               />
             )
             : (
@@ -219,6 +224,7 @@ export function DatabaseViewTabSurface({
                 onSelectedPageIdsChange={onSelectedPageIdsChange}
                 pageCreateSurfaceId={pageCreateSurfaceId}
                 onRequestCreatePage={onRequestCreatePage}
+                mutationHistory={mutationHistory}
               />
             )}
       </div>

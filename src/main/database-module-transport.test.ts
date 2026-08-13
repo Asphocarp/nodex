@@ -104,6 +104,7 @@ describe("Database Module IPC", () => {
           storeEpoch: request.storeEpoch,
           duplicate: received.length > 1,
           operationKinds: request.operations.map((operation) => operation.kind),
+          operationOutcomes: [],
           affectedDatabaseIds: [],
           affectedDataSourceIds: [parseDataSourceId("source-1")],
           affectedPageIds: ["page-1"],

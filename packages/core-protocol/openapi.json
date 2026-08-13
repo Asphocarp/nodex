@@ -3745,6 +3745,9 @@
                     "ancestor_page_ids",
                     "depth",
                     "has_children",
+                    "subtree_occurrence_count",
+                    "concrete_subtree_page_count",
+                    "subtree_height",
                     "transient_kind",
                     "kind"
                   ],
@@ -3755,10 +3758,23 @@
                         "type": "string"
                       }
                     },
+                    "concrete_subtree_page_count": {
+                      "type": "integer",
+                      "format": "int32",
+                      "description": "Number of concrete Page occurrences in this subtree. Transient\nrows are skipped, but their descendants remain part of the count.",
+                      "minimum": 0
+                    },
                     "depth": {
                       "type": "integer",
                       "format": "int32",
                       "minimum": 0
+                    },
+                    "first_child_occurrence_key": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Stable occurrence identity of the first direct child when one is\npresent. This lets a bounded renderer preview the normalized\n\"after parent\" slot without materializing the whole subtree."
                     },
                     "group_path": {
                       "type": "array",
@@ -3780,6 +3796,18 @@
                     },
                     "occurrence_key": {
                       "type": "string"
+                    },
+                    "subtree_height": {
+                      "type": "integer",
+                      "format": "int32",
+                      "description": "Maximum number of Parent edges below this occurrence.",
+                      "minimum": 0
+                    },
+                    "subtree_occurrence_count": {
+                      "type": "integer",
+                      "format": "int32",
+                      "description": "Number of Page occurrences in this visible occurrence subtree,\nincluding transient context rows and this row.",
+                      "minimum": 0
                     },
                     "summary": {
                       "$ref": "#/components/schemas/DatabaseRowSummary"
@@ -6676,6 +6704,62 @@
             "type": "object",
             "required": [
               "view_id",
+              "presentation_override",
+              "expected_projection",
+              "initiator_occurrence_key",
+              "selection",
+              "target",
+              "kind"
+            ],
+            "properties": {
+              "expected_projection": {
+                "$ref": "#/components/schemas/DatabaseListProjectionExpectation"
+              },
+              "initiator_occurrence_key": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "move_list_occurrences"
+                ]
+              },
+              "presentation_override": {
+                "$ref": "#/components/schemas/DatabaseViewPresentationOverrideInput"
+              },
+              "selection": {
+                "$ref": "#/components/schemas/DatabaseListMoveSelection"
+              },
+              "target": {
+                "$ref": "#/components/schemas/DatabaseListMoveTarget"
+              },
+              "view_id": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "recipe",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "undo_list_occurrence_move"
+                ]
+              },
+              "recipe": {
+                "$ref": "#/components/schemas/DatabaseListMoveUndoRecipe"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "view_id",
               "expected_revision",
               "presentation_override",
               "kind"
@@ -6751,6 +6835,305 @@
           }
         }
       },
+      "DatabaseListMoveEdge": {
+        "type": "string",
+        "enum": [
+          "before",
+          "after",
+          "inside"
+        ]
+      },
+      "DatabaseListMoveNormalizedTarget": {
+        "type": "object",
+        "required": [
+          "target_occurrence_key",
+          "depth",
+          "edge"
+        ],
+        "properties": {
+          "before_page_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "depth": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "edge": {
+            "$ref": "#/components/schemas/DatabaseListMoveEdge"
+          },
+          "group_key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "parent_page_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "subgroup_key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "target_occurrence_key": {
+            "type": "string"
+          },
+          "target_page_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "DatabaseListMoveParentGuard": {
+        "type": "object",
+        "required": [
+          "page_id"
+        ],
+        "properties": {
+          "page_id": {
+            "type": "string"
+          },
+          "parent_page_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "DatabaseListMovePropertyState": {
+        "type": "object",
+        "required": [
+          "page_id",
+          "property_id",
+          "before_value",
+          "after_value"
+        ],
+        "properties": {
+          "after_value": {
+            "$ref": "#/components/schemas/DatabasePropertyValueInput"
+          },
+          "before_value": {
+            "$ref": "#/components/schemas/DatabasePropertyValueInput"
+          },
+          "page_id": {
+            "type": "string"
+          },
+          "property_id": {
+            "type": "string"
+          }
+        }
+      },
+      "DatabaseListMoveRestoreRun": {
+        "type": "object",
+        "description": "One contiguous source run restored by semantic Undo. A null parent means\nthe Page run belonged at List root; `before_page_id` is always outside the\nmoved closure.",
+        "required": [
+          "page_ids"
+        ],
+        "properties": {
+          "before_page_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "page_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "parent_page_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "DatabaseListMoveSelection": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "occurrence_keys",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "explicit"
+                ]
+              },
+              "occurrence_keys": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "excluded_occurrence_keys",
+              "kind"
+            ],
+            "properties": {
+              "excluded_occurrence_keys": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "all_matching"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "Selection semantics for one Database List drag. Occurrence identities are\nresolved against the exact effective List projection inside Core; callers\nnever materialize descendant Page IDs themselves."
+      },
+      "DatabaseListMoveTarget": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "occurrence_key",
+              "edge",
+              "kind"
+            ],
+            "properties": {
+              "edge": {
+                "$ref": "#/components/schemas/DatabaseListMoveEdge"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "page"
+                ]
+              },
+              "occurrence_key": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "occurrence_key",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "group"
+                ]
+              },
+              "occurrence_key": {
+                "type": "string"
+              }
+            }
+          }
+        ],
+        "description": "A raw pointer target. Page target normalization (including\n`after(parent) -> before(first child)`) remains a Core responsibility."
+      },
+      "DatabaseListMoveUndoRecipe": {
+        "type": "object",
+        "description": "Opaque-to-UI inverse recipe. Core validates the move's logical post-image\nbefore restoring these runs, so session Undo cannot overwrite a later edit.",
+        "required": [
+          "view_id",
+          "data_source_id",
+          "property_states",
+          "post_parent_guards",
+          "post_order_guard",
+          "restore_runs"
+        ],
+        "properties": {
+          "data_source_id": {
+            "type": "string"
+          },
+          "post_before_page_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "post_order_guard": {
+            "type": "boolean"
+          },
+          "post_parent_guards": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DatabaseListMoveParentGuard"
+            }
+          },
+          "property_states": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DatabaseListMovePropertyState"
+            }
+          },
+          "restore_runs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DatabaseListMoveRestoreRun"
+            }
+          },
+          "view_id": {
+            "type": "string"
+          }
+        }
+      },
+      "DatabaseListProjectionExpectation": {
+        "type": "object",
+        "description": "Renderer-visible causal coordinate. The canonical scope body is omitted\nbecause callers only need to prove that the scope identity and revision\nthey rendered are still current.",
+        "required": [
+          "scope_key",
+          "schema_version",
+          "revision",
+          "covered_commit_seq"
+        ],
+        "properties": {
+          "covered_commit_seq": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "effect_hash": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "schema_version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "scope_key": {
+            "type": "string"
+          }
+        }
+      },
       "DatabaseListTransientKind": {
         "type": "string",
         "enum": [
@@ -6822,6 +7205,79 @@
             "format": "int64"
           }
         }
+      },
+      "DatabaseOperationOutcome": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "operation_index",
+              "moved_page_ids",
+              "move_root_page_ids",
+              "normalized_target",
+              "undo_recipe",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "list_occurrence_move"
+                ]
+              },
+              "move_root_page_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "moved_page_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "normalized_target": {
+                "$ref": "#/components/schemas/DatabaseListMoveNormalizedTarget"
+              },
+              "operation_index": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              },
+              "undo_recipe": {
+                "$ref": "#/components/schemas/DatabaseListMoveUndoRecipe"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "operation_index",
+              "restored_page_ids",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "list_occurrence_move_undo"
+                ]
+              },
+              "operation_index": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              },
+              "restored_page_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ]
       },
       "DatabasePagePosition": {
         "type": "object",
@@ -20414,6 +20870,62 @@
                   "type": "object",
                   "required": [
                     "view_id",
+                    "presentation_override",
+                    "expected_projection",
+                    "initiator_occurrence_key",
+                    "selection",
+                    "target",
+                    "kind"
+                  ],
+                  "properties": {
+                    "expected_projection": {
+                      "$ref": "#/components/schemas/DatabaseListProjectionExpectation"
+                    },
+                    "initiator_occurrence_key": {
+                      "type": "string"
+                    },
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "move_list_occurrences"
+                      ]
+                    },
+                    "presentation_override": {
+                      "$ref": "#/components/schemas/DatabaseViewPresentationOverrideInput"
+                    },
+                    "selection": {
+                      "$ref": "#/components/schemas/DatabaseListMoveSelection"
+                    },
+                    "target": {
+                      "$ref": "#/components/schemas/DatabaseListMoveTarget"
+                    },
+                    "view_id": {
+                      "type": "string"
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "required": [
+                    "recipe",
+                    "kind"
+                  ],
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "undo_list_occurrence_move"
+                      ]
+                    },
+                    "recipe": {
+                      "$ref": "#/components/schemas/DatabaseListMoveUndoRecipe"
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "required": [
+                    "view_id",
                     "expected_revision",
                     "presentation_override",
                     "kind"
@@ -26034,6 +26546,12 @@
                                 "items": {
                                   "type": "string"
                                 }
+                              },
+                              "operation_outcomes": {
+                                "type": "array",
+                                "items": {
+                                  "$ref": "#/components/schemas/DatabaseOperationOutcome"
+                                }
                               }
                             }
                           }
@@ -26135,6 +26653,12 @@
                                 "type": "array",
                                 "items": {
                                   "type": "string"
+                                }
+                              },
+                              "operation_outcomes": {
+                                "type": "array",
+                                "items": {
+                                  "$ref": "#/components/schemas/DatabaseOperationOutcome"
                                 }
                               }
                             }

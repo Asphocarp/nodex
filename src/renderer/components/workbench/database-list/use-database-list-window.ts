@@ -23,6 +23,9 @@ type AnyDatabaseListWindowSnapshot = DatabaseListWindowSnapshot<string | null>;
 
 export interface DatabaseListWindowState {
   readonly active: boolean;
+  readonly storeEpoch: string | null;
+  readonly commitSeq: number;
+  readonly projection: AnyDatabaseListWindowSnapshot["projection"] | null;
   readonly rows: readonly DatabaseListProjectionRowSnapshot[];
   readonly groups: AnyDatabaseListWindowSnapshot["groups"];
   readonly totalProjectionRowCount: number;
@@ -38,6 +41,9 @@ export interface DatabaseListWindowState {
 
 const EMPTY_WINDOW_STATE: DatabaseListWindowState = Object.freeze({
   active: false,
+  storeEpoch: null,
+  commitSeq: 0,
+  projection: null,
   rows: [],
   groups: [],
   totalProjectionRowCount: 0,
@@ -51,7 +57,7 @@ const EMPTY_WINDOW_STATE: DatabaseListWindowState = Object.freeze({
 });
 
 /** A List request must never inherit the currently visible Board layout. */
-const fullListPresentationOverride = (
+export const databaseListPresentationOverride = (
   effective: EffectiveDatabaseViewPresentation,
 ): DatabaseViewPresentationOverride => ({
   layout: "list",
@@ -86,6 +92,9 @@ const stateFromFirstWindow = (
   snapshot: AnyDatabaseListWindowSnapshot,
 ): DatabaseListWindowState => ({
   active: true,
+  storeEpoch: snapshot.storeEpoch,
+  commitSeq: snapshot.commitSeq,
+  projection: snapshot.projection,
   rows: snapshot.rows,
   groups: snapshot.groups,
   totalProjectionRowCount: snapshot.totalProjectionRowCount,
@@ -121,6 +130,9 @@ export const mergeDatabaseListWindow = (
     kind: "merged",
     state: {
       active: true,
+      storeEpoch: next.storeEpoch,
+      commitSeq: next.commitSeq,
+      projection: next.projection,
       rows: [...current.rows, ...next.rows],
       groups: next.groups,
       totalProjectionRowCount: next.totalProjectionRowCount,
@@ -165,7 +177,7 @@ const descriptorFor = (
     input: {
       databaseViewId: model.databaseViewId,
       first: DATABASE_LIST_WINDOW_SIZE,
-      presentationOverride: fullListPresentationOverride(effective),
+      presentationOverride: databaseListPresentationOverride(effective),
       minimumCommitCursor: {
         storeEpoch: model.storeEpoch,
         commitSeq: model.commitSeq,
@@ -388,6 +400,14 @@ export class DatabaseListWindowStore {
     this.requestFirstWindow(this.state.active);
   };
 
+  /** Forces a first-window revalidation and resolves with the accepted state. */
+  refresh = async (): Promise<DatabaseListWindowState> => {
+    if (!this.descriptor) return this.state;
+    this.requestFirstWindow(this.state.active);
+    await this.firstWindowDrain;
+    return this.state;
+  };
+
   private clearUnavailableAuthority(): void {
     if (this.descriptor === null && this.state === EMPTY_WINDOW_STATE) return;
     this.generation += 1;
@@ -547,6 +567,7 @@ const sharedListWindowRegistry = createDatabaseListWindowStoreRegistry();
 export interface UseDatabaseListWindowResult extends DatabaseListWindowState {
   readonly loadMore: () => void;
   readonly retry: () => void;
+  readonly refresh: () => Promise<DatabaseListWindowState>;
 }
 
 export const useDatabaseListWindow = (input: {
@@ -574,6 +595,7 @@ export const useDatabaseListWindow = (input: {
     ...state,
     loadMore: store.loadMore,
     retry: store.retry,
+    refresh: store.refresh,
   };
 };
 

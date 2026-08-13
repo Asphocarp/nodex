@@ -1,5 +1,6 @@
 pub(crate) mod authorization;
 mod genesis;
+mod list_drag;
 mod mutation;
 mod projection_delta;
 pub(crate) mod property_semantics;
@@ -271,10 +272,12 @@ mod tests {
     use nodex_core_contracts::collection::CollectionWindowRequest;
     use nodex_core_contracts::database::{
         DatabaseAgentDataSourceQuery, DatabaseAgentViewQuery, DatabaseGroupScope, DatabaseIntent,
-        DatabaseListProjectionRow, DatabaseListTransientKind, DatabasePagePropertyAddress,
-        DatabasePropertySchema, DatabasePropertySetDelta, DatabasePropertyValueEdit,
-        DatabasePropertyValueInput, DatabasePropertyValueMutation, DatabaseRowsTarget,
-        DatabaseTaskParentPage, DatabaseTransferTarget, DatabaseViewCompletedRangeInput,
+        DatabaseListMoveEdge, DatabaseListMoveSelection, DatabaseListMoveTarget,
+        DatabaseListProjectionExpectation, DatabaseListProjectionRow, DatabaseListTransientKind,
+        DatabaseOperationOutcome, DatabasePagePropertyAddress, DatabasePropertySchema,
+        DatabasePropertySetDelta, DatabasePropertyValueEdit, DatabasePropertyValueInput,
+        DatabasePropertyValueMutation, DatabaseRowsTarget, DatabaseTaskParentPage,
+        DatabaseTransferTarget, DatabaseViewCompletedRangeInput,
         DatabaseViewCompletionOverrideInput, DatabaseViewDefinition, DatabaseViewDisclosureTarget,
         DatabaseViewFieldInput, DatabaseViewFilter, DatabaseViewFilterGroupOperator,
         DatabaseViewFilterOperator, DatabaseViewGroupOverrideInput, DatabaseViewLayout,
@@ -3507,6 +3510,10 @@ mod tests {
             summary,
             transient_kind,
             depth,
+            subtree_occurrence_count,
+            concrete_subtree_page_count,
+            subtree_height,
+            first_child_occurrence_key,
             ..
         } = &first.rows.items[0]
         else {
@@ -3515,6 +3522,10 @@ mod tests {
         assert_eq!(summary.page_id, "page:list-parent");
         assert_eq!(*transient_kind, DatabaseListTransientKind::Ancestor);
         assert_eq!(*depth, 0);
+        assert_eq!(*subtree_occurrence_count, 2);
+        assert_eq!(*concrete_subtree_page_count, 1);
+        assert_eq!(*subtree_height, 1);
+        assert!(first_child_occurrence_key.is_some());
 
         let second = read_list_window(&module, 1, first.rows.next_cursor.clone())
             .expect("second List window");
@@ -3534,6 +3545,599 @@ mod tests {
         assert_eq!(*transient_kind, DatabaseListTransientKind::None);
         assert_eq!(ancestor_page_ids, &["page:list-parent"]);
         assert_eq!(*depth, 1);
+    }
+
+    #[test]
+    fn semantic_list_move_keeps_a_concrete_subtree_atomic_and_undoable() {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        let kernel = SqliteStoreKernel::open_test(&home).expect("fresh store");
+        let module = seed_grouped_fixture(
+            &kernel,
+            vec![
+                GroupRowSpec {
+                    page_id: "page:move-parent",
+                    title: "Move parent",
+                    value_json: Some("\"triage\""),
+                    rank_key: Some("a"),
+                },
+                GroupRowSpec {
+                    page_id: "page:move-child",
+                    title: "Move child",
+                    value_json: Some("\"triage\""),
+                    rank_key: Some("b"),
+                },
+                GroupRowSpec {
+                    page_id: "page:move-grandchild",
+                    title: "Move grandchild",
+                    value_json: Some("\"triage\""),
+                    rank_key: Some("c"),
+                },
+                GroupRowSpec {
+                    page_id: "page:ship-target",
+                    title: "Ship target",
+                    value_json: Some("\"ship\""),
+                    rank_key: Some("d"),
+                },
+            ],
+        );
+        apply_task_parent(
+            &module,
+            "operation:list-move-child",
+            &[("page:move-child", 1)],
+            Some("page:move-parent"),
+            None,
+        )
+        .expect("nest child");
+        apply_task_parent(
+            &module,
+            "operation:list-move-grandchild",
+            &[("page:move-grandchild", 1)],
+            Some("page:move-child"),
+            None,
+        )
+        .expect("nest grandchild");
+        configure_nested_status_list(&module, "operation:list-move-view");
+
+        let before = read_list_window(&module, 50, None).expect("read source List");
+        let initiator_occurrence_key = before
+            .rows
+            .items
+            .iter()
+            .find_map(|row| match row {
+                DatabaseListProjectionRow::Page {
+                    occurrence_key,
+                    summary,
+                    transient_kind: DatabaseListTransientKind::None,
+                    ..
+                } if summary.page_id == "page:move-parent" => Some(occurrence_key.clone()),
+                _ => None,
+            })
+            .expect("concrete parent occurrence");
+        let target_occurrence_key = before
+            .rows
+            .items
+            .iter()
+            .find_map(|row| match row {
+                DatabaseListProjectionRow::Group {
+                    occurrence_key,
+                    group_key: Some(group_key),
+                    ..
+                } if group_key == "ship" => Some(occurrence_key.clone()),
+                _ => None,
+            })
+            .expect("Ship group target");
+        let moved = module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    operation_id: "operation:list-subtree-move".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: vec![DatabaseIntent::MoveListOccurrences {
+                        view_id: VIEW_ID.to_owned(),
+                        presentation_override: DatabaseViewPresentationOverrideInput {
+                            layout: Some(DatabaseViewLayoutInput::List),
+                            ..Default::default()
+                        },
+                        expected_projection: list_projection_expectation(&before),
+                        initiator_occurrence_key: initiator_occurrence_key.clone(),
+                        selection: DatabaseListMoveSelection::Explicit {
+                            occurrence_keys: vec![initiator_occurrence_key],
+                        },
+                        target: DatabaseListMoveTarget::Group {
+                            occurrence_key: target_occurrence_key,
+                        },
+                    }],
+                },
+            )
+            .expect("move concrete subtree");
+        let DatabaseOperationOutcome::ListOccurrenceMove {
+            moved_page_ids,
+            move_root_page_ids,
+            normalized_target,
+            undo_recipe,
+            ..
+        } = moved.committed.receipt.operation_outcomes[0].clone()
+        else {
+            panic!("semantic List move outcome");
+        };
+        assert_eq!(
+            moved_page_ids,
+            [
+                "page:move-parent",
+                "page:move-child",
+                "page:move-grandchild",
+            ],
+        );
+        assert_eq!(move_root_page_ids, ["page:move-parent"]);
+        assert_eq!(normalized_target.group_key.as_deref(), Some("ship"));
+        assert_eq!(normalized_target.parent_page_id, None);
+
+        let after = read_list_window(&module, 50, None).expect("read moved List");
+        let summaries = after
+            .rows
+            .items
+            .iter()
+            .filter_map(|row| match row {
+                DatabaseListProjectionRow::Page { summary, .. } => {
+                    Some((summary.page_id.as_str(), summary.as_ref()))
+                }
+                _ => None,
+            })
+            .collect::<BTreeMap<_, _>>();
+        for page_id in [
+            "page:move-parent",
+            "page:move-child",
+            "page:move-grandchild",
+        ] {
+            assert_eq!(
+                summaries[page_id].database_values.get("status"),
+                Some(&json!("ship")),
+            );
+        }
+        assert_eq!(summaries["page:move-parent"].task_parent_page_id, None);
+        assert_eq!(
+            summaries["page:move-child"].task_parent_page_id.as_deref(),
+            Some("page:move-parent"),
+        );
+        assert_eq!(
+            summaries["page:move-grandchild"]
+                .task_parent_page_id
+                .as_deref(),
+            Some("page:move-child"),
+        );
+
+        let guarded_undo_recipe = (*undo_recipe).clone();
+        let parent_status_revision =
+            summaries["page:move-parent"].database_value_revisions["status"];
+        module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    operation_id: "operation:list-subtree-external-edit".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: vec![DatabaseIntent::EditPropertyValues {
+                        edits: vec![DatabasePropertyValueMutation {
+                            address: DatabasePagePropertyAddress {
+                                page_id: "page:move-parent".to_owned(),
+                                data_source_id: SOURCE_ID.to_owned(),
+                                property_id: "status".to_owned(),
+                            },
+                            edit: DatabasePropertyValueEdit::Replace {
+                                expected_value_revision: parent_status_revision,
+                                value: DatabasePropertyValueInput::Select {
+                                    option_id: "build".to_owned(),
+                                },
+                            },
+                        }],
+                    }],
+                },
+            )
+            .expect("edit a moved logical field after the drag");
+        let externally_edited =
+            read_list_window(&module, 50, None).expect("read externally edited List");
+        let rejected_undo = module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    operation_id: "operation:list-subtree-stale-undo".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: vec![DatabaseIntent::UndoListOccurrenceMove {
+                        recipe: guarded_undo_recipe,
+                    }],
+                },
+            )
+            .expect_err("reject Undo after another writer changes a moved field");
+        assert_eq!(rejected_undo.code, CoreErrorCode::RevisionConflict);
+        let after_rejected_undo =
+            read_list_window(&module, 50, None).expect("read List after rejected Undo");
+        assert_eq!(after_rejected_undo.projection, externally_edited.projection);
+        let guarded_summaries = after_rejected_undo
+            .rows
+            .items
+            .iter()
+            .filter_map(|row| match row {
+                DatabaseListProjectionRow::Page { summary, .. } => {
+                    Some((summary.page_id.as_str(), summary.as_ref()))
+                }
+                _ => None,
+            })
+            .collect::<BTreeMap<_, _>>();
+        assert_eq!(
+            guarded_summaries["page:move-parent"]
+                .database_values
+                .get("status"),
+            Some(&json!("build")),
+        );
+        for page_id in ["page:move-child", "page:move-grandchild"] {
+            assert_eq!(
+                guarded_summaries[page_id].database_values.get("status"),
+                Some(&json!("ship")),
+            );
+        }
+
+        let parent_build_revision =
+            guarded_summaries["page:move-parent"].database_value_revisions["status"];
+        module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    operation_id: "operation:list-subtree-restore-post-state".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: vec![DatabaseIntent::EditPropertyValues {
+                        edits: vec![DatabasePropertyValueMutation {
+                            address: DatabasePagePropertyAddress {
+                                page_id: "page:move-parent".to_owned(),
+                                data_source_id: SOURCE_ID.to_owned(),
+                                property_id: "status".to_owned(),
+                            },
+                            edit: DatabasePropertyValueEdit::Replace {
+                                expected_value_revision: parent_build_revision,
+                                value: DatabasePropertyValueInput::Select {
+                                    option_id: "ship".to_owned(),
+                                },
+                            },
+                        }],
+                    }],
+                },
+            )
+            .expect("restore the guarded post-move value before safe Undo");
+
+        let undone = module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    operation_id: "operation:list-subtree-undo".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: vec![DatabaseIntent::UndoListOccurrenceMove {
+                        recipe: *undo_recipe,
+                    }],
+                },
+            )
+            .expect("undo concrete subtree move");
+        assert!(matches!(
+            undone.committed.receipt.operation_outcomes.as_slice(),
+            [DatabaseOperationOutcome::ListOccurrenceMoveUndo { .. }],
+        ));
+        let restored = read_list_window(&module, 50, None).expect("read restored List");
+        for summary in restored.rows.items.iter().filter_map(|row| match row {
+            DatabaseListProjectionRow::Page { summary, .. }
+                if summary.page_id.starts_with("page:move-") =>
+            {
+                Some(summary)
+            }
+            _ => None,
+        }) {
+            assert_eq!(
+                summary.database_values.get("status"),
+                Some(&json!("triage"))
+            );
+        }
+    }
+
+    #[test]
+    fn semantic_list_move_uses_default_view_positions_when_sort_is_empty() {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        let kernel = SqliteStoreKernel::open_test(&home).expect("fresh store");
+        let module = seed_grouped_fixture(
+            &kernel,
+            vec![
+                GroupRowSpec {
+                    page_id: "page:default-parent",
+                    title: "Default parent",
+                    value_json: Some("\"triage\""),
+                    rank_key: Some("a"),
+                },
+                GroupRowSpec {
+                    page_id: "page:default-child",
+                    title: "Default child",
+                    value_json: Some("\"triage\""),
+                    rank_key: Some("b"),
+                },
+                GroupRowSpec {
+                    page_id: "page:default-target",
+                    title: "Default target",
+                    value_json: Some("\"triage\""),
+                    rank_key: Some("c"),
+                },
+            ],
+        );
+        apply_task_parent(
+            &module,
+            "operation:default-list-child",
+            &[("page:default-child", 1)],
+            Some("page:default-parent"),
+            None,
+        )
+        .expect("nest default List child");
+        let mut config = view_config(
+            json!({ "kind": "group", "operator": "and", "children": [] }),
+            None,
+            &["status", "priority", "estimate", "tags"],
+        );
+        config["presentation"]["sort"] = json!([]);
+        config["presentation"]["hierarchy"] =
+            json!({ "showSubPages": true, "nestedSubPages": true });
+        module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    operation_id: "operation:default-list-view".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: vec![DatabaseIntent::PutView {
+                        database_id: DATABASE_ID.to_owned(),
+                        data_source_id: SOURCE_ID.to_owned(),
+                        view_id: VIEW_ID.to_owned(),
+                        expected_revision: 1,
+                        name: "Default position List".to_owned(),
+                        layout: DatabaseViewLayout::List,
+                        definition: view_definition(config),
+                        is_default: true,
+                        before_view_id: None,
+                    }],
+                },
+            )
+            .expect("configure default-position List");
+
+        let before = read_list_window(&module, 50, None).expect("read default List");
+        let occurrence_key = |page_id: &str| {
+            before
+                .rows
+                .items
+                .iter()
+                .find_map(|row| match row {
+                    DatabaseListProjectionRow::Page {
+                        occurrence_key,
+                        summary,
+                        transient_kind: DatabaseListTransientKind::None,
+                        ..
+                    } if summary.page_id == page_id => Some(occurrence_key.clone()),
+                    _ => None,
+                })
+                .expect("concrete default List occurrence")
+        };
+        let source_key = occurrence_key("page:default-parent");
+        let target_key = occurrence_key("page:default-target");
+        let moved = module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    operation_id: "operation:default-list-move".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: vec![DatabaseIntent::MoveListOccurrences {
+                        view_id: VIEW_ID.to_owned(),
+                        presentation_override: DatabaseViewPresentationOverrideInput {
+                            layout: Some(DatabaseViewLayoutInput::List),
+                            ..Default::default()
+                        },
+                        expected_projection: list_projection_expectation(&before),
+                        initiator_occurrence_key: source_key.clone(),
+                        selection: DatabaseListMoveSelection::Explicit {
+                            occurrence_keys: vec![source_key],
+                        },
+                        target: DatabaseListMoveTarget::Page {
+                            occurrence_key: target_key,
+                            edge: DatabaseListMoveEdge::After,
+                        },
+                    }],
+                },
+            )
+            .expect("move a subtree in default position order");
+        let DatabaseOperationOutcome::ListOccurrenceMove { undo_recipe, .. } =
+            moved.committed.receipt.operation_outcomes[0].clone()
+        else {
+            panic!("default List move outcome");
+        };
+        let page_order = |window: &nodex_core_contracts::database::DatabaseListWindow| {
+            window
+                .rows
+                .items
+                .iter()
+                .filter_map(|row| match row {
+                    DatabaseListProjectionRow::Page { summary, .. } => {
+                        Some(summary.page_id.clone())
+                    }
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        let after = read_list_window(&module, 50, None).expect("read moved default List");
+        assert_eq!(
+            page_order(&after),
+            [
+                "page:default-target".to_owned(),
+                "page:default-parent".to_owned(),
+                "page:default-child".to_owned(),
+            ]
+        );
+
+        module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    operation_id: "operation:default-list-undo".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: vec![DatabaseIntent::UndoListOccurrenceMove {
+                        recipe: *undo_recipe,
+                    }],
+                },
+            )
+            .expect("undo the default position move");
+        let restored = read_list_window(&module, 50, None).expect("read restored default List");
+        assert_eq!(
+            page_order(&restored),
+            [
+                "page:default-parent".to_owned(),
+                "page:default-child".to_owned(),
+                "page:default-target".to_owned(),
+            ]
+        );
+    }
+
+    #[test]
+    fn semantic_list_move_rolls_back_group_adoption_when_depth_validation_fails() {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        let kernel = SqliteStoreKernel::open_test(&home).expect("fresh store");
+        let mut rows = vec![
+            GroupRowSpec {
+                page_id: "page:deep-source",
+                title: "Deep source",
+                value_json: Some("\"triage\""),
+                rank_key: Some("a"),
+            },
+            GroupRowSpec {
+                page_id: "page:deep-child",
+                title: "Deep child",
+                value_json: Some("\"triage\""),
+                rank_key: Some("b"),
+            },
+        ];
+        const TARGETS: [&str; 10] = [
+            "page:target-0",
+            "page:target-1",
+            "page:target-2",
+            "page:target-3",
+            "page:target-4",
+            "page:target-5",
+            "page:target-6",
+            "page:target-7",
+            "page:target-8",
+            "page:target-9",
+        ];
+        for (index, page_id) in TARGETS.iter().enumerate() {
+            rows.push(GroupRowSpec {
+                page_id,
+                title: page_id,
+                value_json: Some("\"ship\""),
+                rank_key: Some(if index % 2 == 0 { "c" } else { "d" }),
+            });
+        }
+        let module = seed_grouped_fixture(&kernel, rows);
+        apply_task_parent(
+            &module,
+            "operation:deep-source-child",
+            &[("page:deep-child", 1)],
+            Some("page:deep-source"),
+            None,
+        )
+        .expect("nest source child");
+        for index in 1..TARGETS.len() {
+            apply_task_parent(
+                &module,
+                &format!("operation:deep-target-{index}"),
+                &[(TARGETS[index], 1)],
+                Some(TARGETS[index - 1]),
+                None,
+            )
+            .expect("build target hierarchy");
+        }
+        configure_nested_status_list(&module, "operation:deep-list-view");
+        let before = read_list_window(&module, 100, None).expect("read deep List");
+        let source_key = before
+            .rows
+            .items
+            .iter()
+            .find_map(|row| match row {
+                DatabaseListProjectionRow::Page {
+                    occurrence_key,
+                    summary,
+                    transient_kind: DatabaseListTransientKind::None,
+                    ..
+                } if summary.page_id == "page:deep-source" => Some(occurrence_key.clone()),
+                _ => None,
+            })
+            .expect("source occurrence");
+        let target_key = before
+            .rows
+            .items
+            .iter()
+            .find_map(|row| match row {
+                DatabaseListProjectionRow::Page {
+                    occurrence_key,
+                    summary,
+                    transient_kind: DatabaseListTransientKind::None,
+                    ..
+                } if summary.page_id == TARGETS[9] => Some(occurrence_key.clone()),
+                _ => None,
+            })
+            .expect("deep target occurrence");
+        let error = module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    operation_id: "operation:deep-list-move".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: vec![DatabaseIntent::MoveListOccurrences {
+                        view_id: VIEW_ID.to_owned(),
+                        presentation_override: DatabaseViewPresentationOverrideInput {
+                            layout: Some(DatabaseViewLayoutInput::List),
+                            ..Default::default()
+                        },
+                        expected_projection: list_projection_expectation(&before),
+                        initiator_occurrence_key: source_key.clone(),
+                        selection: DatabaseListMoveSelection::Explicit {
+                            occurrence_keys: vec![source_key],
+                        },
+                        target: DatabaseListMoveTarget::Page {
+                            occurrence_key: target_key,
+                            edge: DatabaseListMoveEdge::Inside,
+                        },
+                    }],
+                },
+            )
+            .expect_err("reject a subtree deeper than ten Parent edges");
+        assert_eq!(error.code, CoreErrorCode::InvalidInput);
+
+        let after = read_list_window(&module, 100, None).expect("read rolled-back List");
+        assert_eq!(
+            after.projection.covered_commit_seq,
+            before.projection.covered_commit_seq
+        );
+        for summary in after.rows.items.iter().filter_map(|row| match row {
+            DatabaseListProjectionRow::Page { summary, .. }
+                if summary.page_id == "page:deep-source"
+                    || summary.page_id == "page:deep-child" =>
+            {
+                Some(summary)
+            }
+            _ => None,
+        }) {
+            assert_eq!(
+                summary.database_values.get("status"),
+                Some(&json!("triage"))
+            );
+        }
     }
 
     #[test]
@@ -4572,6 +5176,49 @@ mod tests {
             panic!("List window read");
         };
         Ok(value)
+    }
+
+    fn list_projection_expectation(
+        window: &nodex_core_contracts::database::DatabaseListWindow,
+    ) -> DatabaseListProjectionExpectation {
+        DatabaseListProjectionExpectation {
+            scope_key: window.projection.scope.canonical_key.clone(),
+            schema_version: window.projection.scope.schema_version,
+            revision: window.projection.revision,
+            covered_commit_seq: window.projection.covered_commit_seq,
+            effect_hash: window.projection.effect_hash.clone(),
+        }
+    }
+
+    fn configure_nested_status_list(module: &DatabaseModule, operation_id: &str) {
+        let mut config = view_config(
+            json!({ "kind": "group", "operator": "and", "children": [] }),
+            Some("status"),
+            &["status", "priority", "estimate", "tags"],
+        );
+        config["presentation"]["hierarchy"] =
+            json!({ "showSubPages": true, "nestedSubPages": true });
+        module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    operation_id: operation_id.to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: vec![DatabaseIntent::PutView {
+                        database_id: DATABASE_ID.to_owned(),
+                        data_source_id: SOURCE_ID.to_owned(),
+                        view_id: VIEW_ID.to_owned(),
+                        expected_revision: 1,
+                        name: "Nested status List".to_owned(),
+                        layout: DatabaseViewLayout::List,
+                        definition: view_definition(config),
+                        is_default: true,
+                        before_view_id: None,
+                    }],
+                },
+            )
+            .expect("configure nested status List");
     }
 
     fn read_view_context(

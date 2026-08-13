@@ -71,6 +71,10 @@ export interface DatabaseListPageRow {
   readonly ancestorPageIds: readonly string[];
   readonly depth: number;
   readonly hasChildren: boolean;
+  readonly subtreeOccurrenceCount: number;
+  readonly concreteSubtreePageCount: number;
+  readonly subtreeHeight: number;
+  readonly firstChildOccurrenceKey: string | null;
   readonly transientKind: "none" | "ancestor" | "child";
   readonly firstInGroup: boolean;
   readonly lastInGroup: boolean;
@@ -105,6 +109,9 @@ interface NestedRow {
   readonly ancestorPageIds: readonly string[];
   readonly depth: number;
   readonly hasChildren: boolean;
+  readonly subtreeOccurrenceCount: number;
+  readonly subtreeHeight: number;
+  readonly firstChildOccurrenceKey: string | null;
 }
 
 const nestedRows = (
@@ -129,6 +136,9 @@ const nestedRows = (
       ancestorPageIds: [],
       depth: 0,
       hasChildren: false,
+      subtreeOccurrenceCount: 1,
+      subtreeHeight: 0,
+      firstChildOccurrenceKey: null,
     }));
   }
 
@@ -152,8 +162,12 @@ const nestedRows = (
     row: DatabaseViewRenderRow,
     ancestors: readonly string[],
     path: ReadonlySet<string>,
-  ): void => {
-    if (visited.has(row.pageId) || path.has(row.pageId)) return;
+  ): {
+    readonly key: string;
+    readonly subtreeOccurrenceCount: number;
+    readonly subtreeHeight: number;
+  } | null => {
+    if (visited.has(row.pageId) || path.has(row.pageId)) return null;
     visited.add(row.pageId);
     const key = databaseListOccurrenceKey({
       groupKey,
@@ -163,18 +177,38 @@ const nestedRows = (
     });
     const children = childrenByParent.get(row.pageId) ?? [];
     const hasChildren = children.length > 0;
+    const resultIndex = result.length;
     result.push({
       key,
       row,
       ancestorPageIds: ancestors,
       depth: Math.min(ancestors.length, DATABASE_LIST_MAX_NESTING_DEPTH),
       hasChildren,
+      subtreeOccurrenceCount: 1,
+      subtreeHeight: 0,
+      firstChildOccurrenceKey: null,
     });
-    if (ancestors.length >= DATABASE_LIST_MAX_NESTING_DEPTH) return;
-    const nextPath = new Set(path).add(row.pageId);
-    for (const child of children) {
-      visit(child, [...ancestors, row.pageId], nextPath);
+    if (ancestors.length >= DATABASE_LIST_MAX_NESTING_DEPTH) {
+      return { key, subtreeOccurrenceCount: 1, subtreeHeight: 0 };
     }
+    const nextPath = new Set(path).add(row.pageId);
+    let subtreeOccurrenceCount = 1;
+    let subtreeHeight = 0;
+    let firstChildOccurrenceKey: string | null = null;
+    for (const child of children) {
+      const childSubtree = visit(child, [...ancestors, row.pageId], nextPath);
+      if (!childSubtree) continue;
+      firstChildOccurrenceKey ??= childSubtree.key;
+      subtreeOccurrenceCount += childSubtree.subtreeOccurrenceCount;
+      subtreeHeight = Math.max(subtreeHeight, childSubtree.subtreeHeight + 1);
+    }
+    result[resultIndex] = {
+      ...result[resultIndex]!,
+      subtreeOccurrenceCount,
+      subtreeHeight,
+      firstChildOccurrenceKey,
+    };
+    return { key, subtreeOccurrenceCount, subtreeHeight };
   };
 
   for (const root of roots) visit(root, [], new Set());
@@ -261,6 +295,10 @@ export const buildDatabaseListProjection = (input: {
           ancestorPageIds: nestedRow.ancestorPageIds,
           depth: nestedRow.depth,
           hasChildren: nestedRow.hasChildren,
+          subtreeOccurrenceCount: nestedRow.subtreeOccurrenceCount,
+          concreteSubtreePageCount: nestedRow.subtreeOccurrenceCount,
+          subtreeHeight: nestedRow.subtreeHeight,
+          firstChildOccurrenceKey: nestedRow.firstChildOccurrenceKey,
           transientKind: "none",
           firstInGroup: index === 0,
           lastInGroup: index === materialized.length - 1,
@@ -401,6 +439,10 @@ export const projectCoreDatabaseListRows = (input: {
       ancestorPageIds: snapshot.ancestorPageIds,
       depth: Math.min(snapshot.depth, DATABASE_LIST_MAX_NESTING_DEPTH),
       hasChildren: snapshot.hasChildren,
+      subtreeOccurrenceCount: snapshot.subtreeOccurrenceCount,
+      concreteSubtreePageCount: snapshot.concreteSubtreePageCount,
+      subtreeHeight: snapshot.subtreeHeight,
+      firstChildOccurrenceKey: snapshot.firstChildOccurrenceKey,
       transientKind: snapshot.transientKind,
       firstInGroup: false,
       lastInGroup: false,
@@ -450,7 +492,7 @@ const withListGroupBoundaries = (
 /** A short-lived renderer overlay; authoritative order always comes back from Core. */
 export const applyOptimisticDatabaseListDrop = (input: {
   readonly rows: readonly DatabaseListProjectionRow[];
-  readonly pageIds: ReadonlySet<string>;
+  readonly occurrenceKeys: ReadonlySet<string>;
   readonly targetOccurrenceKey: string;
   readonly position: "before" | "after" | "nest" | "root";
   readonly groupKey: string | null;
@@ -459,36 +501,33 @@ export const applyOptimisticDatabaseListDrop = (input: {
   const target = input.rows.find((row) => row.key === input.targetOccurrenceKey);
   if (!target) return input.rows;
   const movedRootRows = input.rows.filter((row): row is DatabaseListPageRow =>
-    row.kind === "page" && input.pageIds.has(row.pageId)
+    row.kind === "page" && input.occurrenceKeys.has(row.key)
   );
   if (movedRootRows.length === 0) return input.rows;
-  if (new Set(movedRootRows.map((row) => row.pageId)).size !== movedRootRows.length) {
-    return input.rows;
-  }
-  const movedRootIds = new Set(movedRootRows.map((row) => row.pageId));
-  const movedRows = input.rows.filter((row): row is DatabaseListPageRow =>
-    row.kind === "page"
-    && (movedRootIds.has(row.pageId)
-      || row.ancestorPageIds.some((pageId) => movedRootIds.has(pageId)))
+  const movedEntries = movedRootRows.flatMap((root) => {
+    const rootIndex = input.rows.findIndex((row) => row.key === root.key);
+    if (rootIndex < 0) return [];
+    return input.rows
+      .slice(rootIndex, rootIndex + root.subtreeOccurrenceCount)
+      .flatMap((row) => row.kind === "page" ? [{ row, root }] : []);
+  }).filter((entry, index, entries) =>
+    entries.findIndex((candidate) => candidate.row.key === entry.row.key) === index
   );
+  const movedRows = movedEntries.map((entry) => entry.row);
   const movedKeys = new Set(movedRows.map((row) => row.key));
   const remaining = input.rows.filter((row) => !movedKeys.has(row.key));
 
   const targetPage = target.kind === "page" ? target : null;
-  const nextAncestors = input.position === "nest" && targetPage
+  const normalizedParentAfter = input.position === "after"
+    && targetPage?.hasChildren === true;
+  const nextAncestors = (input.position === "nest" || normalizedParentAfter) && targetPage
     ? [...targetPage.ancestorPageIds, targetPage.pageId]
     : input.position === "before" || input.position === "after"
       ? targetPage?.ancestorPageIds ?? []
       : [];
   const rootDepth = Math.min(nextAncestors.length, DATABASE_LIST_MAX_NESTING_DEPTH);
-  const adjustedRows = movedRows.map((row): DatabaseListPageRow => {
-    const movedAncestorPageId = movedRootIds.has(row.pageId)
-      ? row.pageId
-      : [...row.ancestorPageIds].reverse().find((pageId) => movedRootIds.has(pageId));
-    const movedRoot = movedRootRows.find((candidate) =>
-      candidate.pageId === movedAncestorPageId
-    );
-    const originalRootDepth = movedRoot?.depth ?? row.depth;
+  const adjustedRows = movedEntries.map(({ row, root }): DatabaseListPageRow => {
+    const originalRootDepth = root.depth;
     const relativeDepth = Math.max(0, row.depth - originalRootDepth);
     const relativeAncestors = row.ancestorPageIds.slice(originalRootDepth);
     return {
@@ -507,7 +546,9 @@ export const applyOptimisticDatabaseListDrop = (input: {
 
   let insertionIndex = remaining.findIndex((row) => row.key === target.key);
   if (insertionIndex < 0) return input.rows;
-  if (input.position === "after" && targetPage) {
+  if (normalizedParentAfter) {
+    insertionIndex += 1;
+  } else if (input.position === "after" && targetPage) {
     insertionIndex += 1;
     while (insertionIndex < remaining.length) {
       const candidate = remaining[insertionIndex];
@@ -549,6 +590,31 @@ export const applyOptimisticDatabaseListDrop = (input: {
   const result = [...remaining];
   result.splice(insertionIndex, 0, ...adjustedRows);
   return withListGroupBoundaries(result);
+};
+
+/**
+ * Compares only the structural coordinates authored by a List move. Live
+ * titles and Properties are deliberately excluded so they can continue to
+ * converge while a drag preview is active.
+ */
+export const databaseListProjectionPlacementEquals = (
+  left: readonly DatabaseListProjectionRow[],
+  right: readonly DatabaseListProjectionRow[],
+): boolean => {
+  if (left === right) return true;
+  if (left.length !== right.length) return false;
+  return left.every((row, index) => {
+    const candidate = right[index];
+    if (!candidate || row.kind !== candidate.kind || row.key !== candidate.key) return false;
+    if (row.kind !== "page" || candidate.kind !== "page") return true;
+    return row.groupKey === candidate.groupKey
+      && row.subgroupKey === candidate.subgroupKey
+      && row.depth === candidate.depth
+      && row.ancestorPageIds.length === candidate.ancestorPageIds.length
+      && row.ancestorPageIds.every(
+        (pageId, ancestorIndex) => pageId === candidate.ancestorPageIds[ancestorIndex],
+      );
+  });
 };
 
 export interface DatabaseListVirtualWindow {

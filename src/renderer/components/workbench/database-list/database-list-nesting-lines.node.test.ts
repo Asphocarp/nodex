@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 
 import type { DatabaseListPageRow } from "./database-list-model";
 import {
+  databaseListDropIndicatorLeft,
   databaseListNestingContinuations,
   databaseListNestingGeometry,
   databaseListNestingLineInset,
@@ -34,6 +35,10 @@ const page = (
   depth: ancestorPageIds.length,
   hasChildren: false,
   transientKind: "none",
+  subtreeOccurrenceCount: 1,
+  concreteSubtreePageCount: 1,
+  subtreeHeight: 0,
+  firstChildOccurrenceKey: null,
   firstInGroup: false,
   lastInGroup: false,
   height: 44,
@@ -46,6 +51,9 @@ describe("Database List nesting guides", () => {
     expect(databaseListNestingLineLeft(2)).toBe(81.5);
     expect(databaseListNestingLineInset(0)).toBe(27.5);
     expect(databaseListNestingLineInset(1)).toBe(51.5);
+    expect(databaseListDropIndicatorLeft(0)).toBe(8);
+    expect(databaseListDropIndicatorLeft(1)).toBe(50);
+    expect(databaseListDropIndicatorLeft(2)).toBe(74);
   });
 
   test("aligns stems and elbows to the full Page row", () => {

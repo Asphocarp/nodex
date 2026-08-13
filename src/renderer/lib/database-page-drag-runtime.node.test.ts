@@ -148,6 +148,7 @@ const committed = (
     storeEpoch: request.storeEpoch,
     duplicate: true,
     operationKinds: request.operations.map((operation) => operation.kind),
+    operationOutcomes: [],
     affectedDatabaseIds: [parseDatabaseId("database-1")],
     affectedDataSourceIds: [parseDataSourceId("source-1")],
     affectedPageIds: ["page-1"],

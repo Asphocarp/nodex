@@ -15,6 +15,7 @@ import {
   createCoreDatabaseModuleAdapter,
   createCoreLibraryDatabaseModuleAdapter,
   mapCorePropertyDescriptor,
+  toCoreDatabaseIntent,
 } from "./database-module-adapter";
 import {
   createDesktopDatabaseModuleBridge,
@@ -760,6 +761,7 @@ describe("Core Database Module Adapter", () => {
         storeEpoch: identity.storeEpoch,
         duplicate: false,
         operationKinds,
+        operationOutcomes: [],
         affectedDatabaseIds: [databaseId],
         affectedDataSourceIds: [dataSourceId],
         affectedPageIds: ["page:test"],
@@ -866,6 +868,198 @@ describe("Core Database Module Adapter", () => {
         },
       ],
     }]);
+  });
+
+  test("preserves semantic List subtree moves and their logical Undo receipt", async () => {
+    const client = new FakeCoreClient();
+    const dataSourceId = parseDataSourceId("source:test");
+    const viewId = parseDatabaseViewId("view:test");
+    const presentationOverride = {
+      layout: "list" as const,
+      hierarchy: { showSubPages: true, nestedSubPages: true },
+    };
+    const expectedProjection = {
+      scopeKey: "view:view:test:list",
+      schemaVersion: 1,
+      revision: 7,
+      coveredCommitSeq: 40,
+      effectHash: null,
+    };
+    const undoRecipe = {
+      viewId,
+      dataSourceId,
+      propertyStates: [],
+      postParentGuards: [{ pageId: "page:parent", parentPageId: null }],
+      postBeforePageId: "page:target",
+      postOrderGuard: true,
+      restoreRuns: [{
+        pageIds: ["page:parent"],
+        parentPageId: null,
+        beforePageId: "page:source-next",
+      }],
+    } as const;
+
+    const moveOperation = {
+      kind: "move_list_occurrences" as const,
+      viewId,
+      presentationOverride,
+      expectedProjection,
+      initiatorOccurrenceKey: "page:parent@root",
+      selection: {
+        kind: "explicit" as const,
+        occurrenceKeys: ["page:parent@root", "page:child@parent"],
+      },
+      target: {
+        kind: "page" as const,
+        occurrenceKey: "page:target@root",
+        edge: "before" as const,
+      },
+    };
+    const undoOperation = {
+      kind: "undo_list_occurrence_move" as const,
+      recipe: undoRecipe,
+    };
+
+    expect(toCoreDatabaseIntent(moveOperation)).toEqual({
+      kind: "move_list_occurrences",
+      view_id: viewId,
+      presentation_override: {
+        layout: "list",
+        hierarchy: { show_sub_pages: true, nested_sub_pages: true },
+      },
+      expected_projection: {
+        scope_key: expectedProjection.scopeKey,
+        schema_version: expectedProjection.schemaVersion,
+        revision: expectedProjection.revision,
+        covered_commit_seq: expectedProjection.coveredCommitSeq,
+        effect_hash: null,
+      },
+      initiator_occurrence_key: "page:parent@root",
+      selection: {
+        kind: "explicit",
+        occurrence_keys: ["page:parent@root", "page:child@parent"],
+      },
+      target: {
+        kind: "page",
+        occurrence_key: "page:target@root",
+        edge: "before",
+      },
+    });
+    expect(toCoreDatabaseIntent(undoOperation)).toEqual({
+      kind: "undo_list_occurrence_move",
+      recipe: {
+        view_id: viewId,
+        data_source_id: dataSourceId,
+        property_states: [],
+        post_parent_guards: [{
+          page_id: "page:parent",
+          parent_page_id: null,
+        }],
+        post_before_page_id: "page:target",
+        post_order_guard: true,
+        restore_runs: [{
+          page_ids: ["page:parent"],
+          parent_page_id: null,
+          before_page_id: "page:source-next",
+        }],
+      },
+    });
+
+    client.enqueueDatabaseApply({
+      value: { operation_count: 2 },
+      receipt: {
+        operation_id: "operation:list-subtree",
+        duplicate: false,
+        affected_database_ids: ["database:test"],
+        affected_data_source_ids: [dataSourceId],
+        affected_page_ids: ["page:parent", "page:child"],
+        affected_view_ids: [viewId],
+        operation_kinds: [
+          "move_list_occurrences",
+          "undo_list_occurrence_move",
+        ],
+        operation_outcomes: [{
+          kind: "list_occurrence_move",
+          operation_index: 0,
+          moved_page_ids: ["page:parent", "page:child"],
+          move_root_page_ids: ["page:parent"],
+          normalized_target: {
+            target_occurrence_key: "page:target@root",
+            target_page_id: "page:target",
+            parent_page_id: null,
+            before_page_id: "page:target",
+            group_key: "status:build",
+            subgroup_key: null,
+            depth: 0,
+            edge: "before",
+          },
+          undo_recipe: {
+            view_id: viewId,
+            data_source_id: dataSourceId,
+            property_states: [],
+            post_parent_guards: [{
+              page_id: "page:parent",
+              parent_page_id: null,
+            }],
+            post_before_page_id: "page:target",
+            post_order_guard: true,
+            restore_runs: [{
+              page_ids: ["page:parent"],
+              parent_page_id: null,
+              before_page_id: "page:source-next",
+            }],
+          },
+        }, {
+          kind: "list_occurrence_move_undo",
+          operation_index: 1,
+          restored_page_ids: ["page:parent", "page:child"],
+        }],
+        committed_revisions: { [`view:${viewId}`]: 8 },
+        commit_seq: 41,
+        committed_at: "2026-08-14T00:00:00.000Z",
+      },
+      event_sequence: 41,
+      store_epoch: identity.storeEpoch,
+    });
+    const adapter = createCoreDatabaseModuleAdapter({ client, ...identity });
+
+    await expect(adapter.apply({
+      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+      operationId: "operation:list-subtree",
+      projectId: identity.projectId,
+      storeEpoch: identity.storeEpoch,
+      actor: { kind: "electron_renderer", clientId: "renderer:test" },
+      operations: [moveOperation, undoOperation],
+    })).resolves.toMatchObject({
+      ok: true,
+      value: {
+        operationKinds: [
+          "move_list_occurrences",
+          "undo_list_occurrence_move",
+        ],
+        operationOutcomes: [{
+          kind: "list_occurrence_move",
+          operationIndex: 0,
+          movedPageIds: ["page:parent", "page:child"],
+          moveRootPageIds: ["page:parent"],
+          normalizedTarget: {
+            targetOccurrenceKey: "page:target@root",
+            targetPageId: "page:target",
+            parentPageId: null,
+            beforePageId: "page:target",
+            groupKey: "status:build",
+            subgroupKey: null,
+            depth: 0,
+            edge: "before",
+          },
+          undoRecipe,
+        }, {
+          kind: "list_occurrence_move_undo",
+          operationIndex: 1,
+          restoredPageIds: ["page:parent", "page:child"],
+        }],
+      },
+    });
   });
 
   test("maps trusted Library writes without exposing a storage Project", async () => {
@@ -1119,6 +1313,10 @@ describe("Core Database Module Adapter", () => {
               depth: 1,
               has_children: true,
               transient_kind: "child" as const,
+              subtree_occurrence_count: 1,
+              concrete_subtree_page_count: 0,
+              subtree_height: 0,
+              first_child_occurrence_key: null,
             }],
             next_cursor: "list:next",
             authority: { projection_revision: 23 },

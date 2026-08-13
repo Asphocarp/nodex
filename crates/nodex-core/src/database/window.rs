@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use chrono::{Duration, Utc};
 use nodex_core_contracts::collection::{
@@ -325,6 +325,53 @@ pub(super) fn presented_list_window(
     )
 }
 
+/// Resolves the exact effective List presentation and materializes its full
+/// occurrence graph inside the caller's transaction. Semantic List mutations
+/// use this same graph as bounded List reads, so filtering, grouping,
+/// transient context, hierarchy, and occurrence identities cannot drift.
+pub(crate) struct PresentedListProjection {
+    pub(crate) graph: ListProjectionGraph,
+    pub(crate) authority: ProjectionSnapshotAuthority,
+}
+
+pub(crate) fn presented_list_projection(
+    connection: &Connection,
+    library_id: &str,
+    view_id: &str,
+    presentation_override: &DatabaseViewPresentationOverrideInput,
+    store_epoch: &str,
+    project_id: Option<&str>,
+) -> Result<PresentedListProjection, StoreError> {
+    let mut view = resolve_view(connection, library_id, view_id)?;
+    apply_presentation_override(&mut view.config.presentation, presentation_override)?;
+    if let Some(layout) = presentation_override.layout {
+        view.layout = match layout {
+            DatabaseViewLayoutInput::Board => ViewLayout::Board,
+            DatabaseViewLayoutInput::List => ViewLayout::List,
+        };
+    }
+    if !matches!(view.layout, ViewLayout::List) {
+        return Err(invalid(
+            "Semantic List movement requires a List presentation",
+        ));
+    }
+    refresh_effective_presentation(connection, &mut view)?;
+    let commit_head = crate::infrastructure::local_commit::head(connection)?;
+    let authority = projection_snapshot_authority(
+        connection,
+        library_id,
+        store_epoch,
+        commit_head,
+        project_id,
+        &view,
+    )?;
+    let matched_rows = complete_filtered_view_rows(connection, library_id, commit_head, &view)?;
+    Ok(PresentedListProjection {
+        graph: build_list_projection_graph(connection, &view, matched_rows)?,
+        authority,
+    })
+}
+
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 struct ListGroupPath {
     group_key: Option<String>,
@@ -338,17 +385,43 @@ struct ListProjectionNode {
     sort_index: usize,
 }
 
+/// Complete occurrence projection shared by bounded List reads and semantic
+/// List mutations. Its internal indexes keep subtree and target resolution out
+/// of the renderer without exposing an unbounded payload.
+#[derive(Clone, Debug)]
+pub(crate) struct ListProjectionGraph {
+    pub(crate) database_id: String,
+    pub(crate) data_source_id: String,
+    pub(crate) view_id: String,
+    pub(crate) presentation: DatabaseViewPresentation,
+    pub(crate) rows: Vec<DatabaseListProjectionRow>,
+    pub(crate) groups: Vec<DatabaseListGroupSummary>,
+    pub(crate) total_occurrence_count: i64,
+    pub(crate) total_model_count: i64,
+    occurrence_index: HashMap<String, usize>,
+}
+
+impl ListProjectionGraph {
+    pub(crate) fn occurrence_index(&self, occurrence_key: &str) -> Option<usize> {
+        self.occurrence_index.get(occurrence_key).copied()
+    }
+
+    pub(crate) fn occurrence(&self, occurrence_key: &str) -> Option<&DatabaseListProjectionRow> {
+        self.occurrence_index(occurrence_key)
+            .and_then(|index| self.rows.get(index))
+    }
+}
+
 fn complete_filtered_view_rows(
     connection: &Connection,
     library_id: &str,
     commit_head: i64,
     view: &ResolvedView,
-    projection: &ProjectionSnapshotAuthority,
 ) -> Result<Vec<DatabaseRowSummary>, StoreError> {
     let mut rows = Vec::new();
     let mut after = None;
     loop {
-        let window = view_window_for(
+        let window = row_window_for(
             connection,
             library_id,
             commit_head,
@@ -358,13 +431,13 @@ fn complete_filtered_view_rows(
                 first: Some(200),
             },
             None,
-            projection.clone(),
+            &BTreeSet::new(),
         )?;
-        if window.rows.items.len() > MAX_LIST_PROJECTION_MODELS.saturating_sub(rows.len()) {
+        if window.items.len() > MAX_LIST_PROJECTION_MODELS.saturating_sub(rows.len()) {
             return Err(invalid("Database List projection exceeds its model bound"));
         }
-        rows.extend(window.rows.items);
-        let Some(next_cursor) = window.rows.next_cursor else {
+        rows.extend(window.items);
+        let Some(next_cursor) = window.next_cursor else {
             break;
         };
         after = Some(next_cursor);
@@ -541,7 +614,7 @@ fn list_hierarchy_edges(
 fn list_summary(
     connection: &Connection,
     view: &ResolvedView,
-    summaries: &mut BTreeMap<String, DatabaseRowSummary>,
+    summaries: &mut HashMap<String, DatabaseRowSummary>,
     page_id: &str,
 ) -> Result<Option<DatabaseRowSummary>, StoreError> {
     if let Some(summary) = summaries.get(page_id) {
@@ -571,6 +644,17 @@ fn insert_list_node(
 ) {
     let page_id = summary.page_id.clone();
     if let Some(existing) = nodes.get_mut(&page_id) {
+        if matches!(transient_kind, DatabaseListTransientKind::None)
+            && !matches!(existing.transient_kind, DatabaseListTransientKind::None)
+        {
+            // A transient ancestor borrows a descendant's coordinate only
+            // until its concrete occurrence is materialized. The concrete
+            // root's own View rank must remain the subtree ordering authority.
+            existing.sort_index = sort_index;
+            existing.transient_kind = transient_kind;
+            existing.summary = summary;
+            return;
+        }
         existing.sort_index = existing.sort_index.min(sort_index);
         if transient_priority(transient_kind) < transient_priority(existing.transient_kind) {
             existing.transient_kind = transient_kind;
@@ -594,7 +678,7 @@ fn add_list_ancestors(
     page_id: &str,
     sort_index: usize,
     edges: &BTreeMap<String, ListHierarchyEdge>,
-    summaries: &mut BTreeMap<String, DatabaseRowSummary>,
+    summaries: &mut HashMap<String, DatabaseRowSummary>,
     nodes: &mut BTreeMap<String, ListProjectionNode>,
 ) -> Result<(), StoreError> {
     let mut cursor = page_id;
@@ -631,7 +715,7 @@ fn add_list_children(
     sort_index: usize,
     depth: usize,
     children: &BTreeMap<String, Vec<(String, String)>>,
-    summaries: &mut BTreeMap<String, DatabaseRowSummary>,
+    summaries: &mut HashMap<String, DatabaseRowSummary>,
     nodes: &mut BTreeMap<String, ListProjectionNode>,
     path: &mut HashSet<String>,
 ) -> Result<(), StoreError> {
@@ -757,7 +841,7 @@ fn flatten_list_node(
     ancestors: &mut Vec<String>,
     output: &mut Vec<DatabaseListProjectionRow>,
     visited: &mut HashSet<String>,
-) -> Result<(), StoreError> {
+) -> Result<(u32, u32, u32), StoreError> {
     if ancestors.len() > 10 {
         return Err(corrupt("Task hierarchy exceeds its depth bound"));
     }
@@ -770,6 +854,7 @@ fn flatten_list_node(
     let group_path = vec![path.group_key.clone(), path.subgroup_key.clone()];
     let occurrence_key =
         list_projection_key("ITEM", &(&group_path, ancestors.as_slice(), page_id))?;
+    let row_index = output.len();
     output.push(DatabaseListProjectionRow::Page {
         occurrence_key,
         summary: Box::new(node.summary.clone()),
@@ -780,11 +865,26 @@ fn flatten_list_node(
         has_children: children
             .get(page_id)
             .is_some_and(|child_page_ids| !child_page_ids.is_empty()),
+        subtree_occurrence_count: 1,
+        concrete_subtree_page_count: u32::from(matches!(
+            node.transient_kind,
+            DatabaseListTransientKind::None
+        )),
+        subtree_height: 0,
+        first_child_occurrence_key: None,
         transient_kind: node.transient_kind,
     });
     ancestors.push(page_id.to_owned());
+    let mut subtree_occurrence_count = 1_u32;
+    let mut concrete_subtree_page_count = u32::from(matches!(
+        node.transient_kind,
+        DatabaseListTransientKind::None
+    ));
+    let mut subtree_height = 0_u32;
+    let mut first_child_occurrence_key = None;
     for child_page_id in children.get(page_id).into_iter().flatten() {
-        flatten_list_node(
+        let child_row_index = output.len();
+        let (child_occurrence_count, child_concrete_count, child_height) = flatten_list_node(
             path,
             child_page_id,
             nodes,
@@ -793,9 +893,45 @@ fn flatten_list_node(
             output,
             visited,
         )?;
+        if first_child_occurrence_key.is_none() {
+            first_child_occurrence_key = output
+                .get(child_row_index)
+                .map(|row| row.occurrence_key().to_owned());
+        }
+        subtree_occurrence_count = subtree_occurrence_count
+            .checked_add(child_occurrence_count)
+            .ok_or_else(|| invalid("Database List subtree occurrence count overflowed"))?;
+        concrete_subtree_page_count = concrete_subtree_page_count
+            .checked_add(child_concrete_count)
+            .ok_or_else(|| invalid("Database List concrete subtree count overflowed"))?;
+        subtree_height = subtree_height.max(
+            child_height
+                .checked_add(1)
+                .ok_or_else(|| invalid("Database List subtree height overflowed"))?,
+        );
     }
     ancestors.pop();
-    Ok(())
+    let Some(DatabaseListProjectionRow::Page {
+        subtree_occurrence_count: row_occurrence_count,
+        concrete_subtree_page_count: row_concrete_count,
+        subtree_height: row_subtree_height,
+        first_child_occurrence_key: row_first_child,
+        ..
+    }) = output.get_mut(row_index)
+    else {
+        return Err(corrupt(
+            "Database List subtree root disappeared while flattening",
+        ));
+    };
+    *row_occurrence_count = subtree_occurrence_count;
+    *row_concrete_count = concrete_subtree_page_count;
+    *row_subtree_height = subtree_height;
+    *row_first_child = first_child_occurrence_key;
+    Ok((
+        subtree_occurrence_count,
+        concrete_subtree_page_count,
+        subtree_height,
+    ))
 }
 
 fn flatten_list_path(
@@ -820,6 +956,13 @@ fn flatten_list_path(
                     ancestor_page_ids: Vec::new(),
                     depth: 0,
                     has_children: false,
+                    subtree_occurrence_count: 1,
+                    concrete_subtree_page_count: u32::from(matches!(
+                        node.transient_kind,
+                        DatabaseListTransientKind::None
+                    )),
+                    subtree_height: 0,
+                    first_child_occurrence_key: None,
                     transient_kind: node.transient_kind,
                 })
             })
@@ -929,10 +1072,9 @@ fn flatten_list_projection(
         grouped,
         view.config.presentation.group_direction,
     );
-    let mut rows = Vec::new();
-    let mut groups = Vec::new();
+    let mut flattened_paths = Vec::with_capacity(paths.len());
+    let mut group_totals = BTreeMap::<Option<String>, i64>::new();
     let mut total_occurrences = 0_i64;
-    let mut emitted_groups = BTreeSet::new();
     for path in paths {
         let nodes = path_nodes.get(&path).cloned().unwrap_or_default();
         let page_rows = flatten_list_path(&path, &nodes, nested)?;
@@ -941,23 +1083,22 @@ fn flatten_list_projection(
         total_occurrences = total_occurrences
             .checked_add(path_total)
             .ok_or_else(|| invalid("Database List occurrence total overflowed"))?;
+        let group_total = group_totals.entry(path.group_key.clone()).or_default();
+        *group_total = group_total
+            .checked_add(path_total)
+            .ok_or_else(|| invalid("Database List group total overflowed"))?;
+        flattened_paths.push((path, page_rows, path_total));
+    }
+
+    let mut rows = Vec::new();
+    let mut groups = Vec::with_capacity(flattened_paths.len());
+    let mut emitted_groups = BTreeSet::new();
+    for (path, page_rows, path_total) in flattened_paths {
         if grouped && emitted_groups.insert(path.group_key.clone()) {
-            let group_total = path_nodes
-                .iter()
-                .filter(|(candidate, _)| candidate.group_key == path.group_key)
-                .try_fold(0_i64, |total, (candidate, candidate_nodes)| {
-                    let count = flatten_list_path(candidate, candidate_nodes, nested)?.len();
-                    total
-                        .checked_add(
-                            i64::try_from(count)
-                                .map_err(|_| invalid("Database List group total is invalid"))?,
-                        )
-                        .ok_or_else(|| invalid("Database List group total overflowed"))
-                })?;
             rows.push(DatabaseListProjectionRow::Group {
                 occurrence_key: list_projection_key("GROUP", &path.group_key)?,
                 group_key: path.group_key.clone(),
-                total_occurrence_count: group_total,
+                total_occurrence_count: group_totals.get(&path.group_key).copied().unwrap_or(0),
             });
         }
         if subgrouped {
@@ -981,19 +1122,11 @@ fn flatten_list_projection(
     Ok((rows, groups, total_occurrences))
 }
 
-fn build_list_projection(
+fn build_list_projection_graph(
     connection: &Connection,
     view: &ResolvedView,
     matched_rows: Vec<DatabaseRowSummary>,
-) -> Result<
-    (
-        Vec<DatabaseListProjectionRow>,
-        Vec<DatabaseListGroupSummary>,
-        i64,
-        i64,
-    ),
-    StoreError,
-> {
+) -> Result<ListProjectionGraph, StoreError> {
     let (edges, children) = list_hierarchy_edges(connection, &view.data_source_id)?;
     let group_values = list_group_values(connection, view)?;
     let show_sub_pages = view.config.presentation.hierarchy.show_sub_pages;
@@ -1008,7 +1141,7 @@ fn build_list_projection(
         .iter()
         .cloned()
         .map(|summary| (summary.page_id.clone(), summary))
-        .collect::<BTreeMap<_, _>>();
+        .collect::<HashMap<_, _>>();
     let mut path_nodes = BTreeMap::<ListGroupPath, BTreeMap<String, ListProjectionNode>>::new();
     let mut encountered_paths = Vec::new();
     let mut encountered_path_set = BTreeSet::new();
@@ -1066,13 +1199,28 @@ fn build_list_projection(
     }
     let (rows, groups, total_occurrence_count) =
         flatten_list_projection(connection, view, &path_nodes, &encountered_paths)?;
-    Ok((
+    let occurrence_index = rows
+        .iter()
+        .enumerate()
+        .map(|(index, row)| (row.occurrence_key().to_owned(), index))
+        .collect::<HashMap<_, _>>();
+    if occurrence_index.len() != rows.len() {
+        return Err(corrupt(
+            "Database List occurrence identities are not unique",
+        ));
+    }
+    Ok(ListProjectionGraph {
+        database_id: view.database_id.clone(),
+        data_source_id: view.data_source_id.clone(),
+        view_id: view.view_id.clone(),
+        presentation: view.config.presentation.clone(),
         rows,
         groups,
         total_occurrence_count,
-        i64::try_from(total_model_count)
+        total_model_count: i64::try_from(total_model_count)
             .map_err(|_| invalid("Database List model total is invalid"))?,
-    ))
+        occurrence_index,
+    })
 }
 
 fn list_window_for(
@@ -1084,11 +1232,9 @@ fn list_window_for(
     projection: ProjectionSnapshotAuthority,
 ) -> Result<DatabaseListWindow, StoreError> {
     let normalized = normalize_request(request)?;
-    let matched_rows =
-        complete_filtered_view_rows(connection, library_id, commit_head, view, &projection)?;
-    let (projection_rows, groups, total_occurrence_count, total_model_count) =
-        build_list_projection(connection, view, matched_rows)?;
-    let total_projection_row_count = i64::try_from(projection_rows.len())
+    let matched_rows = complete_filtered_view_rows(connection, library_id, commit_head, view)?;
+    let graph = build_list_projection_graph(connection, view, matched_rows)?;
+    let total_projection_row_count = i64::try_from(graph.rows.len())
         .map_err(|_| invalid("Database List projection row total is invalid"))?;
     let fingerprint = cursor::query_fingerprint(&(
         "database_list_window_v1",
@@ -1116,7 +1262,8 @@ fn list_window_for(
             }
             let index = usize::try_from(*index)
                 .map_err(|_| invalid("Database List cursor is incompatible"))?;
-            if projection_rows
+            if graph
+                .rows
                 .get(index)
                 .is_none_or(|row| row.occurrence_key() != coordinate.stable_id)
             {
@@ -1128,7 +1275,8 @@ fn list_window_for(
         })
         .transpose()?
         .unwrap_or(0);
-    let candidates = projection_rows
+    let candidates = graph
+        .rows
         .iter()
         .enumerate()
         .skip(start)
@@ -1168,10 +1316,10 @@ fn list_window_for(
         projection,
         is_complete: rows.next_cursor.is_none(),
         rows,
-        groups,
+        groups: graph.groups,
         total_projection_row_count,
-        total_occurrence_count,
-        total_model_count,
+        total_occurrence_count: graph.total_occurrence_count,
+        total_model_count: graph.total_model_count,
         window_start: i64::try_from(start)
             .map_err(|_| invalid("Database List window start is invalid"))?,
         window_end: i64::try_from(window_end)

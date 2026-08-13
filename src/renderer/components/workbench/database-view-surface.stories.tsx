@@ -16,6 +16,15 @@ import { DatabaseViewSurface } from "./database-view-surface";
 import { DatabaseViewTabSurface } from "./workbench-db-view-panel";
 import { DatabaseViewGroupLimitNotice } from "./workbench-database-view-surface";
 import { executeContextualKeyboardAction } from "@/lib/contextual-keyboard-actions";
+import { DatabaseListDndProvider } from "./database-list/database-list-dnd";
+import { databaseListGridTemplate } from "./database-list/database-list-grid";
+import {
+  buildDatabaseListProjection,
+  emptyDatabaseListSelection,
+} from "./database-list/database-list-model";
+import { databaseListNestingContinuations } from "./database-list/database-list-nesting-lines";
+import { DatabaseListRow } from "./database-list/database-list-row";
+import { DATABASE_LIST_THEME_CLASS_NAME } from "./database-list/database-list-theme";
 
 const timestamp = "2026-07-12T00:00:00.000Z";
 const libraryId = "library:nodex";
@@ -465,6 +474,12 @@ export const NestedListHierarchy: Story = {
 };
 export const NestedListAcrossGroups: Story = {
   args: { model: withNestedGroupedList() },
+};
+export const NestedListSubtreeSelection: Story = {
+  args: {
+    model: withNestedList(),
+    initialSelectedPageIds: new Set(["page-1", "page-2", "page-3"]),
+  },
 };
 export const GroupedList: Story = {
   args: {
@@ -1000,6 +1015,95 @@ export const FullTabSurface: Story = {
 
 export const FullNestedList: Story = {
   render: () => <FullDatabaseViewTab viewModel={withNestedList()} />,
+};
+
+function ListSubtreeDragFixture() {
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  const fixtureModel = withNestedList();
+  const rows = buildDatabaseListProjection({
+    columns: fixtureModel.columns,
+    grouped: false,
+    subgrouped: false,
+    showSubPages: true,
+    nested: true,
+    collapsedOccurrenceKeys: new Set(),
+  });
+  const continuations = databaseListNestingContinuations(rows);
+  return (
+    <DatabaseListDndProvider
+      rows={rows}
+      selection={emptyDatabaseListSelection()}
+      scrollerRef={scrollerRef}
+      disabled={false}
+      overlayColumns={{ priority: true, identifier: true, status: true }}
+      onCommit={() => undefined}
+    >
+      <div
+        ref={scrollerRef}
+        role="grid"
+        aria-label="Database List drag preview fixture"
+        className={`grid h-[640px] w-[1100px] content-start gap-x-2 overflow-hidden bg-[var(--database-list-surface)] ${DATABASE_LIST_THEME_CLASS_NAME}`}
+        style={{
+          gridTemplateColumns: databaseListGridTemplate([], {
+            priority: true,
+            identifier: true,
+            status: true,
+          }),
+        }}
+      >
+        {rows.map((item, index) => item.kind === "page" ? (
+          <DatabaseListRow
+            key={item.key}
+            item={item}
+            libraryId={libraryId}
+            selected={false}
+            selectedBefore={false}
+            selectedAfter={false}
+            active={index === 0}
+            presented={false}
+            inlineProperties={null}
+            trailingCells={null}
+            onSelect={() => undefined}
+            onActivate={() => undefined}
+            onOpen={() => undefined}
+            statusOptions={[
+              { id: "triage", name: "Triage" },
+              { id: "plan", name: "Plan" },
+              { id: "build", name: "Build" },
+              { id: "review", name: "Review" },
+              { id: "ship", name: "Ship" },
+            ]}
+            priorityOptions={[
+              { id: "p0-critical", name: "Urgent" },
+              { id: "p1-high", name: "High" },
+              { id: "p2-medium", name: "Medium" },
+              { id: "p3-low", name: "Low" },
+            ]}
+            onSetStatus={() => undefined}
+            onSetPriority={() => undefined}
+            statusMutationDisabled={false}
+            priorityMutationDisabled={false}
+            showPriority
+            showStatus
+            showIdentifier
+            nestingContinuations={continuations.get(item.key) ?? []}
+            ariaRowIndex={index + 1}
+          />
+        ) : null)}
+      </div>
+    </DatabaseListDndProvider>
+  );
+}
+
+export const ListSubtreeDragPreview: Story = {
+  render: () => <ListSubtreeDragFixture />,
+  parameters: {
+    docs: {
+      description: {
+        story: "Interactive nested drag coverage for the canonical insertion pin and visible-column preview.",
+      },
+    },
+  },
 };
 
 function ListFocusRetentionStory() {

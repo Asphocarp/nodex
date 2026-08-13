@@ -128,6 +128,10 @@ export type DatabaseListProjectionRowSnapshot =
       readonly ancestorPageIds: readonly string[];
       readonly depth: number;
       readonly hasChildren: boolean;
+      readonly subtreeOccurrenceCount: number;
+      readonly concreteSubtreePageCount: number;
+      readonly subtreeHeight: number;
+      readonly firstChildOccurrenceKey: string | null;
       readonly transientKind: "none" | "ancestor" | "child";
     };
 

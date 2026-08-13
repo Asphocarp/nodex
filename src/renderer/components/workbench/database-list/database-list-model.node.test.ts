@@ -21,6 +21,7 @@ import {
   restoreDatabaseListScrollTop,
   resolveDatabaseListAuthority,
   syncDatabaseListSelection,
+  type DatabaseListPageRow,
 } from "./database-list-model";
 
 const row = (
@@ -48,6 +49,34 @@ const column = (
   name: "Build",
   scopeKey: "key:\"build\"",
   rows,
+});
+
+const listPage = (input: {
+  readonly key: string;
+  readonly pageId: string;
+  readonly groupKey: string;
+  readonly depth: number;
+  readonly ancestorPageIds?: readonly string[];
+  readonly subtreeOccurrenceCount?: number;
+  readonly hasChildren?: boolean;
+}): DatabaseListPageRow => ({
+  kind: "page",
+  key: input.key,
+  pageId: input.pageId,
+  row: row(input.pageId, { groupKey: input.groupKey }),
+  groupKey: input.groupKey,
+  subgroupKey: null,
+  ancestorPageIds: input.ancestorPageIds ?? [],
+  depth: input.depth,
+  hasChildren: input.hasChildren ?? false,
+  subtreeOccurrenceCount: input.subtreeOccurrenceCount ?? 1,
+  concreteSubtreePageCount: input.subtreeOccurrenceCount ?? 1,
+  subtreeHeight: input.hasChildren ? 1 : 0,
+  firstChildOccurrenceKey: null,
+  transientKind: "none",
+  firstInGroup: false,
+  lastInGroup: false,
+  height: 44,
 });
 
 describe("Database List projection", () => {
@@ -236,7 +265,9 @@ describe("Database List projection", () => {
 
     const optimistic = applyOptimisticDatabaseListDrop({
       rows: before,
-      pageIds: new Set(["root-b"]),
+      occurrenceKeys: new Set([before.find((item) =>
+        item.kind === "page" && item.pageId === "root-b"
+      )!.key]),
       targetOccurrenceKey: parent.key,
       position: "nest",
       groupKey: "build",
@@ -250,6 +281,55 @@ describe("Database List projection", () => {
       ["child", 1, ["parent"]],
       ["root-b", 1, ["parent"]],
     ]);
+  });
+
+  test("keeps duplicate Page occurrences anchored to their own optimistic roots", () => {
+    const duplicateAtRoot = listPage({
+      key: "duplicate:root",
+      pageId: "duplicate",
+      groupKey: "triage",
+      depth: 0,
+      subtreeOccurrenceCount: 1,
+    });
+    const duplicateNested = listPage({
+      key: "duplicate:nested",
+      pageId: "duplicate",
+      groupKey: "build",
+      depth: 2,
+      ancestorPageIds: ["outer", "inner"],
+      subtreeOccurrenceCount: 2,
+      hasChildren: true,
+    });
+    const nestedChild = listPage({
+      key: "duplicate:nested:child",
+      pageId: "child",
+      groupKey: "build",
+      depth: 3,
+      ancestorPageIds: ["outer", "inner", "duplicate"],
+    });
+    const target = listPage({
+      key: "target",
+      pageId: "target",
+      groupKey: "ship",
+      depth: 0,
+    });
+
+    const projected = applyOptimisticDatabaseListDrop({
+      rows: [duplicateAtRoot, duplicateNested, nestedChild, target],
+      occurrenceKeys: new Set(["duplicate:nested"]),
+      targetOccurrenceKey: "target",
+      position: "after",
+      groupKey: "ship",
+      subgroupKey: null,
+    });
+    const movedRoot = projected.find((row) => row.key === "duplicate:nested");
+    const movedChild = projected.find((row) => row.key === "duplicate:nested:child");
+
+    expect(movedRoot).toMatchObject({ depth: 0, ancestorPageIds: [] });
+    expect(movedChild).toMatchObject({
+      depth: 1,
+      ancestorPageIds: ["duplicate"],
+    });
   });
 });
 
