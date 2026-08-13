@@ -8,8 +8,11 @@ import {
   sanitizeDefaultProjectDirectoryName,
 } from "./default-project-source";
 import type { Project, ProjectCreateInput } from "../shared/types";
+import { resolveNodexProjectsDirectory } from "./nodex-projects-directory";
 
 const PROJECT = { id: "project-created" } as Project;
+const DOCUMENTS_DIRECTORY = "/Users/test/Documents";
+const PROJECTS_DIRECTORY = resolveNodexProjectsDirectory(DOCUMENTS_DIRECTORY);
 
 describe("default Project sources", () => {
   test("sanitizes the generated folder name using the desktop filesystem contract", () => {
@@ -24,19 +27,33 @@ describe("default Project sources", () => {
     expect(sanitizeDefaultProjectDirectoryName("\u0000. ")).toBe("_");
   });
 
-  test("allocates the first free Documents folder with numeric suffixes", async () => {
+  test("allocates the first free Documents/Nodex folder with numeric suffixes", async () => {
     const occupied = new Set([
-      "/Users/test/Documents/New project",
-      "/Users/test/Documents/New project 2",
+      "/Users/test/Documents/Nodex/New project",
+      "/Users/test/Documents/Nodex/New project 2",
     ]);
 
     await expect(
       findAvailableDefaultProjectSource(
-        "/Users/test/Documents",
+        PROJECTS_DIRECTORY,
         "New project",
         async (candidate) => occupied.has(candidate),
       ),
-    ).resolves.toBe("/Users/test/Documents/New project 3");
+    ).resolves.toBe("/Users/test/Documents/Nodex/New project 3");
+  });
+
+  test("does not let a legacy Documents folder consume the nested name", async () => {
+    const occupied = new Set([
+      "/Users/test/Documents/Launch plan",
+    ]);
+
+    await expect(
+      findAvailableDefaultProjectSource(
+        PROJECTS_DIRECTORY,
+        "Launch plan",
+        async (candidate) => occupied.has(candidate),
+      ),
+    ).resolves.toBe("/Users/test/Documents/Nodex/Launch plan");
   });
 
   test("preserves explicitly selected sources without provisioning a folder", async () => {
@@ -50,7 +67,7 @@ describe("default Project sources", () => {
 
     await expect(
       createProjectWithDefaultSource(input, {
-        documentsDirectory: "/Users/test/Documents",
+        projectsDirectory: PROJECTS_DIRECTORY,
         createProject,
         createDirectory,
         initializeRepository,
@@ -80,7 +97,7 @@ describe("default Project sources", () => {
           sources: [],
         },
         {
-          documentsDirectory: "/Users/test/Documents",
+          projectsDirectory: PROJECTS_DIRECTORY,
           createProject,
           createDirectory,
           pathExists: async () => false,
@@ -90,10 +107,10 @@ describe("default Project sources", () => {
     ).resolves.toBe(PROJECT);
 
     expect(createDirectory).toHaveBeenCalledWith(
-      "/Users/test/Documents/Launch plan",
+      "/Users/test/Documents/Nodex/Launch plan",
     );
     expect(initializeRepository).toHaveBeenCalledWith(
-      "/Users/test/Documents/Launch plan",
+      "/Users/test/Documents/Nodex/Launch plan",
     );
     expect(createProject).toHaveBeenCalledWith({
       appearance: {
@@ -101,7 +118,7 @@ describe("default Project sources", () => {
         marker: { kind: "icon", icon: "folder" },
       },
       name: "Launch plan",
-      sources: ["/Users/test/Documents/Launch plan"],
+      sources: ["/Users/test/Documents/Nodex/Launch plan"],
     });
   });
 
@@ -112,12 +129,13 @@ describe("default Project sources", () => {
     const createProject = vi.fn(async () => PROJECT);
 
     try {
+      const projectsDirectory = resolveNodexProjectsDirectory(documentsDirectory);
       await createProjectWithDefaultSource(
         { name: "", sources: [] },
-        { documentsDirectory, createProject },
+        { projectsDirectory, createProject },
       );
 
-      const source = join(documentsDirectory, "New project");
+      const source = join(projectsDirectory, "New project");
       const sourceMetadata = await stat(source);
       expect(sourceMetadata.isDirectory()).toBe(true);
       expect(createProject).toHaveBeenCalledWith({
