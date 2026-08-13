@@ -47,14 +47,14 @@ const page = (
 
 describe("Database List nesting guides", () => {
   test("anchors every tree level to the leading identity lane", () => {
-    expect(databaseListNestingLineLeft(0)).toBe(33.5);
-    expect(databaseListNestingLineLeft(1)).toBe(57.5);
-    expect(databaseListNestingLineLeft(2)).toBe(81.5);
-    expect(databaseListNestingLineInset(0)).toBe(27.5);
-    expect(databaseListNestingLineInset(1)).toBe(51.5);
+    expect(databaseListNestingLineLeft(0)).toBe(35.5);
+    expect(databaseListNestingLineLeft(1)).toBe(59.5);
+    expect(databaseListNestingLineLeft(2)).toBe(83.5);
+    expect(databaseListNestingLineInset(0)).toBe(29.5);
+    expect(databaseListNestingLineInset(1)).toBe(53.5);
     expect(databaseListDropIndicatorLeft(0)).toBe(8);
-    expect(databaseListDropIndicatorLeft(1)).toBe(50);
-    expect(databaseListDropIndicatorLeft(2)).toBe(74);
+    expect(databaseListDropIndicatorLeft(1)).toBe(52);
+    expect(databaseListDropIndicatorLeft(2)).toBe(76);
   });
 
   test("aligns stems and elbows to the full Page row", () => {

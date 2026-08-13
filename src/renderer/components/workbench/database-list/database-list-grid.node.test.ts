@@ -42,7 +42,7 @@ describe("Database List field registry", () => {
     const coreColumns = { identifier: false, priority: false, status: true };
     const template = databaseListGridTemplate([], coreColumns);
     expect(template).not.toContain("[priority]");
-    expect(template).toContain("[identifier status] 16px");
+    expect(template).toContain("[identifier status] 20px");
     expect(template).not.toContain("[identifier] minmax");
     expect(template).toContain("[title] minmax(0,1fr)");
   });
@@ -56,7 +56,7 @@ describe("Database List field registry", () => {
       priority: true,
       status: true,
     });
-    expect(template).toContain("[identifier status] 16px");
+    expect(template).toContain("[identifier status] 20px");
     expect(template).not.toContain("[identifier] minmax");
     expect(partition.trailingFields).toEqual([{ kind: "intrinsic", field: "updated_at" }]);
   });
@@ -66,7 +66,7 @@ describe("Database List field registry", () => {
       identifier: false,
       priority: true,
       status: true,
-    })).toContain("[identifier status] 16px");
+    })).toContain("[identifier status] 20px");
     expect(databaseListGridTemplate([], {
       identifier: false,
       priority: true,
@@ -96,10 +96,10 @@ describe("Database List field registry", () => {
       threeCharacterSamples,
       measure,
     );
-    expect(twoCharacterWidth).toBe(37);
-    expect(threeCharacterWidth).toBe(44);
+    expect(twoCharacterWidth).toBe(35);
+    expect(threeCharacterWidth).toBe(42);
     expect(databaseListGridTemplate([], undefined, twoCharacterWidth)).toContain(
-      "[identifier] minmax(37px,auto)",
+      "[identifier] minmax(35px,auto)",
     );
   });
 
@@ -113,7 +113,7 @@ describe("Database List field registry", () => {
     expect(samples).toContain("LAB-88");
     expect(databaseListIdentifierMinWidth(samples, (value) =>
       value.includes("8") ? value.length * 6 : value.length * 5
-    )).toBe(38);
+    )).toBe(36);
   });
 
   test("adds an ordering field only to the current List session without duplicating it", () => {
