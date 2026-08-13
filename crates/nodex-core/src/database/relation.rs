@@ -148,11 +148,11 @@ pub(crate) fn apply_value_edit(
             "SELECT membership.id \
              FROM data_source_page_memberships membership \
              JOIN pages page ON page.block_id = membership.page_block_id \
-             JOIN blocks block ON block.id = page.block_id \
+             JOIN blocks block ON block.id = page.block_id AND block.library_id = page.library_id \
              WHERE membership.data_source_id = ?1 AND membership.page_block_id = ?2 \
                AND membership.removed_at IS NULL \
                AND page.parent_kind = 'data_source' AND page.parent_id = ?1 \
-               AND page.lifecycle = 'active' AND block.lifecycle = 'active'",
+               AND block.lifecycle = 'active'",
             params![data_source_id, page_id],
             |row| row.get::<_, String>(0),
         )
@@ -553,10 +553,10 @@ pub(crate) fn apply_task_parent_run(
         .prepare(
             "SELECT membership.page_block_id, membership.id, value.revision, \
                     edge.edge_id, edge.target_page_block_id, edge.sibling_rank, \
-                    page.lifecycle = 'active' AND block.lifecycle = 'active' \
+                    block.lifecycle = 'active' \
              FROM data_source_page_memberships membership \
              JOIN pages page ON page.block_id = membership.page_block_id \
-             JOIN blocks block ON block.id = page.block_id \
+             JOIN blocks block ON block.id = page.block_id AND block.library_id = page.library_id \
              LEFT JOIN data_source_property_values value \
                ON value.data_source_id = membership.data_source_id \
               AND value.membership_id = membership.id \
@@ -832,17 +832,7 @@ fn write_task_parent_rank_maintenance(
         .edge_id
         .as_deref()
         .ok_or_else(|| corrupt("Parent rank maintenance requires an existing edge"))?;
-    let updated = connection.execute(
-        "UPDATE data_source_relation_edges SET sibling_rank = ?1 \
-         WHERE edge_id = ?2 AND source_data_source_id = ?3 AND property_id = 'task_parent'",
-        params![sibling_rank, edge_id, data_source_id],
-    )?;
-    if updated != 1 {
-        return Err(corrupt(
-            "Parent Relation edge disappeared during rank maintenance",
-        ));
-    }
-    Ok(())
+    replace_task_parent_edge_rank(connection, data_source_id, edge_id, sibling_rank)
 }
 
 fn write_task_parent_edge(
@@ -870,11 +860,7 @@ fn write_task_parent_edge(
             .edge_id
             .as_deref()
             .ok_or_else(|| corrupt("Parent Relation edge identity is missing"))?;
-        connection.execute(
-            "UPDATE data_source_relation_edges SET sibling_rank = ?1 WHERE edge_id = ?2",
-            params![sibling_rank, edge_id],
-        )?;
-        return Ok(());
+        return replace_task_parent_edge_rank(connection, data_source_id, edge_id, sibling_rank);
     }
     if let Some(edge_id) = current.edge_id.as_deref() {
         connection.execute(
@@ -893,6 +879,58 @@ fn write_task_parent_edge(
             current.membership_id,
             parent_page_id,
             now,
+            sibling_rank
+        ],
+    )?;
+    Ok(())
+}
+
+/// Relation edge identity is immutable. Rank-only maintenance therefore
+/// replaces the row atomically while preserving its identity and creation time.
+fn replace_task_parent_edge_rank(
+    connection: &Connection,
+    data_source_id: &str,
+    edge_id: &str,
+    sibling_rank: &str,
+) -> Result<(), StoreError> {
+    let edge = connection
+        .query_row(
+            "SELECT source_membership_id, target_page_block_id, created_at \
+             FROM data_source_relation_edges \
+             WHERE edge_id = ?1 AND source_data_source_id = ?2 \
+               AND property_id = 'task_parent'",
+            params![edge_id, data_source_id],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            },
+        )
+        .optional()?
+        .ok_or_else(|| corrupt("Parent Relation edge disappeared during rank maintenance"))?;
+    let deleted = connection.execute(
+        "DELETE FROM data_source_relation_edges \
+         WHERE edge_id = ?1 AND source_data_source_id = ?2 AND property_id = 'task_parent'",
+        params![edge_id, data_source_id],
+    )?;
+    if deleted != 1 {
+        return Err(corrupt(
+            "Parent Relation edge changed during rank maintenance",
+        ));
+    }
+    connection.execute(
+        "INSERT INTO data_source_relation_edges(\
+           edge_id, source_data_source_id, source_membership_id, property_id, \
+           target_page_block_id, created_at, sibling_rank\
+         ) VALUES (?1, ?2, ?3, 'task_parent', ?4, ?5, ?6)",
+        params![
+            edge_id,
+            data_source_id,
+            edge.0,
+            edge.1,
+            edge.2,
             sibling_rank
         ],
     )?;
@@ -1200,7 +1238,7 @@ pub(crate) fn candidate_window(
              JOIN page_read_model model ON model.page_block_id = page.block_id \
              WHERE membership.data_source_id = ?1 AND membership.removed_at IS NULL \
                AND page.parent_kind = 'data_source' AND page.parent_id = ?1 \
-               AND page.lifecycle = 'active' AND block.lifecycle = 'active' \
+               AND block.lifecycle = 'active' \
                AND (?2 = '' OR instr(lower(model.title), ?2) > 0) \
                AND (?3 IS NULL OR lower(model.title) > ?3 \
                  OR (lower(model.title) = ?3 AND membership.page_block_id > ?4)) \
@@ -1259,9 +1297,10 @@ fn active_membership_id(
         .query_row(
             "SELECT membership.id FROM data_source_page_memberships membership \
              JOIN pages page ON page.block_id = membership.page_block_id \
+             JOIN blocks block ON block.id = page.block_id AND block.library_id = page.library_id \
              WHERE membership.data_source_id = ?1 AND membership.page_block_id = ?2 \
                AND membership.removed_at IS NULL AND page.parent_kind = 'data_source' \
-               AND page.parent_id = ?1 AND page.lifecycle = 'active'",
+               AND page.parent_id = ?1 AND block.lifecycle = 'active'",
             params![data_source_id, page_id],
             |row| row.get::<_, String>(0),
         )
@@ -1322,7 +1361,7 @@ fn project_targets(
              AND parent.block_id = ancestors.parent_id AND parent.library_id = ?2 \
            WHERE instr(ancestors.path, '|' || parent.block_id || '|') = 0\
          ) \
-         SELECT candidate.target_source_id, candidate.page_id, page.lifecycle, \
+         SELECT candidate.target_source_id, candidate.page_id, block.lifecycle, \
            materialization.title, \
            EXISTS(SELECT 1 FROM data_source_page_memberships membership \
              WHERE membership.data_source_id = candidate.target_source_id \
@@ -1332,8 +1371,7 @@ fn project_targets(
              EXISTS(SELECT 1 FROM projects project \
                WHERE project.id = ?3 AND project.library_id = ?2) \
              AND (\
-               block.project_id = ?3 \
-               OR EXISTS(\
+               EXISTS(\
                  SELECT 1 FROM ancestors terminal \
                  JOIN data_sources source ON terminal.parent_kind = 'data_source' \
                    AND source.id = terminal.parent_id AND source.library_id = ?2 \
@@ -1445,7 +1483,7 @@ pub(crate) fn validate_active_targets(
          FROM json_each(?1) candidate \
          JOIN blocks block ON block.id = candidate.value \
            AND block.type = 'page' AND block.lifecycle = 'active' \
-         JOIN pages page ON page.block_id = block.id AND page.lifecycle = 'active' \
+         JOIN pages page ON page.block_id = block.id AND page.library_id = block.library_id \
          JOIN data_source_page_memberships membership \
            ON membership.page_block_id = block.id \
            AND membership.data_source_id = ?2 AND membership.removed_at IS NULL \
@@ -1594,10 +1632,12 @@ mod tests {
             .execute_batch(
                 "CREATE TABLE projects( \
                    id TEXT PRIMARY KEY, library_id TEXT NOT NULL, database_block_id TEXT); \
-                 CREATE TABLE blocks(id TEXT PRIMARY KEY, project_id TEXT NOT NULL, type TEXT NOT NULL); \
+                 CREATE TABLE blocks( \
+                   id TEXT PRIMARY KEY, library_id TEXT NOT NULL, type TEXT NOT NULL, \
+                   lifecycle TEXT NOT NULL); \
                  CREATE TABLE pages( \
                    block_id TEXT PRIMARY KEY, library_id TEXT NOT NULL, document_id TEXT NOT NULL, \
-                   parent_kind TEXT NOT NULL, parent_id TEXT NOT NULL, lifecycle TEXT NOT NULL); \
+                   parent_kind TEXT NOT NULL, parent_id TEXT NOT NULL); \
                  CREATE TABLE documents( \
                    id TEXT PRIMARY KEY, generation INTEGER NOT NULL, head_seq INTEGER NOT NULL, \
                    schema_version INTEGER NOT NULL); \
@@ -1618,10 +1658,10 @@ mod tests {
                    data_source_id TEXT NOT NULL, property_id TEXT NOT NULL, \
                    target_data_source_id TEXT NOT NULL); \
                  INSERT INTO projects VALUES ('project:reader', 'library:one', NULL); \
-                 INSERT INTO blocks VALUES ('page:secret', 'project:owner', 'page'); \
+                 INSERT INTO blocks VALUES ('page:secret', 'library:one', 'page', 'active'); \
                  INSERT INTO pages VALUES ( \
                    'page:secret', 'library:one', 'document:secret', \
-                   'data_source', 'source:secret', 'active'); \
+                   'data_source', 'source:secret'); \
                  INSERT INTO documents VALUES ('document:secret', 1, 1, 1); \
                  INSERT INTO document_materializations VALUES ( \
                    'document:secret', 1, 1, 1, 'Secret target'); \

@@ -145,19 +145,17 @@ fn page_is_authorized(
     primary_database_id: Option<&str>,
     page_id: &str,
 ) -> Result<bool, StoreError> {
-    let storage_project_id = connection
+    let page_exists = connection
         .query_row(
-            "SELECT block.project_id FROM pages page JOIN blocks block ON block.id = page.block_id \
-             WHERE page.block_id = ?1 AND page.library_id = ?2",
+            "SELECT 1 FROM pages page JOIN blocks block ON block.id = page.block_id \
+             WHERE page.block_id = ?1 AND page.library_id = ?2 \
+               AND block.library_id = page.library_id AND block.lifecycle <> 'deleted'",
             params![page_id, library_id],
-            |row| row.get::<_, String>(0),
+            |_| Ok(()),
         )
         .optional()?;
-    let Some(storage_project_id) = storage_project_id else {
+    if page_exists.is_none() {
         return Ok(false);
-    };
-    if storage_project_id == project_id {
-        return Ok(true);
     }
 
     if let Some(database_id) = page_database_id(connection, library_id, page_id)?
@@ -284,8 +282,10 @@ mod tests {
                    project_id TEXT NOT NULL, library_id TEXT NOT NULL, database_block_id TEXT NOT NULL, \
                    lifecycle TEXT NOT NULL); \
                  CREATE TABLE blocks( \
-                   id TEXT PRIMARY KEY, project_id TEXT NOT NULL, containing_document_id TEXT, \
-                   type TEXT NOT NULL); \
+                   id TEXT PRIMARY KEY, library_id TEXT NOT NULL, type TEXT NOT NULL, \
+                   lifecycle TEXT NOT NULL); \
+                 CREATE TABLE document_block_index( \
+                   library_id TEXT NOT NULL, document_id TEXT NOT NULL, block_id TEXT NOT NULL); \
                  CREATE TABLE block_documents(block_id TEXT NOT NULL, document_id TEXT NOT NULL); \
                  CREATE TABLE pages( \
                    block_id TEXT PRIMARY KEY, library_id TEXT NOT NULL, document_id TEXT NOT NULL, \
@@ -300,13 +300,14 @@ mod tests {
                    lifecycle TEXT NOT NULL); \
                  INSERT INTO projects VALUES ('project-1', 'library-1', 'database-1', 'active'); \
                  INSERT INTO projects VALUES ('project-2', 'library-1', 'database-2', 'active'); \
-                 INSERT INTO blocks VALUES ('database-1', 'project-1', NULL, 'database'); \
-                 INSERT INTO blocks VALUES ('database-2', 'project-2', NULL, 'database'); \
-                 INSERT INTO blocks VALUES ('database-same-storage-secret', 'project-1', NULL, 'database'); \
-                 INSERT INTO blocks VALUES ('page-own', 'project-1', NULL, 'page'); \
-                 INSERT INTO blocks VALUES ('page-grant-root', 'project-2', NULL, 'page'); \
-                 INSERT INTO blocks VALUES ('page-granted-child', 'project-2', NULL, 'page'); \
-                 INSERT INTO blocks VALUES ('page-secret', 'project-2', NULL, 'page'); \
+                 INSERT INTO blocks VALUES ('database-1', 'library-1', 'database', 'active'); \
+                 INSERT INTO blocks VALUES ('database-2', 'library-1', 'database', 'active'); \
+                 INSERT INTO blocks VALUES ( \
+                   'database-same-storage-secret', 'library-1', 'database', 'active'); \
+                 INSERT INTO blocks VALUES ('page-own', 'library-1', 'page', 'active'); \
+                 INSERT INTO blocks VALUES ('page-grant-root', 'library-1', 'page', 'active'); \
+                 INSERT INTO blocks VALUES ('page-granted-child', 'library-1', 'page', 'active'); \
+                 INSERT INTO blocks VALUES ('page-secret', 'library-1', 'page', 'active'); \
                  INSERT INTO pages VALUES ('page-own', 'library-1', 'document-own', 'data_source', 'source-1'); \
                  INSERT INTO pages VALUES ('page-grant-root', 'library-1', 'document-root', 'library', 'library-1'); \
                  INSERT INTO pages VALUES ('page-granted-child', 'library-1', 'document-child', 'page', 'page-grant-root'); \

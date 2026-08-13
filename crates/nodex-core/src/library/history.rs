@@ -25,7 +25,6 @@ const MAX_SAFE_INTEGER: i64 = 9_007_199_254_740_991;
 
 struct PageScope {
     library_id: String,
-    storage_project_id: String,
     page_id: String,
     document_id: String,
     document_generation: i64,
@@ -116,7 +115,23 @@ pub(crate) fn page_read_authorization_roots(
     project_id: &str,
     page_id: &str,
 ) -> Result<Option<Vec<ResourceKey>>, StoreError> {
-    page_authorization_roots(connection, library_id, project_id, page_id, false)
+    page_authorization_roots(connection, library_id, project_id, page_id, false, false)
+}
+
+/// Lifecycle tooling must be able to inspect an authorized tombstone in order
+/// to present and execute its durable restore coordinates. Ordinary Page reads
+/// continue to treat deleted Pages as unavailable.
+pub(crate) fn require_page_lifecycle_read_access(
+    connection: &Connection,
+    library_id: &str,
+    project_id: &str,
+    page_id: &str,
+) -> Result<(), StoreError> {
+    if page_authorization_roots(connection, library_id, project_id, page_id, false, true)?.is_some()
+    {
+        return Ok(());
+    }
+    Err(not_found("Page is not available to the bound Project"))
 }
 
 pub(crate) fn require_page_write_access(
@@ -128,6 +143,61 @@ pub(crate) fn require_page_write_access(
     require_page_access(connection, library_id, project_id, page_id, true)
 }
 
+pub(crate) fn require_canvas_read_access(
+    connection: &Connection,
+    library_id: &str,
+    project_id: &str,
+    canvas_id: &str,
+) -> Result<(), StoreError> {
+    require_canvas_access(connection, library_id, project_id, canvas_id, false)
+}
+
+pub(crate) fn require_canvas_write_access(
+    connection: &Connection,
+    library_id: &str,
+    project_id: &str,
+    canvas_id: &str,
+) -> Result<(), StoreError> {
+    require_canvas_access(connection, library_id, project_id, canvas_id, true)
+}
+
+pub(crate) fn require_canvas_lifecycle_read_access(
+    connection: &Connection,
+    library_id: &str,
+    project_id: &str,
+    canvas_id: &str,
+) -> Result<(), StoreError> {
+    if super::canvas_lifecycle_grant_authorization_proof(
+        connection, library_id, project_id, canvas_id,
+    )?
+    .is_some()
+    {
+        return Ok(());
+    }
+    Err(not_found("Canvas is not available to the bound Project"))
+}
+
+fn require_canvas_access(
+    connection: &Connection,
+    library_id: &str,
+    project_id: &str,
+    canvas_id: &str,
+    write_required: bool,
+) -> Result<(), StoreError> {
+    if super::canvas_grant_authorization_proof(
+        connection,
+        library_id,
+        project_id,
+        canvas_id,
+        write_required,
+    )?
+    .is_some()
+    {
+        return Ok(());
+    }
+    Err(not_found("Canvas is not available to the bound Project"))
+}
+
 fn require_page_access(
     connection: &Connection,
     library_id: &str,
@@ -135,8 +205,15 @@ fn require_page_access(
     page_id: &str,
     write_required: bool,
 ) -> Result<(), StoreError> {
-    if page_authorization_roots(connection, library_id, project_id, page_id, write_required)?
-        .is_some()
+    if page_authorization_roots(
+        connection,
+        library_id,
+        project_id,
+        page_id,
+        write_required,
+        false,
+    )?
+    .is_some()
     {
         return Ok(());
     }
@@ -149,6 +226,7 @@ fn page_authorization_roots(
     project_id: &str,
     page_id: &str,
     write_required: bool,
+    include_deleted: bool,
 ) -> Result<Option<Vec<ResourceKey>>, StoreError> {
     let project: Option<Option<String>> = connection
         .query_row(
@@ -160,20 +238,26 @@ fn page_authorization_roots(
     let Some(primary_database_id) = project else {
         return Ok(None);
     };
-    let storage_project_id = connection
+    let page_lifecycle = connection
         .query_row(
-            "SELECT block.project_id FROM pages page \
+            "SELECT block.lifecycle FROM pages page \
              JOIN blocks block ON block.id = page.block_id AND block.type = 'page' \
-             WHERE page.block_id = ?1 AND page.library_id = ?2",
+             WHERE page.block_id = ?1 AND page.library_id = ?2 \
+               AND block.library_id = page.library_id",
             params![page_id, library_id],
             |row| row.get::<_, String>(0),
         )
         .optional()?;
+    let Some(page_lifecycle) = page_lifecycle else {
+        return Ok(None);
+    };
+    if page_lifecycle == "deleted" && !include_deleted {
+        return Ok(None);
+    }
     let database_id = owning_database(connection, library_id, page_id)?;
     let mut roots = BTreeSet::from([ResourceKey::Page {
         page_id: page_id.to_owned(),
     }]);
-    let owned_by_project = storage_project_id.as_deref() == Some(project_id);
     let primary_database = database_id.is_some() && database_id == primary_database_id;
     let mut database_grant = false;
     if let Some(database_id) = database_id.as_ref() {
@@ -198,7 +282,7 @@ fn page_authorization_roots(
     if let Some(proof) = &page_grant_proof {
         roots.extend(proof.iter().cloned());
     }
-    if owned_by_project || primary_database || database_grant || page_grant_proof.is_some() {
+    if primary_database || database_grant || page_grant_proof.is_some() {
         return Ok(Some(roots.into_iter().collect()));
     }
     Ok(None)
@@ -260,40 +344,40 @@ fn read_scope(
     }
     let row = connection
         .query_row(
-            "SELECT block.project_id, page.document_id, \
-               document.project_id, document.generation, document.readiness, ownership.document_id \
+            "SELECT page.document_id, document.library_id, document.generation, \
+               document.readiness, ownership.document_id \
              FROM pages page JOIN blocks block ON block.id = page.block_id AND block.type = 'page' \
+               AND block.library_id = page.library_id \
              LEFT JOIN documents document ON document.id = page.document_id \
+               AND document.library_id = page.library_id \
              LEFT JOIN block_documents ownership ON ownership.block_id = page.block_id \
-               AND ownership.project_id = block.project_id \
+               AND ownership.library_id = page.library_id \
              WHERE page.block_id = ?1 AND page.library_id = ?2",
             params![page_id, library_id],
             |row| {
                 Ok((
                     row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, Option<String>>(2)?,
-                    row.get::<_, Option<i64>>(3)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, Option<i64>>(2)?,
+                    row.get::<_, Option<String>>(3)?,
                     row.get::<_, Option<String>>(4)?,
-                    row.get::<_, Option<String>>(5)?,
                 ))
             },
         )
         .optional()?
         .ok_or_else(|| not_found("Page is not available to the bound Project"))?;
-    if row.2.as_deref() != Some(row.0.as_str())
-        || row.3.is_none_or(|generation| !safe_integer(generation, 1))
-        || row.4.as_deref() != Some("ready")
-        || row.5.as_deref() != Some(row.1.as_str())
+    if row.1.as_deref() != Some(library_id)
+        || row.2.is_none_or(|generation| !safe_integer(generation, 1))
+        || row.3.as_deref() != Some("ready")
+        || row.4.as_deref() != Some(row.0.as_str())
     {
         return Err(corrupt("Page has no current ready owned Document"));
     }
     Ok(PageScope {
         library_id: library_id.to_owned(),
-        storage_project_id: row.0,
         page_id: page_id.to_owned(),
-        document_id: row.1,
-        document_generation: row.3.expect("validated Document generation"),
+        document_id: row.0,
+        document_generation: row.2.expect("validated Document generation"),
     })
 }
 
@@ -366,13 +450,10 @@ fn read_versions(
            schema_version, cause, label, CASE WHEN length(CAST(actor_json AS BLOB)) <= {MAX_JSON_BYTES} \
            THEN actor_json ELSE NULL END, revision_kind, source_mutation_id, source_change_seq, \
            pinned, checkpoint_hash, byte_length, created_at FROM document_versions version \
-         WHERE project_id = ? AND document_id = ? {predicate} \
+         WHERE document_id = ? {predicate} \
          ORDER BY created_at DESC, version_id DESC LIMIT ?"
     );
-    let mut parameters = vec![
-        scope.storage_project_id.clone().into(),
-        scope.document_id.clone().into(),
-    ];
+    let mut parameters = vec![scope.document_id.clone().into()];
     parameters.extend(cursor_parameters);
     parameters.push(limit.into());
     connection
@@ -445,9 +526,9 @@ fn read_changes(
            ON mutation.change_log_seq = change.seq AND mutation.project_id = change.project_id \
          LEFT JOIN block_relocations relocation \
            ON relocation.change_log_seq = change.seq AND relocation.project_id = change.project_id \
-         WHERE change.project_id = ? AND change.kind IN ('block_mutation', 'block_relocation') \
+         WHERE change.kind IN ('block_mutation', 'block_relocation') \
            AND NOT EXISTS (SELECT 1 FROM document_versions version \
-             WHERE version.project_id = change.project_id AND version.document_id = ? \
+             WHERE version.document_id = ? \
                AND version.source_change_seq = change.seq) \
            AND (EXISTS (SELECT 1 FROM json_each(CASE \
              WHEN length(CAST(change.block_ids_json AS BLOB)) <= {MAX_JSON_BYTES} \
@@ -471,7 +552,6 @@ fn read_changes(
         relocation_result = bounded_json_column("relocation.result_json", MAX_JSON_BYTES),
     );
     let mut parameters = vec![
-        scope.storage_project_id.clone().into(),
         scope.document_id.clone().into(),
         scope.page_id.clone().into(),
         scope.document_id.clone().into(),
@@ -525,7 +605,7 @@ fn decode_version(
     scope: &PageScope,
 ) -> Result<LibraryPageHistoryEntry, StoreError> {
     if row.document_id != scope.document_id
-        || row.project_id != scope.storage_project_id
+        || !bounded(&row.project_id)
         || !safe_integer(row.generation, 1)
         || !safe_integer(row.base_head_seq, 0)
         || !safe_integer(row.schema_version, 1)
@@ -649,8 +729,8 @@ fn decode_version(
 }
 
 fn decode_change(row: ChangeRow, scope: &PageScope) -> Result<LibraryPageHistoryEntry, StoreError> {
-    if row.project_id != scope.storage_project_id || !safe_integer(row.seq, 1) {
-        return Err(corrupt("Page history change escaped its storage scope"));
+    if !bounded(&row.project_id) || !safe_integer(row.seq, 1) {
+        return Err(corrupt("Page history change has an invalid actor scope"));
     }
     if !canonical_timestamp(&row.committed_at) {
         return Err(corrupt("Page history change timestamp is invalid"));
@@ -1372,10 +1452,10 @@ mod tests {
                     )?;
                     transaction.execute(
                         "INSERT INTO blocks( \
-                           id, project_id, type, lifecycle, location_kind, containing_document_id, \
-                           containing_database_id, location_revision, metadata_revision, created_at, updated_at \
-                         ) VALUES (?1, ?2, 'database', 'active', 'space', NULL, NULL, 1, 1, ?3, ?3)",
-                        params![DATABASE, PROJECT, LATEST],
+                           id, library_id, type, lifecycle, placement_revision, metadata_revision, \
+                           created_at, updated_at \
+                         ) VALUES (?1, ?2, 'database', 'active', 1, 1, ?3, ?3)",
+                        params![DATABASE, LIBRARY, LATEST],
                     )?;
                     transaction.execute(
                         "INSERT INTO database_containers( \
@@ -1396,30 +1476,35 @@ mod tests {
                     )?;
                     transaction.execute(
                         "INSERT INTO blocks( \
-                           id, project_id, type, lifecycle, location_kind, containing_document_id, \
-                           containing_database_id, location_revision, metadata_revision, created_at, updated_at \
-                         ) VALUES (?1, ?2, 'page', 'active', 'database', NULL, ?3, 1, 1, ?4, ?4)",
-                        params![PAGE, PROJECT, DATABASE, LATEST],
+                           id, library_id, type, lifecycle, placement_revision, metadata_revision, \
+                           created_at, updated_at \
+                         ) VALUES (?1, ?2, 'page', 'active', 1, 1, ?3, ?3)",
+                        params![PAGE, LIBRARY, LATEST],
                     )?;
                     transaction.execute(
                         "INSERT INTO documents( \
-                           id, project_id, generation, head_seq, schema_key, schema_version, \
+                           id, library_id, generation, head_seq, schema_key, schema_version, \
                            state_vector, state_hash, readiness, authority, created_at, updated_at, sync_engine \
                          ) VALUES (?1, ?2, 1, 0, 'nodex.page', 2, X'', ?3, 'ready', \
                            'ydoc_primary', ?4, ?4, 'yjs')",
-                        params![DOCUMENT, PROJECT, "", LATEST],
+                        params![DOCUMENT, LIBRARY, "", LATEST],
                     )?;
                     transaction.execute(
-                        "INSERT INTO block_documents(block_id, document_id, project_id, created_at) \
+                        "INSERT INTO block_documents(block_id, document_id, library_id, created_at) \
                          VALUES (?1, ?2, ?3, ?4)",
-                        params![PAGE, DOCUMENT, PROJECT, LATEST],
+                        params![PAGE, DOCUMENT, LIBRARY, LATEST],
                     )?;
                     transaction.execute(
                         "INSERT INTO pages( \
-                           block_id, library_id, document_id, parent_kind, parent_id, lifecycle, \
-                           created_at, updated_at \
-                         ) VALUES (?1, ?2, ?3, 'data_source', ?4, 'active', ?5, ?5)",
+                           block_id, library_id, document_id, parent_kind, parent_id, created_at, updated_at \
+                         ) VALUES (?1, ?2, ?3, 'data_source', ?4, ?5, ?5)",
                         params![PAGE, LIBRARY, DOCUMENT, SOURCE, LATEST],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO data_source_page_memberships( \
+                           id, data_source_id, page_block_id, revision, created_at, removed_at \
+                         ) VALUES ('membership:history', ?1, ?2, 1, ?3, NULL)",
+                        params![SOURCE, PAGE, LATEST],
                     )?;
                     transaction.execute(
                         "INSERT INTO document_versions( \

@@ -124,14 +124,18 @@ const fromCoreLocation = (
   switch (location.kind) {
     case "library":
       return {
-        kind: "space",
-        projectId: location.project_id,
+        kind: "library",
+        libraryId: location.library_id,
         rankKey: location.rank_key,
       };
     case "document":
       return { kind: "document", documentId: location.document_id };
     case "data_source":
-      return { kind: "database", databaseBlockId: location.database_id };
+      return {
+        kind: "data_source",
+        databaseBlockId: location.database_id,
+        dataSourceId: location.data_source_id,
+      };
   }
 };
 

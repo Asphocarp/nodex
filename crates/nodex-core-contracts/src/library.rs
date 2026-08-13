@@ -403,7 +403,6 @@ pub struct LibraryBlockTransferDocumentHead {
 pub enum LibraryBlockLocation {
     Library {
         library_id: String,
-        project_id: String,
         rank_key: String,
     },
     Document {

@@ -16,6 +16,7 @@ use crate::domain::rich_text::{RichTextItem, RichTextStyles, canonicalize_rich_t
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
 use super::content::page_content;
+use super::mutation::{require_project_in_library, resolve_library_actor_project_id};
 
 const PAGE_FILE_VERSION: u32 = 1;
 const PAGE_DRAFT_VERSION: u32 = 1;
@@ -46,7 +47,13 @@ pub(super) fn page_file(
     } = request;
     validate_prepare(kind, prepare.as_ref())?;
     let page = page_content(connection, library_id, store_epoch, commit_head, page_id)?;
-    let storage = page_storage_authority(connection, library_id, page_id)?;
+    let etag_project_id = match requesting_project_id {
+        Some(project_id) => {
+            require_project_in_library(connection, project_id, library_id)?;
+            project_id.to_owned()
+        }
+        None => resolve_library_actor_project_id(connection, library_id)?,
+    };
     let mut validators = LibraryPageFileValidators {
         title_etag: None,
         body_etag: None,
@@ -58,7 +65,7 @@ pub(super) fn page_file(
         Some(LibraryPagePrepareKind::TitleSet) => {
             let (title, _) = mint_document_projection_etags(
                 connection,
-                &storage.project_id,
+                &etag_project_id,
                 store_epoch,
                 &page.document_id,
                 page.rich_title.clone(),
@@ -70,7 +77,7 @@ pub(super) fn page_file(
         Some(LibraryPagePrepareKind::DocumentReplace) => {
             let (_, body) = mint_document_projection_etags(
                 connection,
-                &storage.project_id,
+                &etag_project_id,
                 store_epoch,
                 &page.document_id,
                 page.rich_title.clone(),
@@ -83,6 +90,7 @@ pub(super) fn page_file(
             validators.page_etag = Some(mint_page_shell_etag(
                 connection,
                 library_id,
+                &etag_project_id,
                 store_epoch,
                 page_id,
             )?);
@@ -123,7 +131,7 @@ pub(super) fn page_file(
                 schedule: project_schedule(
                     connection,
                     page_id,
-                    &storage.project_id,
+                    library_id,
                     page.metadata_revision,
                 )?,
             };
@@ -155,6 +163,7 @@ pub(super) fn page_draft_projection(
     store_epoch: &str,
     commit_head: i64,
     page_id: &str,
+    requesting_project_id: Option<&str>,
 ) -> Result<LibraryPageDraftProjection, StoreError> {
     let meta = page_file(
         connection,
@@ -162,7 +171,7 @@ pub(super) fn page_draft_projection(
         store_epoch,
         PageFileRequest {
             commit_head,
-            requesting_project_id: None,
+            requesting_project_id,
             page_id,
             kind: LibraryPageFileKind::MetaYaml,
             prepare: Some(LibraryPagePrepareKind::TitleSet),
@@ -174,7 +183,7 @@ pub(super) fn page_draft_projection(
         store_epoch,
         PageFileRequest {
             commit_head,
-            requesting_project_id: None,
+            requesting_project_id,
             page_id,
             kind: LibraryPageFileKind::BodyNestedMarkdown,
             prepare: Some(LibraryPagePrepareKind::DocumentReplace),
@@ -242,18 +251,17 @@ fn validate_prepare(
 }
 
 struct PageStorageAuthority {
-    project_id: String,
     lifecycle: String,
-    location_revision: i64,
+    placement_revision: i64,
     parent_kind: String,
     parent_id: String,
-    parent_revision: i64,
     metadata_revision: i64,
 }
 
 pub(super) fn mint_page_shell_etag(
     connection: &Connection,
     library_id: &str,
+    etag_project_id: &str,
     store_epoch: &str,
     page_id: &str,
 ) -> Result<String, StoreError> {
@@ -261,15 +269,15 @@ pub(super) fn mint_page_shell_etag(
     mint_etag(
         connection,
         "page_shell",
-        &storage.project_id,
+        etag_project_id,
         store_epoch,
         &[page_id],
         json!({
             "lifecycle": storage.lifecycle,
-            "locationRevision": storage.location_revision,
+            "locationRevision": storage.placement_revision,
             "parentKind": storage.parent_kind,
             "parentId": storage.parent_id,
-            "parentRevision": storage.parent_revision,
+            "parentRevision": storage.placement_revision,
             "metadataRevision": storage.metadata_revision,
         }),
     )
@@ -283,21 +291,19 @@ fn page_storage_authority(
 ) -> Result<PageStorageAuthority, StoreError> {
     connection
         .query_row(
-            "SELECT block.project_id, page.lifecycle, block.location_revision, \
-               page.parent_kind, page.parent_id, page.parent_revision, page.metadata_revision \
+            "SELECT block.lifecycle, block.placement_revision, page.parent_kind, page.parent_id, \
+               block.metadata_revision \
              FROM pages page JOIN blocks block ON block.id = page.block_id AND block.type = 'page' \
              WHERE page.block_id = ?1 AND page.library_id = ?2 \
-               AND page.lifecycle <> 'deleted' AND block.lifecycle <> 'deleted'",
+               AND block.library_id = ?2 AND block.lifecycle <> 'deleted'",
             params![page_id, library_id],
             |row| {
                 Ok(PageStorageAuthority {
-                    project_id: row.get(0)?,
-                    lifecycle: row.get(1)?,
-                    location_revision: row.get(2)?,
-                    parent_kind: row.get(3)?,
-                    parent_id: row.get(4)?,
-                    parent_revision: row.get(5)?,
-                    metadata_revision: row.get(6)?,
+                    lifecycle: row.get(0)?,
+                    placement_revision: row.get(1)?,
+                    parent_kind: row.get(2)?,
+                    parent_id: row.get(3)?,
+                    metadata_revision: row.get(4)?,
                 })
             },
         )
@@ -385,8 +391,10 @@ fn project_properties(
 ) -> Result<Vec<ProjectedPropertyV1>, StoreError> {
     let parent = connection
         .query_row(
-            "SELECT parent_kind, parent_id FROM pages \
-             WHERE block_id = ?1 AND library_id = ?2 AND lifecycle <> 'deleted'",
+            "SELECT page.parent_kind, page.parent_id FROM pages page \
+             JOIN blocks block ON block.id = page.block_id AND block.library_id = page.library_id \
+             WHERE page.block_id = ?1 AND page.library_id = ?2 \
+               AND block.lifecycle <> 'deleted'",
             params![page_id, library_id],
             |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
         )
@@ -617,12 +625,12 @@ fn option_identity(
 fn project_schedule(
     connection: &Connection,
     page_id: &str,
-    storage_project_id: &str,
+    library_id: &str,
     metadata_revision: i64,
 ) -> Result<Option<ProjectedScheduleV1>, StoreError> {
     let row = connection
         .query_row(
-            "SELECT project_id, lifecycle, scheduled_start, scheduled_end, is_all_day, \
+            "SELECT library_id, lifecycle, scheduled_start, scheduled_end, is_all_day, \
                schedule_timezone, source_metadata_revision \
              FROM scheduled_page_index WHERE page_block_id = ?1",
             [page_id],
@@ -639,10 +647,12 @@ fn project_schedule(
             },
         )
         .optional()?;
-    let Some((project_id, lifecycle, start, end, all_day, timezone, source_revision)) = row else {
+    let Some((schedule_library_id, lifecycle, start, end, all_day, timezone, source_revision)) =
+        row
+    else {
         return Ok(None);
     };
-    if project_id != storage_project_id || source_revision != metadata_revision {
+    if schedule_library_id != library_id || source_revision != metadata_revision {
         return Err(corrupt("Page schedule projection is stale or mis-scoped"));
     }
     if lifecycle != "active" {

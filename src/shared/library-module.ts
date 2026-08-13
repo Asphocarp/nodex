@@ -129,7 +129,7 @@ export type LibraryRead =
   | { readonly mode: "metadata" }
   | {
       readonly mode: "resource_project_access";
-      readonly target: Exclude<LibraryResourceTarget, { readonly kind: "canvas" }>;
+      readonly target: LibraryResourceTarget;
     }
   | { readonly mode: "canvas_target"; readonly canvasId: string }
   | {
@@ -410,9 +410,7 @@ export interface RestoreLibraryResourceOperation {
 export interface GrantLibraryResourceToProjectOperation {
   readonly kind: "grant_project_access";
   readonly projectId: string;
-  readonly target:
-    | { readonly kind: "page"; readonly pageId: string }
-    | { readonly kind: "database"; readonly databaseId: DatabaseId };
+  readonly target: LibraryResourceTarget;
   readonly access: "read" | "read_write";
 }
 
@@ -452,13 +450,13 @@ export interface LibraryProjectAccessRow {
 }
 
 export interface LibraryResourceProjectAccess {
-  readonly target: Exclude<LibraryResourceTarget, { readonly kind: "canvas" }>;
+  readonly target: LibraryResourceTarget;
   readonly projects: readonly LibraryProjectAccessRow[];
 }
 
 export interface SetLibraryProjectAccessOperation {
   readonly kind: "set_project_access";
-  readonly target: Exclude<LibraryResourceTarget, { readonly kind: "canvas" }>;
+  readonly target: LibraryResourceTarget;
   readonly changes: readonly {
     readonly projectId: string;
     readonly access: LibraryAccess | null;

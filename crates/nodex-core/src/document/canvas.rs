@@ -743,9 +743,9 @@ fn validate_changed_page_reference(
     };
     let valid = connection
         .query_row(
-            "SELECT 1 FROM blocks WHERE id = ?1 AND project_id = ?2 \
+            "SELECT 1 FROM blocks WHERE id = ?1 AND library_id = ?2 \
                AND lifecycle <> 'deleted' AND type = 'page'",
-            params![reference.target_block_id, authority.head.project_id],
+            params![reference.target_block_id, authority.head.library_id],
             |_| Ok(()),
         )
         .optional()?
@@ -1293,14 +1293,14 @@ pub(crate) fn ensure_canvas_scene(
     let now = sqlite_now(connection)?;
     let changed = connection.execute(
         "UPDATE documents SET state_hash = ?1, updated_at = ?2 \
-         WHERE id = ?3 AND project_id = ?4 AND generation = ?5 AND head_seq = ?6 \
+         WHERE id = ?3 AND library_id = ?4 AND generation = ?5 AND head_seq = ?6 \
            AND sync_engine = 'canvas_scene' AND readiness = 'ready' \
            AND authority = 'ydoc_primary' AND length(state_vector) = 0",
         params![
             scene_hash,
             now,
             authority.head.id,
-            authority.head.project_id,
+            authority.head.library_id,
             authority.head.generation,
             authority.head.head_seq,
         ],
@@ -1403,6 +1403,7 @@ pub(crate) fn persist_canvas_mutation(
     connection: &Connection,
     commit_context: Option<&CommitContext>,
     authority: &DocumentAuthorityRow,
+    actor_project_id: &str,
     store_epoch: &str,
     operation_id: &str,
     base_head_seq: i64,
@@ -1483,7 +1484,7 @@ pub(crate) fn persist_canvas_mutation(
         append_change_log(
             connection,
             NewChangeLogEntry {
-                project_id: &authority.head.project_id,
+                project_id: actor_project_id,
                 store_epoch,
                 kind: &kind,
                 operation_id: Some(operation_id),
@@ -1504,7 +1505,7 @@ pub(crate) fn persist_canvas_mutation(
     let mut result = json!({
         "version": 1,
         "mutationId": operation_id,
-        "projectId": authority.head.project_id,
+        "projectId": actor_project_id,
         "documentId": authority.head.id,
         "storeEpoch": store_epoch,
         "generation": authority.head.generation,
@@ -1559,6 +1560,7 @@ pub(crate) fn persist_prepared_canvas_mutation(
     connection: &Connection,
     commit_context: Option<&CommitContext>,
     authority: &DocumentAuthorityRow,
+    actor_project_id: &str,
     store_epoch: &str,
     operation_id: &str,
     base_head_seq: i64,
@@ -1645,7 +1647,7 @@ pub(crate) fn persist_prepared_canvas_mutation(
         append_change_log(
             connection,
             NewChangeLogEntry {
-                project_id: &authority.head.project_id,
+                project_id: actor_project_id,
                 store_epoch,
                 kind: &kind,
                 operation_id: Some(operation_id),
@@ -1666,7 +1668,7 @@ pub(crate) fn persist_prepared_canvas_mutation(
     let mut result = json!({
         "version": 1,
         "mutationId": operation_id,
-        "projectId": authority.head.project_id,
+        "projectId": actor_project_id,
         "documentId": authority.head.id,
         "storeEpoch": store_epoch,
         "generation": authority.head.generation,
@@ -1777,7 +1779,7 @@ fn apply_prepared_canvas_authority(
     )?;
     let updated_document = connection.execute(
         "UPDATE documents SET head_seq = ?1, state_hash = ?2, updated_at = ?3 \
-         WHERE id = ?4 AND project_id = ?5 AND generation = ?6 AND head_seq = ?7 \
+         WHERE id = ?4 AND library_id = ?5 AND generation = ?6 AND head_seq = ?7 \
            AND sync_engine = 'canvas_scene' AND readiness = 'ready' \
            AND authority = 'ydoc_primary' AND length(state_vector) = 0",
         params![
@@ -1785,7 +1787,7 @@ fn apply_prepared_canvas_authority(
             scene_hash,
             now,
             authority.head.id,
-            authority.head.project_id,
+            authority.head.library_id,
             authority.head.generation,
             authority.head.head_seq,
         ],
@@ -1879,7 +1881,7 @@ pub(crate) fn persist_canvas_compaction(
     }
     let updated_document = connection.execute(
         "UPDATE documents SET generation = ?1, head_seq = ?2, state_hash = ?3, updated_at = ?4 \
-         WHERE id = ?5 AND project_id = ?6 AND generation = ?7 AND head_seq = ?8 \
+         WHERE id = ?5 AND library_id = ?6 AND generation = ?7 AND head_seq = ?8 \
            AND sync_engine = 'canvas_scene' AND readiness = 'ready' \
            AND authority = 'ydoc_primary' AND length(state_vector) = 0",
         params![
@@ -1888,7 +1890,7 @@ pub(crate) fn persist_canvas_compaction(
             metadata.scene_hash,
             now,
             authority.head.id,
-            authority.head.project_id,
+            authority.head.library_id,
             authority.head.generation,
             authority.head.head_seq,
         ],
@@ -2058,7 +2060,7 @@ fn apply_canvas_projection_delta(
         };
         connection.execute(
             "INSERT INTO canvas_page_references (\
-               document_id, source_element_id, target_block_id, owner_block_id, project_id, \
+               document_id, source_element_id, target_block_id, owner_block_id, library_id, \
                document_generation, projected_seq, title_hint, updated_at\
              ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             params![
@@ -2066,7 +2068,7 @@ fn apply_canvas_projection_delta(
                 reference.source_element_id,
                 reference.target_block_id,
                 authority.owner_block_id,
-                authority.head.project_id,
+                authority.head.library_id,
                 authority.head.generation,
                 head_seq,
                 reference.title_hint,
@@ -2084,7 +2086,7 @@ fn apply_canvas_projection_delta(
         let evidence = asset_evidence(connection, &authority.head.id, &file.file, assets_root)?;
         connection.execute(
             "INSERT INTO canvas_scene_file_refs (\
-               document_id, file_id, owner_block_id, project_id, document_generation, \
+               document_id, file_id, owner_block_id, library_id, document_generation, \
                projected_seq, mime_type, asset_uri, managed_file_name, asset_hash, \
                byte_length, updated_at\
              ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
@@ -2092,7 +2094,7 @@ fn apply_canvas_projection_delta(
                 authority.head.id,
                 file.file.id,
                 authority.owner_block_id,
-                authority.head.project_id,
+                authority.head.library_id,
                 authority.head.generation,
                 head_seq,
                 file.file.mime_type,
@@ -2220,7 +2222,7 @@ fn persist_changed_scene(
     }
     let updated_document = connection.execute(
         "UPDATE documents SET head_seq = ?1, state_hash = ?2, updated_at = ?3 \
-         WHERE id = ?4 AND project_id = ?5 AND generation = ?6 AND head_seq = ?7 \
+         WHERE id = ?4 AND library_id = ?5 AND generation = ?6 AND head_seq = ?7 \
            AND sync_engine = 'canvas_scene' AND readiness = 'ready' \
            AND authority = 'ydoc_primary' AND length(state_vector) = 0",
         params![
@@ -2228,7 +2230,7 @@ fn persist_changed_scene(
             scene_hash,
             now,
             authority.head.id,
-            authority.head.project_id,
+            authority.head.library_id,
             authority.head.generation,
             authority.head.head_seq,
         ],
@@ -2338,14 +2340,14 @@ pub(super) fn replace_canvas_projections(
     );
     connection.execute(
         "INSERT INTO block_search_units (\
-           unit_key, project_id, block_id, owner_block_id, document_id, \
+           unit_key, library_id, block_id, owner_block_id, document_id, \
            document_generation, projected_seq, source_revision, projection_version, \
            source_kind, field_key, text, text_hash, updated_at\
          ) VALUES (?1, ?2, ?3, ?3, ?4, ?5, ?6, NULL, ?7, \
                    'document_marker', 'marker', ?8, ?9, ?10)",
         params![
             unit_key,
-            authority.head.project_id,
+            authority.head.library_id,
             authority.owner_block_id,
             authority.head.id,
             authority.head.generation,
@@ -2359,7 +2361,7 @@ pub(super) fn replace_canvas_projections(
     for reference in &scene.page_references {
         connection.execute(
             "INSERT INTO canvas_page_references (\
-               document_id, source_element_id, target_block_id, owner_block_id, project_id, \
+               document_id, source_element_id, target_block_id, owner_block_id, library_id, \
                document_generation, projected_seq, title_hint, updated_at\
              ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             params![
@@ -2367,7 +2369,7 @@ pub(super) fn replace_canvas_projections(
                 reference.source_element_id,
                 reference.target_block_id,
                 authority.owner_block_id,
-                authority.head.project_id,
+                authority.head.library_id,
                 authority.head.generation,
                 authority.head.head_seq,
                 reference.title_hint,
@@ -2379,7 +2381,7 @@ pub(super) fn replace_canvas_projections(
         let evidence = asset_evidence(connection, &authority.head.id, file, assets_root)?;
         connection.execute(
             "INSERT INTO canvas_scene_file_refs (\
-               document_id, file_id, owner_block_id, project_id, document_generation, \
+               document_id, file_id, owner_block_id, library_id, document_generation, \
                projected_seq, mime_type, asset_uri, managed_file_name, asset_hash, \
                byte_length, updated_at\
              ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
@@ -2387,7 +2389,7 @@ pub(super) fn replace_canvas_projections(
                 authority.head.id,
                 file.id,
                 authority.owner_block_id,
-                authority.head.project_id,
+                authority.head.library_id,
                 authority.head.generation,
                 authority.head.head_seq,
                 file.mime_type,
@@ -2502,9 +2504,9 @@ fn validate_page_references(
     for reference in &scene.page_references {
         let valid = connection
             .query_row(
-                "SELECT 1 FROM blocks WHERE id = ?1 AND project_id = ?2 \
+                "SELECT 1 FROM blocks WHERE id = ?1 AND library_id = ?2 \
                    AND lifecycle <> 'deleted' AND type = 'page'",
-                params![reference.target_block_id, authority.head.project_id],
+                params![reference.target_block_id, authority.head.library_id],
                 |_| Ok(()),
             )
             .optional()?

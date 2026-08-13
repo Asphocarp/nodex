@@ -35,7 +35,7 @@ pub enum DocumentSyncEngine {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DocumentHeadRow {
     pub id: String,
-    pub project_id: String,
+    pub library_id: String,
     pub generation: i64,
     pub head_seq: i64,
     pub schema_key: String,
@@ -131,7 +131,7 @@ impl<'connection> DocumentReadRepository<'connection> {
         let rows = self
             .connection
             .prepare(
-                "SELECT id, project_id, generation, head_seq, schema_key, schema_version, \
+                "SELECT id, library_id, generation, head_seq, schema_key, schema_version, \
                         state_vector, state_hash, readiness, authority, genesis_source_revision, \
                         created_at, updated_at, sync_engine \
                  FROM documents ORDER BY id",
@@ -139,7 +139,7 @@ impl<'connection> DocumentReadRepository<'connection> {
             .query_map([], |row| {
                 Ok(RawDocumentHead {
                     id: row.get(0)?,
-                    project_id: row.get(1)?,
+                    library_id: row.get(1)?,
                     generation: row.get(2)?,
                     head_seq: row.get(3)?,
                     schema_key: row.get(4)?,
@@ -159,7 +159,52 @@ impl<'connection> DocumentReadRepository<'connection> {
         rows.into_iter().map(DocumentHeadRow::try_from).collect()
     }
 
-    pub fn document_head(&self, document_id: &str) -> Result<Option<DocumentHeadRow>, StoreError> {
+    /// Reads the frozen pre-v117 ownership coordinate for migration validation.
+    /// Normal runtime readers must use `document_heads`, whose scope is Library.
+    pub(crate) fn legacy_project_owned_live_yjs_heads(
+        &self,
+    ) -> Result<Vec<DocumentHeadRow>, StoreError> {
+        let rows = self
+            .connection
+            .prepare(
+                "SELECT id, project_id, generation, head_seq, schema_key, schema_version, \
+                        state_vector, state_hash, readiness, authority, genesis_source_revision, \
+                        created_at, updated_at, sync_engine \
+                 FROM documents ORDER BY id",
+            )?
+            .query_map([], |row| {
+                Ok(RawDocumentHead {
+                    id: row.get(0)?,
+                    library_id: row.get(1)?,
+                    generation: row.get(2)?,
+                    head_seq: row.get(3)?,
+                    schema_key: row.get(4)?,
+                    schema_version: row.get(5)?,
+                    state_vector: row.get(6)?,
+                    state_hash: row.get(7)?,
+                    readiness: row.get(8)?,
+                    authority: row.get(9)?,
+                    genesis_source_revision: row.get(10)?,
+                    created_at: row.get(11)?,
+                    updated_at: row.get(12)?,
+                    sync_engine: row.get(13)?,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(|_| corrupt_row("documents", "column types do not match the schema"))?;
+        Ok(rows
+            .into_iter()
+            .map(DocumentHeadRow::try_from)
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .filter(DocumentHeadRow::is_live_yjs_authority)
+            .collect())
+    }
+
+    pub(crate) fn legacy_project_owned_document_head(
+        &self,
+        document_id: &str,
+    ) -> Result<Option<DocumentHeadRow>, StoreError> {
         validate_identifier(document_id, "documents.id")?;
         let raw = self
             .connection
@@ -172,7 +217,41 @@ impl<'connection> DocumentReadRepository<'connection> {
                 |row| {
                     Ok(RawDocumentHead {
                         id: row.get(0)?,
-                        project_id: row.get(1)?,
+                        library_id: row.get(1)?,
+                        generation: row.get(2)?,
+                        head_seq: row.get(3)?,
+                        schema_key: row.get(4)?,
+                        schema_version: row.get(5)?,
+                        state_vector: row.get(6)?,
+                        state_hash: row.get(7)?,
+                        readiness: row.get(8)?,
+                        authority: row.get(9)?,
+                        genesis_source_revision: row.get(10)?,
+                        created_at: row.get(11)?,
+                        updated_at: row.get(12)?,
+                        sync_engine: row.get(13)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(|_| corrupt_row("documents", "column types do not match the schema"))?;
+        raw.map(DocumentHeadRow::try_from).transpose()
+    }
+
+    pub fn document_head(&self, document_id: &str) -> Result<Option<DocumentHeadRow>, StoreError> {
+        validate_identifier(document_id, "documents.id")?;
+        let raw = self
+            .connection
+            .query_row(
+                "SELECT id, library_id, generation, head_seq, schema_key, schema_version, \
+                        state_vector, state_hash, readiness, authority, genesis_source_revision, \
+                        created_at, updated_at, sync_engine \
+                 FROM documents WHERE id = ?1",
+                [document_id],
+                |row| {
+                    Ok(RawDocumentHead {
+                        id: row.get(0)?,
+                        library_id: row.get(1)?,
                         generation: row.get(2)?,
                         head_seq: row.get(3)?,
                         schema_key: row.get(4)?,
@@ -414,7 +493,7 @@ impl<'connection> DocumentReadRepository<'connection> {
 
 struct RawDocumentHead {
     id: String,
-    project_id: String,
+    library_id: String,
     generation: i64,
     head_seq: i64,
     schema_key: String,
@@ -434,7 +513,7 @@ impl TryFrom<RawDocumentHead> for DocumentHeadRow {
 
     fn try_from(raw: RawDocumentHead) -> Result<Self, Self::Error> {
         validate_identifier(&raw.id, "documents.id")?;
-        validate_identifier(&raw.project_id, "documents.project_id")?;
+        validate_identifier(&raw.library_id, "documents.library_id")?;
         validate_positive(raw.generation, "documents.generation")?;
         validate_non_negative(raw.head_seq, "documents.head_seq")?;
         validate_bounded_text(
@@ -469,7 +548,7 @@ impl TryFrom<RawDocumentHead> for DocumentHeadRow {
         validate_timestamp(&raw.updated_at, "documents.updated_at")?;
         Ok(Self {
             id: raw.id,
-            project_id: raw.project_id,
+            library_id: raw.library_id,
             generation: raw.generation,
             head_seq: raw.head_seq,
             schema_key: raw.schema_key,
@@ -951,31 +1030,42 @@ fn corrupt_row(table: &str, reason: &str) -> StoreError {
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use rusqlite::params;
 
     use super::*;
-    use crate::infrastructure::schema::install_v84_schema;
+    use crate::infrastructure::migration::prepare_test_current_store;
 
     const NOW: &str = "2026-07-18T00:00:00.000Z";
     const HASH: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
     fn seeded_store() -> Connection {
-        let connection = Connection::open_in_memory().expect("memory store");
-        install_v84_schema(&connection).expect("v84 schema");
+        let mut connection = Connection::open_in_memory().expect("memory store");
+        prepare_test_current_store(&mut connection, Path::new("/__document_repository_test__"))
+            .expect("current schema");
         connection
             .execute(
-                "INSERT INTO projects(id, name, created, updated) VALUES ('project:1', 'Test', ?1, ?1)",
+                "INSERT INTO profiles(id, created_at, updated_at) \
+                 VALUES ('profile:1', ?1, ?1);",
                 [NOW],
             )
-            .expect("Project");
+            .expect("Profile");
+        connection
+            .execute(
+                "INSERT INTO libraries(id, profile_id, created_at, updated_at) \
+                 VALUES ('library:1', 'profile:1', ?1, ?1)",
+                [NOW],
+            )
+            .expect("Library");
         connection
             .execute(
                 "INSERT INTO documents(\
-                   id, project_id, generation, head_seq, schema_key, schema_version, state_vector, \
+                   id, library_id, generation, head_seq, schema_key, schema_version, state_vector, \
                    state_hash, readiness, authority, created_at, updated_at, sync_engine\
-                 ) VALUES ('document:1', 'project:1', 1, 1, 'nodex.page', 2, X'00', ?1, \
-                   'ready', 'ydoc_primary', ?2, ?2, 'yjs')",
-                params![HASH, NOW],
+                 ) VALUES ('document:1', 'library:1', 1, 1, 'nodex.page', 2, X'00', '', \
+                   'ready', 'ydoc_primary', ?1, ?1, 'yjs')",
+                [NOW],
             )
             .expect("Document");
         connection
@@ -1060,14 +1150,14 @@ mod tests {
     }
 
     #[test]
-    fn malformed_weakly_typed_integer_is_a_stable_corruption_error() {
+    fn malformed_integer_is_a_stable_corruption_error() {
         let connection = seeded_store();
         connection
             .pragma_update(None, "ignore_check_constraints", true)
             .expect("test bypasses SQLite checks");
         connection
             .execute(
-                "UPDATE documents SET generation = 'not-an-integer' WHERE id = 'document:1'",
+                "UPDATE documents SET generation = 0 WHERE id = 'document:1'",
                 [],
             )
             .expect("malformed row");
@@ -1077,7 +1167,7 @@ mod tests {
         assert_eq!(error.code, StoreErrorCode::StoreCorrupt);
         assert_eq!(
             error.message,
-            "Malformed SQLite documents row: column types do not match the schema"
+            "Malformed SQLite row at documents.generation: integer is outside the positive safe range"
         );
     }
 

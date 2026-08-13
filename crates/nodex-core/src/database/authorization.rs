@@ -87,7 +87,9 @@ pub(crate) fn read_authorization_roots(
     let mut authorized = primary || direct;
     let containing_document_id = connection
         .query_row(
-            "SELECT containing_document_id FROM blocks WHERE id = ?1 AND type = 'database'",
+            "SELECT block_index.document_id FROM document_block_index block_index \
+             JOIN blocks block ON block.id = block_index.block_id \
+             WHERE block.id = ?1 AND block.type = 'database'",
             [database_id],
             |row| row.get::<_, Option<String>>(0),
         )

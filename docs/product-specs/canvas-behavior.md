@@ -13,6 +13,17 @@ Document ID. Create, rename, move, duplicate, and delete use typed Library
 operations that keep the owner, host shell, Document lifecycle, projections,
 and receipt consistent.
 
+## Access
+
+A top-level Canvas is a grantable Library root. Each Project that can open it
+has an explicit direct Canvas grant; the creator receives read-write access in
+the creation transaction. A Canvas nested in a Page has no direct Canvas grant
+and inherits the host Page's effective access. Moving a top-level Canvas into a
+Page revokes its direct grants, while moving it back to the Library creates or
+reactivates the mover's grant atomically. Access management shows inherited
+Page access separately from direct Canvas access and never treats another
+Project in the same Library as implicit authorization.
+
 ## Inline and Stage presentation
 
 An inline Canvas begins as a lightweight named shell and mounts its editor only

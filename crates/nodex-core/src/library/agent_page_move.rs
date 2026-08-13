@@ -16,7 +16,7 @@ use nodex_core_contracts::library::{
 };
 use nodex_core_contracts::{
     AdapterKind, ApplyResponse, BoundModuleContext, LIBRARY_CONTRACT_VERSION, ModuleApplyRequest,
-    ModuleName, ModuleReadSnapshot, ProjectId, StoreEpoch,
+    ModuleName, ModuleReadSnapshot, StoreEpoch,
 };
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::Serialize;
@@ -44,14 +44,7 @@ use super::block_transfer::{
     AgentPageMoveTransferAuthority, AppliedAgentPageDocumentBatch, PreparedAgentPageDocumentBatch,
     PreparedBlockTransfer, PreparedTransferReadSet,
 };
-use super::content_rehome::{
-    PrepareContentRehome, PreparedContentRehome, apply_prevalidated_content_rehome,
-    prepare_content_rehome, remove_prevalidated_content_rehome_projections,
-};
-use super::mutation::{
-    MutationEffects, insert_library_placement, library_commit_result, seal_mutation_with,
-    sqlite_now,
-};
+use super::mutation::{MutationEffects, library_commit_result, seal_mutation_with, sqlite_now};
 
 const MODULE_NAME: &str = "library";
 const MAX_PAGES: usize = 16;
@@ -63,13 +56,11 @@ struct PreparedMoveStep {
     source: LibraryBlockTransferSource,
     source_document_id: Option<String>,
     source_database_id: Option<String>,
-    source_project_id: String,
-    target_project_id: String,
+    actor_project_id: String,
     same_data_source: bool,
     source_authorization_fingerprint: String,
     source_state_hash: String,
     read_set: PreparedTransferReadSet,
-    rehome: Option<PreparedContentRehome>,
     #[serde(skip)]
     prepared_transfer: Option<PreparedBlockTransfer>,
 }
@@ -485,8 +476,6 @@ fn apply_pages(
             continue;
         }
         let transfer_operation_id = format!("{operation_id}:page:{index}");
-        let mut transfer_context = context.clone();
-        transfer_context.project_id = Some(ProjectId(step.source_project_id.clone()));
         let intent = transfer_intent(
             library_id,
             &step.page_id,
@@ -501,70 +490,25 @@ fn apply_pages(
             .take()
             .ok_or_else(|| corrupt("Agent Page move omitted its prepared transfer"))?;
         let transfer_hash = super::block_transfer::semantic_agent_page_move_request_hash(
-            &transfer_context,
+            context,
             store_epoch,
             &intent,
             &transfer_authority,
         )?;
-        if let Some(rehome) = &step.rehome {
-            remove_prevalidated_content_rehome_projections(connection, rehome)?;
-        }
-        let outcome = if let Some(rehome) = &step.rehome {
-            let mut apply_rehome = |transaction: &Connection,
-                                    root_page_ids: &[String],
-                                    committed_at: &str| {
-                if root_page_ids != std::slice::from_ref(&step.page_id) {
-                    return Err(corrupt(
-                        "Agent Page-move rehome received divergent ownership roots",
-                    ));
-                }
-                apply_prevalidated_content_rehome(transaction, rehome, committed_at, assets_root)
-            };
-            super::block_transfer::apply_agent_page_move(
-                connection,
-                &transfer_context,
-                library_id,
-                &transfer_operation_id,
-                store_epoch,
-                &transfer_hash,
-                &intent,
-                assets_root,
-                &transfer_authority,
-                Some(&mut apply_rehome),
-                scope,
-                prepared_transfer,
-            )?
-        } else {
-            super::block_transfer::apply_agent_page_move(
-                connection,
-                &transfer_context,
-                library_id,
-                &transfer_operation_id,
-                store_epoch,
-                &transfer_hash,
-                &intent,
-                assets_root,
-                &transfer_authority,
-                None,
-                scope,
-                prepared_transfer,
-            )?
-        };
-        if step.rehome.is_some()
-            && matches!(
-                preflight.destination,
-                LibraryPageCopyDestination::Library { .. }
-            )
-        {
-            reposition_rehomed_library_page(
-                connection,
-                library_id,
-                &step.page_id,
-                &preflight.destination_project_id,
-                &preflight.destination,
-                now,
-            )?;
-        }
+        let outcome = super::block_transfer::apply_agent_page_move(
+            connection,
+            context,
+            library_id,
+            &transfer_operation_id,
+            store_epoch,
+            &transfer_hash,
+            &intent,
+            assets_root,
+            &transfer_authority,
+            None,
+            scope,
+            prepared_transfer,
+        )?;
         let transfer = outcome
             .committed
             .value
@@ -583,12 +527,23 @@ fn apply_pages(
     let document_batch = super::block_transfer::apply_agent_page_document_batch(
         connection,
         scope,
+        context
+            .project_id
+            .as_ref()
+            .map(|project_id| project_id.0.as_str())
+            .ok_or_else(|| unauthorized("Agent Page move requires a bound Project"))?,
         operation_id,
         store_epoch,
         preflight
             .batch_documents
             .take()
             .ok_or_else(|| corrupt("Agent Page move omitted its prepared Document batch"))?,
+    )?;
+    super::block_transfer::verify_agent_page_move_final_locations(
+        connection,
+        library_id,
+        &request.page_ids,
+        &preflight.destination,
     )?;
     let batch_document_commits = document_batch.document_commits();
     for commit in &batch_document_commits {
@@ -672,7 +627,7 @@ fn compile_preflight(
         &request.destination,
         resolved_destination,
         &request.page_ids,
-        &destination_project_id,
+        library_id,
     )?;
     let destination_document = matches!(
         request.destination,
@@ -695,14 +650,6 @@ fn compile_preflight(
         .as_ref()
         .map(|project_id| project_id.0.as_str())
         .ok_or_else(|| unauthorized("Agent Page movement requires a Project context"))?;
-    let call_identity = hash_serializable(&(
-        "move_pages",
-        &authorization.provenance.authority.thread_id,
-        &authorization.provenance.authority.turn_id,
-        &authorization.call_id,
-        actor_project_id,
-    ))?;
-    let mut rehome_closure_owners = BTreeMap::<String, String>::new();
     for (index, page_id) in request.page_ids.iter().enumerate() {
         let source_fingerprint = super::agent_authorization::authorize_execution(
             connection,
@@ -734,33 +681,6 @@ fn compile_preflight(
                 "Moving within one Data Source cannot change independent Property values",
             ));
         }
-        let rehome = if source.source_project_id == destination_project_id {
-            None
-        } else {
-            let prepared = prepare_content_rehome(
-                connection,
-                PrepareContentRehome {
-                    operation_id: &format!("{operation_id}:page:{index}:rehome"),
-                    call_identity: &call_identity,
-                    actor_project_id,
-                    source_project_id: &source.source_project_id,
-                    target_project_id: &destination_project_id,
-                    library_id,
-                    store_epoch,
-                    root_page_ids: std::slice::from_ref(page_id),
-                },
-            )?;
-            for block_id in &prepared.block_ids {
-                if let Some(owner) = rehome_closure_owners.insert(block_id.clone(), page_id.clone())
-                    && owner != *page_id
-                {
-                    return Err(invalid(
-                        "Cross-owner Page moves cannot select overlapping ownership closures",
-                    ));
-                }
-            }
-            Some(prepared)
-        };
         let (read_set, prepared_transfer) = if same_data_source {
             (
                 PreparedTransferReadSet {
@@ -771,8 +691,6 @@ fn compile_preflight(
                 None,
             )
         } else {
-            let mut transfer_context = context.clone();
-            transfer_context.project_id = Some(ProjectId(source.source_project_id.clone()));
             let intent = transfer_intent(
                 library_id,
                 page_id,
@@ -784,7 +702,7 @@ fn compile_preflight(
             let prepared = super::block_transfer::prepare_for_agent_page_move(
                 connection,
                 document_runtime_cache,
-                &transfer_context,
+                context,
                 library_id,
                 &format!("{operation_id}:page:{index}"),
                 store_epoch,
@@ -798,13 +716,11 @@ fn compile_preflight(
             source: source.source,
             source_document_id: source.source_document_id,
             source_database_id: source.source_database_id,
-            source_project_id: source.source_project_id,
-            target_project_id: destination_project_id.clone(),
+            actor_project_id: actor_project_id.to_owned(),
             same_data_source,
             source_authorization_fingerprint: source_fingerprint,
             source_state_hash,
             read_set,
-            rehome,
             prepared_transfer,
         });
     }
@@ -917,7 +833,7 @@ fn revalidate_preflight(
         &request.destination,
         resolved_destination,
         &request.page_ids,
-        &destination_project_id,
+        library_id,
     )?;
     let destination_authority_hash = hash_serializable(&(
         destination_fingerprint,
@@ -960,7 +876,6 @@ fn revalidate_preflight(
         if source.source != step.source
             || source.source_document_id != step.source_document_id
             || source.source_database_id != step.source_database_id
-            || source.source_project_id != step.source_project_id
         {
             return Err(stale_preflight("Agent Page-move source changed"));
         }
@@ -976,7 +891,6 @@ struct SourcePlacement {
     source: LibraryBlockTransferSource,
     source_document_id: Option<String>,
     source_database_id: Option<String>,
-    source_project_id: String,
 }
 
 fn read_source(
@@ -986,33 +900,36 @@ fn read_source(
 ) -> Result<SourcePlacement, StoreError> {
     let row = connection
         .query_row(
-            "SELECT block.project_id, page.parent_kind, page.parent_id, \
-               block.containing_document_id, block.containing_database_id, \
-               block.lifecycle, page.lifecycle, document.readiness \
-             FROM pages page JOIN blocks block ON block.id = page.block_id \
+            "SELECT page.parent_kind, page.parent_id, containing.document_id, \
+                    source.home_database_block_id, block.lifecycle, document.readiness \
+             FROM pages page \
+             JOIN blocks block ON block.id = page.block_id \
+               AND block.library_id = page.library_id \
              JOIN documents document ON document.id = page.document_id \
+               AND document.library_id = page.library_id \
+             LEFT JOIN document_block_index containing ON containing.block_id = page.block_id \
+             LEFT JOIN data_sources source ON source.id = page.parent_id \
+               AND page.parent_kind = 'data_source' AND source.library_id = page.library_id \
              WHERE page.block_id = ?1 AND page.library_id = ?2 AND block.type = 'page'",
             params![page_id, library_id],
             |row| {
                 Ok((
                     row.get::<_, String>(0)?,
                     row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
+                    row.get::<_, Option<String>>(2)?,
                     row.get::<_, Option<String>>(3)?,
-                    row.get::<_, Option<String>>(4)?,
+                    row.get::<_, String>(4)?,
                     row.get::<_, String>(5)?,
-                    row.get::<_, String>(6)?,
-                    row.get::<_, String>(7)?,
                 ))
             },
         )
         .optional()?
         .ok_or_else(|| not_found("Source Page is unavailable"))?;
-    if row.5 != "active" || row.6 != "active" || row.7 != "ready" {
+    if row.4 != "active" || row.5 != "ready" {
         return Err(not_found("Source Page is unavailable"));
     }
-    let (source, source_document_id, source_database_id) = match row.1.as_str() {
-        "library" if row.2 == library_id => (
+    let (source, source_document_id, source_database_id) = match row.0.as_str() {
+        "library" if row.1 == library_id => (
             LibraryBlockTransferSource::Library {
                 library_id: library_id.to_owned(),
             },
@@ -1021,11 +938,11 @@ fn read_source(
         ),
         "page" => {
             let document_id = row
-                .3
+                .2
                 .ok_or_else(|| corrupt("Page-owned source has no containing Document"))?;
             (
                 LibraryBlockTransferSource::Page {
-                    page_id: row.2.clone(),
+                    page_id: row.1.clone(),
                 },
                 Some(document_id),
                 None,
@@ -1033,11 +950,11 @@ fn read_source(
         }
         "data_source" => {
             let database_id = row
-                .4
+                .3
                 .ok_or_else(|| corrupt("Data Source Page has no containing Database"))?;
             (
                 LibraryBlockTransferSource::DataSource {
-                    data_source_id: row.2.clone(),
+                    data_source_id: row.1.clone(),
                 },
                 None,
                 Some(database_id),
@@ -1049,7 +966,6 @@ fn read_source(
         source,
         source_document_id,
         source_database_id,
-        source_project_id: row.0,
     })
 }
 
@@ -1060,7 +976,7 @@ fn source_state_hash(
 ) -> Result<String, StoreError> {
     let authority = connection
         .query_row(
-            "SELECT block.location_revision, block.metadata_revision, page.parent_revision, \
+            "SELECT block.placement_revision, block.metadata_revision, \
                membership.id, membership.revision \
              FROM pages page JOIN blocks block ON block.id = page.block_id \
              LEFT JOIN data_source_page_memberships membership \
@@ -1071,9 +987,8 @@ fn source_state_hash(
                 Ok((
                     row.get::<_, i64>(0)?,
                     row.get::<_, i64>(1)?,
-                    row.get::<_, i64>(2)?,
-                    row.get::<_, Option<String>>(3)?,
-                    row.get::<_, Option<i64>>(4)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, Option<i64>>(3)?,
                 ))
             },
         )
@@ -1267,53 +1182,12 @@ fn transfer_authority(
     })
 }
 
-fn reposition_rehomed_library_page(
-    connection: &Connection,
-    library_id: &str,
-    page_id: &str,
-    target_project_id: &str,
-    destination: &LibraryPageCopyDestination,
-    now: &str,
-) -> Result<(), StoreError> {
-    let LibraryPageCopyDestination::Library { before } = destination else {
-        return Err(corrupt("Agent Page move lost its Library destination"));
-    };
-    connection.execute(
-        "DELETE FROM top_level_block_placements WHERE block_id = ?1",
-        [page_id],
-    )?;
-    connection.execute(
-        "DELETE FROM library_block_placements WHERE block_id = ?1 AND library_id = ?2",
-        params![page_id, library_id],
-    )?;
-    let before_block_id = before.as_ref().map(|anchor| anchor.block_id.as_str());
-    let rank = super::block_transfer::insert_top_level_placement(
-        connection,
-        target_project_id,
-        page_id,
-        before_block_id,
-        now,
-    )?;
-    let anchor = before_block_id
-        .map(|block_id| {
-            super::block_transfer::read_library_anchor(connection, library_id, block_id)
-        })
-        .transpose()?;
-    insert_library_placement(connection, library_id, page_id, anchor.as_ref(), now)?;
-    connection.execute(
-        "UPDATE page_read_model SET top_level_rank_key = ?1, updated_at = ?2 \
-         WHERE page_block_id = ?3 AND project_id = ?4",
-        params![rank, now, page_id, target_project_id],
-    )?;
-    Ok(())
-}
-
 fn resolve_move_destination(
     connection: &Connection,
     request: &LibraryAgentPageDestination,
     destination: LibraryPageCopyDestination,
     moved_page_ids: &[String],
-    destination_project_id: &str,
+    library_id: &str,
 ) -> Result<LibraryPageCopyDestination, StoreError> {
     let moved = moved_page_ids
         .iter()
@@ -1326,12 +1200,14 @@ fn resolve_move_destination(
         ) => {
             let ids = connection
                 .prepare(
-                    "SELECT placement.block_id FROM top_level_block_placements placement \
+                    "SELECT placement.block_id FROM library_block_placements placement \
                      JOIN blocks block ON block.id = placement.block_id \
-                     WHERE placement.project_id = ?1 AND block.lifecycle = 'active' \
+                     WHERE placement.library_id = ?1 \
+                       AND block.library_id = placement.library_id \
+                       AND block.lifecycle = 'active' \
                      ORDER BY placement.rank_key, placement.block_id",
                 )?
-                .query_map([destination_project_id], |row| row.get::<_, String>(0))?
+                .query_map([library_id], |row| row.get::<_, String>(0))?
                 .collect::<rusqlite::Result<Vec<_>>>()?
                 .into_iter()
                 .filter(|block_id| !moved.contains(block_id.as_str()))
@@ -1397,7 +1273,11 @@ fn resolve_move_destination(
                        ON position.view_id = ?1 \
                       AND position.page_block_id = membership.page_block_id \
                      WHERE membership.data_source_id = ?2 \
-                       AND membership.removed_at IS NULL AND page.lifecycle = 'active' \
+                       AND membership.removed_at IS NULL \
+                       AND EXISTS (SELECT 1 FROM blocks block \
+                         WHERE block.id = page.block_id \
+                           AND block.library_id = page.library_id \
+                           AND block.lifecycle = 'active') \
                      ORDER BY CASE WHEN position.rank_key IS NULL THEN 1 ELSE 0 END, \
                        position.rank_key, membership.page_block_id",
                 )?
@@ -1521,8 +1401,8 @@ fn page_preparation(step: &PreparedMoveStep) -> LibraryAgentMovePagePreparation 
         source: step.source.clone(),
         source_document_id: step.source_document_id.clone(),
         source_database_id: step.source_database_id.clone(),
-        source_project_id: step.source_project_id.clone(),
-        target_project_id: step.target_project_id.clone(),
+        source_project_id: step.actor_project_id.clone(),
+        target_project_id: step.actor_project_id.clone(),
     }
 }
 

@@ -46,7 +46,7 @@ const INTRINSIC_SCHEDULE_KEYS: [&str; 4] = [
 #[derive(Clone)]
 struct PageAuthority {
     page_id: String,
-    storage_project_id: String,
+    library_id: String,
 }
 
 #[derive(Clone)]
@@ -272,19 +272,15 @@ pub(super) fn apply(
             let intrinsic_pages = resolved
                 .iter()
                 .map(|field| match field {
-                    ResolvedField::Intrinsic(field) => (
-                        field.page.page_id.clone(),
-                        field.page.storage_project_id.clone(),
-                    ),
+                    ResolvedField::Intrinsic(field) => field.page.page_id.clone(),
                 })
                 .collect::<BTreeSet<_>>();
-            for (page_id, storage_project_id) in intrinsic_pages {
-                refresh_page_intrinsic_projection(connection, &page_id, &storage_project_id, &now)?;
+            for page_id in intrinsic_pages {
+                refresh_page_intrinsic_projection(connection, &page_id, &now)?;
                 connection.execute(
-                    "UPDATE page_read_model SET metadata_revision = ?1, \
-               projection_version = projection_version + 1, updated_at = ?2 \
-             WHERE page_block_id = ?3",
-                    params![block_metadata_revisions[&page_id], now, page_id],
+                    "UPDATE page_read_model SET projection_version = projection_version + 1, \
+                       updated_at = ?1 WHERE page_block_id = ?2",
+                    params![now, page_id],
                 )?;
             }
             for page_id in schedule_pages(&resolved) {
@@ -527,8 +523,8 @@ fn resolve_intrinsic(
     let current = connection
         .query_row(
             "SELECT value_type, value_json, revision FROM block_properties \
-             WHERE block_id = ?1 AND project_id = ?2 AND property_key = ?3",
-            params![block_id, page.storage_project_id, property_key],
+             WHERE block_id = ?1 AND library_id = ?2 AND property_key = ?3",
+            params![block_id, page.library_id, property_key],
             |row| {
                 Ok((
                     row.get::<_, String>(0)?,
@@ -578,11 +574,11 @@ fn persist_field(
             let changes = if field.current_revision == 0 {
                 connection.execute(
                     "INSERT INTO block_properties( \
-                       block_id, project_id, property_key, value_type, value_json, revision, updated_at \
+                       block_id, library_id, property_key, value_type, value_json, revision, updated_at \
                      ) VALUES (?1, ?2, ?3, ?4, ?5, 1, ?6)",
                     params![
                         field.page.page_id,
-                        field.page.storage_project_id,
+                        field.page.library_id,
                         field.property_key,
                         field.value_type,
                         value_json,
@@ -593,14 +589,14 @@ fn persist_field(
                 connection.execute(
                     "UPDATE block_properties SET value_type = ?1, value_json = ?2, \
                        revision = revision + 1, updated_at = ?3 \
-                     WHERE block_id = ?4 AND project_id = ?5 AND property_key = ?6 \
+                     WHERE block_id = ?4 AND library_id = ?5 AND property_key = ?6 \
                        AND revision = ?7",
                     params![
                         field.value_type,
                         value_json,
                         now,
                         field.page.page_id,
-                        field.page.storage_project_id,
+                        field.page.library_id,
                         field.property_key,
                         field.current_revision,
                     ],
@@ -662,10 +658,6 @@ fn bump_page_metadata_revisions(
                     false,
                 )
             })?;
-        connection.execute(
-            "UPDATE pages SET metadata_revision = ?1, updated_at = ?2 WHERE block_id = ?3",
-            params![revision, now, page_id],
-        )?;
         revisions.insert(page_id.clone(), revision);
     }
     Ok(revisions)
@@ -905,7 +897,7 @@ fn active_page(
 ) -> Result<PageAuthority, PropertyApplyError> {
     let row = connection
         .query_row(
-            "SELECT block.type, block.lifecycle, block.project_id, page.lifecycle, page.library_id \
+            "SELECT block.type, block.lifecycle, block.library_id, page.block_id IS NOT NULL \
              FROM blocks block LEFT JOIN pages page ON page.block_id = block.id \
              WHERE block.id = ?1",
             [page_id],
@@ -914,14 +906,12 @@ fn active_page(
                     row.get::<_, String>(0)?,
                     row.get::<_, String>(1)?,
                     row.get::<_, String>(2)?,
-                    row.get::<_, Option<String>>(3)?,
-                    row.get::<_, Option<String>>(4)?,
+                    row.get::<_, bool>(3)?,
                 ))
             },
         )
         .optional()?;
-    let Some((block_type, block_lifecycle, project_id, page_lifecycle, page_library_id)) = row
-    else {
+    let Some((block_type, block_lifecycle, page_library_id, is_page)) = row else {
         return Err(rejected(
             LibraryBlockPropertyMutationErrorCode::BlockNotFound,
             format!("Page Block does not exist: {page_id}"),
@@ -930,7 +920,7 @@ fn active_page(
             None,
         ));
     };
-    if block_type != "page" || page_lifecycle.is_none() {
+    if block_type != "page" || !is_page {
         return Err(rejected(
             LibraryBlockPropertyMutationErrorCode::BlockTypeMismatch,
             format!("Property mutations require a Page Block: {page_id}"),
@@ -939,7 +929,7 @@ fn active_page(
             None,
         ));
     }
-    if block_lifecycle != "active" || page_lifecycle.as_deref() != Some("active") {
+    if block_lifecycle != "active" {
         return Err(rejected(
             LibraryBlockPropertyMutationErrorCode::BlockNotActive,
             format!("Page Block is not active: {page_id}"),
@@ -948,7 +938,7 @@ fn active_page(
             None,
         ));
     }
-    if page_library_id.as_deref() != Some(library_id) {
+    if page_library_id != library_id {
         return Err(rejected(
             LibraryBlockPropertyMutationErrorCode::BlockNotFound,
             format!("Page Block is unavailable: {page_id}"),
@@ -959,7 +949,7 @@ fn active_page(
     }
     Ok(PageAuthority {
         page_id: page_id.to_owned(),
-        storage_project_id: project_id,
+        library_id: page_library_id,
     })
 }
 
@@ -990,10 +980,7 @@ fn ledger_project_id(
     context: &BoundModuleContext,
     library_id: &str,
 ) -> Result<String, StoreError> {
-    Ok(
-        resolve_library_mutation_authority(connection, context, library_id)?
-            .compatibility_project_id,
-    )
+    Ok(resolve_library_mutation_authority(connection, context, library_id)?.actor_project_id)
 }
 
 fn make_evidence(

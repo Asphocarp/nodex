@@ -10,7 +10,7 @@ import type {
  * authorizing Nodex tools. These shapes never enter the public tool catalog.
  */
 export type NodexAgentAuthorizationTarget =
-  | LibraryResource
+  | Exclude<LibraryResource, { readonly kind: "canvas" }>
   | { readonly kind: "library"; readonly libraryId: string }
   | { readonly kind: "page_or_block"; readonly id: string };
 

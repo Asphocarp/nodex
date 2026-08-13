@@ -2061,8 +2061,8 @@ mod tests {
                 for (key, value_type, value) in intrinsic {
                     connection.execute(
                         "INSERT INTO block_properties( \
-                           block_id, project_id, property_key, value_type, value_json, revision, updated_at \
-                         ) VALUES (?1, 'project:default', ?2, ?3, ?4, 1, \
+                           block_id, library_id, property_key, value_type, value_json, revision, updated_at \
+                         ) VALUES (?1, 'library-1', ?2, ?3, ?4, 1, \
                            '2026-07-18T00:00:00.000Z') \
                          ON CONFLICT(block_id, property_key) DO UPDATE SET \
                            value_type = excluded.value_type, \
@@ -2080,11 +2080,17 @@ mod tests {
                     |row| row.get::<_, i64>(0),
                 )?;
                 connection.execute(
+                    "UPDATE page_read_model SET metadata_revision = ?1, \
+                       updated_at = '2026-07-18T00:00:00.000Z' \
+                     WHERE page_block_id = ?2 AND library_id = 'library-1'",
+                    params![metadata_revision, page_id],
+                )?;
+                connection.execute(
                     "INSERT INTO scheduled_page_index( \
-                       page_block_id, project_id, lifecycle, scheduled_start, scheduled_end, \
+                       page_block_id, library_id, lifecycle, scheduled_start, scheduled_end, \
                        is_all_day, recurrence_json, reminders_json, schedule_timezone, \
                        source_metadata_revision, updated_at \
-                     ) VALUES (?1, 'project:default', 'active', ?2, ?3, 0, ?4, ?5, 'UTC', ?6, \
+                     ) VALUES (?1, 'library-1', 'active', ?2, ?3, 0, ?4, ?5, 'UTC', ?6, \
                        '2026-07-18T00:00:00.000Z')",
                     params![
                         page_id,

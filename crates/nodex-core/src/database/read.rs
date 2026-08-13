@@ -1436,9 +1436,10 @@ fn data_source_for_page(
 ) -> Result<String, StoreError> {
     connection
         .query_row(
-            "SELECT parent_id FROM pages \
-             WHERE block_id = ?1 AND library_id = ?2 AND parent_kind = 'data_source' \
-               AND lifecycle <> 'deleted'",
+            "SELECT page.parent_id FROM pages page JOIN blocks block \
+               ON block.id = page.block_id AND block.library_id = page.library_id \
+             WHERE page.block_id = ?1 AND page.library_id = ?2 \
+               AND page.parent_kind = 'data_source' AND block.lifecycle <> 'deleted'",
             params![page_id, library_id],
             |row| row.get::<_, String>(0),
         )
@@ -1845,11 +1846,13 @@ pub(crate) fn page_record(connection: &Connection, page_id: &str) -> Result<Valu
     connection
         .query_row(
             "SELECT page.block_id, page.library_id, page.parent_kind, page.parent_id, \
-               page.lifecycle, page.parent_revision, page.metadata_revision, page.document_id, \
+               block.lifecycle, block.placement_revision, block.metadata_revision, page.document_id, \
                document.generation, document.head_seq, materialization.title, \
                materialization.title_rich_json, materialization.preview, materialization.plain_text, \
                page.created_at, page.updated_at \
-             FROM pages page JOIN documents document ON document.id = page.document_id \
+             FROM pages page \
+             JOIN blocks block ON block.id = page.block_id AND block.library_id = page.library_id \
+             JOIN documents document ON document.id = page.document_id AND document.library_id = page.library_id \
              JOIN document_materializations materialization ON materialization.document_id = document.id \
                AND materialization.generation = document.generation \
                AND materialization.projected_seq = document.head_seq \

@@ -86,11 +86,10 @@ A Page never acquires another parent because it is shown in another place.
 non-owning.
 
 Public parent-changing commands carry only these logical Library, Page, and
-Data Source coordinates. The writer resolves them to the current physical
-`space | document | database` storage coordinates and records the logical
-identity in the exact request before acquiring fences. Those physical names are
-private persistence-adapter details, not product parents. A `document` logical
-fallback is reserved for registered non-Page Document owners such as reusable
+Data Source coordinates. The writer resolves Page and Data Source parents to
+the corresponding Document shell or membership work inside one transaction;
+those projections never become a second parent authority. A `document` command
+target is reserved for registered non-Page Document owners such as reusable
 sources; Page-owned Documents always cross the public boundary as `page`.
 
 Historical membership records may retain dormant values after a Page leaves a
@@ -166,7 +165,8 @@ type ProjectResourceGrant = {
   readonly projectId: string;
   readonly root:
     | { readonly kind: "page"; readonly pageId: string }
-    | { readonly kind: "database"; readonly databaseId: string };
+    | { readonly kind: "database"; readonly databaseId: string }
+    | { readonly kind: "canvas"; readonly canvasId: string };
   readonly access: "read" | "read_write";
   readonly recursive: true;
   readonly revision: number;
@@ -178,6 +178,15 @@ Sources, hosted Views, Data Source-parented Pages, nested Pages, owned
 Documents, and assets. A Page grant covers that Page, nested Pages, physically
 nested Databases, Documents, and assets. Grants never traverse `pageRef`,
 relation, linked View, mention, backlink, or ordinary link edges.
+
+A top-level Canvas uses the same grant authority as other Library roots. Its
+direct Canvas grant controls the Canvas, its scene Document, assets, history,
+and live stream. A Canvas embedded in a Page has no direct grant: access is
+inherited from the host Page. Moving a Canvas into a Page revokes its direct
+grants; moving it back to the Library creates or reactivates the mover's direct
+grant in the same transaction. A deleted top-level Canvas may retain the
+actor's grant only as lifecycle-routing authority; ordinary content reads still
+reject the tombstone.
 
 A grant to one Data Source-parented Page exposes only the property definitions
 needed to interpret that Page's current values. It does not expose sibling
@@ -241,6 +250,13 @@ Detail, renderer stores, and product documentation. Long-lived Card aliases or
 Project-scoped content fallbacks would preserve the ambiguity and are not
 allowed.
 
+The current physical schema stores `library_id` on Blocks, Documents, owner
+registries, search/asset projections, and Page read models. Project coordinates
+remain only where they describe an actor, execution binding, receipt,
+authorization audience, recovery provenance, or delivery scope. Library root
+order has one authority; the historical Project-local top-level placement and
+content-rehome ledgers are removed rather than dual-written.
+
 Existing Database Block IDs remain stable. Every old Database receives a
 deterministic initial Data Source, existing properties/memberships/values move
 under it, every View is backfilled with that Source ID, and positions change to
@@ -278,6 +294,11 @@ the first migration.
 17. Data Source never becomes a Block without a future superseding ADR.
 18. The initial UI and public creation flows support one Source per Database;
     all authority contracts still carry explicit Data Source IDs.
+19. A top-level Canvas has explicit Project grants; an embedded Canvas inherits
+    its host Page grant and has no active direct Canvas grant.
+20. Block and Document lifetime is keyed by Library. A Project coordinate in
+    mutation or history evidence denotes actor/execution/delivery context, never
+    physical content ownership.
 
 ## Rejected alternatives
 

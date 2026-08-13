@@ -36,18 +36,16 @@ use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
 use super::LibraryApplyOutcome;
 use super::mutation::{
-    MutationEffects, library_commit_result, persist_parent_operations_detailed_with_local_commit,
-    require_project_in_library, seal_mutation,
+    MutationEffects, ParentDocumentPlacement, insert_page_read_model, library_commit_result,
+    persist_parent_operations_detailed_with_local_commit, require_project_in_library,
+    seal_mutation, synchronize_library_placement_rank,
 };
 
 struct PageAuthority {
     page_id: String,
-    project_id: String,
     library_id: String,
     lifecycle: String,
-    location_kind: String,
     containing_document_id: Option<String>,
-    containing_database_id: Option<String>,
     metadata_revision: i64,
     parent_revision: i64,
     parent_kind: String,
@@ -94,7 +92,7 @@ struct IndexedBlock {
     block_type: String,
     lifecycle: String,
     metadata_revision: i64,
-    location_revision: i64,
+    placement_revision: i64,
     resource_metadata_revision: Option<i64>,
 }
 
@@ -247,8 +245,13 @@ pub(super) fn delete_with_etag(
     require_project_in_library(connection, project_id, library_id)?;
     let page = read_page(connection, library_id, page_id)?;
     authorize_page_write(connection, context, library_id, &page)?;
-    let current_etag =
-        super::page_projection::mint_page_shell_etag(connection, library_id, store_epoch, page_id)?;
+    let current_etag = super::page_projection::mint_page_shell_etag(
+        connection,
+        library_id,
+        project_id,
+        store_epoch,
+        page_id,
+    )?;
     if !constant_time_equal(expected_etag.as_bytes(), current_etag.as_bytes()) {
         return Err(conflict("Page shell ETag changed"));
     }
@@ -466,36 +469,35 @@ fn create_page(
                 *is_all_day && indexed_scheduled_start.is_some() && indexed_scheduled_end.is_some();
             connection.execute(
                 "INSERT INTO blocks( \
-           id, project_id, type, lifecycle, location_kind, containing_document_id, \
-           containing_database_id, location_revision, metadata_revision, created_at, updated_at \
-         ) VALUES (?1, ?2, 'page', 'active', 'database', NULL, ?3, 1, 1, ?4, ?4)",
-                params![page_id, project_id, source.database_id, now],
+           id, library_id, type, lifecycle, placement_revision, metadata_revision, \
+           created_at, updated_at \
+         ) VALUES (?1, ?2, 'page', 'active', 1, 1, ?3, ?3)",
+                params![page_id, library_id, now],
             )?;
             connection.execute(
                 "INSERT INTO documents( \
-           id, project_id, generation, head_seq, schema_key, schema_version, state_vector, \
+           id, library_id, generation, head_seq, schema_key, schema_version, state_vector, \
            state_hash, readiness, authority, genesis_source_revision, created_at, updated_at, \
            sync_engine \
          ) VALUES (?1, ?2, 1, 0, ?3, ?4, X'', '', 'pending_genesis', 'legacy_shadow', \
            NULL, ?5, ?5, 'yjs')",
                 params![
                     document_id,
-                    project_id,
+                    library_id,
                     PAGE_SCHEMA_KEY,
                     i64::from(PAGE_SCHEMA_VERSION),
                     now
                 ],
             )?;
             connection.execute(
-                "INSERT INTO block_documents(block_id, document_id, project_id, created_at) \
+                "INSERT INTO block_documents(block_id, document_id, library_id, created_at) \
          VALUES (?1, ?2, ?3, ?4)",
-                params![page_id, document_id, project_id, now],
+                params![page_id, document_id, library_id, now],
             )?;
             connection.execute(
                 "INSERT INTO pages( \
-           block_id, library_id, document_id, parent_kind, parent_id, lifecycle, \
-           parent_revision, metadata_revision, created_at, updated_at \
-         ) VALUES (?1, ?2, ?3, 'data_source', ?4, 'active', 1, 1, ?5, ?5)",
+           block_id, library_id, document_id, parent_kind, parent_id, created_at, updated_at \
+         ) VALUES (?1, ?2, ?3, 'data_source', ?4, ?5, ?5)",
                 params![page_id, library_id, document_id, data_source_id, now],
             )?;
             let authority = read_document_authority(connection, &document_id)?
@@ -512,6 +514,7 @@ fn create_page(
                 connection,
                 PersistYjsGenesis {
                     authority: &authority,
+                    actor_project_id: project_id,
                     materialization: &prepared.materialization,
                     update_id: &genesis_update_id,
                     client_session_id: "page-lifecycle-v2-create",
@@ -520,6 +523,9 @@ fn create_page(
                     full_state: &full_state,
                     store_epoch,
                     operation_id: &genesis_update_id,
+                    placement_genesis_block_ids: &[],
+                    placement_preapplied_block_ids: &[],
+                    placement_mutation_block_ids: &[],
                     emit_event: false,
                 },
                 scope.evidence(),
@@ -564,7 +570,7 @@ fn create_page(
                 recurrence.as_ref(),
                 reminders,
             );
-            insert_intrinsic_properties(connection, page_id, project_id, &intrinsic_values, &now)?;
+            insert_intrinsic_properties(connection, page_id, library_id, &intrinsic_values, &now)?;
             connection.execute(
                 "INSERT INTO database_view_page_positions( \
            view_id, page_block_id, rank_key, revision, created_at, updated_at \
@@ -573,12 +579,12 @@ fn create_page(
             )?;
             connection.execute(
         "INSERT INTO scheduled_page_index( \
-           page_block_id, project_id, lifecycle, scheduled_start, scheduled_end, is_all_day, \
+           page_block_id, library_id, lifecycle, scheduled_start, scheduled_end, is_all_day, \
            recurrence_json, reminders_json, schedule_timezone, source_metadata_revision, updated_at \
          ) VALUES (?1, ?2, 'active', ?3, ?4, ?5, ?6, ?7, ?8, 1, ?9)",
         params![
             page_id,
-            project_id,
+            library_id,
             indexed_scheduled_start,
             indexed_scheduled_end,
             i64::from(indexed_is_all_day),
@@ -590,19 +596,23 @@ fn create_page(
             now
         ],
     )?;
+            insert_page_read_model(
+                connection,
+                page_id,
+                &prepared.materialization,
+                persisted.head_seq,
+                &now,
+            )?;
             insert_created_page_projection(
                 connection,
                 page_id,
-                project_id,
                 &source,
                 &membership_id,
                 view_group_key.as_deref(),
                 &view_rank_key.rank_key,
                 &document_id,
                 persisted.head_seq,
-                &prepared.materialization,
                 &values,
-                &properties,
                 &intrinsic_values,
                 &now,
             )?;
@@ -1239,18 +1249,18 @@ fn create_intrinsic_values(
 fn insert_intrinsic_properties(
     connection: &Connection,
     page_id: &str,
-    project_id: &str,
+    library_id: &str,
     values: &BTreeMap<String, (String, Value)>,
     now: &str,
 ) -> Result<(), StoreError> {
     for (key, (value_type, value)) in values {
         connection.execute(
             "INSERT INTO block_properties( \
-               block_id, project_id, property_key, value_type, value_json, revision, updated_at \
+               block_id, library_id, property_key, value_type, value_json, revision, updated_at \
              ) VALUES (?1, ?2, ?3, ?4, ?5, 1, ?6)",
             params![
                 page_id,
-                project_id,
+                library_id,
                 key,
                 value_type,
                 serde_json::to_string(value)
@@ -1266,31 +1276,20 @@ fn insert_intrinsic_properties(
 fn insert_created_page_projection(
     connection: &Connection,
     page_id: &str,
-    project_id: &str,
     source: &CreateSource,
     membership_id: &str,
     group_key: Option<&str>,
     view_rank_key: &str,
     document_id: &str,
     document_head_seq: i64,
-    materialization: &crate::document::DocumentMaterialization,
     values: &BTreeMap<String, (String, Value)>,
-    properties: &BTreeMap<String, CreateProperty>,
     intrinsic_values: &BTreeMap<String, (String, Value)>,
     now: &str,
 ) -> Result<(), StoreError> {
     let mut database_values = Map::new();
     let mut database_revisions = Map::new();
     for (property_id, (_, value)) in values {
-        let projected = if property_id == "tags" {
-            let property = properties
-                .get(property_id)
-                .ok_or_else(|| corrupt("Created Page tags Property disappeared"))?;
-            project_tag_names(value, &property.config_json)?
-        } else {
-            value.clone()
-        };
-        database_values.insert(property_id.clone(), projected);
+        database_values.insert(property_id.clone(), value.clone());
         database_revisions.insert(property_id.clone(), Value::from(1));
     }
     let intrinsic_projection = intrinsic_values
@@ -1305,43 +1304,34 @@ fn insert_created_page_projection(
         "database": database_revisions,
         "intrinsic": intrinsic_revisions,
     });
-    connection.execute(
-        "INSERT INTO page_read_model( \
-           page_block_id, project_id, lifecycle, location_kind, containing_document_id, \
-           containing_database_id, top_level_rank_key, location_revision, metadata_revision, \
-           document_id, document_generation, document_projected_seq, document_schema_version, \
-           document_authority, membership_id, database_block_id, view_id, view_group_key, \
-           view_rank_key, title, description_preview, description_length, has_description, \
-           database_values_json, intrinsic_properties_json, property_revisions_json, \
-           projection_version, created_at, updated_at \
-         ) VALUES (?1, ?2, 'active', 'database', NULL, ?3, NULL, 1, 1, ?4, 1, ?5, ?6, \
-           'ydoc_primary', ?7, ?3, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, 1, ?18, ?18)",
+    let changed = connection.execute(
+        "UPDATE page_read_model SET membership_id = ?2, database_block_id = ?3, \
+           view_id = ?4, view_group_key = ?5, view_rank_key = ?6, \
+           database_values_json = ?7, intrinsic_properties_json = ?8, \
+           property_revisions_json = ?9, updated_at = ?10 \
+         WHERE page_block_id = ?1 AND document_id = ?11 AND document_projected_seq = ?12",
         params![
             page_id,
-            project_id,
-            source.database_id,
-            document_id,
-            document_head_seq,
-            i64::from(PAGE_SCHEMA_VERSION),
             membership_id,
+            source.database_id,
             source.view_id,
             group_key,
             view_rank_key,
-            materialization.title,
-            materialization.preview,
-            i64::try_from(materialization.nfm.len())
-                .map_err(|_| corrupt("Page description length overflow"))?,
-            i64::from(!materialization.nfm.trim().is_empty()),
             serde_json::to_string(&database_values)
                 .map_err(|_| corrupt("Created Page Database values cannot encode"))?,
             serde_json::to_string(&intrinsic_projection)
                 .map_err(|_| corrupt("Created Page intrinsic values cannot encode"))?,
             serde_json::to_string(&property_revisions)
                 .map_err(|_| corrupt("Created Page Property revisions cannot encode"))?,
-            now
+            now,
+            document_id,
+            document_head_seq,
         ],
     )?;
-    Ok(())
+    if changed == 1 {
+        return Ok(());
+    }
+    Err(corrupt("Created Page projection authority changed"))
 }
 
 fn deterministic_uuid_v7(seed: &str) -> String {
@@ -1445,14 +1435,14 @@ fn transition_lifecycle(
             let metadata_revision = expected_metadata_revision + 1;
             let changed = connection.execute(
                 "UPDATE blocks SET lifecycle = ?1, metadata_revision = ?2, updated_at = ?3 \
-         WHERE id = ?4 AND project_id = ?5 AND type = 'page' AND lifecycle = ?6 \
+         WHERE id = ?4 AND library_id = ?5 AND type = 'page' AND lifecycle = ?6 \
            AND metadata_revision = ?7",
                 params![
                     to,
                     metadata_revision,
                     now,
                     page_id,
-                    page.project_id,
+                    page.library_id,
                     from,
                     expected_metadata_revision
                 ],
@@ -1507,7 +1497,7 @@ fn move_in_library(
     let current_rank = read_library_rank(connection, library_id, page_id)?;
     if page.lifecycle == "deleted"
         || page.parent_kind != "library"
-        || page.location_kind != "space"
+        || page.parent_id != page.library_id
         || membership.is_some()
         || current_rank.is_none()
     {
@@ -1553,10 +1543,8 @@ fn move_in_library(
         },
         |scope| {
             for (sibling_id, rank_key) in &plan.rebalanced_rank_keys {
-                connection.execute(
-                    "UPDATE library_block_placements SET rank_key = ?1, revision = revision + 1, \
-               updated_at = ?2 WHERE block_id = ?3 AND library_id = ?4 AND rank_key <> ?1",
-                    params![rank_key, now, sibling_id, library_id],
+                synchronize_library_placement_rank(
+                    connection, library_id, sibling_id, rank_key, &now,
                 )?;
             }
             let changed = connection.execute(
@@ -1569,13 +1557,13 @@ fn move_in_library(
             }
             let parent_revision = expected_parent_revision + 1;
             let changed = connection.execute(
-                "UPDATE blocks SET location_revision = ?1, updated_at = ?2 \
-         WHERE id = ?3 AND project_id = ?4 AND type = 'page' AND location_revision = ?5",
+                "UPDATE blocks SET placement_revision = ?1, updated_at = ?2 \
+         WHERE id = ?3 AND library_id = ?4 AND type = 'page' AND placement_revision = ?5",
                 params![
                     parent_revision,
                     now,
                     page_id,
-                    page.project_id,
+                    page.library_id,
                     expected_parent_revision
                 ],
             )?;
@@ -1583,28 +1571,14 @@ fn move_in_library(
                 return Err(conflict("Page changed during Library move"));
             }
             let changed = connection.execute(
-                "UPDATE pages SET parent_revision = ?1, updated_at = ?2 \
-         WHERE block_id = ?3 AND library_id = ?4 AND parent_revision = ?5",
-                params![
-                    parent_revision,
-                    now,
-                    page_id,
-                    library_id,
-                    expected_parent_revision
-                ],
-            )?;
-            if changed != 1 {
-                return Err(corrupt("Page parent authority disappeared during move"));
-            }
-            let changed = connection.execute(
-                "UPDATE page_read_model SET top_level_rank_key = ?1, location_revision = ?2, \
-           updated_at = ?3 WHERE page_block_id = ?4 AND project_id = ?5",
+                "UPDATE page_read_model SET library_rank_key = ?1, placement_revision = ?2, \
+           updated_at = ?3 WHERE page_block_id = ?4 AND library_id = ?5",
                 params![
                     plan.rank_key,
                     parent_revision,
                     now,
                     page_id,
-                    page.project_id
+                    page.library_id
                 ],
             )?;
             if changed != 1 {
@@ -1755,15 +1729,15 @@ fn delete_page(
             let parent_revision = expected_parent_revision + 1;
             let changed = connection.execute(
                 "UPDATE blocks SET lifecycle = 'deleted', metadata_revision = ?1, \
-           location_revision = ?2, updated_at = ?3 \
-         WHERE id = ?4 AND project_id = ?5 AND type = 'page' AND lifecycle = ?6 \
-           AND metadata_revision = ?7 AND location_revision = ?8",
+           placement_revision = ?2, updated_at = ?3 \
+         WHERE id = ?4 AND library_id = ?5 AND type = 'page' AND lifecycle = ?6 \
+           AND metadata_revision = ?7 AND placement_revision = ?8",
                 params![
                     metadata_revision,
                     parent_revision,
                     now,
                     page_id,
-                    page.project_id,
+                    page.library_id,
                     page.lifecycle,
                     expected_metadata_revision,
                     expected_parent_revision
@@ -1777,13 +1751,13 @@ fn delete_page(
                 let committed_revision = block.metadata_revision + 1;
                 let changed = connection.execute(
             "UPDATE blocks SET lifecycle = 'deleted', metadata_revision = ?1, updated_at = ?2 \
-             WHERE id = ?3 AND project_id = ?4 AND lifecycle = 'active' \
+             WHERE id = ?3 AND library_id = ?4 AND lifecycle = 'active' \
                AND metadata_revision = ?5",
             params![
                 committed_revision,
                 now,
                 block.block_id,
-                page.project_id,
+                page.library_id,
                 block.metadata_revision
             ],
         )?;
@@ -1806,6 +1780,11 @@ fn delete_page(
                 .map(|parent| {
                     persist_parent_operations_detailed_with_local_commit(
                         connection,
+                        context
+                            .project_id
+                            .as_ref()
+                            .map(|project_id| project_id.0.as_str())
+                            .ok_or_else(|| corrupt("Page delete lost its actor Project"))?,
                         store_epoch,
                         operation_id,
                         "page-delete",
@@ -1813,6 +1792,7 @@ fn delete_page(
                         &[DocumentBlockOperation::DeleteBlock {
                             block_id: page_id.to_owned(),
                         }],
+                        ParentDocumentPlacement::Derived,
                         scope.evidence(),
                     )
                 })
@@ -1952,7 +1932,6 @@ fn restore_page(
     parent_document_head: Option<&LibraryDocumentHead>,
 ) -> Result<LibraryApplyOutcome, StoreError> {
     let page = read_page(connection, library_id, page_id)?;
-    authorize_page_write(connection, context, library_id, &page)?;
     if page.lifecycle != "deleted" {
         return Err(conflict("Page restore requires a deleted Page"));
     }
@@ -1973,6 +1952,7 @@ fn restore_page(
         .delete_evidence
         .as_ref()
         .ok_or_else(|| corrupt("Delete receipt has no restore evidence"))?;
+    authorize_page_restore(connection, context, library_id, &page, evidence)?;
     let (parent_document, nested_parent) =
         resolve_nested_parent_for_restore(connection, &page, evidence, parent_document_head)?;
     if evidence.membership.as_ref() != requested_membership {
@@ -2018,14 +1998,6 @@ fn restore_page(
                     view_id = Some(position.view_id.clone());
                     view_rank_key = Some(rank_key);
                 }
-            } else if page.parent_kind == "library" {
-                library_rank_key = Some(restore_library_placement(
-                    connection,
-                    library_id,
-                    page_id,
-                    before_block_id,
-                    &now,
-                )?);
             }
             let target_lifecycle = match evidence.previous_lifecycle {
                 LibraryLifecycle::Active => "active",
@@ -2034,16 +2006,16 @@ fn restore_page(
             let metadata_revision = expected_metadata_revision + 1;
             let parent_revision = expected_parent_revision + 1;
             let changed = connection.execute(
-                "UPDATE blocks SET lifecycle = ?1, metadata_revision = ?2, location_revision = ?3, \
-           updated_at = ?4 WHERE id = ?5 AND project_id = ?6 AND type = 'page' \
-           AND lifecycle = 'deleted' AND metadata_revision = ?7 AND location_revision = ?8",
+                "UPDATE blocks SET lifecycle = ?1, metadata_revision = ?2, placement_revision = ?3, \
+           updated_at = ?4 WHERE id = ?5 AND library_id = ?6 AND type = 'page' \
+           AND lifecycle = 'deleted' AND metadata_revision = ?7 AND placement_revision = ?8",
                 params![
                     target_lifecycle,
                     metadata_revision,
                     parent_revision,
                     now,
                     page_id,
-                    page.project_id,
+                    page.library_id,
                     expected_metadata_revision,
                     expected_parent_revision
                 ],
@@ -2051,15 +2023,24 @@ fn restore_page(
             if changed != 1 {
                 return Err(conflict("Page changed during restore"));
             }
+            if requested_membership.is_none() && page.parent_kind == "library" {
+                library_rank_key = Some(restore_library_placement(
+                    connection,
+                    library_id,
+                    page_id,
+                    before_block_id,
+                    &now,
+                )?);
+            }
             for block in &evidence.tombstoned_blocks {
                 let changed = connection.execute(
             "UPDATE blocks SET lifecycle = 'active', metadata_revision = metadata_revision + 1, \
-               updated_at = ?1 WHERE id = ?2 AND project_id = ?3 AND lifecycle = 'deleted' \
+               updated_at = ?1 WHERE id = ?2 AND library_id = ?3 AND lifecycle = 'deleted' \
                AND metadata_revision = ?4",
             params![
                 now,
                 block.block_id,
-                page.project_id,
+                page.library_id,
                 block.metadata_revision
             ],
         )?;
@@ -2090,6 +2071,11 @@ fn restore_page(
                 (Some(parent), Some(nested_parent)) => {
                     Some(persist_parent_operations_detailed_with_local_commit(
                         connection,
+                        context
+                            .project_id
+                            .as_ref()
+                            .map(|project_id| project_id.0.as_str())
+                            .ok_or_else(|| corrupt("Page restore lost its actor Project"))?,
                         store_epoch,
                         operation_id,
                         "page-restore",
@@ -2105,6 +2091,7 @@ fn restore_page(
                             parent_block_id: nested_parent.parent_block_id.clone(),
                             before_block_id: nested_parent.before_block_id.clone(),
                         }],
+                        ParentDocumentPlacement::Preapplied(&[page_id.to_owned()]),
                         scope.evidence(),
                     )?)
                 }
@@ -2276,13 +2263,11 @@ fn resolve_nested_parent_for_restore(
         .nested_parent
         .clone()
         .ok_or_else(|| corrupt("Nested Page delete evidence has no host position"))?;
-    let parent_document_id = page
-        .containing_document_id
-        .as_deref()
-        .ok_or_else(|| corrupt("Nested Page has no containing Document"))?;
-    if nested_parent.document_id != parent_document_id {
-        return Err(corrupt("Nested Page host Document identity changed"));
-    }
+    // Deletion intentionally removes the Page shell from the host Document
+    // index, so the current physical projection cannot name that Document.
+    // The durable delete receipt owns the exact restore coordinate; the typed
+    // parent authority below independently proves that it is still valid.
+    let parent_document_id = nested_parent.document_id.as_str();
     let requested_head = requested_head
         .ok_or_else(|| invalid("Nested Page restore requires the host Page Document head"))?;
     if requested_head.document_id != parent_document_id {
@@ -2352,35 +2337,17 @@ fn synchronize_deleted_indexed_owners(
                     ));
                 }
                 let changed = connection.execute(
-                    "UPDATE pages SET lifecycle = 'deleted', metadata_revision = ?1, \
-                       parent_revision = ?2, updated_at = ?3 \
-                     WHERE block_id = ?4 AND library_id = ?5 AND lifecycle <> 'deleted' \
-                       AND metadata_revision = ?6 AND parent_revision = ?7",
+                    "UPDATE page_read_model SET lifecycle = 'deleted', metadata_revision = ?1, \
+                       placement_revision = ?2, library_rank_key = NULL, membership_id = NULL, \
+                       database_block_id = NULL, view_id = NULL, view_group_key = NULL, \
+                       view_rank_key = NULL, database_values_json = '{}', updated_at = ?3 \
+                     WHERE page_block_id = ?4 AND library_id = ?5",
                     params![
                         block.metadata_revision + 1,
-                        block.location_revision,
+                        block.placement_revision,
                         now,
                         block.block_id,
                         page.library_id,
-                        block.metadata_revision,
-                        block.location_revision,
-                    ],
-                )?;
-                if changed != 1 {
-                    return Err(corrupt("Nested Page lifecycle authority disappeared"));
-                }
-                let changed = connection.execute(
-                    "UPDATE page_read_model SET lifecycle = 'deleted', metadata_revision = ?1, \
-                       location_revision = ?2, top_level_rank_key = NULL, membership_id = NULL, \
-                       database_block_id = NULL, view_id = NULL, view_group_key = NULL, \
-                       view_rank_key = NULL, database_values_json = '{}', updated_at = ?3 \
-                     WHERE page_block_id = ?4 AND project_id = ?5",
-                    params![
-                        block.metadata_revision + 1,
-                        block.location_revision,
-                        now,
-                        block.block_id,
-                        page.project_id,
                     ],
                 )?;
                 if changed != 1 {
@@ -2389,12 +2356,12 @@ fn synchronize_deleted_indexed_owners(
                 connection.execute(
                     "UPDATE scheduled_page_index SET lifecycle = 'deleted', \
                        source_metadata_revision = ?1, updated_at = ?2 \
-                     WHERE page_block_id = ?3 AND project_id = ?4",
+                     WHERE page_block_id = ?3 AND library_id = ?4",
                     params![
                         block.metadata_revision + 1,
                         now,
                         block.block_id,
-                        page.project_id,
+                        page.library_id,
                     ],
                 )?;
             }
@@ -2443,38 +2410,18 @@ fn synchronize_restored_indexed_owners(
             "page" => {
                 let metadata_revision = tombstone.metadata_revision + 1;
                 let changed = connection.execute(
-                    "UPDATE pages SET lifecycle = 'active', metadata_revision = ?1, \
-                       parent_revision = ?2, updated_at = ?3 \
-                     WHERE block_id = ?4 AND library_id = ?5 AND lifecycle = 'deleted' \
-                       AND metadata_revision = ?6 AND parent_revision = ?7",
+                    "UPDATE page_read_model SET lifecycle = 'active', metadata_revision = ?1, \
+                       placement_revision = ?2, updated_at = ?3 \
+                     WHERE page_block_id = ?4 AND library_id = ?5 AND lifecycle = 'deleted' \
+                       AND metadata_revision = ?6 AND placement_revision = ?7",
                     params![
                         metadata_revision,
-                        block.location_revision,
+                        block.placement_revision,
                         now,
                         block.block_id,
                         page.library_id,
                         tombstone.metadata_revision,
-                        block.location_revision,
-                    ],
-                )?;
-                if changed != 1 {
-                    return Err(corrupt(
-                        "Nested Page lifecycle authority disappeared during restore",
-                    ));
-                }
-                let changed = connection.execute(
-                    "UPDATE page_read_model SET lifecycle = 'active', metadata_revision = ?1, \
-                       location_revision = ?2, updated_at = ?3 \
-                     WHERE page_block_id = ?4 AND project_id = ?5 AND lifecycle = 'deleted' \
-                       AND metadata_revision = ?6 AND location_revision = ?7",
-                    params![
-                        metadata_revision,
-                        block.location_revision,
-                        now,
-                        block.block_id,
-                        page.project_id,
-                        tombstone.metadata_revision,
-                        block.location_revision,
+                        block.placement_revision,
                     ],
                 )?;
                 if changed != 1 {
@@ -2485,8 +2432,8 @@ fn synchronize_restored_indexed_owners(
                 connection.execute(
                     "UPDATE scheduled_page_index SET lifecycle = 'active', \
                        source_metadata_revision = ?1, updated_at = ?2 \
-                     WHERE page_block_id = ?3 AND project_id = ?4",
-                    params![metadata_revision, now, block.block_id, page.project_id],
+                     WHERE page_block_id = ?3 AND library_id = ?4",
+                    params![metadata_revision, now, block.block_id, page.library_id],
                 )?;
             }
             "database" => {
@@ -2532,7 +2479,7 @@ fn read_indexed_closure(
         }
         let authority = connection
             .query_row(
-                "SELECT project_id, head_seq, readiness, authority FROM documents WHERE id = ?1",
+                "SELECT library_id, head_seq, readiness, authority FROM documents WHERE id = ?1",
                 [&document_id],
                 |row| {
                     Ok((
@@ -2544,30 +2491,35 @@ fn read_indexed_closure(
                 },
             )
             .optional()?;
-        let Some((project_id, head_seq, readiness, authority)) = authority else {
+        let Some((document_library_id, head_seq, readiness, authority)) = authority else {
             return Err(corrupt(
                 "Indexed Page ownership references a missing Document",
             ));
         };
-        if project_id != page.project_id || readiness != "ready" || authority != "ydoc_primary" {
+        if document_library_id != page.library_id
+            || readiness != "ready"
+            || authority != "ydoc_primary"
+        {
             return Err(corrupt("Indexed Page Document authority is invalid"));
         }
         let indexed = connection
             .prepare(
                 "SELECT index_row.block_id, index_row.projected_seq, block.type, block.lifecycle, \
-                   block.metadata_revision, block.location_revision, block.location_kind, \
-                   block.containing_document_id, \
-                   CASE WHEN block.type = 'page' THEN page.lifecycle \
+                   block.metadata_revision, block.placement_revision, \
+                   CASE WHEN block.type = 'page' THEN page.block_id \
+                        WHEN block.type = 'database' THEN container.block_id END, \
+                   CASE WHEN block.type = 'page' THEN block.lifecycle \
                         WHEN block.type = 'database' THEN container.lifecycle END, \
-                   CASE WHEN block.type = 'page' THEN page.metadata_revision \
+                   CASE WHEN block.type = 'page' THEN block.metadata_revision \
                         WHEN block.type = 'database' THEN container.metadata_revision END \
                  FROM document_block_index index_row \
-                 JOIN blocks block ON block.id = index_row.block_id \
-                 LEFT JOIN pages page ON page.block_id = block.id \
-                 LEFT JOIN database_containers container ON container.block_id = block.id \
+                 JOIN blocks block ON block.id = index_row.block_id AND block.library_id = ?2 \
+                 LEFT JOIN pages page ON page.block_id = block.id AND page.library_id = block.library_id \
+                 LEFT JOIN database_containers container \
+                   ON container.block_id = block.id AND container.library_id = block.library_id \
                  WHERE index_row.document_id = ?1 ORDER BY index_row.block_id",
             )?
-            .query_map([&document_id], |row| {
+            .query_map(params![document_id, page.library_id], |row| {
                 Ok((
                     row.get::<_, String>(0)?,
                     row.get::<_, i64>(1)?,
@@ -2575,10 +2527,9 @@ fn read_indexed_closure(
                     row.get::<_, String>(3)?,
                     row.get::<_, i64>(4)?,
                     row.get::<_, i64>(5)?,
-                    row.get::<_, String>(6)?,
+                    row.get::<_, Option<String>>(6)?,
                     row.get::<_, Option<String>>(7)?,
-                    row.get::<_, Option<String>>(8)?,
-                    row.get::<_, Option<i64>>(9)?,
+                    row.get::<_, Option<i64>>(8)?,
                 ))
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -2588,22 +2539,18 @@ fn read_indexed_closure(
             block_type,
             lifecycle,
             metadata_revision,
-            location_revision,
-            location_kind,
-            containing_document_id,
+            placement_revision,
+            typed_owner_id,
             resource_lifecycle,
             resource_metadata_revision,
         ) in indexed
         {
-            if projected_seq != head_seq
-                || location_kind != "document"
-                || containing_document_id.as_deref() != Some(&document_id)
-                || blocks.contains_key(&block_id)
-            {
+            if projected_seq != head_seq || blocks.contains_key(&block_id) {
                 return Err(corrupt("Page Document Block index is stale or ambiguous"));
             }
             if matches!(block_type.as_str(), "page" | "database")
-                && (resource_lifecycle.as_deref() != Some(lifecycle.as_str())
+                && (typed_owner_id.is_none()
+                    || resource_lifecycle.as_deref() != Some(lifecycle.as_str())
                     || resource_metadata_revision.is_none())
             {
                 return Err(corrupt(
@@ -2624,7 +2571,7 @@ fn read_indexed_closure(
                     block_type,
                     lifecycle,
                     metadata_revision,
-                    location_revision,
+                    placement_revision,
                     resource_metadata_revision,
                 },
             );
@@ -2777,55 +2724,27 @@ fn synchronize_deleted_page(
     now: &str,
 ) -> Result<(), StoreError> {
     let changed = connection.execute(
-        "UPDATE pages SET lifecycle = 'deleted', metadata_revision = ?1, parent_revision = ?2, \
-           updated_at = ?3 WHERE block_id = ?4 AND library_id = ?5 \
-           AND metadata_revision = ?6 AND parent_revision = ?7",
-        params![
-            metadata_revision,
-            parent_revision,
-            now,
-            page.page_id,
-            page.library_id,
-            page.metadata_revision,
-            page.parent_revision
-        ],
-    )?;
-    if changed != 1 {
-        return Err(corrupt("Page tombstone authority disappeared"));
-    }
-    let changed = connection.execute(
         "UPDATE page_read_model SET lifecycle = 'deleted', metadata_revision = ?1, \
-           location_revision = ?2, top_level_rank_key = NULL, membership_id = NULL, \
+           placement_revision = ?2, library_rank_key = NULL, membership_id = NULL, \
            database_block_id = NULL, view_id = NULL, view_group_key = NULL, \
            view_rank_key = NULL, database_values_json = '{}', \
            property_revisions_json = json_set(property_revisions_json, '$.database', json('{}')), \
-           updated_at = ?3 WHERE page_block_id = ?4 AND project_id = ?5",
+           updated_at = ?3 WHERE page_block_id = ?4 AND library_id = ?5",
         params![
             metadata_revision,
             parent_revision,
             now,
             page.page_id,
-            page.project_id
+            page.library_id
         ],
     )?;
     if changed != 1 {
-        let coordinates = connection
-            .query_row(
-                "SELECT project_id FROM page_read_model WHERE page_block_id = ?1",
-                [&page.page_id],
-                |row| row.get::<_, String>(0),
-            )
-            .optional()?;
-        return Err(corrupt(&format!(
-            "Page tombstone projection disappeared (expected Project {}, found {})",
-            page.project_id,
-            coordinates.as_deref().unwrap_or("missing")
-        )));
+        return Err(corrupt("Page tombstone projection disappeared"));
     }
     connection.execute(
         "UPDATE scheduled_page_index SET lifecycle = 'deleted', source_metadata_revision = ?1, \
-           updated_at = ?2 WHERE page_block_id = ?3 AND project_id = ?4",
-        params![metadata_revision, now, page.page_id, page.project_id],
+           updated_at = ?2 WHERE page_block_id = ?3 AND library_id = ?4",
+        params![metadata_revision, now, page.page_id, page.library_id],
     )?;
     Ok(())
 }
@@ -2905,11 +2824,7 @@ fn restore_library_placement(
         .collect::<rusqlite::Result<Vec<_>>>()?;
     let plan = plan_fractional_rank(&items, page_id, before_block_id).map_err(rank_error)?;
     for (block_id, rank_key) in &plan.rebalanced_rank_keys {
-        connection.execute(
-            "UPDATE library_block_placements SET rank_key = ?1, revision = revision + 1, \
-               updated_at = ?2 WHERE block_id = ?3 AND library_id = ?4 AND rank_key <> ?1",
-            params![rank_key, now, block_id, library_id],
-        )?;
+        synchronize_library_placement_rank(connection, library_id, block_id, rank_key, now)?;
     }
     connection.execute(
         "INSERT INTO library_block_placements( \
@@ -2985,24 +2900,6 @@ fn synchronize_restored_page(
     library_rank_key: Option<&str>,
     now: &str,
 ) -> Result<(), StoreError> {
-    let changed = connection.execute(
-        "UPDATE pages SET lifecycle = ?1, metadata_revision = ?2, parent_revision = ?3, \
-           updated_at = ?4 WHERE block_id = ?5 AND library_id = ?6 \
-           AND metadata_revision = ?7 AND parent_revision = ?8",
-        params![
-            lifecycle,
-            metadata_revision,
-            parent_revision,
-            now,
-            page.page_id,
-            page.library_id,
-            page.metadata_revision,
-            page.parent_revision
-        ],
-    )?;
-    if changed != 1 {
-        return Err(corrupt("Restored Page authority disappeared"));
-    }
     let (database_values_json, database_revisions) = membership.map_or_else(
         || Ok(("{}".to_owned(), Map::new())),
         |membership| read_database_projection(connection, membership),
@@ -3025,10 +2922,10 @@ fn synchronize_restored_page(
     let view_group_key = membership.map(|membership| workflow_status_key(membership.status));
     let changed = connection.execute(
         "UPDATE page_read_model SET lifecycle = ?1, metadata_revision = ?2, \
-           location_revision = ?3, top_level_rank_key = ?4, membership_id = ?5, \
+           placement_revision = ?3, library_rank_key = ?4, membership_id = ?5, \
            database_block_id = ?6, view_id = ?7, view_group_key = ?8, view_rank_key = ?9, \
            database_values_json = ?10, property_revisions_json = ?11, updated_at = ?12 \
-         WHERE page_block_id = ?13 AND project_id = ?14",
+         WHERE page_block_id = ?13 AND library_id = ?14",
         params![
             lifecycle,
             metadata_revision,
@@ -3043,7 +2940,7 @@ fn synchronize_restored_page(
             property_revisions_json,
             now,
             page.page_id,
-            page.project_id
+            page.library_id
         ],
     )?;
     if changed != 1 {
@@ -3051,13 +2948,13 @@ fn synchronize_restored_page(
     }
     connection.execute(
         "UPDATE scheduled_page_index SET lifecycle = ?1, source_metadata_revision = ?2, \
-           updated_at = ?3 WHERE page_block_id = ?4 AND project_id = ?5",
+           updated_at = ?3 WHERE page_block_id = ?4 AND library_id = ?5",
         params![
             lifecycle,
             metadata_revision,
             now,
             page.page_id,
-            page.project_id
+            page.library_id
         ],
     )?;
     Ok(())
@@ -3140,54 +3037,33 @@ fn read_page(
 ) -> Result<PageAuthority, StoreError> {
     let page = connection
         .query_row(
-            "SELECT block.project_id, block.lifecycle, block.location_kind, \
-               block.containing_document_id, block.containing_database_id, \
-               block.metadata_revision, block.location_revision, page.library_id, \
-               page.lifecycle, page.metadata_revision, page.parent_revision, page.parent_kind, \
-               page.parent_id, page.document_id, document.generation, document.head_seq \
-             FROM blocks block JOIN pages page ON page.block_id = block.id \
-             JOIN documents document ON document.id = page.document_id \
+            "SELECT block.lifecycle, block.metadata_revision, block.placement_revision, \
+               page.library_id, page.parent_kind, page.parent_id, page.document_id, \
+               document.generation, document.head_seq, block_index.document_id \
+             FROM blocks block JOIN pages page \
+               ON page.block_id = block.id AND page.library_id = block.library_id \
+             JOIN documents document \
+               ON document.id = page.document_id AND document.library_id = page.library_id \
+             LEFT JOIN document_block_index block_index ON block_index.block_id = block.id \
              WHERE block.id = ?1 AND block.type = 'page' AND page.library_id = ?2",
             params![page_id, library_id],
             |row| {
-                let block_lifecycle = row.get::<_, String>(1)?;
-                let page_lifecycle = row.get::<_, String>(8)?;
-                let block_metadata_revision = row.get::<_, i64>(5)?;
-                let page_metadata_revision = row.get::<_, i64>(9)?;
-                let block_location_revision = row.get::<_, i64>(6)?;
-                let page_parent_revision = row.get::<_, i64>(10)?;
-                if block_lifecycle != page_lifecycle
-                    || block_metadata_revision != page_metadata_revision
-                    || block_location_revision != page_parent_revision
-                {
-                    return Err(rusqlite::Error::InvalidQuery);
-                }
                 Ok(PageAuthority {
                     page_id: page_id.to_owned(),
-                    project_id: row.get(0)?,
-                    library_id: row.get(7)?,
-                    lifecycle: block_lifecycle,
-                    location_kind: row.get(2)?,
-                    containing_document_id: row.get(3)?,
-                    containing_database_id: row.get(4)?,
-                    metadata_revision: block_metadata_revision,
-                    parent_revision: block_location_revision,
-                    parent_kind: row.get(11)?,
-                    parent_id: row.get(12)?,
-                    document_id: row.get(13)?,
-                    document_generation: row.get(14)?,
-                    document_head_seq: row.get(15)?,
+                    library_id: row.get(3)?,
+                    lifecycle: row.get(0)?,
+                    containing_document_id: row.get(9)?,
+                    metadata_revision: row.get(1)?,
+                    parent_revision: row.get(2)?,
+                    parent_kind: row.get(4)?,
+                    parent_id: row.get(5)?,
+                    document_id: row.get(6)?,
+                    document_generation: row.get(7)?,
+                    document_head_seq: row.get(8)?,
                 })
             },
         )
-        .optional()
-        .map_err(|error| {
-            if matches!(error, rusqlite::Error::InvalidQuery) {
-                corrupt("Page lifecycle projections diverge")
-            } else {
-                StoreError::from(error)
-            }
-        })?;
+        .optional()?;
     page.ok_or_else(|| StoreError::new(StoreErrorCode::NotFound, "Page does not exist", false))
 }
 
@@ -3258,23 +3134,9 @@ fn validate_parent_membership(
     membership: Option<&MembershipCoordinates>,
 ) -> Result<(), StoreError> {
     let valid = match (page.parent_kind.as_str(), membership) {
-        ("library", None) => {
-            page.location_kind == "space"
-                && page.parent_id == page.library_id
-                && page.containing_document_id.is_none()
-                && page.containing_database_id.is_none()
-        }
-        ("page", None) => {
-            page.location_kind == "document"
-                && page.containing_document_id.is_some()
-                && page.containing_database_id.is_none()
-        }
-        ("data_source", Some(membership)) => {
-            page.location_kind == "database"
-                && page.parent_id == membership.data_source_id
-                && page.containing_database_id.as_deref() == Some(&membership.database_id)
-                && page.containing_document_id.is_none()
-        }
+        ("library", None) => page.parent_id == page.library_id,
+        ("page", None) => page.containing_document_id.is_some(),
+        ("data_source", Some(membership)) => page.parent_id == membership.data_source_id,
         _ => false,
     };
     if valid {
@@ -3297,6 +3159,44 @@ fn authorize_page_write(
     super::history::require_page_write_access(connection, library_id, project_id, &page.page_id)
 }
 
+fn authorize_page_restore(
+    connection: &Connection,
+    context: &BoundModuleContext,
+    library_id: &str,
+    page: &PageAuthority,
+    evidence: &LibraryPageLifecycleDeleteEvidence,
+) -> Result<(), StoreError> {
+    let project_id = context
+        .project_id
+        .as_ref()
+        .map(|project_id| project_id.0.as_str())
+        .ok_or_else(|| unauthorized("Page restore requires a bound Project"))?;
+    if super::page_grant_ownership_proof(connection, project_id, &page.page_id, true)?.is_some() {
+        return Ok(());
+    }
+    let Some(membership) = evidence.membership.as_ref() else {
+        return Err(not_found("Page is not available to the bound Project"));
+    };
+    let database_access = connection
+        .query_row(
+            "SELECT 1 FROM projects project \
+             WHERE project.id = ?1 AND project.library_id = ?2 AND project.lifecycle = 'active' \
+               AND (project.database_block_id = ?3 OR EXISTS( \
+                 SELECT 1 FROM project_resource_grants grant_row \
+                 WHERE grant_row.project_id = project.id AND grant_row.root_kind = 'database' \
+                   AND grant_row.root_id = ?3 AND grant_row.access = 'read_write' \
+                   AND grant_row.lifecycle = 'active' \
+               ))",
+            params![project_id, library_id, membership.database_id],
+            |_| Ok(()),
+        )
+        .optional()?;
+    if database_access.is_some() {
+        return Ok(());
+    }
+    Err(not_found("Page is not available to the bound Project"))
+}
+
 fn synchronize_page_lifecycle(
     connection: &Connection,
     page: &PageAuthority,
@@ -3305,29 +3205,14 @@ fn synchronize_page_lifecycle(
     now: &str,
 ) -> Result<(), StoreError> {
     let changed = connection.execute(
-        "UPDATE pages SET lifecycle = ?1, metadata_revision = ?2, updated_at = ?3 \
-         WHERE block_id = ?4 AND library_id = ?5 AND metadata_revision = ?6",
-        params![
-            lifecycle,
-            metadata_revision,
-            now,
-            page.page_id,
-            page.library_id,
-            page.metadata_revision
-        ],
-    )?;
-    if changed != 1 {
-        return Err(corrupt("Page lifecycle authority disappeared"));
-    }
-    let changed = connection.execute(
         "UPDATE page_read_model SET lifecycle = ?1, metadata_revision = ?2, updated_at = ?3 \
-         WHERE page_block_id = ?4 AND project_id = ?5",
+         WHERE page_block_id = ?4 AND library_id = ?5",
         params![
             lifecycle,
             metadata_revision,
             now,
             page.page_id,
-            page.project_id
+            page.library_id
         ],
     )?;
     if changed != 1 {
@@ -3335,13 +3220,13 @@ fn synchronize_page_lifecycle(
     }
     connection.execute(
         "UPDATE scheduled_page_index SET lifecycle = ?1, source_metadata_revision = ?2, \
-           updated_at = ?3 WHERE page_block_id = ?4 AND project_id = ?5",
+           updated_at = ?3 WHERE page_block_id = ?4 AND library_id = ?5",
         params![
             lifecycle,
             metadata_revision,
             now,
             page.page_id,
-            page.project_id
+            page.library_id
         ],
     )?;
     Ok(())
@@ -3437,7 +3322,11 @@ fn seal_page_lifecycle(
         context,
         operation_id,
         MutationEffects {
-            project_id: page.project_id.clone(),
+            project_id: context
+                .project_id
+                .as_ref()
+                .map(|project_id| project_id.0.clone())
+                .ok_or_else(|| corrupt("Page lifecycle commit lost its actor Project"))?,
             operation_kind,
             change_kind: "library.changed",
             did_mutate: true,
@@ -3538,6 +3427,10 @@ fn conflict(message: &str) -> StoreError {
 
 fn unauthorized(message: &str) -> StoreError {
     StoreError::new(StoreErrorCode::Unauthorized, message, false)
+}
+
+fn not_found(message: &str) -> StoreError {
+    StoreError::new(StoreErrorCode::NotFound, message, false)
 }
 
 fn corrupt(message: &str) -> StoreError {

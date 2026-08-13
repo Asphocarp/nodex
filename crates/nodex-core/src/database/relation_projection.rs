@@ -75,7 +75,7 @@ target_facts AS MATERIALIZED (
   SELECT
     candidate.target_data_source_id,
     candidate.page_id,
-    page.lifecycle,
+    block.lifecycle,
     materialization.title,
     EXISTS(
       SELECT 1
@@ -93,8 +93,7 @@ target_facts AS MATERIALIZED (
           AND project.library_id = ?4
           AND project.lifecycle = 'active'
       ) AND (
-        block.project_id = ?3
-        OR EXISTS(
+        EXISTS(
           SELECT 1
           FROM ancestors terminal
           JOIN data_sources source
@@ -476,9 +475,11 @@ mod tests {
                  ) WITHOUT ROWID;
                  CREATE TABLE pages(\
                    block_id TEXT PRIMARY KEY, library_id TEXT, parent_kind TEXT, parent_id TEXT, \
-                   lifecycle TEXT, document_id TEXT\
+                   document_id TEXT\
                  );
-                 CREATE TABLE blocks(id TEXT PRIMARY KEY, type TEXT, project_id TEXT);
+                 CREATE TABLE blocks(\
+                   id TEXT PRIMARY KEY, type TEXT, library_id TEXT, lifecycle TEXT\
+                 );
                  CREATE TABLE documents(\
                    id TEXT PRIMARY KEY, generation INTEGER, head_seq INTEGER, schema_version INTEGER\
                  );
@@ -541,7 +542,8 @@ mod tests {
                    SELECT 1 UNION ALL SELECT value + 1 FROM target WHERE value < ?1\
                  )
                  INSERT INTO blocks
-                 SELECT printf('target:%05d', value), 'page', 'project:owner' FROM target",
+                 SELECT printf('target:%05d', value), 'page', 'library:relation', 'active' \
+                 FROM target",
                 [target_count],
             )
             .expect("seed target Blocks");
@@ -573,7 +575,7 @@ mod tests {
                  )
                  INSERT INTO pages
                  SELECT printf('target:%05d', value), 'library:relation', 'data_source', \
-                   'target:data', 'active', printf('document:%05d', value) FROM target",
+                   'target:data', printf('document:%05d', value) FROM target",
                 [target_count],
             )
             .expect("seed target Pages");

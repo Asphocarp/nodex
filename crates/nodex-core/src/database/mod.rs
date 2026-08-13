@@ -28,9 +28,10 @@ pub(crate) use mutation::{
     resolve_page_copy_data_source_project, resolve_page_copy_data_source_project_prevalidated,
     resolve_page_copy_data_source_source, resolve_page_transfer_data_source_destination,
     resolve_page_transfer_data_source_destination_prevalidated,
-    resolve_page_transfer_data_source_source, synchronize_membership_completion_timestamp,
-    synchronize_relation_value_projections, transfer_existing_page_for_agent_move_prevalidated,
-    transfer_existing_page_for_block_transfer,
+    resolve_page_transfer_data_source_source,
+    resolve_page_transfer_data_source_source_prevalidated,
+    synchronize_membership_completion_timestamp, synchronize_relation_value_projections,
+    transfer_existing_page_for_agent_move_prevalidated, transfer_existing_page_for_block_transfer,
 };
 pub(crate) use projection_delta::{
     record_local_projection_delta, record_page_detail_projection_delta,
@@ -850,15 +851,6 @@ mod tests {
                         [],
                     )?;
                     transaction.execute(
-                        "DELETE FROM top_level_block_placements WHERE block_id = 'page:database-row'",
-                        [],
-                    )?;
-                    transaction.execute(
-                        "UPDATE blocks SET location_kind = 'database', containing_document_id = NULL, \
-                           containing_database_id = ?1 WHERE id = 'page:database-row'",
-                        [DATABASE_ID],
-                    )?;
-                    transaction.execute(
                         "UPDATE pages SET parent_kind = 'data_source', parent_id = ?1 \
                          WHERE block_id = 'page:database-row'",
                         [SOURCE_ID],
@@ -897,29 +889,17 @@ mod tests {
                         params![VIEW_ID, NOW],
                     )?;
                     transaction.execute(
-                        "UPDATE page_read_model SET location_kind = 'database', \
-                           containing_document_id = NULL, containing_database_id = ?1, \
-                           top_level_rank_key = NULL, membership_id = 'membership:row', \
-                           database_block_id = ?1, view_id = ?2, view_group_key = 'triage', \
+                        "UPDATE page_read_model SET parent_kind = 'data_source', parent_id = ?1, \
+                           library_rank_key = NULL, membership_id = 'membership:row', \
+                           database_block_id = ?2, view_id = ?3, view_group_key = 'triage', \
                            view_rank_key = 'a', database_values_json = '{\"status\":\"triage\"}' \
                          WHERE page_block_id = 'page:database-row'",
-                        params![DATABASE_ID, VIEW_ID],
+                        params![SOURCE_ID, DATABASE_ID, VIEW_ID],
                     )?;
                     transaction.execute(
                         "DELETE FROM library_block_placements \
                          WHERE block_id = 'page:database-row-2'",
                         [],
-                    )?;
-                    transaction.execute(
-                        "DELETE FROM top_level_block_placements \
-                         WHERE block_id = 'page:database-row-2'",
-                        [],
-                    )?;
-                    transaction.execute(
-                        "UPDATE blocks SET location_kind = 'database', \
-                           containing_document_id = NULL, containing_database_id = ?1 \
-                         WHERE id = 'page:database-row-2'",
-                        [DATABASE_ID],
                     )?;
                     transaction.execute(
                         "UPDATE pages SET parent_kind = 'data_source', parent_id = ?1 \
@@ -947,13 +927,12 @@ mod tests {
                         params![SOURCE_ID, NOW],
                     )?;
                     transaction.execute(
-                        "UPDATE page_read_model SET location_kind = 'database', \
-                           containing_document_id = NULL, containing_database_id = ?1, \
-                           top_level_rank_key = NULL, membership_id = 'membership:row-2', \
-                           database_block_id = ?1, view_id = NULL, view_group_key = NULL, \
+                        "UPDATE page_read_model SET parent_kind = 'data_source', parent_id = ?1, \
+                           library_rank_key = NULL, membership_id = 'membership:row-2', \
+                           database_block_id = ?2, view_id = NULL, view_group_key = NULL, \
                            view_rank_key = NULL, database_values_json = '{}' \
                          WHERE page_block_id = 'page:database-row-2'",
-                        [DATABASE_ID],
+                        params![SOURCE_ID, DATABASE_ID],
                     )?;
                     Ok(())
                 })
@@ -1539,11 +1518,6 @@ mod tests {
                         [],
                     )?;
                     transaction.execute(
-                        "UPDATE pages SET lifecycle = 'archived' \
-                         WHERE block_id = 'page:database-row'",
-                        [],
-                    )?;
-                    transaction.execute(
                         "UPDATE page_read_model SET lifecycle = 'archived' \
                          WHERE page_block_id = 'page:database-row'",
                         [],
@@ -1577,11 +1551,6 @@ mod tests {
                     transaction.execute(
                         "UPDATE blocks SET lifecycle = 'active' \
                          WHERE id = 'page:database-row'",
-                        [],
-                    )?;
-                    transaction.execute(
-                        "UPDATE pages SET lifecycle = 'active' \
-                         WHERE block_id = 'page:database-row'",
                         [],
                     )?;
                     transaction.execute(
@@ -1685,21 +1654,14 @@ mod tests {
             .writer()
             .call(|connection| {
                 let revisions = connection.query_row(
-                    "SELECT block.metadata_revision, page.metadata_revision, \
-                       projection.metadata_revision FROM blocks block \
-                     JOIN pages page ON page.block_id = block.id \
+                    "SELECT block.metadata_revision, projection.metadata_revision \
+                     FROM blocks block \
                      JOIN page_read_model projection ON projection.page_block_id = block.id \
                      WHERE block.id = 'page:database-row'",
                     [],
-                    |row| {
-                        Ok((
-                            row.get::<_, i64>(0)?,
-                            row.get::<_, i64>(1)?,
-                            row.get::<_, i64>(2)?,
-                        ))
-                    },
+                    |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
                 )?;
-                assert_eq!(revisions, (2, 2, 2));
+                assert_eq!(revisions, (2, 2));
                 Ok(())
             })
             .expect("Page metadata projections stay synchronized after value writes");
@@ -2061,22 +2023,14 @@ mod tests {
             .writer()
             .call(|connection| {
                 let revisions = connection.query_row(
-                    "SELECT block.metadata_revision, page.metadata_revision, \
-                       projection.metadata_revision FROM blocks block \
-                     JOIN pages page ON page.block_id = block.id \
+                    "SELECT block.metadata_revision, projection.metadata_revision \
+                     FROM blocks block \
                      JOIN page_read_model projection ON projection.page_block_id = block.id \
                      WHERE block.id = 'page:database-row'",
                     [],
-                    |row| {
-                        Ok((
-                            row.get::<_, i64>(0)?,
-                            row.get::<_, i64>(1)?,
-                            row.get::<_, i64>(2)?,
-                        ))
-                    },
+                    |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
                 )?;
                 assert_eq!(revisions.0, revisions.1);
-                assert_eq!(revisions.0, revisions.2);
                 Ok(())
             })
             .expect("Page metadata projections stay synchronized after positioning");
@@ -2375,16 +2329,6 @@ mod tests {
                             [row.page_id],
                         )?;
                         transaction.execute(
-                            "DELETE FROM top_level_block_placements WHERE block_id = ?1",
-                            [row.page_id],
-                        )?;
-                        transaction.execute(
-                            "UPDATE blocks SET location_kind = 'database', \
-                               containing_document_id = NULL, containing_database_id = ?1 \
-                             WHERE id = ?2",
-                            params![DATABASE_ID, row.page_id],
-                        )?;
-                        transaction.execute(
                             "UPDATE pages SET parent_kind = 'data_source', parent_id = ?1 \
                              WHERE block_id = ?2",
                             params![SOURCE_ID, row.page_id],
@@ -2425,12 +2369,17 @@ mod tests {
                             .map(|value| format!("{{\"status\":{value}}}"))
                             .unwrap_or_else(|| "{}".to_owned());
                         transaction.execute(
-                            "UPDATE page_read_model SET location_kind = 'database', \
-                               containing_document_id = NULL, containing_database_id = ?1, \
-                               top_level_rank_key = NULL, membership_id = ?2, \
-                               database_block_id = ?1, database_values_json = ?3 \
-                             WHERE page_block_id = ?4",
-                            params![DATABASE_ID, membership_id, values_json, row.page_id],
+                            "UPDATE page_read_model SET parent_kind = 'data_source', \
+                               parent_id = ?1, library_rank_key = NULL, membership_id = ?2, \
+                               database_block_id = ?3, database_values_json = ?4 \
+                             WHERE page_block_id = ?5",
+                            params![
+                                SOURCE_ID,
+                                membership_id,
+                                DATABASE_ID,
+                                values_json,
+                                row.page_id,
+                            ],
                         )?;
                     }
                     Ok(())
@@ -2907,18 +2856,53 @@ mod tests {
         kernel
             .writer()
             .call(|connection| {
+                let edges = connection
+                    .prepare(
+                        "SELECT edge_id, source_membership_id, target_page_block_id, created_at \
+                         FROM data_source_relation_edges \
+                         WHERE source_data_source_id = ?1 AND property_id = 'task_parent' \
+                           AND source_membership_id IN (\
+                             'membership:page:left', 'membership:page:right'\
+                           )",
+                    )?
+                    .query_map([SOURCE_ID], |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, String>(2)?,
+                            row.get::<_, String>(3)?,
+                        ))
+                    })?
+                    .collect::<rusqlite::Result<Vec<_>>>()?;
                 connection.execute(
-                    "UPDATE data_source_relation_edges SET sibling_rank = \
-                       CASE source_membership_id \
-                         WHEN 'membership:page:left' THEN '00000000000000000000000000000001' \
-                         WHEN 'membership:page:right' THEN '00000000000000000000000000000002' \
-                       END \
+                    "DELETE FROM data_source_relation_edges \
                      WHERE source_data_source_id = ?1 AND property_id = 'task_parent' \
                        AND source_membership_id IN (\
                          'membership:page:left', 'membership:page:right'\
                        )",
                     [SOURCE_ID],
                 )?;
+                for (edge_id, membership_id, target_page_id, created_at) in edges {
+                    let sibling_rank = match membership_id.as_str() {
+                        "membership:page:left" => "00000000000000000000000000000001",
+                        "membership:page:right" => "00000000000000000000000000000002",
+                        _ => unreachable!("query bounds the rewritten memberships"),
+                    };
+                    connection.execute(
+                        "INSERT INTO data_source_relation_edges(\
+                           edge_id, source_data_source_id, source_membership_id, property_id, \
+                           target_page_block_id, created_at, sibling_rank\
+                         ) VALUES (?1, ?2, ?3, 'task_parent', ?4, ?5, ?6)",
+                        params![
+                            edge_id,
+                            SOURCE_ID,
+                            membership_id,
+                            target_page_id,
+                            created_at,
+                            sibling_rank,
+                        ],
+                    )?;
+                }
                 Ok(())
             })
             .expect("exhaust sibling rank gap");
@@ -3165,10 +3149,6 @@ mod tests {
                         [],
                     )?;
                     transaction.execute(
-                        "UPDATE pages SET lifecycle = 'archived' WHERE block_id = 'page:parent'",
-                        [],
-                    )?;
-                    transaction.execute(
                         "UPDATE page_read_model SET lifecycle = 'archived' \
                          WHERE page_block_id = 'page:parent'",
                         [],
@@ -3211,7 +3191,6 @@ mod tests {
             .call(|connection| {
                 connection.execute_batch(
                     "UPDATE blocks SET lifecycle = 'active' WHERE id = 'page:parent'; \
-                     UPDATE pages SET lifecycle = 'active' WHERE block_id = 'page:parent'; \
                      UPDATE page_read_model SET lifecycle = 'active' \
                        WHERE page_block_id = 'page:parent';",
                 )?;
@@ -3401,8 +3380,8 @@ mod tests {
             .read_default(|connection| {
                 connection
                     .query_row(
-                        "SELECT metadata_revision, parent_revision FROM pages \
-                         WHERE block_id = 'page:deleted-parent'",
+                        "SELECT metadata_revision, placement_revision FROM blocks \
+                         WHERE id = 'page:deleted-parent'",
                         [],
                         |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
                     )
@@ -3932,10 +3911,10 @@ mod tests {
             .call(|connection| {
                 connection.execute(
                     "INSERT INTO scheduled_page_index( \
-                       page_block_id, project_id, lifecycle, scheduled_start, scheduled_end, \
+                       page_block_id, library_id, lifecycle, scheduled_start, scheduled_end, \
                        is_all_day, recurrence_json, reminders_json, schedule_timezone, \
                        source_metadata_revision, updated_at \
-                     ) VALUES ('page:schedule-row', 'project-1', 'active', NULL, NULL, 0, \
+                     ) VALUES ('page:schedule-row', 'library-1', 'active', NULL, NULL, 0, \
                        'null', '[]', NULL, 1, ?1)",
                     [NOW],
                 )?;

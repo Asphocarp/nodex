@@ -240,9 +240,9 @@ fn read_page_candidates(
     include_archived: bool,
 ) -> Result<Vec<PageCandidate>, StoreError> {
     let lifecycle = if include_archived {
-        "page.lifecycle <> 'deleted' AND page_block.lifecycle <> 'deleted'"
+        "page_block.lifecycle <> 'deleted'"
     } else {
-        "page.lifecycle = 'active' AND page_block.lifecycle = 'active'"
+        "page_block.lifecycle = 'active'"
     };
     let mut conditions = vec![
         "page.library_id = ?".to_owned(),
@@ -290,8 +290,9 @@ fn read_page_candidates(
          SELECT page.block_id, materialization.title, page.parent_kind, page.parent_id \
          FROM pages page \
          JOIN blocks page_block ON page_block.id = page.block_id \
+           AND page_block.library_id = page.library_id \
          JOIN documents document ON document.id = page.document_id \
-           AND document.project_id = page_block.project_id \
+           AND document.library_id = page.library_id \
          JOIN document_materializations materialization \
            ON materialization.document_id = document.id \
          JOIN hierarchy terminal ON terminal.root_page_id = page.block_id \
@@ -488,13 +489,11 @@ fn search_fts(
             "source.lifecycle <> 'deleted'".to_owned(),
             "owner.lifecycle <> 'deleted'".to_owned(),
             "owner.type = 'page'".to_owned(),
-            "owner_page.lifecycle <> 'deleted'".to_owned(),
         ];
         let mut parameters = vec![SqlValue::Text(match_query.clone())];
         parameters.extend(page_ids.iter().cloned().map(SqlValue::Text));
         if !include_archived {
             conditions.push("owner.lifecycle = 'active'".to_owned());
-            conditions.push("owner_page.lifecycle = 'active'".to_owned());
         }
         if let Some(block_types) = block_types {
             conditions.push(format!(
@@ -511,11 +510,11 @@ fn search_fts(
              FROM block_search_units_fts \
              JOIN block_search_units unit ON unit.rowid = block_search_units_fts.rowid \
              JOIN documents document ON document.id = unit.document_id \
-               AND document.project_id = unit.project_id \
+               AND document.library_id = unit.library_id \
              JOIN blocks source ON source.id = unit.block_id \
-               AND source.project_id = unit.project_id \
+               AND source.library_id = unit.library_id \
              JOIN blocks owner ON owner.id = unit.owner_block_id \
-               AND owner.project_id = unit.project_id \
+               AND owner.library_id = unit.library_id \
              JOIN pages owner_page ON owner_page.block_id = owner.id \
              WHERE {} ORDER BY rank, unit.owner_block_id, unit.block_id LIMIT ?",
             conditions.join(" AND ")

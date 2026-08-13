@@ -2335,7 +2335,7 @@ mod tests {
     }
 
     #[test]
-    fn post_state_delivery_revokes_source_project_and_grants_target_project() {
+    fn post_state_delivery_revokes_source_access_and_grants_target_access() {
         let directory = tempdir().expect("temporary Profile");
         let kernel = SqliteStoreKernel::open_test(directory.path()).expect("Core store");
         let (store_epoch, library_id, commit_seq) = kernel
@@ -2348,29 +2348,42 @@ mod tests {
                      INSERT INTO projects(id, library_id, name, created, updated)
                      VALUES ('project:b', 'library:events', 'B', '2026-08-07', '2026-08-07');
                      INSERT INTO blocks(
-                       id, project_id, type, lifecycle, location_kind,
-                       containing_document_id, containing_database_id,
-                       location_revision, metadata_revision, created_at, updated_at
+                       id, library_id, type, lifecycle, placement_revision,
+                       metadata_revision, created_at, updated_at
                      ) VALUES (
-                       'page:moved', 'project:b', 'page', 'active', 'space',
-                       NULL, NULL, 1, 1, '2026-08-07', '2026-08-07'
+                       'page:moved', 'library:events', 'page', 'active', 1, 1,
+                       '2026-08-07', '2026-08-07'
                      );
                      INSERT INTO documents(
-                       id, project_id, generation, head_seq, schema_key, schema_version,
+                       id, library_id, generation, head_seq, schema_key, schema_version,
                        state_vector, state_hash, readiness, authority, created_at, updated_at,
                        sync_engine
                      ) VALUES (
-                       'document:moved', 'project:b', 1, 0, 'nodex.page', 2,
+                       'document:moved', 'library:events', 1, 0, 'nodex.page', 2,
                        X'', '', 'ready', 'ydoc_primary', '2026-08-07', '2026-08-07', 'yjs'
                      );
-                     INSERT INTO block_documents(block_id, document_id, project_id, created_at)
-                     VALUES ('page:moved', 'document:moved', 'project:b', '2026-08-07');
+                     INSERT INTO block_documents(block_id, document_id, library_id, created_at)
+                     VALUES ('page:moved', 'document:moved', 'library:events', '2026-08-07');
                      INSERT INTO pages(
                        block_id, library_id, document_id, parent_kind, parent_id,
-                       lifecycle, created_at, updated_at
+                       created_at, updated_at
                      ) VALUES (
                        'page:moved', 'library:events', 'document:moved', 'library',
-                       'library:events', 'active', '2026-08-07', '2026-08-07'
+                       'library:events', '2026-08-07', '2026-08-07'
+                     );
+                     INSERT INTO library_block_placements(
+                       block_id, library_id, rank_key, revision, created_at, updated_at
+                     ) VALUES (
+                       'page:moved', 'library:events', '7fffffffffffffffffffffffffffffff',
+                       1, '2026-08-07', '2026-08-07'
+                     );
+                     INSERT INTO project_resource_grants(
+                       id, project_id, library_id, root_kind, root_id, access,
+                       recursive, revision, lifecycle, created_at, updated_at
+                     ) VALUES (
+                       'grant:moved-target', 'project:b', 'library:events', 'page',
+                       'page:moved', 'read_write', 1, 1, 'active',
+                       '2026-08-07', '2026-08-07'
                      );",
                 )?;
                 append_finalized_test_event_with_revocations(
@@ -2406,7 +2419,7 @@ mod tests {
                             },
                             resource_kind: RevokedResourceKind::Page,
                             resource_id: "page:moved".to_owned(),
-                            reason: ResourceRevocationReason::OwnershipMoved,
+                            reason: ResourceRevocationReason::AccessRevoked,
                         },
                         ResourceRevocation {
                             authorization_scope: DeliveryAuthorizationScope::Project {
@@ -2415,7 +2428,7 @@ mod tests {
                             },
                             resource_kind: RevokedResourceKind::Document,
                             resource_id: "document:moved".to_owned(),
-                            reason: ResourceRevocationReason::OwnershipMoved,
+                            reason: ResourceRevocationReason::AccessRevoked,
                         },
                     ],
                 )?;
@@ -2538,35 +2551,41 @@ mod tests {
                      INSERT INTO projects(id, library_id, name, created, updated)
                      VALUES ('project:owner', 'library:events', 'Owner', '2026-08-07', '2026-08-07');
                      INSERT INTO blocks(
-                       id, project_id, type, lifecycle, location_kind,
-                       containing_document_id, containing_database_id,
-                       location_revision, metadata_revision, created_at, updated_at
+                       id, library_id, type, lifecycle, placement_revision,
+                       metadata_revision, created_at, updated_at
                      ) VALUES
-                     ('page:visible', 'project:owner', 'page', 'active', 'space',
-                       NULL, NULL, 1, 1, '2026-08-07', '2026-08-07'),
-                     ('page:hidden', 'project:owner', 'page', 'active', 'space',
-                       NULL, NULL, 1, 1, '2026-08-07', '2026-08-07');
+                     ('page:visible', 'library:events', 'page', 'active', 1, 1,
+                       '2026-08-07', '2026-08-07'),
+                     ('page:hidden', 'library:events', 'page', 'active', 1, 1,
+                       '2026-08-07', '2026-08-07');
                      INSERT INTO documents(
-                       id, project_id, generation, head_seq, schema_key, schema_version,
+                       id, library_id, generation, head_seq, schema_key, schema_version,
                        state_vector, state_hash, readiness, authority, created_at, updated_at,
                        sync_engine
                      ) VALUES
-                     ('document:visible', 'project:owner', 1, 0, 'nodex.page', 2,
+                     ('document:visible', 'library:events', 1, 0, 'nodex.page', 2,
                        X'', '', 'ready', 'ydoc_primary', '2026-08-07', '2026-08-07', 'yjs'),
-                     ('document:hidden', 'project:owner', 1, 0, 'nodex.page', 2,
+                     ('document:hidden', 'library:events', 1, 0, 'nodex.page', 2,
                        X'', '', 'ready', 'ydoc_primary', '2026-08-07', '2026-08-07', 'yjs');
-                     INSERT INTO block_documents(block_id, document_id, project_id, created_at)
+                     INSERT INTO block_documents(block_id, document_id, library_id, created_at)
                      VALUES
-                     ('page:visible', 'document:visible', 'project:owner', '2026-08-07'),
-                     ('page:hidden', 'document:hidden', 'project:owner', '2026-08-07');
+                     ('page:visible', 'document:visible', 'library:events', '2026-08-07'),
+                     ('page:hidden', 'document:hidden', 'library:events', '2026-08-07');
                      INSERT INTO pages(
                        block_id, library_id, document_id, parent_kind, parent_id,
-                       lifecycle, created_at, updated_at
+                       created_at, updated_at
                      ) VALUES
                      ('page:visible', 'library:events', 'document:visible', 'library',
-                       'library:events', 'active', '2026-08-07', '2026-08-07'),
+                       'library:events', '2026-08-07', '2026-08-07'),
                      ('page:hidden', 'library:events', 'document:hidden', 'library',
-                       'library:events', 'active', '2026-08-07', '2026-08-07');
+                       'library:events', '2026-08-07', '2026-08-07');
+                     INSERT INTO library_block_placements(
+                       block_id, library_id, rank_key, revision, created_at, updated_at
+                     ) VALUES
+                     ('page:visible', 'library:events', '3fffffffffffffffffffffffffffffff',
+                       1, '2026-08-07', '2026-08-07'),
+                     ('page:hidden', 'library:events', '7fffffffffffffffffffffffffffffff',
+                       1, '2026-08-07', '2026-08-07');
                      INSERT INTO project_resource_grants(
                        id, project_id, library_id, root_kind, root_id, access,
                        recursive, revision, lifecycle, created_at, updated_at

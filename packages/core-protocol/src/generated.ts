@@ -2994,7 +2994,6 @@ export interface components {
             /** @enum {string} */
             readonly kind: "library";
             readonly library_id: string;
-            readonly project_id: string;
             readonly rank_key: string;
         } | {
             readonly document_id: string;

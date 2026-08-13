@@ -80,8 +80,8 @@ export const MAX_RELOCATION_ID_LENGTH = 512;
 
 export type BlockLocation =
   | {
-      readonly kind: "space";
-      readonly projectId: string;
+      readonly kind: "library";
+      readonly libraryId: string;
       readonly rankKey: string;
     }
   | {
@@ -89,8 +89,9 @@ export type BlockLocation =
       readonly documentId: DocumentId;
     }
   | {
-      readonly kind: "database";
+      readonly kind: "data_source";
       readonly databaseBlockId: BlockId;
+      readonly dataSourceId: string;
     };
 
 export interface BlockRecord {

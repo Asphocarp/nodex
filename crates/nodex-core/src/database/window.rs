@@ -1341,7 +1341,7 @@ fn row_window_for(
              model.description_length, model.has_description, {database_values_projection}, \
              model.intrinsic_properties_json, \
              {property_revisions_projection}, \
-             model.metadata_revision, model.location_revision, model.document_id, \
+             model.metadata_revision, model.placement_revision, model.document_id, \
              model.document_generation, model.document_projected_seq, membership.id, \
              membership.revision, membership.created_at, model.created_at, model.updated_at, \
              {effective_group_select} AS effective_group_key, \
@@ -1865,12 +1865,13 @@ pub(crate) fn mint_page_move_etag(
 ) -> Result<String, StoreError> {
     let page = connection
         .query_row(
-            "SELECT page.lifecycle, block.location_revision, page.parent_kind, page.parent_id, \
-               page.parent_revision, page.metadata_revision \
+            "SELECT block.lifecycle, block.placement_revision, page.parent_kind, page.parent_id, \
+               block.placement_revision, block.metadata_revision \
              FROM pages page \
-             JOIN blocks block ON block.id = page.block_id AND block.type = 'page' \
+             JOIN blocks block ON block.id = page.block_id AND block.library_id = page.library_id \
+               AND block.type = 'page' \
              WHERE page.block_id = ?1 AND page.library_id = ?2 \
-               AND page.lifecycle <> 'deleted' AND block.lifecycle <> 'deleted'",
+               AND block.lifecycle <> 'deleted'",
             params![page_id, library_id],
             |row| {
                 Ok(PageMoveAuthority {
@@ -2711,7 +2712,7 @@ fn summary_by_id(
                model.description_length, model.has_description, {database_values_projection}, \
                model.intrinsic_properties_json, \
                {property_revisions_projection}, \
-               model.metadata_revision, model.location_revision, model.document_id, \
+               model.metadata_revision, model.placement_revision, model.document_id, \
                model.document_generation, model.document_projected_seq, membership.id, \
                membership.revision, membership.created_at, model.created_at, model.updated_at, \
                {effective_group_select} AS effective_group_key, \

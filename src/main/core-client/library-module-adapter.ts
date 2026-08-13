@@ -373,10 +373,7 @@ const toCoreIntent = (operation: LibraryApplyOperation): LibraryIntent => {
       return {
         kind: operation.kind,
         project_id: operation.projectId,
-        target:
-          operation.target.kind === "page"
-            ? { kind: "page", page_id: operation.target.pageId }
-            : { kind: "database", database_id: operation.target.databaseId },
+        target: toCoreResourceTarget(operation.target),
         access: operation.access,
       };
     case "set_project_access":

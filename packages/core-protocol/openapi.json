@@ -11691,7 +11691,6 @@
             "type": "object",
             "required": [
               "library_id",
-              "project_id",
               "rank_key",
               "kind"
             ],
@@ -11703,9 +11702,6 @@
                 ]
               },
               "library_id": {
-                "type": "string"
-              },
-              "project_id": {
                 "type": "string"
               },
               "rank_key": {

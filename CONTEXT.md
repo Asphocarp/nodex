@@ -139,6 +139,12 @@ Document ID in a host shell. Project creation seeds one deterministic primary
 Canvas, but primary status is only the default Project entry point—not a
 different Document or Database View type.
 
+A Library-parented Canvas receives explicit Project resource grants like any
+other root. A Page-parented Canvas has no direct grant and inherits access from
+the host Page ownership path. Moving between those placements changes the
+direct-grant state atomically with the owner shell; it never changes the
+Canvas, Block, or Document identity.
+
 Synced Block and Reusable Template remain dormant capabilities without ordinary
 Library UI. Their hidden source Blocks have real Library placement and body-only
 Documents. `syncedBlockRef` presents live source content; `templateRef`
@@ -179,6 +185,11 @@ parent coordinates and the Document's exact tree/materialized index must agree.
 Library top-level order and View manual order are independent fractional
 orderings with `blockId` as stable tie-breaker. SQL rank never determines order
 inside a Yjs Document.
+
+`library_block_placements` is the sole top-level order authority. Block and
+Document registries are keyed by Library; Project IDs on receipts, changes,
+automation, recovery, and delivery records are actor/execution/delivery
+coordinates and never content ownership.
 
 ### Database
 

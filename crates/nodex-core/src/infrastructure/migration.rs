@@ -27,7 +27,8 @@ use crate::document::{
     canvas_semantic_intent_fingerprint, compute_canvas_scene_incremental_metadata,
     create_compatible_document, decode_block_document, decode_state_vector_v1,
     derive_canvas_element, has_pending_dependencies, load_v94_canvas_scene,
-    materialize_decoded_document, read_document_authority, rebuild_legacy_import_projections,
+    materialize_decoded_document, read_legacy_project_owned_document_authority,
+    rebuild_legacy_import_projections,
 };
 use crate::domain::fractional_rank::evenly_spaced_rank;
 use crate::domain::project_appearance::{
@@ -36,6 +37,12 @@ use crate::domain::project_appearance::{
 use nodex_core_contracts::workspace::ProjectMarker;
 
 use super::document_repository::{DocumentHeadRow, DocumentReadRepository};
+use super::library_content_migration::{
+    ensure_v117_library_content_ownership, validate_v117_library_content_ownership,
+};
+use super::resource_grant_migration::{
+    ensure_v118_canvas_resource_grants, validate_v118_canvas_resource_grants,
+};
 use super::schema::{
     CORE_SCHEMA_VERSION, SchemaInventory, TYPESCRIPT_SCHEMA_VERSION, install_v84_schema,
     read_schema_inventory, schema_inventory_fingerprint, v84_schema_objects_sql,
@@ -2066,6 +2073,8 @@ pub fn prepare_profile_store_with_observer(
         validate_database_view_global_rank_invariants(connection)?;
         validate_database_relation_invariants(connection)?;
         validate_database_priority_invariants(connection)?;
+        validate_v117_library_content_ownership(connection)?;
+        validate_v118_canvas_resource_grants(connection)?;
         return Ok(StorePreparation {
             schema_version: CORE_SCHEMA_VERSION,
             created_fresh: true,
@@ -2093,6 +2102,8 @@ pub fn prepare_profile_store_with_observer(
         validate_database_view_global_rank_invariants(connection)?;
         validate_database_relation_invariants(connection)?;
         validate_database_priority_invariants(connection)?;
+        validate_v117_library_content_ownership(connection)?;
+        validate_v118_canvas_resource_grants(connection)?;
         return Ok(StorePreparation {
             schema_version: CORE_SCHEMA_VERSION,
             created_fresh: false,
@@ -2149,6 +2160,8 @@ pub fn prepare_profile_store_with_observer(
     validate_database_view_global_rank_invariants(connection)?;
     validate_database_relation_invariants(connection)?;
     validate_database_priority_invariants(connection)?;
+    validate_v117_library_content_ownership(connection)?;
+    validate_v118_canvas_resource_grants(connection)?;
     Ok(StorePreparation {
         schema_version: CORE_SCHEMA_VERSION,
         created_fresh: false,
@@ -2207,6 +2220,8 @@ pub(crate) fn prepare_legacy_import_candidate(
     validate_database_view_global_rank_invariants(connection)?;
     validate_database_relation_invariants(connection)?;
     validate_database_priority_invariants(connection)?;
+    validate_v117_library_content_ownership(connection)?;
+    validate_v118_canvas_resource_grants(connection)?;
     Ok(StorePreparation {
         schema_version: CORE_SCHEMA_VERSION,
         created_fresh: false,
@@ -2224,6 +2239,33 @@ fn rebuild_legacy_import_document_projections(connection: &Connection) -> Result
         rebuild_legacy_import_projections(connection, &head.id, &reconstructed.materialization)?;
     }
     Ok(())
+}
+
+/// SQLite table rebuilds cannot preserve composite foreign keys while the
+/// parent table is being replaced. Foreign-key enforcement is disabled only
+/// for the atomic migration transaction, restored on every exit path, and the
+/// complete graph is checked immediately afterward by `validate_store`.
+fn with_schema_rebuild_transaction<T>(
+    connection: &mut Connection,
+    operation: impl FnOnce(&rusqlite::Transaction<'_>) -> Result<T, StoreError>,
+) -> Result<T, StoreError> {
+    let foreign_keys_enabled =
+        connection.query_row("PRAGMA foreign_keys", [], |row| row.get::<_, bool>(0))?;
+    if foreign_keys_enabled {
+        connection.pragma_update(None, "foreign_keys", false)?;
+    }
+    let result = with_immediate_transaction(connection, operation);
+    let restore = if foreign_keys_enabled {
+        connection.pragma_update(None, "foreign_keys", true)
+    } else {
+        Ok(())
+    };
+    match (result, restore) {
+        (Ok(value), Ok(())) => Ok(value),
+        (Err(error), Ok(())) => Err(error),
+        (Ok(_), Err(error)) => Err(StoreError::from(error)),
+        (Err(error), Err(_)) => Err(error),
+    }
 }
 
 fn upgrade_owned_store(
@@ -2264,6 +2306,8 @@ fn upgrade_owned_store(
         112 | 113 => validate_exact_v113_schema(connection)?,
         114 => validate_exact_v114_schema(connection)?,
         115 => validate_exact_v115_schema(connection)?,
+        116 => validate_exact_v116_schema(connection)?,
+        117 => validate_exact_v117_schema(connection)?,
         _ => return Err(corrupt("Rust Core forward-migration source is unsupported")),
     }
 
@@ -2275,7 +2319,7 @@ fn upgrade_owned_store(
     let backup_path = create_migration_backup(connection, profile_home, source_version)?;
     let validated_yjs_documents = validate_live_yjs_documents(connection)?;
     let migration_now = unix_time_millis()?;
-    with_immediate_transaction(connection, |transaction| {
+    with_schema_rebuild_transaction(connection, |transaction| {
         if source_version < 86 {
             ensure_v86_execution_profile_schema(transaction)?;
         }
@@ -2395,6 +2439,8 @@ fn upgrade_owned_store(
             ensure_v115_task_parent_relation_authority(transaction, migration_now)?;
         }
         ensure_v116_view_personal_state(transaction)?;
+        ensure_v117_library_content_ownership(transaction)?;
+        ensure_v118_canvas_resource_grants(transaction)?;
         let updated = transaction.execute(
             "UPDATE core_store_metadata SET store_format_version = ?1 \
              WHERE id = 1 AND schema_owner = ?2 AND store_format_version = ?3",
@@ -2418,6 +2464,8 @@ fn upgrade_owned_store(
     validate_database_view_global_rank_invariants(connection)?;
     validate_database_relation_invariants(connection)?;
     validate_database_priority_invariants(connection)?;
+    validate_v117_library_content_ownership(connection)?;
+    validate_v118_canvas_resource_grants(connection)?;
     Ok(StorePreparation {
         schema_version: CORE_SCHEMA_VERSION,
         created_fresh: false,
@@ -2663,7 +2711,11 @@ fn file_sha256(path: &Path) -> Result<String, StoreError> {
 
 fn validate_live_yjs_documents(connection: &Connection) -> Result<usize, StoreError> {
     let repository = DocumentReadRepository::new(connection);
-    let heads = repository.live_yjs_heads()?;
+    let heads = if table_has_column(connection, "documents", "library_id")? {
+        repository.live_yjs_heads()?
+    } else {
+        repository.legacy_project_owned_live_yjs_heads()?
+    };
     for head in &heads {
         validate_live_yjs_document(&repository, head)?;
     }
@@ -2811,7 +2863,7 @@ fn publish_current_store(
     now: u64,
     observer: &mut dyn FnMut(StorePreparationEvent),
 ) -> Result<(), StoreError> {
-    with_immediate_transaction(connection, |transaction| {
+    with_schema_rebuild_transaction(connection, |transaction| {
         transaction.execute_batch(V85_SCHEMA_SQL)?;
         transaction.execute_batch(V85_EXECUTION_SCHEMA_SQL)?;
         ensure_automation_definition_revision(transaction)?;
@@ -2835,6 +2887,7 @@ fn publish_current_store(
         ensure_v101_projectless_permission_mode_schema(transaction)?;
         ensure_v102_local_commit_schema(transaction, &mut |_, _| {})?;
         ensure_v103_local_commit_composite_identity(transaction)?;
+        ensure_v107_block_project_cascade_indexes(transaction)?;
         ensure_v108_local_commit_revocations_schema(transaction)?;
         ensure_v109_local_commit_delivery_atoms_schema(transaction)?;
         ensure_v110_visibility_delta_journal_schema(transaction)?;
@@ -2853,7 +2906,8 @@ fn publish_current_store(
         ensure_v114_database_list_authority(transaction)?;
         ensure_v115_task_parent_relation_authority(transaction, now)?;
         ensure_v116_view_personal_state(transaction)?;
-        ensure_v107_block_project_cascade_indexes(transaction)?;
+        ensure_v117_library_content_ownership(transaction)?;
+        ensure_v118_canvas_resource_grants(transaction)?;
         import_legacy_writable_roots(transaction, profile_home, now)?;
         import_automation_jitter_salt(transaction, profile_home, now)
     })
@@ -2864,7 +2918,7 @@ fn create_fresh_store(
     profile_home: &Path,
     now: u64,
 ) -> Result<(), StoreError> {
-    with_immediate_transaction(connection, |transaction| {
+    with_schema_rebuild_transaction(connection, |transaction| {
         transaction.execute_batch(v84_schema_objects_sql())?;
         transaction.execute_batch(V85_SCHEMA_SQL)?;
         transaction.execute_batch(V85_EXECUTION_SCHEMA_SQL)?;
@@ -2889,6 +2943,7 @@ fn create_fresh_store(
         ensure_v101_projectless_permission_mode_schema(transaction)?;
         ensure_v102_local_commit_schema(transaction, &mut |_, _| {})?;
         ensure_v103_local_commit_composite_identity(transaction)?;
+        ensure_v107_block_project_cascade_indexes(transaction)?;
         ensure_v108_local_commit_revocations_schema(transaction)?;
         ensure_v109_local_commit_delivery_atoms_schema(transaction)?;
         ensure_v110_visibility_delta_journal_schema(transaction)?;
@@ -2901,7 +2956,8 @@ fn create_fresh_store(
         ensure_v114_database_list_authority(transaction)?;
         ensure_v115_task_parent_relation_authority(transaction, now)?;
         ensure_v116_view_personal_state(transaction)?;
-        ensure_v107_block_project_cascade_indexes(transaction)?;
+        ensure_v117_library_content_ownership(transaction)?;
+        ensure_v118_canvas_resource_grants(transaction)?;
         import_legacy_writable_roots(transaction, profile_home, now)?;
         import_automation_jitter_salt(transaction, profile_home, now)
     })
@@ -5441,7 +5497,7 @@ pub(crate) fn validate_database_priority_invariants(
 }
 
 fn migrate_v95_canvas_scene(connection: &Connection, document_id: &str) -> Result<(), StoreError> {
-    let authority = read_document_authority(connection, document_id)?
+    let authority = read_legacy_project_owned_document_authority(connection, document_id)?
         .ok_or_else(|| corrupt("v94 Canvas scene is missing its Document authority"))?;
     let loaded = load_v94_canvas_scene(connection, &authority)?;
     validate_v94_canvas_projections(connection, &authority, &loaded.scene)?;
@@ -5755,7 +5811,7 @@ fn validate_v94_canvas_projections(
             params![
                 authority.head.id,
                 authority.owner_block_id,
-                authority.head.project_id,
+                authority.head.library_id,
                 authority.head.generation,
                 authority.head.head_seq
             ],
@@ -5797,7 +5853,7 @@ fn validate_v94_canvas_projections(
             params![
                 authority.head.id,
                 authority.owner_block_id,
-                authority.head.project_id,
+                authority.head.library_id,
                 authority.head.generation,
                 authority.head.head_seq
             ],
@@ -5825,7 +5881,7 @@ fn validate_v94_canvas_projections(
             params![
                 authority.head.id,
                 authority.owner_block_id,
-                authority.head.project_id,
+                authority.head.library_id,
                 authority.head.generation,
                 authority.head.head_seq
             ],
@@ -6178,6 +6234,7 @@ fn ensure_v86_automation_execution_profile_schema(
     connection.execute_batch(
         "CREATE TEMP TABLE v86_automation_leases AS
            SELECT * FROM core_automation_leases;
+         DELETE FROM core_automation_leases;
          DROP INDEX IF EXISTS idx_codex_scheduled_automations_active_heartbeat;
          CREATE TABLE codex_scheduled_automations_v86 (
            automation_id TEXT PRIMARY KEY,
@@ -6665,6 +6722,14 @@ fn validate_exact_v115_schema(connection: &Connection) -> Result<(), StoreError>
     validate_exact_core_schema(connection, true, true, true, true, true, true, true, 115)
 }
 
+fn validate_exact_v116_schema(connection: &Connection) -> Result<(), StoreError> {
+    validate_exact_core_schema(connection, true, true, true, true, true, true, true, 116)
+}
+
+fn validate_exact_v117_schema(connection: &Connection) -> Result<(), StoreError> {
+    validate_exact_core_schema(connection, true, true, true, true, true, true, true, 117)
+}
+
 fn validate_exact_current_schema(connection: &Connection) -> Result<(), StoreError> {
     validate_exact_core_schema(
         connection,
@@ -6830,6 +6895,14 @@ fn build_expected_core_schema_inventory(
     if schema_version >= 116 {
         ensure_v116_view_personal_state(&expected)?;
     }
+    if schema_version >= 117 {
+        expected.pragma_update(None, "foreign_keys", false)?;
+        ensure_v117_library_content_ownership(&expected)?;
+        expected.pragma_update(None, "foreign_keys", true)?;
+    }
+    if schema_version >= 118 {
+        ensure_v118_canvas_resource_grants(&expected)?;
+    }
 
     read_schema_inventory(&expected)
 }
@@ -6961,6 +7034,14 @@ pub fn expected_store_schema_fingerprint(version: i64) -> Result<String, StoreEr
     }
     if version >= 116 {
         ensure_v116_view_personal_state(&expected)?;
+    }
+    if version >= 117 {
+        expected.pragma_update(None, "foreign_keys", false)?;
+        ensure_v117_library_content_ownership(&expected)?;
+        expected.pragma_update(None, "foreign_keys", true)?;
+    }
+    if version >= 118 {
+        ensure_v118_canvas_resource_grants(&expected)?;
     }
     read_schema_inventory(&expected).map(|inventory| schema_inventory_fingerprint(&inventory))
 }
@@ -7524,6 +7605,307 @@ mod tests {
         })
         .expect("seed v115 View personal preferences Store");
         validate_exact_v115_schema(&connection).expect("exact v115 Store");
+    }
+
+    fn seed_owned_v116_library_content_cutover_store(home: &Path) {
+        seed_owned_v115_view_personal_preferences_store(home);
+        let mut connection = open_writer(&home.join("nodex.db")).expect("v116 writer");
+        with_immediate_transaction(&mut connection, |transaction| {
+            crate::infrastructure::visibility_delta_journal::install_test_maintenance_context(
+                transaction,
+            )?;
+            ensure_v116_view_personal_state(transaction)?;
+            let now = "2026-08-12T00:00:00.000Z";
+
+            // Existing Library ranks are canonical and intentionally disagree
+            // with the retired per-Project order.
+            transaction.execute(
+                "UPDATE library_block_placements SET rank_key = \
+                   '10000000000000000000000000000000' \
+                 WHERE library_id = 'library:v110-priority'",
+                [],
+            )?;
+            transaction.execute(
+                "UPDATE top_level_block_placements SET rank_key = \
+                   'f0000000000000000000000000000000' \
+                 WHERE project_id = 'project:v110-priority'",
+                [],
+            )?;
+            transaction.execute(
+                "INSERT INTO projects(id, library_id, name, created, updated) \
+                 VALUES ('project:v116-secondary', 'library:v110-priority', \
+                         'Secondary', '2026-08-12', '2026-08-12')",
+                [],
+            )?;
+
+            for (page_id, document_id, lifecycle, location_kind, containing_document_id,
+                parent_kind, parent_id, location_revision, metadata_revision) in [
+                (
+                    "page:v116-root",
+                    "document:v116-root",
+                    "active",
+                    "space",
+                    None,
+                    "library",
+                    "library:v110-priority",
+                    7_i64,
+                    8_i64,
+                ),
+                (
+                    "page:v116-nested",
+                    "document:v116-nested",
+                    "archived",
+                    "document",
+                    Some("document:v116-root"),
+                    "page",
+                    "page:v116-root",
+                    4_i64,
+                    5_i64,
+                ),
+                (
+                    "page:v116-deleted",
+                    "document:v116-deleted",
+                    "deleted",
+                    "space",
+                    None,
+                    "library",
+                    "library:v110-priority",
+                    3_i64,
+                    4_i64,
+                ),
+            ] {
+                transaction.execute(
+                    "INSERT INTO documents( \
+                       id, project_id, generation, head_seq, schema_key, schema_version, \
+                       state_vector, state_hash, readiness, authority, created_at, updated_at, \
+                       sync_engine \
+                     ) VALUES (?1, 'project:v116-secondary', 1, 0, 'nodex.page', 1, X'', \
+                       ?2, 'ready', 'ydoc_primary', ?3, ?3, 'canvas_scene')",
+                    params![document_id, "0".repeat(64), now],
+                )?;
+                transaction.execute(
+                    "INSERT INTO blocks( \
+                       id, project_id, type, lifecycle, location_kind, \
+                       containing_document_id, location_revision, metadata_revision, \
+                       created_at, updated_at \
+                     ) VALUES (?1, 'project:v116-secondary', 'page', ?2, ?3, ?4, ?5, ?6, ?7, ?7)",
+                    params![
+                        page_id,
+                        lifecycle,
+                        location_kind,
+                        containing_document_id,
+                        location_revision,
+                        metadata_revision,
+                        now,
+                    ],
+                )?;
+                transaction.execute(
+                    "INSERT INTO block_documents(block_id, document_id, project_id, created_at) \
+                     VALUES (?1, ?2, 'project:v116-secondary', ?3)",
+                    params![page_id, document_id, now],
+                )?;
+                transaction.execute(
+                    "INSERT INTO pages( \
+                       block_id, library_id, document_id, parent_kind, parent_id, lifecycle, \
+                       parent_revision, metadata_revision, created_at, updated_at \
+                     ) VALUES (?1, 'library:v110-priority', ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)",
+                    params![
+                        page_id,
+                        document_id,
+                        parent_kind,
+                        parent_id,
+                        lifecycle,
+                        location_revision,
+                        metadata_revision,
+                        now,
+                    ],
+                )?;
+            }
+
+            transaction.execute(
+                "INSERT INTO library_block_placements( \
+                   block_id, library_id, rank_key, revision, created_at, updated_at \
+                 ) VALUES ( \
+                   'page:v116-root', 'library:v110-priority', \
+                   '40000000000000000000000000000000', 6, ?1, ?1 \
+                 )",
+                [now],
+            )?;
+            transaction.execute(
+                "INSERT INTO top_level_block_placements( \
+                   block_id, project_id, rank_key, created_at, updated_at \
+                 ) VALUES ( \
+                   'page:v116-root', 'project:v116-secondary', \
+                   '20000000000000000000000000000000', ?1, ?1 \
+                 )",
+                [now],
+            )?;
+            transaction.execute(
+                "INSERT INTO document_block_index( \
+                   document_id, block_id, parent_block_id, ordinal, block_type, text, projected_seq \
+                 ) VALUES ( \
+                   'document:v116-root', 'page:v116-nested', NULL, 0, 'page', '', 0 \
+                 )",
+                [],
+            )?;
+
+            let empty_canvas = CanvasScene {
+                elements: Vec::new(),
+                app_state: Map::new(),
+                files: BTreeMap::new(),
+                page_references: Vec::new(),
+                plain_text: String::new(),
+                preview: String::new(),
+            };
+            let canvas_metadata = compute_canvas_scene_incremental_metadata(&empty_canvas)?;
+            transaction.execute(
+                "INSERT INTO documents( \
+                   id, project_id, generation, head_seq, schema_key, schema_version, \
+                   state_vector, state_hash, readiness, authority, created_at, updated_at, \
+                   sync_engine \
+                 ) VALUES ( \
+                   'document:v116-canvas', 'project:v116-secondary', 1, 0, 'nodex.canvas', 1, \
+                   X'', ?1, 'ready', 'ydoc_primary', ?2, ?2, 'canvas_scene' \
+                 )",
+                params![canvas_metadata.scene_hash, now],
+            )?;
+            transaction.execute(
+                "INSERT INTO blocks( \
+                   id, project_id, type, lifecycle, location_kind, location_revision, \
+                   metadata_revision, created_at, updated_at \
+                 ) VALUES ( \
+                   'canvas:v116-primary', 'project:v116-secondary', 'canvas', 'active', \
+                   'space', 2, 3, ?1, ?1 \
+                 )",
+                [now],
+            )?;
+            transaction.execute(
+                "INSERT INTO block_documents(block_id, document_id, project_id, created_at) \
+                 VALUES ('canvas:v116-primary', 'document:v116-canvas', \
+                         'project:v116-secondary', ?1)",
+                [now],
+            )?;
+            transaction.execute(
+                "INSERT INTO canvas_owners(block_id, library_id, created_at, updated_at) \
+                 VALUES ('canvas:v116-primary', 'library:v110-priority', ?1, ?1)",
+                [now],
+            )?;
+            transaction.execute(
+                "INSERT INTO canvas_scenes( \
+                   document_id, generation, head_seq, schema_version, scene_hash_version, \
+                   app_state_json, app_state_hash, scene_hash, element_count, tombstone_count, \
+                   file_count, element_json_bytes, file_json_bytes, scene_byte_length, updated_at \
+                 ) VALUES ( \
+                   'document:v116-canvas', 1, 0, 1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11 \
+                 )",
+                params![
+                    CANVAS_SCENE_HASH_VERSION,
+                    canvas_metadata.app_state_json,
+                    canvas_metadata.app_state_hash,
+                    canvas_metadata.scene_hash,
+                    canvas_metadata.counters.element_count,
+                    canvas_metadata.counters.tombstone_count,
+                    canvas_metadata.counters.file_count,
+                    canvas_metadata.counters.element_json_bytes,
+                    canvas_metadata.counters.file_json_bytes,
+                    canvas_metadata.counters.scene_byte_length,
+                    now,
+                ],
+            )?;
+            transaction.execute(
+                "INSERT INTO top_level_block_placements( \
+                   block_id, project_id, rank_key, created_at, updated_at \
+                 ) VALUES ( \
+                   'canvas:v116-primary', 'project:v116-secondary', \
+                   '30000000000000000000000000000000', ?1, ?1 \
+                 )",
+                [now],
+            )?;
+
+            transaction.execute(
+                "INSERT INTO blocks( \
+                   id, project_id, type, lifecycle, location_kind, containing_document_id, \
+                   location_revision, metadata_revision, created_at, updated_at \
+                 ) VALUES ( \
+                   'block:v116-asset', 'project:v116-secondary', 'paragraph', 'active', \
+                   'document', 'document:v116-root', 1, 1, ?1, ?1 \
+                 )",
+                [now],
+            )?;
+            transaction.execute(
+                "INSERT INTO document_block_index( \
+                   document_id, block_id, parent_block_id, ordinal, block_type, text, projected_seq \
+                 ) VALUES ( \
+                   'document:v116-root', 'block:v116-asset', NULL, 1, 'paragraph', 'asset', 0 \
+                 )",
+                [],
+            )?;
+            transaction.execute(
+                "INSERT INTO block_asset_refs( \
+                   document_id, block_id, owner_block_id, project_id, document_generation, \
+                   projected_seq, projection_version, role, ordinal, asset_uri, asset_hash, \
+                   updated_at \
+                 ) VALUES ( \
+                   'document:v116-root', 'block:v116-asset', 'page:v116-root', \
+                   'project:v116-secondary', 1, 0, 1, 'attachment', 0, \
+                   'nodex://assets/v116.txt', NULL, ?1 \
+                 )",
+                [now],
+            )?;
+            transaction.execute(
+                "INSERT INTO block_search_units( \
+                   unit_key, project_id, block_id, owner_block_id, document_id, \
+                   document_generation, projected_seq, source_revision, projection_version, \
+                   source_kind, field_key, text, text_hash, updated_at \
+                 ) VALUES ( \
+                   'search:v116-root', 'project:v116-secondary', 'page:v116-root', \
+                   'page:v116-root', 'document:v116-root', 1, 0, NULL, 1, \
+                   'document_title', 'title', 'Root', ?1, ?2 \
+                 )",
+                params![sha256(b"Root"), now],
+            )?;
+            transaction.execute(
+                "INSERT INTO scheduled_page_index( \
+                   page_block_id, project_id, lifecycle, scheduled_start, scheduled_end, \
+                   is_all_day, recurrence_json, reminders_json, source_metadata_revision, \
+                   updated_at \
+                 ) VALUES ( \
+                   'page:v116-root', 'project:v116-secondary', 'active', \
+                   '2026-08-14T09:00:00.000Z', NULL, 0, 'null', '[]', 8, ?1 \
+                 )",
+                [now],
+            )?;
+            transaction.execute(
+                "INSERT INTO recurrence_exceptions( \
+                   project_id, page_id, occurrence_start, exception_type, created \
+                 ) VALUES ( \
+                   'project:v116-secondary', 'page:v116-root', \
+                   '2026-08-14T09:00:00.000Z', 'skip', ?1 \
+                 )",
+                [now],
+            )?;
+            transaction.execute(
+                "INSERT INTO project_resource_grants( \
+                   id, project_id, library_id, root_kind, root_id, access, recursive, revision, \
+                   lifecycle, created_at, updated_at \
+                 ) VALUES ( \
+                   'grant:v116-existing', 'project:v110-priority', 'library:v110-priority', \
+                   'page', 'page:v116-root', 'read', 1, 3, 'active', ?1, ?1 \
+                 )",
+                [now],
+            )?;
+
+            transaction.execute("DELETE FROM local_commit_visibility_context", [])?;
+            transaction.execute(
+                "UPDATE core_store_metadata SET store_format_version = 116 WHERE id = 1",
+                [],
+            )?;
+            transaction.pragma_update(None, "user_version", 116)?;
+            Ok(())
+        })
+        .expect("seed representative v116 Library content Store");
+        validate_exact_v116_schema(&connection).expect("exact v116 Store");
+        validate_store(&connection).expect("valid representative v116 Store");
     }
 
     fn seed_owned_v99_store_with_property_value(home: &Path) {
@@ -8528,6 +8910,336 @@ mod tests {
     }
 
     #[test]
+    fn v116_library_content_cutover_preserves_content_and_materializes_access_once() {
+        fn snapshot(connection: &Connection) -> Result<Vec<(String, String, String)>, StoreError> {
+            connection
+                .prepare(
+                    "SELECT kind, identity, value FROM ( \
+                       SELECT 'block' AS kind, id AS identity, \
+                              library_id || '|' || type || '|' || lifecycle || '|' || \
+                              placement_revision || '|' || metadata_revision AS value \
+                       FROM blocks WHERE id LIKE '%:v116-%' \
+                       UNION ALL \
+                       SELECT 'document', id, library_id || '|' || schema_key \
+                       FROM documents WHERE id LIKE '%:v116-%' \
+                       UNION ALL \
+                       SELECT 'page', block_id, \
+                              library_id || '|' || document_id || '|' || parent_kind || '|' || parent_id \
+                       FROM pages WHERE block_id LIKE '%:v116-%' \
+                       UNION ALL \
+                       SELECT 'placement', block_id, library_id || '|' || rank_key || '|' || revision \
+                       FROM library_block_placements WHERE block_id LIKE '%:v116-%' \
+                       UNION ALL \
+                       SELECT 'grant', id, project_id || '|' || root_kind || '|' || root_id || '|' || access \
+                       FROM project_resource_grants WHERE id LIKE 'grant:v116-%' OR id LIKE 'grant:v117:%' \
+                     ) ORDER BY kind, identity",
+                )?
+                .query_map([], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
+                })?
+                .collect::<rusqlite::Result<Vec<_>>>()
+                .map_err(StoreError::from)
+        }
+
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        seed_owned_v116_library_content_cutover_store(&home);
+
+        let upgraded = SqliteStoreKernel::open(&home).expect("upgrade v116 Library content");
+        assert_eq!(upgraded.preparation().schema_version, CORE_SCHEMA_VERSION);
+        assert_eq!(upgraded.preparation().migrated_from_version, Some(116));
+        let backup_path = upgraded
+            .preparation()
+            .migration_backup_path
+            .as_ref()
+            .expect("v116 migration backup");
+        validate_migration_backup(backup_path, 116).expect("valid v116 migration backup");
+
+        let first = upgraded
+            .readers()
+            .read_default(|connection| {
+                for (table, retired_columns) in [
+                    ("blocks", &["project_id", "location_kind", "containing_document_id", "containing_database_id", "location_revision"][..]),
+                    ("documents", &["project_id"][..]),
+                    ("pages", &["lifecycle", "parent_revision", "metadata_revision"][..]),
+                ] {
+                    for column in retired_columns {
+                        let count = connection.query_row(
+                            "SELECT count(*) FROM pragma_table_info(?1) WHERE name = ?2",
+                            params![table, column],
+                            |row| row.get::<_, i64>(0),
+                        )?;
+                        assert_eq!(count, 0, "{table}.{column} must be retired");
+                    }
+                }
+                for retired_table in [
+                    "top_level_block_placements",
+                    "library_content_relocations",
+                    "library_content_relocation_members",
+                ] {
+                    let count = connection.query_row(
+                        "SELECT count(*) FROM sqlite_schema WHERE type = 'table' AND name = ?1",
+                        [retired_table],
+                        |row| row.get::<_, i64>(0),
+                    )?;
+                    assert_eq!(count, 0, "{retired_table} must be retired");
+                }
+
+                let root_rank = connection.query_row(
+                    "SELECT rank_key FROM library_block_placements \
+                     WHERE block_id = 'page:v116-root'",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )?;
+                let canvas_rank = connection.query_row(
+                    "SELECT rank_key FROM library_block_placements \
+                     WHERE block_id = 'canvas:v116-primary'",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )?;
+                assert_eq!(root_rank, "40000000000000000000000000000000");
+                assert!(canvas_rank > root_rank);
+
+                let library_owned = connection.query_row(
+                    "SELECT count(*) FROM blocks \
+                     WHERE id IN ( \
+                       'page:v116-root', 'page:v116-nested', 'page:v116-deleted', \
+                       'canvas:v116-primary', 'block:v116-asset' \
+                     ) AND library_id = 'library:v110-priority'",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )?;
+                assert_eq!(library_owned, 5);
+                let library_documents = connection.query_row(
+                    "SELECT count(*) FROM documents WHERE id LIKE 'document:v116-%' \
+                     AND library_id = 'library:v110-priority'",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )?;
+                assert_eq!(library_documents, 4);
+
+                let nested_parent = connection.query_row(
+                    "SELECT page.parent_kind, page.parent_id, index_row.document_id \
+                     FROM pages page \
+                     JOIN document_block_index index_row ON index_row.block_id = page.block_id \
+                     WHERE page.block_id = 'page:v116-nested'",
+                    [],
+                    |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, String>(2)?,
+                        ))
+                    },
+                )?;
+                assert_eq!(
+                    nested_parent,
+                    (
+                        "page".to_owned(),
+                        "page:v116-root".to_owned(),
+                        "document:v116-root".to_owned(),
+                    )
+                );
+
+                let preserved_projections = connection.query_row(
+                    "SELECT \
+                       EXISTS(SELECT 1 FROM block_asset_refs WHERE block_id = 'block:v116-asset'), \
+                       EXISTS(SELECT 1 FROM block_search_units WHERE unit_key = 'search:v116-root'), \
+                       EXISTS(SELECT 1 FROM scheduled_page_index WHERE page_block_id = 'page:v116-root'), \
+                       EXISTS(SELECT 1 FROM recurrence_exceptions WHERE page_id = 'page:v116-root')",
+                    [],
+                    |row| {
+                        Ok((
+                            row.get::<_, i64>(0)?,
+                            row.get::<_, i64>(1)?,
+                            row.get::<_, i64>(2)?,
+                            row.get::<_, i64>(3)?,
+                        ))
+                    },
+                )?;
+                assert_eq!(preserved_projections, (1, 1, 1, 1));
+
+                let grants = connection.query_row(
+                    "SELECT \
+                       EXISTS(SELECT 1 FROM project_resource_grants \
+                              WHERE id = 'grant:v116-existing' AND access = 'read'), \
+                       count(*) FILTER (WHERE project_id = 'project:v116-secondary' \
+                         AND root_kind = 'page' AND root_id = 'page:v116-root' \
+                         AND access = 'read_write' AND recursive = 1 AND lifecycle = 'active'), \
+                       count(*) FILTER (WHERE root_kind = 'canvas' \
+                         AND root_id = 'canvas:v116-primary' AND access = 'read_write' \
+                         AND recursive = 1 AND lifecycle = 'active') \
+                     FROM project_resource_grants",
+                    [],
+                    |row| {
+                        Ok((
+                            row.get::<_, i64>(0)?,
+                            row.get::<_, i64>(1)?,
+                            row.get::<_, i64>(2)?,
+                        ))
+                    },
+                )?;
+                assert_eq!(grants, (1, 1, 2));
+                snapshot(connection)
+            })
+            .expect("read migrated Library content");
+
+        drop(upgraded);
+        let reopened = SqliteStoreKernel::open(&home).expect("reopen v117 Library content");
+        assert_eq!(reopened.preparation().migrated_from_version, None);
+        let second = reopened
+            .readers()
+            .read_default(snapshot)
+            .expect("read idempotent Library content");
+        assert_eq!(second, first);
+        drop(reopened);
+
+        let mut connection = open_writer(&home.join("nodex.db")).expect("current writer");
+        with_immediate_transaction(&mut connection, |transaction| {
+            crate::infrastructure::visibility_delta_journal::install_test_maintenance_context(
+                transaction,
+            )?;
+            transaction.execute(
+                "DELETE FROM projects WHERE id = 'project:v116-secondary'",
+                [],
+            )?;
+            transaction.execute("DELETE FROM local_commit_visibility_context", [])?;
+            Ok(())
+        })
+        .expect("delete actor Project");
+        let surviving_content = connection
+            .query_row(
+                "SELECT \
+                   (SELECT count(*) FROM blocks WHERE id LIKE '%:v116-%'), \
+                   (SELECT count(*) FROM documents WHERE id LIKE 'document:v116-%'), \
+                   EXISTS(SELECT 1 FROM block_asset_refs WHERE block_id = 'block:v116-asset'), \
+                   EXISTS(SELECT 1 FROM block_search_units WHERE unit_key = 'search:v116-root'), \
+                   EXISTS(SELECT 1 FROM scheduled_page_index WHERE page_block_id = 'page:v116-root'), \
+                   EXISTS(SELECT 1 FROM recurrence_exceptions WHERE page_id = 'page:v116-root'), \
+                   count(*) FILTER (WHERE project_id = 'project:v116-secondary') \
+                 FROM project_resource_grants",
+                [],
+                |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, i64>(1)?,
+                        row.get::<_, i64>(2)?,
+                        row.get::<_, i64>(3)?,
+                        row.get::<_, i64>(4)?,
+                        row.get::<_, i64>(5)?,
+                        row.get::<_, i64>(6)?,
+                    ))
+                },
+            )
+            .expect("read content after Project deletion");
+        assert_eq!(surviving_content, (5, 4, 1, 1, 1, 1, 0));
+        validate_store(&connection).expect("valid Store after actor Project deletion");
+    }
+
+    #[test]
+    fn failed_v117_library_content_cutover_rolls_back_and_preserves_backup() {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        seed_owned_v116_library_content_cutover_store(&home);
+        let mut connection = open_writer(&home.join("nodex.db")).expect("v116 writer");
+        with_immediate_transaction(&mut connection, |transaction| {
+            crate::infrastructure::visibility_delta_journal::install_test_maintenance_context(
+                transaction,
+            )?;
+            transaction.pragma_update(None, "defer_foreign_keys", true)?;
+            transaction.execute(
+                "INSERT INTO profiles(id, created_at, updated_at) \
+                 VALUES ('profile:v116-other', '2026-08-12T00:00:00.000Z', \
+                         '2026-08-12T00:00:00.000Z')",
+                [],
+            )?;
+            transaction.execute(
+                "INSERT INTO libraries(id, profile_id, created_at, updated_at) \
+                 VALUES ('library:v116-other', 'profile:v116-other', \
+                         '2026-08-12T00:00:00.000Z', '2026-08-12T00:00:00.000Z')",
+                [],
+            )?;
+            transaction.execute(
+                "INSERT INTO projects(id, library_id, name, created, updated) \
+                 VALUES ('project:v116-other', 'library:v116-other', 'Other', \
+                         '2026-08-12', '2026-08-12')",
+                [],
+            )?;
+            transaction.execute(
+                "UPDATE blocks SET project_id = 'project:v116-other' \
+                 WHERE id = 'page:v116-deleted'",
+                [],
+            )?;
+            transaction.execute(
+                "UPDATE documents SET project_id = 'project:v116-other' \
+                 WHERE id = 'document:v116-deleted'",
+                [],
+            )?;
+            transaction.execute(
+                "UPDATE block_documents SET project_id = 'project:v116-other' \
+                 WHERE block_id = 'page:v116-deleted'",
+                [],
+            )?;
+            transaction.execute("DELETE FROM local_commit_visibility_context", [])?;
+            Ok(())
+        })
+        .expect("corrupt legacy ownership coordinate");
+        drop(connection);
+
+        let error = open_error(&home);
+        assert_eq!(error.code, StoreErrorCode::StoreCorrupt);
+        let connection = open_writer(&home.join("nodex.db")).expect("rolled back v116 writer");
+        assert_eq!(
+            connection
+                .query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
+                .expect("rolled back schema version"),
+            116
+        );
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT count(*) FROM pragma_table_info('blocks') WHERE name = 'project_id'",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .expect("legacy Block owner column"),
+            1
+        );
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT count(*) FROM sqlite_schema \
+                     WHERE type = 'table' AND name = 'top_level_block_placements'",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .expect("legacy placement table"),
+            1
+        );
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT project_id FROM blocks WHERE id = 'page:v116-deleted'",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )
+                .expect("corrupt source row survives rollback"),
+            "project:v116-other"
+        );
+
+        let backups = fs::read_dir(prepare_migration_backup_directory(&home).expect("backup dir"))
+            .expect("migration backups")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("read migration backups");
+        assert_eq!(backups.len(), 1);
+        validate_migration_backup(&backups[0].path(), 116).expect("valid v116 backup");
+    }
+
+    #[test]
     fn v111_database_views_migrate_to_the_current_view_contract_once() {
         fn snapshot(
             connection: &Connection,
@@ -8750,9 +9462,7 @@ mod tests {
                        (SELECT metadata_revision FROM database_containers \
                         WHERE block_id = 'database:v110-priority'), \
                        (SELECT metadata_revision FROM blocks \
-                        WHERE id = 'page:v110-priority'), \
-                       (SELECT metadata_revision FROM pages \
-                        WHERE block_id = 'page:v110-priority')",
+                        WHERE id = 'page:v110-priority')",
                     [],
                     |row| {
                         Ok((
@@ -8761,11 +9471,10 @@ mod tests {
                             row.get::<_, i64>(2)?,
                             row.get::<_, i64>(3)?,
                             row.get::<_, i64>(4)?,
-                            row.get::<_, i64>(5)?,
                         ))
                     },
                 )?;
-                assert_eq!(revisions, (6, 11, 8, 5, 4, 4));
+                assert_eq!(revisions, (6, 11, 8, 5, 4));
 
                 let view_config = connection.query_row(
                     "SELECT config_json FROM database_views \
@@ -8834,9 +9543,7 @@ mod tests {
                        (SELECT metadata_revision FROM database_containers \
                         WHERE block_id = 'database:v110-priority'), \
                        (SELECT metadata_revision FROM blocks \
-                        WHERE id = 'page:v110-priority'), \
-                       (SELECT metadata_revision FROM pages \
-                        WHERE block_id = 'page:v110-priority')",
+                        WHERE id = 'page:v110-priority')",
                     [],
                     |row| {
                         Ok((
@@ -8845,7 +9552,6 @@ mod tests {
                             row.get::<_, i64>(2)?,
                             row.get::<_, i64>(3)?,
                             row.get::<_, i64>(4)?,
-                            row.get::<_, i64>(5)?,
                         ))
                     },
                 )?;
@@ -8900,11 +9606,10 @@ mod tests {
                 assert_eq!(value, ("\"p3-low\"".to_owned(), 7));
                 let migrated = connection.query_row(
                     "SELECT position.revision, block.metadata_revision, \
-                            page.metadata_revision, projection.metadata_revision, \
+                            projection.metadata_revision, \
                             projection.projection_version \
                      FROM database_view_page_positions position \
                      JOIN blocks block ON block.id = position.page_block_id \
-                     JOIN pages page ON page.block_id = position.page_block_id \
                      JOIN page_read_model projection \
                        ON projection.page_block_id = position.page_block_id \
                      WHERE position.view_id = 'view:v110-priority' \
@@ -8916,11 +9621,10 @@ mod tests {
                             row.get::<_, i64>(1)?,
                             row.get::<_, i64>(2)?,
                             row.get::<_, i64>(3)?,
-                            row.get::<_, i64>(4)?,
                         ))
                     },
                 )?;
-                assert_eq!(migrated, (9, 4, 4, 4, 6));
+                assert_eq!(migrated, (9, 4, 4, 6));
                 Ok(())
             })
             .expect("verify position-only Priority migration");
@@ -8985,10 +9689,9 @@ mod tests {
                 )?;
                 assert_eq!(dormant, (4, 6, "\"p3-low\"".to_owned(), 12));
                 let page = connection.query_row(
-                    "SELECT block.metadata_revision, page.metadata_revision, \
-                            projection.metadata_revision, projection.projection_version \
+                    "SELECT block.metadata_revision, projection.metadata_revision, \
+                            projection.projection_version \
                      FROM blocks block \
-                     JOIN pages page ON page.block_id = block.id \
                      JOIN page_read_model projection ON projection.page_block_id = block.id \
                      WHERE block.id = 'page:v110-priority'",
                     [],
@@ -8997,11 +9700,10 @@ mod tests {
                             row.get::<_, i64>(0)?,
                             row.get::<_, i64>(1)?,
                             row.get::<_, i64>(2)?,
-                            row.get::<_, i64>(3)?,
                         ))
                     },
                 )?;
-                assert_eq!(page, (3, 3, 3, 4));
+                assert_eq!(page, (3, 3, 4));
                 Ok(())
             })
             .expect("verify dormant Priority migration");
@@ -9069,13 +9771,11 @@ mod tests {
             .readers()
             .read_default(|connection| {
                 let migrated = connection.query_row(
-                    "SELECT value.value_json, value.revision, block.metadata_revision, \
-                            page.metadata_revision \
+                    "SELECT value.value_json, value.revision, block.metadata_revision \
                      FROM data_source_property_values value \
                      JOIN data_source_page_memberships membership \
                        ON membership.id = value.membership_id \
                      JOIN blocks block ON block.id = membership.page_block_id \
-                     JOIN pages page ON page.block_id = membership.page_block_id \
                      WHERE value.data_source_id = 'source:v110-priority' \
                        AND value.membership_id = 'membership:v110-priority' \
                        AND value.property_id = 'priority'",
@@ -9085,11 +9785,10 @@ mod tests {
                             row.get::<_, String>(0)?,
                             row.get::<_, i64>(1)?,
                             row.get::<_, i64>(2)?,
-                            row.get::<_, i64>(3)?,
                         ))
                     },
                 )?;
-                assert_eq!(migrated, ("\"p3-low\"".to_owned(), 8, 4, 4));
+                assert_eq!(migrated, ("\"p3-low\"".to_owned(), 8, 4));
                 Ok(())
             })
             .expect("verify projectionless Priority migration");
@@ -10753,9 +11452,11 @@ mod tests {
                         "SELECT metadata.schema_owner, metadata.store_format_version, \
                                 document.head_seq, document.state_hash, \
                                 EXISTS(SELECT 1 FROM sqlite_schema \
-                                  WHERE type = 'table' AND name = 'document_engine_fingerprints') \
+                                  WHERE type = 'table' AND name = 'document_engine_fingerprints'), \
+                                document.library_id, project.library_id \
                          FROM core_store_metadata metadata \
                          JOIN documents document ON document.id = ?1 \
+                         JOIN projects project ON project.id = 'migration-project' \
                          WHERE metadata.id = 1",
                         [DOCUMENT_ID],
                         |row| {
@@ -10765,6 +11466,8 @@ mod tests {
                                 row.get::<_, i64>(2)?,
                                 row.get::<_, String>(3)?,
                                 row.get::<_, bool>(4)?,
+                                row.get::<_, String>(5)?,
+                                row.get::<_, String>(6)?,
                             ))
                         },
                     )
@@ -10776,6 +11479,8 @@ mod tests {
         assert_eq!(evidence.2, 1);
         assert!(evidence.3.is_empty());
         assert!(!evidence.4);
+        assert_eq!(evidence.5, evidence.6);
+        assert!(!evidence.5.is_empty());
         let retired_search_objects = kernel
             .readers()
             .read_default(|connection| {
@@ -11127,7 +11832,7 @@ mod tests {
     }
 
     #[test]
-    fn current_store_uses_exact_child_key_indexes_for_block_project_cascades() {
+    fn current_store_uses_exact_child_key_indexes_for_block_library_cascades() {
         let directory = tempdir().expect("Profile");
         let home = directory.path().canonicalize().expect("absolute Profile");
         let kernel = SqliteStoreKernel::open(&home).expect("current Core store");
@@ -11155,11 +11860,11 @@ mod tests {
                 ] {
                     let sql = format!(
                         "EXPLAIN QUERY PLAN SELECT 1 FROM {table} \
-                         WHERE {child_key} = ?1 AND project_id = ?2"
+                         WHERE {child_key} = ?1 AND library_id = ?2"
                     );
                     let plan = connection
                         .prepare(&sql)?
-                        .query_map(["block:test", "project:test"], |row| {
+                        .query_map(["block:test", "library:test"], |row| {
                             row.get::<_, String>(3)
                         })?
                         .collect::<rusqlite::Result<Vec<_>>>()?

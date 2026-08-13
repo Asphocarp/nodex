@@ -738,8 +738,8 @@ describe("Electron native data authority", () => {
         }],
         finalLocations: {
           [nativeContentBlockId]: {
-            kind: "space",
-            projectId,
+            kind: "library",
+            libraryId: runtime.rootClient.handshake.library_id,
             rankKey: expect.any(String),
           },
         },
@@ -795,8 +795,9 @@ describe("Electron native data authority", () => {
         }],
         finalLocations: {
           [copiedDataSourcePageId]: {
-            kind: "database",
+            kind: "data_source",
             databaseBlockId: primaryDatabase.database.databaseId,
+            dataSourceId: primaryDataSource.dataSourceId,
           },
         },
         finalLocationRevisions: { [copiedDataSourcePageId]: 2 },
@@ -1213,8 +1214,8 @@ describe("Electron native data authority", () => {
         resultRootBlockIds: [copiedDataSourcePageId],
         finalLocations: {
           [copiedDataSourcePageId]: {
-            kind: "space",
-            projectId,
+            kind: "library",
+            libraryId: runtime.rootClient.handshake.library_id,
           },
         },
         finalLocationRevisions: {
@@ -1248,8 +1249,9 @@ describe("Electron native data authority", () => {
       expect(returnedPageToDataSource.value).toMatchObject({
         finalLocations: {
           [copiedDataSourcePageId]: {
-            kind: "database",
+            kind: "data_source",
             databaseBlockId: primaryDatabase.database.databaseId,
+            dataSourceId: primaryDataSource.dataSourceId,
           },
         },
         finalLocationRevisions: {
@@ -1321,7 +1323,10 @@ describe("Electron native data authority", () => {
       expect(copiedRecursivePage.value).toMatchObject({
         resultRootBlockIds: [copiedRecursiveRootId],
         finalLocations: {
-          [copiedRecursiveRootId]: { kind: "space", projectId },
+          [copiedRecursiveRootId]: {
+            kind: "library",
+            libraryId: runtime.rootClient.handshake.library_id,
+          },
         },
         copiedBlockIds: {
           [nativeContentBlockId]: copiedRecursiveRootId,
@@ -1395,7 +1400,10 @@ describe("Electron native data authority", () => {
       }
       expect(returnedNestedPage.value).toMatchObject({
         finalLocations: {
-          [copiedDataSourcePageId]: { kind: "space", projectId },
+          [copiedDataSourcePageId]: {
+            kind: "library",
+            libraryId: runtime.rootClient.handshake.library_id,
+          },
         },
         finalLocationRevisions: {
           [copiedDataSourcePageId]: restoredParentRevision + 4,

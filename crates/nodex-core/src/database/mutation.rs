@@ -1329,8 +1329,10 @@ fn set_value(
         .ok_or_else(|| not_found("Page has no active membership in the Data Source"))?;
     let active_row = connection
         .query_row(
-            "SELECT 1 FROM pages WHERE block_id = ?1 AND parent_kind = 'data_source' \
-             AND parent_id = ?2 AND lifecycle = 'active'",
+            "SELECT 1 FROM pages page JOIN blocks block \
+               ON block.id = page.block_id AND block.library_id = page.library_id \
+             WHERE page.block_id = ?1 AND page.parent_kind = 'data_source' \
+               AND page.parent_id = ?2 AND block.lifecycle = 'active'",
             params![address.page_id, address.data_source_id],
             |_| Ok(()),
         )
@@ -1628,7 +1630,6 @@ pub(crate) struct ResolvedPageTransferDataSourceDestination {
 
 pub(crate) struct ResolvedPageTransferDataSourceSource {
     pub(crate) project_id: String,
-    pub(crate) database_id: String,
     pub(crate) data_source_id: String,
 }
 
@@ -1670,34 +1671,42 @@ pub(crate) fn resolve_page_transfer_data_source_source(
         DatabaseWriteAction::Write,
         false,
     )?;
-    resolve_page_transfer_data_source_source_authority(connection, source)
+    Ok(ResolvedPageTransferDataSourceSource {
+        project_id: requesting_project_id.to_owned(),
+        data_source_id: source.id,
+    })
+}
+
+pub(crate) fn resolve_page_transfer_data_source_source_prevalidated(
+    connection: &Connection,
+    library_id: &str,
+    requesting_project_id: &str,
+    data_source_id: &str,
+) -> Result<ResolvedPageTransferDataSourceSource, StoreError> {
+    let source = require_source(connection, library_id, data_source_id)?;
+    crate::library::require_project_in_library(connection, requesting_project_id, library_id)?;
+    Ok(ResolvedPageTransferDataSourceSource {
+        project_id: requesting_project_id.to_owned(),
+        data_source_id: source.id,
+    })
 }
 
 pub(crate) fn resolve_page_copy_data_source_source(
     connection: &Connection,
     library_id: &str,
+    requesting_project_id: &str,
     data_source_id: &str,
 ) -> Result<ResolvedPageTransferDataSourceSource, StoreError> {
     let source = require_source(connection, library_id, data_source_id)?;
-    resolve_page_transfer_data_source_source_authority(connection, source)
-}
-
-fn resolve_page_transfer_data_source_source_authority(
-    connection: &Connection,
-    source: SourceRow,
-) -> Result<ResolvedPageTransferDataSourceSource, StoreError> {
-    let project_id = connection
-        .query_row(
-            "SELECT project_id FROM blocks WHERE id = ?1 AND type = 'database' \
-             AND lifecycle = 'active'",
-            [&source.database_id],
-            |row| row.get::<_, String>(0),
-        )
-        .optional()?
-        .ok_or_else(|| corrupt("Source Data Source has no active Database authority"))?;
+    let primary = project_primary_database(connection, library_id, requesting_project_id)?;
+    authorize_required(
+        connection,
+        Some(requesting_project_id),
+        primary.as_deref(),
+        &source.database_id,
+    )?;
     Ok(ResolvedPageTransferDataSourceSource {
-        project_id,
-        database_id: source.database_id,
+        project_id: requesting_project_id.to_owned(),
         data_source_id: source.id,
     })
 }
@@ -1767,15 +1776,7 @@ fn resolve_page_transfer_data_source_destination_with_access(
             false,
         )?;
     }
-    let project_id = connection
-        .query_row(
-            "SELECT project_id FROM blocks WHERE id = ?1 AND type = 'database' \
-             AND lifecycle = 'active'",
-            [&source.database_id],
-            |row| row.get::<_, String>(0),
-        )
-        .optional()?
-        .ok_or_else(|| corrupt("Target Data Source has no active Database authority"))?;
+    crate::library::require_project_in_library(connection, requesting_project_id, library_id)?;
     let view = view_row(connection, view_id)?
         .filter(|view| view.lifecycle == "active")
         .ok_or_else(|| not_found("Block transfer target View is unavailable"))?;
@@ -1804,12 +1805,14 @@ fn resolve_page_transfer_data_source_destination_with_access(
                     "SELECT COALESCE(position.revision, 0) \
                      FROM data_source_page_memberships membership \
                      JOIN pages page ON page.block_id = membership.page_block_id \
+                     JOIN blocks block ON block.id = page.block_id \
+                       AND block.library_id = page.library_id \
                      LEFT JOIN database_view_page_positions position \
                        ON position.view_id = ?1 AND position.page_block_id = page.block_id \
                      WHERE membership.data_source_id = ?2 \
                        AND membership.page_block_id = ?3 AND membership.removed_at IS NULL \
                        AND page.parent_kind = 'data_source' AND page.parent_id = ?2 \
-                       AND page.lifecycle = 'active'",
+                       AND block.lifecycle = 'active'",
                     params![view_id, data_source_id, page_id],
                     |row| row.get::<_, i64>(0),
                 )
@@ -1822,7 +1825,7 @@ fn resolve_page_transfer_data_source_destination_with_access(
         })
         .transpose()?;
     Ok(ResolvedPageTransferDataSourceDestination {
-        project_id,
+        project_id: requesting_project_id.to_owned(),
         destination: PageCopyDataSourceDestination {
             data_source_id: source.id,
             expected_data_source_revision: source.revision,
@@ -1894,15 +1897,22 @@ fn resolve_page_copy_data_source_project_with_access(
             false,
         )?;
     }
-    connection
+    let database_is_active = connection
         .query_row(
-            "SELECT project_id FROM blocks WHERE id = ?1 AND type = 'database' \
-             AND lifecycle = 'active'",
-            [&source.database_id],
-            |row| row.get::<_, String>(0),
+            "SELECT 1 FROM blocks WHERE id = ?1 AND library_id = ?2 \
+             AND type = 'database' AND lifecycle = 'active'",
+            params![source.database_id, library_id],
+            |_| Ok(()),
         )
         .optional()?
-        .ok_or_else(|| corrupt("Target Data Source has no active Database authority"))
+        .is_some();
+    if !database_is_active {
+        return Err(corrupt(
+            "Target Data Source has no active Database authority",
+        ));
+    }
+    crate::library::require_project_in_library(connection, requesting_project_id, library_id)?;
+    Ok(requesting_project_id.to_owned())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2046,44 +2056,36 @@ fn place_staged_page_in_data_source_with_access(
             false,
         )?;
     }
-    let storage_project_id = connection
-        .query_row(
-            "SELECT project_id FROM blocks WHERE id = ?1 AND type = 'database' \
-             AND lifecycle = 'active'",
-            [&source.database_id],
-            |row| row.get::<_, String>(0),
-        )
-        .optional()?
-        .ok_or_else(|| corrupt("Target Data Source has no active Database authority"))?;
     let staged = connection
         .query_row(
-            "SELECT block.project_id, block.location_kind, block.location_revision, \
-               block.metadata_revision, page.parent_kind, page.parent_id, page.parent_revision \
-             FROM blocks block JOIN pages page ON page.block_id = block.id \
-             WHERE block.id = ?1 AND block.type = 'page' AND block.lifecycle = 'active' \
-               AND page.lifecycle = 'active'",
+            "SELECT block.library_id, block.placement_revision, block.metadata_revision, \
+               page.parent_kind, page.parent_id, \
+               EXISTS(SELECT 1 FROM library_block_placements placement \
+                 WHERE placement.block_id = block.id AND placement.library_id = block.library_id) \
+             FROM blocks block JOIN pages page \
+               ON page.block_id = block.id AND page.library_id = block.library_id \
+             WHERE block.id = ?1 AND block.type = 'page' AND block.lifecycle = 'active'",
             [staged_page_id],
             |row| {
                 Ok((
                     row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(1)?,
                     row.get::<_, i64>(2)?,
-                    row.get::<_, i64>(3)?,
+                    row.get::<_, String>(3)?,
                     row.get::<_, String>(4)?,
-                    row.get::<_, String>(5)?,
-                    row.get::<_, i64>(6)?,
+                    row.get::<_, bool>(5)?,
                 ))
             },
         )
         .optional()?
         .ok_or_else(|| corrupt("Staged Page authority disappeared"))?;
-    if staged.0 != storage_project_id
-        || staged.1 != "space"
-        || staged.2 != expected.location_revision
-        || staged.3 != expected.metadata_revision
-        || staged.4 != "library"
-        || staged.5 != library_id
-        || staged.6 != expected.parent_revision
+    if staged.0 != library_id
+        || staged.1 != expected.location_revision
+        || staged.1 != expected.parent_revision
+        || staged.2 != expected.metadata_revision
+        || staged.3 != "library"
+        || staged.4 != library_id
+        || !staged.5
     {
         return Err(corrupt("Staged Page has noncanonical initial placement"));
     }
@@ -2149,12 +2151,14 @@ fn place_staged_page_in_data_source_with_access(
                         "SELECT COALESCE(position.revision, 0) \
                          FROM data_source_page_memberships membership \
                          JOIN pages page ON page.block_id = membership.page_block_id \
+                         JOIN blocks block ON block.id = page.block_id \
+                           AND block.library_id = page.library_id \
                          LEFT JOIN database_view_page_positions position \
                            ON position.view_id = ?1 AND position.page_block_id = page.block_id \
                          WHERE membership.data_source_id = ?2 \
                            AND membership.page_block_id = ?3 AND membership.removed_at IS NULL \
                            AND page.parent_kind = 'data_source' AND page.parent_id = ?2 \
-                           AND page.lifecycle = 'active'",
+                           AND block.lifecycle = 'active'",
                         params![
                             placement.view_id,
                             destination.data_source_id,
@@ -2175,24 +2179,18 @@ fn place_staged_page_in_data_source_with_access(
         .transpose()?;
 
     connection.execute(
-        "DELETE FROM top_level_block_placements WHERE block_id = ?1",
-        [staged_page_id],
-    )?;
-    connection.execute(
-        "DELETE FROM library_block_placements WHERE block_id = ?1",
-        [staged_page_id],
+        "DELETE FROM library_block_placements WHERE block_id = ?1 AND library_id = ?2",
+        params![staged_page_id, library_id],
     )?;
     let location_revision = connection
         .query_row(
-            "UPDATE blocks SET location_kind = 'database', containing_document_id = NULL, \
-               containing_database_id = ?1, location_revision = location_revision + 1, \
-               metadata_revision = metadata_revision + 1, updated_at = ?2 \
-             WHERE id = ?3 AND location_revision = ?4 AND metadata_revision = ?5 \
-             RETURNING location_revision",
+            "UPDATE blocks SET placement_revision = placement_revision + 1, updated_at = ?1 \
+             WHERE id = ?2 AND library_id = ?3 AND placement_revision = ?4 \
+               AND metadata_revision = ?5 RETURNING placement_revision",
             params![
-                source.database_id,
                 now,
                 staged_page_id,
+                library_id,
                 expected.location_revision,
                 expected.metadata_revision,
             ],
@@ -2206,6 +2204,14 @@ fn place_staged_page_in_data_source_with_access(
                 true,
             )
         })?;
+    let changed = connection.execute(
+        "UPDATE pages SET parent_kind = 'data_source', parent_id = ?1, updated_at = ?2 \
+         WHERE block_id = ?3 AND library_id = ?4",
+        params![destination.data_source_id, now, staged_page_id, library_id,],
+    )?;
+    if changed != 1 {
+        return Err(corrupt("Staged Page lost its typed parent authority"));
+    }
     connection.execute(
         "INSERT INTO data_source_page_memberships( \
            id, data_source_id, page_block_id, revision, created_at, removed_at \
@@ -2237,28 +2243,7 @@ fn place_staged_page_in_data_source_with_access(
         &membership_id,
         now,
     )?;
-    let parent_revision = connection
-        .query_row(
-            "UPDATE pages SET parent_kind = 'data_source', parent_id = ?1, \
-               parent_revision = parent_revision + 1, metadata_revision = metadata_revision + 1, \
-               updated_at = ?2 WHERE block_id = ?3 AND parent_revision = ?4 \
-             RETURNING parent_revision",
-            params![
-                destination.data_source_id,
-                now,
-                staged_page_id,
-                expected.parent_revision,
-            ],
-            |row| row.get::<_, i64>(0),
-        )
-        .optional()?
-        .ok_or_else(|| {
-            StoreError::new(
-                StoreErrorCode::RevisionConflict,
-                "Staged Page parent authority changed during placement",
-                true,
-            )
-        })?;
+    let parent_revision = location_revision;
     refresh_transferred_page_projection(
         connection,
         staged_page_id,
@@ -2451,14 +2436,15 @@ fn transfer_existing_page_for_structural_move(
     if same_data_source {
         let (parent_kind, parent_id, parent_revision, membership_revision) = connection
             .query_row(
-                "SELECT page.parent_kind, page.parent_id, page.parent_revision, \
+                "SELECT page.parent_kind, page.parent_id, block.placement_revision, \
                    membership.revision \
                  FROM pages page \
+                 JOIN blocks block ON block.id = page.block_id \
+                   AND block.library_id = page.library_id AND block.lifecycle = 'active' \
                  JOIN data_source_page_memberships membership \
                    ON membership.page_block_id = page.block_id \
                    AND membership.removed_at IS NULL \
-                 WHERE page.block_id = ?1 AND page.library_id = ?2 \
-                   AND page.lifecycle = 'active'",
+                 WHERE page.block_id = ?1 AND page.library_id = ?2",
                 params![page_id, library_id],
                 |row| {
                     Ok((
@@ -2566,9 +2552,13 @@ fn transfer_existing_page_for_structural_move(
     }
     let (location_revision, metadata_revision, parent_revision, database_id) = connection
         .query_row(
-            "SELECT block.location_revision, block.metadata_revision, page.parent_revision, \
-               block.containing_database_id \
-             FROM blocks block JOIN pages page ON page.block_id = block.id \
+            "SELECT block.placement_revision, block.metadata_revision, \
+               block.placement_revision, source.home_database_block_id \
+             FROM blocks block \
+             JOIN pages page ON page.block_id = block.id AND page.library_id = block.library_id \
+             LEFT JOIN data_source_page_memberships membership \
+               ON membership.page_block_id = page.block_id AND membership.removed_at IS NULL \
+             LEFT JOIN data_sources source ON source.id = membership.data_source_id \
              WHERE block.id = ?1",
             [page_id],
             |row| {
@@ -2661,7 +2651,7 @@ pub(crate) fn finalize_agent_moved_pages_in_data_source_prevalidated(
                 &value.value,
                 now,
                 &mut effects,
-                false,
+                true,
             )?;
         }
     }
@@ -2709,7 +2699,7 @@ pub(crate) fn finalize_agent_moved_pages_in_data_source_prevalidated(
                     &value,
                     now,
                     &mut effects,
-                    false,
+                    true,
                 )?;
             }
         }
@@ -2743,7 +2733,7 @@ pub(crate) fn finalize_agent_moved_pages_in_data_source_prevalidated(
                 .map(|anchor| anchor.page_id.as_str()),
             now,
             &mut effects,
-            false,
+            true,
         )?;
     }
     Ok(AgentMoveDataSourceFinalization {
@@ -2787,9 +2777,11 @@ fn transfer_page(
     validate_id(page_id, "page_id", MAX_ID_LENGTH)?;
     let page = connection
         .query_row(
-            "SELECT page.library_id, page.parent_kind, page.parent_id, page.parent_revision, \
-               block.project_id FROM pages page JOIN blocks block ON block.id = page.block_id \
-             WHERE page.block_id = ?1 AND page.lifecycle <> 'deleted'",
+            "SELECT page.library_id, page.parent_kind, page.parent_id, \
+               block.placement_revision \
+             FROM pages page JOIN blocks block \
+               ON block.id = page.block_id AND block.library_id = page.library_id \
+             WHERE page.block_id = ?1 AND block.lifecycle <> 'deleted'",
             [page_id],
             |row| {
                 Ok((
@@ -2797,17 +2789,18 @@ fn transfer_page(
                     row.get::<_, String>(1)?,
                     row.get::<_, String>(2)?,
                     row.get::<_, i64>(3)?,
-                    row.get::<_, String>(4)?,
                 ))
             },
         )
         .optional()?
         .ok_or_else(|| not_found("Page is unavailable"))?;
-    let (page_library_id, parent_kind, _, parent_revision, page_project_id) = page;
-    if page_library_id != library_id || (!library_scope && page_project_id != project_id) {
-        return Err(unauthorized(
-            "Bound Project cannot transfer this Page authority",
-        ));
+    let (page_library_id, parent_kind, _, parent_revision) = page;
+    if page_library_id != library_id {
+        return Err(unauthorized("Page belongs to another Library"));
+    }
+    crate::library::require_project_in_library(connection, project_id, library_id)?;
+    if !library_scope {
+        crate::library::require_page_write_access(connection, library_id, project_id, page_id)?;
     }
     if !allow_page_parent_transition
         && (parent_kind == "page" || matches!(target, DatabaseTransferTarget::Page { .. }))
@@ -2895,6 +2888,41 @@ fn transfer_page(
         [page_id],
     )?;
     effects.view_ids.extend(positioned_views);
+    connection.execute(
+        "DELETE FROM library_block_placements WHERE block_id = ?1 AND library_id = ?2",
+        params![page_id, library_id],
+    )?;
+    let placement_revision = connection
+        .query_row(
+            "UPDATE blocks SET placement_revision = placement_revision + 1, updated_at = ?1 \
+             WHERE id = ?2 AND library_id = ?3 AND placement_revision = ?4 \
+             RETURNING placement_revision",
+            params![now, page_id, library_id, expected_parent_revision],
+            |row| row.get::<_, i64>(0),
+        )
+        .optional()?
+        .ok_or_else(|| {
+            StoreError::new(
+                StoreErrorCode::RevisionConflict,
+                "Page placement changed during transfer",
+                true,
+            )
+        })?;
+    let (parent_kind, parent_id) = match target {
+        DatabaseTransferTarget::Library { library_id } => ("library", library_id.as_str()),
+        DatabaseTransferTarget::DataSource { data_source_id } => {
+            ("data_source", data_source_id.as_str())
+        }
+        DatabaseTransferTarget::Page { page_id } => ("page", page_id.as_str()),
+    };
+    let changed = connection.execute(
+        "UPDATE pages SET parent_kind = ?1, parent_id = ?2, updated_at = ?3 \
+         WHERE block_id = ?4 AND library_id = ?5",
+        params![parent_kind, parent_id, now, page_id, library_id],
+    )?;
+    if changed != 1 {
+        return Err(corrupt("Transferred Page lost its typed parent authority"));
+    }
 
     let (target_membership_id, target_data_source_id) = match target {
         DatabaseTransferTarget::Library {
@@ -2903,26 +2931,9 @@ fn transfer_page(
             if target_library_id != library_id {
                 return Err(unauthorized("A Page cannot transfer to another Library"));
             }
-            connection.execute(
-                "UPDATE blocks SET location_kind = 'space', containing_document_id = NULL, \
-                   containing_database_id = NULL, location_revision = location_revision + 1, \
-                   metadata_revision = metadata_revision + 1, updated_at = ?1 WHERE id = ?2",
-                params![now, page_id],
-            )?;
-            append_top_level_placement(connection, &page_project_id, page_id, now)?;
-            let rank_key = connection.query_row(
-                "SELECT rank_key FROM top_level_block_placements WHERE block_id = ?1",
-                [page_id],
-                |row| row.get::<_, String>(0),
-            )?;
-            connection.execute(
-                "INSERT INTO library_block_placements(\
-                   block_id, library_id, rank_key, revision, created_at, updated_at\
-                 ) VALUES (?1, ?2, ?3, 1, ?4, ?4) \
-                 ON CONFLICT(block_id) DO UPDATE SET library_id = excluded.library_id, \
-                   rank_key = excluded.rank_key, revision = library_block_placements.revision + 1, \
-                   updated_at = excluded.updated_at",
-                params![page_id, library_id, rank_key, now],
+            crate::library::insert_library_placement(connection, library_id, page_id, None, now)?;
+            crate::library::insert_creator_resource_grant(
+                connection, project_id, library_id, "page", page_id, now,
             )?;
             (None, None)
         }
@@ -2935,19 +2946,6 @@ fn transfer_page(
                 DatabaseWriteAction::Write,
                 library_scope,
             )?;
-            let target_project_id = connection
-                .query_row(
-                    "SELECT project_id FROM blocks WHERE id = ?1 AND type = 'database'",
-                    [&target_source.database_id],
-                    |row| row.get::<_, String>(0),
-                )
-                .optional()?
-                .ok_or_else(|| corrupt("Target Data Source has no Database Block authority"))?;
-            if !library_scope && target_project_id != project_id {
-                return Err(unauthorized(
-                    "A Page cannot transfer across Project ownership",
-                ));
-            }
             if active_membership
                 .as_ref()
                 .is_some_and(|membership| membership.data_source_id == *data_source_id)
@@ -2990,20 +2988,6 @@ fn transfer_page(
             }
             let revision = history.as_ref().map_or(1, |(_, revision, _)| revision + 1);
             connection.execute(
-                "DELETE FROM top_level_block_placements WHERE block_id = ?1",
-                [page_id],
-            )?;
-            connection.execute(
-                "DELETE FROM library_block_placements WHERE block_id = ?1",
-                [page_id],
-            )?;
-            connection.execute(
-                "UPDATE blocks SET location_kind = 'database', containing_document_id = NULL, \
-                   containing_database_id = ?1, location_revision = location_revision + 1, \
-                   metadata_revision = metadata_revision + 1, updated_at = ?2 WHERE id = ?3",
-                params![target_source.database_id, now, page_id],
-            )?;
-            connection.execute(
                 "INSERT INTO data_source_page_memberships(\
                    id, data_source_id, page_block_id, revision, created_at, removed_at\
                  ) VALUES (?1, ?2, ?3, ?4, ?5, NULL) \
@@ -3045,70 +3029,31 @@ fn transfer_page(
         DatabaseTransferTarget::Page {
             page_id: target_page_id,
         } => {
-            let (target_document_id, target_project_id) = connection
+            let target_exists = connection
                 .query_row(
-                    "SELECT page.document_id, block.project_id \
-                     FROM pages page JOIN blocks block ON block.id = page.block_id \
+                    "SELECT 1 FROM pages page JOIN blocks block \
+                       ON block.id = page.block_id AND block.library_id = page.library_id \
                      WHERE page.block_id = ?1 AND page.library_id = ?2 \
-                       AND page.lifecycle = 'active' AND block.lifecycle = 'active'",
+                       AND block.lifecycle = 'active'",
                     params![target_page_id, library_id],
-                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+                    |_| Ok(()),
                 )
                 .optional()?
                 .ok_or_else(|| not_found("Target Page is unavailable"))?;
-            if !library_scope && target_project_id != project_id {
-                return Err(unauthorized(
-                    "A Page cannot transfer across Project ownership",
-                ));
+            let _ = target_exists;
+            if !library_scope {
+                crate::library::require_page_write_access(
+                    connection,
+                    library_id,
+                    project_id,
+                    target_page_id,
+                )?;
             }
-            connection.execute(
-                "DELETE FROM top_level_block_placements WHERE block_id = ?1",
-                [page_id],
-            )?;
-            connection.execute(
-                "DELETE FROM library_block_placements WHERE block_id = ?1",
-                [page_id],
-            )?;
-            connection.execute(
-                "UPDATE blocks SET location_kind = 'document', containing_document_id = ?1, \
-                   containing_database_id = NULL, location_revision = location_revision + 1, \
-                   metadata_revision = metadata_revision + 1, updated_at = ?2 WHERE id = ?3",
-                params![target_document_id, now, page_id],
-            )?;
             effects.page_ids.insert(target_page_id.clone());
             (None, None)
         }
     };
-    let (parent_kind, parent_id) = match target {
-        DatabaseTransferTarget::Library { library_id } => ("library", library_id.as_str()),
-        DatabaseTransferTarget::DataSource { data_source_id } => {
-            ("data_source", data_source_id.as_str())
-        }
-        DatabaseTransferTarget::Page { page_id } => ("page", page_id.as_str()),
-    };
-    let updated = connection
-        .query_row(
-            "UPDATE pages SET parent_kind = ?1, parent_id = ?2, \
-               parent_revision = parent_revision + 1, metadata_revision = metadata_revision + 1, \
-               updated_at = ?3 WHERE block_id = ?4 AND parent_revision = ?5 \
-             RETURNING parent_revision, metadata_revision",
-            params![
-                parent_kind,
-                parent_id,
-                now,
-                page_id,
-                expected_parent_revision
-            ],
-            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
-        )
-        .optional()?;
-    let Some((parent_revision, metadata_revision)) = updated else {
-        return Err(StoreError::new(
-            StoreErrorCode::RevisionConflict,
-            "Page parent authority changed during transfer",
-            true,
-        ));
-    };
+    let parent_revision = placement_revision;
     if !defer_projection_refresh {
         refresh_transferred_page_projection(
             connection,
@@ -3124,10 +3069,7 @@ fn transfer_page(
     effects.page_ids.insert(page_id.to_owned());
     effects
         .revisions
-        .insert(format!("page:{page_id}:parent"), parent_revision);
-    effects
-        .revisions
-        .insert(format!("page:{page_id}:metadata"), metadata_revision);
+        .insert(format!("blockLocation:{page_id}"), parent_revision);
     Ok(())
 }
 
@@ -3344,22 +3286,23 @@ pub(crate) fn refresh_transferred_page_projection(
 ) -> Result<(), StoreError> {
     let authority = connection
         .query_row(
-            "SELECT block.project_id, block.lifecycle, block.location_kind, \
-               block.containing_document_id, block.containing_database_id, \
-               block.location_revision, block.metadata_revision, placement.rank_key \
-             FROM blocks block LEFT JOIN top_level_block_placements placement \
-               ON placement.block_id = block.id WHERE block.id = ?1 AND block.type = 'page'",
+            "SELECT block.library_id, block.lifecycle, block.placement_revision, \
+               block.metadata_revision, page.parent_kind, page.parent_id, placement.rank_key \
+             FROM blocks block \
+             JOIN pages page ON page.block_id = block.id AND page.library_id = block.library_id \
+             LEFT JOIN library_block_placements placement \
+               ON placement.block_id = block.id AND placement.library_id = block.library_id \
+             WHERE block.id = ?1 AND block.type = 'page'",
             [page_id],
             |row| {
                 Ok((
                     row.get::<_, String>(0)?,
                     row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, Option<String>>(3)?,
-                    row.get::<_, Option<String>>(4)?,
-                    row.get::<_, i64>(5)?,
-                    row.get::<_, i64>(6)?,
-                    row.get::<_, Option<String>>(7)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, String>(5)?,
+                    row.get::<_, Option<String>>(6)?,
                 ))
             },
         )
@@ -3387,6 +3330,15 @@ pub(crate) fn refresh_transferred_page_projection(
             rank_key: None,
         },
     };
+    let database_id = target_data_source_id
+        .map(|data_source_id| {
+            connection.query_row(
+                "SELECT home_database_block_id FROM data_sources WHERE id = ?1",
+                [data_source_id],
+                |row| row.get::<_, String>(0),
+            )
+        })
+        .transpose()?;
     let property_revisions_json = connection
         .query_row(
             "SELECT property_revisions_json FROM page_read_model WHERE page_block_id = ?1",
@@ -3404,22 +3356,21 @@ pub(crate) fn refresh_transferred_page_projection(
         Value::Object(compatibility.revisions),
     );
     connection.execute(
-        "UPDATE page_read_model SET project_id = ?1, lifecycle = ?2, location_kind = ?3, \
-           containing_document_id = ?4, containing_database_id = ?5, top_level_rank_key = ?6, \
-           location_revision = ?7, metadata_revision = ?8, membership_id = ?9, \
-           database_block_id = ?5, view_id = ?10, view_group_key = ?11, view_rank_key = ?12, \
-           database_values_json = ?13, property_revisions_json = ?14, \
-           projection_version = projection_version + 1, updated_at = ?15 WHERE page_block_id = ?16",
+        "UPDATE page_read_model SET lifecycle = ?1, parent_kind = ?2, parent_id = ?3, \
+           library_rank_key = ?4, placement_revision = ?5, metadata_revision = ?6, \
+           membership_id = ?7, database_block_id = ?8, view_id = ?9, \
+           view_group_key = ?10, view_rank_key = ?11, database_values_json = ?12, \
+           property_revisions_json = ?13, projection_version = projection_version + 1, \
+           updated_at = ?14 WHERE page_block_id = ?15 AND library_id = ?16",
         params![
-            authority.0,
             authority.1,
-            authority.2,
-            authority.3,
             authority.4,
-            authority.7,
             authority.5,
             authority.6,
+            authority.2,
+            authority.3,
             target_membership_id,
+            database_id,
             placement.view_id,
             placement.group_key,
             placement.rank_key,
@@ -3429,6 +3380,7 @@ pub(crate) fn refresh_transferred_page_projection(
                 .map_err(|_| internal("Transferred Page revisions"))?,
             now,
             page_id,
+            authority.0,
         ],
     )?;
     let scheduled_start = compatibility
@@ -3448,7 +3400,7 @@ pub(crate) fn refresh_transferred_page_projection(
             authority.1,
             scheduled_start,
             scheduled_end,
-            authority.6,
+            authority.3,
             now,
             page_id,
         ],
@@ -3572,36 +3524,6 @@ fn derived_view_group_key(
         .map(|value| parse_json(&value, "Grouped Property value"))
         .transpose()?;
     value.as_ref().map_or(Ok(None), database_group_key)
-}
-
-fn append_top_level_placement(
-    connection: &Connection,
-    project_id: &str,
-    page_id: &str,
-    now: &str,
-) -> Result<(), StoreError> {
-    let mut ids = connection
-        .prepare(
-            "SELECT block_id FROM top_level_block_placements \
-             WHERE project_id = ?1 ORDER BY rank_key, block_id",
-        )?
-        .query_map([project_id], |row| row.get::<_, String>(0))?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    ids.retain(|id| id != page_id);
-    ids.push(page_id.to_owned());
-    let total = ids.len();
-    for (index, id) in ids.into_iter().enumerate() {
-        let rank = fractional_rank(index + 1, total);
-        connection.execute(
-            "INSERT INTO top_level_block_placements(\
-               block_id, project_id, rank_key, created_at, updated_at\
-             ) VALUES (?1, ?2, ?3, ?4, ?4) ON CONFLICT(block_id) DO UPDATE SET \
-               project_id = excluded.project_id, rank_key = excluded.rank_key, \
-               updated_at = excluded.updated_at",
-            params![id, project_id, rank, now],
-        )?;
-    }
-    Ok(())
 }
 
 fn deterministic_membership_id(data_source_id: &str, page_id: &str) -> String {
@@ -4634,7 +4556,8 @@ fn read_logical_view(
              FROM data_source_page_memberships membership \
              JOIN pages page ON page.block_id = membership.page_block_id \
                AND page.parent_kind = 'data_source' AND page.parent_id = membership.data_source_id \
-               AND page.lifecycle = 'active' \
+             JOIN blocks block ON block.id = page.block_id \
+               AND block.library_id = page.library_id AND block.lifecycle = 'active' \
              LEFT JOIN database_view_page_positions position \
                ON position.view_id = ?1 AND position.page_block_id = membership.page_block_id \
              WHERE membership.data_source_id = ?2 AND membership.removed_at IS NULL \
@@ -4682,9 +4605,11 @@ fn active_row_membership(
         .query_row(
             "SELECT membership.id FROM data_source_page_memberships membership \
              JOIN pages page ON page.block_id = membership.page_block_id \
+             JOIN blocks block ON block.id = page.block_id \
+               AND block.library_id = page.library_id \
              WHERE membership.data_source_id = ?1 AND membership.page_block_id = ?2 \
                AND membership.removed_at IS NULL AND page.parent_kind = 'data_source' \
-               AND page.parent_id = ?1 AND page.lifecycle = 'active'",
+               AND page.parent_id = ?1 AND block.lifecycle = 'active'",
             params![data_source_id, page_id],
             |row| row.get::<_, String>(0),
         )
@@ -5334,16 +5259,7 @@ fn bump_page_metadata_revision(
         )
         .optional()?
         .ok_or_else(|| corrupt("Database row Page disappeared during metadata commit"))?;
-    let changed = connection.execute(
-        "UPDATE pages SET metadata_revision = ?1, updated_at = ?2 WHERE block_id = ?3",
-        params![metadata_revision, now, page_id],
-    )?;
-    if changed == 1 {
-        return Ok(metadata_revision);
-    }
-    Err(corrupt(
-        "Database row Page metadata authority disappeared during commit",
-    ))
+    Ok(metadata_revision)
 }
 
 fn tag_compatibility_value(property: &PropertyRow, value: &Value) -> Result<Value, StoreError> {
@@ -5685,7 +5601,9 @@ fn authorize_write(
     }
     let document_id = connection
         .query_row(
-            "SELECT containing_document_id FROM blocks WHERE id = ?1 AND type = 'database'",
+            "SELECT containing.document_id FROM blocks block \
+             JOIN document_block_index containing ON containing.block_id = block.id \
+             WHERE block.id = ?1 AND block.type = 'database'",
             [database_id],
             |row| row.get::<_, Option<String>>(0),
         )
@@ -5696,9 +5614,9 @@ fn authorize_write(
     };
     let owner_page_id = connection
         .query_row(
-            "SELECT page.block_id FROM block_documents ownership \
-             JOIN pages page ON page.block_id = ownership.block_id \
-             WHERE ownership.document_id = ?1",
+            "SELECT page.block_id FROM pages page \
+             JOIN blocks block ON block.id = page.block_id AND block.library_id = page.library_id \
+             WHERE page.document_id = ?1 AND block.lifecycle <> 'deleted'",
             [document_id],
             |row| row.get::<_, String>(0),
         )
@@ -5815,13 +5733,6 @@ fn require_revision(expected: i64, actual: i64, message: &str) -> Result<(), Sto
         format!("{message}: expected {expected}, current {actual}"),
         true,
     ))
-}
-
-fn fractional_rank(ordinal: usize, total: usize) -> String {
-    let divisor = (total + 1) as u128;
-    let ordinal = ordinal as u128;
-    let value = (u128::MAX / divisor) * ordinal + ((u128::MAX % divisor) * ordinal) / divisor;
-    format!("{value:032x}")
 }
 
 fn valid_iso_date(value: &str) -> bool {

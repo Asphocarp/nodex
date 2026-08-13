@@ -16,7 +16,7 @@ use super::{
     read_document_authority, reconstruct_yjs_engine, schema_metadata,
 };
 
-const MAX_CANDIDATES_PER_PROJECT: usize = 100;
+const MAX_CANDIDATES_PER_LIBRARY: usize = 100;
 const MAX_RETAINED_DOCUMENT_VERSIONS_TO_INSPECT: usize = 10_000;
 
 const DOCUMENT_BEARING_BLOCK_TYPES: [&str; 4] = [
@@ -74,7 +74,7 @@ pub(crate) struct BlockRetentionSummary {
 #[derive(Debug, Clone)]
 struct BlockRow {
     id: String,
-    project_id: String,
+    library_id: String,
     block_type: String,
     lifecycle: String,
 }
@@ -82,7 +82,7 @@ struct BlockRow {
 #[derive(Debug)]
 struct CandidateClosure {
     root_block_id: String,
-    project_id: String,
+    library_id: String,
     block_ids: BTreeSet<String>,
     document_ids: BTreeSet<String>,
     owner_block_ids: BTreeSet<String>,
@@ -122,15 +122,15 @@ pub(crate) fn run_block_retention_pass(
             "Block retention found {foreign_key_violations} foreign-key violations"
         )));
     }
-    let project_ids = connection
-        .prepare("SELECT id FROM projects ORDER BY id")?
+    let library_ids = connection
+        .prepare("SELECT id FROM libraries ORDER BY id")?
         .query_map([], |row| row.get::<_, String>(0))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     let mut summary = BlockRetentionSummary::default();
     let mut first_failure = None;
-    for project_id in project_ids {
+    for library_id in library_ids {
         let candidates =
-            read_candidate_roots(connection, &project_id, retain_newest_deleted_blocks)?;
+            read_candidate_roots(connection, &library_id, retain_newest_deleted_blocks)?;
         summary.selected_candidates = summary
             .selected_candidates
             .checked_add(candidates.len())
@@ -139,7 +139,7 @@ pub(crate) fn run_block_retention_pass(
         for root_block_id in candidates {
             match maintain_candidate(
                 connection,
-                &project_id,
+                &library_id,
                 &root_block_id,
                 retain_newest_deleted_blocks,
             ) {
@@ -178,25 +178,25 @@ pub(crate) fn run_block_retention_pass(
 
 fn read_candidate_roots(
     connection: &Connection,
-    project_id: &str,
+    library_id: &str,
     retain_newest_deleted_blocks: usize,
 ) -> Result<Vec<String>, StoreError> {
     let retain_count = i64::try_from(retain_newest_deleted_blocks)
         .map_err(|_| invalid("Block retention count exceeds SQLite bounds"))?;
-    let candidate_count = i64::try_from(MAX_CANDIDATES_PER_PROJECT)
+    let candidate_count = i64::try_from(MAX_CANDIDATES_PER_LIBRARY)
         .map_err(|_| internal("Block retention candidate bound overflowed"))?;
     connection
         .prepare(
             "SELECT id FROM blocks \
-             WHERE project_id = ?1 AND lifecycle = 'deleted' \
+             WHERE library_id = ?1 AND lifecycle = 'deleted' \
                AND id NOT IN ( \
                  SELECT id FROM blocks \
-                 WHERE project_id = ?1 AND lifecycle = 'deleted' \
+                 WHERE library_id = ?1 AND lifecycle = 'deleted' \
                  ORDER BY updated_at DESC, id DESC LIMIT ?2 \
                ) \
              ORDER BY updated_at, id LIMIT ?3",
         )?
-        .query_map(params![project_id, retain_count, candidate_count], |row| {
+        .query_map(params![library_id, retain_count, candidate_count], |row| {
             row.get::<_, String>(0)
         })?
         .collect::<rusqlite::Result<Vec<_>>>()
@@ -205,7 +205,7 @@ fn read_candidate_roots(
 
 fn maintain_candidate(
     connection: &mut Connection,
-    project_id: &str,
+    library_id: &str,
     root_block_id: &str,
     retain_newest_deleted_blocks: usize,
 ) -> Result<CandidateOutcome, StoreError> {
@@ -213,10 +213,10 @@ fn maintain_candidate(
     let Some(root) = read_block(&transaction, root_block_id)? else {
         return Ok(CandidateOutcome::Covered);
     };
-    if root.project_id != project_id || root.lifecycle != "deleted" {
+    if root.library_id != library_id || root.lifecycle != "deleted" {
         return Ok(CandidateOutcome::Covered);
     }
-    let Some(closure) = build_candidate_closure(&transaction, project_id, root_block_id)? else {
+    let Some(closure) = build_candidate_closure(&transaction, library_id, root_block_id)? else {
         return Ok(CandidateOutcome::Retained);
     };
     if closure_intersects_newest_tombstones(&transaction, &closure, retain_newest_deleted_blocks)? {
@@ -231,7 +231,7 @@ fn maintain_candidate(
         return Ok(CandidateOutcome::Retained);
     }
     delete_exact_recovery_artifacts(&transaction, &analysis.prunable_recovery_artifact_ids)?;
-    let Some(replanned) = build_candidate_closure(&transaction, project_id, root_block_id)? else {
+    let Some(replanned) = build_candidate_closure(&transaction, library_id, root_block_id)? else {
         return Ok(CandidateOutcome::Retained);
     };
     let post_prune = analyze_candidate(&transaction, &replanned)?;
@@ -245,18 +245,18 @@ fn maintain_candidate(
 
 fn build_candidate_closure(
     connection: &Connection,
-    project_id: &str,
+    library_id: &str,
     root_block_id: &str,
 ) -> Result<Option<CandidateClosure>, StoreError> {
     let Some(root) = read_block(connection, root_block_id)? else {
         return Ok(None);
     };
-    if root.project_id != project_id || root.lifecycle != "deleted" {
+    if root.library_id != library_id || root.lifecycle != "deleted" {
         return Ok(None);
     }
     let mut closure = CandidateClosure {
         root_block_id: root.id.clone(),
-        project_id: project_id.to_owned(),
+        library_id: library_id.to_owned(),
         block_ids: BTreeSet::from([root.id.clone()]),
         document_ids: BTreeSet::new(),
         owner_block_ids: BTreeSet::new(),
@@ -265,7 +265,7 @@ fn build_candidate_closure(
     while let Some(block) = pending.pop() {
         let ownership = connection
             .query_row(
-                "SELECT block_id, document_id, project_id FROM block_documents \
+                "SELECT block_id, document_id, library_id FROM block_documents \
                  WHERE block_id = ?1",
                 [&block.id],
                 |row| {
@@ -277,21 +277,21 @@ fn build_candidate_closure(
                 },
             )
             .optional()?;
-        let Some((owner_block_id, document_id, ownership_project_id)) = ownership else {
+        let Some((owner_block_id, document_id, ownership_library_id)) = ownership else {
             if DOCUMENT_BEARING_BLOCK_TYPES.contains(&block.block_type.as_str()) {
                 return Ok(None);
             }
             continue;
         };
         if owner_block_id != block.id
-            || ownership_project_id != project_id
+            || ownership_library_id != library_id
             || closure.document_ids.contains(&document_id)
         {
             return Ok(None);
         }
         let document = connection
             .query_row(
-                "SELECT project_id, schema_key, schema_version, readiness, authority, sync_engine \
+                "SELECT library_id, schema_key, schema_version, readiness, authority, sync_engine \
                  FROM documents WHERE id = ?1",
                 [&document_id],
                 |row| {
@@ -307,7 +307,7 @@ fn build_candidate_closure(
             )
             .optional()?;
         let Some((
-            document_project_id,
+            document_library_id,
             schema_key,
             schema_version,
             readiness,
@@ -317,7 +317,7 @@ fn build_candidate_closure(
         else {
             return Ok(None);
         };
-        if document_project_id != project_id
+        if document_library_id != library_id
             || readiness != "ready"
             || authority != "ydoc_primary"
             || !registered_owner_schema(
@@ -333,10 +333,13 @@ fn build_candidate_closure(
         closure.owner_block_ids.insert(block.id.clone());
         let children = connection
             .prepare(
-                "SELECT id, project_id, type, lifecycle FROM blocks \
-                 WHERE containing_document_id = ?1 AND project_id = ?2 ORDER BY id",
+                "SELECT block.id, block.library_id, block.type, block.lifecycle \
+                 FROM document_block_index entry \
+                 JOIN blocks block ON block.id = entry.block_id \
+                 WHERE entry.document_id = ?1 AND block.library_id = ?2 \
+                 ORDER BY block.id",
             )?
-            .query_map(params![document_id, project_id], decode_block_row)?
+            .query_map(params![document_id, library_id], decode_block_row)?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         for child in children {
             if child.lifecycle != "deleted" {
@@ -379,10 +382,10 @@ fn closure_intersects_newest_tombstones(
         .map_err(|_| invalid("Block retention count exceeds SQLite bounds"))?;
     let retained = connection
         .prepare(
-            "SELECT id FROM blocks WHERE project_id = ?1 AND lifecycle = 'deleted' \
+            "SELECT id FROM blocks WHERE library_id = ?1 AND lifecycle = 'deleted' \
              ORDER BY updated_at DESC, id DESC LIMIT ?2",
         )?
-        .query_map(params![closure.project_id, limit], |row| {
+        .query_map(params![closure.library_id, limit], |row| {
             row.get::<_, String>(0)
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -402,7 +405,7 @@ fn analyze_candidate(
     if has_unknown_inbound_reference(connection, closure)?
         || has_current_authority_reference(connection, closure, &database_view_ids)?
         || has_historical_reference(connection, closure, &database_view_ids)?
-        || has_cross_project_immutable_reference(connection, closure)?
+        || has_cross_library_immutable_reference(connection, closure)?
         || has_relocation_reference(connection, closure)?
         || has_relational_reference(
             connection,
@@ -537,14 +540,18 @@ fn has_historical_reference(
     }))
 }
 
-fn has_cross_project_immutable_reference(
+fn has_cross_library_immutable_reference(
     connection: &Connection,
     closure: &CandidateClosure,
 ) -> Result<bool, StoreError> {
     let mutations = connection
         .prepare(
-            "SELECT project_id, target_block_ids_json, affected_document_ids_json, \
-                    affected_database_block_ids_json FROM block_mutations ORDER BY mutation_id",
+            "SELECT project.library_id, mutation.target_block_ids_json, \
+                    mutation.affected_document_ids_json, \
+                    mutation.affected_database_block_ids_json \
+             FROM block_mutations mutation \
+             JOIN projects project ON project.id = mutation.project_id \
+             ORDER BY mutation.mutation_id",
         )?
         .query_map([], |row| {
             Ok((
@@ -555,17 +562,20 @@ fn has_cross_project_immutable_reference(
             ))
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
-    for (project_id, blocks_json, documents_json, databases_json) in mutations {
+    for (library_id, blocks_json, documents_json, databases_json) in mutations {
         if immutable_row_relevant(&blocks_json, &documents_json, &databases_json, closure)?
-            && project_id != closure.project_id
+            && library_id != closure.library_id
         {
             return Ok(true);
         }
     }
     let changes = connection
         .prepare(
-            "SELECT project_id, block_ids_json, document_ids_json, database_block_ids_json \
-             FROM change_log ORDER BY seq",
+            "SELECT project.library_id, change.block_ids_json, change.document_ids_json, \
+                    change.database_block_ids_json \
+             FROM change_log change \
+             JOIN projects project ON project.id = change.project_id \
+             ORDER BY change.seq",
         )?
         .query_map([], |row| {
             Ok((
@@ -576,9 +586,9 @@ fn has_cross_project_immutable_reference(
             ))
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
-    for (project_id, blocks_json, documents_json, databases_json) in changes {
+    for (library_id, blocks_json, documents_json, databases_json) in changes {
         if immutable_row_relevant(&blocks_json, &documents_json, &databases_json, closure)?
-            && project_id != closure.project_id
+            && library_id != closure.library_id
         {
             return Ok(true);
         }
@@ -619,9 +629,9 @@ fn has_relocation_reference(
                     member.block_id \
              FROM block_relocations relocation \
              LEFT JOIN block_relocation_members member ON member.relocation_id = relocation.id \
-             WHERE relocation.project_id = ?1 OR relocation.target_project_id = ?1",
+             WHERE relocation.library_id = ?1",
         )?
-        .query_map([&closure.project_id], |row| {
+        .query_map([&closure.library_id], |row| {
             Ok((
                 row.get::<_, String>(0)?,
                 row.get::<_, Option<String>>(1)?,
@@ -659,25 +669,25 @@ fn has_relational_reference(
     document_ids_json: &str,
     database_view_ids_json: &str,
 ) -> Result<bool, StoreError> {
-    let top_level = connection.query_row(
-        "SELECT count(*) FROM top_level_block_placements \
-         WHERE project_id = ?1 AND block_id IN (SELECT value FROM json_each(?2))",
-        params![closure.project_id, block_ids_json],
+    let library_roots = connection.query_row(
+        "SELECT count(*) FROM library_block_placements \
+         WHERE library_id = ?1 AND block_id IN (SELECT value FROM json_each(?2))",
+        params![closure.library_id, block_ids_json],
         |row| row.get::<_, i64>(0),
     )?;
     let active_memberships = connection.query_row(
         "SELECT count(*) FROM data_source_page_memberships membership \
-         JOIN blocks page ON page.id = membership.page_block_id AND page.project_id = ?1 \
+         JOIN blocks page ON page.id = membership.page_block_id AND page.library_id = ?1 \
          WHERE membership.removed_at IS NULL \
            AND membership.page_block_id IN (SELECT value FROM json_each(?2))",
-        params![closure.project_id, block_ids_json],
+        params![closure.library_id, block_ids_json],
         |row| row.get::<_, i64>(0),
     )?;
     let positions = connection.query_row(
         "SELECT count(*) FROM database_view_page_positions position \
-         JOIN blocks page ON page.id = position.page_block_id AND page.project_id = ?1 \
+         JOIN blocks page ON page.id = position.page_block_id AND page.library_id = ?1 \
          WHERE position.page_block_id IN (SELECT value FROM json_each(?2))",
-        params![closure.project_id, block_ids_json],
+        params![closure.library_id, block_ids_json],
         |row| row.get::<_, i64>(0),
     )?;
     let external_index = connection.query_row(
@@ -732,7 +742,7 @@ fn has_relational_reference(
         [block_ids_json],
         |row| row.get::<_, i64>(0),
     )?;
-    Ok(top_level != 0
+    Ok(library_roots != 0
         || active_memberships != 0
         || positions != 0
         || external_index != 0
@@ -750,12 +760,12 @@ fn has_page_behavior_reference(
     let count = connection.query_row(
         "SELECT \
            (SELECT count(*) FROM recurrence_exceptions \
-             WHERE project_id = ?1 AND page_id IN (SELECT value FROM json_each(?2))) + \
+             WHERE library_id = ?1 AND page_id IN (SELECT value FROM json_each(?2))) + \
            (SELECT count(*) FROM reminder_receipts \
-             WHERE project_id = ?1 AND page_id IN (SELECT value FROM json_each(?2))) + \
+             WHERE library_id = ?1 AND page_id IN (SELECT value FROM json_each(?2))) + \
            (SELECT count(*) FROM reminder_snoozes \
-             WHERE project_id = ?1 AND page_id IN (SELECT value FROM json_each(?2)))",
-        params![closure.project_id, block_ids_json],
+             WHERE library_id = ?1 AND page_id IN (SELECT value FROM json_each(?2)))",
+        params![closure.library_id, block_ids_json],
         |row| row.get::<_, i64>(0),
     )?;
     Ok(count != 0)
@@ -767,9 +777,12 @@ fn read_prunable_recovery_artifacts(
 ) -> Result<Option<Vec<String>>, StoreError> {
     let rows = connection
         .prepare(
-            "SELECT id, project_id, document_id, status, touched_block_ids_json, \
-                    derived_touched_block_ids_json \
-             FROM document_recovery_artifacts ORDER BY project_id, id",
+            "SELECT artifact.id, project.library_id, artifact.document_id, artifact.status, \
+                    artifact.touched_block_ids_json, \
+                    artifact.derived_touched_block_ids_json \
+             FROM document_recovery_artifacts artifact \
+             JOIN projects project ON project.id = artifact.project_id \
+             ORDER BY project.library_id, artifact.id",
         )?
         .query_map([], |row| {
             Ok((
@@ -783,7 +796,7 @@ fn read_prunable_recovery_artifacts(
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     let mut prunable = Vec::new();
-    for (id, project_id, document_id, status, touched_json, derived_json) in rows {
+    for (id, library_id, document_id, status, touched_json, derived_json) in rows {
         let touched = read_identity_set(&touched_json)?;
         let derived = derived_json
             .as_deref()
@@ -796,7 +809,7 @@ fn read_prunable_recovery_artifacts(
         if !relevant {
             continue;
         }
-        if project_id != closure.project_id
+        if library_id != closure.library_id
             || status == "pending"
             || !matches!(status.as_str(), "resolved" | "discarded")
             || !closure.document_ids.contains(&document_id)
@@ -838,15 +851,15 @@ fn collect_candidate_closure(
     for block_id in &closure.block_ids {
         let inserted = connection.execute(
             "INSERT INTO retired_block_identities( \
-               block_id, project_id, block_type, retention_root_block_id, retired_at \
+               block_id, library_id, block_type, retention_root_block_id, retired_at \
              ) \
-             SELECT id, project_id, type, ?1, ?2 FROM blocks \
-             WHERE id = ?3 AND project_id = ?4 AND lifecycle = 'deleted'",
+             SELECT id, library_id, type, ?1, ?2 FROM blocks \
+             WHERE id = ?3 AND library_id = ?4 AND lifecycle = 'deleted'",
             params![
                 closure.root_block_id,
                 retired_at,
                 block_id,
-                closure.project_id
+                closure.library_id
             ],
         )?;
         if inserted != 1 {
@@ -877,28 +890,28 @@ fn collect_candidate_closure(
     if !closure.document_ids.is_empty() {
         let deleted_ownerships = connection.execute(
             "DELETE FROM block_documents \
-             WHERE project_id = ?1 \
+             WHERE library_id = ?1 \
                AND block_id IN (SELECT value FROM json_each(?2)) \
                AND document_id IN (SELECT value FROM json_each(?3))",
-            params![closure.project_id, block_ids_json, document_ids_json],
+            params![closure.library_id, block_ids_json, document_ids_json],
         )?;
         if deleted_ownerships != closure.document_ids.len() {
             return Err(conflict("Block ownership closure changed during retention"));
         }
     }
     let deleted_blocks = connection.execute(
-        "DELETE FROM blocks WHERE project_id = ?1 AND lifecycle = 'deleted' \
+        "DELETE FROM blocks WHERE library_id = ?1 AND lifecycle = 'deleted' \
            AND id IN (SELECT value FROM json_each(?2))",
-        params![closure.project_id, block_ids_json],
+        params![closure.library_id, block_ids_json],
     )?;
     if deleted_blocks != closure.block_ids.len() {
         return Err(conflict("Block closure changed during retention"));
     }
     if !closure.document_ids.is_empty() {
         let deleted_documents = connection.execute(
-            "DELETE FROM documents WHERE project_id = ?1 \
+            "DELETE FROM documents WHERE library_id = ?1 \
                AND id IN (SELECT value FROM json_each(?2))",
-            params![closure.project_id, document_ids_json],
+            params![closure.library_id, document_ids_json],
         )?;
         if deleted_documents != closure.document_ids.len() {
             return Err(conflict("Document closure changed during Block retention"));
@@ -1017,7 +1030,7 @@ fn unknown_foreign_key_matches(
 fn read_block(connection: &Connection, block_id: &str) -> Result<Option<BlockRow>, StoreError> {
     connection
         .query_row(
-            "SELECT id, project_id, type, lifecycle FROM blocks WHERE id = ?1",
+            "SELECT id, library_id, type, lifecycle FROM blocks WHERE id = ?1",
             [block_id],
             decode_block_row,
         )
@@ -1028,7 +1041,7 @@ fn read_block(connection: &Connection, block_id: &str) -> Result<Option<BlockRow
 fn decode_block_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<BlockRow> {
     Ok(BlockRow {
         id: row.get(0)?,
-        project_id: row.get(1)?,
+        library_id: row.get(1)?,
         block_type: row.get(2)?,
         lifecycle: row.get(3)?,
     })
@@ -1107,6 +1120,7 @@ mod tests {
     use super::*;
 
     const PROJECT_ID: &str = "project:block-retention";
+    const LIBRARY_ID: &str = "library:block-retention";
     const OWNED_CHILD_ID: &str = "019c0000-0000-7000-8000-000000000001";
 
     struct Fixture {
@@ -1152,9 +1166,9 @@ mod tests {
                 .call(move |connection| {
                     connection.execute(
                         "INSERT INTO blocks( \
-                           id, project_id, type, lifecycle, location_kind, created_at, updated_at \
-                         ) VALUES (?1, ?2, 'paragraph', 'deleted', 'space', ?3, ?3)",
-                        params![block_id, PROJECT_ID, "2026-01-01T00:00:00.000Z"],
+                           id, library_id, type, lifecycle, created_at, updated_at \
+                         ) VALUES (?1, ?2, 'paragraph', 'deleted', ?3, ?3)",
+                        params![block_id, LIBRARY_ID, "2026-01-01T00:00:00.000Z"],
                     )?;
                     Ok(())
                 })
@@ -1168,24 +1182,32 @@ mod tests {
                 .call(move |connection| {
                     connection.execute(
                         "INSERT INTO blocks( \
-                           id, project_id, type, lifecycle, location_kind, created_at, updated_at \
+                           id, library_id, type, lifecycle, created_at, updated_at \
                          ) VALUES ( \
-                           'block:owned-page', ?1, 'page', 'deleted', 'space', ?2, ?2 \
+                           'block:owned-page', ?1, 'page', 'deleted', ?2, ?2 \
                          )",
-                        params![PROJECT_ID, "2026-01-01T00:00:00.000Z"],
+                        params![LIBRARY_ID, "2026-01-01T00:00:00.000Z"],
                     )?;
                     connection.execute(
                         "INSERT INTO documents( \
-                           id, project_id, schema_key, schema_version, created_at, updated_at \
+                           id, library_id, schema_key, schema_version, created_at, updated_at \
                          ) VALUES ( \
                            'document:owned-page', ?1, 'nodex.page', 2, ?2, ?2 \
                          )",
-                        params![PROJECT_ID, "2026-01-01T00:00:00.000Z"],
+                        params![LIBRARY_ID, "2026-01-01T00:00:00.000Z"],
                     )?;
                     connection.execute(
-                        "INSERT INTO block_documents(block_id, document_id, project_id, created_at) \
+                        "INSERT INTO block_documents(block_id, document_id, library_id, created_at) \
                          VALUES ('block:owned-page', 'document:owned-page', ?1, ?2)",
-                        params![PROJECT_ID, "2026-01-01T00:00:00.000Z"],
+                        params![LIBRARY_ID, "2026-01-01T00:00:00.000Z"],
+                    )?;
+                    connection.execute(
+                        "INSERT INTO pages( \
+                           block_id, library_id, document_id, parent_kind, parent_id, \
+                           created_at, updated_at \
+                         ) VALUES ('block:owned-page', ?1, 'document:owned-page', \
+                           'library', ?1, ?2, ?2)",
+                        params![LIBRARY_ID, "2026-01-01T00:00:00.000Z"],
                     )?;
                     let authority = read_document_authority(connection, "document:owned-page")?
                         .expect("pending Page authority");
@@ -1198,6 +1220,7 @@ mod tests {
                         connection,
                         PersistYjsGenesis {
                             authority: &authority,
+                            actor_project_id: PROJECT_ID,
                             materialization: &genesis.materialization,
                             update_id: "genesis:owned-page",
                             client_session_id: "client:retention-test",
@@ -1206,6 +1229,9 @@ mod tests {
                             full_state: &genesis.engine.full_state_v1(),
                             store_epoch: "epoch:test",
                             operation_id: "operation:owned-page-genesis",
+                            placement_genesis_block_ids: &[],
+                            placement_preapplied_block_ids: &[],
+                            placement_mutation_block_ids: &[],
                             emit_event: false,
                         },
                     )?;
@@ -1344,10 +1370,10 @@ mod tests {
                 let old = "2026-01-01T00:00:00.000Z";
                 connection.execute(
                     "INSERT INTO blocks(\
-                       id, project_id, type, lifecycle, location_kind, created_at, updated_at\
+                       id, library_id, type, lifecycle, created_at, updated_at\
                      ) VALUES ('database:relation-retention', ?1, 'database', 'active', \
-                       'space', ?2, ?2)",
-                    params![PROJECT_ID, old],
+                       ?2, ?2)",
+                    params![LIBRARY_ID, old],
                 )?;
                 connection.execute(
                     "INSERT INTO database_containers(\
@@ -1371,29 +1397,27 @@ mod tests {
                 ] {
                     connection.execute(
                         "INSERT INTO blocks(\
-                           id, project_id, type, lifecycle, location_kind, \
-                           containing_database_id, created_at, updated_at\
-                         ) VALUES (?1, ?2, 'page', 'active', 'database', \
-                           'database:relation-retention', ?3, ?3)",
-                        params![page_id, PROJECT_ID, old],
+                           id, library_id, type, lifecycle, created_at, updated_at\
+                         ) VALUES (?1, ?2, 'page', 'active', ?3, ?3)",
+                        params![page_id, LIBRARY_ID, old],
                     )?;
                     connection.execute(
                         "INSERT INTO documents(\
-                           id, project_id, schema_key, schema_version, created_at, updated_at\
+                           id, library_id, schema_key, schema_version, created_at, updated_at\
                          ) VALUES (?1, ?2, 'nodex.page', 2, ?3, ?3)",
-                        params![document_id, PROJECT_ID, old],
+                        params![document_id, LIBRARY_ID, old],
                     )?;
                     connection.execute(
-                        "INSERT INTO block_documents(block_id, document_id, project_id, created_at) \
+                        "INSERT INTO block_documents(block_id, document_id, library_id, created_at) \
                          VALUES (?1, ?2, ?3, ?4)",
-                        params![page_id, document_id, PROJECT_ID, old],
+                        params![page_id, document_id, LIBRARY_ID, old],
                     )?;
                     connection.execute(
                         "INSERT INTO pages(\
-                           block_id, library_id, document_id, parent_kind, parent_id, lifecycle, \
+                           block_id, library_id, document_id, parent_kind, parent_id, \
                            created_at, updated_at\
                          ) VALUES (?1, 'library:block-retention', ?2, 'data_source', \
-                           'source:relation-retention', 'active', ?3, ?3)",
+                           'source:relation-retention', ?3, ?3)",
                         params![page_id, document_id, old],
                     )?;
                 }
@@ -1441,11 +1465,6 @@ mod tests {
                 connection.execute(
                     "UPDATE data_source_page_memberships SET removed_at = ?1 \
                      WHERE id = 'membership:relation-target'",
-                    [old],
-                )?;
-                connection.execute(
-                    "UPDATE pages SET lifecycle = 'deleted', updated_at = ?1 \
-                     WHERE block_id = 'page:relation-target'",
                     [old],
                 )?;
                 connection.execute(

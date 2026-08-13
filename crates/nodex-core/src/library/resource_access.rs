@@ -191,10 +191,13 @@ fn target_coordinates(
         LibraryResourceTarget::Database { database_id } => {
             let (name, containing_document_id) = connection
                 .query_row(
-                    "SELECT container.name, block.containing_document_id \
+                    "SELECT container.name, block_index.document_id \
                      FROM database_containers container \
                      JOIN blocks block ON block.id = container.block_id \
+                     LEFT JOIN document_block_index block_index ON block_index.block_id = block.id \
                      WHERE container.block_id = ?1 AND container.library_id = ?2 \
+                       AND block.library_id = container.library_id \
+                       AND block.lifecycle <> 'deleted' \
                        AND container.lifecycle <> 'deleted'",
                     params![database_id, library_id],
                     |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
@@ -226,11 +229,47 @@ fn target_coordinates(
         LibraryResourceTarget::Page { page_id } => {
             page_coordinates(connection, library_id, page_id)
         }
-        LibraryResourceTarget::Canvas { .. } => Err(StoreError::new(
-            StoreErrorCode::InvalidInput,
-            "Canvas access is inherited from its owning Page or Project",
-            false,
-        )),
+        LibraryResourceTarget::Canvas { canvas_id } => {
+            let containing_document_id = connection
+                .query_row(
+                    "SELECT block_index.document_id \
+                     FROM canvas_owners canvas \
+                     JOIN blocks block ON block.id = canvas.block_id \
+                       AND block.library_id = canvas.library_id \
+                     LEFT JOIN document_block_index block_index ON block_index.block_id = block.id \
+                     WHERE canvas.block_id = ?1 AND canvas.library_id = ?2 \
+                       AND block.type = 'canvas' AND block.lifecycle <> 'deleted'",
+                    params![canvas_id, library_id],
+                    |row| row.get::<_, Option<String>>(0),
+                )
+                .optional()?
+                .ok_or_else(not_found)?;
+            let hierarchy = containing_document_id
+                .map(|document_id| {
+                    let owner_page_id = connection
+                        .query_row(
+                            "SELECT page.block_id FROM block_documents ownership \
+                             JOIN pages page ON page.block_id = ownership.block_id \
+                               AND page.library_id = ownership.library_id \
+                             WHERE ownership.document_id = ?1 AND ownership.library_id = ?2",
+                            params![document_id, library_id],
+                            |row| row.get::<_, String>(0),
+                        )
+                        .optional()?
+                        .ok_or_else(|| corrupt("Embedded Canvas has no owning Page"))?;
+                    page_hierarchy(connection, library_id, &owner_page_id)
+                })
+                .transpose()?;
+            Ok(TargetCoordinates {
+                target_kind: "canvas",
+                target_id: canvas_id.clone(),
+                ancestor_pages: hierarchy
+                    .as_ref()
+                    .map(|hierarchy| hierarchy.pages.clone())
+                    .unwrap_or_default(),
+                owning_database: hierarchy.and_then(|hierarchy| hierarchy.owning_database),
+            })
+        }
     }
 }
 
@@ -260,21 +299,24 @@ fn page_hierarchy(
                SELECT page.block_id, page.parent_kind, page.parent_id, 0, \
                  '|' || page.block_id || '|' \
                FROM pages page \
-               WHERE page.block_id = ?1 AND page.library_id = ?2 AND page.lifecycle <> 'deleted' \
+               JOIN blocks block ON block.id = page.block_id \
+               WHERE page.block_id = ?1 AND page.library_id = ?2 \
+                 AND block.library_id = page.library_id AND block.lifecycle <> 'deleted' \
                UNION ALL \
                SELECT parent.block_id, parent.parent_kind, parent.parent_id, \
                  ancestors.depth + 1, ancestors.path || parent.block_id || '|' \
                FROM ancestors JOIN pages parent \
                  ON ancestors.parent_kind = 'page' AND parent.block_id = ancestors.parent_id \
-               WHERE parent.library_id = ?2 AND parent.lifecycle <> 'deleted' \
+               JOIN blocks parent_block ON parent_block.id = parent.block_id \
+               WHERE parent.library_id = ?2 \
+                 AND parent_block.library_id = parent.library_id \
+                 AND parent_block.lifecycle <> 'deleted' \
                  AND instr(ancestors.path, '|' || parent.block_id || '|') = 0 \
              ) \
-             SELECT ancestors.page_id, materialization.title, ancestors.depth, \
+             SELECT ancestors.page_id, projection.title, ancestors.depth, \
                ancestors.parent_kind, source.home_database_block_id, container.name \
              FROM ancestors \
-             JOIN pages page ON page.block_id = ancestors.page_id \
-             JOIN document_materializations materialization \
-               ON materialization.document_id = page.document_id \
+             JOIN page_read_model projection ON projection.page_block_id = ancestors.page_id \
              LEFT JOIN data_sources source \
                ON ancestors.parent_kind = 'data_source' AND source.id = ancestors.parent_id \
                  AND source.library_id = ?2 \

@@ -1164,9 +1164,11 @@ mod tests {
             )
             .expect("freeze Agent Turn authority");
         let module = LibraryModule::new("profile-1", "library-1", &kernel);
+        let mut trusted_library_context = context.clone();
+        trusted_library_context.project_id = None;
         module
             .apply(
-                &context,
+                &trusted_library_context,
                 ModuleApplyRequest {
                     contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "agent-target-page".to_owned(),
@@ -1285,7 +1287,7 @@ mod tests {
             .expect("create recursively granted child Page");
         module
             .apply(
-                &context,
+                &trusted_library_context,
                 ModuleApplyRequest {
                     contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "agent-foreign-target".to_owned(),
@@ -1609,21 +1611,14 @@ mod tests {
             .writer()
             .call(|connection| {
                 let revisions = connection.query_row(
-                    "SELECT block.location_revision, page.parent_revision, \
-                       projection.location_revision FROM blocks block \
-                     JOIN pages page ON page.block_id = block.id \
+                    "SELECT block.placement_revision, projection.placement_revision \
+                     FROM blocks block \
                      JOIN page_read_model projection ON projection.page_block_id = block.id \
                      WHERE block.id = ?1",
                     [PAGE_B],
-                    |row| {
-                        Ok((
-                            row.get::<_, i64>(0)?,
-                            row.get::<_, i64>(1)?,
-                            row.get::<_, i64>(2)?,
-                        ))
-                    },
+                    |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
                 )?;
-                assert_eq!(revisions, (2, 2, 2));
+                assert_eq!(revisions, (2, 2));
                 let order = connection
                     .prepare(
                         "SELECT block_id FROM library_block_placements \
@@ -2160,18 +2155,17 @@ mod tests {
                          VALUES (1, 'epoch-1', ?1, ?1)",
                         [NOW],
                     )?;
-                    for (block_id, block_type, location) in [
-                        (ROOT_PAGE, "page", "space"),
-                        (DATABASE, "database", "space"),
-                        (PRIMARY_CANVAS, "canvas", "space"),
+                    for (block_id, block_type) in [
+                        (ROOT_PAGE, "page"),
+                        (DATABASE, "database"),
+                        (PRIMARY_CANVAS, "canvas"),
                     ] {
                         transaction.execute(
                             "INSERT INTO blocks( \
-                               id, project_id, type, lifecycle, location_kind, \
-                               containing_document_id, containing_database_id, \
-                               location_revision, metadata_revision, created_at, updated_at \
-                             ) VALUES (?1, 'project-1', ?2, 'active', ?3, NULL, NULL, 1, 1, ?4, ?4)",
-                            params![block_id, block_type, location, NOW],
+                               id, library_id, type, lifecycle, placement_revision, \
+                               metadata_revision, created_at, updated_at \
+                             ) VALUES (?1, 'library-1', ?2, 'active', 1, 1, ?3, ?3)",
+                            params![block_id, block_type, NOW],
                         )?;
                     }
                     transaction.execute(
@@ -2183,12 +2177,10 @@ mod tests {
                     )?;
                     transaction.execute(
                         "INSERT INTO blocks( \
-                           id, project_id, type, lifecycle, location_kind, \
-                           containing_document_id, containing_database_id, \
-                           location_revision, metadata_revision, created_at, updated_at \
-                         ) VALUES (?1, 'project-1', 'page', 'active', 'database', \
-                           NULL, ?2, 1, 1, ?3, ?3)",
-                        params![ROW_PAGE, DATABASE, NOW],
+                           id, library_id, type, lifecycle, placement_revision, \
+                           metadata_revision, created_at, updated_at \
+                         ) VALUES (?1, 'library-1', 'page', 'active', 1, 1, ?2, ?2)",
+                        params![ROW_PAGE, NOW],
                     )?;
                     transaction.execute(
                         "INSERT INTO data_sources( \
@@ -2236,6 +2228,7 @@ mod tests {
                            '{"schemaKey":"nodex.database-view","schemaVersion":4,
                              "filter":{"kind":"group","operator":"and","children":[]},
                              "presentation":{"sort":[],"group":null,"subgroup":null,
+                               "groupDirection":"asc",
                                "completion":{"range":"all","orderByRecency":false},
                                "hierarchy":{"showSubPages":true,"nestedSubPages":false},
                                "layouts":{"board":{"fields":[],"showEmptyGroups":false},
@@ -2251,6 +2244,7 @@ mod tests {
                            '{"schemaKey":"nodex.database-view","schemaVersion":4,
                              "filter":{"kind":"group","operator":"and","children":[]},
                              "presentation":{"sort":[],"group":null,"subgroup":null,
+                               "groupDirection":"asc",
                                "completion":{"range":"all","orderByRecency":false},
                                "hierarchy":{"showSubPages":true,"nestedSubPages":false},
                                "layouts":{"board":{"fields":[],"showEmptyGroups":false},
@@ -2268,37 +2262,37 @@ mod tests {
                     ] {
                         transaction.execute(
                             "INSERT INTO documents( \
-                               id, project_id, generation, head_seq, schema_key, schema_version, \
+                               id, library_id, generation, head_seq, schema_key, schema_version, \
                                state_vector, state_hash, readiness, authority, created_at, updated_at, sync_engine \
-                             ) VALUES (?1, 'project-1', 1, 0, 'nodex.page', 2, X'', '', \
+                             ) VALUES (?1, 'library-1', 1, 0, 'nodex.page', 2, X'', '', \
                                'pending_genesis', 'legacy_shadow', ?2, ?2, 'yjs')",
                             params![document_id, NOW],
                         )?;
                         transaction.execute(
-                            "INSERT INTO block_documents(block_id, document_id, project_id, created_at) \
-                             VALUES (?1, ?2, 'project-1', ?3)",
+                            "INSERT INTO block_documents(block_id, document_id, library_id, created_at) \
+                             VALUES (?1, ?2, 'library-1', ?3)",
                             params![page_id, document_id, NOW],
                         )?;
                         transaction.execute(
                             "INSERT INTO pages( \
-                               block_id, library_id, document_id, parent_kind, parent_id, lifecycle, \
+                               block_id, library_id, document_id, parent_kind, parent_id, \
                                created_at, updated_at \
-                             ) VALUES (?1, 'library-1', ?2, ?3, ?4, 'active', ?5, ?5)",
+                             ) VALUES (?1, 'library-1', ?2, ?3, ?4, ?5, ?5)",
                             params![page_id, document_id, parent_kind, parent_id, NOW],
                         )?;
                     }
                     transaction.execute(
                         "INSERT INTO documents( \
-                           id, project_id, generation, head_seq, schema_key, schema_version, \
+                           id, library_id, generation, head_seq, schema_key, schema_version, \
                            state_vector, state_hash, readiness, authority, created_at, updated_at, sync_engine \
-                         ) VALUES (?1, 'project-1', 1, 0, 'nodex.canvas', 1, X'', \
+                         ) VALUES (?1, 'library-1', 1, 0, 'nodex.canvas', 1, X'', \
                            '0000000000000000000000000000000000000000000000000000000000000000', \
                            'ready', 'ydoc_primary', ?2, ?2, 'canvas_scene')",
                         params![CANVAS_DOCUMENT, NOW],
                     )?;
                     transaction.execute(
-                        "INSERT INTO block_documents(block_id, document_id, project_id, created_at) \
-                         VALUES (?1, ?2, 'project-1', ?3)",
+                        "INSERT INTO block_documents(block_id, document_id, library_id, created_at) \
+                         VALUES (?1, ?2, 'library-1', ?3)",
                         params![PRIMARY_CANVAS, CANVAS_DOCUMENT, NOW],
                     )?;
                     transaction.execute(
@@ -2308,8 +2302,8 @@ mod tests {
                     )?;
                     transaction.execute(
                         "INSERT INTO block_properties( \
-                           block_id, project_id, property_key, value_type, value_json, revision, updated_at \
-                         ) VALUES (?1, 'project-1', 'document.display_name', 'string', \
+                           block_id, library_id, property_key, value_type, value_json, revision, updated_at \
+                         ) VALUES (?1, 'library-1', 'document.display_name', 'string', \
                            '\"Canvas\"', 1, ?2)",
                         params![PRIMARY_CANVAS, NOW],
                     )?;
@@ -2334,47 +2328,57 @@ mod tests {
                         params![SOURCE, NOW],
                     )?;
                     transaction.execute(
-                        "INSERT INTO page_read_model( \
-                           page_block_id, project_id, lifecycle, location_kind, \
-                           containing_document_id, containing_database_id, top_level_rank_key, \
-                           location_revision, metadata_revision, document_id, document_generation, \
-                           document_projected_seq, document_schema_version, document_authority, \
-                           membership_id, database_block_id, view_id, view_group_key, view_rank_key, \
-                           title, description_preview, description_length, has_description, \
-                           database_values_json, intrinsic_properties_json, property_revisions_json, \
-                           projection_version, created_at, updated_at \
-                         ) VALUES (?1, 'project-1', 'active', 'space', NULL, NULL, 'a', 1, 1, \
-                           ?2, 1, 0, 2, 'legacy_shadow', NULL, NULL, NULL, NULL, NULL, '', '', 0, 0, \
-                           '{}', '{}', '{}', 1, ?3, ?3)",
-                        params![ROOT_PAGE, ROOT_DOCUMENT, NOW],
-                    )?;
-                    transaction.execute(
-                        "INSERT INTO page_read_model( \
-                           page_block_id, project_id, lifecycle, location_kind, \
-                           containing_document_id, containing_database_id, top_level_rank_key, \
-                           location_revision, metadata_revision, document_id, document_generation, \
-                           document_projected_seq, document_schema_version, document_authority, \
-                           membership_id, database_block_id, view_id, view_group_key, view_rank_key, \
-                           title, description_preview, description_length, has_description, \
-                           database_values_json, intrinsic_properties_json, property_revisions_json, \
-                           projection_version, created_at, updated_at \
-                         ) VALUES (?1, 'project-1', 'active', 'database', NULL, ?2, NULL, 1, 1, \
-                           ?3, 1, 0, 2, 'legacy_shadow', 'membership:row', ?2, NULL, NULL, NULL, '', '', 0, 0, \
-                           '{\"status\":\"triage\",\"task_parent\":null}', '{}', \
-                           '{\"database\":{\"status\":1,\"task_parent\":1},\"intrinsic\":{}}', 1, ?4, ?4)",
-                        params![ROW_PAGE, DATABASE, ROW_DOCUMENT, NOW],
-                    )?;
-                    transaction.execute(
-                        "UPDATE projects SET database_block_id = ?1 WHERE id = 'project-1'",
-                        [DATABASE],
-                    )?;
-                    transaction.execute(
                         "INSERT INTO library_block_placements( \
                            block_id, library_id, rank_key, created_at, updated_at \
                          ) VALUES (?1, 'library-1', 'a', ?3, ?3), \
                                   (?2, 'library-1', 'b', ?3, ?3), \
                                   (?4, 'library-1', 'c', ?3, ?3)",
                         params![ROOT_PAGE, DATABASE, NOW, PRIMARY_CANVAS],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO page_read_model( \
+                           page_block_id, library_id, lifecycle, parent_kind, parent_id, \
+                           library_rank_key, placement_revision, metadata_revision, \
+                           document_id, document_generation, \
+                           document_projected_seq, document_schema_version, document_authority, \
+                           membership_id, database_block_id, view_id, view_group_key, view_rank_key, \
+                           title, description_preview, description_length, has_description, \
+                           database_values_json, intrinsic_properties_json, property_revisions_json, \
+                           projection_version, created_at, updated_at \
+                         ) VALUES (?1, 'library-1', 'active', 'library', 'library-1', 'a', 1, 1, \
+                           ?2, 1, 0, 2, 'legacy_shadow', NULL, NULL, NULL, NULL, NULL, '', '', 0, 0, \
+                           '{}', '{}', '{}', 1, ?3, ?3)",
+                        params![ROOT_PAGE, ROOT_DOCUMENT, NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO page_read_model( \
+                           page_block_id, library_id, lifecycle, parent_kind, parent_id, \
+                           library_rank_key, placement_revision, metadata_revision, \
+                           document_id, document_generation, \
+                           document_projected_seq, document_schema_version, document_authority, \
+                           membership_id, database_block_id, view_id, view_group_key, view_rank_key, \
+                           title, description_preview, description_length, has_description, \
+                           database_values_json, intrinsic_properties_json, property_revisions_json, \
+                           projection_version, created_at, updated_at \
+                         ) VALUES (?1, 'library-1', 'active', 'data_source', ?2, NULL, 1, 1, \
+                           ?3, 1, 0, 2, 'legacy_shadow', 'membership:row', ?4, NULL, NULL, NULL, '', '', 0, 0, \
+                           '{\"status\":\"triage\",\"task_parent\":null}', '{}', \
+                           '{\"database\":{\"status\":1,\"task_parent\":1},\"intrinsic\":{}}', 1, ?5, ?5)",
+                        params![ROW_PAGE, SOURCE, ROW_DOCUMENT, DATABASE, NOW],
+                    )?;
+                    transaction.execute(
+                        "UPDATE projects SET database_block_id = ?1 WHERE id = 'project-1'",
+                        [DATABASE],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO project_resource_grants( \
+                           id, project_id, library_id, root_kind, root_id, access, recursive, \
+                           revision, lifecycle, created_at, updated_at \
+                         ) VALUES ('grant:root-page', 'project-1', 'library-1', 'page', ?1, \
+                           'read_write', 1, 1, 'active', ?3, ?3), \
+                                  ('grant:primary-canvas', 'project-1', 'library-1', 'canvas', ?2, \
+                           'read_write', 1, 1, 'active', ?3, ?3)",
+                        params![ROOT_PAGE, PRIMARY_CANVAS, NOW],
                     )?;
                     Ok(())
                 })
@@ -2407,23 +2411,6 @@ mod tests {
                         .iter()
                         .map(|byte| format!("{byte:02x}"))
                         .collect::<String>();
-                    transaction.execute(
-                        "INSERT OR IGNORE INTO page_read_model( \
-                           page_block_id, project_id, lifecycle, location_kind, \
-                           containing_document_id, containing_database_id, top_level_rank_key, \
-                           location_revision, metadata_revision, document_id, document_generation, \
-                           document_projected_seq, document_schema_version, document_authority, \
-                           membership_id, database_block_id, view_id, view_group_key, view_rank_key, \
-                           title, description_preview, description_length, has_description, \
-                           database_values_json, intrinsic_properties_json, property_revisions_json, \
-                           projection_version, created_at, updated_at \
-                         ) VALUES (?1, 'project-1', 'active', 'database', NULL, ?2, NULL, 1, 1, \
-                           ?3, 1, 1, 2, 'ydoc_primary', 'membership:row', ?2, NULL, NULL, NULL, \
-                           'Say hi', '', 0, 0, \
-                           '{\"status\":\"triage\",\"task_parent\":null}', '{}', \
-                           '{\"database\":{\"status\":1,\"task_parent\":1},\"intrinsic\":{}}', 1, ?4, ?4)",
-                        params![ROW_PAGE, DATABASE, ROW_DOCUMENT, NOW],
-                    )?;
                     transaction.execute(
                         "UPDATE document_materializations SET title = 'Say hi' \
                          WHERE document_id = ?1",
@@ -2546,12 +2533,20 @@ mod tests {
                 Ok(())
             })
             .expect("archive Project");
-        let LibraryReadValue::StandaloneRoots { items, total, .. } =
-            read(LibraryRead::StandaloneRoots {
-                cursor: None,
-                limit: None,
-                force_include_target: None,
-            })
+        let LibraryReadValue::StandaloneRoots { items, total, .. } = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    read: LibraryRead::StandaloneRoots {
+                        cursor: None,
+                        limit: None,
+                        force_include_target: None,
+                    },
+                },
+            )
+            .expect("trusted Library roots after Project archival")
+            .value
         else {
             panic!("archived Project standalone roots");
         };
@@ -3947,7 +3942,7 @@ mod tests {
     }
 
     #[test]
-    fn granted_pages_authorize_cross_storage_block_transfers_and_rehome_registry_rows() {
+    fn granted_pages_authorize_block_transfers_without_changing_library_ownership() {
         const NOW: &str = "2026-07-20T00:10:00.000Z";
         const LOCAL_SOURCE_PAGE: &str = "018f0000-0000-7000-8000-000000000201";
         const FOREIGN_SOURCE_PAGE: &str = "018f0000-0000-7000-8000-000000000202";
@@ -4244,21 +4239,23 @@ mod tests {
         kernel
             .readers()
             .read_default(|connection| {
-                let copied_project = connection.query_row(
-                    "SELECT project_id FROM blocks WHERE id = ?1",
+                let copied_library = connection.query_row(
+                    "SELECT library_id FROM blocks WHERE id = ?1",
                     [&copied_root],
                     |row| row.get::<_, String>(0),
                 )?;
-                assert_eq!(copied_project, "project-1");
-                let copied_page_project = connection.query_row(
-                    "SELECT project_id FROM blocks WHERE id = ?1",
+                assert_eq!(copied_library, "library-1");
+                let copied_page_library = connection.query_row(
+                    "SELECT library_id FROM blocks WHERE id = ?1",
                     [&copied_page_id],
                     |row| row.get::<_, String>(0),
                 )?;
-                assert_eq!(copied_page_project, "project-1");
+                assert_eq!(copied_page_library, "library-1");
                 let moved = connection.query_row(
-                    "SELECT project_id, containing_document_id, lifecycle \
-                     FROM blocks WHERE id = ?1",
+                    "SELECT block.library_id, block_index.document_id, block.lifecycle \
+                     FROM blocks block JOIN document_block_index block_index \
+                       ON block_index.block_id = block.id \
+                     WHERE block.id = ?1",
                     [&roots.0],
                     |row| {
                         Ok((
@@ -4271,32 +4268,35 @@ mod tests {
                 assert_eq!(
                     moved,
                     (
-                        "project-2".to_owned(),
+                        "library-1".to_owned(),
                         FOREIGN_TARGET_DOCUMENT.to_owned(),
                         "active".to_owned(),
                     )
                 );
                 let same_storage_ledger = connection.query_row(
-                    "SELECT project_id, target_project_id FROM block_relocations WHERE id = ?1",
+                    "SELECT project_id, library_id FROM block_relocations WHERE id = ?1",
                     ["move-between-granted-pages"],
                     |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
                 )?;
                 assert_eq!(
                     same_storage_ledger,
-                    ("project-2".to_owned(), "project-2".to_owned())
+                    ("project-1".to_owned(), "library-1".to_owned())
                 );
-                let cross_storage_ledger = connection.query_row(
-                    "SELECT project_id FROM block_mutations WHERE mutation_id = ?1",
+                let second_relocation_ledger = connection.query_row(
+                    "SELECT project_id, library_id FROM block_relocations WHERE id = ?1",
                     ["move-into-granted-storage"],
-                    |row| row.get::<_, String>(0),
+                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
                 )?;
-                assert_eq!(cross_storage_ledger, "project-2");
+                assert_eq!(
+                    second_relocation_ledger,
+                    ("project-1".to_owned(), "library-1".to_owned())
+                );
                 let relocation_count = connection.query_row(
                     "SELECT count(*) FROM block_relocations WHERE id = ?1",
                     ["move-into-granted-storage"],
                     |row| row.get::<_, i64>(0),
                 )?;
-                assert_eq!(relocation_count, 0);
+                assert_eq!(relocation_count, 1);
                 Ok(())
             })
             .expect("cross-storage transfer evidence");
@@ -4714,7 +4714,7 @@ mod tests {
             .readers()
             .read_default(|connection| {
                 let promoted_row = connection.query_row(
-                    "SELECT block.type, block.location_kind, block.location_revision, \
+                    "SELECT block.type, block.library_id, block.placement_revision, \
                             block.metadata_revision, page.parent_kind, page.parent_id, \
                             materialization.title \
                      FROM blocks block JOIN pages page ON page.block_id = block.id \
@@ -4737,7 +4737,7 @@ mod tests {
                     promoted_row,
                     (
                         "page".to_owned(),
-                        "space".to_owned(),
+                        "library-1".to_owned(),
                         2,
                         2,
                         "library".to_owned(),
@@ -4774,13 +4774,12 @@ mod tests {
                 )?;
                 assert_eq!(source_task_present, 1);
                 let data_source_evidence = connection.query_row(
-                    "SELECT block.project_id, block.location_kind, block.containing_database_id, \
+                    "SELECT block.library_id, block.placement_revision, \
                             page.parent_kind, page.parent_id, membership.revision, \
                             status.value_json, status.revision, json_extract(status.value_json, '$'), \
                             position.revision, projection.database_block_id, \
                             projection.view_id, \
-                            (SELECT count(*) FROM library_block_placements WHERE block_id = block.id), \
-                            (SELECT count(*) FROM top_level_block_placements WHERE block_id = block.id) \
+                            (SELECT count(*) FROM library_block_placements WHERE block_id = block.id) \
                      FROM blocks block JOIN pages page ON page.block_id = block.id \
                      JOIN data_source_page_memberships membership \
                        ON membership.page_block_id = block.id AND membership.removed_at IS NULL \
@@ -4795,21 +4794,19 @@ mod tests {
                         Ok((
                             (
                                 row.get::<_, String>(0)?,
-                                row.get::<_, String>(1)?,
+                                row.get::<_, i64>(1)?,
                                 row.get::<_, String>(2)?,
                                 row.get::<_, String>(3)?,
-                                row.get::<_, String>(4)?,
-                                row.get::<_, i64>(5)?,
-                                row.get::<_, String>(6)?,
+                                row.get::<_, i64>(4)?,
+                                row.get::<_, String>(5)?,
                             ),
                             (
-                                row.get::<_, i64>(7)?,
-                                row.get::<_, String>(8)?,
-                                row.get::<_, i64>(9)?,
+                                row.get::<_, i64>(6)?,
+                                row.get::<_, String>(7)?,
+                                row.get::<_, i64>(8)?,
+                                row.get::<_, String>(9)?,
                                 row.get::<_, String>(10)?,
-                                row.get::<_, String>(11)?,
-                                row.get::<_, i64>(12)?,
-                                row.get::<_, i64>(13)?,
+                                row.get::<_, i64>(11)?,
                             ),
                         ))
                     },
@@ -4818,9 +4815,8 @@ mod tests {
                     data_source_evidence,
                     (
                         (
-                            "project-1".to_owned(),
-                            "database".to_owned(),
-                            DATABASE.to_owned(),
+                            "library-1".to_owned(),
+                            2,
                             "data_source".to_owned(),
                             DATA_SOURCE.to_owned(),
                             1,
@@ -4832,7 +4828,6 @@ mod tests {
                             1,
                             DATABASE.to_owned(),
                             VIEW.to_owned(),
-                            0,
                             0,
                         ),
                     )
@@ -4879,9 +4874,8 @@ mod tests {
             &returned_result.final_locations[&data_source_page_id],
             LibraryBlockLocation::Library {
                 library_id,
-                project_id,
                 rank_key,
-            } if library_id == "library-1" && project_id == "project-1" && !rank_key.is_empty()
+            } if library_id == "library-1" && !rank_key.is_empty()
         ));
         assert_eq!(
             returned_result.final_location_revisions[&data_source_page_id],
@@ -5098,27 +5092,14 @@ mod tests {
                 )?;
                 assert_eq!(shell_count, 0);
                 let lifecycle = connection.query_row(
-                    "SELECT block.lifecycle, page.lifecycle, projection.lifecycle \
-                     FROM blocks block JOIN pages page ON page.block_id = block.id \
+                    "SELECT block.lifecycle, projection.lifecycle \
+                     FROM blocks block \
                      JOIN page_read_model projection ON projection.page_block_id = block.id \
                      WHERE block.id = ?1",
                     [&data_source_page_id],
-                    |row| {
-                        Ok((
-                            row.get::<_, String>(0)?,
-                            row.get::<_, String>(1)?,
-                            row.get::<_, String>(2)?,
-                        ))
-                    },
+                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
                 )?;
-                assert_eq!(
-                    lifecycle,
-                    (
-                        "deleted".to_owned(),
-                        "deleted".to_owned(),
-                        "deleted".to_owned()
-                    )
-                );
+                assert_eq!(lifecycle, ("deleted".to_owned(), "deleted".to_owned()));
                 Ok(())
             })
             .expect("nested Page lifecycle projections are deleted together");
@@ -5181,27 +5162,14 @@ mod tests {
                 )?;
                 assert_eq!(shell_count, 1);
                 let lifecycle = connection.query_row(
-                    "SELECT block.lifecycle, page.lifecycle, projection.lifecycle \
-                     FROM blocks block JOIN pages page ON page.block_id = block.id \
+                    "SELECT block.lifecycle, projection.lifecycle \
+                     FROM blocks block \
                      JOIN page_read_model projection ON projection.page_block_id = block.id \
                      WHERE block.id = ?1",
                     [&data_source_page_id],
-                    |row| {
-                        Ok((
-                            row.get::<_, String>(0)?,
-                            row.get::<_, String>(1)?,
-                            row.get::<_, String>(2)?,
-                        ))
-                    },
+                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
                 )?;
-                assert_eq!(
-                    lifecycle,
-                    (
-                        "active".to_owned(),
-                        "active".to_owned(),
-                        "active".to_owned()
-                    )
-                );
+                assert_eq!(lifecycle, ("active".to_owned(), "active".to_owned()));
                 Ok(())
             })
             .expect("nested Page lifecycle projections are restored together");
@@ -6218,15 +6186,23 @@ pub use block_transfer::BlockTransferMetrics;
 mod authorization;
 mod canvas_mutation;
 mod content;
-mod content_rehome;
 pub(crate) mod cursor;
 mod history;
-pub(crate) use authorization::page_grant_ownership_proof;
+pub(crate) use authorization::{
+    canvas_grant_authorization_proof, canvas_lifecycle_grant_authorization_proof,
+    page_grant_ownership_proof,
+};
 pub(crate) use history::{
-    page_read_authorization_roots, require_page_read_access, require_page_write_access,
+    page_read_authorization_roots, require_canvas_lifecycle_read_access,
+    require_canvas_read_access, require_canvas_write_access, require_page_read_access,
+    require_page_write_access,
 };
 pub(crate) use page_copy::{OccurrencePageCloneInput, clone_page_for_occurrence};
 mod mutation;
+pub(crate) use mutation::{
+    insert_creator_resource_grant, insert_library_placement, require_project_in_library,
+    resolve_library_actor_project_id,
+};
 mod navigation;
 mod page_copy;
 pub(crate) mod page_genesis;

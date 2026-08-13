@@ -557,7 +557,7 @@ pub(super) fn prepare(
                 "Search snapshot projected bytes exceed their bound",
             ));
         }
-        let evidence = page_evidence(connection, library_id, &page_id)?;
+        let evidence = page_evidence(connection, library_id, project_id, &page_id)?;
         pages.push(LibrarySearchSnapshotPage {
             page_id: page_id.clone(),
             title_markdown: metadata.title_markdown.clone(),
@@ -620,21 +620,17 @@ struct PageEvidence {
 fn page_evidence(
     connection: &Connection,
     library_id: &str,
+    actor_project_id: &str,
     page_id: &str,
 ) -> Result<PageEvidence, StoreError> {
-    let (storage_project_id, parent_kind, parent_id) = connection
+    let (parent_kind, parent_id) = connection
         .query_row(
-            "SELECT block.project_id, page.parent_kind, page.parent_id \
+            "SELECT page.parent_kind, page.parent_id \
              FROM pages page JOIN blocks block ON block.id = page.block_id \
-             WHERE page.block_id = ?1 AND page.library_id = ?2",
+             WHERE page.block_id = ?1 AND page.library_id = ?2 \
+               AND block.library_id = page.library_id AND block.lifecycle <> 'deleted'",
             params![page_id, library_id],
-            |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                ))
-            },
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
         )
         .optional()?
         .ok_or_else(|| not_found("Search snapshot Page is unavailable"))?;
@@ -644,7 +640,7 @@ fn page_evidence(
         .map(|data_source_id| database_for_data_source(connection, library_id, data_source_id))
         .transpose()?;
     let mut evidence = PageEvidence {
-        storage_project_id,
+        storage_project_id: actor_project_id.to_owned(),
         database_id,
         data_source_id: terminal_data_source,
         schedule_revision: connection
@@ -791,23 +787,26 @@ fn page_ids_in_scope(
 ) -> Result<Vec<String>, StoreError> {
     let (seed, identity) = match scope {
         LibrarySearchSnapshotScope::Page { page_id } => (
-            "SELECT block_id, '|' || block_id || '|' FROM pages \
-             WHERE block_id = ?1 AND library_id = ?2 \
-               AND lifecycle = 'active'",
+            "SELECT page.block_id, '|' || page.block_id || '|' FROM pages page \
+             JOIN blocks block ON block.id = page.block_id AND block.library_id = page.library_id \
+             WHERE page.block_id = ?1 AND page.library_id = ?2 \
+               AND block.lifecycle = 'active'",
             page_id,
         ),
         LibrarySearchSnapshotScope::DataSource { data_source_id } => (
-            "SELECT block_id, '|' || block_id || '|' FROM pages \
-             WHERE parent_kind = 'data_source' AND parent_id = ?1 \
-               AND library_id = ?2 AND lifecycle = 'active'",
+            "SELECT page.block_id, '|' || page.block_id || '|' FROM pages page \
+             JOIN blocks block ON block.id = page.block_id AND block.library_id = page.library_id \
+             WHERE page.parent_kind = 'data_source' AND page.parent_id = ?1 \
+               AND page.library_id = ?2 AND block.lifecycle = 'active'",
             data_source_id,
         ),
         LibrarySearchSnapshotScope::Database { database_id } => (
             "SELECT page.block_id, '|' || page.block_id || '|' \
              FROM pages page JOIN data_sources source \
                ON page.parent_kind = 'data_source' AND page.parent_id = source.id \
+             JOIN blocks block ON block.id = page.block_id AND block.library_id = page.library_id \
              WHERE source.home_database_block_id = ?1 AND page.library_id = ?2 \
-               AND source.library_id = ?2 AND page.lifecycle = 'active' \
+               AND source.library_id = ?2 AND block.lifecycle = 'active' \
                AND source.lifecycle = 'active'",
             database_id,
         ),
@@ -816,9 +815,11 @@ fn page_ids_in_scope(
         "WITH RECURSIVE scoped(page_id, path) AS ( \
            {seed} UNION ALL \
            SELECT child.block_id, scoped.path || child.block_id || '|' \
-           FROM pages child JOIN scoped \
+           FROM pages child JOIN blocks child_block \
+             ON child_block.id = child.block_id AND child_block.library_id = child.library_id \
+           JOIN scoped \
              ON child.parent_kind = 'page' AND child.parent_id = scoped.page_id \
-           WHERE child.library_id = ?2 AND child.lifecycle = 'active' \
+           WHERE child.library_id = ?2 AND child_block.lifecycle = 'active' \
              AND instr(scoped.path, '|' || child.block_id || '|') = 0) \
          SELECT DISTINCT page_id FROM scoped ORDER BY page_id LIMIT ?3"
     );

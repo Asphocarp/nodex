@@ -315,14 +315,39 @@ pub fn validate_store(connection: &Connection) -> Result<(), StoreError> {
             false,
         ));
     }
-    let foreign_key_violations: i64 =
-        connection.query_row("SELECT count(*) FROM pragma_foreign_key_check", [], |row| {
-            row.get(0)
-        })?;
-    if foreign_key_violations != 0 {
+    let foreign_key_violations = connection
+        .prepare(
+            "SELECT \"table\", rowid, parent, fkid \
+             FROM pragma_foreign_key_check ORDER BY \"table\", rowid, fkid LIMIT 9",
+        )?
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, Option<i64>>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, i64>(3)?,
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    if !foreign_key_violations.is_empty() {
+        let truncated = foreign_key_violations.len() == 9;
+        let details = foreign_key_violations
+            .into_iter()
+            .take(8)
+            .map(|(table, rowid, parent, fkid)| {
+                format!(
+                    "{table}[rowid={}].fk#{fkid}->{parent}",
+                    rowid.map_or_else(|| "without-rowid".to_owned(), |value| value.to_string())
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
         return Err(StoreError::new(
             StoreErrorCode::StoreCorrupt,
-            format!("SQLite foreign_key_check found {foreign_key_violations} violations"),
+            format!(
+                "SQLite foreign_key_check found violations: {details}{}",
+                if truncated { ", …" } else { "" }
+            ),
             false,
         ));
     }

@@ -642,6 +642,11 @@ fn apply_pages(
     let document_batch = super::block_transfer::apply_agent_page_document_batch(
         connection,
         scope,
+        context
+            .project_id
+            .as_ref()
+            .map(|project_id| project_id.0.as_str())
+            .ok_or_else(|| unauthorized("Agent Page create requires a bound Project"))?,
         operation_id,
         store_epoch,
         preflight

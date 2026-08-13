@@ -727,15 +727,14 @@ mod tests {
                    database_block_id TEXT
                  );
                  CREATE TABLE blocks(
-                   id TEXT PRIMARY KEY, project_id TEXT, lifecycle TEXT
+                   id TEXT PRIMARY KEY, library_id TEXT, lifecycle TEXT
                  );
                  CREATE TABLE project_resource_grants(
                    project_id TEXT, root_kind TEXT, root_id TEXT,
                    recursive INTEGER, lifecycle TEXT
                  );
                  CREATE TABLE pages(
-                   block_id TEXT PRIMARY KEY, library_id TEXT,
-                   lifecycle TEXT, document_id TEXT
+                   block_id TEXT PRIMARY KEY, library_id TEXT, document_id TEXT
                  );",
             )
             .expect("audience schema");

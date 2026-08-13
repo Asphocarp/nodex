@@ -10,7 +10,7 @@ export const initialDataSourceId = (databaseId: string): string => {
 
 export type ProjectLifecycle = "active" | "inactive" | "archived";
 export type ProjectResourceAccess = "read" | "read_write";
-export type ProjectResourceRootKind = "page" | "database";
+export type ProjectResourceRootKind = "page" | "database" | "canvas";
 
 export interface LocalProfileLibrary {
   readonly profileId: string;

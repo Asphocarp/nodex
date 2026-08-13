@@ -34,7 +34,7 @@ pub(super) struct OccurrenceMutationEffects {
 
 struct Target {
     page: ScheduledPageOccurrence,
-    storage_project_id: String,
+    library_id: String,
     document_id: String,
     database_id: String,
     data_source_id: String,
@@ -206,6 +206,7 @@ fn complete(
         assets_root,
         OccurrencePageCloneInput {
             commit_context,
+            actor_project_id: requesting_project_id,
             operation_id,
             source_page_id: page_id,
             new_page_id: created_page_id,
@@ -227,7 +228,7 @@ fn complete(
     if target.page.recurrence.is_some() && !should_advance {
         upsert_skip_exception(
             connection,
-            &target.storage_project_id,
+            &target.library_id,
             page_id,
             occurrence_start_ms,
             now,
@@ -290,7 +291,7 @@ fn skip(
     if target.page.recurrence.is_some() {
         upsert_skip_exception(
             connection,
-            &target.storage_project_id,
+            &target.library_id,
             page_id,
             occurrence_start_ms,
             now,
@@ -443,6 +444,7 @@ fn update(
             assets_root,
             OccurrencePageCloneInput {
                 commit_context,
+                actor_project_id: requesting_project_id,
                 operation_id,
                 source_page_id: page_id,
                 new_page_id: created_page_id,
@@ -461,7 +463,7 @@ fn update(
         refresh_scheduled_index(connection, created_page_id, now)?;
         upsert_skip_exception(
             connection,
-            &target.storage_project_id,
+            &target.library_id,
             page_id,
             occurrence_start_ms,
             now,
@@ -570,6 +572,7 @@ fn update(
         assets_root,
         OccurrencePageCloneInput {
             commit_context,
+            actor_project_id: requesting_project_id,
             operation_id,
             source_page_id: page_id,
             new_page_id: created_page_id,
@@ -607,7 +610,7 @@ fn resolve_target(
 ) -> Result<Result<Target, (PageOccurrenceMutationCode, String)>, StoreError> {
     let authority = connection
         .query_row(
-            "SELECT block.project_id, page.document_id, page.parent_kind, page.parent_id, \
+            "SELECT block.library_id, page.document_id, page.parent_kind, page.parent_id, \
                source.home_database_block_id, membership.data_source_id, membership.id \
              FROM pages page JOIN blocks block ON block.id = page.block_id AND block.type = 'page' \
              LEFT JOIN data_source_page_memberships membership ON membership.page_block_id = page.block_id \
@@ -683,7 +686,7 @@ fn resolve_target(
     };
     Ok(Ok(Target {
         page,
-        storage_project_id: authority.0,
+        library_id: authority.0,
         document_id: authority.1,
         database_id,
         data_source_id,
@@ -699,7 +702,7 @@ fn require_sibling_creation(
 ) -> Result<(), StoreError> {
     let row = connection
         .query_row(
-            "SELECT page.parent_kind, page.parent_id, block.project_id, \
+            "SELECT page.parent_kind, page.parent_id, \
                source.home_database_block_id \
              FROM pages page JOIN blocks block ON block.id = page.block_id \
              LEFT JOIN data_sources source ON source.id = page.parent_id AND source.library_id = ?1 \
@@ -709,20 +712,16 @@ fn require_sibling_creation(
                 Ok((
                     row.get::<_, String>(0)?,
                     row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, Option<String>>(2)?,
                 ))
             },
         )
         .optional()?
         .ok_or_else(|| unauthorized("Scheduled Page is unavailable"))?;
-    if row.0 != "data_source" || row.3.is_none() {
+    if row.0 != "data_source" || row.2.is_none() {
         return Err(unauthorized("Scheduled Page has no Data Source parent"));
     }
-    let database_id = row.3.expect("validated Database");
-    if row.2 == requesting_project_id {
-        return Ok(());
-    }
+    let database_id = row.2.expect("validated Database");
     let primary = connection
         .query_row(
             "SELECT database_block_id FROM projects WHERE id = ?1 AND library_id = ?2 \
@@ -853,16 +852,12 @@ fn apply_schedule_patch(
     let metadata_revision = connection
         .query_row(
             "UPDATE blocks SET metadata_revision = metadata_revision + 1, updated_at = ?1 \
-             WHERE id = ?2 AND project_id = ?3 AND type = 'page' RETURNING metadata_revision",
-            params![now, target.page.page_id, target.storage_project_id],
+             WHERE id = ?2 AND library_id = ?3 AND type = 'page' RETURNING metadata_revision",
+            params![now, target.page.page_id, target.library_id],
             |row| row.get::<_, i64>(0),
         )
         .optional()?
         .ok_or_else(|| corrupt("Scheduled Page disappeared during mutation"))?;
-    connection.execute(
-        "UPDATE pages SET metadata_revision = ?1, updated_at = ?2 WHERE block_id = ?3",
-        params![metadata_revision, now, target.page.page_id],
-    )?;
     refresh_page_read_model(connection, target, metadata_revision, now)?;
     refresh_scheduled_index(connection, &target.page.page_id, now)
 }
@@ -960,8 +955,8 @@ fn update_intrinsic_value(
     let row = connection
         .query_row(
             "SELECT value_json, revision FROM block_properties \
-             WHERE block_id = ?1 AND project_id = ?2 AND property_key = ?3",
-            params![target.page.page_id, target.storage_project_id, property_key],
+             WHERE block_id = ?1 AND library_id = ?2 AND property_key = ?3",
+            params![target.page.page_id, target.library_id, property_key],
             |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
         )
         .optional()?
@@ -973,13 +968,13 @@ fn update_intrinsic_value(
     }
     connection.execute(
         "UPDATE block_properties SET value_json = ?1, revision = ?2, updated_at = ?3 \
-         WHERE block_id = ?4 AND project_id = ?5 AND property_key = ?6",
+         WHERE block_id = ?4 AND library_id = ?5 AND property_key = ?6",
         params![
             encoded,
             row.1 + 1,
             now,
             target.page.page_id,
-            target.storage_project_id,
+            target.library_id,
             property_key,
         ],
     )?;
@@ -1031,8 +1026,8 @@ fn refresh_page_read_model(
     ] {
         let (value_json, revision) = connection.query_row(
             "SELECT value_json, revision FROM block_properties \
-             WHERE block_id = ?1 AND project_id = ?2 AND property_key = ?3",
-            params![target.page.page_id, target.storage_project_id, property_key],
+             WHERE block_id = ?1 AND library_id = ?2 AND property_key = ?3",
+            params![target.page.page_id, target.library_id, property_key],
             |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
         )?;
         intrinsic.insert(property_key.to_owned(), parse_value(&value_json)?);
@@ -1075,7 +1070,7 @@ pub(crate) fn refresh_scheduled_index(
 ) -> Result<(), StoreError> {
     let row = connection
         .query_row(
-            "SELECT block.project_id, block.lifecycle, block.metadata_revision, membership.id, \
+            "SELECT block.library_id, block.lifecycle, block.metadata_revision, membership.id, \
                start.value_json, finish.value_json, all_day.value_json, recurrence.value_json, \
                reminders.value_json, timezone.value_json \
              FROM blocks block \
@@ -1086,13 +1081,13 @@ pub(crate) fn refresh_scheduled_index(
              LEFT JOIN data_source_property_values finish ON finish.membership_id = membership.id \
                AND finish.data_source_id = membership.data_source_id AND finish.property_id = 'scheduled_end' \
              LEFT JOIN block_properties all_day ON all_day.block_id = block.id \
-               AND all_day.project_id = block.project_id AND all_day.property_key = 'schedule.isAllDay' \
+               AND all_day.library_id = block.library_id AND all_day.property_key = 'schedule.isAllDay' \
              LEFT JOIN block_properties recurrence ON recurrence.block_id = block.id \
-               AND recurrence.project_id = block.project_id AND recurrence.property_key = 'recurrence.config' \
+               AND recurrence.library_id = block.library_id AND recurrence.property_key = 'recurrence.config' \
              LEFT JOIN block_properties reminders ON reminders.block_id = block.id \
-               AND reminders.project_id = block.project_id AND reminders.property_key = 'reminders.config' \
+               AND reminders.library_id = block.library_id AND reminders.property_key = 'reminders.config' \
              LEFT JOIN block_properties timezone ON timezone.block_id = block.id \
-               AND timezone.project_id = block.project_id AND timezone.property_key = 'schedule.timezone' \
+               AND timezone.library_id = block.library_id AND timezone.property_key = 'schedule.timezone' \
              WHERE block.id = ?1 AND block.type = 'page'",
             [page_id],
             |row| {
@@ -1150,10 +1145,10 @@ pub(crate) fn refresh_scheduled_index(
         .flatten();
     connection.execute(
         "INSERT INTO scheduled_page_index( \
-           page_block_id, project_id, lifecycle, scheduled_start, scheduled_end, is_all_day, \
+           page_block_id, library_id, lifecycle, scheduled_start, scheduled_end, is_all_day, \
            recurrence_json, reminders_json, schedule_timezone, source_metadata_revision, updated_at \
          ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11) \
-         ON CONFLICT(page_block_id) DO UPDATE SET project_id = excluded.project_id, \
+         ON CONFLICT(page_block_id) DO UPDATE SET library_id = excluded.library_id, \
            lifecycle = excluded.lifecycle, scheduled_start = excluded.scheduled_start, \
            scheduled_end = excluded.scheduled_end, is_all_day = excluded.is_all_day, \
            recurrence_json = excluded.recurrence_json, reminders_json = excluded.reminders_json, \
@@ -1410,20 +1405,20 @@ fn clone_primary_rank(
 
 fn upsert_skip_exception(
     connection: &Connection,
-    storage_project_id: &str,
+    library_id: &str,
     page_id: &str,
     occurrence_start_ms: i64,
     now: &str,
 ) -> Result<(), StoreError> {
     connection.execute(
         "INSERT INTO recurrence_exceptions( \
-           project_id, page_id, occurrence_start, exception_type, created \
+           library_id, page_id, occurrence_start, exception_type, created \
          ) VALUES (?1, ?2, ?3, 'skip', ?4) \
-         ON CONFLICT(project_id, page_id, occurrence_start) DO UPDATE SET \
+         ON CONFLICT(library_id, page_id, occurrence_start) DO UPDATE SET \
            exception_type = 'skip', override_start = NULL, override_end = NULL, \
            override_reminders_json = NULL",
         params![
-            storage_project_id,
+            library_id,
             page_id,
             timestamp_to_iso(occurrence_start_ms)?,
             now,

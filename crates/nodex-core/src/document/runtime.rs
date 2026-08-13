@@ -385,7 +385,7 @@ mod tests {
         let full_state = engine.full_state_v1();
         DocumentHeadRow {
             id: engine.document_id().to_owned(),
-            project_id: "project:cache".to_owned(),
+            library_id: "library:cache".to_owned(),
             generation: 1,
             head_seq: 1,
             schema_key: "nodex.page".to_owned(),

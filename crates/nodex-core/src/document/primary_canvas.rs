@@ -30,6 +30,7 @@ pub(crate) fn is_primary_canvas_block_id(canvas_id: &str, project_id: &str) -> b
 
 pub(crate) fn create_primary_canvas(
     connection: &Connection,
+    library_id: &str,
     project_id: &str,
     display_name: &str,
     now: &str,
@@ -56,39 +57,39 @@ pub(crate) fn create_primary_canvas(
     }
     connection.execute(
         "INSERT INTO blocks(\
-           id, project_id, type, lifecycle, location_kind, containing_document_id, \
-           containing_database_id, location_revision, metadata_revision, created_at, updated_at\
-         ) VALUES (?1, ?2, ?3, 'active', 'space', NULL, NULL, 1, 1, ?4, ?4)",
-        params![identity.block_id, project_id, CANVAS_OWNER_TYPE, now],
+           id, library_id, type, lifecycle, placement_revision, metadata_revision, \
+           created_at, updated_at\
+         ) VALUES (?1, ?2, ?3, 'active', 1, 1, ?4, ?4)",
+        params![identity.block_id, library_id, CANVAS_OWNER_TYPE, now],
     )?;
     connection.execute(
         "INSERT INTO block_properties(\
-           block_id, project_id, property_key, value_type, value_json, revision, updated_at\
+           block_id, library_id, property_key, value_type, value_json, revision, updated_at\
          ) VALUES (?1, ?2, 'document.display_name', 'string', ?3, 1, ?4)",
         params![
             identity.block_id,
-            project_id,
+            library_id,
             serde_json::to_string(display_name)
                 .map_err(|_| internal("Primary Canvas display name"))?,
             now
         ],
     )?;
     connection.execute(
-        "INSERT INTO top_level_block_placements(\
-           block_id, project_id, rank_key, created_at, updated_at\
-         ) VALUES (?1, ?2, ?3, ?4, ?4)",
-        params![identity.block_id, project_id, PRIMARY_CANVAS_RANK_KEY, now],
+        "INSERT INTO library_block_placements(\
+           block_id, library_id, rank_key, revision, created_at, updated_at\
+         ) VALUES (?1, ?2, ?3, 1, ?4, ?4)",
+        params![identity.block_id, library_id, PRIMARY_CANVAS_RANK_KEY, now],
     )?;
     connection.execute(
         "INSERT INTO documents(\
-           id, project_id, generation, head_seq, schema_key, schema_version, state_vector, \
+           id, library_id, generation, head_seq, schema_key, schema_version, state_vector, \
            state_hash, sync_engine, readiness, authority, genesis_source_revision, \
            created_at, updated_at\
          ) VALUES (?1, ?2, 1, 0, ?3, ?4, X'', ?5, 'canvas_scene', 'ready', \
            'ydoc_primary', NULL, ?6, ?6)",
         params![
             identity.document_id,
-            project_id,
+            library_id,
             CANVAS_SCHEMA_KEY,
             CANVAS_SCHEMA_VERSION,
             "0".repeat(64),
@@ -96,14 +97,14 @@ pub(crate) fn create_primary_canvas(
         ],
     )?;
     connection.execute(
-        "INSERT INTO block_documents(block_id, document_id, project_id, created_at) \
+        "INSERT INTO block_documents(block_id, document_id, library_id, created_at) \
          VALUES (?1, ?2, ?3, ?4)",
-        params![identity.block_id, identity.document_id, project_id, now],
+        params![identity.block_id, identity.document_id, library_id, now],
     )?;
     connection.execute(
         "INSERT INTO canvas_owners(block_id, library_id, created_at, updated_at) \
-         SELECT ?1, library_id, ?2, ?2 FROM projects WHERE id = ?3",
-        params![identity.block_id, now, project_id],
+         VALUES (?1, ?2, ?3, ?3)",
+        params![identity.block_id, library_id, now],
     )?;
     let authority = read_document_authority(connection, &identity.document_id)?
         .ok_or_else(|| corrupt("Primary Canvas has no Document authority"))?;
