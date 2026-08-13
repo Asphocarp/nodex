@@ -7,8 +7,8 @@ import type {
 import {
   DATABASE_LIST_CHECKBOX_WIDTH,
   DATABASE_LIST_FIELD_GAP,
+  DATABASE_LIST_ICON_ACTION_WIDTH,
   DATABASE_LIST_INDENT_WIDTH,
-  DATABASE_LIST_PRIORITY_WIDTH,
 } from "./database-list-grid";
 
 export const DATABASE_LIST_NESTING_DEPTH_PX = 24;
@@ -18,7 +18,7 @@ export const DATABASE_LIST_PAGE_ROW_HEIGHT_PX = 44;
 // The visible 1px guide is centered on the leading identity icon lane.
 export const DATABASE_LIST_NESTING_ANCHOR_PX = DATABASE_LIST_CHECKBOX_WIDTH
   + DATABASE_LIST_FIELD_GAP
-  + DATABASE_LIST_PRIORITY_WIDTH / 2
+  + DATABASE_LIST_ICON_ACTION_WIDTH / 2
   - 0.5;
 
 export const databaseListNestingLineLeft = (level: number): number =>

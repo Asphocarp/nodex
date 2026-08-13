@@ -492,6 +492,13 @@ const withNestedGroupedList = (): DatabaseViewRenderModel => {
 
 export const ListView: Story = { args: { model: withLayout("list") } };
 export const ListIdentityRhythm: Story = {
+  parameters: {
+    docs: {
+      description: {
+        story: "A short Page key exercises the balanced ID, status, and title rhythm.",
+      },
+    },
+  },
   args: {
     model: (() => {
       const base = withLayout("list");
@@ -500,6 +507,25 @@ export const ListIdentityRhythm: Story = {
         ...base,
         query: {
           ...base.query,
+          view: {
+            ...base.query.view,
+            config: {
+              ...base.query.view.config,
+              presentation: {
+                ...base.query.view.config.presentation,
+                layouts: {
+                  ...base.query.view.config.presentation.layouts,
+                  list: {
+                    ...base.query.view.config.presentation.layouts.list,
+                    fields: [
+                      ...base.query.view.config.presentation.layouts.list.fields,
+                      { kind: "property", propertyId: statusPropertyId },
+                    ],
+                  },
+                },
+              },
+            },
+          },
           rows: base.query.rows.map((row) => ({ ...row, pageKey })),
         },
         columns: base.columns.map((column) => ({

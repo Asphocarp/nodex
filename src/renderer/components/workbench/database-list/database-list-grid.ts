@@ -7,9 +7,10 @@ import {
 export const DATABASE_LIST_FIELD_GAP = 8;
 export const DATABASE_LIST_INDENT_WIDTH = 8;
 export const DATABASE_LIST_CHECKBOX_WIDTH = 18;
-export const DATABASE_LIST_PRIORITY_WIDTH = 16;
+// Priority and status controls use a 20px hit target around a 16px glyph. The
+// shared track keeps the visible glyph inset symmetrical with the 8px gaps.
+export const DATABASE_LIST_ICON_ACTION_WIDTH = 20;
 export const DATABASE_LIST_END_PADDING_WIDTH = 18;
-export const DATABASE_LIST_IDENTIFIER_WIDTH_PADDING = 2;
 
 const DATABASE_LIST_PAGE_KEY_PATTERN = /^([A-Z][A-Z0-9]{1,7})-([1-9][0-9]*)$/;
 
@@ -83,7 +84,7 @@ export const databaseListIdentifierMinWidth = (
   }
   return maximumWidth === null
     ? null
-    : Math.ceil(maximumWidth + DATABASE_LIST_IDENTIFIER_WIDTH_PADDING);
+    : Math.ceil(maximumWidth);
 };
 
 const DEFAULT_COLUMN_VISIBILITY: DatabaseListColumnVisibility = {
@@ -147,7 +148,7 @@ export const databaseListGridTemplate = (
   if (coreColumns.priority) {
     tracks.push({
       lineNames: ["priority"],
-      size: `${DATABASE_LIST_PRIORITY_WIDTH}px`,
+      size: `${DATABASE_LIST_ICON_ACTION_WIDTH}px`,
     });
   }
 
@@ -166,7 +167,10 @@ export const databaseListGridTemplate = (
     identityAliases.push("identifier");
   }
   if (coreColumns.status) {
-    tracks.push({ lineNames: [...identityAliases, "status"], size: "16px" });
+    tracks.push({
+      lineNames: [...identityAliases, "status"],
+      size: `${DATABASE_LIST_ICON_ACTION_WIDTH}px`,
+    });
     identityAliases.length = 0;
   }
   tracks.push({
