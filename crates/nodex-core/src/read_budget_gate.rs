@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 use std::env;
 use std::path::PathBuf;
+use std::time::Duration;
 
 use nodex_core_contracts::collection::{CollectionWindowRequest, MAX_COLLECTION_WINDOW_JSON_BYTES};
 use nodex_core_contracts::database::{
@@ -17,7 +18,8 @@ use rusqlite::{Connection, params};
 use serde_json::{Value, json};
 
 use crate::database::DatabaseModule;
-use crate::infrastructure::sqlite::with_immediate_transaction;
+use crate::domain::fractional_rank::evenly_spaced_rank;
+use crate::infrastructure::sqlite::{QueryCancellation, with_immediate_transaction};
 use crate::infrastructure::store::SqliteStoreKernel;
 use crate::library::LibraryModule;
 use crate::workspace::ProjectWorkspaceModule;
@@ -34,6 +36,7 @@ const DATA_SOURCE_ID: &str = "018f2000-0000-7000-8000-000000000002";
 const VIEW_ID: &str = "018f2000-0000-7000-8000-000000000003";
 const NOW: &str = "2026-07-25T12:00:00.000Z";
 const TITLE_RICH_HASH: &str = "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945";
+const FIXTURE_SEED_BUDGET: Duration = Duration::from_secs(60);
 
 fn profile_home() -> PathBuf {
     let value = env::var_os("NODEX_READ_BUDGET_GATE_PROFILE")
@@ -188,12 +191,14 @@ fn create_database(kernel: &SqliteStoreKernel) {
 fn seed_database_rows(kernel: &SqliteStoreKernel) {
     kernel
         .writer()
-        .call(|connection| {
-            with_immediate_transaction(connection, |transaction| {
+        .call_with_budget(
+            FIXTURE_SEED_BUDGET,
+            QueryCancellation::new(),
+            |connection| with_immediate_transaction(connection, |transaction| {
                 {
                     let mut statement = transaction.prepare(
                         "INSERT INTO documents(\
-                           id, project_id, generation, head_seq, schema_key, schema_version, \
+                           id, library_id, generation, head_seq, schema_key, schema_version, \
                            state_vector, state_hash, readiness, authority, created_at, updated_at\
                          ) VALUES (?1, ?2, 1, 0, 'nodex.page', 1, X'', '', 'pending_genesis', \
                            'legacy_shadow', ?3, ?3)",
@@ -201,7 +206,7 @@ fn seed_database_rows(kernel: &SqliteStoreKernel) {
                     for index in 0..DATABASE_ROW_COUNT {
                         statement.execute(params![
                             format!("document:scale:{index:05}"),
-                            PROJECT_ID,
+                            LIBRARY_ID,
                             NOW
                         ])?;
                     }
@@ -209,16 +214,14 @@ fn seed_database_rows(kernel: &SqliteStoreKernel) {
                 {
                     let mut statement = transaction.prepare(
                         "INSERT INTO blocks(\
-                           id, project_id, type, lifecycle, location_kind, \
-                           containing_document_id, containing_database_id, location_revision, \
+                           id, library_id, type, lifecycle, placement_revision, \
                            metadata_revision, created_at, updated_at\
-                         ) VALUES (?1, ?2, 'page', 'active', 'database', NULL, ?3, 1, 1, ?4, ?4)",
+                         ) VALUES (?1, ?2, 'page', 'active', 1, 1, ?3, ?3)",
                     )?;
                     for index in 0..DATABASE_ROW_COUNT {
                         statement.execute(params![
                             format!("page:scale:{index:05}"),
-                            PROJECT_ID,
-                            DATABASE_ID,
+                            LIBRARY_ID,
                             NOW
                         ])?;
                     }
@@ -226,14 +229,14 @@ fn seed_database_rows(kernel: &SqliteStoreKernel) {
                 {
                     let mut statement = transaction.prepare(
                         "INSERT INTO block_documents(\
-                           block_id, document_id, project_id, created_at\
+                           block_id, document_id, library_id, created_at\
                          ) VALUES (?1, ?2, ?3, ?4)",
                     )?;
                     for index in 0..DATABASE_ROW_COUNT {
                         statement.execute(params![
                             format!("page:scale:{index:05}"),
                             format!("document:scale:{index:05}"),
-                            PROJECT_ID,
+                            LIBRARY_ID,
                             NOW
                         ])?;
                     }
@@ -241,9 +244,9 @@ fn seed_database_rows(kernel: &SqliteStoreKernel) {
                 {
                     let mut statement = transaction.prepare(
                         "INSERT INTO pages(\
-                           block_id, library_id, document_id, parent_kind, parent_id, lifecycle, \
-                           parent_revision, metadata_revision, created_at, updated_at\
-                         ) VALUES (?1, ?2, ?3, 'data_source', ?4, 'active', 1, 1, ?5, ?5)",
+                           block_id, library_id, document_id, parent_kind, parent_id, \
+                           created_at, updated_at\
+                         ) VALUES (?1, ?2, ?3, 'data_source', ?4, ?5, ?5)",
                     )?;
                     for index in 0..DATABASE_ROW_COUNT {
                         statement.execute(params![
@@ -295,11 +298,17 @@ fn seed_database_rows(kernel: &SqliteStoreKernel) {
                     }
                 }
                 {
-                    let mut statement = transaction.prepare(
+                    let mut insert_status = transaction.prepare(
                         "INSERT INTO data_source_property_values(\
                            data_source_id, membership_id, property_id, value_type, value_json, \
                            revision, updated_at\
                          ) VALUES (?1, ?2, 'status', 'select', ?3, 1, ?4)",
+                    )?;
+                    let mut insert_task_parent = transaction.prepare(
+                        "INSERT INTO data_source_property_values(\
+                           data_source_id, membership_id, property_id, value_type, value_json, \
+                           revision, updated_at\
+                         ) VALUES (?1, ?2, 'task_parent', 'relation', 'null', 1, ?3)",
                     )?;
                     for index in 0..DATABASE_ROW_COUNT {
                         let status = match index % 3 {
@@ -307,12 +316,14 @@ fn seed_database_rows(kernel: &SqliteStoreKernel) {
                             1 => "\"build\"",
                             _ => "\"ship\"",
                         };
-                        statement.execute(params![
+                        let membership_id = format!("membership:scale:{index:05}");
+                        insert_status.execute(params![
                             DATA_SOURCE_ID,
-                            format!("membership:scale:{index:05}"),
+                            membership_id,
                             status,
                             NOW
                         ])?;
+                        insert_task_parent.execute(params![DATA_SOURCE_ID, membership_id, NOW])?;
                     }
                 }
                 {
@@ -323,10 +334,11 @@ fn seed_database_rows(kernel: &SqliteStoreKernel) {
                          ) VALUES (?1, ?2, ?3, 1, ?4, ?4)",
                     )?;
                     for index in 0..DATABASE_ROW_COUNT {
+                        let rank_key = evenly_spaced_rank(index, DATABASE_ROW_COUNT);
                         statement.execute(params![
                             VIEW_ID,
                             format!("page:scale:{index:05}"),
-                            format!("{index:020}"),
+                            rank_key,
                             NOW
                         ])?;
                     }
@@ -334,17 +346,16 @@ fn seed_database_rows(kernel: &SqliteStoreKernel) {
                 {
                     let mut statement = transaction.prepare(
                         "INSERT INTO page_read_model(\
-                           page_block_id, project_id, lifecycle, location_kind, \
-                           containing_document_id, containing_database_id, top_level_rank_key, \
-                           location_revision, metadata_revision, document_id, document_generation, \
+                           page_block_id, library_id, lifecycle, parent_kind, parent_id, \
+                           library_rank_key, placement_revision, metadata_revision, document_id, document_generation, \
                            document_projected_seq, document_schema_version, document_authority, \
                            membership_id, database_block_id, view_id, view_group_key, view_rank_key, \
                            title, description_preview, description_length, has_description, \
                            database_values_json, intrinsic_properties_json, \
                            property_revisions_json, projection_version, created_at, updated_at\
-                         ) VALUES (?1, ?2, 'active', 'database', NULL, ?3, NULL, 1, 1, ?4, 1, 0, \
-                           1, 'legacy_shadow', ?5, ?3, ?6, ?7, ?8, ?9, ?10, 10, 1, ?11, '{}', \
-                           '{\"status\":1}', 1, ?12, ?12)",
+                         ) VALUES (?1, ?2, 'active', 'data_source', ?3, NULL, 1, 1, ?4, 1, 0, \
+                           1, 'legacy_shadow', ?5, ?6, ?7, ?8, ?9, ?10, ?11, 10, 1, ?12, '{}', \
+                           '{\"status\":1,\"task_parent\":1}', 1, ?13, ?13)",
                     )?;
                     for index in 0..DATABASE_ROW_COUNT {
                         let status = match index % 3 {
@@ -352,15 +363,17 @@ fn seed_database_rows(kernel: &SqliteStoreKernel) {
                             1 => "build",
                             _ => "ship",
                         };
+                        let rank_key = evenly_spaced_rank(index, DATABASE_ROW_COUNT);
                         statement.execute(params![
                             format!("page:scale:{index:05}"),
-                            PROJECT_ID,
-                            DATABASE_ID,
+                            LIBRARY_ID,
+                            DATA_SOURCE_ID,
                             format!("document:scale:{index:05}"),
                             format!("membership:scale:{index:05}"),
+                            DATABASE_ID,
                             VIEW_ID,
                             status,
-                            format!("{index:020}"),
+                            rank_key,
                             format!("Scale row {index:05}"),
                             format!("摘要🚀 {index:05}"),
                             format!("{{\"status\":\"{status}\"}}"),
@@ -369,8 +382,8 @@ fn seed_database_rows(kernel: &SqliteStoreKernel) {
                     }
                 }
                 Ok(())
-            })
-        })
+            }),
+        )
         .expect("seed large Database fixture");
 }
 
