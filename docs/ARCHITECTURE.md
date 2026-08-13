@@ -91,6 +91,7 @@ The decisions behind this model are recorded in [ADR 0017](docs/adr/0017-library
 | Backups, restore, retention, Store maintenance | Rust Core Administration Module | Electron administration adapter and controlled relaunch |
 | Active Codex conversation document | Current renderer owner, seeded from app-server state | Main holds a validated relay/recovery replica; followers render validated copies |
 | Codex wire protocol and remote Thread observations | Pinned Codex-compatible app-server | Main validates and routes generated protocol envelopes |
+| Pending worktree lifecycle and streamed setup state | Electron Main coordinator and its host-scoped worktree worker | Renderer projects typed pending snapshots; Core persists only resulting Session/Thread/worktree metadata |
 | Window layout, owner-scoped Scenes, surface placement | Renderer Window Session App aggregate | Main persists the revisioned Window Session catalog |
 | Browser guests, Browser Use, MCP App guests, Terminal processes | Electron Main runtime aggregates | Renderer holds presentation descriptors and host bindings only |
 | Git repository live-read state | Main-owned Git worker process | Typed Main/preload bus and renderer query projections |
@@ -215,6 +216,15 @@ A follower first acknowledges an exact owner snapshot barrier. It then accepts o
 
 The detailed contracts are [Codex owner/follower streaming](docs/product-specs/codex-thread-owner-follower-streaming.md), [Codex transcript behavior](docs/product-specs/codex-thread-transcript-behavior.md), and [the generated protocol runtime plan](docs/plans/codex-generated-protocol-runtime-boundary.md).
 
+Prompt-created worktrees are a separate pre-conversation Main runtime. A pure
+reducer owns the pending and conversation-start state machines, while a
+host-scoped worktree worker owns Git and setup filesystem effects. The renderer
+can observe and act on typed pending entries but cannot invoke raw worktree
+mutation. Core receives only the successful durable Session/Thread link and
+managed-worktree metadata; the app-side initialization activity remains outside
+the generated app-server protocol. See
+[Codex worktree creation behavior](docs/product-specs/codex-worktree-creation-behavior.md).
+
 ### Window Session and Workbench presentation
 
 A Window Session owns one restorable Workbench layout with owner-scoped Scenes. A Scene owner is a Project, Session, or the window-local Pages context. Project and Session owners have semantic primary surfaces; Pages has no protected primary. Right and bottom split trees are the only surface placement and ordering source.
@@ -279,6 +289,7 @@ This map names stable regions and responsibilities rather than enumerating indiv
 | [`src/main/browser`](src/main/browser) and [`src/main/browser-use`](src/main/browser-use) | Main-owned Browser runtime and automation integration |
 | [`src/main/mcp-app`](src/main/mcp-app) | Sandboxed MCP App guest attachment and MessagePort host |
 | [`src/main/git-worker`](src/main/git-worker) | Generation-bound repository read worker |
+| [`src/main/worktree-worker`](src/main/worktree-worker) | Main-internal host adapter for cancellable managed-worktree creation, setup streaming, and cleanup |
 | [`src/main/local-store`](src/main/local-store) | Host-only preferences, assets, notification and persistence support; never semantic DB authority |
 | [`src/preload`](src/preload) | Context-isolated typed bridge |
 | [`src/renderer/features`](src/renderer/features) | Feature-owned application state and workflows |

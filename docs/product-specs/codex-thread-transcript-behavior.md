@@ -21,7 +21,9 @@ This spec covers:
 This spec does not cover:
 - general workbench shell layout
 - thread auth/account flows
-- worktree creation and environment setup
+- worktree creation, environment setup, and the client-only initialization item,
+  which are specified in
+  [Codex Worktree Creation Behavior](codex-worktree-creation-behavior.md)
 - approval policy configuration outside its visible transcript effects
 
 ## Canonical Model

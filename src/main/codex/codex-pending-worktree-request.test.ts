@@ -9,6 +9,9 @@ import {
   buildCodexPendingThreadStartConfig,
   dedupeCodexLiveFileAttachments,
   projectCodexPendingThreadStart,
+  projectCodexPendingWorktreeLaunchLocation,
+  rebaseCodexPendingWorkspacePath,
+  rebaseCodexPendingWorkspaceRoots,
   shouldSendCodexPendingPermissionOverrides,
 } from "./codex-pending-worktree-request";
 
@@ -63,6 +66,83 @@ describe("pending worktree request allocation", () => {
 });
 
 describe("pending worktree frozen start payload", () => {
+  test("retains secondary project roots and rebases only the primary source tree", () => {
+    const frozen = buildCodexPendingStartConversationParams({
+      input: [],
+      commentAttachments: [],
+      sourceWorkspaceRoot: "/repo/primary/packages/app",
+      sourceWorkspaceRoots: [
+        "/repo/primary/packages/app",
+        "/repo/shared",
+        "/repo/primary/packages/app/",
+      ],
+      fileAttachments: [],
+      addedFiles: [],
+      agentMode: "auto",
+      shouldSendPermissionOverrides: true,
+      model: null,
+      serviceTier: null,
+      reasoningEffort: null,
+      collaborationMode: null,
+      config: {},
+      threadSource: "user",
+      workspaceKind: "project",
+      projectAssignment: null,
+    });
+
+    expect(frozen.workspaceRoots).toEqual([
+      "/repo/primary/packages/app",
+      "/repo/shared",
+    ]);
+    expect(rebaseCodexPendingWorkspaceRoots({
+      sourceWorkspaceRoot: "/repo/primary/packages/app",
+      worktreeWorkspaceRoot: "/worktrees/a1b2/primary/packages/app",
+      workspaceRoots: frozen.workspaceRoots,
+    })).toEqual([
+      "/worktrees/a1b2/primary/packages/app",
+      "/repo/shared",
+    ]);
+  });
+
+  test("rebases a nested cwd while leaving unrelated roots unchanged", () => {
+    expect(rebaseCodexPendingWorkspacePath({
+      path: "/repo/primary/packages/app/src",
+      sourceWorkspaceRoot: "/repo/primary/packages/app",
+      worktreeWorkspaceRoot: "/worktrees/a1b2/primary/packages/app",
+    })).toBe("/worktrees/a1b2/primary/packages/app/src");
+    expect(rebaseCodexPendingWorkspacePath({
+      path: "/repo/shared",
+      sourceWorkspaceRoot: "/repo/primary/packages/app",
+      worktreeWorkspaceRoot: "/worktrees/a1b2/primary/packages/app",
+    })).toBe("/repo/shared");
+  });
+
+  test("projects cwd, roots, and project assignment from one immutable launch descriptor", () => {
+    expect(projectCodexPendingWorktreeLaunchLocation({
+      sourceWorkspaceRoot: "/repo/primary",
+      worktreeWorkspaceRoot: "/worktrees/a1b2/primary",
+      params: {
+        cwd: "/repo/primary/packages/app",
+        workspaceRoots: ["/repo/primary", "/repo/shared"],
+        projectAssignment: {
+          projectKind: "local",
+          projectId: "project-1",
+          path: "/repo/primary/packages/app",
+          pendingCoreUpdate: false,
+        },
+      },
+    })).toEqual({
+      cwd: "/worktrees/a1b2/primary/packages/app",
+      workspaceRoots: ["/worktrees/a1b2/primary", "/repo/shared"],
+      projectAssignment: {
+        projectKind: "local",
+        projectId: "project-1",
+        path: "/worktrees/a1b2/primary/packages/app",
+        pendingCoreUpdate: false,
+      },
+    });
+  });
+
   test("appends pasted source labels and dedupes the exact five-field identity first-wins", () => {
     const first = {
       label: "notes.md",

@@ -384,10 +384,9 @@ describe("bucketizeTurnItems", () => {
     expect(buckets.agentItems.map((item) => item.id).join(",")).toBe("exec,user_2");
   });
 
-  test("keeps worktree initialization standalone after the optimistic user prefix", () => {
-    const buckets = bucketizeTurnItems({
+  test("keeps the completed worktree preface above the first user turn", () => {
+    const worktreeBuckets = bucketizeTurnItems({
       items: [
-        buildItem({ id: "user", type: "userMessage" }),
         buildItem({
           id: "worktree-init",
           type: "worktreeInit",
@@ -413,19 +412,34 @@ describe("bucketizeTurnItems", () => {
       ],
       turnStatus: "completed",
     });
-    const turn = buildTurnViewModel({
-      turnId: "turn_1",
+    const userBuckets = bucketizeTurnItems({
+      items: [buildItem({ id: "user", type: "userMessage" })],
+      turnStatus: "inProgress",
+    });
+    const worktreeTurn = buildTurnViewModel({
+      turnId: "worktree_init_turn",
       turn: null,
-      buckets,
-      isLatestTurn: true,
+      buckets: worktreeBuckets,
+      isLatestTurn: false,
       isStreamingTurn: false,
       isBlocked: false,
     });
+    const userTurn = buildTurnViewModel({
+      turnId: "turn_1",
+      turn: null,
+      buckets: userBuckets,
+      isLatestTurn: true,
+      isStreamingTurn: true,
+      isBlocked: false,
+    });
 
-    expect(buckets.userItems.map((item) => item.id).join(",")).toBe("user");
-    expect(buckets.agentItems.map((item) => item.id).join(",")).toBe("worktree-init");
-    expect(turn.blocks.map((block) => block.type).join(",")).toBe(
-      "userMessage,worktreeInit",
+    expect(worktreeBuckets.userItems).toHaveLength(0);
+    expect(worktreeBuckets.agentItems.map((item) => item.id)).toEqual(["worktree-init"]);
+    expect([
+      ...worktreeTurn.blocks,
+      ...userTurn.blocks,
+    ].map((block) => block.type).join(",")).toBe(
+      "worktreeInit,userMessage",
     );
   });
 

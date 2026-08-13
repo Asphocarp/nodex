@@ -36,6 +36,7 @@ import {
 } from "./ipc-handlers";
 import { GitWorkerHost } from "./git-worker-host";
 import { registerGitWorkerIpc } from "./git-worker-ipc";
+import { CodexWorktreeWorkerHost } from "./worktree-worker/worktree-worker-host";
 import { dbNotifier } from "./local-store/notifier";
 import {
   startAutomationReminderScheduler,
@@ -87,6 +88,7 @@ import {
 } from "./codex-scheduled-automation-scheduler";
 import { DesktopNotificationManager } from "./desktop-notification-manager";
 import { CodexThreadNotificationCoordinator } from "./codex/codex-thread-notification-coordinator";
+import { CODEX_APP_LOCAL_HOST_ID } from "./codex/codex-app-meta-thread-tools";
 import { composerAppshotService } from "./composer-appshot-service";
 import {
   parsePageDeepLink,
@@ -278,6 +280,7 @@ let appInitializationPromise: Promise<void> = Promise.resolve();
 const rendererInitializationReports = new Set<number>();
 let appUpdateService: AppUpdateService | null = null;
 let gitWorkerHost: GitWorkerHost | null = null;
+let worktreeWorkerHost: CodexWorktreeWorkerHost | null = null;
 let disposeGitWorkerIpc: (() => void) | null = null;
 let browserUseSessionRegistry: BrowserUseSessionRegistry | null = null;
 let disposeBrowserUseSessionRegistryBridge: (() => void) | null = null;
@@ -2318,6 +2321,14 @@ function shutdownMainRuntime(): Promise<void> {
       RUNTIME_SHUTDOWN_STEP_TIMEOUT_MS,
     );
     await settleRuntimeShutdownStep(
+      "Worktree worker",
+      async () => {
+        await worktreeWorkerHost?.shutdown();
+        worktreeWorkerHost = null;
+      },
+      RUNTIME_SHUTDOWN_STEP_TIMEOUT_MS,
+    );
+    await settleRuntimeShutdownStep(
       "Main diagnostics",
       () => shutdownMainSentry(),
       RUNTIME_SHUTDOWN_STEP_TIMEOUT_MS,
@@ -2844,6 +2855,18 @@ export async function runMainAppStartup(
     },
   });
   disposeGitWorkerIpc = registerGitWorkerIpc(gitWorkerHost);
+  worktreeWorkerHost = new CodexWorktreeWorkerHost({
+    workerPath: join(__dirname, "worktree-worker.js"),
+    onInfrastructureError: (error) => {
+      logger.error("Worktree worker infrastructure failed", {
+        error: error.message,
+      });
+      captureMainException(error, {
+        tags: { component: "worktree-worker" },
+      });
+    },
+  });
+  codexService.setPendingWorktreeWorkerPort(CODEX_APP_LOCAL_HOST_ID, worktreeWorkerHost);
   rendererClientRouter = new RendererClientRouter();
   const notificationRendererRouter = rendererClientRouter;
   codexThreadNotificationCoordinator = new CodexThreadNotificationCoordinator({

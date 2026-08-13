@@ -94,6 +94,7 @@ import type { WorkbenchCommandPort } from "@/lib/use-workbench-command-ingress";
 import { normalizeCodexManualThreadTitle } from "../../../../shared/codex-thread-title";
 import type {
   CodexPendingWorktreeEntry,
+  CodexPendingWorktreeStartingState,
   CodexPendingWorktreeWarningEvent,
 } from "../../../../shared/codex-pending-worktree";
 import type {
@@ -1362,8 +1363,7 @@ vi.mock("@/features/local-conversation", () => ({
         prompt: string;
         runInTarget?: string;
         runInEnvironmentPath?: string | null;
-        worktreeStartMode?: string;
-        worktreeBranchPrefix?: string | null;
+        worktreeStartingState?: CodexPendingWorktreeStartingState;
       }) => Promise<void>;
       onConsumeNewThreadComposerIntent?: (sessionId: string, focusNonce: number) => void;
     } | undefined;
@@ -1372,8 +1372,7 @@ vi.mock("@/features/local-conversation", () => ({
       sessionId?: string;
       runInTarget?: string;
       runInEnvironmentPath?: string | null;
-      worktreeStartMode?: string;
-      worktreeBranchPrefix?: string | null;
+      worktreeStartingState?: CodexPendingWorktreeStartingState;
     } | null | undefined;
     const composerIntent = props.newThreadComposerIntent as {
       prompt?: string;
@@ -1415,8 +1414,7 @@ vi.mock("@/features/local-conversation", () => ({
                   prompt: "Start from session",
                   runInTarget: target.runInTarget,
                   runInEnvironmentPath: target.runInEnvironmentPath,
-                  worktreeStartMode: target.worktreeStartMode,
-                  worktreeBranchPrefix: target.worktreeBranchPrefix,
+                  worktreeStartingState: target.worktreeStartingState,
                 });
               },
             }, "Send")
@@ -3182,6 +3180,23 @@ export function renderWorkbench({
     if (channel === "worktrees:environments:list") {
       const projectId = String(args[0] ?? "");
       return worktreeEnvironmentOptionsByProject[projectId] ?? [];
+    }
+    if (channel === "worktrees:environments:configs:list") {
+      const projectId = String(args[0] ?? "");
+      return (worktreeEnvironmentOptionsByProject[projectId] ?? []).map((option) => ({
+        configPath: option.path,
+        fileName: option.path.split(/[\\/]/).at(-1) ?? option.name,
+        state: "success",
+        exists: true,
+        name: option.name,
+        hasSetupScript: option.hasSetupScript,
+        hasCleanupScript: option.hasCleanupScript,
+        actionCount: option.actionCount,
+        parseErrorMessage: null,
+        readErrorMessage: null,
+        tooLargeMessage: null,
+        environment: null,
+      }));
     }
     if (channel === "workspace:pick-directory") {
       return "/repo/selected";

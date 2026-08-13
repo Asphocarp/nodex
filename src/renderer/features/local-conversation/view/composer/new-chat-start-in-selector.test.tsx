@@ -10,16 +10,16 @@ function buildModel(overrides?: Partial<NewChatStartInSelectorModel>): NewChatSt
     target: {
       runInTarget: "localProject",
       runInEnvironmentPath: null,
-      worktreeStartMode: "detachedHead",
-      worktreeBranchPrefix: "nodex/",
     },
     disabled: false,
     worktreeAvailable: true,
     environments: [],
     environmentsLoading: false,
+    environmentsError: false,
     selectedEnvironmentPath: null,
-    worktreeStartMode: "detachedHead",
-    worktreeBranchPrefix: "nodex/",
+    defaultEnvironmentPath: null,
+    environmentNeedsAttention: false,
+    environmentRepairConfigPath: null,
     ...overrides,
   };
 }
@@ -110,14 +110,14 @@ describe("NewChatStartInSelector", () => {
     expect(trigger.textContent?.includes("Work locally")).toBe(true);
   });
 
-  test("renders the Codex-parity menu rows", async () => {
+  test("renders the available execution-target menu rows", async () => {
     const view = await renderSelector(buildModel());
 
     await openMenu(view.getByRole("button", { name: "Start in" }));
 
     const bodyText = document.body.textContent ?? "";
-    expect(bodyText.includes("Start in")).toBe(true);
-    expect(bodyText.includes("Work locally")).toBe(true);
+    expect(bodyText.includes("Work in")).toBe(true);
+    expect(bodyText.includes("Local")).toBe(true);
     expect(bodyText.includes("New worktree")).toBe(true);
     expect(bodyText.includes("Connect Codex web")).toBe(false);
     expect(bodyText.includes("Send to cloud")).toBe(false);
@@ -155,6 +155,18 @@ describe("NewChatStartInSelector", () => {
     await openMenu(view.getByRole("button", { name: "Start in" }));
     const row = document.body.querySelector("[data-new-chat-start-in-option='newWorktree']");
     expect(row?.getAttribute("data-disabled")).toBe("");
+  });
+
+  test("explains the primary worktree and directly accessed folders in multi-root projects", async () => {
+    const view = await renderSelector(buildModel({
+      repositoryName: "nodex",
+      additionalSourceFolderCount: 2,
+    }));
+
+    await openMenu(view.getByRole("button", { name: "Start in" }));
+    const row = document.body.querySelector("[data-new-chat-start-in-option='newWorktree']");
+    expect(row?.textContent).toContain("New worktree · nodex");
+    expect(row?.textContent).toContain("Work locally in 2 other folders");
   });
 
   test("disables the trigger while submitting", async () => {

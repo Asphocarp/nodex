@@ -23,7 +23,11 @@ export type CodexPendingWorktreePhase =
   | "failed";
 
 export type CodexPendingWorktreeStartingState =
-  | { readonly type: "branch"; readonly branchName: string }
+  | {
+      readonly type: "branch";
+      readonly branchName: string;
+      readonly remoteRef?: string;
+    }
   | { readonly type: "working-tree" };
 
 interface CodexPendingWorktreeRequestBase {

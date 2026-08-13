@@ -150,18 +150,124 @@ type CodexPendingStartConversationFreezeInput = Omit<
   "cwd" | "workspaceRoots"
 > & {
   readonly sourceWorkspaceRoot: string;
+  readonly sourceWorkspaceRoots?: readonly string[];
 };
+
+function normalizeWorkspacePathForComparison(value: string): string {
+  const slashNormalized = value.trim().replaceAll("\\", "/");
+  const collapsed = slashNormalized.startsWith("//")
+    ? `//${slashNormalized.slice(2).replace(/\/{2,}/g, "/")}`
+    : slashNormalized.replace(/\/{2,}/g, "/");
+  const withoutTrailingSlash = collapsed === "/"
+    ? collapsed
+    : collapsed.replace(/\/+$/, "");
+  return /^(?:[a-z]:\/|\/\/)/i.test(withoutTrailingSlash)
+    ? withoutTrailingSlash.toLowerCase()
+    : withoutTrailingSlash;
+}
+
+function dedupeWorkspaceRoots(
+  primaryRoot: string,
+  workspaceRoots: readonly string[],
+): string[] {
+  const roots = [primaryRoot, ...workspaceRoots];
+  const seen = new Set<string>();
+  return roots.filter((root) => {
+    const normalized = normalizeWorkspacePathForComparison(root);
+    if (!normalized || seen.has(normalized)) return false;
+    seen.add(normalized);
+    return true;
+  });
+}
+
+/** Rebase a frozen source path without losing a nested cwd suffix. */
+export function rebaseCodexPendingWorkspacePath(input: {
+  readonly path: string;
+  readonly sourceWorkspaceRoot: string;
+  readonly worktreeWorkspaceRoot: string;
+}): string {
+  const candidate = normalizeWorkspacePathForComparison(input.path);
+  const source = normalizeWorkspacePathForComparison(input.sourceWorkspaceRoot);
+  if (candidate === source) return input.worktreeWorkspaceRoot;
+  if (!candidate.startsWith(`${source}/`)) return input.path;
+
+  const rawCandidate = input.path.trim().replaceAll("\\", "/").replace(/\/+$/, "");
+  const rawSource = input.sourceWorkspaceRoot
+    .trim()
+    .replaceAll("\\", "/")
+    .replace(/\/+$/, "");
+  const suffix = rawCandidate.slice(rawSource.length).replace(/^\/+/, "");
+  return suffix
+    ? `${input.worktreeWorkspaceRoot.replace(/[\\/]+$/, "")}/${suffix}`
+    : input.worktreeWorkspaceRoot;
+}
+
+/** Replace only the primary source root and retain every other project root. */
+export function rebaseCodexPendingWorkspaceRoots(input: {
+  readonly sourceWorkspaceRoot: string;
+  readonly worktreeWorkspaceRoot: string;
+  readonly workspaceRoots: readonly string[];
+}): string[] {
+  const rebased = input.workspaceRoots.map((root) =>
+    rebaseCodexPendingWorkspacePath({
+      path: root,
+      sourceWorkspaceRoot: input.sourceWorkspaceRoot,
+      worktreeWorkspaceRoot: input.worktreeWorkspaceRoot,
+    })
+  );
+  return dedupeWorkspaceRoots(input.worktreeWorkspaceRoot, rebased);
+}
+
+export function projectCodexPendingWorktreeLaunchLocation(input: {
+  readonly params: Pick<
+    CodexPendingStartConversationParamsInput,
+    "cwd" | "projectAssignment" | "workspaceRoots"
+  >;
+  readonly sourceWorkspaceRoot: string;
+  readonly worktreeWorkspaceRoot: string;
+}): {
+  readonly cwd: string;
+  readonly projectAssignment: CodexPendingStartConversationParamsInput["projectAssignment"];
+  readonly workspaceRoots: readonly string[];
+} {
+  const rebasePath = (candidate: string): string =>
+    rebaseCodexPendingWorkspacePath({
+      path: candidate,
+      sourceWorkspaceRoot: input.sourceWorkspaceRoot,
+      worktreeWorkspaceRoot: input.worktreeWorkspaceRoot,
+    });
+  const projectAssignment = input.params.projectAssignment
+    ? {
+        ...input.params.projectAssignment,
+        ...(input.params.projectAssignment.path
+          ? { path: rebasePath(input.params.projectAssignment.path) }
+          : {}),
+      }
+    : input.params.projectAssignment;
+  return {
+    cwd: rebasePath(input.params.cwd),
+    workspaceRoots: rebaseCodexPendingWorkspaceRoots({
+      sourceWorkspaceRoot: input.sourceWorkspaceRoot,
+      worktreeWorkspaceRoot: input.worktreeWorkspaceRoot,
+      workspaceRoots: input.params.workspaceRoots,
+    }),
+    projectAssignment,
+  };
+}
 
 /** Freeze the exact start payload before asynchronous worktree realization begins. */
 export function buildCodexPendingStartConversationParams(
   input: CodexPendingStartConversationFreezeInput,
 ): CodexPendingStartConversationParamsInput {
-  const { sourceWorkspaceRoot, ...params } = input;
+  const { sourceWorkspaceRoot, sourceWorkspaceRoots, ...params } = input;
   return {
     ...params,
     input: [...params.input],
     commentAttachments: [...params.commentAttachments],
-    workspaceRoots: [sourceWorkspaceRoot],
+    workspaceRoots: dedupeWorkspaceRoots(
+      sourceWorkspaceRoot,
+      sourceWorkspaceRoots ?? [sourceWorkspaceRoot],
+    ),
     cwd: sourceWorkspaceRoot,
     fileAttachments: params.fileAttachments.map((attachment) => ({ ...attachment })),
     addedFiles: params.addedFiles.map((attachment) => ({ ...attachment })),

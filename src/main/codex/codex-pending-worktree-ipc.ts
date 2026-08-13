@@ -175,7 +175,7 @@ export function registerCodexPendingWorktreeIpcHandlers(
   options.registerHandle(
     "codex:pending-worktree:work-locally",
     async (_, hostId, pendingWorktreeId) => {
-      await options.service.workLocallyFromPendingWorktree(
+      return await options.service.workLocallyFromPendingWorktree(
         requireIdentifier(hostId, "Host id"),
         requireIdentifier(pendingWorktreeId, "Pending worktree id"),
       );

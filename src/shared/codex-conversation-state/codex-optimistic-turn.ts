@@ -1,8 +1,10 @@
 import type { Turn } from "@nodex/codex-app-server-protocol/v2/Turn";
-import type {
-  CodexCanonicalConversationState,
-  CodexCanonicalLiveTurnParams,
-  CodexCanonicalTurnState,
+import {
+  appendCodexCanonicalWorktreeInitItem,
+  type CodexCanonicalConversationState,
+  type CodexCanonicalLiveTurnParams,
+  type CodexCanonicalTurnState,
+  type CodexCanonicalWorktreeInitItem,
 } from "./codex-conversation-state";
 
 export interface CodexOptimisticTurnInput {
@@ -189,6 +191,22 @@ export function appendCodexCanonicalOptimisticTurn(
       previousTurnModel: null,
     },
   };
+}
+
+/**
+ * Publish the app-owned worktree preface before the first app-server turn.
+ * The preface deliberately occupies its own completed synthetic turn, so it
+ * remains above the user prompt before and after the server turn is bound.
+ */
+export function appendCodexCanonicalOptimisticFirstTurn(
+  state: CodexCanonicalConversationState,
+  input: CodexOptimisticTurnInput,
+  worktreeInit?: CodexCanonicalWorktreeInitItem,
+): CodexCanonicalConversationState {
+  const prefaced = worktreeInit
+    ? appendCodexCanonicalWorktreeInitItem(state, worktreeInit)
+    : state;
+  return appendCodexCanonicalOptimisticTurn(prefaced, input);
 }
 
 /** Bind the matching nullable turn, coalescing any server occurrence that won the race. */

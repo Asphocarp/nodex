@@ -20,11 +20,11 @@ function makeEntry(
   return {
     id: "local:pending-1",
     hostId: "local",
-    label: "Implement renderer parity",
+    label: "Prepare an isolated workspace",
     sourceWorkspaceRoot: "/repo/nodex",
     startingState: { type: "branch", branchName: "main" },
     localEnvironmentConfigPath: null,
-    prompt: "Implement renderer parity",
+    prompt: "Create an isolated workspace",
     launchMode: "start-conversation",
     clientThreadId: "client-new-thread:11111111-1111-4111-8111-111111111111",
     startConversationParamsInput: {
@@ -179,9 +179,27 @@ describe("pending worktree route model", () => {
       creating,
       waitingResolution(creating),
     );
-    expect(`${creatingActions.canCancel},${creatingActions.canRetry},${creatingActions.canContinue},${creatingActions.canWorkLocally}`).toBe(
-      "true,false,false,true",
-    );
+    expect(creatingActions).toEqual({
+      canAutoFix: false,
+      canCancel: true,
+      canContinue: false,
+      canEditEnvironment: false,
+      canRetry: false,
+      canWorkLocally: true,
+    });
+
+    const failedCreation = makeEntry({ phase: "failed" });
+    expect(resolvePendingWorktreeRouteActions(
+      failedCreation,
+      waitingResolution(failedCreation),
+    )).toEqual({
+      canAutoFix: false,
+      canCancel: false,
+      canContinue: false,
+      canEditEnvironment: true,
+      canRetry: true,
+      canWorkLocally: false,
+    });
 
     const failedSetup = makeEntry({
       phase: "failed",
@@ -197,9 +215,14 @@ describe("pending worktree route model", () => {
         errorMessage: "setup failed",
       },
     );
-    expect(`${failedActions.canCancel},${failedActions.canAutoFix},${failedActions.canRetry},${failedActions.canContinue}`).toBe(
-      "false,false,true,true",
-    );
+    expect(failedActions).toEqual({
+      canAutoFix: false,
+      canCancel: false,
+      canContinue: true,
+      canEditEnvironment: true,
+      canRetry: true,
+      canWorkLocally: false,
+    });
 
     const repairableSetup = makeEntry({
       phase: "failed",
@@ -226,8 +249,25 @@ describe("pending worktree route model", () => {
         errorMessage: null,
       },
     );
-    expect(`${failedConversationActions.canCancel},${failedConversationActions.canRetry},${failedConversationActions.canContinue}`).toBe(
-      "false,true,false",
-    );
+    expect(failedConversationActions).toEqual({
+      canAutoFix: false,
+      canCancel: false,
+      canContinue: false,
+      canEditEnvironment: false,
+      canRetry: true,
+      canWorkLocally: false,
+    });
+
+    expect(resolvePendingWorktreeRouteActions(
+      ready,
+      waitingResolution(ready),
+    )).toEqual({
+      canAutoFix: false,
+      canCancel: false,
+      canContinue: false,
+      canEditEnvironment: false,
+      canRetry: false,
+      canWorkLocally: false,
+    });
   });
 });

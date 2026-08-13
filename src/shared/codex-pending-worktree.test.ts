@@ -1,4 +1,5 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, expectTypeOf, test } from "vitest";
+import type { CodexPendingWorktreeStartingState } from "./codex-pending-worktree";
 import {
   CODEX_PENDING_WORKTREE_FALLBACK_LABEL,
   buildCodexPendingWorktreeSetupRepairPrompt,
@@ -38,6 +39,27 @@ describe("codex pending worktree label", () => {
     const exact = "x".repeat(80);
     expect(summarizeCodexPendingWorktreeLabel(exact)).toBe(exact);
     expect(summarizeCodexPendingWorktreeLabel(`${exact}y`)).toBe(`${"x".repeat(79)}…`);
+  });
+});
+
+describe("codex pending worktree starting state", () => {
+  test("round-trips the full remote ref alongside its normalized branch name", () => {
+    const startingState = {
+      type: "branch",
+      branchName: "feature/exact",
+      remoteRef: "refs/remotes/origin/feature/exact",
+    } satisfies CodexPendingWorktreeStartingState;
+
+    const roundTripped = JSON.parse(
+      JSON.stringify(startingState),
+    ) as CodexPendingWorktreeStartingState;
+
+    expectTypeOf(roundTripped).toMatchTypeOf<CodexPendingWorktreeStartingState>();
+    expect(roundTripped).toEqual({
+      type: "branch",
+      branchName: "feature/exact",
+      remoteRef: "refs/remotes/origin/feature/exact",
+    });
   });
 });
 

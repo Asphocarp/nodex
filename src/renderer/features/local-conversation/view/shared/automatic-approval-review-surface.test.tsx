@@ -35,6 +35,10 @@ function buildReviewItem(overrides?: Partial<CodexConversationItem>): CodexConve
   };
 }
 
+function disclosureBody(trigger: HTMLElement): HTMLElement | null {
+  return trigger.parentElement?.nextElementSibling as HTMLElement | null;
+}
+
 describe("AutomaticApprovalReviewSurface", () => {
   test("renders the standalone action activity with the compact review row nested inside", async () => {
     const item = buildReviewItem();
@@ -43,16 +47,18 @@ describe("AutomaticApprovalReviewSurface", () => {
     const trigger = getByRole("button", { name: "bun test" });
     const summary = textContent(container);
     expect(summary.includes("bun test")).toBe(true);
-    expect(summary.includes("Auto-review approved")).toBe(false);
+    expect(summary.includes("Auto-review approved")).toBe(true);
     expect(summary.includes("Automatic approval review")).toBe(false);
     expect(summary.includes("Low risk")).toBe(false);
-    expect(summary.includes("Only local tests are executed.")).toBe(false);
+    expect(summary.includes("Only local tests are executed.")).toBe(true);
     expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    expect(disclosureBody(trigger)?.getAttribute("aria-hidden")).toBe("true");
 
     fireEvent.click(trigger);
     await waitFor(() => {
       expect(trigger.getAttribute("aria-expanded")).toBe("true");
     });
+    expect(disclosureBody(trigger)?.getAttribute("aria-hidden")).toBe("false");
 
     const reviewTrigger = Array.from(container.querySelectorAll<HTMLButtonElement>("button[aria-expanded]"))
       .find((button) => textContent(button).includes("Auto-review approved")) ?? null;
@@ -82,8 +88,9 @@ describe("AutomaticApprovalReviewSurface", () => {
     const trigger = getByRole("button", { name: "Request" });
     const summary = textContent(container);
     expect(summary.includes("Request")).toBe(true);
-    expect(summary.includes("Auto-review denied high risk")).toBe(false);
+    expect(summary.includes("Auto-review denied high risk")).toBe(true);
     expect(summary.includes("High risk")).toBe(false);
+    expect(disclosureBody(trigger)?.getAttribute("aria-hidden")).toBe("true");
 
     fireEvent.click(trigger);
     await settleAsyncRender();
@@ -91,6 +98,7 @@ describe("AutomaticApprovalReviewSurface", () => {
     const body = textContent(container);
     expect(body.includes("Auto-review denied high risk")).toBe(true);
     expect(body.includes("High risk")).toBe(false);
+    expect(disclosureBody(trigger)?.getAttribute("aria-hidden")).toBe("false");
   });
 
   test("keeps the reviewed action shimmering from canonical review status", async () => {
@@ -117,9 +125,10 @@ describe("AutomaticApprovalReviewSurface", () => {
     const trigger = getByRole("button", { name: "bun test" });
     const content = textContent(container);
     expect(content.includes("bun test")).toBe(true);
-    expect(content.includes("Auto-reviewing")).toBe(false);
+    expect(content.includes("Auto-reviewing")).toBe(true);
     expect(content.includes("Medium risk")).toBe(false);
     expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    expect(disclosureBody(trigger)?.getAttribute("aria-hidden")).toBe("true");
     expect(container.querySelector(".codex-cadenced-shimmer") === null).toBe(false);
 
     fireEvent.click(trigger);
@@ -128,6 +137,7 @@ describe("AutomaticApprovalReviewSurface", () => {
     });
     expect(textContent(container).includes("Auto-reviewing")).toBe(true);
     expect(textContent(container).includes("Medium risk")).toBe(false);
+    expect(disclosureBody(trigger)?.getAttribute("aria-hidden")).toBe("false");
   });
 
   test("renders the compact non-expandable branch as title text only", () => {

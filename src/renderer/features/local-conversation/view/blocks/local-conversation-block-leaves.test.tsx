@@ -544,12 +544,9 @@ describe("ThreadAgentActivityGroupBlock", () => {
 
     const summaryButton = getByRole("button", { name: /Read files/i });
     expect(summaryButton.getAttribute("aria-expanded") ?? "").toBe("false");
-    expect(Boolean(container.querySelector("[data-testid='agent-activity-group-body']"))).toBe(false);
-    expect(applyContentSearchDomMarks({
-      root: container,
-      query: "src/a.ts",
-      idPrefix: "collapsed-activity",
-    }).totalMatches).toBe(0);
+    const collapsedBody = container.querySelector<HTMLElement>("[data-testid='agent-activity-group-body']");
+    expect(collapsedBody?.getAttribute("aria-hidden")).toBe("true");
+    expect(collapsedBody?.hasAttribute("inert")).toBe(true);
 
     await act(async () => {
       fireEvent.click(summaryButton);
@@ -558,7 +555,7 @@ describe("ThreadAgentActivityGroupBlock", () => {
     await settleAsyncRender();
 
     expect(summaryButton.getAttribute("aria-expanded") ?? "").toBe("true");
-    expect(Boolean(container.querySelector("[data-testid='agent-activity-group-body']"))).toBe(true);
+    expect(collapsedBody?.getAttribute("aria-hidden")).toBe("false");
     expect(Boolean(textContent(container).includes("Read src/a.ts"))).toBe(true);
     expect(applyContentSearchDomMarks({
       root: container,
@@ -635,7 +632,7 @@ describe("ThreadAgentActivityGroupBlock", () => {
       entries: [commandBlock],
     });
 
-    const { container, getByRole } = render(
+    const { getByRole } = render(
       <TooltipProvider>
         <ThreadAgentActivityGroupBlock
           block={block}
@@ -648,7 +645,7 @@ describe("ThreadAgentActivityGroupBlock", () => {
     const summaryButton = getByRole("button", { name: /Thinking/i });
     expect(Boolean(textContent(summaryButton).includes("Ran a command"))).toBe(false);
     expect(summaryButton.querySelectorAll(".loading-shimmer-pure-text").length).toBe(1);
-    expect(container.querySelectorAll("[data-tool-activity-icon]").length).toBe(0);
+    expect(summaryButton.querySelectorAll("[data-tool-activity-icon]").length).toBe(0);
   });
 
   test("does not shimmer a latest streaming completed fallback summary", () => {
@@ -712,16 +709,17 @@ describe("ThreadAgentActivityGroupBlock", () => {
     const originalClearTimeout = window.clearTimeout;
     let now = 0;
     let nextTimerId = 1;
-    let scheduledDelay = -1;
-    let scheduledCallback: (() => void) | null = null;
+    const scheduledTimers = new Map<number, { callback: () => void; delay: number }>();
     Date.now = () => now;
     window.setTimeout = ((callback: TimerHandler, delay?: number) => {
-      scheduledDelay = delay ?? 0;
-      scheduledCallback = typeof callback === "function" ? () => callback() : null;
-      return nextTimerId++;
+      const timerId = nextTimerId++;
+      if (typeof callback === "function") {
+        scheduledTimers.set(timerId, { callback: () => callback(), delay: delay ?? 0 });
+      }
+      return timerId;
     }) as typeof window.setTimeout;
-    window.clearTimeout = (() => {
-      scheduledCallback = null;
+    window.clearTimeout = ((timerId?: number) => {
+      if (timerId !== undefined) scheduledTimers.delete(timerId);
     }) as typeof window.clearTimeout;
 
     const buildBlock = (key: string, label: string) => {
@@ -777,12 +775,13 @@ describe("ThreadAgentActivityGroupBlock", () => {
 
       expect(textContent(view.container).includes("Running first command")).toBe(true);
       expect(textContent(view.container).includes("Running second command")).toBe(false);
-      expect(scheduledDelay).toBe(900);
-      expect(Boolean(scheduledCallback)).toBe(true);
+      const summaryTimer = Array.from(scheduledTimers.values())
+        .find((timer) => timer.delay === 900) ?? null;
+      expect(Boolean(summaryTimer)).toBe(true);
 
       now = 1000;
       await act(async () => {
-        scheduledCallback?.();
+        summaryTimer?.callback();
         await Promise.resolve();
       });
 
@@ -921,7 +920,8 @@ describe("ThreadAgentActivityGroupBlock", () => {
     const summaryButton = getByRole("button", { name: /Edited a file/i });
     expect(Boolean(summaryButton.querySelector(".loading-shimmer-pure-text"))).toBe(false);
     const initiallyMountedBody = container.querySelector<HTMLElement>("[data-testid='agent-activity-group-body']");
-    expect(Boolean(initiallyMountedBody)).toBe(false);
+    expect(initiallyMountedBody?.getAttribute("aria-hidden")).toBe("true");
+    expect(initiallyMountedBody?.hasAttribute("inert")).toBe(true);
   });
 
   test("renders a completed single-file change as an aggregate activity header before the row", async () => {
@@ -958,7 +958,8 @@ describe("ThreadAgentActivityGroupBlock", () => {
 
     const summaryButton = getByRole("button", { name: /Edited a file/i });
     expect(Boolean(textContent(summaryButton).includes("2 lines"))).toBe(false);
-    expect(Boolean(container.querySelector("[data-testid='agent-activity-group-body']"))).toBe(false);
+    const collapsedBody = container.querySelector<HTMLElement>("[data-testid='agent-activity-group-body']");
+    expect(collapsedBody?.getAttribute("aria-hidden")).toBe("true");
 
     fireEvent.click(summaryButton);
     await waitFor(() => {
@@ -968,7 +969,7 @@ describe("ThreadAgentActivityGroupBlock", () => {
     });
 
     const content = textContent(container);
-    expect(Boolean(container.querySelector("[data-testid='agent-activity-group-body']"))).toBe(true);
+    expect(collapsedBody?.getAttribute("aria-hidden")).toBe("false");
     expect(Boolean(content.includes("Edited"))).toBe(true);
     expect(Boolean(content.includes("edited.ts"))).toBe(true);
     expect(Boolean(content.includes("+1"))).toBe(true);
@@ -1041,8 +1042,8 @@ describe("ThreadAgentActivityGroupBlock", () => {
     );
 
     const summaryButton = getByRole("button", { name: /Edited a file/i });
-    expect(container.querySelectorAll("[data-tool-activity-icon='edit-files']").length).toBe(1);
-    expect(container.querySelectorAll("[data-tool-activity-icon='run-command']").length).toBe(0);
+    expect(summaryButton.querySelectorAll("[data-tool-activity-icon='edit-files']").length).toBe(1);
+    expect(summaryButton.querySelectorAll("[data-tool-activity-icon='run-command']").length).toBe(0);
 
     fireEvent.click(summaryButton);
     await settleAsyncRender();

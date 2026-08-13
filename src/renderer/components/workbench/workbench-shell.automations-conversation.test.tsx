@@ -1216,8 +1216,6 @@ describe("workbench session shell / automations-conversation", () => {
       prompt: "Start from session",
       runInTarget: "localProject",
       runInEnvironmentPath: null,
-      worktreeStartMode: "detachedHead",
-      worktreeBranchPrefix: "codex/",
       collaborationMode: "default",
       browserUsePresentationOrigin: {
         browserConversationId: "session:alpha:blank",
@@ -1389,8 +1387,6 @@ describe("workbench session shell / automations-conversation", () => {
       prompt: "Start from session",
       runInTarget: "localProject",
       runInEnvironmentPath: null,
-      worktreeStartMode: "detachedHead",
-      worktreeBranchPrefix: "codex/",
       collaborationMode: "default",
       browserUsePresentationOrigin: {
         browserConversationId: "session:beta:created",
@@ -1407,6 +1403,7 @@ describe("workbench session shell / automations-conversation", () => {
       clientThreadId: "client-new-thread:pending-session-composer",
     });
     const screen = renderWorkbench({
+      projects: [makeProject("alpha", "Alpha", "/tmp/project")],
       sessionsByProject: { alpha: [makeBlankSession()] },
     });
     await settleAsyncRender();
@@ -1441,8 +1438,6 @@ describe("workbench session shell / automations-conversation", () => {
       prompt: "Start from session",
       runInTarget: "newWorktree",
       runInEnvironmentPath: null,
-      worktreeStartMode: "detachedHead",
-      worktreeBranchPrefix: "codex/",
       collaborationMode: "default",
       browserUsePresentationOrigin: {
         browserConversationId: "session:alpha:blank",

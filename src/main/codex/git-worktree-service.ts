@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { randomBytes } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { constants as fsConstants } from "node:fs";
 import {
   copyFile,
@@ -378,7 +378,10 @@ interface ResolvedDetachedStartingState {
   startingDiff: string | null;
   startingRef: string;
   syncedBranch: string | null;
+  untrackedPaths: string[];
 }
+
+const REMOTE_TRACKING_REF_PREFIX = "refs/remotes/";
 
 interface ResolvedSourceWorkspace {
   sourceGitRoot: string;
@@ -478,24 +481,11 @@ async function withTemporaryGitIndex<T>(
   }
 }
 
-function normalizeUnifiedDiffSection(section: string): string {
-  return section.replace(/[\r\n]+$/, "");
-}
-
-function joinUnifiedDiffSections(sections: string[]): string {
-  const nonEmptySections = sections
-    .map((section) => normalizeUnifiedDiffSection(section))
-    .filter((section) => section.length > 0);
-  if (nonEmptySections.length === 0) return "";
-
-  return `${nonEmptySections.join("\n")}\n`;
-}
-
 async function captureTrackedWorkingTreeDiff(
   repositoryPath: string,
   signal?: AbortSignal,
 ): Promise<string> {
-  return withTemporaryGitIndex(repositoryPath, signal, async ({ env }) => {
+  const unifiedDiff = await withTemporaryGitIndex(repositoryPath, signal, async ({ env }) => {
     await runGitCommand(["add", "-u"], repositoryPath, { env, signal });
     const result = await runGitCommand(
       [...UNIFIED_DIFF_ARGS, "--cached"],
@@ -504,9 +494,14 @@ async function captureTrackedWorkingTreeDiff(
     );
     return result.stdout;
   });
+  throwIfRequestAborted(signal);
+  if (Buffer.byteLength(unifiedDiff, "utf8") > MAX_STARTING_DIFF_BYTES) {
+    throw new Error("Working tree diff exceeds the 64 MiB limit");
+  }
+  return unifiedDiff;
 }
 
-async function captureUntrackedWorkingTreeDiffs(
+async function captureUntrackedWorkingTreePaths(
   repositoryPath: string,
   signal?: AbortSignal,
 ): Promise<string[]> {
@@ -515,50 +510,8 @@ async function captureUntrackedWorkingTreeDiffs(
     repositoryPath,
     { signal },
   );
-  const untrackedPaths = result.stdout
-    .split("\0")
-    .filter((untrackedPath) => untrackedPath.length > 0);
-  const sections: string[] = [];
-
-  for (const untrackedPath of untrackedPaths) {
-    throwIfRequestAborted(signal);
-    const diff = await runGitCommand(
-      [...UNIFIED_DIFF_ARGS, "--no-index", "--", "/dev/null", untrackedPath],
-      repositoryPath,
-      { allowedExitCodes: [0, 1], signal },
-    );
-    sections.push(diff.stdout);
-  }
-
-  return sections;
-}
-
-async function captureWorkingTreeDiff(
-  repositoryPath: string,
-  signal?: AbortSignal,
-): Promise<string> {
-  const [trackedDiff, untrackedDiffs] = await Promise.all([
-    captureTrackedWorkingTreeDiff(repositoryPath, signal),
-    captureUntrackedWorkingTreeDiffs(repositoryPath, signal),
-  ]);
   throwIfRequestAborted(signal);
-  const unifiedDiff = joinUnifiedDiffSections([trackedDiff, ...untrackedDiffs]);
-  if (Buffer.byteLength(unifiedDiff, "utf8") > MAX_STARTING_DIFF_BYTES) {
-    throw new Error("Working tree diff exceeds the 64 MiB limit");
-  }
-  return unifiedDiff;
-}
-
-async function captureWorkingTreeDiffOrNull(
-  repositoryPath: string,
-  signal?: AbortSignal,
-): Promise<string | null> {
-  try {
-    return await captureWorkingTreeDiff(repositoryPath, signal);
-  } catch {
-    throwIfRequestAborted(signal);
-    return null;
-  }
+  return splitNullDelimitedPaths(result.stdout);
 }
 
 async function resolveSpecifiedBranchRef(
@@ -642,35 +595,56 @@ async function resolveCurrentBranchName(
   return null;
 }
 
+async function resolveSyncedBranchName(
+  repositoryPath: string,
+  startingState: Extract<ManagedWorktreeStartingState, { type: "branch" }>,
+  signal?: AbortSignal,
+): Promise<string | null> {
+  if (startingState.remoteRef != null) return null;
+  if (startingState.branchName === "HEAD") {
+    return await resolveCurrentBranchName(repositoryPath, signal);
+  }
+  if (startingState.branchName.startsWith(REMOTE_TRACKING_REF_PREFIX)) {
+    return startingState.branchName.slice(REMOTE_TRACKING_REF_PREFIX.length);
+  }
+  return startingState.branchName;
+}
+
 async function resolveDetachedStartingState(input: {
   repositoryPath: string;
   startingState: ManagedWorktreeStartingState;
   signal?: AbortSignal;
 }): Promise<ResolvedDetachedStartingState> {
   if (input.startingState.type === "branch") {
-    const syncedBranch = input.startingState.branchName === "HEAD"
-      ? await resolveCurrentBranchName(input.repositoryPath, input.signal)
-      : input.startingState.branchName;
-    return {
-      startingDiff: null,
-      startingRef: await resolveSpecifiedBranchRef(
+    const startingRef = input.startingState.remoteRef
+      ?? await resolveSpecifiedBranchRef(
         input.repositoryPath,
         input.startingState.branchName,
         input.signal,
+      );
+    return {
+      startingDiff: null,
+      startingRef,
+      syncedBranch: await resolveSyncedBranchName(
+        input.repositoryPath,
+        input.startingState,
+        input.signal,
       ),
-      syncedBranch,
+      untrackedPaths: [],
     };
   }
 
-  const [startingRef, startingDiff, syncedBranch] = await Promise.all([
+  const [startingRef, startingDiff, syncedBranch, untrackedPaths] = await Promise.all([
     resolveWorkingTreeStartingRef(input.repositoryPath, input.signal),
-    captureWorkingTreeDiffOrNull(input.repositoryPath, input.signal),
+    captureTrackedWorkingTreeDiff(input.repositoryPath, input.signal),
     resolveCurrentBranchName(input.repositoryPath, input.signal),
+    captureUntrackedWorkingTreePaths(input.repositoryPath, input.signal),
   ]);
   return {
     startingDiff,
     startingRef,
     syncedBranch,
+    untrackedPaths,
   };
 }
 
@@ -736,6 +710,41 @@ async function applyWorkingTreeDiff(input: {
   throwIfRequestAborted(input.signal);
 }
 
+async function removeLocalTrackingBranch(
+  repositoryPath: string,
+  branchName: string,
+): Promise<void> {
+  await runGitCommand(["branch", "-D", branchName], repositoryPath).catch(() => undefined);
+}
+
+async function createMissingLocalTrackingBranch(input: {
+  repositoryPath: string;
+  startingRef: string;
+  signal?: AbortSignal;
+}): Promise<string | null> {
+  if (!input.startingRef.startsWith(REMOTE_TRACKING_REF_PREFIX)) return null;
+
+  const branchName = input.startingRef.slice(REMOTE_TRACKING_REF_PREFIX.length);
+  if (!branchName || await branchExists(input.repositoryPath, branchName, input.signal)) {
+    return null;
+  }
+
+  try {
+    await runGitCommand(
+      ["branch", "--track", branchName, input.startingRef],
+      input.repositoryPath,
+      { signal: input.signal },
+    );
+    throwIfRequestAborted(input.signal);
+    return branchName;
+  } catch (error) {
+    if (await branchExists(input.repositoryPath, branchName).catch(() => false)) {
+      await removeLocalTrackingBranch(input.repositoryPath, branchName);
+    }
+    throw error;
+  }
+}
+
 function hasNodeErrorCode(error: unknown, code: string): boolean {
   return typeof error === "object"
     && error !== null
@@ -745,6 +754,21 @@ function hasNodeErrorCode(error: unknown, code: string): boolean {
 
 function splitNullDelimitedPaths(value: string): string[] {
   return value.split("\0").filter((entry) => entry.length > 0);
+}
+
+function resolveWorkspaceCopyPath(workspaceRoot: string, relativePath: string): string {
+  const resolvedRoot = path.resolve(workspaceRoot);
+  const resolvedPath = path.resolve(resolvedRoot, relativePath);
+  const normalizedRelativePath = path.relative(resolvedRoot, resolvedPath);
+  if (
+    !normalizedRelativePath
+    || normalizedRelativePath === ".."
+    || normalizedRelativePath.startsWith(`..${path.sep}`)
+    || path.isAbsolute(normalizedRelativePath)
+  ) {
+    throw new Error("Cannot copy a workspace file outside its workspace root");
+  }
+  return resolvedPath;
 }
 
 async function findIgnoredCodexOverrideFiles(
@@ -823,24 +847,31 @@ async function findWorktreeIncludedFiles(
 async function ensureSafeCopyDestinationParent(
   worktreeGitRoot: string,
   destinationPath: string,
+  signal?: AbortSignal,
 ): Promise<void> {
+  throwIfRequestAborted(signal);
   const destinationParent = path.dirname(destinationPath);
   const parentRelativePath = path.relative(worktreeGitRoot, destinationParent);
-  if (parentRelativePath.startsWith("..") || path.isAbsolute(parentRelativePath)) {
+  if (
+    parentRelativePath === ".."
+    || parentRelativePath.startsWith(`..${path.sep}`)
+    || path.isAbsolute(parentRelativePath)
+  ) {
     throw new Error("Cannot copy a workspace file outside the worktree");
   }
 
   let currentPath = worktreeGitRoot;
   for (const segment of parentRelativePath.split(path.sep).filter(Boolean)) {
+    throwIfRequestAborted(signal);
     currentPath = path.join(currentPath, segment);
     try {
-      const entry = await lstat(currentPath);
+      const entry = await runAbortChecked(signal, () => lstat(currentPath));
       if (entry.isSymbolicLink()) {
         throw new Error("Cannot copy a workspace file through a symlinked workspace path");
       }
     } catch (error) {
       if (!hasNodeErrorCode(error, "ENOENT")) throw error;
-      await mkdir(destinationParent, { recursive: true });
+      await runAbortChecked(signal, () => mkdir(destinationParent, { recursive: true }));
       return;
     }
   }
@@ -850,19 +881,26 @@ async function copyWorkspaceFile(input: {
   sourceGitRoot: string;
   worktreeGitRoot: string;
   relativePath: string;
+  signal?: AbortSignal;
 }): Promise<boolean> {
-  const sourcePath = path.join(input.sourceGitRoot, input.relativePath);
-  const destinationPath = path.join(input.worktreeGitRoot, input.relativePath);
+  const sourcePath = resolveWorkspaceCopyPath(input.sourceGitRoot, input.relativePath);
+  const destinationPath = resolveWorkspaceCopyPath(input.worktreeGitRoot, input.relativePath);
   try {
-    if (!(await lstat(sourcePath)).isFile()) return false;
+    if (!(await runAbortChecked(input.signal, () => lstat(sourcePath))).isFile()) return false;
   } catch (error) {
     if (hasNodeErrorCode(error, "ENOENT")) return false;
     throw error;
   }
 
-  await ensureSafeCopyDestinationParent(input.worktreeGitRoot, destinationPath);
+  await ensureSafeCopyDestinationParent(
+    input.worktreeGitRoot,
+    destinationPath,
+    input.signal,
+  );
   try {
-    await copyFile(sourcePath, destinationPath, fsConstants.COPYFILE_EXCL);
+    await runAbortChecked(input.signal, () =>
+      copyFile(sourcePath, destinationPath, fsConstants.COPYFILE_EXCL),
+    );
     return true;
   } catch (error) {
     if (hasNodeErrorCode(error, "EEXIST")) return false;
@@ -874,26 +912,55 @@ async function copyWorkspaceFiles(input: {
   sourceGitRoot: string;
   worktreeGitRoot: string;
   relativePaths: readonly string[];
+  signal?: AbortSignal;
 }): Promise<number> {
   let nextIndex = 0;
   let copiedCount = 0;
+  const failures: unknown[] = [];
   const workerCount = Math.min(MAX_WORKSPACE_COPY_CONCURRENCY, input.relativePaths.length);
   await Promise.all(Array.from({ length: workerCount }, async () => {
     for (;;) {
+      if (failures.length > 0) return;
       const index = nextIndex;
       nextIndex += 1;
       const relativePath = input.relativePaths[index];
       if (relativePath === undefined) return;
-      if (await copyWorkspaceFile({
-        sourceGitRoot: input.sourceGitRoot,
-        worktreeGitRoot: input.worktreeGitRoot,
-        relativePath,
-      })) {
-        copiedCount += 1;
+      try {
+        throwIfRequestAborted(input.signal);
+        if (await copyWorkspaceFile({
+          sourceGitRoot: input.sourceGitRoot,
+          worktreeGitRoot: input.worktreeGitRoot,
+          relativePath,
+          signal: input.signal,
+        })) {
+          copiedCount += 1;
+        }
+      } catch (error) {
+        failures.push(error);
       }
     }
   }));
+  if (failures.length > 0) throw failures[0];
   return copiedCount;
+}
+
+async function copyUntrackedWorkingTreeFiles(input: {
+  sourceGitRoot: string;
+  worktreeGitRoot: string;
+  relativePaths: readonly string[];
+  onLog?: (output: { stream: GitCommandOutputStream; data: string }) => void;
+  signal?: AbortSignal;
+}): Promise<void> {
+  if (input.relativePaths.length === 0) return;
+
+  input.onLog?.({
+    stream: "info",
+    data: "[info] Copying untracked files to new worktree\n",
+  });
+  const copiedCount = await copyWorkspaceFiles(input);
+  if (copiedCount !== input.relativePaths.length) {
+    throw new Error("Failed to copy all untracked working tree files");
+  }
 }
 
 async function copyCodexWorkspaceFiles(input: {
@@ -907,6 +974,7 @@ async function copyCodexWorkspaceFiles(input: {
     sourceGitRoot: input.sourceGitRoot,
     worktreeGitRoot: input.worktreeGitRoot,
     relativePaths: overrideFiles,
+    signal: input.signal,
   });
 
   const includedFiles = await findWorktreeIncludedFiles(input.sourceGitRoot, input.signal);
@@ -914,6 +982,7 @@ async function copyCodexWorkspaceFiles(input: {
     sourceGitRoot: input.sourceGitRoot,
     worktreeGitRoot: input.worktreeGitRoot,
     relativePaths: includedFiles,
+    signal: input.signal,
   });
   if (includedCount > 0) {
     input.onLog?.({
@@ -974,10 +1043,13 @@ async function finishManagedWorktreeCreation(input: {
   worktreeGitRoot: string;
   worktreeWorkspaceRoot: string;
   localEnvironmentConfigPath: string | null;
+  propagateLocalWorkspaceFiles: boolean;
   onLog?: (output: { stream: GitCommandOutputStream; data: string }) => void;
   signal?: AbortSignal;
 }): Promise<void> {
-  await copyCodexWorkspaceFiles(input);
+  if (input.propagateLocalWorkspaceFiles) {
+    await copyCodexWorkspaceFiles(input);
+  }
   throwIfRequestAborted(input.signal);
   input.onLog?.({
     stream: "info",
@@ -1054,6 +1126,7 @@ export type ManagedWorktreeStartingState =
   | {
       type: "branch";
       branchName: string;
+      remoteRef?: string;
     }
   | {
       type: "working-tree";
@@ -1071,7 +1144,13 @@ export interface CreateManagedWorktreeInput {
   startingState?: ManagedWorktreeStartingState;
   localEnvironmentConfigPath?: string | null;
   setUpSyncedBranch?: boolean;
+  /** Remote host adapters skip source-local ignored-file propagation. */
+  propagateLocalWorkspaceFiles?: boolean;
   onLog?: (output: { stream: GitCommandOutputStream; data: string }) => void;
+  onPathAllocated?: (paths: {
+    readonly worktreeGitRoot: string;
+    readonly worktreeWorkspaceRoot: string;
+  }) => void;
   signal?: AbortSignal;
 }
 
@@ -1082,7 +1161,7 @@ export interface CreateManagedWorktreeResult {
   branchName: string | null;
 }
 
-/** Exact pending-create default resolution happens before the request is queued. */
+/** Resolve the pending-create default on the host that owns the repository. */
 export async function resolveManagedWorktreeDefaultStartingState(
   repositoryPath: string,
   signal?: AbortSignal,
@@ -1175,7 +1254,7 @@ export async function createManagedWorktree(input: CreateManagedWorktreeInput): 
 
   for (let attempt = 0; attempt < 10; attempt += 1) {
     throwIfRequestAborted(signal);
-    const token = randomBytes(2).toString("hex");
+    const token = randomUUID().slice(0, 4);
     const worktreeGitRoot = path.join(worktreesRoot, token, worktreePathLeaf);
     const worktreeWorkspaceRoot = resolveWorktreeWorkspaceRoot(
       worktreeGitRoot,
@@ -1186,7 +1265,10 @@ export async function createManagedWorktree(input: CreateManagedWorktreeInput): 
     if (existing) continue;
     await runAbortChecked(signal, () => mkdir(path.dirname(worktreeGitRoot), { recursive: true }));
 
+    let createdTrackingBranch: string | null = null;
     try {
+      input.onPathAllocated?.({ worktreeGitRoot, worktreeWorkspaceRoot });
+      throwIfRequestAborted(signal);
       if (input.mode === "autoBranch") {
         const branchName = await resolveAutoBranchName({
           repositoryPath: sourceGitRoot,
@@ -1205,6 +1287,7 @@ export async function createManagedWorktree(input: CreateManagedWorktreeInput): 
           worktreeGitRoot,
           worktreeWorkspaceRoot,
           localEnvironmentConfigPath: input.localEnvironmentConfigPath ?? null,
+          propagateLocalWorkspaceFiles: input.propagateLocalWorkspaceFiles ?? true,
           onLog: input.onLog,
           signal,
         });
@@ -1230,6 +1313,20 @@ export async function createManagedWorktree(input: CreateManagedWorktreeInput): 
           signal,
         });
       }
+      if (detachedStartingState) {
+        await copyUntrackedWorkingTreeFiles({
+          sourceGitRoot,
+          worktreeGitRoot,
+          relativePaths: detachedStartingState.untrackedPaths,
+          onLog: input.onLog,
+          signal,
+        });
+        createdTrackingBranch = await createMissingLocalTrackingBranch({
+          repositoryPath: sourceGitRoot,
+          startingRef: detachedStartingState.startingRef,
+          signal,
+        });
+      }
       if ((input.setUpSyncedBranch ?? true) && detachedStartingState?.syncedBranch) {
         await persistSyncedBranchMetadata({
           sourceGitRoot,
@@ -1243,6 +1340,7 @@ export async function createManagedWorktree(input: CreateManagedWorktreeInput): 
         worktreeGitRoot,
         worktreeWorkspaceRoot,
         localEnvironmentConfigPath: input.localEnvironmentConfigPath ?? null,
+        propagateLocalWorkspaceFiles: input.propagateLocalWorkspaceFiles ?? true,
         onLog: input.onLog,
         signal,
       });
@@ -1254,6 +1352,9 @@ export async function createManagedWorktree(input: CreateManagedWorktreeInput): 
       };
     } catch (error) {
       await removeManagedWorktree(worktreeGitRoot).catch(() => undefined);
+      if (createdTrackingBranch) {
+        await removeLocalTrackingBranch(sourceGitRoot, createdTrackingBranch);
+      }
       throw error;
     }
   }

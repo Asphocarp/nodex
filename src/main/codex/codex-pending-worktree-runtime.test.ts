@@ -7,6 +7,7 @@ import {
   CodexPendingWorktreeRuntime,
   type CodexPendingWorktreeCreationResult,
 } from "./codex-pending-worktree-runtime";
+import type { CodexWorktreeWorkerEvent } from "./codex-worktree-worker-port";
 
 function deferred<T>(): {
   readonly promise: Promise<T>;
@@ -92,6 +93,42 @@ function goalRequest(id = "local:goal-pending"): CodexPendingStartConversationRe
 }
 
 describe("Codex pending worktree runtime", () => {
+  test("publishes allocated roots before setup so cancel can clean a partial creation", async () => {
+    const creation = deferred<CodexPendingWorktreeCreationResult>();
+    const removed: string[] = [];
+    const runtime = new CodexPendingWorktreeRuntime({
+      ...TEST_RUNTIME_DEFAULTS,
+      createWorktree: async (_entry, context) => {
+        context.onEvent({
+          type: "path-allocated",
+          worktreeGitRoot: "/worktrees/a1b2/repo",
+          worktreeWorkspaceRoot: "/worktrees/a1b2/repo/packages/app",
+        });
+        return await creation.promise;
+      },
+      launchConversation: async () => ({ threadId: "unexpected" }),
+      removeWorktree: async (hostId, root) => {
+        removed.push(`${hostId}:${root}`);
+      },
+    });
+
+    try {
+      runtime.create(request(), 42);
+      expect(runtime.list()[0]?.worktreeGitRoot).toBe("/worktrees/a1b2/repo");
+      expect(runtime.list()[0]?.worktreeWorkspaceRoot).toBe(
+        "/worktrees/a1b2/repo/packages/app",
+      );
+
+      runtime.cancel("local:pending-1");
+      await flushAsyncWork();
+      expect(runtime.list()).toHaveLength(0);
+      expect(removed).toEqual(["local:/worktrees/a1b2/repo"]);
+    } finally {
+      creation.reject(new Error("canceled"));
+      runtime.shutdown();
+    }
+  });
+
   test("registers a ready stable workspace without creating a conversation", async () => {
     const registrations: string[] = [];
     let launchCount = 0;
@@ -148,7 +185,7 @@ describe("Codex pending worktree runtime", () => {
         worktreeWorkspaceRoot: "/worktree-stable-failed/packages/app",
       }),
       launchConversation: async () => ({ threadId: "unexpected" }),
-      removeWorktree: async (worktreeGitRoot) => {
+      removeWorktree: async (_hostId, worktreeGitRoot) => {
         removed.push(worktreeGitRoot);
       },
       addWorkspaceRoot: async () => {
@@ -198,7 +235,12 @@ describe("Codex pending worktree runtime", () => {
     const runtime = new CodexPendingWorktreeRuntime({
       ...TEST_RUNTIME_DEFAULTS,
       createWorktree: async (_entry, context) => {
-        context.onOutput("cloning\n");
+        context.onEvent({
+          type: "output",
+          phase: "worktree",
+          stream: "stdout",
+          data: "cloning\n",
+        });
         return await creation.promise;
       },
       launchConversation: async (entry, workspaceRoot) => {
@@ -229,6 +271,75 @@ describe("Codex pending worktree runtime", () => {
       expect(runtime.list().length).toBe(0);
       expect(runtime.resolveThread("client-new-thread:one")).toBe(null);
     } finally {
+      runtime.shutdown();
+    }
+  });
+
+  test("ignores late tagged events from a superseded creation attempt", async () => {
+    const secondCreation = deferred<CodexPendingWorktreeCreationResult>();
+    const attemptEvents: Array<(event: CodexWorktreeWorkerEvent) => void> = [];
+    let creationAttempt = 0;
+    const runtime = new CodexPendingWorktreeRuntime({
+      ...TEST_RUNTIME_DEFAULTS,
+      createWorktree: async (_entry, context) => {
+        creationAttempt += 1;
+        attemptEvents.push(context.onEvent);
+        if (creationAttempt === 1) throw new Error("first creation failed");
+        return await secondCreation.promise;
+      },
+      launchConversation: async () => ({ threadId: "thread-after-retry" }),
+      removeWorktree: async () => {},
+    });
+
+    try {
+      runtime.create(request(), 42);
+      await flushAsyncWork();
+      expect(runtime.list()[0]?.phase).toBe("failed");
+
+      runtime.retry("local:pending-1");
+      expect(attemptEvents).toHaveLength(2);
+      const beforeLateEvents = runtime.list()[0];
+      expect(beforeLateEvents?.attempt).toBe(2);
+      expect(beforeLateEvents?.phase).toBe("creating");
+
+      attemptEvents[0]?.({
+        type: "path-allocated",
+        worktreeGitRoot: "/stale/worktree",
+        worktreeWorkspaceRoot: "/stale/worktree/packages/app",
+      });
+      attemptEvents[0]?.({ type: "setup-started" });
+      attemptEvents[0]?.({
+        type: "output",
+        phase: "worktree",
+        stream: "stderr",
+        data: "stale output\n",
+      });
+      attemptEvents[1]?.({
+        type: "output",
+        phase: "worktree",
+        stream: "stdout",
+        data: "",
+      });
+
+      expect(runtime.list()[0]).toBe(beforeLateEvents);
+      attemptEvents[1]?.({
+        type: "path-allocated",
+        worktreeGitRoot: "/current/worktree",
+        worktreeWorkspaceRoot: "/current/worktree/packages/app",
+      });
+      expect(runtime.list()[0]).toMatchObject({
+        attempt: 2,
+        phase: "creating",
+        worktreeGitRoot: "/current/worktree",
+        worktreeWorkspaceRoot: "/current/worktree/packages/app",
+        worktreeOutputText: "[info] Starting worktree creation\n",
+      });
+    } finally {
+      secondCreation.resolve({
+        worktreeGitRoot: "/current/worktree",
+        worktreeWorkspaceRoot: "/current/worktree/packages/app",
+      });
+      await flushAsyncWork();
       runtime.shutdown();
     }
   });
@@ -412,8 +523,13 @@ describe("Codex pending worktree runtime", () => {
     const runtime = new CodexPendingWorktreeRuntime({
       ...TEST_RUNTIME_DEFAULTS,
       createWorktree: async (_entry, context) => {
-        context.onSetupStarted();
-        context.onOutput("setup output\n");
+        context.onEvent({ type: "setup-started" });
+        context.onEvent({
+          type: "output",
+          phase: "setup",
+          stream: "stdout",
+          data: "setup output\n",
+        });
         return {
           worktreeGitRoot: "/worktree",
           worktreeWorkspaceRoot: "/worktree",
@@ -558,10 +674,11 @@ describe("Codex pending worktree runtime", () => {
             });
           });
         }
+        context.onEvent({ type: "setup-started" });
         return await firstCreation.promise;
       },
       launchConversation: async () => ({ threadId: "unused" }),
-      removeWorktree: async (root) => {
+      removeWorktree: async (_hostId, root) => {
         removed.push(root);
       },
     });

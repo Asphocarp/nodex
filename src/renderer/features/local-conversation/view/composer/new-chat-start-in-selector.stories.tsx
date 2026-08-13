@@ -11,7 +11,7 @@ import { NewChatStartInSelector } from "./new-chat-start-in-selector";
 
 interface StoryArgs {
   target: "localProject" | "newWorktree";
-  state: "default" | "disabled" | "nonGit";
+  state: "default" | "disabled" | "nonGit" | "multiRoot";
 }
 
 function buildActions(onSelect: (target: NewChatStartInTarget) => void): ThreadStageActions {
@@ -52,17 +52,27 @@ function buildModel(target: NewChatStartInTarget, state: StoryArgs["state"]): Ne
     worktreeAvailable: state !== "nonGit",
     environments: [
       {
-        path: ".codex/environments/ui-polish.toml",
+        configPath: ".codex/environments/ui-polish.toml",
+        fileName: "ui-polish.toml",
+        state: "success",
+        exists: true,
         name: "UI polish",
         hasSetupScript: true,
         hasCleanupScript: false,
         actionCount: 1,
+        parseErrorMessage: null,
+        readErrorMessage: null,
+        environment: null,
       },
     ],
     environmentsLoading: false,
+    environmentsError: false,
     selectedEnvironmentPath: target.runInEnvironmentPath ?? null,
-    worktreeStartMode: target.worktreeStartMode ?? "detachedHead",
-    worktreeBranchPrefix: target.worktreeBranchPrefix ?? "nodex/",
+    defaultEnvironmentPath: ".codex/environments/ui-polish.toml",
+    environmentNeedsAttention: false,
+    environmentRepairConfigPath: null,
+    repositoryName: "nodex",
+    additionalSourceFolderCount: state === "multiRoot" ? 2 : 0,
   };
 }
 
@@ -70,8 +80,6 @@ function NewChatStartInSelectorStory(args: StoryArgs) {
   const [target, setTarget] = useState<NewChatStartInTarget>({
     runInTarget: args.target,
     runInEnvironmentPath: args.target === "newWorktree" ? ".codex/environments/ui-polish.toml" : null,
-    worktreeStartMode: "detachedHead",
-    worktreeBranchPrefix: "nodex/",
   });
 
   return (
@@ -89,6 +97,7 @@ function NewChatStartInSelectorStory(args: StoryArgs) {
                   actions={buildActions((nextTarget) => setTarget(nextTarget))}
                   disabled={args.state === "disabled"}
                   worktreeAvailable={args.state !== "nonGit"}
+                  open
                 />
                 <span className="inline-flex h-7 max-w-40 items-center rounded-full px-1.5 text-sm text-token-text-tertiary">
                   main
@@ -125,14 +134,14 @@ const meta = {
     },
     state: {
       control: "radio",
-      options: ["default", "disabled", "nonGit"],
+      options: ["default", "disabled", "nonGit", "multiRoot"],
     },
   },
   parameters: {
     docs: {
       description: {
         component:
-          "Focused Codex Electron parity story for the new-chat Start in selector rendered between project and branch controls.",
+          "Focused new-chat execution-target selector rendered between Project and starting-state controls.",
       },
     },
   },
@@ -162,5 +171,12 @@ export const DisabledWhileSubmitting: Story = {
   args: {
     target: "localProject",
     state: "disabled",
+  },
+};
+
+export const MultiRootProject: Story = {
+  args: {
+    target: "newWorktree",
+    state: "multiRoot",
   },
 };

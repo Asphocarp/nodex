@@ -4,6 +4,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir, userInfo } from "node:os";
 import path from "node:path";
 import { StringDecoder } from "node:string_decoder";
+import { killChildProcessTree } from "../process-tree";
 import type { CodexStoredShellEnvironment } from "./codex-thread-launch-context";
 
 const CODEX_SHELL_ENVIRONMENT_DELIMITER = "_SHELL_ENV_DELIMITER_";
@@ -289,6 +290,8 @@ function appendOutputTail(currentTail: string, chunk: string, maxChars = 64_000)
   return merged.length <= maxChars ? merged : merged.slice(merged.length - maxChars);
 }
 
+const SETUP_KILL_ESCALATION_MS = 250;
+
 export interface RunCodexWorktreeSetupScriptInput {
   readonly script: string;
   readonly cwd: string;
@@ -332,6 +335,7 @@ export async function runCodexWorktreeSetupScript(
     return await new Promise<CodexStoredShellEnvironment | null>((resolve, reject) => {
       const child = spawn("bash", [wrapperPath], {
         cwd: input.cwd,
+        detached: process.platform !== "win32",
         env: {
           ...baseEnvironment,
           COLORTERM: "truecolor",
@@ -347,9 +351,27 @@ export async function runCodexWorktreeSetupScript(
       let stderrTail = "";
       let settled = false;
       let canceled = false;
+      let killTimer: ReturnType<typeof setTimeout> | null = null;
       const onAbort = (): void => {
         canceled = true;
-        child.kill();
+        if (child.exitCode !== null || child.signalCode !== null) return;
+        killChildProcessTree(child, "SIGTERM");
+        if (killTimer) return;
+        killTimer = setTimeout(() => {
+          if (child.exitCode === null && child.signalCode === null) {
+            killChildProcessTree(child, "SIGKILL");
+          } else if (child.pid !== undefined && process.platform !== "win32") {
+            // A shell can exit after SIGTERM while a descendant ignores it. The
+            // process group remains addressable by the original leader pid.
+            try {
+              process.kill(-child.pid, "SIGKILL");
+            } catch {
+              // The whole process group has already exited.
+            }
+          }
+          killTimer = null;
+        }, SETUP_KILL_ESCALATION_MS);
+        killTimer.unref?.();
       };
       input.signal?.addEventListener("abort", onAbort, { once: true });
       if (input.signal?.aborted) onAbort();
@@ -370,6 +392,7 @@ export async function runCodexWorktreeSetupScript(
       child.on("error", (error) => {
         if (settled) return;
         settled = true;
+        if (killTimer && !canceled) clearTimeout(killTimer);
         input.signal?.removeEventListener("abort", onAbort);
         if (canceled) {
           reject(new Error("Worktree environment setup canceled."));
@@ -381,6 +404,7 @@ export async function runCodexWorktreeSetupScript(
       child.on("close", async (code) => {
         if (settled) return;
         settled = true;
+        if (killTimer && !canceled) clearTimeout(killTimer);
 
         const trailingStdout = stdoutDecoder.end();
         if (trailingStdout) {

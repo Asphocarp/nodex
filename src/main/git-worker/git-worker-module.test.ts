@@ -181,6 +181,7 @@ describe("GitWorkerModule", () => {
         currentBranch: "feature/worker",
         defaultBranch: "main",
         branches: ["feature/worker", "main"],
+        remoteBranchRefs: [],
       },
     });
     const refreshed = await module.execute(

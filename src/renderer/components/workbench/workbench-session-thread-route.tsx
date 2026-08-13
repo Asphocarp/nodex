@@ -40,9 +40,9 @@ import type {
   CodexComposerIntent,
   PageRunInTarget,
   Project,
-  WorktreeEnvironmentOption,
-  WorktreeStartMode,
+  WorktreeEnvironmentConfigRecord,
 } from "@/lib/types";
+import type { CodexPendingWorktreeStartingState } from "../../../shared/codex-pending-worktree";
 import type { WorkbenchSessionRenderProjection } from "@/lib/workbench-session-presentation";
 import {
   normalizeProjectPrimaryWorkspaceRoot,
@@ -51,7 +51,8 @@ import {
 import { resolvePresentedSessionThread } from "./workbench-session-thread-presentation";
 import {
   readLocalEnvironmentSelections,
-  resolveLocalEnvironmentOptionSelection,
+  resolveLocalEnvironmentSelection,
+  type LocalEnvironmentSelectionResolution,
   writeLocalEnvironmentSelection,
 } from "./local-environment-selection";
 import { projectSessionThreadLinkToSummary } from "./thread-summary-projection";
@@ -82,8 +83,6 @@ function ConnectedSessionThread({
   turnDiffHoverPreviewDisabled,
   onForkSessionFromTurn,
   onForkFromTurnIntoWorktree,
-  worktreeStartMode,
-  worktreeBranchPrefix,
   searchOpenTick,
   summaryPanelMounted,
   summaryPanelOpen,
@@ -141,7 +140,10 @@ function ConnectedSessionThread({
   onConsumeNewThreadComposerIntent?:
     ThreadStageActions["onConsumeNewThreadComposerIntent"];
   onRequestProjectPickerOpen: () => void;
-  onOpenLocalEnvironmentsSettings: () => void;
+  onOpenLocalEnvironmentsSettings: (input?: {
+    projectId?: string | null;
+    configPath?: string | null;
+  }) => void;
   onOpenHooksSettings: NonNullable<
     ThreadStageActions["onOpenHooksSettings"]
   >;
@@ -160,8 +162,6 @@ function ConnectedSessionThread({
     threadId: string;
     targetTurnId: string;
   }) => Promise<void>;
-  worktreeStartMode: WorktreeStartMode;
-  worktreeBranchPrefix: string;
   searchOpenTick: number;
   summaryPanelMounted: boolean;
   summaryPanelOpen: boolean;
@@ -239,13 +239,22 @@ function ConnectedSessionThread({
     setSelectedNewThreadEnvironmentPath,
   ] = useState<string | null>(null);
   const [
-    newThreadEnvironmentOptions,
-    setNewThreadEnvironmentOptions,
-  ] = useState<WorktreeEnvironmentOption[]>([]);
+    selectedNewThreadStartingState,
+    setSelectedNewThreadStartingState,
+  ] = useState<CodexPendingWorktreeStartingState | undefined>(undefined);
+  const [
+    newThreadEnvironmentConfigs,
+    setNewThreadEnvironmentConfigs,
+  ] = useState<WorktreeEnvironmentConfigRecord[]>([]);
+  const [
+    newThreadEnvironmentResolution,
+    setNewThreadEnvironmentResolution,
+  ] = useState<LocalEnvironmentSelectionResolution | null>(null);
   const [
     newThreadEnvironmentsLoading,
     setNewThreadEnvironmentsLoading,
   ] = useState(false);
+  const [newThreadEnvironmentsError, setNewThreadEnvironmentsError] = useState(false);
   const [
     canForkCurrentThreadIntoWorktree,
     setCanForkCurrentThreadIntoWorktree,
@@ -332,6 +341,8 @@ function ConnectedSessionThread({
     setSelectedNewThreadProjectId(session.projectId);
     setSelectedNewThreadRunInTarget("localProject");
     setSelectedNewThreadEnvironmentPath(null);
+    setSelectedNewThreadStartingState(undefined);
+    setNewThreadEnvironmentResolution(null);
   }, [session.id, session.projectId, summary]);
 
   useEffect(() => {
@@ -390,26 +401,42 @@ function ConnectedSessionThread({
   const refreshNewThreadEnvironments = useCallback(async () => {
     if (effectiveProjectId === null) {
       setNewThreadEnvironmentsLoading(false);
-      setNewThreadEnvironmentOptions([]);
+      setNewThreadEnvironmentConfigs([]);
       setSelectedNewThreadEnvironmentPath(null);
+      setNewThreadEnvironmentResolution(null);
       return;
     }
     setNewThreadEnvironmentsLoading(true);
+    setNewThreadEnvironmentsError(false);
     try {
-      const options = await invoke(
-        "worktrees:environments:list",
+      const configs = await invoke(
+        "worktrees:environments:configs:list",
         effectiveProjectId,
-      ) as WorktreeEnvironmentOption[];
-      setNewThreadEnvironmentOptions(options);
+      ) as WorktreeEnvironmentConfigRecord[];
+      const resolution = resolveLocalEnvironmentSelection({
+        candidateSource: {
+          status: "loaded",
+          candidates: configs.map((config) => ({
+            configPath: config.configPath,
+            state: config.state,
+          })),
+        },
+        selectionsByWorkspace: readLocalEnvironmentSelections(),
+        workspaceRoot: newThreadEnvironmentWorkspaceRoot,
+      });
+      setNewThreadEnvironmentConfigs(configs);
+      setNewThreadEnvironmentResolution(resolution);
       setSelectedNewThreadEnvironmentPath(
-        resolveLocalEnvironmentOptionSelection({
-          options,
-          selectionsByWorkspace: readLocalEnvironmentSelections(),
-          workspaceRoot: newThreadEnvironmentWorkspaceRoot,
-        }),
+        resolution.status === "selected" ? resolution.resolvedConfigPath : null,
       );
-    } catch {
-      setNewThreadEnvironmentOptions([]);
+    } catch (error) {
+      setNewThreadEnvironmentConfigs([]);
+      setNewThreadEnvironmentsError(true);
+      setNewThreadEnvironmentResolution(resolveLocalEnvironmentSelection({
+        candidateSource: { status: "unresolved", reason: "load-error", error },
+        selectionsByWorkspace: readLocalEnvironmentSelections(),
+        workspaceRoot: newThreadEnvironmentWorkspaceRoot,
+      }));
     } finally {
       setNewThreadEnvironmentsLoading(false);
     }
@@ -423,8 +450,19 @@ function ConnectedSessionThread({
         workspaceRoot: newThreadEnvironmentWorkspaceRoot,
         configPath,
       });
+      setNewThreadEnvironmentResolution(resolveLocalEnvironmentSelection({
+        candidateSource: {
+          status: "loaded",
+          candidates: newThreadEnvironmentConfigs.map((config) => ({
+            configPath: config.configPath,
+            state: config.state,
+          })),
+        },
+        selectionsByWorkspace: readLocalEnvironmentSelections(),
+        workspaceRoot: newThreadEnvironmentWorkspaceRoot,
+      }));
     },
-    [newThreadEnvironmentWorkspaceRoot],
+    [newThreadEnvironmentConfigs, newThreadEnvironmentWorkspaceRoot],
   );
 
   useEffect(() => {
@@ -436,33 +474,59 @@ function ConnectedSessionThread({
   ]);
 
   const startInSelectorModel = useMemo<NewChatStartInSelectorModel>(
-    () => ({
-      target: {
-        runInTarget: selectedNewThreadRunInTarget,
-        runInEnvironmentPath: selectedNewThreadEnvironmentPath,
-        worktreeStartMode,
-        worktreeBranchPrefix,
-      },
-      disabled: effectiveProjectId === null,
-      worktreeAvailable: Boolean(
-        normalizeProjectPrimaryWorkspaceRoot(startInSelectorProject),
-      ),
-      environments: newThreadEnvironmentOptions,
-      environmentsLoading: newThreadEnvironmentsLoading,
-      selectedEnvironmentPath: selectedNewThreadEnvironmentPath,
-      worktreeStartMode,
-      worktreeBranchPrefix,
-    }),
+    () => {
+      const workspaceRoot = normalizeProjectPrimaryWorkspaceRoot(startInSelectorProject);
+      const repositoryName = workspaceRoot
+        ?.replaceAll("\\", "/")
+        .split("/")
+        .filter(Boolean)
+        .at(-1) ?? null;
+      return {
+        target: {
+          runInTarget: selectedNewThreadRunInTarget,
+          runInEnvironmentPath: selectedNewThreadEnvironmentPath,
+          worktreeStartingState: selectedNewThreadStartingState,
+        },
+        disabled: effectiveProjectId === null,
+        worktreeAvailable: Boolean(workspaceRoot),
+        environments: newThreadEnvironmentConfigs,
+        environmentsLoading: newThreadEnvironmentsLoading,
+        environmentsError: newThreadEnvironmentsError,
+        selectedEnvironmentPath: selectedNewThreadEnvironmentPath,
+        defaultEnvironmentPath: newThreadEnvironmentResolution?.defaultConfigPath ?? null,
+        environmentNeedsAttention:
+          newThreadEnvironmentResolution?.status === "needs-attention",
+        environmentRepairConfigPath:
+          newThreadEnvironmentResolution?.repairConfigPath ?? null,
+        repositoryName,
+        additionalSourceFolderCount: Math.max(
+          0,
+          (startInSelectorProject?.sources.length ?? 0) - 1,
+        ),
+      };
+    },
     [
-      newThreadEnvironmentOptions,
+      newThreadEnvironmentConfigs,
       newThreadEnvironmentsLoading,
+      newThreadEnvironmentsError,
+      newThreadEnvironmentResolution,
       effectiveProjectId,
       selectedNewThreadEnvironmentPath,
       selectedNewThreadRunInTarget,
+      selectedNewThreadStartingState,
       startInSelectorProject,
-      worktreeBranchPrefix,
-      worktreeStartMode,
     ],
+  );
+  const effectiveNewThreadStartBlockedReason = newThreadStartBlockedReason ?? (
+    selectedNewThreadRunInTarget !== "newWorktree"
+      ? null
+      : newThreadEnvironmentsLoading || newThreadEnvironmentResolution === null
+        ? "Wait for worktree environments to finish loading."
+        : newThreadEnvironmentResolution.status === "needs-attention"
+          ? "Repair the selected worktree environment before starting."
+          : newThreadEnvironmentResolution.status === "unresolved"
+            ? "Worktree environments could not be resolved."
+            : null
   );
 
   const actions = useMemo<ThreadStageActions>(() => ({
@@ -474,7 +538,7 @@ function ConnectedSessionThread({
       onEnsureBlankSessionForProject,
       onRefreshProjectSessions,
       onOpenPendingWorktree,
-      newThreadStartBlockedReason,
+      newThreadStartBlockedReason: effectiveNewThreadStartBlockedReason,
       onQueueingEnabledChange,
       onOpenThread,
       onOpenSubagentsPanel,
@@ -488,6 +552,7 @@ function ConnectedSessionThread({
       onStartNewChatWithPrompt,
       onNewThreadStartInTargetChange: (target) => {
         setSelectedNewThreadRunInTarget(target.runInTarget);
+        setSelectedNewThreadStartingState(target.worktreeStartingState);
         if (target.runInTarget !== "newWorktree") {
           setSelectedNewThreadEnvironmentPath(null);
         }
@@ -496,7 +561,10 @@ function ConnectedSessionThread({
       onRefreshNewThreadStartInEnvironments:
         refreshNewThreadEnvironments,
       onOpenNewThreadLocalEnvironmentsSettings:
-        onOpenLocalEnvironmentsSettings,
+        (configPath) => onOpenLocalEnvironmentsSettings({
+          projectId: effectiveProjectId,
+          configPath: configPath ?? null,
+        }),
       onOpenHooksSettings,
       ...(onOpenSideChat
         ? {
@@ -536,7 +604,7 @@ function ConnectedSessionThread({
     onStartNewChatWithPrompt,
     onRefreshProjectSessions,
     onOpenPendingWorktree,
-    newThreadStartBlockedReason,
+    effectiveNewThreadStartBlockedReason,
     onQueueingEnabledChange,
     onOpenThread,
     onOpenSubagentsPanel,
@@ -591,8 +659,7 @@ function ConnectedSessionThread({
           threadTitle: "New thread",
           runInTarget: selectedNewThreadRunInTarget,
           runInEnvironmentPath: selectedNewThreadEnvironmentPath,
-          worktreeStartMode,
-          worktreeBranchPrefix,
+          worktreeStartingState: selectedNewThreadStartingState,
         },
     newThreadProjectSelector: summary
       ? null
@@ -603,7 +670,7 @@ function ConnectedSessionThread({
           canAddProject: !projectDraftId,
         },
     newThreadStartInSelector: startInSelectorModel,
-    newThreadStartBlockedReason,
+    newThreadStartBlockedReason: effectiveNewThreadStartBlockedReason,
     newThreadComposerIntent: summary ? null : newThreadComposerIntent ?? null,
     threadStartProgress,
     activeThreadId: summary?.threadId ?? null,
@@ -717,8 +784,6 @@ export function ProjectSessionThreadComposerDock({
   onOpenTurnDiffReview,
   onOpenTurnDiffFileInSidePanel,
   onForkSessionFromTurn,
-  worktreeStartMode,
-  worktreeBranchPrefix,
   commandKeymapState,
   isMac,
 }: {
@@ -743,8 +808,6 @@ export function ProjectSessionThreadComposerDock({
   readonly onOpenTurnDiffReview?: ConnectedSessionThreadProps["onOpenTurnDiffReview"];
   readonly onOpenTurnDiffFileInSidePanel?: ConnectedSessionThreadProps["onOpenTurnDiffFileInSidePanel"];
   readonly onForkSessionFromTurn?: ConnectedSessionThreadProps["onForkSessionFromTurn"];
-  readonly worktreeStartMode: WorktreeStartMode;
-  readonly worktreeBranchPrefix: string;
   readonly commandKeymapState?: CommandKeymapState | null;
   readonly isMac: boolean;
 }) {
@@ -775,8 +838,6 @@ export function ProjectSessionThreadComposerDock({
       turnDiffHoverPreviewDisabled
       onForkSessionFromTurn={onForkSessionFromTurn}
       onForkFromTurnIntoWorktree={noOpAsync}
-      worktreeStartMode={worktreeStartMode}
-      worktreeBranchPrefix={worktreeBranchPrefix}
       searchOpenTick={0}
       summaryPanelMounted={false}
       summaryPanelOpen={false}

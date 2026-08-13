@@ -9,6 +9,7 @@ import {
   type CodexPendingWorktreeEffect,
   type CodexPendingWorktreeMetadataUpdate,
 } from "./codex-pending-worktree-state";
+import type { CodexWorktreeWorkerEvent } from "./codex-worktree-worker-port";
 
 export interface CodexPendingWorktreeCreationResult {
   readonly worktreeGitRoot: string;
@@ -21,8 +22,7 @@ export interface CodexPendingWorktreeRuntimeDependencies {
     entry: CodexPendingWorktreeEntry,
     context: {
       readonly signal: AbortSignal;
-      readonly onOutput: (output: string) => void;
-      readonly onSetupStarted: () => void;
+      readonly onEvent: (event: CodexWorktreeWorkerEvent) => void;
     },
   ) => Promise<CodexPendingWorktreeCreationResult>;
   readonly launchConversation: (
@@ -33,7 +33,7 @@ export interface CodexPendingWorktreeRuntimeDependencies {
       readonly includeWorktreeInit: boolean;
     },
   ) => Promise<{ readonly threadId: string }>;
-  readonly removeWorktree: (worktreeGitRoot: string) => Promise<void>;
+  readonly removeWorktree: (hostId: string, worktreeGitRoot: string) => Promise<void>;
   readonly cleanupGoalSources: (entry: CodexPendingWorktreeEntry) => Promise<void>;
   readonly addWorkspaceRoot?: (workspaceRoot: string, label: string) => Promise<void> | void;
   readonly onConversationThreadMapped?: (input: {
@@ -73,6 +73,61 @@ function createLocalLaunch(): CodexPendingWorktreeLocalLaunch {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+type CodexPendingWorktreeProgressAction = Extract<
+  CodexPendingWorktreeAction,
+  { readonly type: "appendOutput" | "pathAllocated" | "setupStarted" }
+>;
+
+function assertNeverCodexPendingWorktreeRuntimeVariant(
+  value: never,
+  owner: string,
+): never {
+  throw new Error(`Unhandled ${owner}: ${JSON.stringify(value)}`);
+}
+
+/**
+ * Explicitly projects the transport event into the pending-worktree state
+ * machine so their independent discriminators can never overwrite each other.
+ */
+export function projectCodexWorktreeWorkerEventToPendingAction(
+  identity: {
+    readonly pendingWorktreeId: string;
+    readonly attempt: number;
+  },
+  event: CodexWorktreeWorkerEvent,
+): CodexPendingWorktreeProgressAction | null {
+  switch (event.type) {
+    case "output":
+      if (!event.data) return null;
+      return {
+        type: "appendOutput",
+        pendingWorktreeId: identity.pendingWorktreeId,
+        attempt: identity.attempt,
+        phase: event.phase,
+        output: event.data,
+      };
+    case "path-allocated":
+      return {
+        type: "pathAllocated",
+        pendingWorktreeId: identity.pendingWorktreeId,
+        attempt: identity.attempt,
+        worktreeGitRoot: event.worktreeGitRoot,
+        worktreeWorkspaceRoot: event.worktreeWorkspaceRoot,
+      };
+    case "setup-started":
+      return {
+        type: "setupStarted",
+        pendingWorktreeId: identity.pendingWorktreeId,
+        attempt: identity.attempt,
+      };
+    default:
+      return assertNeverCodexPendingWorktreeRuntimeVariant(
+        event,
+        "Codex worktree worker event",
+      );
+  }
 }
 
 /**
@@ -231,7 +286,11 @@ export class CodexPendingWorktreeRuntime {
         this.abort(effect.pendingWorktreeId);
         return;
       case "delete":
-        void this.removeWorktree(effect.pendingWorktreeId, effect.worktreeGitRoot);
+        void this.removeWorktree(
+          effect.pendingWorktreeId,
+          effect.hostId,
+          effect.worktreeGitRoot,
+        );
         return;
       case "remove":
         this.abort(effect.pendingWorktreeId);
@@ -245,6 +304,12 @@ export class CodexPendingWorktreeRuntime {
           effect.attempt,
           effect.workspaceRoot,
           effect.label,
+        );
+        return;
+      default:
+        return assertNeverCodexPendingWorktreeRuntimeVariant(
+          effect,
+          "Codex pending worktree effect",
         );
     }
   }
@@ -270,22 +335,22 @@ export class CodexPendingWorktreeRuntime {
       attempt,
       abortController,
     });
-    this.dispatch({ type: "start", pendingWorktreeId });
+    this.dispatch({ type: "start", pendingWorktreeId, attempt });
 
     try {
       const result = await this.dependencies.createWorktree(entry, {
         signal: abortController.signal,
-        onOutput: (output) => {
+        onEvent: (event) => {
           if (!this.isCurrentAttempt(pendingWorktreeId, attempt)) return;
-          this.dispatch({ type: "appendOutput", pendingWorktreeId, output });
-        },
-        onSetupStarted: () => {
-          if (!this.isCurrentAttempt(pendingWorktreeId, attempt)) return;
-          this.dispatch({ type: "setupStarted", pendingWorktreeId });
+          const action = projectCodexWorktreeWorkerEventToPendingAction({
+            pendingWorktreeId,
+            attempt,
+          }, event);
+          if (action) this.dispatch(action);
         },
       });
       if (!this.isCurrentAttempt(pendingWorktreeId, attempt)) {
-        await this.removeWorktree(pendingWorktreeId, result.worktreeGitRoot);
+        await this.removeWorktree(pendingWorktreeId, entry.hostId, result.worktreeGitRoot);
         return;
       }
 
@@ -294,6 +359,7 @@ export class CodexPendingWorktreeRuntime {
         this.dispatch({
           type: "setupFailed",
           pendingWorktreeId,
+          attempt,
           errorMessage: result.setupError,
           worktreeGitRoot: result.worktreeGitRoot,
           worktreeWorkspaceRoot: result.worktreeWorkspaceRoot,
@@ -303,6 +369,7 @@ export class CodexPendingWorktreeRuntime {
       this.dispatch({
         type: "worktreeReady",
         pendingWorktreeId,
+        attempt,
         worktreeGitRoot: result.worktreeGitRoot,
         worktreeWorkspaceRoot: result.worktreeWorkspaceRoot,
       });
@@ -316,6 +383,7 @@ export class CodexPendingWorktreeRuntime {
       this.dispatch({
         type: "worktreeFailed",
         pendingWorktreeId,
+        attempt,
         errorMessage: errorMessage(error),
       });
     }
@@ -383,6 +451,7 @@ export class CodexPendingWorktreeRuntime {
         this.dispatch({
           type: "conversationStartSucceeded",
           pendingWorktreeId,
+          attempt,
         });
       } else {
         this.resolveLocalLaunch(pendingWorktreeId, result.threadId);
@@ -401,6 +470,7 @@ export class CodexPendingWorktreeRuntime {
           this.dispatch({
             type: "conversationStartSucceeded",
             pendingWorktreeId,
+            attempt,
           });
         } else {
           this.resolveLocalLaunch(pendingWorktreeId, mappedThreadId);
@@ -412,6 +482,7 @@ export class CodexPendingWorktreeRuntime {
         this.dispatch({
           type: "conversationStartFailed",
           pendingWorktreeId,
+          attempt,
           errorMessage: message,
         });
       } else {
@@ -443,10 +514,11 @@ export class CodexPendingWorktreeRuntime {
 
   private async removeWorktree(
     pendingWorktreeId: string,
+    hostId: string,
     worktreeGitRoot: string,
   ): Promise<void> {
     try {
-      await this.dependencies.removeWorktree(worktreeGitRoot);
+      await this.dependencies.removeWorktree(hostId, worktreeGitRoot);
     } catch (error) {
       this.dependencies.onError?.("remove", error, pendingWorktreeId);
     }

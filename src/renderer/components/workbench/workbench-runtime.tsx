@@ -3891,8 +3891,6 @@ export function WorkbenchRuntime({
         composerEnterBehavior={composerEnterBehavior}
         onQueueingEnabledChange={handleThreadQueueFollowUpsEnabledChange}
         onOpenThread={openAttachedThreadSession}
-        worktreeStartMode={worktreeStartMode}
-        worktreeBranchPrefix={worktreeAutoBranchPrefix}
         commandKeymapState={commandKeymapState}
         isMac={isMacPlatform}
       />
@@ -4071,8 +4069,6 @@ export function WorkbenchRuntime({
           onForkSessionFromTurn: forkSessionFromTurn,
           onForkFromTurnIntoWorktree:
             forkSessionFromTurnIntoWorktree,
-          worktreeStartMode,
-          worktreeBranchPrefix: worktreeAutoBranchPrefix,
           searchOpenTick: threadSearchOpenTick,
           summaryPanelMounted: threadSummaryPanelMounted,
           summaryPanelOpen: threadSummaryPanelOpen,

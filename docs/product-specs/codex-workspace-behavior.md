@@ -52,7 +52,9 @@ A direct local Project Chat runs from the primary source when present and a
 generated per-Chat workspace otherwise. `New worktree` requires a primary Git
 source, creates a managed worktree, optionally runs the selected Environment
 setup, and starts the Thread there. Setup failure preserves a recoverable Session
-and draft and does not create duplicate Sessions on retry.
+and draft and does not create duplicate Sessions on retry. The complete target,
+Git/setup, pending-route, handoff, and initialization-activity contract lives in
+[Codex Worktree Creation Behavior](codex-worktree-creation-behavior.md).
 
 Stopping an ordinary Turn leaves the Chat resumable. Resume starts a userless
 continuation with current Thread settings and creates no synthetic user message.

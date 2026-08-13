@@ -260,7 +260,7 @@ describe("Codex pending worktree IPC", () => {
     await Promise.resolve();
     expect(settled).toBe(false);
     resolveLaunch({ threadId: "thread-local" });
-    await invocation;
+    await expect(invocation).resolves.toEqual({ threadId: "thread-local" });
     expect(settled).toBe(true);
   });
 

@@ -437,6 +437,8 @@ export interface NodexDropdownItemProps
   tooltipSide?: "top" | "right" | "bottom" | "left";
   tooltipAlign?: "start" | "center" | "end";
   allowWrap?: boolean;
+  subTextAllowWrap?: boolean;
+  alignSlotsToStart?: boolean;
 }
 
 export const NodexDropdownItem = forwardRef<
@@ -454,6 +456,8 @@ export const NodexDropdownItem = forwardRef<
     tooltipSide = "right",
     tooltipAlign,
     allowWrap = false,
+    subTextAllowWrap = false,
+    alignSlotsToStart = false,
     className,
     disabled = false,
     onClick,
@@ -478,7 +482,7 @@ export const NodexDropdownItem = forwardRef<
       )}
       {...props}
     >
-      <div className="flex w-full items-center gap-1.5">
+      <div className={cn("flex w-full items-center gap-1.5", alignSlotsToStart && "items-start")}>
         {leftSlot ? (
           <span
             className={cn(
@@ -493,7 +497,10 @@ export const NodexDropdownItem = forwardRef<
           <span className={cn("flex items-center gap-1", subText && "flex-col items-start gap-0.5")}>
             <span className={cn("min-w-0", !allowWrap && "truncate")}>{children}</span>
             {subText ? (
-              <span className="min-w-0 truncate text-xs text-token-description-foreground">
+              <span className={cn(
+                "min-w-0 text-token-description-foreground",
+                subTextAllowWrap ? "whitespace-normal text-sm" : "truncate text-xs",
+              )}>
                 {subText}
               </span>
             ) : null}

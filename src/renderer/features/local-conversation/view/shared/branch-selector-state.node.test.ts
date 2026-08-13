@@ -26,6 +26,7 @@ describe("branch selector state helpers", () => {
       currentBranch: "main",
       defaultBranch: null,
       branches: ["main", "feature"],
+      remoteBranchRefs: [],
     }));
   });
 

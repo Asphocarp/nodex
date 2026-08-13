@@ -1,13 +1,27 @@
 import { execFile } from "node:child_process";
+import { existsSync } from "node:fs";
 import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import {
   createManagedWorktree,
   resolveManagedWorktreeDefaultStartingState,
   setManagedWorktreeOwnerThread,
 } from "./git-worktree-service";
+
+const cryptoBoundary = vi.hoisted(() => ({
+  randomUUID: vi.fn<() => `${string}-${string}-${string}-${string}-${string}`>(),
+}));
+
+vi.mock("node:crypto", async (importOriginal) => {
+  const crypto = await importOriginal<typeof import("node:crypto")>();
+  cryptoBoundary.randomUUID.mockImplementation(() => crypto.randomUUID());
+  return {
+    ...crypto,
+    randomUUID: cryptoBoundary.randomUUID,
+  };
+});
 
 interface CommandResult {
   stdout: string;
@@ -176,6 +190,63 @@ describe("createManagedWorktree starting state", () => {
     );
   });
 
+  test("uses the full remote ref and creates its missing local tracking branch", async () => {
+    const { repositoryPath, root } = await createRepository();
+    const remotePath = path.join(root, "origin.git");
+    await mkdir(remotePath);
+    await runCommand("git", ["init", "--bare"], remotePath);
+    await runCommand("git", ["remote", "add", "origin", remotePath], repositoryPath);
+    await runCommand("git", ["checkout", "-b", "remote-only"], repositoryPath);
+    await writeFile(path.join(repositoryPath, "remote-only.txt"), "remote only\n", "utf8");
+    await runCommand("git", ["add", "remote-only.txt"], repositoryPath);
+    await runCommand("git", ["commit", "-m", "test: add remote-only branch"], repositoryPath);
+    await runCommand("git", ["push", "origin", "remote-only"], repositoryPath);
+    const remoteHead = (await runCommand("git", ["rev-parse", "HEAD"], repositoryPath)).stdout.trim();
+    await runCommand("git", ["checkout", "main"], repositoryPath);
+    await runCommand("git", ["branch", "-D", "remote-only"], repositoryPath);
+
+    const remoteRef = "refs/remotes/origin/remote-only";
+    const result = await createManagedWorktree({
+      repositoryPath,
+      nodexHome: path.join(root, "server-remote-ref"),
+      projectId: "project-remote-ref",
+      targetId: "target-remote-ref",
+      mode: "detachedHead",
+      startingState: {
+        type: "branch",
+        branchName: "origin/remote-only",
+        remoteRef,
+      },
+    });
+
+    const childHead = (
+      await runCommand("git", ["rev-parse", "HEAD"], result.worktreeGitRoot)
+    ).stdout.trim();
+    const trackingHead = (
+      await runCommand("git", ["rev-parse", "refs/heads/origin/remote-only"], repositoryPath)
+    ).stdout.trim();
+    const upstream = (
+      await runCommand(
+        "git",
+        ["for-each-ref", "--format=%(upstream)", "refs/heads/origin/remote-only"],
+        repositoryPath,
+      )
+    ).stdout.trim();
+    const syncedConfigPath = (
+      await runCommand(
+        "git",
+        ["rev-parse", "--path-format=absolute", "--git-path", "codex-synced-branch.json"],
+        result.worktreeGitRoot,
+      )
+    ).stdout.trim();
+
+    expect(result.baseRef).toBe(remoteRef);
+    expect(childHead).toBe(remoteHead);
+    expect(trackingHead).toBe(remoteHead);
+    expect(upstream).toBe(remoteRef);
+    expect(await stat(syncedConfigPath).then(() => true).catch(() => false)).toBe(false);
+  });
+
   test("accepts tags, remote refs, and commit SHAs when synced metadata is disabled", async () => {
     const { repositoryPath, root } = await createRepository();
     const remotePath = path.join(root, "origin.git");
@@ -239,6 +310,63 @@ describe("createManagedWorktree starting state", () => {
     expect(await readFile(path.join(result.worktreeGitRoot, "README.md"), "utf8")).toBe(
       "base\n",
     );
+  });
+
+  test("retries UUID-prefix collisions when allocating the worktree path", async () => {
+    const { repositoryPath, root } = await createRepository();
+    const nodexHome = path.join(root, "server-uuid-path");
+    await mkdir(path.join(nodexHome, "worktrees", "a1b2", "repository"), { recursive: true });
+    cryptoBoundary.randomUUID
+      .mockReturnValueOnce("a1b2c3d4-1111-4111-8111-111111111111")
+      .mockReturnValueOnce("c3d4e5f6-2222-4222-8222-222222222222");
+
+    const result = await createManagedWorktree({
+      repositoryPath,
+      nodexHome,
+      projectId: "project-uuid-path",
+      targetId: "target-uuid-path",
+      mode: "detachedHead",
+      startingState: { type: "branch", branchName: "main" },
+    });
+
+    expect(result.worktreeGitRoot).toBe(
+      path.join(nodexHome, "worktrees", "c3d4", "repository"),
+    );
+  });
+
+  test("publishes allocated roots before Git creation and cleans them when canceled", async () => {
+    const { repositoryPath, root } = await createRepository();
+    const nodexHome = path.join(root, "server-path-event");
+    const controller = new AbortController();
+    let allocatedRoots: {
+      worktreeGitRoot: string;
+      worktreeWorkspaceRoot: string;
+    } | null = null;
+    let worktreeExistedAtAllocation = true;
+    let tokenDirectoryExistedAtAllocation = false;
+
+    await expect(createManagedWorktree({
+      repositoryPath,
+      nodexHome,
+      projectId: "project-path-event",
+      targetId: "target-path-event",
+      mode: "detachedHead",
+      startingState: { type: "branch", branchName: "main" },
+      onPathAllocated: (roots) => {
+        allocatedRoots = roots;
+        worktreeExistedAtAllocation = existsSync(roots.worktreeGitRoot);
+        tokenDirectoryExistedAtAllocation = existsSync(path.dirname(roots.worktreeGitRoot));
+        controller.abort();
+      },
+      signal: controller.signal,
+    })).rejects.toThrow("Request canceled");
+
+    expect(allocatedRoots).not.toBe(null);
+    expect(worktreeExistedAtAllocation).toBe(false);
+    expect(tokenDirectoryExistedAtAllocation).toBe(true);
+    expect((await readdir(path.join(nodexHome, "worktrees"))).length).toBe(0);
+    const worktreeList = await runCommand("git", ["worktree", "list", "--porcelain"], repositoryPath);
+    expect(worktreeList.stdout.includes(nodexHome)).toBe(false);
   });
 
   test("copies ignored Codex workspace files and records the no-environment lifecycle", async () => {
@@ -405,7 +533,7 @@ describe("createManagedWorktree starting state", () => {
     }
   });
 
-  test("copies combined tracked, staged, binary, and untracked working tree content", async () => {
+  test("replays tracked, staged, and binary changes then copies untracked files", async () => {
     const { repositoryPath, root } = await createRepository();
     const baseBinary = Buffer.from([0, 1, 2, 3, 4, 255]);
     const changedBinary = Buffer.from([255, 4, 3, 2, 1, 0, 128]);
@@ -425,6 +553,8 @@ describe("createManagedWorktree starting state", () => {
     await writeFile(path.join(repositoryPath, "staged-new.txt"), "staged new\n", "utf8");
     await runCommand("git", ["add", "staged-new.txt"], repositoryPath);
     await writeFile(path.join(repositoryPath, "untracked.txt"), "untracked edit\n", "utf8");
+    const untrackedBinary = Buffer.from([128, 0, 255, 64, 1, 2, 3]);
+    await writeFile(path.join(repositoryPath, "untracked.bin"), untrackedBinary);
     const sourceStatusBefore = (
       await runCommand("git", ["status", "--porcelain"], repositoryPath)
     ).stdout;
@@ -459,14 +589,53 @@ describe("createManagedWorktree starting state", () => {
     expect(await readFile(path.join(result.worktreeWorkspaceRoot, "untracked.txt"), "utf8")).toBe(
       "untracked edit\n",
     );
+    expect(
+      (await readFile(path.join(result.worktreeWorkspaceRoot, "untracked.bin"))).equals(
+        untrackedBinary,
+      ),
+    ).toBe(true);
     expect(logs.some((entry) => entry.includes("Applying working tree diff"))).toBe(true);
+    expect(logs.some((entry) => entry.includes("Copying untracked files"))).toBe(true);
     const sourceStatusAfter = (
       await runCommand("git", ["status", "--porcelain"], repositoryPath)
     ).stdout;
     expect(sourceStatusAfter).toBe(sourceStatusBefore);
   });
 
-  test("creates a clean detached worktree when working tree diff capture fails", async () => {
+  test("rolls back when an untracked file cannot be copied exclusively", async () => {
+    const { repositoryPath, root } = await createRepository();
+    const nodexHome = path.join(root, "server-copy-conflict");
+    const sourceUntrackedPath = path.join(repositoryPath, "untracked-conflict.txt");
+    await writeFile(sourceUntrackedPath, "source remains\n", "utf8");
+    const hookPath = path.join(repositoryPath, ".git", "hooks", "post-checkout");
+    await writeFile(
+      hookPath,
+      [
+        "#!/bin/sh",
+        "target=$(git rev-parse --show-toplevel)",
+        "printf 'destination already exists\\n' > \"$target/untracked-conflict.txt\"",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+    await chmod(hookPath, 0o755);
+
+    await expect(createManagedWorktree({
+      repositoryPath,
+      nodexHome,
+      projectId: "project-untracked-copy-conflict",
+      targetId: "target-untracked-copy-conflict",
+      mode: "detachedHead",
+      startingState: { type: "working-tree" },
+    })).rejects.toThrow("Failed to copy all untracked working tree files");
+
+    expect((await readdir(path.join(nodexHome, "worktrees"))).length).toBe(0);
+    const worktreeList = await runCommand("git", ["worktree", "list", "--porcelain"], repositoryPath);
+    expect(worktreeList.stdout.includes(nodexHome)).toBe(false);
+    expect(await readFile(sourceUntrackedPath, "utf8")).toBe("source remains\n");
+  });
+
+  test("fails without creating a worktree when dirty-state capture fails", async () => {
     const { repositoryPath, root } = await createRepository();
     const sourceReadmePath = path.join(repositoryPath, "README.md");
     const sourceOnlyPath = path.join(repositoryPath, "source-only.txt");
@@ -474,30 +643,20 @@ describe("createManagedWorktree starting state", () => {
     await writeFile(sourceReadmePath, "source edit remains\n", "utf8");
     await writeFile(sourceOnlyPath, "source only remains\n", "utf8");
     await rm(sourceIndexPath);
-    const logs: string[] = [];
+    const nodexHome = path.join(root, "server");
 
-    const result = await createManagedWorktree({
+    await expect(createManagedWorktree({
       repositoryPath,
-      nodexHome: path.join(root, "server"),
+      nodexHome,
       projectId: "project-failed-working-tree-capture",
       targetId: "target-failed-working-tree-capture",
       mode: "detachedHead",
-      startingState: {
-        type: "working-tree",
-      },
-      onLog: ({ stream, data }) => {
-        if (stream === "info") logs.push(data);
-      },
-    });
+      startingState: { type: "working-tree" },
+    })).rejects.toThrow();
 
-    expect(result.baseRef).toBe("main");
-    expect(await readFile(path.join(result.worktreeWorkspaceRoot, "README.md"), "utf8")).toBe("base\n");
-    expect(
-      await stat(path.join(result.worktreeWorkspaceRoot, "source-only.txt"))
-        .then(() => true)
-        .catch(() => false),
-    ).toBe(false);
-    expect(logs.some((entry) => entry.includes("Applying working tree diff"))).toBe(false);
+    expect(await stat(path.join(nodexHome, "worktrees")).then(() => true).catch(() => false)).toBe(false);
+    const worktreeList = await runCommand("git", ["worktree", "list", "--porcelain"], repositoryPath);
+    expect(worktreeList.stdout.includes(nodexHome)).toBe(false);
     expect(await readFile(sourceReadmePath, "utf8")).toBe("source edit remains\n");
     expect(await readFile(sourceOnlyPath, "utf8")).toBe("source only remains\n");
     expect(await stat(sourceIndexPath).then(() => true).catch(() => false)).toBe(false);

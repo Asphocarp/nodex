@@ -151,13 +151,24 @@ describe("Codex pending worktree state", () => {
     expect(publishCount).toBe(2);
     expect(store.resolveThread("client-1")?.state).toBe("waiting");
 
-    dispatch(store, { type: "start", pendingWorktreeId: "pending-1" });
-    dispatch(store, { type: "start", pendingWorktreeId: "pending-1" });
+    dispatch(store, { type: "start", pendingWorktreeId: "pending-1", attempt: 1 });
+    dispatch(store, { type: "start", pendingWorktreeId: "pending-1", attempt: 1 });
     expect(store.getSnapshot()[0]?.phase).toBe("creating");
     expect(store.getSnapshot()[0]?.worktreeOutputText).toBe(
       CODEX_PENDING_WORKTREE_CREATION_STARTED_OUTPUT,
     );
-    expect(publishCount).toBe(3);
+    dispatch(store, {
+      type: "pathAllocated",
+      pendingWorktreeId: "pending-1",
+      attempt: 1,
+      worktreeGitRoot: "/worktrees/a1b2/repo",
+      worktreeWorkspaceRoot: "/worktrees/a1b2/repo/packages/app",
+    });
+    expect(store.getSnapshot()[0]?.worktreeGitRoot).toBe("/worktrees/a1b2/repo");
+    expect(store.getSnapshot()[0]?.worktreeWorkspaceRoot).toBe(
+      "/worktrees/a1b2/repo/packages/app",
+    );
+    expect(publishCount).toBe(4);
     unsubscribe();
   });
 
@@ -168,21 +179,26 @@ describe("Codex pending worktree state", () => {
       request: createStartRequest(),
       createdAt: 1,
     });
-    dispatch(store, { type: "start", pendingWorktreeId: "pending-1" });
+    dispatch(store, { type: "start", pendingWorktreeId: "pending-1", attempt: 1 });
     dispatch(store, {
       type: "appendOutput",
       pendingWorktreeId: "pending-1",
+      attempt: 1,
+      phase: "worktree",
       output: "w".repeat(WORKTREE_OUTPUT_TAIL_MAX_CHARS + 7),
     });
-    dispatch(store, { type: "setupStarted", pendingWorktreeId: "pending-1" });
+    dispatch(store, { type: "setupStarted", pendingWorktreeId: "pending-1", attempt: 1 });
     dispatch(store, {
       type: "appendOutput",
       pendingWorktreeId: "pending-1",
+      attempt: 1,
+      phase: "setup",
       output: "s".repeat(WORKTREE_OUTPUT_TAIL_MAX_CHARS + 9),
     });
     dispatch(store, {
       type: "worktreeFailed",
       pendingWorktreeId: "pending-1",
+      attempt: 1,
       errorMessage: "setup exited 1",
     });
 
@@ -203,16 +219,19 @@ describe("Codex pending worktree state", () => {
       request: createGoalStartRequest("pending-1", "client-1"),
       createdAt: 1,
     });
-    dispatch(store, { type: "start", pendingWorktreeId: "pending-1" });
-    dispatch(store, { type: "setupStarted", pendingWorktreeId: "pending-1" });
+    dispatch(store, { type: "start", pendingWorktreeId: "pending-1", attempt: 1 });
+    dispatch(store, { type: "setupStarted", pendingWorktreeId: "pending-1", attempt: 1 });
     dispatch(store, {
       type: "appendOutput",
       pendingWorktreeId: "pending-1",
+      attempt: 1,
+      phase: "setup",
       output: "setup log\n",
     });
     dispatch(store, {
       type: "setupFailed",
       pendingWorktreeId: "pending-1",
+      attempt: 1,
       errorMessage: "setup failed",
       worktreeGitRoot: "/repo/.worktrees/delegated",
       worktreeWorkspaceRoot: "/repo/.worktrees/delegated/workspace",
@@ -254,16 +273,19 @@ describe("Codex pending worktree state", () => {
       request: createGoalStartRequest("pending-1", "client-1"),
       createdAt: 1,
     });
-    dispatch(store, { type: "start", pendingWorktreeId: "pending-1" });
-    dispatch(store, { type: "setupStarted", pendingWorktreeId: "pending-1" });
+    dispatch(store, { type: "start", pendingWorktreeId: "pending-1", attempt: 1 });
+    dispatch(store, { type: "setupStarted", pendingWorktreeId: "pending-1", attempt: 1 });
     dispatch(store, {
       type: "appendOutput",
       pendingWorktreeId: "pending-1",
+      attempt: 1,
+      phase: "setup",
       output: "setup log",
     });
     dispatch(store, {
       type: "setupFailed",
       pendingWorktreeId: "pending-1",
+      attempt: 1,
       errorMessage: "setup failed",
       worktreeGitRoot: "/repo/.worktrees/delegated",
       worktreeWorkspaceRoot: "/repo/.worktrees/delegated/workspace",
@@ -296,6 +318,26 @@ describe("Codex pending worktree state", () => {
     expect(entry?.label).toBe("Edited");
     expect(entry?.isPinned).toBe(true);
     expect(store.resolveThread("client-1")?.state).toBe("waiting");
+
+    dispatch(store, {
+      type: "pathAllocated",
+      pendingWorktreeId: "pending-1",
+      attempt: 1,
+      worktreeGitRoot: "/worktrees/stale",
+      worktreeWorkspaceRoot: "/worktrees/stale/workspace",
+    });
+    dispatch(store, {
+      type: "worktreeFailed",
+      pendingWorktreeId: "pending-1",
+      attempt: 1,
+      errorMessage: "stale worker result",
+    });
+    expect(store.getSnapshot()[0]).toMatchObject({
+      attempt: 2,
+      phase: "queued",
+      worktreeGitRoot: null,
+      errorMessage: null,
+    });
   });
 
   test("cancel and dismiss return exact abort, remove, and conditional delete effects", () => {
@@ -305,9 +347,11 @@ describe("Codex pending worktree state", () => {
       request: createStartRequest("cancel", "cancel-client"),
       createdAt: 1,
     });
+    dispatch(cancelStore, { type: "start", pendingWorktreeId: "cancel", attempt: 1 });
     dispatch(cancelStore, {
       type: "worktreeReady",
       pendingWorktreeId: "cancel",
+      attempt: 1,
       worktreeGitRoot: "/worktrees/cancel",
       worktreeWorkspaceRoot: "/worktrees/cancel/workspace",
     });
@@ -325,9 +369,11 @@ describe("Codex pending worktree state", () => {
       request: createStartRequest("ready", "ready-client"),
       createdAt: 1,
     });
+    dispatch(readyDismissStore, { type: "start", pendingWorktreeId: "ready", attempt: 1 });
     dispatch(readyDismissStore, {
       type: "worktreeReady",
       pendingWorktreeId: "ready",
+      attempt: 1,
       worktreeGitRoot: "/worktrees/ready",
       worktreeWorkspaceRoot: "/worktrees/ready/workspace",
     });
@@ -342,9 +388,16 @@ describe("Codex pending worktree state", () => {
       request: createStartRequest("failed", "failed-client"),
       createdAt: 1,
     });
+    dispatch(failedDismissStore, { type: "start", pendingWorktreeId: "failed", attempt: 1 });
+    dispatch(failedDismissStore, {
+      type: "setupStarted",
+      pendingWorktreeId: "failed",
+      attempt: 1,
+    });
     dispatch(failedDismissStore, {
       type: "setupFailed",
       pendingWorktreeId: "failed",
+      attempt: 1,
       errorMessage: "failed",
       worktreeGitRoot: "/worktrees/failed",
       worktreeWorkspaceRoot: "/worktrees/failed/workspace",
@@ -389,7 +442,7 @@ describe("Codex pending worktree state", () => {
       request: createGoalStartRequest("goal-local", "goal-local-client"),
       createdAt: 1,
     });
-    dispatch(localStore, { type: "start", pendingWorktreeId: "goal-local" });
+    dispatch(localStore, { type: "start", pendingWorktreeId: "goal-local", attempt: 1 });
     expect(effectTypes(dispatch(localStore, {
       type: "workLocally",
       pendingWorktreeId: "goal-local",
@@ -402,14 +455,21 @@ describe("Codex pending worktree state", () => {
       createdAt: 1,
     });
     dispatch(successStore, {
+      type: "start",
+      pendingWorktreeId: "goal-success",
+      attempt: 1,
+    });
+    dispatch(successStore, {
       type: "worktreeReady",
       pendingWorktreeId: "goal-success",
+      attempt: 1,
       worktreeGitRoot: "/worktrees/goal-success",
       worktreeWorkspaceRoot: "/worktrees/goal-success/workspace",
     });
     expect(effectTypes(dispatch(successStore, {
       type: "conversationStartSucceeded",
       pendingWorktreeId: "goal-success",
+      attempt: 1,
     }))).toBe("cleanupGoalSources,remove");
   });
 
@@ -420,7 +480,7 @@ describe("Codex pending worktree state", () => {
       request: createStartRequest(),
       createdAt: 1,
     });
-    dispatch(store, { type: "start", pendingWorktreeId: "pending-1" });
+    dispatch(store, { type: "start", pendingWorktreeId: "pending-1", attempt: 1 });
 
     const effects = dispatch(store, {
       type: "workLocally",
@@ -444,9 +504,11 @@ describe("Codex pending worktree state", () => {
     });
     expect(store.resolveThread("client-1")?.state).toBe("waiting");
 
+    dispatch(store, { type: "start", pendingWorktreeId: "pending-1", attempt: 1 });
     const firstLaunch = dispatch(store, {
       type: "worktreeReady",
       pendingWorktreeId: "pending-1",
+      attempt: 1,
       worktreeGitRoot: "/worktrees/delegated",
       worktreeWorkspaceRoot: "/worktrees/delegated/workspace",
     });
@@ -454,6 +516,7 @@ describe("Codex pending worktree state", () => {
     expect(dispatch(store, {
       type: "worktreeReady",
       pendingWorktreeId: "pending-1",
+      attempt: 1,
       worktreeGitRoot: "/worktrees/delegated",
       worktreeWorkspaceRoot: "/worktrees/delegated/workspace",
     }).length).toBe(0);
@@ -461,6 +524,7 @@ describe("Codex pending worktree state", () => {
     dispatch(store, {
       type: "conversationStartFailed",
       pendingWorktreeId: "pending-1",
+      attempt: 1,
       errorMessage: "thread start failed",
     });
     expect(store.resolveThread("client-1")?.state).toBe("failed");
@@ -477,6 +541,7 @@ describe("Codex pending worktree state", () => {
     const successEffects = dispatch(store, {
       type: "conversationStartSucceeded",
       pendingWorktreeId: "pending-1",
+      attempt: 1,
     });
     expect(effectTypes(successEffects)).toBe("remove");
     expect(store.getSnapshot().length).toBe(0);
@@ -497,9 +562,11 @@ describe("Codex pending worktree state", () => {
       request: createStableRequest(),
       createdAt: 1,
     });
+    dispatch(store, { type: "start", pendingWorktreeId: "stable-1", attempt: 1 });
     const effects = dispatch(store, {
       type: "worktreeReady",
       pendingWorktreeId: "stable-1",
+      attempt: 1,
       worktreeGitRoot: "/worktrees/stable",
       worktreeWorkspaceRoot: "/worktrees/stable/workspace",
     });
@@ -525,9 +592,11 @@ describe("Codex pending worktree state", () => {
       request: createStableRequest(),
       createdAt: 1,
     });
+    dispatch(store, { type: "start", pendingWorktreeId: "stable-1", attempt: 1 });
     dispatch(store, {
       type: "worktreeReady",
       pendingWorktreeId: "stable-1",
+      attempt: 1,
       worktreeGitRoot: "/worktrees/stable",
       worktreeWorkspaceRoot: "/worktrees/stable/workspace",
     });
@@ -561,5 +630,18 @@ describe("Codex pending worktree state", () => {
       attempt: 1,
     }).length).toBe(0);
     expect(store.getSnapshot()[0]?.attempt).toBe(2);
+  });
+
+  test("reports an unknown action discriminator at the state-machine boundary", () => {
+    const store = new CodexPendingWorktreeStateStore();
+    const malformedAction = {
+      type: "path-allocated",
+      pendingWorktreeId: "pending-1",
+      attempt: 1,
+    } as unknown as CodexPendingWorktreeAction;
+
+    expect(() => store.dispatch(malformedAction)).toThrowError(
+      /Unhandled Codex pending worktree action:.*path-allocated/,
+    );
   });
 });

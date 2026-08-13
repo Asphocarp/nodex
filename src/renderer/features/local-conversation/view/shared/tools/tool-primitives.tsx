@@ -1,6 +1,7 @@
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { ChevronRightIcon } from "@/components/shared/icons";
+import { readResizeObserverBorderBoxSize } from "@/lib/resize-observer-size";
 import { motion } from "motion/react";
 import { cn } from "../../../../../lib/utils";
 import { buildTextPreview, INLINE_TEXT_PREVIEW_MAX_CHARS } from "../../../../../lib/text-preview";
@@ -232,11 +233,13 @@ export interface ThreadActivityDisclosureProps {
   children: ReactNode;
   className?: string;
   defaultExpanded?: boolean;
+  indentContent?: boolean;
   headerClassName?: string;
   headerTestId?: string;
   icon?: ReactNode;
   onExpand?: () => void;
   shouldAnimateInitialCollapse?: boolean;
+  status?: "running" | "completed" | "failed";
   summary: ReactNode;
   summaryClassName?: string;
   summaryKey?: string | null;
@@ -244,18 +247,37 @@ export interface ThreadActivityDisclosureProps {
   testId?: string;
 }
 
-export type ThreadActivityDisclosurePhase = "opening" | "expanded" | "closing" | "collapsed";
+function useMeasuredThreadActivityBodyHeight(): {
+  elementHeightPx: number;
+  elementRef: (element: HTMLDivElement | null) => void;
+} {
+  const [elementHeightPx, setElementHeightPx] = useState(0);
+  const resizeObserverRef = useRef<ResizeObserver | null>(null);
+  const updateHeight = useCallback((height: number) => {
+    setElementHeightPx((current) => current === height ? current : height);
+  }, []);
+  const elementRef = useCallback((element: HTMLDivElement | null) => {
+    resizeObserverRef.current?.disconnect();
+    resizeObserverRef.current = null;
+    if (!element) return;
 
-export function completeThreadActivityDisclosureAnimation(
-  phase: ThreadActivityDisclosurePhase,
-): ThreadActivityDisclosurePhase {
-  return phase === "closing" ? "collapsed" : phase;
-}
+    updateHeight(element.scrollHeight);
+    if (typeof ResizeObserver === "undefined") return;
 
-export function completeThreadActivityDisclosureOpeningFrame(
-  phase: ThreadActivityDisclosurePhase,
-): ThreadActivityDisclosurePhase {
-  return phase === "opening" ? "expanded" : phase;
+    const resizeObserver = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+      updateHeight(readResizeObserverBorderBoxSize(entry).height);
+    });
+    resizeObserver.observe(element);
+    resizeObserverRef.current = resizeObserver;
+  }, [updateHeight]);
+
+  useEffect(() => () => {
+    resizeObserverRef.current?.disconnect();
+  }, []);
+
+  return { elementHeightPx, elementRef };
 }
 
 export function ThreadRichActivityHeader({
@@ -338,11 +360,12 @@ export function ThreadActivityDisclosure({
   children,
   className,
   defaultExpanded = false,
+  indentContent = true,
   headerClassName,
   headerTestId,
   icon,
   onExpand,
-  shouldAnimateInitialCollapse = false,
+  status = "completed",
   summary,
   summaryClassName,
   summaryKey,
@@ -350,35 +373,19 @@ export function ThreadActivityDisclosure({
   testId,
 }: ThreadActivityDisclosureProps) {
   const hasBody = canExpand && children !== null && children !== undefined;
-  const [disclosureState, setDisclosureState] = useState<ThreadActivityDisclosurePhase>(() => {
-    if (!hasBody) return "collapsed";
-    if (defaultExpanded) return "expanded";
-    return shouldAnimateInitialCollapse ? "closing" : "collapsed";
-  });
-  const animationFrameRef = useRef<number | null>(null);
-  const expanded = disclosureState === "opening" || disclosureState === "expanded";
-  const fullyExpanded = disclosureState === "expanded";
-
-  useEffect(() => () => {
-    if (animationFrameRef.current === null) return;
-    window.cancelAnimationFrame(animationFrameRef.current);
-  }, []);
+  const [manuallyCollapsed, setManuallyCollapsed] = useState(false);
+  const [normallyExpanded, setNormallyExpanded] = useState(defaultExpanded);
+  const { elementHeightPx, elementRef } = useMeasuredThreadActivityBodyHeight();
+  const isRunning = status === "running";
+  const expanded = hasBody && (isRunning ? !manuallyCollapsed : normallyExpanded);
 
   const handleToggle = () => {
-    if (expanded) {
-      setDisclosureState("closing");
+    if (!expanded) onExpand?.();
+    if (isRunning) {
+      setManuallyCollapsed((current) => !current);
       return;
     }
-    onExpand?.();
-    if (disclosureState === "closing") {
-      setDisclosureState("expanded");
-      return;
-    }
-    setDisclosureState("opening");
-    animationFrameRef.current = window.requestAnimationFrame(() => {
-      animationFrameRef.current = null;
-      setDisclosureState(completeThreadActivityDisclosureOpeningFrame);
-    });
+    setNormallyExpanded((current) => !current);
   };
 
   const disclosure = hasBody ? { expanded, onToggle: handleToggle } : undefined;
@@ -399,21 +406,30 @@ export function ThreadActivityDisclosure({
       testId={headerTestId}
     />
   );
-  const body = hasBody && disclosureState !== "collapsed" ? (
+  const body = hasBody ? (
     <motion.div
       initial={false}
-      animate={fullyExpanded
-        ? { height: "auto", opacity: 1 }
-        : { height: 0, opacity: 0 }}
-      className="overflow-hidden"
-      data-testid={bodyTestId}
-      style={{ pointerEvents: fullyExpanded ? "auto" : "none" }}
-      transition={CODEX_THREAD_ACCORDION_TRANSITION}
-      onAnimationComplete={() => {
-        setDisclosureState(completeThreadActivityDisclosureAnimation);
+      animate={{
+        height: expanded ? elementHeightPx : 0,
+        opacity: expanded ? 1 : 0,
       }}
+      aria-hidden={!expanded}
+      inert={!expanded}
+      className={expanded ? "overflow-visible" : "overflow-hidden"}
+      data-testid={bodyTestId}
+      style={{ pointerEvents: expanded ? "auto" : "none" }}
+      transition={CODEX_THREAD_ACCORDION_TRANSITION}
     >
-      {bodyClassName ? <div className={bodyClassName}>{children}</div> : children}
+      <div
+        ref={elementRef}
+        className={cn(
+          "flex flex-col gap-2 pt-2 pb-1",
+          indentContent && "ps-6",
+          bodyClassName,
+        )}
+      >
+        {children}
+      </div>
     </motion.div>
   ) : null;
 

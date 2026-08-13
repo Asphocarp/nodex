@@ -546,14 +546,13 @@ describe("workbench session shell / routes-threads", () => {
 
     const props = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
     const selector = props?.newThreadStartInSelector as {
-      target?: { runInTarget?: string; worktreeStartMode?: string; worktreeBranchPrefix?: string };
+      target?: { runInTarget?: string; worktreeStartingState?: unknown };
       disabled?: boolean;
     } | null | undefined;
     expect(props?.isNewThreadTab).toBe(false);
     expect(props?.newThreadTarget === null).toBe(true);
     expect(selector?.target?.runInTarget).toBe("localProject");
-    expect(selector?.target?.worktreeStartMode).toBe("detachedHead");
-    expect(selector?.target?.worktreeBranchPrefix).toBe("codex/");
+    expect(selector?.target?.worktreeStartingState).toBeUndefined();
     expect(selector?.disabled).toBe(false);
   });
 

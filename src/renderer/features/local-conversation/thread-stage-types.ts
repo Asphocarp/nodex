@@ -57,8 +57,7 @@ import type {
   GitReviewSource,
   PanelId,
   ProtocolAppInfo,
-  WorktreeEnvironmentOption,
-  WorktreeStartMode,
+  WorktreeEnvironmentConfigRecord,
 } from "../../lib/types";
 import type { ReviewOpenIntent } from "@/features/review/model/review-view-state";
 import type { ComposerEnterBehavior } from "../../lib/composer-enter-behavior";
@@ -86,11 +85,15 @@ export interface NewChatStartInSelectorModel {
   target: NewChatStartInTarget;
   disabled: boolean;
   worktreeAvailable: boolean;
-  environments: WorktreeEnvironmentOption[];
+  environments: WorktreeEnvironmentConfigRecord[];
   environmentsLoading: boolean;
+  environmentsError: boolean;
   selectedEnvironmentPath: string | null;
-  worktreeStartMode: WorktreeStartMode;
-  worktreeBranchPrefix: string;
+  defaultEnvironmentPath: string | null;
+  environmentNeedsAttention: boolean;
+  environmentRepairConfigPath: string | null;
+  repositoryName?: string | null;
+  additionalSourceFolderCount?: number;
 }
 
 export interface ThreadSummaryPanelAuxiliaryRow {
@@ -225,8 +228,7 @@ export interface ThreadStageRouteInput {
     threadTitle?: string;
     runInTarget?: PageRunInTarget;
     runInEnvironmentPath?: string | null;
-    worktreeStartMode?: WorktreeStartMode;
-    worktreeBranchPrefix?: string | null;
+    worktreeStartingState?: import("../../../shared/codex-pending-worktree").CodexPendingWorktreeStartingState;
   } | null;
   newThreadProjectSelector?: NewChatProjectSelectorModel | null;
   newThreadStartInSelector?: NewChatStartInSelectorModel | null;
@@ -308,13 +310,12 @@ export interface ThreadStageActions {
     threadGoalMaterializedDraft?: CodexThreadGoalMaterializedDraft;
     runInTarget?: PageRunInTarget;
     runInEnvironmentPath?: string | null;
-    worktreeStartMode?: WorktreeStartMode;
-    worktreeBranchPrefix?: string | null;
+    worktreeStartingState?: import("../../../shared/codex-pending-worktree").CodexPendingWorktreeStartingState;
   }) => Promise<void>;
   onNewThreadStartInTargetChange?: (target: NewChatStartInTarget) => void;
   onNewThreadStartInEnvironmentChange?: (environmentPath: string | null) => void;
   onRefreshNewThreadStartInEnvironments?: () => Promise<void>;
-  onOpenNewThreadLocalEnvironmentsSettings?: () => void;
+  onOpenNewThreadLocalEnvironmentsSettings?: (configPath?: string | null) => void;
   onOpenHooksSettings?: (target: CodexHooksSettingsTarget) => void;
   onNewThreadProjectChange?: (projectId: string | null) => void;
   onRequestNewChatProjectCreate?: () => void;

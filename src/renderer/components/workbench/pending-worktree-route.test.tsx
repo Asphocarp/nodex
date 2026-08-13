@@ -2,7 +2,6 @@ import { describe, expect, test } from "vitest";
 import { act, fireEvent, waitFor } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
-import { NodexModalHost } from "@/lib/modal-registry";
 import type {
   CodexPendingWorktreeEntry,
   CodexPendingWorktreeThreadResolution,
@@ -11,6 +10,7 @@ import type {
 import { renderWithMaitai } from "../../test/dom";
 import {
   PendingWorktreeRoute,
+  PendingWorktreeRouteView,
   type PendingWorktreeRouteTransport,
 } from "./pending-worktree-route";
 
@@ -20,7 +20,6 @@ function render(element: ReactElement) {
   return renderWithMaitai(
     <NodexTooltipProvider>
       {element}
-      <NodexModalHost />
     </NodexTooltipProvider>,
   );
 }
@@ -50,11 +49,11 @@ function makeEntry(
   return {
     id: "local:pending-1",
     hostId: "local",
-    label: "Implement renderer parity",
+    label: "Prepare an isolated workspace",
     sourceWorkspaceRoot: "/repo/nodex",
     startingState: { type: "branch", branchName: "main" },
     localEnvironmentConfigPath: null,
-    prompt: "Implement renderer parity without guessing.",
+    prompt: "Create an isolated workspace and implement the task.",
     launchMode: "start-conversation",
     clientThreadId: CLIENT_THREAD_ID,
     startConversationParamsInput: {
@@ -133,6 +132,7 @@ class TestPendingWorktreeTransport implements PendingWorktreeRouteTransport {
 
   workLocally = async (hostId: string, pendingWorktreeId: string) => {
     this.calls.push(`work-locally:${hostId}:${pendingWorktreeId}`);
+    return { threadId: "thread-local" };
   };
 
   continue = async (hostId: string, pendingWorktreeId: string) => {
@@ -200,7 +200,7 @@ describe("PendingWorktreeRoute", () => {
 
     const creatingHeader = await view.findByRole("button", { name: "Creating a worktree" });
     expect(creatingHeader.getAttribute("aria-expanded")).toBe("true");
-    expect(Boolean(view.getByText("Implement renderer parity without guessing."))).toBe(true);
+    expect(Boolean(view.getByText("Create an isolated workspace and implement the task."))).toBe(true);
     expect(Boolean(view.getByRole("button", { name: "Work locally" }))).toBe(true);
     expect(Boolean(view.getByRole("button", { name: "Cancel" }))).toBe(true);
 
@@ -263,7 +263,7 @@ describe("PendingWorktreeRoute", () => {
       "clear-attention:local:local:pending-1,cancel:local:local:pending-1,discard-transfer:local:pending-1",
     );
     expect(closeCount).toBe(1);
-    expect(handedOffPrompt).toBe("Implement renderer parity without guessing.");
+    expect(handedOffPrompt).toBe("Create an isolated workspace and implement the task.");
   });
 
   test("works locally from the active setup without changing client route identity", async () => {
@@ -291,20 +291,14 @@ describe("PendingWorktreeRoute", () => {
     );
   });
 
-  test("hides the pending body until work-locally maps and opens the real thread", async () => {
+  test("hides the pending body until work-locally returns and opens the real thread", async () => {
     const queued = makeEntry({ phase: "creating" });
     const transport = new TestPendingWorktreeTransport(queued, waitingResolution(queued));
-    const launch = deferred<void>();
+    const launch = deferred<{ readonly threadId: string }>();
     transport.workLocally = async (hostId, pendingWorktreeId) => {
       transport.calls.push(`work-locally:${hostId}:${pendingWorktreeId}`);
       transport.emitEntries([]);
-      await launch.promise;
-      transport.resolution = {
-        state: "succeeded",
-        clientThreadId: CLIENT_THREAD_ID,
-        threadId: "thread-local",
-      };
-      transport.emitEntries([]);
+      return await launch.promise;
     };
     const opened: string[] = [];
     let closeCount = 0;
@@ -332,7 +326,7 @@ describe("PendingWorktreeRoute", () => {
     });
     expect(opened.length).toBe(0);
 
-    launch.resolve();
+    launch.resolve({ threadId: "thread-local" });
     await waitFor(() => {
       expect(opened.join(",")).toBe("thread-local");
       expect(closeCount).toBe(1);
@@ -342,12 +336,12 @@ describe("PendingWorktreeRoute", () => {
   test("shows the rejected work-locally launch error without a missing-setup claim", async () => {
     const queued = makeEntry({ phase: "creating" });
     const transport = new TestPendingWorktreeTransport(queued, waitingResolution(queued));
-    const launch = deferred<void>();
+    const launch = deferred<{ readonly threadId: string }>();
     transport.workLocally = async (hostId, pendingWorktreeId) => {
       transport.calls.push(`work-locally:${hostId}:${pendingWorktreeId}`);
       transport.resolution = null;
       transport.emitEntries([]);
-      await launch.promise;
+      return await launch.promise;
     };
     const view = render(
       <PendingWorktreeRoute
@@ -408,7 +402,7 @@ describe("PendingWorktreeRoute", () => {
     ).toBe(1);
   });
 
-  test("exposes exact rename and pin metadata actions", async () => {
+  test("uses the normal thread hierarchy without a private header or fake composer", async () => {
     const entry = makeEntry();
     const transport = new TestPendingWorktreeTransport(entry, waitingResolution(entry));
     const view = render(
@@ -423,30 +417,82 @@ describe("PendingWorktreeRoute", () => {
     expect(Boolean(await view.findByText("Creating a worktree", {
       selector: ".loading-shimmer-pure-text",
     }))).toBe(true);
-    await act(async () => {
-      fireEvent.click(view.getByRole("button", { name: "Pin task" }));
-      await Promise.resolve();
-    });
-    expect(transport.calls.includes("pin:local:local:pending-1:true")).toBe(true);
+    expect(Boolean(view.container.querySelector("[data-local-conversation-thread-body='true']")))
+      .toBe(true);
+    expect(Boolean(view.container.querySelector("[data-user-message-bubble='true']")))
+      .toBe(true);
+    expect(Boolean(view.getByRole("button", { name: "Copy message" }))).toBe(true);
+    expect(view.queryByRole("heading", { name: entry.label })).toBe(null);
+    expect(view.queryByRole("button", { name: "Pin task" })).toBe(null);
+    expect(view.queryByRole("button", { name: "Rename task" })).toBe(null);
+    expect(view.queryByText("Waiting for worktree setup…")).toBe(null);
+  });
 
-    await act(async () => {
-      fireEvent.click(view.getByRole("button", { name: "Rename task" }));
-      await Promise.resolve();
+  test("renders phase actions in the exact order with static labels while loading", () => {
+    const callbacks = {
+      onCancel: () => undefined,
+      onContinue: () => undefined,
+      onAutoFix: () => undefined,
+      onEditEnvironment: () => undefined,
+      onRetry: () => undefined,
+      onWorkLocally: () => undefined,
+    };
+    const creating = makeEntry({ phase: "creating" });
+    const activeView = render(
+      <PendingWorktreeRouteView
+        {...callbacks}
+        entry={creating}
+        resolution={waitingResolution(creating)}
+        busyAction="cancel"
+      />,
+    );
+    const activeNames = activeView.getAllByRole("button")
+      .map((button) => button.textContent?.trim())
+      .filter((name) => name === "Work locally" || name === "Cancel");
+    expect(activeNames).toEqual(["Work locally", "Cancel"]);
+    expect(activeView.getByRole("button", { name: "Work locally" }).getAttribute("aria-busy"))
+      .toBe("true");
+    expect(activeView.getByRole("button", { name: "Cancel" }).getAttribute("aria-busy"))
+      .toBe("true");
+    expect(activeView.queryByText("Canceling…")).toBe(null);
+
+    const failed = makeEntry({
+      phase: "failed",
+      errorMessage: "Environment command failed",
+      localEnvironmentConfigPath: "/repo/nodex/.codex/environments/default.toml",
+      worktreeGitRoot: "/repo/worktrees/task",
+      worktreeWorkspaceRoot: "/repo/worktrees/task",
     });
-    const title = await view.findByRole("textbox", { name: "Chat title" });
-    await act(async () => {
-      fireEvent.input(title, { target: { value: "Renamed task" } });
-      await Promise.resolve();
-    });
-    await act(async () => {
-      fireEvent.click(view.getByRole("button", { name: "Save" }));
-      await Promise.resolve();
-    });
-    await waitFor(() => {
-      expect(transport.calls.includes(
-        "rename:local:local:pending-1:Renamed task",
-      )).toBe(true);
-    });
+    const failedView = render(
+      <PendingWorktreeRouteView
+        {...callbacks}
+        entry={failed}
+        resolution={waitingResolution(failed)}
+        busyAction="auto-fix"
+      />,
+    );
+    const failureActionLabels = new Set([
+      "Edit environment",
+      "Auto-fix",
+      "Retry",
+      "Continue anyway",
+    ]);
+    const failureNames = failedView.getAllByRole("button")
+      .map((button) => button.textContent?.trim())
+      .filter((name): name is string => name !== undefined && failureActionLabels.has(name));
+    expect(failureNames).toEqual([
+      "Edit environment",
+      "Auto-fix",
+      "Retry",
+      "Continue anyway",
+    ]);
+    expect(failedView.getByRole("button", { name: "Auto-fix" }).getAttribute("aria-busy"))
+      .toBe("true");
+    expect(failedView.getByRole("button", { name: "Retry" }).getAttribute("aria-busy"))
+      .toBe(null);
+    expect(failedView.getByRole("button", { name: "Retry" }).hasAttribute("disabled"))
+      .toBe(false);
+    expect(failedView.queryByText("Starting…")).toBe(null);
   });
 
   test("offers Auto-fix, retry, and continue only at a retained setup failure", async () => {

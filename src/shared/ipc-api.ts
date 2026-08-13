@@ -1746,7 +1746,7 @@ export interface IpcApi {
   };
   "codex:pending-worktree:work-locally": {
     args: [hostId: string, pendingWorktreeId: string];
-    result: void;
+    result: { readonly threadId: string };
   };
   "codex:pending-worktree:continue": {
     args: [hostId: string, pendingWorktreeId: string];

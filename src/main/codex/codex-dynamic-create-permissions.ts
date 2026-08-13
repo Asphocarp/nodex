@@ -308,19 +308,21 @@ export function buildCodexDynamicCreatePermissionContextForMode(input: {
 export function buildCodexDynamicPendingPermissionSelection(input: {
   readonly mode: CodexDynamicCreatePermissionMode;
   readonly workspaceRoot: string;
+  readonly workspaceRoots?: readonly string[];
   readonly config: Readonly<Partial<Config>>;
   readonly permissionProfileId?: string;
 }): CodexDynamicCreatePermissionSelection {
+  const workspaceRoots = input.workspaceRoots ?? [input.workspaceRoot];
   const baseContext = buildCodexDynamicCreatePermissionContextForMode({
     mode: input.mode,
-    workspaceRoots: [input.workspaceRoot],
+    workspaceRoots,
     config: input.config,
   });
   const context: CodexDynamicCreatePermissionContext = input.permissionProfileId
     ? {
         ...baseContext,
         activePermissionProfile: { id: input.permissionProfileId, extends: null },
-        runtimeWorkspaceRoots: [input.workspaceRoot],
+        runtimeWorkspaceRoots: [...workspaceRoots],
       }
     : baseContext;
   return resolveCodexDynamicCreatePermissionSelection({
@@ -335,7 +337,7 @@ export function buildCodexDynamicPendingPermissionSelection(input: {
       cwd: input.workspaceRoot,
       defaultMode: input.mode,
       defaultContext: context,
-      workspaceRoots: [input.workspaceRoot],
+      workspaceRoots,
     },
   });
 }

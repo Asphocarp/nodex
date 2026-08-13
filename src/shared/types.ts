@@ -76,6 +76,7 @@ import type {
   ThreadMemoryMode as CodexAppServerThreadMemoryMode,
 } from "@nodex/codex-app-server-protocol";
 import type { AgentExecutionProfile } from "./agent-runtime";
+import type { CodexPendingWorktreeStartingState } from "./codex-pending-worktree";
 import type { PortableRichText } from "./block-documents/portable-rich-text";
 import type { ProjectLifecycle } from "./library";
 import type { ProjectAppearance } from "./project-appearance";
@@ -2117,8 +2118,7 @@ export interface CodexThreadStartForSessionInput {
   additionalDeveloperInstructions?: string | null;
   runInTarget?: PageRunInTarget;
   runInEnvironmentPath?: string | null;
-  worktreeStartMode?: WorktreeStartMode;
-  worktreeBranchPrefix?: string;
+  worktreeStartingState?: CodexPendingWorktreeStartingState;
   heartbeatAutomation?: CodexThreadStartHeartbeatAutomationInput | null;
   /** Surface that must own Browser Use before the first turn can start. */
   browserUsePresentationOrigin?: BrowserUsePresentationOrigin;
@@ -3603,6 +3603,8 @@ export interface GitBranchMetadataResult {
   currentBranch: string | null;
   defaultBranch: string | null;
   branches: string[];
+  /** Full refs, for example refs/remotes/origin/main. */
+  remoteBranchRefs?: string[];
 }
 
 export type GitReviewLiveQuery =

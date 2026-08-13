@@ -2,12 +2,14 @@ export interface BranchSelectorState {
   currentBranch: string | null;
   defaultBranch: string | null;
   branches: string[];
+  remoteBranchRefs: string[];
 }
 
 export const EMPTY_BRANCH_SELECTOR_STATE: BranchSelectorState = {
   currentBranch: null,
   defaultBranch: null,
   branches: [],
+  remoteBranchRefs: [],
 };
 
 function normalizePath(value: string | null | undefined): string | null {
@@ -33,6 +35,7 @@ export function parseBranchSelectorState(result: unknown): BranchSelectorState {
     currentBranch?: unknown;
     defaultBranch?: unknown;
     branches?: unknown;
+    remoteBranchRefs?: unknown;
   };
 
   if (typeof candidate.error === "string" && candidate.error.trim()) {
@@ -55,11 +58,22 @@ export function parseBranchSelectorState(result: unknown): BranchSelectorState {
       .map((branch) => branch.trim())
       .filter((branch, index, items) => branch.length > 0 && items.indexOf(branch) === index)
     : [];
+  const remoteBranchRefs = Array.isArray(candidate.remoteBranchRefs)
+    ? candidate.remoteBranchRefs
+      .filter((branch): branch is string => typeof branch === "string")
+      .map((branch) => branch.trim())
+      .filter((branch, index, items) => (
+        branch.length > 0
+        && !branch.endsWith("/HEAD")
+        && items.indexOf(branch) === index
+      ))
+    : [];
 
   return {
     currentBranch,
     defaultBranch,
     branches,
+    remoteBranchRefs,
   };
 }
 

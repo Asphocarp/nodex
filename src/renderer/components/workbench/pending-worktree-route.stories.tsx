@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { MotionConfig } from "motion/react";
 import type {
   CodexPendingWorktreeEntry,
   CodexPendingWorktreeThreadResolution,
@@ -18,12 +19,11 @@ function makeEntry(
   return {
     id: "local:pending-1",
     hostId: "local",
-    label: "Bring the worktree launch path to exact parity",
+    label: "Prepare an isolated workspace for the task",
     sourceWorkspaceRoot: "/Users/asc/repo/nodex",
     startingState: { type: "branch", branchName: "main" },
     localEnvironmentConfigPath: null,
-    prompt:
-      "Inspect the reference bundle first, then bring the worktree launch path to exact parity.",
+    prompt: "Create an isolated workspace, install dependencies, and implement the task.",
     launchMode: "start-conversation",
     clientThreadId: CLIENT_THREAD_ID,
     startConversationParamsInput: {
@@ -87,7 +87,7 @@ const meta = {
     docs: {
       description: {
         component:
-          "Pending worktree thread body: the original user prompt, phase-specific activity/output, exact recovery actions, and the locked composer shown before the real thread exists.",
+          "Pending worktree thread body in the normal thread hierarchy: the original user prompt, phase-specific activity/output, and exact recovery actions before the real thread exists.",
       },
     },
   },
@@ -103,14 +103,11 @@ const meta = {
     resolution: null,
     busyAction: null,
     actionError: null,
-    externalHeader: false,
     onCancel: () => undefined,
     onContinue: () => undefined,
     onAutoFix: () => undefined,
     onEditEnvironment: () => undefined,
-    onRename: () => undefined,
     onRetry: () => undefined,
-    onTogglePinned: () => undefined,
     onWorkLocally: () => undefined,
   },
 } satisfies Meta<typeof PendingWorktreeRouteView>;
@@ -118,6 +115,35 @@ const meta = {
 export default meta;
 
 type Story = StoryObj<typeof meta>;
+
+const narrowViewport = {
+  defaultViewport: "pending-worktree-narrow",
+  options: {
+    "pending-worktree-narrow": {
+      name: "Pending worktree narrow (480×720)",
+      styles: { width: "480px", height: "720px" },
+    },
+  },
+};
+
+const wideViewport = {
+  defaultViewport: "pending-worktree-wide",
+  options: {
+    "pending-worktree-wide": {
+      name: "Pending worktree wide (1440×900)",
+      styles: { width: "1440px", height: "900px" },
+    },
+  },
+};
+
+const queuedEntry = makeEntry({ phase: "queued" });
+
+export const Queued: Story = {
+  args: {
+    entry: queuedEntry,
+    resolution: waiting(queuedEntry),
+  },
+};
 
 const creatingEntry = makeEntry({
   phase: "creating",
@@ -130,6 +156,11 @@ export const Creating: Story = {
     entry: creatingEntry,
     resolution: waiting(creatingEntry),
   },
+};
+
+export const CreatingNarrow: Story = {
+  ...Creating,
+  parameters: { viewport: narrowViewport },
 };
 
 const setupEntry = makeEntry({
@@ -150,6 +181,28 @@ export const SettingUpEnvironment: Story = {
   },
 };
 
+export const SettingUpEnvironmentWide: Story = {
+  ...SettingUpEnvironment,
+  parameters: { viewport: wideViewport },
+};
+
+export const SettingUpEnvironmentReducedMotion: Story = {
+  args: SettingUpEnvironment.args,
+  render: (args) => (
+    <MotionConfig reducedMotion="always">
+      <PendingWorktreeRouteView {...args} />
+    </MotionConfig>
+  ),
+};
+
+export const CancelingSetup: Story = {
+  args: {
+    entry: setupEntry,
+    resolution: waiting(setupEntry),
+    busyAction: "cancel",
+  },
+};
+
 const readyEntry = makeEntry({
   phase: "worktree-ready",
   worktreeGitRoot: "/Users/asc/.codex/worktrees/7e3a/nodex",
@@ -163,6 +216,37 @@ export const StartingConversation: Story = {
   args: {
     entry: readyEntry,
     resolution: waiting(readyEntry),
+  },
+};
+
+const readyWithoutEnvironmentEntry = makeEntry({
+  phase: "worktree-ready",
+  worktreeGitRoot: "/Users/asc/.codex/worktrees/7e3a/nodex",
+  worktreeWorkspaceRoot: "/Users/asc/.codex/worktrees/7e3a/nodex",
+  worktreeOutputText: "[info] Worktree created\n",
+});
+
+export const StartingConversationWithoutEnvironment: Story = {
+  args: {
+    entry: readyWithoutEnvironmentEntry,
+    resolution: waiting(readyWithoutEnvironmentEntry),
+  },
+};
+
+const skippedSetupEntry = makeEntry({
+  phase: "worktree-ready",
+  worktreeGitRoot: "/Users/asc/.codex/worktrees/7e3a/nodex",
+  worktreeWorkspaceRoot: "/Users/asc/.codex/worktrees/7e3a/nodex",
+  localEnvironmentConfigPath: "/Users/asc/repo/nodex/.codex/environments/default.toml",
+  worktreeOutputText: "[info] Worktree created\n",
+  setupOutputText: "error: postinstall script failed with exit code 1\n",
+  errorMessage: "Local environment setup exited with status 1",
+});
+
+export const SetupSkipped: Story = {
+  args: {
+    entry: skippedSetupEntry,
+    resolution: waiting(skippedSetupEntry),
   },
 };
 
@@ -186,6 +270,56 @@ export const SetupFailed: Story = {
       clientThreadId: CLIENT_THREAD_ID,
       pendingWorktreeId: failedEntry.id,
       errorMessage: failedEntry.errorMessage,
+    },
+  },
+};
+
+export const SetupFailedDark: Story = {
+  ...SetupFailed,
+  globals: { theme: "dark" },
+};
+
+export const AutoFixingSetup: Story = {
+  args: {
+    ...SetupFailed.args,
+    busyAction: "auto-fix",
+  },
+};
+
+export const SetupFailureActionError: Story = {
+  args: {
+    ...SetupFailed.args,
+    actionError: "The repair task could not be started.",
+  },
+};
+
+const createFailedEntry = makeEntry({
+  phase: "failed",
+  worktreeOutputText: "fatal: invalid reference: feature/missing\n",
+  errorMessage: "Worktree creation failed",
+  needsAttention: true,
+});
+
+export const WorktreeCreationFailed: Story = {
+  args: {
+    entry: createFailedEntry,
+    resolution: {
+      state: "failed",
+      clientThreadId: CLIENT_THREAD_ID,
+      pendingWorktreeId: createFailedEntry.id,
+      errorMessage: createFailedEntry.errorMessage,
+    },
+  },
+};
+
+export const ConversationStartFailed: Story = {
+  args: {
+    entry: readyEntry,
+    resolution: {
+      state: "failed",
+      clientThreadId: CLIENT_THREAD_ID,
+      pendingWorktreeId: readyEntry.id,
+      errorMessage: "The task could not be started.",
     },
   },
 };

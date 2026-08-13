@@ -6,6 +6,7 @@ import {
   type CodexCanonicalLiveTurnParams,
 } from "./codex-conversation-state";
 import {
+  appendCodexCanonicalOptimisticFirstTurn,
   appendCodexCanonicalOptimisticTurn,
   bindCodexCanonicalOptimisticTurn,
   failCodexCanonicalOptimisticTurn,
@@ -88,7 +89,26 @@ function buildParams(): CodexCanonicalLiveTurnParams {
   };
 }
 
-describe("Codex optimistic turn parity", () => {
+describe("Codex optimistic worktree initialization ordering", () => {
+  test("publishes worktree initialization in a completed turn before the first user turn", () => {
+    const state = appendCodexCanonicalOptimisticFirstTurn(
+      buildState(),
+      { params: buildParams(), startedAtMs: 42 },
+      {
+        type: "worktreeInit",
+        id: "pending:1",
+        worktreeOutputText: "created\n",
+        setup: null,
+      },
+    );
+
+    expect(state.turns).toHaveLength(2);
+    expect(state.turns[0]?.protocol.status).toBe("completed");
+    expect(state.turns[0]?.items[0]?.type).toBe("worktreeInit");
+    expect(state.turns[1]?.protocol.status).toBe("inProgress");
+    expect(state.turns[1]?.sidecar.params.clientUserMessageId).toBe("client-message");
+  });
+
   test("publishes the exact nullable in-progress placeholder before dispatch", () => {
     const state = appendCodexCanonicalOptimisticTurn(buildState(), {
       params: buildParams(),

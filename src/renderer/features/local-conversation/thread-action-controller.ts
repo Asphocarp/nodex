@@ -225,8 +225,7 @@ export function createThreadStageActions(input: ThreadActionControllerInput): Th
           threadGoalMaterializedDraft,
           runInTarget,
           runInEnvironmentPath,
-          worktreeStartMode,
-          worktreeBranchPrefix,
+          worktreeStartingState,
         } = request;
         let targetSession: ProjectSession | null = null;
         if (projectDraftId) {
@@ -277,8 +276,7 @@ export function createThreadStageActions(input: ThreadActionControllerInput): Th
           threadGoalMaterializedDraft,
           runInTarget,
           runInEnvironmentPath,
-          worktreeStartMode,
-          worktreeBranchPrefix: worktreeBranchPrefix ?? undefined,
+          worktreeStartingState,
           collaborationMode: input.selectedCollaborationMode,
           ...(presentationOrigin
             ? { browserUsePresentationOrigin: presentationOrigin }
