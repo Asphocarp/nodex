@@ -1,4 +1,4 @@
-import { Profiler, type ProfilerOnRenderCallback } from "react";
+import { Profiler, type ProfilerOnRenderCallback, type ReactElement } from "react";
 import { act, fireEvent, render, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { describe, expect, test } from "vitest";
@@ -143,8 +143,29 @@ function sumCommitDuration(commits: readonly ProfileCommit[], stage: TraceStage)
     .reduce((total, commit) => total + commit.actualDurationMs, 0);
 }
 
+function groupScroller(body: HTMLElement): HTMLElement {
+  const measuredBody = body.firstElementChild;
+  const scroller = measuredBody?.firstElementChild;
+  if (!(scroller instanceof HTMLElement)) {
+    throw new Error("Expected the mixed activity body scroller.");
+  }
+  return scroller;
+}
+
 function countGroupRows(body: HTMLElement): number {
-  return body.firstElementChild?.children.length ?? 0;
+  return groupScroller(body).children.length;
+}
+
+async function renderAndSettle(ui: ReactElement): Promise<ReturnType<typeof render>> {
+  let view: ReturnType<typeof render> | null = null;
+  await act(async () => {
+    view = render(ui);
+    await new Promise<void>((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+    });
+  });
+  if (!view) throw new Error("Expected the browser renderer to mount.");
+  return view;
 }
 
 describe("ThreadAgentActivityGroupBlock Chromium behavior", () => {
@@ -177,10 +198,13 @@ describe("ThreadAgentActivityGroupBlock Chromium behavior", () => {
         </QueryClientProvider>
       </MaitaiProvider>
     );
-    const view = render(renderGroup(initialBlock));
-    const disclosure = view.getByRole("button", { name: /Edited files/i });
-
-    expect(view.queryByTestId("agent-activity-group-body")).toBeNull();
+    const view = await renderAndSettle(renderGroup(initialBlock));
+    const disclosure = view.container.querySelector<HTMLButtonElement>("button[aria-expanded]");
+    if (!disclosure) throw new Error("Expected the activity disclosure button.");
+    const collapsedBody = view.getByTestId("agent-activity-group-body");
+    expect(collapsedBody.getAttribute("aria-hidden")).toBe("true");
+    expect(collapsedBody.hasAttribute("inert")).toBe(true);
+    expect(countGroupRows(collapsedBody)).toBe(initialBlock.entries.length);
 
     stage = "collapsed-stream";
     const collapsedStreamStartedAt = performance.now();
@@ -191,7 +215,10 @@ describe("ThreadAgentActivityGroupBlock Chromium behavior", () => {
         view.rerender(renderGroup(currentBlock));
         await Promise.resolve();
       });
-      expect(view.queryByTestId("agent-activity-group-body")).toBeNull();
+      const body = view.getByTestId("agent-activity-group-body");
+      expect(body.getAttribute("aria-hidden")).toBe("true");
+      expect(body.hasAttribute("inert")).toBe(true);
+      expect(countGroupRows(body)).toBe(currentBlock.entries.length);
     }
     const collapsedStreamLatencyMs = performance.now() - collapsedStreamStartedAt;
     const collapsedStreamCommitMs = sumCommitDuration(commits, "collapsed-stream");
@@ -204,15 +231,14 @@ describe("ThreadAgentActivityGroupBlock Chromium behavior", () => {
     });
     await waitFor(() => {
       const body = view.getByTestId("agent-activity-group-body");
+      expect(body.getAttribute("aria-hidden")).toBe("false");
+      expect(body.hasAttribute("inert")).toBe(false);
       expect(countGroupRows(body)).toBe(currentBlock.entries.length);
     });
     const openLatencyMs = performance.now() - openStartedAt;
     const openCommitMs = sumCommitDuration(commits, "open");
     const body = view.getByTestId("agent-activity-group-body");
-    const scroller = body.firstElementChild;
-    if (!(scroller instanceof HTMLElement)) {
-      throw new Error("Expected the mixed activity body scroller.");
-    }
+    const scroller = groupScroller(body);
     const rowWrappersBeforeStream = [...scroller.children];
     const childListMutations: MutationRecord[] = [];
     const mutationObserver = new MutationObserver((records) => {
@@ -271,7 +297,9 @@ describe("ThreadAgentActivityGroupBlock Chromium behavior", () => {
       await Promise.resolve();
     });
     await waitFor(() => {
-      expect(view.queryByTestId("agent-activity-group-body")).toBeNull();
+      const collapsed = view.getByTestId("agent-activity-group-body");
+      expect(collapsed.getAttribute("aria-hidden")).toBe("true");
+      expect(collapsed.hasAttribute("inert")).toBe(true);
     });
   });
 
@@ -281,7 +309,7 @@ describe("ThreadAgentActivityGroupBlock Chromium behavior", () => {
       defaultOptions: { queries: { retry: false } },
     });
     const maitaiStore = createMaitaiStore();
-    const view = render(
+    const view = await renderAndSettle(
       <MaitaiProvider store={maitaiStore}>
         <QueryClientProvider client={queryClient}>
           <TooltipProvider>
@@ -313,14 +341,18 @@ describe("ThreadAgentActivityGroupBlock Chromium behavior", () => {
     });
     await waitFor(() => {
       expect(disclosure.getAttribute("aria-expanded")).toBe("true");
-      expect(view.getByTestId("agent-activity-group-body")).toBeDefined();
+      const body = view.getByTestId("agent-activity-group-body");
+      expect(body.getAttribute("aria-hidden")).toBe("false");
+      expect(body.hasAttribute("inert")).toBe(false);
     });
 
     await act(async () => {
       await userEvent.keyboard("{Space}");
     });
     await waitFor(() => {
-      expect(view.queryByTestId("agent-activity-group-body")).toBeNull();
+      const body = view.getByTestId("agent-activity-group-body");
+      expect(body.getAttribute("aria-hidden")).toBe("true");
+      expect(body.hasAttribute("inert")).toBe(true);
     });
   });
 
@@ -364,7 +396,7 @@ describe("ThreadAgentActivityGroupBlock Chromium behavior", () => {
         defaultOptions: { queries: { retry: false } },
       });
       const maitaiStore = createMaitaiStore();
-      const view = render(
+      const view = await renderAndSettle(
         <MaitaiProvider store={maitaiStore}>
           <QueryClientProvider client={queryClient}>
             <TooltipProvider>
@@ -387,10 +419,7 @@ describe("ThreadAgentActivityGroupBlock Chromium behavior", () => {
         await Promise.resolve();
       });
       const body = await waitFor(() => view.getByTestId("agent-activity-group-body"));
-      const scroller = body.firstElementChild;
-      if (!(scroller instanceof HTMLElement)) {
-        throw new Error("Expected the activity body scroller.");
-      }
+      const scroller = groupScroller(body);
 
       const scrollerStyle = getComputedStyle(scroller);
       expect(getComputedStyle(document.documentElement).fontSize).toBe("20px");

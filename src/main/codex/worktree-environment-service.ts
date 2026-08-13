@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { lstat, mkdir, readFile, readdir, realpath, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { requireCodexWorktreeEnvironmentConfigPath } from "../../shared/codex-worktree-environment-path";
 import type {
   UpdateWorktreeEnvironmentConfigInput,
   WorktreeEnvironmentConfigRecord,
@@ -36,18 +37,7 @@ function isPathWithin(parentDir: string, candidatePath: string): boolean {
 }
 
 function normalizeRelativeEnvironmentPath(environmentPath: string): string {
-  const normalizedPath = environmentPath.trim();
-  if (!normalizedPath) {
-    throw new Error("Environment path is required");
-  }
-  if (path.isAbsolute(normalizedPath)) {
-    throw new Error("Environment path must be relative to workspace");
-  }
-  if (path.extname(normalizedPath).toLowerCase() !== ".toml") {
-    throw new Error("Environment path must point to a .toml file");
-  }
-
-  return normalizedPath;
+  return requireCodexWorktreeEnvironmentConfigPath(environmentPath);
 }
 
 function resolveEnvironmentPath(input: {
@@ -585,6 +575,7 @@ export async function readWorktreeEnvironmentDefinition(input: {
   path: string;
   name: string;
   setupScript: string | null;
+  cleanupScript: string | null;
 }> {
   const record = await readWorktreeEnvironmentRecord(input);
   const setup = record.environment?.setup;
@@ -593,11 +584,18 @@ export async function readWorktreeEnvironmentDefinition(input: {
     || process.platform === "win32"
     ? setup?.platformScripts[process.platform] ?? null
     : null;
+  const cleanup = record.environment?.cleanup;
+  const platformCleanupScript = process.platform === "darwin"
+    || process.platform === "linux"
+    || process.platform === "win32"
+    ? cleanup?.platformScripts[process.platform] ?? null
+    : null;
 
   return {
     path: record.configPath,
     name: record.name,
     setupScript: platformSetupScript ?? setup?.script ?? null,
+    cleanupScript: platformCleanupScript ?? cleanup?.script ?? null,
   };
 }
 

@@ -88,9 +88,15 @@ export function mergePendingWorktreesIntoSidebarSnapshot(
   const pendingItems = entries.flatMap((entry): CodexSidebarThreadItem[] => {
     if (entry.launchMode === "create-stable-worktree") return [];
     const projectId = pendingWorktreeProjectId(entry);
+    const isLocalHost = entry.hostId === "local";
+    const worktreePath = entry.worktreeWorkspaceRoot ?? entry.worktreeGitRoot;
+    const phase = worktreePath === null ? "pending" : "ready";
     return [{
       key: codexSidebarLocalThreadKey(entry.clientThreadId),
       kind: "pending-worktree",
+      runLocation: isLocalHost
+        ? { kind: "local-worktree", path: worktreePath, phase }
+        : { kind: "remote-worktree", hostId: entry.hostId, path: worktreePath, phase },
       pendingWorktreeId: entry.id,
       clientThreadId: entry.clientThreadId,
       pinnedBeforeThreadId: entry.pinnedBeforeThreadId,

@@ -2702,16 +2702,16 @@ describe("ThreadFloatingSummaryPanel", () => {
           target: {
             runInTarget: "localProject",
             runInEnvironmentPath: null,
-            worktreeStartMode: "detachedHead",
-            worktreeBranchPrefix: "nodex/",
           },
           disabled: false,
           worktreeAvailable: true,
           environments: [],
           environmentsLoading: false,
+          environmentsError: false,
           selectedEnvironmentPath: null,
-          worktreeStartMode: "detachedHead",
-          worktreeBranchPrefix: "nodex/",
+          defaultEnvironmentPath: null,
+          environmentNeedsAttention: false,
+          environmentRepairConfigPath: null,
         }}
         onErrorMessage={() => undefined}
       />,
@@ -2731,8 +2731,11 @@ describe("ThreadFloatingSummaryPanel", () => {
 
     await waitFor(() => {
       const menuText = view.container.ownerDocument.body.textContent ?? "";
+      const localOption = view.container.ownerDocument.body.querySelector(
+        '[data-new-chat-start-in-option="localProject"]',
+      );
       expect(menuText.includes("Continue in")).toBe(true);
-      expect(menuText.includes("Work locally")).toBe(true);
+      expect(localOption?.textContent?.includes("Local") ?? false).toBe(true);
       expect(menuText.includes("New worktree")).toBe(true);
     });
   });

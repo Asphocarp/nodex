@@ -18,12 +18,18 @@ describe("stable worktree production helpers", () => {
   test("builds the exact stable create request", () => {
     const input = buildStableWorktreeCreateInput({
       sourceWorkspaceRoot: "/repo/nodex",
+      sourceWorkspaceRoots: ["/repo/nodex", "/repo/shared"],
       label: "Nodex_2",
     });
 
     expect(input.hostId).toBe("local");
     expect(input.label).toBe("Nodex_2");
     expect(input.sourceWorkspaceRoot).toBe("/repo/nodex");
+    expect(input.launchMode).toBe("create-stable-worktree");
+    if (input.launchMode !== "create-stable-worktree") {
+      throw new Error("Expected stable worktree input");
+    }
+    expect(input.sourceWorkspaceRoots).toEqual(["/repo/nodex", "/repo/shared"]);
     expect(input.startingState?.type).toBe("branch");
     expect(input.startingState?.type === "branch" ? input.startingState.branchName : null).toBe("HEAD");
     expect(input.localEnvironmentConfigPath).toBe(null);

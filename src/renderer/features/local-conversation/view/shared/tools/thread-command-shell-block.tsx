@@ -266,30 +266,32 @@ export function ThreadCommandShellBlock({
               copiedLabel="Copied"
               tooltipLabel="Copy command"
               copiedTooltipLabel="Copied"
-              className="absolute top-0 right-0 opacity-0 transition-opacity duration-200 group-hover/command:opacity-100 [&>svg]:icon-2xs"
+              className="absolute top-0 right-0 opacity-0 transition-opacity duration-basic group-hover/command:opacity-100 [&>svg]:icon-2xs"
             />
           </div>
         </div>
       ) : null}
-      <div className="group/output relative min-h-[1.25rem] pr-0">
+      <div className="group/output relative min-h-[1.25rem] pe-0">
         <div
           ref={scrollRef}
           className={cn(
-            "vertical-scroll-fade-mask max-h-[140px] [--edge-fade-distance:2rem] box-border flex flex-col-reverse overflow-x-auto overflow-y-auto whitespace-pre font-vscode-editor font-medium [animation-direction:reverse]",
-            isPlainEmbedded ? "p-3 text-token-foreground" : "p-2 text-token-description-foreground",
+            "vertical-scroll-fade-mask max-h-36 [--edge-fade-distance:2rem] box-border flex flex-col-reverse overflow-x-auto overflow-y-auto whitespace-pre font-vscode-editor font-medium [animation-direction:reverse]",
+            isPlainEmbedded ? "text-token-foreground" : "text-token-description-foreground",
             variant === "embedded"
               ? "text-size-chat-sm"
               : "text-size-code-sm",
           )}
         >
-          <TerminalAnsiText
-            className={cn(
-              variant === "embedded"
-                ? isPlainEmbedded ? "text-token-foreground" : "text-token-description-foreground"
-                : "text-token-input-placeholder-foreground opacity-80",
-            )}
-            value={renderedOutput}
-          />
+          <div className={cn("w-max min-w-full", isPlainEmbedded ? "p-3" : "p-2")}>
+            <TerminalAnsiText
+              className={cn(
+                variant === "embedded"
+                  ? isPlainEmbedded ? "text-token-foreground" : "text-token-description-foreground"
+                  : "text-token-input-placeholder-foreground opacity-80",
+              )}
+              value={renderedOutput}
+            />
+          </div>
         </div>
         <CopyMessageActionButton
           text={output}
@@ -297,7 +299,7 @@ export function ThreadCommandShellBlock({
           copiedLabel="Copied"
           tooltipLabel="Copy output"
           copiedTooltipLabel="Copied"
-          className="absolute top-0 right-2.5 opacity-0 transition-opacity duration-200 group-hover/output:opacity-100 [&>svg]:icon-2xs"
+          className="absolute top-0 right-2.5 opacity-0 transition-opacity duration-basic group-hover/output:opacity-100 [&>svg]:icon-2xs"
         />
         {variant === "default" && scrollFadeState.top ? (
           <div
@@ -332,8 +334,8 @@ export function ThreadCommandShellBlock({
         )}
         <div className="flex flex-col overflow-clip rounded-none border-none">
           {shellBody}
-          {footer}
         </div>
+        {footer}
       </div>
     );
   }

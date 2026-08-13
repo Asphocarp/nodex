@@ -23,7 +23,11 @@ export type CodexPendingWorktreePhase =
   | "failed";
 
 export type CodexPendingWorktreeStartingState =
-  | { readonly type: "branch"; readonly branchName: string }
+  | {
+      readonly type: "branch";
+      readonly branchName: string;
+      readonly remoteRef?: string;
+    }
   | { readonly type: "working-tree" };
 
 interface CodexPendingWorktreeRequestBase {
@@ -37,12 +41,14 @@ interface CodexPendingWorktreeRequestBase {
   readonly browserTransferSourceViewScopeId?: string | null;
   readonly sourceWorkspaceRoot: string;
   readonly startingState?: CodexPendingWorktreeStartingState | null;
+  /** Portable workspace-relative path under `.codex/environments`. */
   readonly localEnvironmentConfigPath?: string | null;
   readonly prompt: string;
 }
 
 export interface CodexPendingStableWorktreeRequest extends CodexPendingWorktreeRequestBase {
   readonly launchMode: "create-stable-worktree";
+  readonly sourceWorkspaceRoots: readonly string[];
   readonly clientThreadId?: never;
   readonly startConversationParamsInput: null;
   readonly sourceConversationId: null;
@@ -51,6 +57,7 @@ export interface CodexPendingStableWorktreeRequest extends CodexPendingWorktreeR
 
 export interface CodexPendingForkConversationRequest extends CodexPendingWorktreeRequestBase {
   readonly launchMode: "fork-conversation";
+  readonly sourceWorkspaceRoots: readonly string[];
   readonly clientThreadId: string;
   readonly startConversationParamsInput: null;
   readonly projectAssignment?: CodexPendingLocalProjectAssignment | null;
@@ -187,6 +194,11 @@ export type CodexPendingWorktreeEntry = CodexPendingWorktreeRequest & {
 export type CodexPendingWorktreeThreadResolution =
   | {
       readonly state: "waiting";
+      readonly clientThreadId: string;
+      readonly pendingWorktreeId: string;
+    }
+  | {
+      readonly state: "starting";
       readonly clientThreadId: string;
       readonly pendingWorktreeId: string;
     }

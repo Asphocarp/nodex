@@ -14,6 +14,10 @@ import type {
   CodexPermissionState,
   CodexThreadGoalDraftInput,
 } from "../../shared/types";
+import {
+  rewriteExecutionWorkspacePath,
+  rewriteExecutionWorkspaceRoots,
+} from "./codex-execution-workspace-roots";
 
 export { dedupeCodexLiveFileAttachments } from "../../shared/codex-live-file-attachments";
 
@@ -150,18 +154,102 @@ type CodexPendingStartConversationFreezeInput = Omit<
   "cwd" | "workspaceRoots"
 > & {
   readonly sourceWorkspaceRoot: string;
+  readonly sourceWorkspaceRoots?: readonly string[];
 };
+
+function dedupeWorkspaceRoots(
+  primaryRoot: string,
+  workspaceRoots: readonly string[],
+): string[] {
+  return rewriteExecutionWorkspaceRoots({
+    sourcePrimary: primaryRoot,
+    targetPrimary: primaryRoot,
+    workspaceRoots,
+  });
+}
+
+/** Rebase a frozen source path without losing a nested cwd suffix. */
+export function rebaseCodexPendingWorkspacePath(input: {
+  readonly path: string;
+  readonly sourceWorkspaceRoot: string;
+  readonly worktreeWorkspaceRoot: string;
+}): string {
+  return rewriteExecutionWorkspacePath({
+    path: input.path,
+    sourcePrimary: input.sourceWorkspaceRoot,
+    targetPrimary: input.worktreeWorkspaceRoot,
+  });
+}
+
+/** Replace only the primary source root and retain every other project root. */
+export function rebaseCodexPendingWorkspaceRoots(input: {
+  readonly sourceWorkspaceRoot: string;
+  readonly worktreeWorkspaceRoot: string;
+  readonly workspaceRoots: readonly string[];
+}): string[] {
+  return rewriteExecutionWorkspaceRoots({
+    sourcePrimary: input.sourceWorkspaceRoot,
+    targetPrimary: input.worktreeWorkspaceRoot,
+    workspaceRoots: input.workspaceRoots,
+  });
+}
+
+export function projectCodexPendingWorktreeLaunchLocation(input: {
+  readonly params: Pick<
+    CodexPendingStartConversationParamsInput,
+    "cwd" | "projectAssignment" | "workspaceRoots"
+  >;
+  readonly sourceWorkspaceRoot: string;
+  readonly worktreeWorkspaceRoot: string;
+}): {
+  readonly cwd: string;
+  readonly projectAssignment: CodexPendingStartConversationParamsInput["projectAssignment"];
+  readonly workspaceRoots: readonly string[];
+} {
+  const rebasePath = (candidate: string): string =>
+    rebaseCodexPendingWorkspacePath({
+      path: candidate,
+      sourceWorkspaceRoot: input.sourceWorkspaceRoot,
+      worktreeWorkspaceRoot: input.worktreeWorkspaceRoot,
+    });
+  const projectAssignment = input.params.projectAssignment
+    ? {
+        ...input.params.projectAssignment,
+        ...(input.params.projectAssignment.path
+          ? { path: rebasePath(input.params.projectAssignment.path) }
+          : {}),
+      }
+    : input.params.projectAssignment;
+  const cwd = rebasePath(input.params.cwd);
+  const assignmentPath = projectAssignment?.path;
+  return {
+    cwd,
+    workspaceRoots: rewriteExecutionWorkspaceRoots({
+      sourcePrimary: input.sourceWorkspaceRoot,
+      targetPrimary: input.worktreeWorkspaceRoot,
+      workspaceRoots: input.params.workspaceRoots,
+      explicitRoots: [
+        cwd,
+        ...(assignmentPath ? [assignmentPath] : []),
+      ],
+    }),
+    projectAssignment,
+  };
+}
 
 /** Freeze the exact start payload before asynchronous worktree realization begins. */
 export function buildCodexPendingStartConversationParams(
   input: CodexPendingStartConversationFreezeInput,
 ): CodexPendingStartConversationParamsInput {
-  const { sourceWorkspaceRoot, ...params } = input;
+  const { sourceWorkspaceRoot, sourceWorkspaceRoots, ...params } = input;
   return {
     ...params,
     input: [...params.input],
     commentAttachments: [...params.commentAttachments],
-    workspaceRoots: [sourceWorkspaceRoot],
+    workspaceRoots: dedupeWorkspaceRoots(
+      sourceWorkspaceRoot,
+      sourceWorkspaceRoots ?? [sourceWorkspaceRoot],
+    ),
     cwd: sourceWorkspaceRoot,
     fileAttachments: params.fileAttachments.map((attachment) => ({ ...attachment })),
     addedFiles: params.addedFiles.map((attachment) => ({ ...attachment })),

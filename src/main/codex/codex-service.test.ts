@@ -41,6 +41,7 @@ import type {
   CommandPaletteThreadSearchResult,
   CommandPaletteThreadSummary,
   ManagedWorktreeRecord,
+  ManagedWorktreeSettings,
   Project,
   ProjectSession,
   ProjectSessionForkResult,
@@ -111,6 +112,14 @@ import { CodexService } from "./codex-service";
 import { USER_INPUT_AUTO_RESOLUTION_COUNTDOWN_MS } from "./codex-user-input-auto-resolution";
 import type { CodexForkSidePanelTransferLifecycle } from "./codex-fork-side-panel-transfer";
 import { removeManagedWorktree } from "./git-worktree-service";
+import type {
+  CodexWorktreeWorkerCreateInput,
+  CodexWorktreeWorkerEvent,
+  CodexWorktreeWorkerPort,
+  CodexWorktreeWorkerRemoveInput,
+} from "./codex-worktree-worker-port";
+import { createInProcessCodexWorktreeWorkerPort } from "./codex-worktree-worker-operation";
+import type { CodexThreadHandoffJournalEntry } from "./codex-thread-handoff-journal";
 import type { PastedTextAttachmentManager } from "../thread-goal-attachments";
 import type { NodexAgentAuthorityPort } from "../nodex-agent-authority-port";
 import {
@@ -215,6 +224,10 @@ interface TestableCodexService {
   serializeThreadDetail: (threadId: string) => CodexThreadDetail | null;
   serializeConversationSnapshot: (threadId: string) => CodexConversationSnapshot | null;
   listPendingWorktrees: () => readonly import("../../shared/codex-pending-worktree").CodexPendingWorktreeEntry[];
+  createPendingWorktree: (
+    input: CodexPendingWorktreeCreateInput,
+  ) => { readonly pendingWorktreeId: string; readonly clientThreadId: string | null };
+  cancelPendingWorktree: (hostId: string, pendingWorktreeId: string) => void;
   resumeThread: (threadId: string) => Promise<CodexThreadDetail | null>;
   forkConversationFromTurn: (threadId: string, turnId: string, message: string) => Promise<CodexThreadActionResult>;
   forkProjectSessionThread: (sessionId: string, input: {
@@ -337,7 +350,18 @@ interface TestableCodexService {
     },
   ) => Promise<void>;
   listManagedWorktrees: () => Promise<ManagedWorktreeRecord[]>;
-  deleteManagedWorktree: (threadId: string) => Promise<boolean>;
+  deleteManagedWorktree: (hostId: string, worktreePath: string) => Promise<boolean>;
+  inspectThreadManagedWorktree: (
+    threadId: string,
+  ) => Promise<import("../../shared/types").ManagedWorktreeAvailability>;
+  restoreThreadManagedWorktree: (
+    threadId: string,
+  ) => Promise<import("../../shared/types").ManagedWorktreeRestoreResult>;
+  reconcileArchivedThreadManagedWorktree: (
+    thread: DesktopProjectWorkspaceThread,
+    reason: "archive" | "automation-archive",
+  ) => Promise<void>;
+  runManagedWorktreeRetentionSweep: CodexService["runManagedWorktreeRetentionSweep"];
   setConversationCollaborationMode: (
     threadId: string,
     collaborationMode: "default" | "plan",
@@ -820,6 +844,7 @@ function makeDesktopWorkspaceThread(
     threadName: "Workspace Thread",
     threadPreview: "Workspace Thread",
     modelProvider: "openai",
+    executionHostId: "local",
     cwd: "/tmp/nodex",
     managedWorktreePath: null,
     projectlessOutputDirectory: null,
@@ -991,6 +1016,48 @@ describe("codex-service provider-backed scheduled automations", () => {
       await service.shutdown();
     }
   });
+
+  test("keeps the source checkout out of automation worktree permissions", async () => {
+    const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-automation-roots-"));
+    const sourceRoot = path.join(fixtureRoot, "source");
+    const worktreeRoot = path.join(fixtureRoot, "worktree");
+    initializeGitRepository(sourceRoot);
+    execFileSync("git", ["worktree", "add", "--detach", worktreeRoot, "HEAD"], {
+      cwd: sourceRoot,
+    });
+    const service = createService();
+    const internals = service as unknown as {
+      resolveCronScheduledAutomationWorkspaceRoots: (input: {
+        automationId: string;
+        sourceCwd: string;
+        runLocation: {
+          cwd: string;
+          workspaceRoots: string[];
+          projectlessOutputDirectory: null;
+        };
+      }) => Promise<string[]>;
+    };
+
+    try {
+      const roots = await internals.resolveCronScheduledAutomationWorkspaceRoots({
+        automationId: "automation-roots",
+        sourceCwd: sourceRoot,
+        runLocation: {
+          cwd: worktreeRoot,
+          workspaceRoots: [worktreeRoot],
+          projectlessOutputDirectory: null,
+        },
+      });
+
+      expect(roots).toContain(path.resolve(worktreeRoot));
+      expect(roots).toContain(fs.realpathSync(path.join(sourceRoot, ".git")));
+      expect(roots).not.toContain(path.resolve(sourceRoot));
+      expect(roots.some((root) => root.endsWith("/automations/automation-roots"))).toBe(true);
+    } finally {
+      await service.shutdown();
+      fs.rmSync(fixtureRoot, { recursive: true, force: true });
+    }
+  });
 });
 
 const TEST_NODEX_AGENT_AUTHORITY: NodexAgentAuthorityPort = {
@@ -1007,6 +1074,7 @@ const TEST_NODEX_AGENT_AUTHORITY: NodexAgentAuthorityPort = {
 const createTestProjectWorkspace = (): DesktopProjectWorkspacePort => {
   const threads = new Map<string, DesktopProjectWorkspaceThread>();
   const permissionModes = new Map<string, CodexPermissionMode>();
+  const writableRootsByThread = new Map<string, string[]>();
   let projectlessPermissionMode: CodexPermissionMode | null = null;
   const backgroundProcesses = new Map<string, CodexBackgroundProcessRecord>();
   const readSidebar = (): DesktopProjectWorkspaceSidebar => ({
@@ -1080,6 +1148,7 @@ const createTestProjectWorkspace = (): DesktopProjectWorkspacePort => {
             threadPreview: thread.threadPreview,
             modelProvider: thread.modelProvider,
             executionProfile: thread.executionProfile,
+            executionHostId: thread.executionHostId,
             cwd: thread.cwd ?? undefined,
             managedWorktreePath: thread.managedWorktreePath,
             projectlessOutputDirectory: thread.projectlessOutputDirectory,
@@ -1126,6 +1195,19 @@ const createTestProjectWorkspace = (): DesktopProjectWorkspacePort => {
       threadId: string,
       patch: Parameters<DesktopProjectWorkspacePort["updateThread"]>[1],
     ) => updateThread(threadId, patch),
+    setThreadExecutionLocation: async (
+      threadId: string,
+      location: Parameters<DesktopProjectWorkspacePort["setThreadExecutionLocation"]>[1],
+    ) => {
+      writableRootsByThread.set(threadId, [...location.runtimeWorkspaceRoots]);
+      return updateThread(threadId, {
+        executionHostId: location.executionHostId,
+        cwd: location.cwd,
+        managedWorktreePath: location.managedWorktreePath,
+        projectlessOutputDirectory: location.projectlessOutputDirectory,
+        projectlessWorkspaceBrowserRoot: location.projectlessWorkspaceBrowserRoot,
+      });
+    },
     moveThread: async (
       input: Parameters<DesktopProjectWorkspacePort["moveThread"]>[0],
     ) => {
@@ -1155,10 +1237,13 @@ const createTestProjectWorkspace = (): DesktopProjectWorkspacePort => {
       updateThread(threadId, { archived });
       return readSidebar();
     },
-    deleteThread: async (threadId: string) => ({
-      deleted: threads.delete(threadId),
-      sidebar: readSidebar(),
-    }),
+    deleteThread: async (threadId: string) => {
+      writableRootsByThread.delete(threadId);
+      return {
+        deleted: threads.delete(threadId),
+        sidebar: readSidebar(),
+      };
+    },
     observeAppServerThreadWindow: async () => undefined,
     reconcileAppServerThreadSweep: async () => ({
       threadIds: [],
@@ -1174,7 +1259,7 @@ const createTestProjectWorkspace = (): DesktopProjectWorkspacePort => {
           ? permissionModes.get(thread.projectId) ?? null
           : projectlessPermissionMode,
         dynamicToolCatalogs: [],
-        writableRoots: [],
+        writableRoots: [...(writableRootsByThread.get(threadId) ?? [])],
       };
     },
     replaceThreadDynamicToolCatalogs: async (
@@ -1183,8 +1268,15 @@ const createTestProjectWorkspace = (): DesktopProjectWorkspacePort => {
         DesktopProjectWorkspacePort["replaceThreadDynamicToolCatalogs"]
       >[1],
     ) => catalogs,
-    mergeThreadWritableRoots: async (_threadId: string, roots: readonly string[]) => [...roots],
-    replaceThreadWritableRoots: async (_threadId: string, roots: readonly string[]) => [...roots],
+    mergeThreadWritableRoots: async (threadId: string, roots: readonly string[]) => {
+      const merged = [...new Set([...(writableRootsByThread.get(threadId) ?? []), ...roots])];
+      writableRootsByThread.set(threadId, merged);
+      return [...merged];
+    },
+    replaceThreadWritableRoots: async (threadId: string, roots: readonly string[]) => {
+      writableRootsByThread.set(threadId, [...roots]);
+      return [...roots];
+    },
     listBackgroundProcesses: async (threadId?: string | null) =>
       [...backgroundProcesses.values()].filter((process) =>
         threadId === null || threadId === undefined || process.threadId === threadId
@@ -1213,6 +1305,7 @@ const createTestProjectWorkspace = (): DesktopProjectWorkspacePort => {
         threadName: input.threadName,
         threadPreview: input.threadPreview,
         modelProvider: input.modelProvider,
+        executionHostId: input.executionHostId,
         cwd: input.cwd,
         managedWorktreePath: input.managedWorktreePath,
         projectlessOutputDirectory: input.projectlessOutputDirectory,
@@ -1233,6 +1326,7 @@ const createTestProjectWorkspace = (): DesktopProjectWorkspacePort => {
         threadName: thread.threadName ?? undefined,
         threadPreview: thread.threadPreview,
         modelProvider: thread.modelProvider,
+        executionHostId: thread.executionHostId,
         cwd: thread.cwd ?? undefined,
         managedWorktreePath: thread.managedWorktreePath,
         projectlessOutputDirectory: thread.projectlessOutputDirectory,
@@ -1309,12 +1403,14 @@ function createUserInputAutoResolutionTestClock() {
 }
 
 function createService(options?: {
+  runtimeStateHome?: string;
   rateLimitsPollIntervalMs?: number;
   inactiveRendererOwnerRetentionMs?: number;
   inactiveRendererOwnerMaxRetained?: number;
   inactiveRendererOwnerRetryMs?: number;
   supportsChatGptApps?: boolean;
   gitSettingsResolver?: () => CodexGitSettings;
+  managedWorktreeSettings?: ManagedWorktreeSettings;
   projectAwareDeveloperInstructionsResolver?: (input: {
     baseInstructions?: string | null;
     cwd: string;
@@ -1341,7 +1437,13 @@ function createService(options?: {
     clearTimeout?: (timer: unknown) => void;
   };
 }): TestableCodexService {
+  let managedWorktreeSettings: ManagedWorktreeSettings = options?.managedWorktreeSettings ?? {
+    worktreeRoot: null,
+    autoDeleteEnabled: true,
+    autoDeleteLimit: 15,
+  };
   const service = new CodexService({
+    runtimeStateHome: options?.runtimeStateHome,
     browserPluginReconciler: {
       ensureInstalled: async () => ({
         message: "Browser plugin reconciliation is disabled in this fixture",
@@ -1357,6 +1459,22 @@ function createService(options?: {
     projectAwareDeveloperInstructionsResolver:
       options?.projectAwareDeveloperInstructionsResolver,
     gitSettingsResolver: options?.gitSettingsResolver,
+    managedWorktreeSettingsPort: {
+      read: () => managedWorktreeSettings,
+      update: (input) => {
+        managedWorktreeSettings = {
+          worktreeRoot: input.worktreeRoot === undefined
+            ? managedWorktreeSettings.worktreeRoot
+            : input.worktreeRoot,
+          autoDeleteEnabled: input.autoDeleteEnabled
+            ?? managedWorktreeSettings.autoDeleteEnabled,
+          autoDeleteLimit: input.autoDeleteLimit
+            ?? managedWorktreeSettings.autoDeleteLimit,
+        };
+        return managedWorktreeSettings;
+      },
+      listKnownRoots: () => [],
+    },
     threadCodexConfigBuilder: options?.threadCodexConfigBuilder,
     projectlessHomeDirectory:
       options?.projectlessHomeDirectory ?? (() => DEFAULT_TEST_LOCAL_STORE_ROOT),
@@ -1959,6 +2077,52 @@ test("keeps parent-linked child threads out of workspace sidebar snapshots", asy
     expect(snapshot.items.map((item) => item.threadId)).toEqual(["thread:root"]);
     expect(snapshot.projectlessThreadIds).toEqual(["thread:root"]);
     expect(snapshot.pinnedThreadIds).toEqual(["thread:root"]);
+  } finally {
+    await service.shutdown();
+  }
+});
+
+test("projects durable local and remote managed worktree identities into the sidebar", async () => {
+  const projectWorkspace = createTestProjectWorkspace();
+  await projectWorkspace.upsertThread("thread:local-worktree", {
+    projectId: null,
+    threadName: "Local worktree",
+    threadPreview: "Local worktree",
+    executionHostId: "local",
+    cwd: "/tmp/.nodex/worktrees/91a6/repo",
+    managedWorktreePath: "/tmp/.nodex/worktrees/91a6/repo",
+  });
+  await projectWorkspace.upsertThread("thread:remote-worktree", {
+    projectId: null,
+    threadName: "Remote worktree",
+    threadPreview: "Remote worktree",
+    executionHostId: "build-host",
+    cwd: "/srv/.nodex/worktrees/91a6/repo",
+    managedWorktreePath: "/srv/.nodex/worktrees/91a6/repo",
+  });
+  await projectWorkspace.setThreadPinned("thread:local-worktree", true);
+  await projectWorkspace.setThreadPinned("thread:remote-worktree", true);
+  const service = createService({ projectWorkspace });
+
+  try {
+    const snapshot = await service.syncSidebarThreads({ refresh: false });
+    const local = snapshot.items.find((item) => item.threadId === "thread:local-worktree");
+    const remote = snapshot.items.find((item) => item.threadId === "thread:remote-worktree");
+
+    expect(local?.kind).toBe("local");
+    expect(local?.runLocation).toEqual({
+      kind: "local-worktree",
+      path: "/tmp/.nodex/worktrees/91a6/repo",
+      phase: "ready",
+    });
+    expect(remote?.kind).toBe("remote");
+    expect(remote?.runLocation).toEqual({
+      kind: "remote-worktree",
+      hostId: "build-host",
+      hostDisplayName: "build-host",
+      path: "/srv/.nodex/worktrees/91a6/repo",
+      phase: "ready",
+    });
   } finally {
     await service.shutdown();
   }
@@ -5526,6 +5690,157 @@ describe("codex-service session-backed transcript recovery", () => {
     }
   });
 
+  test("keeps a durable managed cwd when app-server observes an equivalent path spelling", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      buildWorkspaceThreadMaterialization: (input: {
+        candidate: Record<string, unknown>;
+        existing: CodexThreadSummary;
+        ref: null;
+      }) => {
+        resolvedCwd: string | null;
+        managedWorktreePath: string | null;
+        patch: { cwd?: string | null };
+      };
+    };
+    const managedRoot = "/var/folders/nodex/managed/repository";
+    const durableCwd = `${managedRoot}/packages/app`;
+
+    try {
+      const materialization = serviceInternals.buildWorkspaceThreadMaterialization({
+        candidate: {
+          id: "thread-managed-path-alias",
+          cwd: "/private/var/folders/nodex/managed/repository/packages/app",
+          status: { type: "notLoaded" },
+        },
+        existing: {
+          threadId: "thread-managed-path-alias",
+          projectId: "project-managed-path-alias",
+          source: null,
+          threadName: "Managed task",
+          threadPreview: "Managed task",
+          modelProvider: "openai",
+          cwd: durableCwd,
+          managedWorktreePath: managedRoot,
+          statusType: "idle",
+          statusActiveFlags: [],
+          archived: false,
+          createdAt: 1,
+          updatedAt: 2,
+          linkedAt: "2026-08-14T00:00:00.000Z",
+        },
+        ref: null,
+      });
+
+      expect(materialization).toMatchObject({
+        resolvedCwd: durableCwd,
+        managedWorktreePath: managedRoot,
+        patch: { cwd: durableCwd },
+      });
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("cold resume reprojects the durable managed cwd and writable roots", async () => {
+    const service = createService();
+    const threadId = "thread-managed-cold-resume";
+    const managedRoot = "/var/folders/nodex/managed/repository";
+    const durableCwd = `${managedRoot}/packages/app`;
+    const additionalRoot = "/workspace/shared";
+    const observedRoot = "/private/var/folders/nodex/managed/repository";
+    const observedCwd = `${observedRoot}/packages/app`;
+    const sourceRoot = "/workspace/source-repository";
+    const requests: Array<{ method: string; params: unknown }> = [];
+    const projectedCwds: Array<string | null> = [];
+    const serviceInternals = service as unknown as {
+      resumeConversationRecord: (id: string) => Promise<CodexThreadDetail | null>;
+      parseThreadRef: (id: string) => Record<string, unknown> | null;
+      maybeResolveProjectRuntimeContext: (projectId: string) => {
+        workspaceRoots: string[];
+        primaryWorkspaceRoot: string;
+      };
+      readThreadWritableRoots: (id: string) => Promise<string[]>;
+      upsertLinkFromThread: (thread: Thread) => null;
+      buildThreadDetailFromCanonicalState: () => CodexThreadDetail;
+      persistThreadDetailSummary: (detail: CodexThreadDetail) => void;
+    };
+    const client = Reflect.get(service as object, "client") as {
+      start: () => Promise<void>;
+      request: (method: string, params: unknown) => Promise<unknown>;
+    };
+    const observedThread = {
+      ...makeProtocolThread(threadId, observedCwd, []),
+      path: `${observedRoot}/rollout.jsonl`,
+    };
+    client.start = async () => undefined;
+    client.request = async (method, params) => {
+      requests.push({ method, params });
+      if (method === "thread/read") return { thread: observedThread };
+      if (method === "thread/resume") {
+        const response = makeCanonicalResumeResponse({
+          threadId,
+          initialTurnsPage: {
+            data: [],
+            nextCursor: null,
+            backwardsCursor: null,
+          },
+          runtimeWorkspaceRoots: [observedRoot],
+        });
+        return {
+          ...response,
+          cwd: observedCwd,
+          thread: observedThread,
+          sandbox: {
+            ...response.sandbox,
+            writableRoots: [observedRoot],
+          },
+        };
+      }
+      throw new Error(`Unexpected client request: ${method}`);
+    };
+    serviceInternals.parseThreadRef = () => ({
+      projectId: "project-managed-cold-resume",
+      cwd: durableCwd,
+      managedWorktreePath: managedRoot,
+      projectlessWorkspaceBrowserRoot: null,
+    });
+    serviceInternals.maybeResolveProjectRuntimeContext = () => ({
+      workspaceRoots: [sourceRoot, additionalRoot],
+      primaryWorkspaceRoot: sourceRoot,
+    });
+    serviceInternals.readThreadWritableRoots = async () => [managedRoot, additionalRoot];
+    serviceInternals.upsertLinkFromThread = (thread) => {
+      projectedCwds.push(thread.cwd);
+      return null;
+    };
+    serviceInternals.buildThreadDetailFromCanonicalState = () => ({
+      ...makeThreadDetail(threadId),
+      projectId: "project-managed-cold-resume",
+      cwd: durableCwd,
+      managedWorktreePath: managedRoot,
+    });
+    serviceInternals.persistThreadDetailSummary = () => {};
+
+    try {
+      const detail = await serviceInternals.resumeConversationRecord(threadId);
+      const params = requests.find((request) => request.method === "thread/resume")
+        ?.params as Record<string, unknown>;
+
+      expect(detail).toMatchObject({
+        threadId,
+        cwd: durableCwd,
+        managedWorktreePath: managedRoot,
+      });
+      expect(params.cwd).toBe(durableCwd);
+      expect(params.runtimeWorkspaceRoots).toEqual([managedRoot, additionalRoot]);
+      expect(params.runtimeWorkspaceRoots).not.toContain(sourceRoot);
+      expect(projectedCwds).toEqual([durableCwd, durableCwd]);
+    } finally {
+      await service.shutdown();
+    }
+  });
+
   test("normal resume pre-reads metadata, sends exact nullable fields, and gates an existing owner", async () => {
     const service = createService();
     const threadId = "thr_exact_resume_params";
@@ -6786,7 +7101,16 @@ describe("codex-service session-backed transcript recovery", () => {
 
 describe("codex-service edit-last-user-turn and fork-from-turn", () => {
   test("fork-from-turn uses full fork, seeded resume, child rollback, a provenance marker, and caller title", async () => {
-    const service = createService();
+    const projectWorkspace = createTestProjectWorkspace();
+    const persistedWritableRoots = new Map<string, readonly string[]>();
+    const replaceThreadWritableRoots = projectWorkspace.replaceThreadWritableRoots.bind(
+      projectWorkspace,
+    );
+    projectWorkspace.replaceThreadWritableRoots = async (threadId, roots) => {
+      persistedWritableRoots.set(threadId, [...roots]);
+      return await replaceThreadWritableRoots(threadId, roots);
+    };
+    const service = createService({ projectWorkspace });
     const sourceThreadId = "thr_exact_fork_source";
     const childThreadId = "thr_exact_fork_child";
     const requests: Array<{ method: string; params: unknown }> = [];
@@ -6848,7 +7172,7 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
       projectlessWorkspaceBrowserRoot: null,
     });
     serviceInternals.maybeResolveProjectRuntimeContext = () => ({
-      workspaceRoots: ["/workspace/project"],
+      workspaceRoots: ["/workspace/project", "/workspace/shared"],
       primaryWorkspaceRoot: "/workspace/project",
     });
     serviceInternals.upsertLinkFromThread = () => null;
@@ -6919,6 +7243,8 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
       const forkParams = requests[0]?.params as Record<string, unknown>;
       const rollbackParams = requests.find((request) => request.method === "thread/rollback")
         ?.params as Record<string, unknown>;
+      const resumeParams = requests.find((request) => request.method === "thread/resume")
+        ?.params as Record<string, unknown>;
       const canonical = getCanonicalConversationState(service, childThreadId);
       const marker = canonical?.turns.at(-1)?.items.at(-1);
 
@@ -6930,6 +7256,14 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
       expect(Object.prototype.hasOwnProperty.call(forkParams, "lastTurnId")).toBe(false);
       expect(Object.prototype.hasOwnProperty.call(forkParams, "runtimeWorkspaceRoots")).toBe(false);
       expect(Object.prototype.hasOwnProperty.call(forkParams, "config")).toBe(true);
+      expect(resumeParams.runtimeWorkspaceRoots).toEqual([
+        "/workspace/project",
+        "/workspace/shared",
+      ]);
+      expect(persistedWritableRoots.get(childThreadId)).toEqual([
+        "/workspace/project",
+        "/workspace/shared",
+      ]);
       expect(forkParams.config).toMatchObject({
         "features.apply_patch_streaming_events": true,
         "features.thread_tools": true,
@@ -9384,8 +9718,7 @@ describe("codex-service pending managed worktree setup", () => {
       entry: CodexPendingWorktreeEntry,
       context: {
         signal: AbortSignal;
-        onOutput: (output: string) => void;
-        onSetupStarted: () => void;
+        onEvent: (event: CodexWorktreeWorkerEvent) => void;
       },
     ) => Promise<{
       worktreeGitRoot: string;
@@ -9397,14 +9730,18 @@ describe("codex-service pending managed worktree setup", () => {
   function makePendingManagedWorktreeEntry(input: {
     id: string;
     sourceWorkspaceRoot: string;
-    localEnvironmentConfigPath: string;
+    localEnvironmentConfigPath: string | null;
+    hostId?: string;
+    startingState?: CodexPendingWorktreeEntry["startingState"];
   }): CodexPendingWorktreeEntry {
     return {
       id: input.id,
-      hostId: "local",
+      hostId: input.hostId ?? "local",
       label: "Pending setup task",
       sourceWorkspaceRoot: input.sourceWorkspaceRoot,
-      startingState: { type: "branch", branchName: "main" },
+      startingState: input.startingState === undefined
+        ? { type: "branch", branchName: "main" }
+        : input.startingState,
       localEnvironmentConfigPath: input.localEnvironmentConfigPath,
       prompt: "Run pending setup",
       launchMode: "start-conversation",
@@ -9467,6 +9804,298 @@ describe("codex-service pending managed worktree setup", () => {
     }
   }
 
+  test("keeps tagged allocated paths private before creation completes", async () => {
+    const service = createService();
+    const workerState: {
+      finishCreation: () => void;
+      resultSettled: boolean;
+      signal: AbortSignal | null;
+    } = {
+      finishCreation: () => undefined,
+      resultSettled: false,
+      signal: null,
+    };
+    let pendingWorktreeId: string | null = null;
+    const localWorker: CodexWorktreeWorkerPort = {
+      ...createInProcessCodexWorktreeWorkerPort({ hostId: "local" }),
+      create: async (_input, options) => {
+        workerState.signal = options.signal;
+        const creationGate = new Promise<void>((resolve, reject) => {
+          workerState.finishCreation = resolve;
+          options.signal.addEventListener(
+            "abort",
+            () => reject(new Error("Request canceled")),
+            { once: true },
+          );
+        });
+        options.onEvent({
+          operation: "create",
+          type: "path-allocated",
+          worktreeGitRoot: "/local/worktrees/abcd/repo",
+          worktreeWorkspaceRoot: "/local/worktrees/abcd/repo/packages/app",
+        });
+        options.onEvent({
+          operation: "create",
+          type: "output",
+          phase: "worktree",
+          stream: "info",
+          data: "[info] Worktree path allocated\n",
+        });
+        await creationGate;
+        workerState.resultSettled = true;
+        return {
+          worktreeGitRoot: "/local/worktrees/abcd/repo",
+          worktreeWorkspaceRoot: "/local/worktrees/abcd/repo/packages/app",
+          setupError: null,
+          shellEnvironment: null,
+        };
+      },
+      remove: async () => ({
+        removed: true,
+        alreadyMissing: false,
+        snapshot: null,
+        warnings: [],
+      }),
+    };
+    (service as unknown as CodexService).setWorktreeWorkerPort(
+      "local",
+      localWorker,
+    );
+
+    try {
+      const created = service.createPendingWorktree({
+        hostId: "local",
+        label: "Tagged path event",
+        sourceWorkspaceRoot: "/local/repo",
+        startingState: { type: "branch", branchName: "main" },
+        localEnvironmentConfigPath: null,
+        launchMode: "start-conversation",
+        prompt: "Create an isolated worktree",
+        startConversationParamsInput: {
+          input: [],
+          commentAttachments: [],
+          workspaceRoots: ["/local/repo"],
+          cwd: "/local/repo",
+          fileAttachments: [],
+          addedFiles: [],
+          agentMode: "auto",
+          shouldSendPermissionOverrides: true,
+          model: null,
+          serviceTier: null,
+          reasoningEffort: null,
+          collaborationMode: null,
+          config: {},
+          threadSource: "user",
+          workspaceKind: "project",
+          projectAssignment: {
+            projectKind: "local",
+            projectId: "project-tagged-path-event",
+            pendingCoreUpdate: false,
+          },
+        },
+        sourceConversationId: null,
+        sourceCollaborationMode: null,
+      });
+      pendingWorktreeId = created.pendingWorktreeId;
+      await flushAsyncWork();
+
+      const entry = service.listPendingWorktrees().find(
+        (candidate) => candidate.id === created.pendingWorktreeId,
+      );
+      expect(entry).toMatchObject({
+        phase: "creating",
+        errorMessage: null,
+        worktreeGitRoot: null,
+        worktreeWorkspaceRoot: null,
+        worktreeOutputText: [
+          "[info] Starting worktree creation",
+          "[info] Worktree path allocated",
+          "",
+        ].join("\n"),
+      });
+      expect(workerState.resultSettled).toBe(false);
+      expect(workerState.signal?.aborted).toBe(false);
+    } finally {
+      if (pendingWorktreeId !== null) {
+        service.cancelPendingWorktree("local", pendingWorktreeId);
+      }
+      workerState.finishCreation();
+      await flushAsyncWork();
+      await service.shutdown();
+    }
+  });
+
+  test("releases newborn protection when creation fails after path allocation", async () => {
+    const service = createService();
+    const allocatedRoot = "/local/worktrees/abcd/repo";
+    const localWorker: CodexWorktreeWorkerPort = {
+      ...createInProcessCodexWorktreeWorkerPort({ hostId: "local" }),
+      create: async (_input, options) => {
+        options.onEvent({
+          operation: "create",
+          type: "path-allocated",
+          worktreeGitRoot: allocatedRoot,
+          worktreeWorkspaceRoot: `${allocatedRoot}/packages/app`,
+        });
+        throw new Error("git worktree add failed");
+      },
+      remove: async () => ({
+        removed: true,
+        alreadyMissing: false,
+        snapshot: null,
+        warnings: [],
+      }),
+    };
+    (service as unknown as CodexService).setWorktreeWorkerPort(
+      "local",
+      localWorker,
+      "/local/worktrees",
+    );
+
+    try {
+      await expect(pendingWorktreeCreator(service).createPendingManagedWorktree(
+        makePendingManagedWorktreeEntry({
+          id: "failed-after-allocation",
+          sourceWorkspaceRoot: "/local/repo",
+          localEnvironmentConfigPath: null,
+        }),
+        {
+          signal: new AbortController().signal,
+          onEvent: () => undefined,
+        },
+      )).rejects.toThrow("git worktree add failed");
+
+      const lifecycle = (service as unknown as {
+        managedWorktreeLifecycle: {
+          listNewborns: () => readonly { readonly worktreeGitRoot: string }[];
+        };
+      }).managedWorktreeLifecycle;
+      expect(lifecycle.listNewborns().some((item) => item.worktreeGitRoot === allocatedRoot))
+        .toBe(false);
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("removes a created worktree when cancellation wins after the worker result", async () => {
+    const service = createService();
+    const abortController = new AbortController();
+    const removed: CodexWorktreeWorkerRemoveInput[] = [];
+    const allocatedRoot = "/local/worktrees/abcd/repo";
+    const localWorker: CodexWorktreeWorkerPort = {
+      ...createInProcessCodexWorktreeWorkerPort({ hostId: "local" }),
+      create: async (_input, options) => {
+        options.onEvent({
+          operation: "create",
+          type: "path-allocated",
+          worktreeGitRoot: allocatedRoot,
+          worktreeWorkspaceRoot: `${allocatedRoot}/packages/app`,
+        });
+        abortController.abort();
+        return {
+          worktreeGitRoot: allocatedRoot,
+          worktreeWorkspaceRoot: `${allocatedRoot}/packages/app`,
+          setupError: null,
+          shellEnvironment: null,
+        };
+      },
+      remove: async (input) => {
+        removed.push(input);
+        return {
+          removed: true,
+          alreadyMissing: false,
+          snapshot: null,
+          warnings: [],
+        };
+      },
+    };
+    (service as unknown as CodexService).setWorktreeWorkerPort(
+      "local",
+      localWorker,
+      "/local/worktrees",
+    );
+
+    try {
+      await expect(pendingWorktreeCreator(service).createPendingManagedWorktree(
+        makePendingManagedWorktreeEntry({
+          id: "canceled-after-worker-result",
+          sourceWorkspaceRoot: "/local/repo",
+          localEnvironmentConfigPath: null,
+        }),
+        { signal: abortController.signal, onEvent: () => undefined },
+      )).rejects.toThrow("Request canceled");
+      expect(removed).toHaveLength(1);
+      expect(removed[0]).toMatchObject({
+        hostId: "local",
+        worktreeGitRoot: allocatedRoot,
+        reason: "cancel",
+      });
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("routes remote creation to its registered host without reading local source state", async () => {
+    const service = createService();
+    const inputs: CodexWorktreeWorkerCreateInput[] = [];
+    const remoteWorker: CodexWorktreeWorkerPort = {
+      ...createInProcessCodexWorktreeWorkerPort({ hostId: "remote-1" }),
+      create: async (input, options) => {
+        inputs.push(input);
+        options.onEvent({
+          operation: "create",
+          type: "path-allocated",
+          worktreeGitRoot: "/remote/worktrees/abcd/repo",
+          worktreeWorkspaceRoot: "/remote/worktrees/abcd/repo/packages/app",
+        });
+        return {
+          worktreeGitRoot: "/remote/worktrees/abcd/repo",
+          worktreeWorkspaceRoot: "/remote/worktrees/abcd/repo/packages/app",
+          setupError: null,
+          shellEnvironment: null,
+        };
+      },
+      remove: async () => ({
+        removed: true,
+        alreadyMissing: false,
+        snapshot: null,
+        warnings: [],
+      }),
+    };
+    (service as unknown as CodexService).setWorktreeWorkerPort(
+      "remote-1",
+      remoteWorker,
+      "/remote/worktrees",
+    );
+
+    try {
+      const result = await pendingWorktreeCreator(service).createPendingManagedWorktree(
+        makePendingManagedWorktreeEntry({
+          id: "remote-default-state",
+          hostId: "remote-1",
+          sourceWorkspaceRoot: "/remote/repo",
+          startingState: null,
+          localEnvironmentConfigPath: null,
+        }),
+        {
+          signal: new AbortController().signal,
+          onEvent: () => undefined,
+        },
+      );
+
+      expect(result.worktreeGitRoot).toBe("/remote/worktrees/abcd/repo");
+      expect(inputs).toHaveLength(1);
+      expect(inputs[0]).toMatchObject({
+        hostId: "remote-1",
+        repositoryPath: "/remote/repo",
+        startingState: null,
+        propagateLocalWorkspaceFiles: false,
+      });
+    } finally {
+      await service.shutdown();
+    }
+  });
+
   test("streams selected setup output after setup start and persists its shell environment", async () => {
     await withPendingWorktreeStore(async () => {
       const repositoryPath = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-pending-setup-success-"));
@@ -9503,8 +10132,17 @@ describe("codex-service pending managed worktree setup", () => {
           }),
           {
             signal: new AbortController().signal,
-            onOutput: (output) => events.push(`output:${output}`),
-            onSetupStarted: () => events.push("setup-started"),
+            onEvent: (event) => {
+              if (event.type === "output") {
+                events.push(`${event.phase}-output:${event.data}`);
+                return;
+              }
+              if (event.type === "path-allocated") {
+                events.push(`allocated:${event.worktreeGitRoot}`);
+                return;
+              }
+              events.push("setup-started");
+            },
           },
         );
         worktreeGitRoot = result.worktreeGitRoot;
@@ -9590,11 +10228,12 @@ describe("codex-service pending managed worktree setup", () => {
             }),
             {
               signal: new AbortController().signal,
-              onOutput: (chunk) => {
-                output += chunk;
-              },
-              onSetupStarted: () => {
-                setupStarted += 1;
+              onEvent: (event) => {
+                if (event.type === "output") {
+                  output += event.data;
+                  return;
+                }
+                if (event.type === "setup-started") setupStarted += 1;
               },
             },
           );
@@ -9623,7 +10262,7 @@ describe("codex-service pending managed worktree setup", () => {
     });
   });
 
-  test("rolls back an allocated worktree when setup is canceled or reports AbortError", async () => {
+  test("rolls back canceled setup and treats shell-environment persistence as nonfatal", async () => {
     await withPendingWorktreeStore(async () => {
       const repositoryPath = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-pending-setup-cancel-"));
       initializeGitRepository(repositoryPath);
@@ -9635,7 +10274,7 @@ describe("codex-service pending managed worktree setup", () => {
           'name = "pending-setup-cancel"',
           "",
           "[setup]",
-          'script = ""',
+          "script = 'export NODEX_PENDING_PERSIST_CAPTURED=ready'",
           "",
         ].join("\n"),
         "utf8",
@@ -9655,8 +10294,9 @@ describe("codex-service pending managed worktree setup", () => {
             }),
             {
               signal: abortController.signal,
-              onOutput: () => {},
-              onSetupStarted: () => abortController.abort(),
+              onEvent: (event) => {
+                if (event.type === "setup-started") abortController.abort();
+              },
             },
           );
         } catch (error) {
@@ -9673,32 +10313,33 @@ describe("codex-service pending managed worktree setup", () => {
           error.name = "AbortError";
           throw error;
         };
-        let abortErrorName = "";
-        try {
-          await serviceInternals.createPendingManagedWorktree(
-            makePendingManagedWorktreeEntry({
-              id: "pending-setup-abort-error",
-              sourceWorkspaceRoot: repositoryPath,
-              localEnvironmentConfigPath: ".codex/environments/environment.toml",
-            }),
-            {
-              signal: new AbortController().signal,
-              onOutput: () => {},
-              onSetupStarted: () => {},
+        let persistenceOutput = "";
+        const persistenceResult = await serviceInternals.createPendingManagedWorktree(
+          makePendingManagedWorktreeEntry({
+            id: "pending-setup-persist-error",
+            sourceWorkspaceRoot: repositoryPath,
+            localEnvironmentConfigPath: ".codex/environments/environment.toml",
+          }),
+          {
+            signal: new AbortController().signal,
+            onEvent: (event) => {
+              if (event.type === "output") persistenceOutput += event.data;
             },
-          );
-        } catch (error) {
-          abortErrorName = error instanceof Error ? error.name : "";
-        }
-        expect(abortErrorName).toBe("AbortError");
+          },
+        );
+        expect(persistenceResult.setupError).toBe(null);
+        expect(fs.existsSync(persistenceResult.worktreeGitRoot)).toBe(true);
+        expect(persistenceOutput).toContain(
+          "Failed to store worktree shell environment: persist aborted",
+        );
 
         const worktreeList = execFileSync(
           "git",
           ["worktree", "list", "--porcelain"],
           { cwd: repositoryPath, encoding: "utf8" },
         );
-        const managedWorktreesRoot = path.resolve(process.env.NODEX_HOME ?? "", "worktrees");
-        expect(worktreeList.includes(managedWorktreesRoot)).toBe(false);
+        expect(worktreeList.includes(persistenceResult.worktreeGitRoot)).toBe(true);
+        await removeManagedWorktree(persistenceResult.worktreeGitRoot);
       } finally {
         await service.shutdown();
         fs.rmSync(repositoryPath, { recursive: true, force: true });
@@ -9814,6 +10455,7 @@ describe("codex-service pending managed worktree setup", () => {
       hostId: "local",
       label: "Fork with failed setup",
       sourceWorkspaceRoot: "/repo/source",
+      sourceWorkspaceRoots: ["/repo/source"],
       localEnvironmentConfigPath: ".codex/environments/dev.toml",
       prompt: "Continue in a worktree",
       launchMode: "fork-conversation" as const,
@@ -9904,6 +10546,197 @@ describe("codex-service pending managed worktree setup", () => {
   });
 });
 
+describe("codex-service pending worktree conversation ownership", () => {
+  test("binds the started Thread to its reserved Project Session before replaying thread/started", async () => {
+    const projectId = "project-pending-session-owner";
+    const reservedSessionId = "session-pending-session-owner";
+    const sourceWorkspaceRoot = "/workspace/pending-session-owner";
+    const worktreeWorkspaceRoot = `${sourceWorkspaceRoot}/.nodex/worktrees/abcd/repo`;
+    const threadId = "thread-pending-session-owner";
+    const project = makeProject({
+      id: projectId,
+      name: "Pending session owner",
+      sources: [{ root: sourceWorkspaceRoot, order: 0 }],
+      primaryWorkspaceRoot: sourceWorkspaceRoot,
+    });
+    const baseWorkspace = createTestProjectWorkspace();
+    const sessions = new Map<string, ProjectSession>();
+    const ownerByThreadId = new Map<string, string>();
+    const automaticallyCreatedSessionIds: string[] = [];
+    const now = "2026-08-13T00:00:00.000Z";
+    const makeSession = (
+      id: string,
+      input: { projectId: string | null; noThreadFallbackTitle: string },
+    ): ProjectSession => ({
+      id,
+      projectId: input.projectId,
+      noThreadFallbackTitle: input.noThreadFallbackTitle,
+      displayTitle: input.noThreadFallbackTitle,
+      order: sessions.size,
+      pinned: false,
+      pinnedOrder: null,
+      archived: false,
+      archivedAt: null,
+      unread: false,
+      thread: null,
+      createdAt: now,
+      updatedAt: now,
+    });
+    sessions.set(
+      reservedSessionId,
+      makeSession(reservedSessionId, {
+        projectId,
+        noThreadFallbackTitle: "New thread",
+      }),
+    );
+    const projectWorkspace = {
+      ...baseWorkspace,
+      listProjects: async () => [project],
+      getProject: async (candidateProjectId: string) =>
+        candidateProjectId === projectId ? project : null,
+      getProjectSession: async (sessionId: string) => sessions.get(sessionId) ?? null,
+      createProjectSession: async (input: {
+        projectId: string | null;
+        noThreadFallbackTitle: string;
+      }) => {
+        const sessionId = `session-auto-${automaticallyCreatedSessionIds.length + 1}`;
+        const session = makeSession(sessionId, input);
+        automaticallyCreatedSessionIds.push(sessionId);
+        sessions.set(sessionId, session);
+        return session;
+      },
+      deleteProjectSession: async (sessionId: string) => sessions.delete(sessionId),
+      getThread: async (candidateThreadId: string) => {
+        const thread = await baseWorkspace.getThread(candidateThreadId);
+        if (!thread) return null;
+        return {
+          ...thread,
+          sessionId: ownerByThreadId.get(candidateThreadId) ?? null,
+        };
+      },
+      upsertProjectSessionThreadLink: async (
+        input: Parameters<DesktopProjectWorkspacePort["upsertProjectSessionThreadLink"]>[0],
+      ) => {
+        const existingOwner = ownerByThreadId.get(input.threadId);
+        if (existingOwner && existingOwner !== input.sessionId) {
+          throw new Error("Codex Thread is already linked to another Project Session");
+        }
+        const session = sessions.get(input.sessionId);
+        if (!session) throw new Error(`Project session not found: ${input.sessionId}`);
+        const link = await baseWorkspace.upsertProjectSessionThreadLink(input);
+        ownerByThreadId.set(input.threadId, input.sessionId);
+        sessions.set(input.sessionId, {
+          ...session,
+          thread: link,
+          displayTitle: (link.threadName ?? link.threadPreview) || session.displayTitle,
+          updatedAt: now,
+        });
+        return link;
+      },
+    } as DesktopProjectWorkspacePort;
+    const service = createService({ projectWorkspace });
+    const runtime = Reflect.get(service as object, "pendingWorktreeRuntime") as {
+      readonly dependencies: {
+        createWorktree: () => Promise<{
+          readonly worktreeGitRoot: string;
+          readonly worktreeWorkspaceRoot: string;
+        }>;
+      };
+      resolveThread: (clientThreadId: string) =>
+        | { readonly state: "waiting" | "failed" | "succeeded" }
+        | null;
+    };
+    runtime.dependencies.createWorktree = async () => ({
+      worktreeGitRoot: worktreeWorkspaceRoot,
+      worktreeWorkspaceRoot,
+    });
+    const serviceInternals = service as unknown as {
+      handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
+    };
+    const client = Reflect.get(service as object, "client") as {
+      start: () => Promise<void>;
+      request: (method: string, params: unknown) => Promise<unknown>;
+    };
+    const requests: string[] = [];
+    client.start = async () => undefined;
+    client.request = async (method) => {
+      requests.push(method);
+      if (method === "thread/start") {
+        const response = makeCanonicalForkResponse({
+          threadId,
+          cwd: worktreeWorkspaceRoot,
+          turns: [],
+          runtimeWorkspaceRoots: [worktreeWorkspaceRoot],
+        });
+        await serviceInternals.handleNotification({
+          method: "thread/started",
+          params: { thread: response.thread },
+        });
+        return response;
+      }
+      if (method === "turn/start") {
+        return { turn: makeCanonicalHydrationTurn("turn-pending-session-owner") };
+      }
+      throw new Error(`Unexpected request: ${method}`);
+    };
+
+    try {
+      const created = service.createPendingWorktree({
+        hostId: "local",
+        label: "Pending session owner",
+        sourceWorkspaceRoot,
+        startingState: { type: "branch", branchName: "main" },
+        localEnvironmentConfigPath: null,
+        launchMode: "start-conversation",
+        prompt: "Start in the reserved session",
+        startConversationParamsInput: {
+          input: [{
+            type: "text",
+            text: "Start in the reserved session",
+            text_elements: [],
+          }],
+          commentAttachments: [],
+          workspaceRoots: [sourceWorkspaceRoot],
+          cwd: sourceWorkspaceRoot,
+          fileAttachments: [],
+          addedFiles: [],
+          agentMode: "auto",
+          shouldSendPermissionOverrides: false,
+          model: null,
+          serviceTier: null,
+          reasoningEffort: null,
+          collaborationMode: null,
+          config: {},
+          threadSource: "user",
+          workspaceKind: "project",
+          projectAssignment: {
+            projectKind: "local",
+            projectId,
+            pendingCoreUpdate: false,
+          },
+        },
+        projectSessionId: reservedSessionId,
+        skipAutoTitleGeneration: true,
+        sourceConversationId: null,
+        sourceCollaborationMode: null,
+      });
+      if (!created.clientThreadId) throw new Error("Expected a pending client Thread id");
+      await waitForCondition(() =>
+        requests.includes("turn/start")
+          || runtime.resolveThread(created.clientThreadId ?? "")?.state === "failed",
+      2_000);
+
+      expect(requests.includes("turn/start")).toBe(true);
+      expect(ownerByThreadId.get(threadId)).toBe(reservedSessionId);
+      expect(automaticallyCreatedSessionIds).toEqual([]);
+      expect(sessions.get(reservedSessionId)?.thread?.threadId).toBe(threadId);
+      expect(sessions.get(reservedSessionId)?.thread?.executionHostId).toBe("local");
+    } finally {
+      await service.shutdown();
+    }
+  });
+});
+
 describe("codex-service pending goal draft lifecycle", () => {
   type ManagedGoalSource = Awaited<
     ReturnType<PastedTextAttachmentManager["createRawSource"]>
@@ -9952,8 +10785,7 @@ describe("codex-service pending goal draft lifecycle", () => {
         entry: CodexPendingWorktreeEntry,
         context: {
           readonly signal: AbortSignal;
-          readonly onOutput: (output: string) => void;
-          readonly onSetupStarted: () => void;
+          readonly onEvent: (event: CodexWorktreeWorkerEvent) => void;
         },
       ) => Promise<{
         readonly worktreeGitRoot: string;
@@ -10976,6 +11808,175 @@ describe("codex-service approval fallback", () => {
     }
   });
 
+  test("fails closed when an older persisted handoff call reaches an unavailable transaction", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      evaluateLocalThreadHandoffCapability: () => {
+        status: "unavailable";
+        reasons: readonly ["host-transaction-unavailable"];
+      };
+      handleDynamicToolCall: (params: {
+        threadId: string;
+        turnId: string;
+        callId: string;
+        namespace: string;
+        tool: string;
+        arguments: Record<string, unknown>;
+      }) => Promise<{ contentItems: Array<{ text?: string }>; success: boolean }>;
+    };
+    serviceInternals.evaluateLocalThreadHandoffCapability = () => ({
+      status: "unavailable",
+      reasons: ["host-transaction-unavailable"],
+    });
+
+    try {
+      const response = await serviceInternals.handleDynamicToolCall({
+        threadId: "thread-handoff-caller",
+        turnId: "turn-handoff-caller",
+        callId: "call-handoff-persisted",
+        namespace: "codex_app",
+        tool: "handoff_thread",
+        arguments: { threadId: "thread-handoff-target" },
+      });
+
+      expect(response.success).toBe(false);
+      expect(response.contentItems[0]?.text).toContain(
+        "Task handoff is unavailable because its transactional runtime is not ready",
+      );
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("moves one durable task between its checkout and managed worktree", async () => {
+    const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-thread-handoff-vertical-"));
+    const repositoryPath = path.join(fixtureRoot, "repository");
+    const managedRoot = path.join(fixtureRoot, "managed");
+    const runtimeStateHome = path.join(fixtureRoot, "agent");
+    initializeGitRepository(repositoryPath);
+    fs.writeFileSync(path.join(repositoryPath, "README.md"), "# changed during handoff\n");
+    fs.writeFileSync(path.join(repositoryPath, "untracked.txt"), "preserve me\n");
+    const project = makeProject({
+      id: "project:handoff",
+      sources: [{ root: repositoryPath, order: 0 }],
+      primaryWorkspaceRoot: repositoryPath,
+    });
+    const baseWorkspace = createTestProjectWorkspace();
+    const projectWorkspace = {
+      ...baseWorkspace,
+      getProject: async (projectId: string) => projectId === project.id ? project : null,
+    } as DesktopProjectWorkspacePort;
+    const threadId = "thread:handoff-vertical";
+    await projectWorkspace.upsertThread(threadId, {
+      projectId: project.id,
+      threadName: "Move this task",
+      threadPreview: "Move this task",
+      executionHostId: "local",
+      cwd: repositoryPath,
+      managedWorktreePath: null,
+      status: { statusType: "idle", activeFlags: [] },
+    });
+    await projectWorkspace.replaceThreadWritableRoots(threadId, [repositoryPath]);
+    const service = createService({ projectWorkspace, runtimeStateHome });
+    (service as unknown as CodexService).setWorktreeWorkerPort(
+      "local",
+      createInProcessCodexWorktreeWorkerPort({ hostId: "local" }),
+      managedRoot,
+    );
+    const rolloutPath = path.join(runtimeStateHome, "sessions", "rollout.jsonl");
+    let runtimeCwd = repositoryPath;
+    let runtimeRoots = [repositoryPath];
+    const resumeRequests: Array<Record<string, unknown>> = [];
+    const client = Reflect.get(service as object, "client") as {
+      start: () => Promise<void>;
+      request: (method: string, params: unknown) => Promise<unknown>;
+    };
+    client.start = async () => undefined;
+    client.request = async (method, params) => {
+      if (method === "thread/read") {
+        return {
+          thread: {
+            ...makeProtocolThread(threadId, runtimeCwd),
+            path: rolloutPath,
+            status: { type: "notLoaded" as const },
+          },
+        };
+      }
+      if (method === "thread/resume") {
+        const request = params as Record<string, unknown>;
+        resumeRequests.push(request);
+        runtimeCwd = String(request.cwd);
+        runtimeRoots = [...(request.runtimeWorkspaceRoots as string[])];
+        const response = makeCanonicalForkResumeResponse(makeCanonicalForkResponse({
+          threadId,
+          cwd: runtimeCwd,
+          turns: [],
+          runtimeWorkspaceRoots: runtimeRoots,
+        }));
+        return {
+          ...response,
+          thread: { ...response.thread, path: rolloutPath },
+        };
+      }
+      throw new Error(`Unexpected app-server request: ${method}`);
+    };
+    const internals = service as unknown as {
+      buildMcpCodexConfig: () => Promise<null>;
+      threadExecutionLocationService: {
+        start(input: {
+          operationId: string;
+          threadId: string;
+          followUpPrompt: string | null;
+        }): Promise<CodexThreadHandoffJournalEntry>;
+      };
+    };
+    internals.buildMcpCodexConfig = async () => null;
+
+    try {
+      const movedToWorktree = await internals.threadExecutionLocationService.start({
+        operationId: "handoff-to-worktree",
+        threadId,
+        followUpPrompt: null,
+      });
+      const worktreeThread = await projectWorkspace.getThread(threadId);
+      const worktreePath = worktreeThread?.managedWorktreePath;
+      expect(movedToWorktree.phase).toBe("completed");
+      expect(worktreePath).toBeTruthy();
+      expect(worktreeThread?.threadId).toBe(threadId);
+      expect(worktreeThread?.cwd).toBe(runtimeCwd);
+      expect(runtimeRoots).toEqual([worktreeThread?.cwd]);
+      expect(fs.readFileSync(path.join(runtimeCwd, "README.md"), "utf8"))
+        .toBe("# changed during handoff\n");
+      expect(fs.readFileSync(path.join(runtimeCwd, "untracked.txt"), "utf8"))
+        .toBe("preserve me\n");
+      expect(execFileSync("git", ["status", "--porcelain"], { cwd: repositoryPath, encoding: "utf8" }))
+        .toBe("");
+
+      const movedToCheckout = await internals.threadExecutionLocationService.start({
+        operationId: "handoff-to-checkout",
+        threadId,
+        followUpPrompt: null,
+      });
+      const checkoutThread = await projectWorkspace.getThread(threadId);
+      expect(movedToCheckout.phase).toBe("completed");
+      expect(checkoutThread).toMatchObject({
+        threadId,
+        cwd: repositoryPath,
+        managedWorktreePath: null,
+      });
+      expect(runtimeCwd).toBe(repositoryPath);
+      expect(fs.readFileSync(path.join(repositoryPath, "README.md"), "utf8"))
+        .toBe("# changed during handoff\n");
+      expect(fs.readFileSync(path.join(repositoryPath, "untracked.txt"), "utf8"))
+        .toBe("preserve me\n");
+      expect(resumeRequests).toHaveLength(2);
+      expect(resumeRequests.every((request) => request.threadId === threadId)).toBe(true);
+    } finally {
+      await service.shutdown();
+      fs.rmSync(fixtureRoot, { recursive: true, force: true });
+    }
+  });
+
   test("dynamic same-directory fork returns the exact environment, source, child, and continuation payload", async () => {
     const sourceThreadId = "thr_dynamic_fork_source";
     const childThreadId = "thr_dynamic_fork_child";
@@ -11111,6 +12112,11 @@ describe("codex-service approval fallback", () => {
       }) => Promise<{ contentItems: Array<{ text?: string }>; success: boolean }>;
       resolveDynamicThreadDetail: () => Promise<CodexThreadDetail>;
       parseThreadRef: () => { projectId: string; cwd: string };
+      maybeResolveProjectRuntimeContext: () => Promise<{
+        workspaceRoots: string[];
+        primaryWorkspaceRoot: string;
+      }>;
+      readThreadWritableRoots: () => Promise<string[]>;
     };
     serviceInternals.resolveDynamicThreadDetail = async () => ({
       ...makeThreadDetail(sourceThreadId),
@@ -11130,6 +12136,17 @@ describe("codex-service approval fallback", () => {
       projectId: "project-dynamic-pending-fork",
       cwd: "/workspace/dynamic-pending-fork",
     });
+    serviceInternals.maybeResolveProjectRuntimeContext = async () => ({
+      workspaceRoots: [
+        "/workspace/dynamic-pending-fork",
+        "/workspace/shared",
+      ],
+      primaryWorkspaceRoot: "/workspace/dynamic-pending-fork",
+    });
+    serviceInternals.readThreadWritableRoots = async () => [
+      "/workspace/dynamic-pending-fork",
+      "/scratch/custom-root",
+    ];
 
     try {
       const response = await serviceInternals.handleDynamicToolCall({
@@ -11155,6 +12172,11 @@ describe("codex-service approval fallback", () => {
       }
       expect(pending.clientThreadId.startsWith("client-new-thread:")).toBe(true);
       expect(pending.sourceConversationId).toBe(sourceThreadId);
+      expect(pending.sourceWorkspaceRoots).toEqual([
+        "/workspace/dynamic-pending-fork",
+        "/workspace/shared",
+        "/scratch/custom-root",
+      ]);
       expect(pending.startingState?.type).toBe("working-tree");
       expect(pending.projectAssignment?.projectId).toBe("project-dynamic-pending-fork");
       expect(pending.sourceCollaborationMode?.settings.model).toBe("gpt-pending-fork");
@@ -11612,7 +12634,7 @@ describe("codex-service approval fallback", () => {
           launchMode: "worktree",
           projectId: "project-pending-contract",
           cwd: "/repo",
-          workspaceRoots: ["/repo"],
+          workspaceRoots: ["/repo", "/shared-one", "/shared-two"],
           workspaceKind: "project",
           projectlessOutputDirectory: null,
           projectlessWorkspaceBrowserRoot: null,
@@ -11713,7 +12735,11 @@ describe("codex-service approval fallback", () => {
       expect(launched.threadId).toBe("thread-pending-contract");
       expect(mappedThreadId).toBe("thread-pending-contract");
       expect(launchedTarget?.cwd).toBe("/worktree/repo");
-      expect(JSON.stringify(launchedTarget?.workspaceRoots)).toBe(JSON.stringify(["/worktree/repo"]));
+      expect(launchedTarget?.workspaceRoots).toEqual([
+        "/worktree/repo",
+        "/shared-one",
+        "/shared-two",
+      ]);
       expect(capturedLaunch?.managedWorktreePath).toBe("/missing/worktree-git-root");
       expect(capturedLaunch?.clientThreadId).toBe(request.clientThreadId);
       expect(startOptions?.persistClientThreadIdentity).toBe(false);
@@ -11739,15 +12765,19 @@ describe("codex-service approval fallback", () => {
       expect(JSON.stringify(capturedLaunch?.firstTurnInput)).toBe(
         JSON.stringify(request.startConversationParamsInput.input),
       );
-      expect(JSON.stringify(launchedPermissions?.context?.runtimeWorkspaceRoots)).toBe(
-        JSON.stringify(["/worktree/repo"]),
-      );
+      expect(launchedPermissions?.context?.runtimeWorkspaceRoots).toEqual([
+        "/worktree/repo",
+        "/shared-one",
+        "/shared-two",
+      ]);
       expect(launchedPermissions?.context?.activePermissionProfile?.id ?? null).toBe(
         "team-profile",
       );
-      expect(JSON.stringify(launchedPermissions?.context?.sandboxPolicy?.writableRoots)).toBe(
-        JSON.stringify(["/worktree/repo"]),
-      );
+      expect(launchedPermissions?.context?.sandboxPolicy?.writableRoots).toEqual([
+        "/worktree/repo",
+        "/shared-one",
+        "/shared-two",
+      ]);
       expect((capturedLaunch?.worktreeInit as { id?: string } | undefined)?.id).toBe(
         `${request.id}:1`,
       );
@@ -11772,6 +12802,7 @@ describe("codex-service approval fallback", () => {
       hostId: "local",
       label: "Work locally transfer",
       sourceWorkspaceRoot: "/repo/source",
+      sourceWorkspaceRoots: ["/repo/source"],
       startingState: { type: "working-tree" as const },
       localEnvironmentConfigPath: null,
       prompt: "Continue locally",
@@ -11885,6 +12916,7 @@ describe("codex-service approval fallback", () => {
         hostId: "local",
         label: "Normal transfer",
         sourceWorkspaceRoot: "/repo/source",
+        sourceWorkspaceRoots: ["/repo/source"],
         startingState: { type: "working-tree" },
         localEnvironmentConfigPath: null,
         launchMode: "fork-conversation",
@@ -17201,6 +18233,420 @@ describe("codex-service terminal turn reconciliation", () => {
         ]);
       expect(await userPromise).toBe(CODEX_SERVER_REQUEST_NO_RESPONSE);
       expect(await mcpPromise).toBe(CODEX_SERVER_REQUEST_NO_RESPONSE);
+    } finally {
+      await service.shutdown();
+    }
+  });
+});
+
+describe("codex-service managed worktree inventory", () => {
+  test("deduplicates thread inspection and restores through the owning host", async () => {
+    const worktreePath = "/managed/a1b2/repository";
+    const thread = makeDesktopWorkspaceThread({
+      threadId: "thread-restore",
+      projectId: "project-one",
+      executionHostId: "local",
+      cwd: `${worktreePath}/packages/app`,
+      managedWorktreePath: worktreePath,
+    });
+    const basePort = createTestProjectWorkspace();
+    const projectWorkspace = {
+      ...basePort,
+      getThread: async (threadId: string) => threadId === thread.threadId ? thread : null,
+      readManagedWorktreeLifecycleSnapshot: async () => ({
+        projectionRevision: 1,
+        consumers: [],
+        projects: [{
+          projectId: "project-one",
+          lifecycle: "active" as const,
+          sourceRoots: ["/repositories/repository"],
+          primaryWorkspaceRoot: "/repositories/repository",
+        }],
+      }),
+    } satisfies DesktopProjectWorkspacePort;
+    let releaseInspection: () => void = () => {};
+    const inspectionGate = new Promise<void>((resolve) => {
+      releaseInspection = resolve;
+    });
+    const inspect = vi.fn(async () => {
+      await inspectionGate;
+      return {
+        availability: {
+          state: "restorable" as const,
+          repositoryPath: "/repositories/repository",
+          snapshotRef: "refs/codex/snapshots/one",
+        },
+      };
+    });
+    const restore = vi.fn(async () => ({
+      worktreeGitRoot: worktreePath,
+      cwd: thread.cwd ?? worktreePath,
+      repositoryPath: "/repositories/repository",
+      snapshotRef: "refs/codex/snapshots/one",
+      ownerWarning: null,
+    }));
+    const worker = {
+      ...createInProcessCodexWorktreeWorkerPort({ hostId: "local" }),
+      inspect,
+      restore,
+    } satisfies CodexWorktreeWorkerPort;
+    const service = createService({ projectWorkspace });
+    (service as unknown as CodexService).setWorktreeWorkerPort("local", worker, "/managed");
+
+    try {
+      const first = service.inspectThreadManagedWorktree(thread.threadId);
+      const second = service.inspectThreadManagedWorktree(thread.threadId);
+      await Promise.resolve();
+      releaseInspection();
+      await expect(Promise.all([first, second])).resolves.toEqual([
+        expect.objectContaining({ state: "restorable" }),
+        expect.objectContaining({ state: "restorable" }),
+      ]);
+      expect(inspect).toHaveBeenCalledOnce();
+      expect(inspect).toHaveBeenCalledWith(expect.objectContaining({
+        hostId: "local",
+        managedRoot: "/managed",
+        worktreeGitRoot: worktreePath,
+        cwd: `${worktreePath}/packages/app`,
+        candidateRepositoryPaths: ["/repositories/repository"],
+      }), expect.any(Object));
+
+      await expect(service.restoreThreadManagedWorktree(thread.threadId)).resolves.toEqual({
+        availability: { state: "available" },
+        ownerWarning: null,
+      });
+      expect(restore).toHaveBeenCalledWith(expect.objectContaining({
+        ownerThreadId: thread.threadId,
+        worktreeGitRoot: worktreePath,
+      }), expect.any(Object));
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("transfers archive ownership before considering physical removal", async () => {
+    const worktreePath = "/managed/a1b2/repository";
+    const archived = makeDesktopWorkspaceThread({
+      threadId: "thread-archived",
+      executionHostId: "local",
+      cwd: worktreePath,
+      managedWorktreePath: worktreePath,
+      archived: true,
+    });
+    const basePort = createTestProjectWorkspace();
+    const projectWorkspace = {
+      ...basePort,
+      readManagedWorktreeLifecycleSnapshot: async () => ({
+        projectionRevision: 2,
+        consumers: [{
+          threadId: "thread-replacement",
+          projectId: "project-one",
+          sessionId: "session-replacement",
+          executionHostId: "local",
+          cwd: `${worktreePath}/packages/app`,
+          managedWorktreePath: worktreePath,
+          runtimeWorkspaceRoots: [worktreePath],
+          archived: false,
+          pinnedOrder: null,
+          statusType: "active" as const,
+          statusActiveFlags: [],
+          createdAt: 1,
+          updatedAt: 20,
+          linkedAt: "2026-08-14T00:00:00.000Z",
+        }],
+        projects: [],
+      }),
+    } satisfies DesktopProjectWorkspacePort;
+    const setOwner = vi.fn(async () => ({ ownerThreadId: "thread-replacement" }));
+    const remove = vi.fn();
+    const worker = {
+      ...createInProcessCodexWorktreeWorkerPort({ hostId: "local" }),
+      setOwner,
+      remove,
+    } satisfies CodexWorktreeWorkerPort;
+    const service = createService({ projectWorkspace });
+    (service as unknown as CodexService).setWorktreeWorkerPort("local", worker, "/managed");
+
+    try {
+      await service.reconcileArchivedThreadManagedWorktree(archived, "archive");
+      expect(setOwner).toHaveBeenCalledWith(expect.objectContaining({
+        ownerThreadId: "thread-replacement",
+        worktreeGitRoot: worktreePath,
+      }), expect.any(Object));
+      expect(remove).not.toHaveBeenCalled();
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("uses snapshot-required removal for the last archived consumer", async () => {
+    const worktreePath = "/managed/a1b2/repository";
+    const archived = makeDesktopWorkspaceThread({
+      threadId: "thread-last",
+      executionHostId: "local",
+      cwd: worktreePath,
+      managedWorktreePath: worktreePath,
+      archived: true,
+    });
+    const basePort = createTestProjectWorkspace();
+    const projectWorkspace = {
+      ...basePort,
+      readManagedWorktreeLifecycleSnapshot: async () => ({
+        projectionRevision: 3,
+        consumers: [],
+        projects: [],
+      }),
+    } satisfies DesktopProjectWorkspacePort;
+    const remove = vi.fn(async () => ({
+      removed: true,
+      alreadyMissing: false,
+      snapshot: null,
+      warnings: [],
+    }));
+    const worker = {
+      ...createInProcessCodexWorktreeWorkerPort({ hostId: "local" }),
+      remove,
+    } satisfies CodexWorktreeWorkerPort;
+    const service = createService({ projectWorkspace });
+    (service as unknown as CodexService).setWorktreeWorkerPort("local", worker, "/managed");
+
+    try {
+      await service.reconcileArchivedThreadManagedWorktree(archived, "archive");
+      expect(remove).toHaveBeenCalledWith(expect.objectContaining({
+        reason: "archive",
+        snapshotPolicy: "required",
+      }), expect.any(Object));
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("groups every consumer by physical root and excludes permanent project roots", async () => {
+    const sharedPath = "/managed/a1b2/repository";
+    const permanentPath = "/managed/c3d4/permanent";
+    const basePort = createTestProjectWorkspace();
+    const projectWorkspace = {
+      ...basePort,
+      readManagedWorktreeLifecycleSnapshot: async () => ({
+        projectionRevision: 7,
+        consumers: [
+          {
+            threadId: "thread-one",
+            projectId: "project-one",
+            sessionId: "session-one",
+            executionHostId: "local",
+            cwd: sharedPath,
+            managedWorktreePath: sharedPath,
+            runtimeWorkspaceRoots: [sharedPath],
+            archived: false,
+            pinnedOrder: null,
+            statusType: "idle" as const,
+            statusActiveFlags: [],
+            createdAt: 10,
+            updatedAt: 30,
+            linkedAt: "2026-08-14T00:00:00.000Z",
+          },
+          {
+            threadId: "thread-two",
+            projectId: "project-one",
+            sessionId: "session-two",
+            executionHostId: "local",
+            cwd: `${sharedPath}/nested`,
+            managedWorktreePath: sharedPath,
+            runtimeWorkspaceRoots: [sharedPath],
+            archived: true,
+            pinnedOrder: null,
+            statusType: "idle" as const,
+            statusActiveFlags: [],
+            createdAt: 11,
+            updatedAt: 20,
+            linkedAt: "2026-08-14T00:00:01.000Z",
+          },
+        ],
+        projects: [{
+          projectId: "project-one",
+          lifecycle: "active" as const,
+          sourceRoots: [permanentPath],
+          primaryWorkspaceRoot: permanentPath,
+        }],
+      }),
+      listProjects: async () => [makeProject({ id: "project-one", name: "Repository" })],
+      getThread: async (threadId: string) => makeDesktopWorkspaceThread({
+        threadId,
+        threadName: threadId === "thread-one" ? "First" : "Second",
+      }),
+      getProjectSession: async (sessionId: string) => ({
+        id: sessionId,
+        projectId: "project-one",
+        displayTitle: sessionId === "session-one" ? "Newest" : "Older",
+      }) as never,
+    } satisfies DesktopProjectWorkspacePort;
+    const service = createService({ projectWorkspace });
+    const worker = {
+      ...createInProcessCodexWorktreeWorkerPort({ hostId: "local" }),
+      list: async () => ({
+        entries: [{
+          worktreeGitRoot: sharedPath,
+          repositoryPath: "/repositories/repository",
+          createdAtMs: 100,
+          ownerThreadId: "thread-one",
+          ownerReadFailed: false,
+        }, {
+          worktreeGitRoot: permanentPath,
+          repositoryPath: "/repositories/permanent",
+          createdAtMs: 90,
+          ownerThreadId: null,
+          ownerReadFailed: false,
+        }],
+      }),
+    } satisfies CodexWorktreeWorkerPort;
+    (service as unknown as CodexService).setWorktreeWorkerPort("local", worker, "/managed");
+
+    try {
+      await expect(service.listManagedWorktrees()).resolves.toEqual([{
+        hostId: "local",
+        path: sharedPath,
+        exists: true,
+        repositoryPath: "/repositories/repository",
+        createdAtMs: 100,
+        conversations: [{
+          threadId: "thread-one",
+          projectId: "project-one",
+          projectName: "Repository",
+          sessionId: "session-one",
+          sessionTitle: "Newest",
+          threadName: "First",
+          archived: false,
+          updatedAt: 30,
+        }, {
+          threadId: "thread-two",
+          projectId: "project-one",
+          projectName: "Repository",
+          sessionId: "session-two",
+          sessionTitle: "Older",
+          threadName: "Second",
+          archived: true,
+          updatedAt: 20,
+        }],
+      }]);
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("plans from one Core snapshot and prunes through lifecycle policy", async () => {
+    const basePort = createTestProjectWorkspace();
+    const readSnapshot = vi.fn(async () => ({
+      projectionRevision: 9,
+      consumers: [],
+      projects: [],
+    }));
+    const projectWorkspace = {
+      ...basePort,
+      readManagedWorktreeLifecycleSnapshot: readSnapshot,
+    } satisfies DesktopProjectWorkspacePort;
+    const service = createService({ projectWorkspace });
+    const limit = (service as unknown as CodexService).getManagedWorktreeSettings()
+      .autoDeleteLimit;
+    const remove = vi.fn(async () => ({
+      removed: true,
+      alreadyMissing: false,
+      snapshot: null,
+      warnings: [],
+    }));
+    const worker = {
+      ...createInProcessCodexWorktreeWorkerPort({ hostId: "local" }),
+      list: async () => ({
+        entries: Array.from({ length: limit + 2 }, (_, index) => ({
+          worktreeGitRoot: `/managed/${String(index).padStart(4, "0")}/repository`,
+          repositoryPath: "/repositories/repository",
+          createdAtMs: Date.parse("2026-08-13T00:00:00.000Z") + index,
+          ownerThreadId: null,
+          ownerReadFailed: false,
+        })),
+      }),
+      remove,
+    } satisfies CodexWorktreeWorkerPort;
+    (service as unknown as CodexService).setWorktreeWorkerPort("local", worker, "/managed");
+
+    try {
+      const plan = await service.runManagedWorktreeRetentionSweep();
+      expect(readSnapshot).toHaveBeenCalledOnce();
+      expect(plan.status).toBe("planned");
+      expect(plan.delete.map((item) => item.worktreeGitRoot)).toEqual([
+        "/managed/0000/repository",
+        "/managed/0001/repository",
+      ]);
+      expect(remove).toHaveBeenCalledTimes(2);
+      expect(remove).toHaveBeenCalledWith(expect.objectContaining({
+        reason: "automatic-retention",
+        snapshotPolicy: "required",
+      }), expect.any(Object));
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("archives all consumers before one targeted lifecycle deletion and keeps their links", async () => {
+    const worktreePath = "/managed/a1b2/repository";
+    const calls: string[] = [];
+    const basePort = createTestProjectWorkspace();
+    const projectWorkspace = {
+      ...basePort,
+      readManagedWorktreeLifecycleSnapshot: async () => ({
+        projectionRevision: 1,
+        consumers: ["thread-one", "thread-two"].map((threadId, index) => ({
+          threadId,
+          projectId: "project-one",
+          sessionId: `session-${index}`,
+          executionHostId: "local",
+          cwd: worktreePath,
+          managedWorktreePath: worktreePath,
+          runtimeWorkspaceRoots: [worktreePath],
+          archived: false,
+          pinnedOrder: null,
+          statusType: "idle" as const,
+          statusActiveFlags: [],
+          createdAt: index,
+          updatedAt: index,
+          linkedAt: "2026-08-14T00:00:00.000Z",
+        })),
+        projects: [],
+      }),
+      setThreadArchived: async (threadId: string, archived: boolean) => {
+        calls.push(`archive:${threadId}:${archived}`);
+        return await basePort.setThreadArchived(threadId, archived);
+      },
+    } satisfies DesktopProjectWorkspacePort;
+    const remove = vi.fn(async () => {
+      calls.push("remove");
+      return {
+        removed: true,
+        alreadyMissing: false,
+        snapshot: null,
+        warnings: [],
+      };
+    });
+    const service = createService({ projectWorkspace });
+    const worker = {
+      ...createInProcessCodexWorktreeWorkerPort({ hostId: "local" }),
+      remove,
+    } satisfies CodexWorktreeWorkerPort;
+    (service as unknown as CodexService).setWorktreeWorkerPort("local", worker, "/managed");
+
+    try {
+      await expect(service.deleteManagedWorktree("local", worktreePath)).resolves.toBe(true);
+      expect(calls).toEqual([
+        "archive:thread-one:true",
+        "archive:thread-two:true",
+        "remove",
+      ]);
+      expect(remove).toHaveBeenCalledWith(expect.objectContaining({
+        hostId: "local",
+        worktreeGitRoot: worktreePath,
+        reason: "settings-delete",
+        snapshotPolicy: "best-effort",
+      }), expect.any(Object));
     } finally {
       await service.shutdown();
     }

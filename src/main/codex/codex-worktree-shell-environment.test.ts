@@ -196,19 +196,32 @@ describe("Codex worktree shell environment", () => {
     }
   });
 
-  test("cancels an active setup through its lifecycle AbortSignal", async () => {
+  test("cancels the complete active setup process tree", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "nodex-shell-capture-cancel-test-"));
     const controller = new AbortController();
+    const descendantPidPath = path.join(cwd, "descendant.pid");
+    let descendantPid: number | null = null;
+    const isDescendantAlive = (): boolean => {
+      if (descendantPid === null) return false;
+      try {
+        process.kill(descendantPid, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    };
     try {
       let message = "";
       try {
         await runCodexWorktreeSetupScript({
           cwd,
           script: [
+            "bash -c 'trap \"\" TERM; while :; do sleep 1; done' &",
+            'printf "%s" "$!" > "$NODEX_DESCENDANT_PID_PATH"',
             'printf "setup-ready\\n"',
-            "trap 'exit 0' TERM",
-            "while :; do sleep 0.05; done",
+            "wait",
           ].join("\n"),
+          environment: { NODEX_DESCENDANT_PID_PATH: descendantPidPath },
           signal: controller.signal,
           onOutput: (output) => {
             if (output.data.includes("setup-ready")) controller.abort();
@@ -218,7 +231,16 @@ describe("Codex worktree shell environment", () => {
         message = error instanceof Error ? error.message : String(error);
       }
       expect(message).toBe("Worktree environment setup canceled.");
+      descendantPid = Number.parseInt(await readFile(descendantPidPath, "utf8"), 10);
+      expect(Number.isSafeInteger(descendantPid)).toBe(true);
+      for (let attempt = 0; attempt < 40 && isDescendantAlive(); attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      expect(isDescendantAlive()).toBe(false);
     } finally {
+      if (isDescendantAlive() && descendantPid !== null) {
+        process.kill(descendantPid, "SIGKILL");
+      }
       await rm(cwd, { recursive: true, force: true });
     }
   });

@@ -609,6 +609,13 @@ describe("protocol-backed canonical conversation state", () => {
     expect(forkInitTurn?.sidecar.turnStartedAtMs).toBe(null);
     expect(isCodexCanonicalProtocolItem(item)).toBe(false);
 
+    const rendererReloadTurns = mergeCodexCanonicalTurnStates(
+      forkInit.turns,
+      base.turns,
+    );
+    expect(rendererReloadTurns.flatMap((turn) => turn.items)).toContain(item);
+    expect(rendererReloadTurns.filter((turn) => turn.protocol.id === null)).toHaveLength(1);
+
     const noTurns = appendCodexCanonicalWorktreeInitItem(
       { ...base, turns: [] },
       item,

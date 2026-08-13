@@ -6,6 +6,7 @@ import {
   AppShellHeaderContentRegistrar,
   ComposerScope,
   IdentityPromotionConflict,
+  promoteThreadScopeToPending,
   SelectedAppShellHeaderContent,
   WorkbenchSessionScopePath,
   createThreadScopeIdentityRegistry,
@@ -55,6 +56,7 @@ function projectSession(threadId: string | null = null): ProjectSession {
           threadId,
           threadPreview: "Task",
           modelProvider: "openai",
+          executionHostId: "local",
           statusType: "idle",
           statusActiveFlags: [],
           archived: false,
@@ -132,6 +134,21 @@ describe("Workbench Maitai scopes", () => {
     });
   });
 
+  test("rejoins a pending sidebar route to its already-known origin Session", () => {
+    const registry = createThreadScopeIdentityRegistry();
+    registry.resolve({ projectSessionId: "session-1" });
+
+    expect(resolvePendingThreadScopeDescriptor(
+      registry,
+      "client-1",
+      "session-1",
+    )).toMatchObject({
+      stableKey: "session:session-1",
+      projectSessionId: "session-1",
+      clientThreadId: "client-1",
+    });
+  });
+
   test("keeps a Project Session scope stable from pending worktree to attached Thread", () => {
     const registry = createThreadScopeIdentityRegistry();
     const pending = resolveProjectSessionThreadScopeDescriptor(
@@ -157,6 +174,54 @@ describe("Workbench Maitai scopes", () => {
       phase: "attached",
       threadId: "thread-1",
     });
+  });
+
+  test("promotes an existing Session before the pending route resolves the client id", () => {
+    const registry = createThreadScopeIdentityRegistry();
+    const source = resolveProjectSessionThreadScopeDescriptor(
+      registry,
+      projectSession(),
+    );
+    const promoted = promoteThreadScopeToPending(registry, source, " client-1 ");
+    const pending = resolvePendingThreadScopeDescriptor(registry, "client-1");
+    const attached = resolveProjectSessionThreadScopeDescriptor(
+      registry,
+      projectSession("thread-1"),
+      "client-1",
+    );
+
+    expect(promoted).toMatchObject({
+      stableKey: "session:session-1",
+      phase: "pending",
+      clientThreadId: "client-1",
+    });
+    expect(pending.stableKey).toBe("session:session-1");
+    expect(attached.stableKey).toBe("session:session-1");
+  });
+
+  test("uses the actual target Session when a pending start changes Project", () => {
+    const registry = createThreadScopeIdentityRegistry();
+    const source = resolveProjectSessionThreadScopeDescriptor(
+      registry,
+      projectSession(),
+    );
+
+    const pending = promoteThreadScopeToPending(
+      registry,
+      source,
+      "client-2",
+      "session-2",
+    );
+
+    expect(pending).toMatchObject({
+      stableKey: "client:client-2",
+      projectSessionId: "session-2",
+      clientThreadId: "client-2",
+    });
+    expect(registry.resolve({ projectSessionId: "session-2" }))
+      .toBe("client:client-2");
+    expect(registry.resolve({ projectSessionId: "session-1" }))
+      .toBe("session:session-1");
   });
 
   test("derives exact composer entry identities and fresh nonces", () => {

@@ -86,10 +86,38 @@ describe("WorktreeInitActivityList", () => {
       view.getByRole("button", { name: "Environment setup skipped" })
         .getAttribute("aria-expanded"),
     ).toBe("false");
-    expect((view.container.textContent ?? "").includes("plain red")).toBe(false);
-    fireEvent.click(view.getByRole("button", { name: "Worktree created" }));
+    const worktreeButton = view.getByRole("button", { name: "Worktree created" });
+    const worktreeBody = worktreeButton.parentElement?.nextElementSibling;
+    expect(worktreeBody?.getAttribute("aria-hidden")).toBe("true");
     expect((view.container.textContent ?? "").includes("plain red")).toBe(true);
+    fireEvent.click(view.getByRole("button", { name: "Worktree created" }));
+    expect(worktreeBody?.getAttribute("aria-hidden")).toBe("false");
     expect((view.container.textContent ?? "").includes("\u001b")).toBe(false);
+  });
+
+  test("opens running output without actions and preserves a manual collapse while streaming", () => {
+    const creating: CodexWorktreeInitActivity = {
+      id: "pending:1:worktree",
+      kind: "worktree",
+      status: "running",
+      outputText: "Preparing worktree\n",
+    };
+    const view = renderActivities([creating]);
+    const toggle = view.getByRole("button", { name: "Creating a worktree" });
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+
+    view.rerender(
+      <TooltipProvider>
+        <WorktreeInitActivityList
+          activities={[{ ...creating, outputText: "Preparing worktree\nApplying diff\n" }]}
+        />
+      </TooltipProvider>,
+    );
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect((view.container.textContent ?? "").includes("Applying diff")).toBe(true);
   });
 
   test("renders a running conversation as shimmer text without disclosure or actions", () => {

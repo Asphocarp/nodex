@@ -3,9 +3,8 @@ import type {
   CodexPendingWorktreeEntry,
   CodexPendingWorktreeThreadResolution,
 } from "../../../shared/codex-pending-worktree";
-import { codexWorktreeInitActivityLabel } from "../../lib/codex-worktree-init-activity";
 import {
-  resolvePendingWorktreeActivities,
+  resolvePendingWorktreeProgressModel,
   resolvePendingWorktreeRouteActions,
 } from "./pending-worktree-route-model";
 
@@ -14,17 +13,15 @@ type StartConversationEntry = Extract<
   { readonly launchMode: "start-conversation" }
 >;
 
-function makeEntry(
-  overrides: Partial<StartConversationEntry> = {},
-): StartConversationEntry {
+function makeEntry(overrides: Partial<StartConversationEntry> = {}): StartConversationEntry {
   return {
     id: "local:pending-1",
     hostId: "local",
-    label: "Implement renderer parity",
+    label: "Prepare an isolated workspace",
     sourceWorkspaceRoot: "/repo/nodex",
     startingState: { type: "branch", branchName: "main" },
     localEnvironmentConfigPath: null,
-    prompt: "Implement renderer parity",
+    prompt: "Create an isolated workspace",
     launchMode: "start-conversation",
     clientThreadId: "client-new-thread:11111111-1111-4111-8111-111111111111",
     startConversationParamsInput: {
@@ -69,165 +66,101 @@ function makeEntry(
   };
 }
 
-function waitingResolution(
-  entry: CodexPendingWorktreeEntry,
+function resolution(
+  entry: StartConversationEntry,
+  state: "waiting" | "starting",
 ): CodexPendingWorktreeThreadResolution {
-  if (entry.launchMode === "create-stable-worktree") {
-    throw new Error("A stable worktree has no client thread id");
-  }
-  return {
-    state: "waiting",
-    clientThreadId: entry.clientThreadId,
-    pendingWorktreeId: entry.id,
-  };
+  return { state, clientThreadId: entry.clientThreadId, pendingWorktreeId: entry.id };
 }
 
 describe("pending worktree route model", () => {
-  test("maps queued, setup, and conversation-start phases to the exact activity sequence", () => {
-    const queued = makeEntry({ phase: "queued" });
-    const queuedActivities = resolvePendingWorktreeActivities(queued, waitingResolution(queued));
-    expect(queuedActivities.length).toBe(1);
-    expect(codexWorktreeInitActivityLabel(queuedActivities[0]!)).toBe("Creating a worktree");
-    expect(queuedActivities[0]?.status).toBe("running");
+  test("derives the two-stage create progress and checkout percentage", () => {
+    const queued = makeEntry();
+    expect(resolvePendingWorktreeProgressModel(queued, resolution(queued, "waiting")))
+      .toMatchObject({
+        title: "Creating a worktree",
+        titleIsRunning: true,
+        steps: [
+          { kind: "workspace", status: "running", progressPercentage: null },
+          { kind: "checkout", status: "pending", progressPercentage: null },
+        ],
+      });
 
-    const settingUp = makeEntry({
-      phase: "setting-up",
-      localEnvironmentConfigPath: "/repo/nodex/.codex/environments/default.toml",
-      worktreeGitRoot: "/repo/worktrees/task",
-      worktreeWorkspaceRoot: "/repo/worktrees/task",
-      worktreeOutputText: "Preparing worktree\n",
-      setupOutputText: "Installing dependencies\n",
+    const checkout = makeEntry({
+      phase: "creating",
+      worktreeOutputText: "Preparing worktree\nUpdating files: 37% (37/100)\n",
     });
-    const setupActivities = resolvePendingWorktreeActivities(
-      settingUp,
-      waitingResolution(settingUp),
-    );
-    expect(setupActivities.length).toBe(2);
-    expect(setupActivities[0]?.status).toBe("completed");
-    expect(setupActivities[1]?.status).toBe("running");
-    expect(codexWorktreeInitActivityLabel(setupActivities[1]!)).toBe(
-      "Setting up the environment",
-    );
-
-    const ready = makeEntry({
-      phase: "worktree-ready",
-      localEnvironmentConfigPath: "/repo/nodex/.codex/environments/default.toml",
-      worktreeGitRoot: "/repo/worktrees/task",
-      worktreeWorkspaceRoot: "/repo/worktrees/task",
-    });
-    const readyActivities = resolvePendingWorktreeActivities(ready, waitingResolution(ready));
-    expect(readyActivities.map((activity) => activity.status).join(",")).toBe(
-      "completed,completed,running",
-    );
-    expect(codexWorktreeInitActivityLabel(readyActivities[2]!)).toBe(
-      "Starting the conversation",
-    );
+    expect(resolvePendingWorktreeProgressModel(checkout, resolution(checkout, "waiting")).steps)
+      .toEqual([
+        { kind: "workspace", status: "completed", progressPercentage: null },
+        { kind: "checkout", status: "running", progressPercentage: 37 },
+      ]);
   });
 
-  test("distinguishes creation failure, setup failure, skipped setup, and conversation failure", () => {
-    const creationFailure = makeEntry({
+  test("does not mistake an allocated path followed by Git failure for a created worktree", () => {
+    const failed = makeEntry({
       phase: "failed",
-      errorMessage: "git worktree add failed",
+      worktreeOutputText: "[info] Starting worktree creation\n",
+      errorMessage: "fatal: not a git repository",
     });
-    const creationActivities = resolvePendingWorktreeActivities(
-      creationFailure,
-      {
-        state: "failed",
-        clientThreadId: creationFailure.clientThreadId,
-        pendingWorktreeId: creationFailure.id,
-        errorMessage: creationFailure.errorMessage,
-      },
-    );
-    expect(creationActivities.map((activity) => activity.status).join(",")).toBe("failed");
+    const model = resolvePendingWorktreeProgressModel(failed, {
+      state: "failed",
+      clientThreadId: failed.clientThreadId,
+      pendingWorktreeId: failed.id,
+      errorMessage: failed.errorMessage,
+    });
 
-    const setupFailure = makeEntry({
-      phase: "failed",
-      errorMessage: "setup failed",
-      localEnvironmentConfigPath: "/repo/nodex/.codex/environments/default.toml",
-      worktreeGitRoot: "/repo/worktrees/task",
-      worktreeWorkspaceRoot: "/repo/worktrees/task",
+    expect(model).toMatchObject({
+      title: "Worktree setup failed",
+      detailsInitiallyExpanded: true,
+      steps: [
+        { kind: "workspace", status: "failed" },
+        { kind: "checkout", status: "pending" },
+      ],
     });
-    const setupActivities = resolvePendingWorktreeActivities(
-      setupFailure,
-      {
-        state: "failed",
-        clientThreadId: setupFailure.clientThreadId,
-        pendingWorktreeId: setupFailure.id,
-        errorMessage: setupFailure.errorMessage,
-      },
-    );
-    expect(setupActivities.map((activity) => activity.status).join(",")).toBe(
-      "completed,failed",
-    );
-
-    const skippedSetup = makeEntry({
-      phase: "worktree-ready",
-      errorMessage: "setup failed",
-      localEnvironmentConfigPath: "/repo/nodex/.codex/environments/default.toml",
-      worktreeGitRoot: "/repo/worktrees/task",
-      worktreeWorkspaceRoot: "/repo/worktrees/task",
+    expect(model.outputText).toContain("fatal: not a git repository");
+    expect(resolvePendingWorktreeRouteActions(failed, null)).toEqual({
+      canAutoFix: false,
+      canCancel: false,
+      canContinue: false,
+      canEditEnvironment: true,
+      canRetry: true,
+      canWorkLocally: false,
     });
-    expect(resolvePendingWorktreeActivities(
-      skippedSetup,
-      waitingResolution(skippedSetup),
-    )[1]?.status).toBe("skipped");
   });
 
-  test("exposes only the actions valid for each exact state", () => {
-    const creating = makeEntry({ phase: "creating" });
-    const creatingActions = resolvePendingWorktreeRouteActions(
-      creating,
-      waitingResolution(creating),
-    );
-    expect(`${creatingActions.canCancel},${creatingActions.canRetry},${creatingActions.canContinue},${creatingActions.canWorkLocally}`).toBe(
-      "true,false,false,true",
-    );
-
-    const failedSetup = makeEntry({
-      phase: "failed",
-      worktreeGitRoot: "/repo/worktrees/task",
-      worktreeWorkspaceRoot: "/repo/worktrees/task",
-    });
-    const failedActions = resolvePendingWorktreeRouteActions(
-      failedSetup,
-      {
-        state: "failed",
-        clientThreadId: failedSetup.clientThreadId,
-        pendingWorktreeId: failedSetup.id,
-        errorMessage: "setup failed",
-      },
-    );
-    expect(`${failedActions.canCancel},${failedActions.canAutoFix},${failedActions.canRetry},${failedActions.canContinue}`).toBe(
-      "false,false,true,true",
-    );
-
-    const repairableSetup = makeEntry({
+  test("separates retained setup failure from task-start failure", () => {
+    const setupFailed = makeEntry({
       phase: "failed",
       localEnvironmentConfigPath: ".codex/environments/default.toml",
       worktreeGitRoot: "/repo/worktrees/task",
       worktreeWorkspaceRoot: "/repo/worktrees/task",
+      errorMessage: "setup failed",
     });
-    expect(resolvePendingWorktreeRouteActions(
-      repairableSetup,
-      waitingResolution(repairableSetup),
-    ).canAutoFix).toBe(true);
+    expect(resolvePendingWorktreeProgressModel(setupFailed, null).steps).toEqual([
+      { kind: "workspace", status: "completed", progressPercentage: null },
+      { kind: "checkout", status: "completed", progressPercentage: null },
+      { kind: "setup", status: "failed", progressPercentage: null },
+    ]);
+    expect(resolvePendingWorktreeRouteActions(setupFailed, null)).toMatchObject({
+      canAutoFix: true,
+      canContinue: true,
+      canEditEnvironment: true,
+      canRetry: true,
+    });
 
     const ready = makeEntry({
       phase: "worktree-ready",
       worktreeGitRoot: "/repo/worktrees/task",
       worktreeWorkspaceRoot: "/repo/worktrees/task",
     });
-    const failedConversationActions = resolvePendingWorktreeRouteActions(
-      ready,
-      {
-        state: "failed",
-        clientThreadId: ready.clientThreadId,
-        pendingWorktreeId: ready.id,
-        errorMessage: null,
-      },
-    );
-    expect(`${failedConversationActions.canCancel},${failedConversationActions.canRetry},${failedConversationActions.canContinue}`).toBe(
-      "false,true,false",
-    );
+    expect(resolvePendingWorktreeProgressModel(ready, resolution(ready, "starting")))
+      .toMatchObject({ title: "Worktree created", cardVisible: false, startingTask: true });
+    expect(resolvePendingWorktreeProgressModel(ready, {
+      state: "failed",
+      clientThreadId: ready.clientThreadId,
+      pendingWorktreeId: ready.id,
+      errorMessage: "thread/start failed",
+    })).toMatchObject({ title: "Task failed to start", cardVisible: true });
   });
 });

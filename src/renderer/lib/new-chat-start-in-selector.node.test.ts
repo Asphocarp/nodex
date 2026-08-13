@@ -13,7 +13,7 @@ describe("new-chat start-in selector", () => {
     });
     const local = options.find((option) => option.value === "localProject");
 
-    expect(local?.label).toBe("Work locally");
+    expect(local?.label).toBe("Local");
     expect(local?.iconKey).toBe("local");
     expect(local?.selected).toBe(true);
     expect(local?.disabled).toBe(false);

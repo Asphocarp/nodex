@@ -17,6 +17,7 @@ describe("projectSessionThreadLinkToSummary", () => {
       threadId: "thread_1",
       threadPreview: "Keep the thread-owned profile.",
       modelProvider: "openai",
+      executionHostId: "local",
       executionProfile,
       statusType: "idle",
       statusActiveFlags: [],

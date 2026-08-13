@@ -835,4 +835,6 @@
   --color-token-non-assistant-body-descendant: color-mix(in oklab, var(--color-token-foreground) 50%, transparent);
   --color-token-conversation-summary-leading: color-mix(in oklab, var(--color-token-description-foreground) 90%, transparent);
   --color-token-conversation-summary-trailing: color-mix(in oklab, var(--color-token-foreground) 40%, transparent);
+  --color-text-danger: var(--vscode-errorForeground);
+  --color-text-danger-soft: var(--vscode-charts-red);
 }

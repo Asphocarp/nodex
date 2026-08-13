@@ -7,7 +7,7 @@ import {
 
 describe("codex app meta thread tool specs", () => {
   test("advertises the Codex app meta thread tools in the codex_app namespace", () => {
-    const specs = buildCodexAppMetaThreadToolSpecs();
+    const specs = buildCodexAppMetaThreadToolSpecs({ handoffEnabled: true });
     const namespace = specs[0];
     const tools = namespace?.type === "namespace" ? namespace.tools : [];
     const toolNames = tools.map((spec) => spec.name).sort();
@@ -93,6 +93,33 @@ describe("codex app meta thread tool specs", () => {
     ].sort()));
     expect(hasHeartbeatBranch).toBe(true);
     expect(hasSetupPathBranch).toBe(true);
+  });
+
+  test("does not advertise handoff before the transaction capability is ready", () => {
+    const namespace = buildCodexAppMetaThreadToolSpecs()[0];
+    const tools = namespace?.type === "namespace" ? namespace.tools : [];
+    expect(tools.some((tool) => tool.name === "handoff_thread")).toBe(false);
+    expect(tools.some((tool) => tool.name === "get_handoff_status")).toBe(false);
+  });
+
+  test("exposes only capability-checked cross-host destinations", () => {
+    const namespace = buildCodexAppMetaThreadToolSpecs({
+      handoffEnabled: true,
+      crossHostHandoffEnabled: true,
+      availableHandoffHosts: [
+        { id: "local", displayName: "Local" },
+        { id: "ssh:build", displayName: "Build Mac" },
+      ],
+    })[0];
+    const handoff = namespace?.type === "namespace"
+      ? namespace.tools.find((tool) => tool.name === "handoff_thread")
+      : undefined;
+    const destination = (handoff?.inputSchema as {
+      properties?: { destinationHostId?: { enum?: string[]; description?: string } };
+    }).properties?.destinationHostId;
+
+    expect(destination?.enum).toEqual(["local", "ssh:build"]);
+    expect(destination?.description).toContain("Build Mac (ssh:build)");
   });
 
   test("wraps dynamic tool responses in app-server content items", () => {

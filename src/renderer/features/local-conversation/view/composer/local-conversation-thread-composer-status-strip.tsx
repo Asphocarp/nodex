@@ -17,6 +17,7 @@ import { useGitBranchState } from "@/lib/use-git-branch-state";
 import { ComposerContextRail } from "../composer-context-rail";
 import { NewChatProjectSelector } from "./new-chat-project-selector";
 import { NewChatStartInSelector } from "./new-chat-start-in-selector";
+import { WorktreeStartingStatePopover } from "../shared/worktree-starting-state-popover";
 
 interface ThreadComposerStatusStripProps {
   model: ThreadFooterModel;
@@ -98,6 +99,14 @@ function ThreadComposerStatusStripContent({
     branchCwd
     && (branchState.currentBranch || branchState.defaultBranch || branchState.branches.length > 0),
   );
+  const selectedNewWorktreeStartingState = model.newThreadStartInSelector?.target
+    .worktreeStartingState ?? {
+      type: "branch" as const,
+      branchName: branchState.currentBranch
+        ?? branchState.defaultBranch
+        ?? branchState.branches[0]
+        ?? "HEAD",
+    };
 
   const handleRefreshBranchState = useCallback(async () => {
     const requestedCwd = branchCwdRef.current;
@@ -232,29 +241,63 @@ function ThreadComposerStatusStripContent({
           && model.newThreadStartInSelector
           && model.newThreadStartInSelector.target.runInTarget === "newWorktree" ? (
             <EnvironmentSelectorPopover
-              options={model.newThreadStartInSelector.environments}
+              configs={model.newThreadStartInSelector.environments}
               selectedPath={model.newThreadStartInSelector.selectedEnvironmentPath}
+              defaultPath={model.newThreadStartInSelector.defaultEnvironmentPath}
+              needsAttention={model.newThreadStartInSelector.environmentNeedsAttention}
+              repairConfigPath={model.newThreadStartInSelector.environmentRepairConfigPath}
+              repositoryName={model.newThreadStartInSelector.repositoryName}
+              showRepositoryName={(
+                model.newThreadStartInSelector.additionalSourceFolderCount ?? 0
+              ) > 0}
               busy={model.newThreadStartInSelector.environmentsLoading}
+              error={model.newThreadStartInSelector.environmentsError}
               disabled={projectSelectorDisabled || model.newThreadStartInSelector.disabled}
               onRefresh={() => actions.onRefreshNewThreadStartInEnvironments?.() ?? Promise.resolve()}
               onSelect={(environmentPath) => {
                 actions.onNewThreadStartInEnvironmentChange?.(environmentPath);
                 return true;
               }}
-              onOpenSettings={() => actions.onOpenNewThreadLocalEnvironmentsSettings?.()}
+              onOpenSettings={(configPath) => (
+                actions.onOpenNewThreadLocalEnvironmentsSettings?.(configPath)
+              )}
               triggerClassName="text-token-text-tertiary hover:text-token-foreground"
             />
           ) : null}
-        <BranchSelectorPopover
-          cwd={branchCwd}
-          state={branchState}
-          busy={isBranchBusy}
-          loading={branchStateLoading || (branchStateFetching && branchState === EMPTY_BRANCH_SELECTOR_STATE)}
-          error={branchStateError}
-          onRefresh={handleRefreshBranchState}
-          onCheckout={handleCheckoutBranch}
-          onCreate={handleCreateBranch}
-        />
+        {showNewChatStartInSelector
+          && model.newThreadStartInSelector?.target.runInTarget === "newWorktree" ? (
+            <WorktreeStartingStatePopover
+              cwd={branchCwd}
+              state={branchState}
+              startingState={selectedNewWorktreeStartingState}
+              branchLoading={branchStateLoading || (
+                branchStateFetching && branchState === EMPTY_BRANCH_SELECTOR_STATE
+              )}
+              branchError={branchStateError}
+              repositoryName={model.newThreadStartInSelector.repositoryName}
+              disabled={projectSelectorDisabled || model.newThreadStartInSelector.disabled}
+              onRefresh={handleRefreshBranchState}
+              onChange={(worktreeStartingState) => {
+                actions.onNewThreadStartInTargetChange?.({
+                  ...model.newThreadStartInSelector!.target,
+                  worktreeStartingState,
+                });
+              }}
+            />
+          ) : (
+            <BranchSelectorPopover
+              cwd={branchCwd}
+              state={branchState}
+              busy={isBranchBusy}
+              loading={branchStateLoading || (
+                branchStateFetching && branchState === EMPTY_BRANCH_SELECTOR_STATE
+              )}
+              error={branchStateError}
+              onRefresh={handleRefreshBranchState}
+              onCheckout={handleCheckoutBranch}
+              onCreate={handleCreateBranch}
+            />
+          )}
       </div>
     </ComposerContextRail>
   );

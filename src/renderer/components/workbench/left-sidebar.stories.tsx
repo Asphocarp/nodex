@@ -737,6 +737,7 @@ function makeStorySession(input: {
         threadName: input.title,
         threadPreview: "",
         modelProvider: "openai",
+        executionHostId: "local",
         cwd: "/Users/asc/repo/nodex",
         statusType: "notLoaded",
         statusActiveFlags: [],
@@ -808,6 +809,7 @@ function makeSidebarThreadItem(input: {
   projectId?: string | null;
   sessionId?: string | null;
   kind?: CodexSidebarThreadItem["kind"];
+  runLocation?: CodexSidebarThreadItem["runLocation"];
   hostId?: string;
   pinned?: boolean;
   pinnedOrder?: number | null;
@@ -819,10 +821,20 @@ function makeSidebarThreadItem(input: {
   updatedAt?: number;
   statusType?: CodexSidebarThreadItem["statusType"];
 }): CodexSidebarThreadItem {
+  const kind = input.kind ?? "local";
+  const hostId = input.hostId ?? "local";
   return {
     key: input.key,
-    kind: input.kind ?? "local",
-    hostId: input.hostId ?? "local",
+    kind,
+    runLocation: input.runLocation
+      ?? (kind === "pending-worktree"
+        ? hostId === "local"
+          ? { kind: "local-worktree", path: null, phase: "pending" }
+          : { kind: "remote-worktree", hostId, path: null, phase: "pending" }
+        : kind === "remote"
+          ? { kind: "remote-checkout", hostId }
+          : { kind: "local-checkout" }),
+    hostId,
     threadId: input.threadId,
     parentThreadId: input.parentThreadId ?? null,
     sessionId: input.sessionId ?? input.threadId,
@@ -1748,6 +1760,107 @@ function CodexSidebarShowMoreHarness({
   );
 }
 
+function CodexSidebarWorktreeRunLocationsHarness({
+  narrow = false,
+  hoverCard = false,
+}: {
+  narrow?: boolean;
+  hoverCard?: boolean;
+}) {
+  const items = [
+    makeSidebarThreadItem({
+      key: "local:checkout",
+      threadId: "checkout",
+      title: "Local checkout",
+    }),
+    makeSidebarThreadItem({
+      key: "local:pending-worktree",
+      threadId: "pending-worktree",
+      kind: "pending-worktree",
+      title: "Creating a new worktree",
+      statusType: "active",
+      runLocation: { kind: "local-worktree", path: null, phase: "pending" },
+    }),
+    makeSidebarThreadItem({
+      key: "local:ready-worktree",
+      threadId: "ready-worktree",
+      title: "A very long local worktree task title that stays stable beside its trailing identity",
+      cwd: "/Users/asc/.codex/worktrees/91a6/nodex",
+      runLocation: {
+        kind: "local-worktree",
+        path: "/Users/asc/.codex/worktrees/91a6/nodex",
+        phase: "ready",
+      },
+    }),
+    makeSidebarThreadItem({
+      key: "remote:checkout",
+      threadId: "remote-checkout",
+      kind: "remote",
+      hostId: "build-host",
+      title: "Remote checkout",
+      runLocation: { kind: "remote-checkout", hostId: "build-host" },
+    }),
+    makeSidebarThreadItem({
+      key: "remote:pending-worktree",
+      threadId: "remote-pending-worktree",
+      kind: "pending-worktree",
+      hostId: "build-host",
+      title: "Creating a remote worktree",
+      statusType: "active",
+      runLocation: {
+        kind: "remote-worktree",
+        hostId: "build-host",
+        path: null,
+        phase: "pending",
+      },
+    }),
+    makeSidebarThreadItem({
+      key: "remote:ready-worktree",
+      threadId: "remote-ready-worktree",
+      kind: "remote",
+      hostId: "build-host",
+      title: "Remote worktree",
+      cwd: "/srv/.codex/worktrees/91a6/nodex",
+      runLocation: {
+        kind: "remote-worktree",
+        hostId: "build-host",
+        path: "/srv/.codex/worktrees/91a6/nodex",
+        phase: "ready",
+      },
+    }),
+  ];
+
+  return (
+    <NodexTooltipProvider>
+      <div data-codex-window-type="electron" className="min-h-screen bg-token-bg-primary p-8">
+        <div className={`app-shell-left-panel overflow-visible py-4 ${narrow ? "w-[228px]" : "w-[300px]"}`}>
+          <CodexSidebarSection heading="Chats" collapsed={false} onToggle={() => {}}>
+            <div className="isolate flex flex-col [contain:layout]">
+              <div className="flex flex-col" role="list" aria-label="Worktree execution locations">
+                {items.map((item) => (
+                  <CodexSidebarThreadRow
+                    key={item.key}
+                    item={item}
+                    active={item.key === "local:ready-worktree"}
+                    contextMenuOpen={!hoverCard && item.key === "remote:ready-worktree"}
+                    hoverCardOpen={hoverCard && item.key === "remote:ready-worktree"}
+                    hoverCardProjectLabel="Nodex"
+                    hoverCardBranchName="feat/worktree-parity"
+                    onSelect={() => {}}
+                    onArchive={() => {}}
+                    onOpenContextMenu={() => {}}
+                    onTogglePinned={() => {}}
+                  />
+                ))}
+              </div>
+            </div>
+          </CodexSidebarSection>
+        </div>
+      </div>
+    </NodexTooltipProvider>
+  );
+}
+
 function SettingsFooterHarness({
   account = FOOTER_QUOTA_ACCOUNT,
 }: {
@@ -1930,6 +2043,25 @@ export const CodexSidebarThreadElapsedActionRail: Story = {
 
 export const CodexSidebarThreadHoverCard: Story = {
   render: () => <CodexSidebarThreadHoverCardHarness />,
+};
+
+export const CodexSidebarWorktreeRunLocations: Story = {
+  render: () => <CodexSidebarWorktreeRunLocationsHarness />,
+  parameters: {
+    docs: {
+      description: {
+        story: "Local and remote checkout/worktree identities, including pending pulse, selected state, long-title clipping, and an open action rail replacing resting environment glyphs.",
+      },
+    },
+  },
+};
+
+export const CodexSidebarWorktreeRunLocationsNarrow: Story = {
+  render: () => <CodexSidebarWorktreeRunLocationsHarness narrow />,
+};
+
+export const CodexSidebarRemoteWorktreeHoverCard: Story = {
+  render: () => <CodexSidebarWorktreeRunLocationsHarness hoverCard />,
 };
 
 export const CodexSidebarProjectHoverCard: Story = {

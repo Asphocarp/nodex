@@ -291,7 +291,7 @@ describe("createThreadStageActions settings routing", () => {
     }]);
   });
 
-  test("opens a pending worktree route without refreshing real project sessions", async () => {
+  test("opens a pending worktree route with its actual target Session", async () => {
     const calls: string[] = [];
     const input = buildInput({
       activeThreadId: null,
@@ -302,8 +302,10 @@ describe("createThreadStageActions settings routing", () => {
           clientThreadId: "client-new-thread:pending-composer",
         }),
       } as unknown as ThreadActionControllerInput["codexControl"],
-      onOpenPendingWorktree: (clientThreadId) => {
-        calls.push(`open:${clientThreadId}`);
+      currentSessionProjectId: "project_1",
+      onEnsureBlankSessionForProject: async () => ({ id: "session_2" }) as never,
+      onOpenPendingWorktree: (clientThreadId, projectSessionId) => {
+        calls.push(`open:${clientThreadId}:${projectSessionId}`);
       },
       onRefreshProjectSessions: async (projectId) => {
         calls.push(`refresh:${projectId}`);
@@ -313,14 +315,14 @@ describe("createThreadStageActions settings routing", () => {
     const actions = createThreadStageActions(input);
 
     await actions.onStartThreadForSession?.({
-      projectId: "project_1",
+      projectId: "project_2",
       sessionId: "session_1",
       prompt: "Start in a worktree",
       runInTarget: "newWorktree",
     });
 
     expect(JSON.stringify(calls)).toBe(JSON.stringify([
-      "open:client-new-thread:pending-composer",
+      "open:client-new-thread:pending-composer:session_2",
     ]));
   });
 

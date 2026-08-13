@@ -295,11 +295,17 @@ import type {
   CodexTurnStartOptions,
   CodexTurnSummary,
   ManagedWorktreeRecord,
+  ManagedWorktreeAvailability,
+  ManagedWorktreeRestoreResult,
+  ManagedWorktreeSettings,
+  CodexExecutionHostSettings,
   WorktreeEnvironmentOption,
   WorktreeEnvironmentConfigRecord,
   WorktreeEnvironmentSaveResult,
   WorktreeEnvironmentSettingsSnapshot,
   UpdateWorktreeEnvironmentConfigInput,
+  UpdateManagedWorktreeSettingsInput,
+  UpdateCodexExecutionHostSettingsInput,
   UpdateCodexDeveloperInstructionSettingsInput,
   UpdateCodexGitSettingsInput,
   PageOccurrence,
@@ -1707,6 +1713,16 @@ export interface IpcApi {
     result: ProtocolDynamicToolCallResponse | null;
   };
   "worktrees:list": { args: []; result: ManagedWorktreeRecord[] };
+  "worktrees:settings:get": { args: []; result: ManagedWorktreeSettings };
+  "worktrees:settings:update": {
+    args: [input: UpdateManagedWorktreeSettingsInput];
+    result: ManagedWorktreeSettings;
+  };
+  "worktrees:execution-hosts:get": { args: []; result: CodexExecutionHostSettings };
+  "worktrees:execution-hosts:update": {
+    args: [input: UpdateCodexExecutionHostSettingsInput];
+    result: CodexExecutionHostSettings;
+  };
   "worktrees:environments:list": {
     args: [projectId: string];
     result: WorktreeEnvironmentOption[];
@@ -1727,7 +1743,18 @@ export interface IpcApi {
     args: [input: UpdateWorktreeEnvironmentConfigInput];
     result: WorktreeEnvironmentSaveResult;
   };
-  "worktrees:delete": { args: [threadId: string]; result: boolean };
+  "worktrees:delete": {
+    args: [hostId: string, worktreePath: string];
+    result: boolean;
+  };
+  "worktrees:thread:availability": {
+    args: [threadId: string];
+    result: ManagedWorktreeAvailability;
+  };
+  "worktrees:thread:restore": {
+    args: [threadId: string];
+    result: ManagedWorktreeRestoreResult;
+  };
   "codex:pending-worktrees:list": {
     args: [];
     result: CodexPendingWorktreeEntry[];
@@ -1746,7 +1773,7 @@ export interface IpcApi {
   };
   "codex:pending-worktree:work-locally": {
     args: [hostId: string, pendingWorktreeId: string];
-    result: void;
+    result: { readonly threadId: string };
   };
   "codex:pending-worktree:continue": {
     args: [hostId: string, pendingWorktreeId: string];

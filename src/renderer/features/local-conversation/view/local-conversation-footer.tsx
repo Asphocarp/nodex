@@ -44,6 +44,7 @@ interface LocalConversationFooterProps {
   };
   planSidePanelState?: ThreadPlanSidePanelState | null;
   turnDiffHoverPreviewDisabled?: boolean;
+  worktreeRuntimeAvailable?: boolean;
 }
 
 function LocalConversationFooterChrome({
@@ -108,6 +109,7 @@ function LocalConversationFooterComponent({
   rightPanelComposerOverlay,
   planSidePanelState,
   turnDiffHoverPreviewDisabled = false,
+  worktreeRuntimeAvailable = true,
 }: LocalConversationFooterProps) {
   const {
     addScrollListener,
@@ -368,13 +370,13 @@ function LocalConversationFooterComponent({
           contextRailLeadingContent={showLatestTurnPreview
             ? undefined
             : contextRailLeadingContent}
-          showComposer={!isResumingActiveThread}
+          showComposer={!isResumingActiveThread && worktreeRuntimeAvailable}
         />
       </RightPanelComposerOverlay>
     );
   }
 
-  if (isResumingActiveThread) {
+  if (isResumingActiveThread || !worktreeRuntimeAvailable) {
     return (
       <div className={variant === "newThreadHome" ? "min-w-0 w-full" : "mx-auto flex w-full max-w-(--thread-content-max-width) flex-col px-toolbar"}>
         <LocalConversationFooterChrome

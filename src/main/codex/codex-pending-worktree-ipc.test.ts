@@ -178,6 +178,7 @@ describe("Codex pending worktree IPC", () => {
       hostId: "local",
       label: "Persistent worktree",
       sourceWorkspaceRoot: "/repo",
+      sourceWorkspaceRoots: ["/repo", "/shared"],
       startingState: { type: "branch", branchName: "HEAD" },
       localEnvironmentConfigPath: null,
       prompt: "Create a persistent project worktree",
@@ -223,6 +224,41 @@ describe("Codex pending worktree IPC", () => {
     expect(actions.length).toBe(0);
   });
 
+  test("rejects stable and fork requests that omit their primary source root", async () => {
+    const handler = handlers.get("codex:pending-worktree:create");
+    if (!handler) throw new Error("Missing create handler");
+    expect(() => handler(null, {
+      hostId: "local",
+      label: "Invalid worktree",
+      sourceWorkspaceRoot: "/repo",
+      sourceWorkspaceRoots: ["/shared"],
+      prompt: "Create a worktree",
+      launchMode: "create-stable-worktree",
+      startConversationParamsInput: null,
+      sourceConversationId: null,
+      sourceCollaborationMode: null,
+    })).toThrow("Source workspace roots must contain the primary root");
+    expect(actions.length).toBe(0);
+  });
+
+  test("rejects non-portable environment selections at the IPC boundary", () => {
+    const handler = handlers.get("codex:pending-worktree:create");
+    if (!handler) throw new Error("Missing create handler");
+    expect(() => handler(null, {
+      hostId: "local",
+      label: "Invalid worktree",
+      sourceWorkspaceRoot: "/repo",
+      sourceWorkspaceRoots: ["/repo"],
+      localEnvironmentConfigPath: "/repo/.codex/environments/environment.toml",
+      prompt: "Create a worktree",
+      launchMode: "create-stable-worktree",
+      startConversationParamsInput: null,
+      sourceConversationId: null,
+      sourceCollaborationMode: null,
+    })).toThrow("workspace-relative .toml file inside .codex/environments");
+    expect(actions.length).toBe(0);
+  });
+
   test("forwards lifecycle and metadata actions in order", async () => {
     await invoke("codex:pending-worktree:retry", "local", "pending-1");
     await invoke("codex:pending-worktree:work-locally", "local", "pending-1");
@@ -260,7 +296,7 @@ describe("Codex pending worktree IPC", () => {
     await Promise.resolve();
     expect(settled).toBe(false);
     resolveLaunch({ threadId: "thread-local" });
-    await invocation;
+    await expect(invocation).resolves.toEqual({ threadId: "thread-local" });
     expect(settled).toBe(true);
   });
 

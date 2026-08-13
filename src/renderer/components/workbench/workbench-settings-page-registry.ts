@@ -38,6 +38,7 @@ export interface SettingsSectionPageProps {
     destination: BrowserSettingsDestination,
     anchor?: BrowserSettingsAnchor,
   ) => void;
+  onOpenThread?: (threadId: string) => void | Promise<void>;
   onPathChange: (path: string) => void;
   onRequestProjectPickerOpen: () => void;
   onSmartPrefixParsingEnabledChange: (value: boolean) => void;

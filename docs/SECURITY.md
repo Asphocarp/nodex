@@ -103,6 +103,26 @@ Nodex is local-first. Main risks are malformed local inputs, accidental data los
 ### Application and runtime controls
 
 - Boundary validation for typed Core Module and IPC requests.
+- Managed-worktree workers accept only operation-discriminated requests and
+  events whose host id, managed root, worktree path, and cwd form one contained
+  execution location. Equivalent filesystem spellings never relax lexical
+  containment: Main preserves Core's coherent path pair and explicitly
+  reprojects its writable roots on resume. Replacing a Project's primary source
+  with a worktree removes the old checkout from writable roots; additional
+  authorized roots remain explicit.
+- SSH execution hosts are explicit Main-owned configuration and never carry a
+  password, private key, identity-file path, or shell fragment. Connections use
+  the user's OpenSSH agent/config with `BatchMode`, normal host-key verification,
+  bounded connect/request timeouts, and disabled forwarding. Main validates host
+  identities and POSIX roots before registration, probes Node/Git/Codex, and
+  exposes no host capability until a content-hashed, dependency-contained
+  worktree worker is installed atomically with private permissions. Remote
+  commands are fixed argv encoded for the remote login shell; prompts, branch
+  names, and arbitrary renderer strings never become commands. Cross-host file
+  transfer uses stdin/stdout, regular-file and authorized-root checks, byte
+  bounds, SHA-256 verification, private staging directories, and atomic rename.
+  A disconnected SSH mutation is reported as unknown/reconcilable rather than
+  assumed absent or repeated. Local filesystem APIs never inspect a remote path.
 - No arbitrary SQL inspection route in IPC or the public CLI.
 - The production app renderer loads only through the privileged read-only
   `app://-/index.html` origin and receives

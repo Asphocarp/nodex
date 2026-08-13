@@ -40,6 +40,7 @@ function makeThread(input: {
   return {
     key: `local:${input.threadId}`,
     kind: "local",
+    runLocation: { kind: "local-checkout" },
     hostId: "local",
     threadId: input.threadId,
     parentThreadId: input.parentThreadId ?? null,
@@ -91,6 +92,7 @@ function makePendingThreadItem(input: {
     }),
     key: input.key,
     kind: "pending-worktree",
+    runLocation: { kind: "local-worktree", path: null, phase: "pending" },
     pendingWorktreeId: `pending:${input.id}`,
     clientThreadId: `client-new-thread:${input.id}`,
     pinnedBeforeThreadId: input.anchor,
@@ -161,6 +163,8 @@ describe("buildSidebarThreadSyncModel", () => {
         parentThreadId: "thread-root",
       }),
       kind: "remote" as const,
+      hostId: "remote-host",
+      runLocation: { kind: "remote-checkout" as const, hostId: "remote-host" },
     };
 
     const model = buildSidebarThreadSyncModel({
@@ -221,15 +225,21 @@ describe("buildSidebarThreadSyncModel", () => {
       pinnedBeforeThreadId: null,
     };
     const phases = [
-      { phase: "creating", needsAttention: false, status: "active", unread: false },
-      { phase: "setting-up", needsAttention: false, status: "idle", unread: false },
-      { phase: "worktree-ready", needsAttention: false, status: "idle", unread: false },
-      { phase: "failed", needsAttention: true, status: "systemError", unread: true },
+      { phase: "creating", needsAttention: false, status: "active", unread: false, path: null },
+      { phase: "setting-up", needsAttention: false, status: "idle", unread: false, path: "/worktrees/alpha" },
+      { phase: "worktree-ready", needsAttention: false, status: "idle", unread: false, path: "/worktrees/alpha" },
+      { phase: "failed", needsAttention: true, status: "systemError", unread: true, path: null },
     ] as const;
 
     for (const phase of phases) {
       const snapshot = mergePendingWorktreesIntoSidebarSnapshot(makeSnapshot([]), [
-        { ...base, phase: phase.phase, needsAttention: phase.needsAttention } as CodexPendingWorktreeEntry,
+        {
+          ...base,
+          phase: phase.phase,
+          needsAttention: phase.needsAttention,
+          worktreeWorkspaceRoot: phase.path,
+          worktreeGitRoot: phase.path,
+        } as CodexPendingWorktreeEntry,
       ]);
       const item = snapshot.items[0];
       expect(item?.threadId).toBe("client-new-thread:one");
@@ -237,6 +247,11 @@ describe("buildSidebarThreadSyncModel", () => {
       expect(item?.statusType).toBe(phase.status);
       expect(item?.unread).toBe(phase.unread);
       expect(item?.pinned).toBe(true);
+      expect(item?.runLocation).toEqual({
+        kind: "local-worktree",
+        path: phase.path,
+        phase: phase.path ? "ready" : "pending",
+      });
     }
   });
 
@@ -301,6 +316,7 @@ describe("pending-aware pinned thread order", () => {
       key: "remote:R",
       kind: "remote" as const,
       hostId: "remote-host",
+      runLocation: { kind: "remote-checkout" as const, hostId: "remote-host" },
     };
     const pendingA2 = makePendingThreadItem({ key: "local:p2", id: "p2", anchor: "A" });
     const pendingA1 = makePendingThreadItem({ key: "local:p1", id: "p1", anchor: "A" });
@@ -346,6 +362,8 @@ describe("pending-aware pinned thread order", () => {
       ...makeThread({ threadId: "R", projectId: null, pinned: true }),
       key: "remote:R",
       kind: "remote" as const,
+      hostId: "remote-host",
+      runLocation: { kind: "remote-checkout" as const, hostId: "remote-host" },
     };
     const pending1 = makePendingThreadItem({ key: "local:p1", id: "p1", anchor: "A" });
     const pending2 = makePendingThreadItem({ key: "local:p2", id: "p2", anchor: "R" });

@@ -233,6 +233,10 @@
     transition-duration: var(--transition-duration-relaxed);
   }
 
+  .text-danger {
+    color: var(--color-text-danger);
+  }
+
   .contain-inline-size {
     --tw-contain-size: inline-size;
     contain: var(--tw-contain-size, ) var(--tw-contain-layout, )

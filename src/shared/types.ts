@@ -76,6 +76,7 @@ import type {
   ThreadMemoryMode as CodexAppServerThreadMemoryMode,
 } from "@nodex/codex-app-server-protocol";
 import type { AgentExecutionProfile } from "./agent-runtime";
+import type { CodexPendingWorktreeStartingState } from "./codex-pending-worktree";
 import type { PortableRichText } from "./block-documents/portable-rich-text";
 import type { ProjectLifecycle } from "./library";
 import type { ProjectAppearance } from "./project-appearance";
@@ -923,6 +924,7 @@ export interface ProjectSessionThreadLink {
   threadPreview: string;
   modelProvider: string;
   executionProfile?: AgentExecutionProfile | null;
+  executionHostId: string;
   cwd?: string;
   managedWorktreePath?: string | null;
   projectlessOutputDirectory?: string | null;
@@ -948,7 +950,9 @@ export interface ProjectSessionThreadSummary {
   agentPath?: string | null;
   threadName?: string;
   threadPreview: string;
+  executionHostId: string;
   cwd?: string;
+  managedWorktreePath?: string | null;
   statusType: CodexThreadStatusType;
   statusActiveFlags: CodexThreadActiveFlag[];
   archived: boolean;
@@ -1182,6 +1186,8 @@ export interface ProjectSessionThreadLinkInput {
   threadPreview?: string;
   modelProvider?: string;
   executionProfile?: AgentExecutionProfile | null;
+  executionHostId?: string;
+  runtimeWorkspaceRoots?: string[];
   cwd?: string | null;
   managedWorktreePath?: string | null;
   projectlessOutputDirectory?: string | null;
@@ -1195,9 +1201,30 @@ export interface ProjectSessionThreadLinkInput {
 
 export type CodexSidebarThreadKind = "local" | "remote" | "pending-worktree";
 
+export type CodexSidebarRunLocation =
+  | { readonly kind: "local-checkout" }
+  | {
+      readonly kind: "local-worktree";
+      readonly path: string | null;
+      readonly phase: "pending" | "ready";
+    }
+  | {
+      readonly kind: "remote-checkout";
+      readonly hostId: string;
+      readonly hostDisplayName?: string;
+    }
+  | {
+      readonly kind: "remote-worktree";
+      readonly hostId: string;
+      readonly hostDisplayName?: string;
+      readonly path: string | null;
+      readonly phase: "pending" | "ready";
+    };
+
 export interface CodexSidebarThreadItem {
   key: string;
   kind: CodexSidebarThreadKind;
+  runLocation: CodexSidebarRunLocation;
   pendingWorktreeId?: string;
   clientThreadId?: string;
   pinnedBeforeThreadId?: string | null;
@@ -1329,16 +1356,77 @@ export interface TelemetrySettingsEnvOverrides {
   autoCaptureEnabled: boolean;
 }
 
-export interface ManagedWorktreeRecord {
+export interface ManagedWorktreeConversationRecord {
   threadId: string;
-  projectId: string;
+  projectId: string | null;
   projectName: string | null;
   sessionId: string | null;
   sessionTitle: string | null;
   threadName: string | null;
+  archived: boolean;
+  updatedAt: number;
+}
+
+export interface ManagedWorktreeRecord {
+  hostId: string;
   path: string;
   exists: boolean;
-  linkedAt: string;
+  repositoryPath: string | null;
+  createdAtMs: number | null;
+  conversations: ManagedWorktreeConversationRecord[];
+}
+
+export interface ManagedWorktreeSettings {
+  worktreeRoot: string | null;
+  autoDeleteEnabled: boolean;
+  autoDeleteLimit: number;
+}
+
+export interface UpdateManagedWorktreeSettingsInput {
+  worktreeRoot?: string | null;
+  autoDeleteEnabled?: boolean;
+  autoDeleteLimit?: number;
+}
+
+export interface CodexSshExecutionHostConfig {
+  id: string;
+  displayName: string;
+  kind: "ssh";
+  sshAlias: string;
+  port: number | null;
+  managedRoot: string;
+  repositoryRoots: string[];
+  codexBinary: string | null;
+  codexHome: string | null;
+  enabled: boolean;
+}
+
+export interface CodexExecutionHostSettings {
+  sshHosts: CodexSshExecutionHostConfig[];
+}
+
+export interface UpdateCodexExecutionHostSettingsInput {
+  sshHosts: CodexSshExecutionHostConfig[];
+}
+
+export type ManagedWorktreeAvailability =
+  | { state: "not-managed" }
+  | { state: "available" }
+  | {
+      state: "restorable";
+      repositoryPath: string;
+      snapshotRef: string;
+    }
+  | { state: "gone" }
+  | {
+      state: "unavailable";
+      reason: "inspection-failed" | "no-candidate-roots";
+      message: string;
+    };
+
+export interface ManagedWorktreeRestoreResult {
+  availability: Extract<ManagedWorktreeAvailability, { state: "available" }>;
+  ownerWarning: string | null;
 }
 
 export type WorktreeEnvironmentPlatform = "darwin" | "linux" | "win32";
@@ -2117,8 +2205,7 @@ export interface CodexThreadStartForSessionInput {
   additionalDeveloperInstructions?: string | null;
   runInTarget?: PageRunInTarget;
   runInEnvironmentPath?: string | null;
-  worktreeStartMode?: WorktreeStartMode;
-  worktreeBranchPrefix?: string;
+  worktreeStartingState?: CodexPendingWorktreeStartingState;
   heartbeatAutomation?: CodexThreadStartHeartbeatAutomationInput | null;
   /** Surface that must own Browser Use before the first turn can start. */
   browserUsePresentationOrigin?: BrowserUsePresentationOrigin;
@@ -3603,6 +3690,8 @@ export interface GitBranchMetadataResult {
   currentBranch: string | null;
   defaultBranch: string | null;
   branches: string[];
+  /** Full refs, for example refs/remotes/origin/main. */
+  remoteBranchRefs?: string[];
 }
 
 export type GitReviewLiveQuery =

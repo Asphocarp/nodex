@@ -75,6 +75,10 @@ import { LocalConversationNewThreadHomeScreen } from "./local-conversation-new-t
 import { LocalConversationStageScreen } from "./local-conversation-stage-screen";
 import { ThreadStageHeader } from "./local-conversation-stage-header";
 import { LocalConversationThreadBody } from "./local-conversation-thread-body";
+import {
+  ManagedWorktreeRestoreBannerContainer,
+  useManagedWorktreeAvailability,
+} from "./managed-worktree-restore-banner";
 import { NewChatProjectSelector } from "./composer/new-chat-project-selector";
 import {
   ThreadFloatingSummaryPanel,
@@ -337,6 +341,7 @@ function ConnectedThreadStageBody({
   onErrorMessage,
   contentShiftX,
   footer,
+  leadingContent,
   initialUiState,
   transcriptVisible = true,
   turnDiffHoverPreviewDisabled = false,
@@ -352,6 +357,7 @@ function ConnectedThreadStageBody({
   onErrorMessage: (message: string | null) => void;
   contentShiftX?: number;
   footer?: ReactNode;
+  leadingContent?: ReactNode;
   initialUiState?: ThreadBodyUiStateOverrides;
   transcriptVisible?: boolean;
   turnDiffHoverPreviewDisabled?: boolean;
@@ -466,6 +472,7 @@ function ConnectedThreadStageBody({
       onErrorMessage={onErrorMessage}
       contentShiftX={contentShiftX}
       footer={footer}
+      leadingContent={leadingContent}
       initialUiState={initialUiState}
       transcriptVisible={transcriptVisible}
       planSidePanelState={input.planSidePanelState ?? null}
@@ -490,6 +497,7 @@ export function ConnectedThreadStageFooter({
   turnDiffHoverPreviewDisabled = false,
   rightPanelComposerOverlayVisibility,
   rightPanelComposerLeadingContent,
+  worktreeRuntimeAvailable = true,
 }: {
   activeThreadId: string | null;
   input: ConnectedThreadStageInput;
@@ -506,6 +514,7 @@ export function ConnectedThreadStageFooter({
   turnDiffHoverPreviewDisabled?: boolean;
   rightPanelComposerOverlayVisibility?: RightPanelComposerOverlayVisibility;
   rightPanelComposerLeadingContent?: ReactNode;
+  worktreeRuntimeAvailable?: boolean;
 }) {
   const turns = useConversationTurns(activeThreadId);
   const conversationSnapshot = useConversation(activeThreadId);
@@ -816,6 +825,7 @@ export function ConnectedThreadStageFooter({
     <LocalConversationFooter
       model={model}
       actions={actionsWithComposerCapabilityRefresh}
+      worktreeRuntimeAvailable={worktreeRuntimeAvailable}
       errorMessage={errorMessage}
       onErrorMessage={onErrorMessage}
       variant={variant}
@@ -1073,10 +1083,16 @@ export function ConnectedThreadStage({
     summaryFields,
     activeThreadId,
   );
-  const activeThreadIsManagedWorktree = Boolean(
-    summaryFields.managedWorktreePath
-    ?? input.activeThreadSummary?.managedWorktreePath,
+  const activeManagedWorktreePath = summaryFields.managedWorktreePath
+    ?? input.activeThreadSummary?.managedWorktreePath
+    ?? null;
+  const activeThreadIsManagedWorktree = Boolean(activeManagedWorktreePath);
+  const managedWorktreeAvailability = useManagedWorktreeAvailability(
+    activeThreadId,
+    activeThreadIsManagedWorktree && routeActive,
   );
+  const worktreeRuntimeAvailable = !activeThreadIsManagedWorktree
+    || managedWorktreeAvailability.data?.state === "available";
   const activeThreadHasRuntimeWork = Boolean(
     (statusType ?? input.activeThreadSummary?.statusType) === "active"
     || statusActiveFlags.length > 0
@@ -1183,6 +1199,7 @@ export function ConnectedThreadStage({
     if (!threadLifecycleActive) {
       return;
     }
+    if (!worktreeRuntimeAvailable) return;
 
     const nextResumeState = resumeState ?? "needs_resume";
     if (nextResumeState === "resuming") {
@@ -1204,6 +1221,7 @@ export function ConnectedThreadStage({
     input.activeThreadId,
     input.isNewThreadTab,
     threadLifecycleActive,
+    worktreeRuntimeAvailable,
   ]);
 
   if (isNewThreadHome) {
@@ -1216,10 +1234,11 @@ export function ConnectedThreadStage({
             input={input}
             actions={actions}
             isWorktreeThread={activeThreadIsManagedWorktree}
-            onForkFromTurnIntoWorktree={activeThreadIsManagedWorktree
-              ? undefined
-              : onForkFromTurnIntoWorktree}
+            onForkFromTurnIntoWorktree={onForkFromTurnIntoWorktree}
             onErrorMessage={setErrorMessage}
+            leadingContent={activeThreadId && activeThreadIsManagedWorktree ? (
+              <ManagedWorktreeRestoreBannerContainer threadId={activeThreadId} />
+            ) : null}
             initialUiState={initialUiState}
             transcriptVisible={threadBodyVisible}
             turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
@@ -1237,6 +1256,7 @@ export function ConnectedThreadStage({
             rightPanelComposerOverlayEnabled={false}
             rightPanelComposerOverlayTarget={null}
             turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
+            worktreeRuntimeAvailable={worktreeRuntimeAvailable}
           />
         )}
         floatingContent={(
@@ -1290,10 +1310,11 @@ export function ConnectedThreadStage({
             input={input}
             actions={actions}
             isWorktreeThread={activeThreadIsManagedWorktree}
-            onForkFromTurnIntoWorktree={activeThreadIsManagedWorktree
-              ? undefined
-              : onForkFromTurnIntoWorktree}
+            onForkFromTurnIntoWorktree={onForkFromTurnIntoWorktree}
             onErrorMessage={setErrorMessage}
+            leadingContent={activeThreadId && activeThreadIsManagedWorktree ? (
+              <ManagedWorktreeRestoreBannerContainer threadId={activeThreadId} />
+            ) : null}
             contentShiftX={summaryPanelContentShift}
             footer={backgroundAgentDetail ? null : (
               <ConnectedThreadStageFooter
@@ -1308,6 +1329,7 @@ export function ConnectedThreadStage({
                 rightPanelComposerOverlayTarget={rightPanelComposerOverlayTarget}
                 rightPanelComposerOverlayVisibility={rightPanelComposerOverlayVisibility}
                 turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
+                worktreeRuntimeAvailable={worktreeRuntimeAvailable}
               />
             )}
             initialUiState={initialUiState}

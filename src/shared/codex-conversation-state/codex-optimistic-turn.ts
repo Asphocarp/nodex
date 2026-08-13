@@ -1,8 +1,10 @@
 import type { Turn } from "@nodex/codex-app-server-protocol/v2/Turn";
-import type {
-  CodexCanonicalConversationState,
-  CodexCanonicalLiveTurnParams,
-  CodexCanonicalTurnState,
+import {
+  appendCodexCanonicalWorktreeInitItem,
+  type CodexCanonicalConversationState,
+  type CodexCanonicalLiveTurnParams,
+  type CodexCanonicalTurnState,
+  type CodexCanonicalWorktreeInitItem,
 } from "./codex-conversation-state";
 
 export interface CodexOptimisticTurnInput {
@@ -189,6 +191,22 @@ export function appendCodexCanonicalOptimisticTurn(
       previousTurnModel: null,
     },
   };
+}
+
+/**
+ * Publish worktree initialization into the optimistic first turn before its
+ * app-server items arrive. This keeps the activity in the Turn's collapsible
+ * agent body while the user message still owns the Turn prefix.
+ */
+export function appendCodexCanonicalOptimisticFirstTurn(
+  state: CodexCanonicalConversationState,
+  input: CodexOptimisticTurnInput,
+  worktreeInit?: CodexCanonicalWorktreeInitItem,
+): CodexCanonicalConversationState {
+  const optimistic = appendCodexCanonicalOptimisticTurn(state, input);
+  return worktreeInit
+    ? appendCodexCanonicalWorktreeInitItem(optimistic, worktreeInit)
+    : optimistic;
 }
 
 /** Bind the matching nullable turn, coalescing any server occurrence that won the race. */

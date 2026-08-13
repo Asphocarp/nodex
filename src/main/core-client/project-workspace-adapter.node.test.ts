@@ -57,6 +57,7 @@ const thread = {
   agent_path: null,
   thread_preview: "Preview",
   model_provider: "openai",
+  execution_host_id: "local",
   cwd: "/workspace/one",
   managed_worktree_path: null,
   projectless_output_directory: null,
@@ -849,6 +850,7 @@ describe("Core Project Workspace adapter", () => {
         missingProjectSources: ["/workspace/one"],
       },
       metadata: {
+        executionHostId: "ssh:build-box",
         cwd: "/workspace/two",
         managedWorktreePath: "/workspace/two/.worktrees/task",
         projectlessOutputDirectory: null,
@@ -880,6 +882,7 @@ describe("Core Project Workspace adapter", () => {
           missing_source_roots: ["/workspace/one"],
         },
         metadata: {
+          execution_host_id: "ssh:build-box",
           cwd: "/workspace/two",
           managed_worktree_path: "/workspace/two/.worktrees/task",
           projectless_output_directory: null,
@@ -887,6 +890,140 @@ describe("Core Project Workspace adapter", () => {
         },
       },
     }]);
+  });
+
+  test("commits an execution location atomically and maps the lifecycle snapshot", async () => {
+    const client = new FakeCoreClient();
+    client.enqueueWorkspaceApply({
+      value: {
+        affected_project_ids: ["project:one"],
+        affected_session_ids: ["session:one"],
+        affected_thread_ids: ["thread:one"],
+      },
+      receipt: {
+        operation_id: "operation:set-location",
+        duplicate: false,
+        affected_project_ids: ["project:one"],
+        affected_session_ids: ["session:one"],
+      },
+      event_sequence: 14,
+      store_epoch: "epoch:test",
+    });
+    client.enqueueWorkspaceRead({
+      contract_version: 11,
+      commit_head: 14,
+      store_epoch: "epoch:test",
+      value: {
+        kind: "thread",
+        thread: {
+          ...thread,
+          execution_host_id: "ssh:build-box",
+          cwd: "/worktrees/shared/nested",
+          managed_worktree_path: "/worktrees/shared",
+          writable_roots: ["/worktrees/shared", "/workspace/additional"],
+        },
+      },
+    });
+    client.enqueueWorkspaceRead({
+      contract_version: 11,
+      commit_head: 14,
+      store_epoch: "epoch:test",
+      value: {
+        kind: "managed_worktree_lifecycle_snapshot",
+        snapshot: {
+          projection_revision: 14,
+          consumers: [{
+            thread_id: "thread:one",
+            project_id: "project:one",
+            session_id: "session:one",
+            execution_host_id: "ssh:build-box",
+            cwd: "/worktrees/shared/nested",
+            managed_worktree_path: "/worktrees/shared",
+            runtime_workspace_roots: [
+              "/worktrees/shared",
+              "/workspace/additional",
+            ],
+            archived: false,
+            pinned_order: 0,
+            status: { status_type: "active", active_flags: [] },
+            created_at: 1,
+            updated_at: 2,
+            linked_at: "2026-07-19T15:00:00.000Z",
+          }],
+          projects: [{
+            project_id: "project:one",
+            lifecycle: "active",
+            sources: [
+              { root: "/workspace/one", order: 0 },
+              { root: "/workspace/additional", order: 1 },
+            ],
+            primary_workspace_root: "/workspace/one",
+          }],
+        },
+      },
+    });
+    const adapter = createCoreProjectWorkspaceAdapter(client);
+
+    await expect(adapter.setThreadExecutionLocation("thread:one", {
+      executionHostId: "ssh:build-box",
+      cwd: "/worktrees/shared/nested",
+      managedWorktreePath: "/worktrees/shared",
+      runtimeWorkspaceRoots: ["/worktrees/shared", "/workspace/additional"],
+      projectlessOutputDirectory: null,
+      projectlessWorkspaceBrowserRoot: null,
+    })).resolves.toMatchObject({
+      threadId: "thread:one",
+      executionHostId: "ssh:build-box",
+      cwd: "/worktrees/shared/nested",
+      managedWorktreePath: "/worktrees/shared",
+    });
+    await expect(adapter.readManagedWorktreeLifecycleSnapshot()).resolves.toEqual({
+      projectionRevision: 14,
+      consumers: [{
+        threadId: "thread:one",
+        projectId: "project:one",
+        sessionId: "session:one",
+        executionHostId: "ssh:build-box",
+        cwd: "/worktrees/shared/nested",
+        managedWorktreePath: "/worktrees/shared",
+        runtimeWorkspaceRoots: ["/worktrees/shared", "/workspace/additional"],
+        archived: false,
+        pinnedOrder: 0,
+        statusType: "active",
+        statusActiveFlags: [],
+        createdAt: 1,
+        updatedAt: 2,
+        linkedAt: "2026-07-19T15:00:00.000Z",
+      }],
+      projects: [{
+        projectId: "project:one",
+        lifecycle: "active",
+        sourceRoots: ["/workspace/one", "/workspace/additional"],
+        primaryWorkspaceRoot: "/workspace/one",
+      }],
+    });
+    expect(client.workspaceApplies).toEqual([{
+      operationId: expect.any(String),
+      intent: {
+        kind: "set_thread_execution_location",
+        thread_id: "thread:one",
+        location: {
+          execution_host_id: "ssh:build-box",
+          cwd: "/worktrees/shared/nested",
+          managed_worktree_path: "/worktrees/shared",
+          runtime_workspace_roots: [
+            "/worktrees/shared",
+            "/workspace/additional",
+          ],
+          projectless_output_directory: null,
+          projectless_workspace_browser_root: null,
+        },
+      },
+    }]);
+    expect(client.workspaceReads).toEqual([
+      { kind: "thread", thread_id: "thread:one" },
+      { kind: "managed_worktree_lifecycle_snapshot" },
+    ]);
   });
 
   test("reads and commits Thread unread state through Workspace authority", async () => {
@@ -1612,6 +1749,9 @@ describe("Core Project Workspace adapter", () => {
       agentRole: "researcher",
       agentPath: "agents/scout",
       threadName: "Attached",
+      executionHostId: "local",
+      runtimeWorkspaceRoots: ["/workspace/one", "/workspace/additional"],
+      cwd: "/workspace/one",
       managedWorktreePath: null,
       statusType: "active",
       statusActiveFlags: ["waitingOnApproval"],
@@ -1642,13 +1782,23 @@ describe("Core Project Workspace adapter", () => {
             thread_name: "Attached",
             thread_preview: "Preview",
             model_provider: "openai",
-            managed_worktree_path: null,
             status: {
               status_type: "active",
               active_flags: ["waitingOnApproval"],
             },
             archived: false,
             updated_at: 12,
+          },
+          execution_location: {
+            execution_host_id: "local",
+            cwd: "/workspace/one",
+            managed_worktree_path: null,
+            runtime_workspace_roots: [
+              "/workspace/one",
+              "/workspace/additional",
+            ],
+            projectless_output_directory: null,
+            projectless_workspace_browser_root: null,
           },
         },
       },

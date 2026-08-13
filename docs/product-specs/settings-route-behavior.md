@@ -42,6 +42,10 @@ The desktop groups are:
 - Workspace: Pages.
 - Data & recovery: Backups.
 
+The Worktrees section follows
+[Codex Managed Worktree Lifecycle Behavior](codex-managed-worktree-lifecycle-behavior.md)
+for root preferences, automatic retention, grouped inventory, and safe removal.
+
 Browser subsections and detail pages remain children of Browser and do not
 become independent rail entries.
 

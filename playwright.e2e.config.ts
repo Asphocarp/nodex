@@ -1,6 +1,6 @@
 import { defineConfig } from "@playwright/test";
 
-export default defineConfig({
+export const baseElectronE2eConfig = defineConfig({
   testDir: "./tests/e2e",
   fullyParallel: false,
   workers: 1,
@@ -9,4 +9,8 @@ export default defineConfig({
   use: {
     trace: "retain-on-failure",
   },
+});
+
+export default defineConfig(baseElectronE2eConfig, {
+  grepInvert: /@subscription-quota/,
 });

@@ -91,6 +91,10 @@ export default defineConfig({
         input: {
           bootstrap: resolve(__dirname, "src/main/bootstrap.ts"),
           "git-worker": resolve(__dirname, "src/main/git-worker/entry.ts"),
+          "worktree-worker": resolve(
+            __dirname,
+            "src/main/worktree-worker/entry.ts",
+          ),
         },
         onwarn(warning, defaultHandler) {
           if (isKnownYProsemirrorAwarenessTypeImportWarning(warning)) return;

@@ -174,6 +174,16 @@ The test commands follow production boundaries:
   exercises the complete Electron/preload/IPC/Core chain. Do not invoke the
   Playwright config directly after changing Rust authority code; that can run
   against a stale `target/debug/nodex-core` binary.
+- Authenticated `@subscription-quota` Electron cases are a separate opt-in
+  tier. The ordinary E2E command skips them. Run them only after the user has
+  explicitly approved paid subscription-quota use, by setting
+  `NODEX_ALLOW_SUBSCRIPTION_E2E=1` and selecting the tag explicitly. These
+  cases copy `auth.json` plus the portable Codex config into a disposable
+  profile; never point them at the user's live Nodex workspace.
+
+```bash
+NODEX_ALLOW_SUBSCRIPTION_E2E=1 pnpm run test:e2e:subscription
+```
 
 ### Block drag-and-drop smoke
 

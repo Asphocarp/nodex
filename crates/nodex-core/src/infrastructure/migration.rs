@@ -2403,6 +2403,42 @@ fn validate_v120_document_block_tombstones(connection: &Connection) -> Result<()
     Ok(())
 }
 
+fn ensure_v124_thread_execution_hosts(connection: &Connection) -> Result<(), StoreError> {
+    let column_count: i64 = connection.query_row(
+        "SELECT count(*) FROM pragma_table_info('codex_threads') \
+         WHERE name = 'execution_host_id'",
+        [],
+        |row| row.get(0),
+    )?;
+    if column_count == 0 {
+        connection.execute_batch(
+            "ALTER TABLE codex_threads \
+             ADD COLUMN execution_host_id TEXT NOT NULL DEFAULT 'local' \
+             CHECK (execution_host_id = trim(execution_host_id) \
+                    AND length(execution_host_id) BETWEEN 1 AND 512)",
+        )?;
+    } else if column_count != 1 {
+        return Err(corrupt("Thread execution host column is ambiguous"));
+    }
+    validate_v124_thread_execution_hosts(connection)
+}
+
+fn validate_v124_thread_execution_hosts(connection: &Connection) -> Result<(), StoreError> {
+    let invalid: i64 = connection.query_row(
+        "SELECT count(*) FROM codex_threads \
+         WHERE execution_host_id <> trim(execution_host_id) \
+            OR length(execution_host_id) NOT BETWEEN 1 AND 512",
+        [],
+        |row| row.get(0),
+    )?;
+    if invalid != 0 {
+        return Err(corrupt(
+            "v124 Store contains invalid Thread execution host identities",
+        ));
+    }
+    Ok(())
+}
+
 pub fn prepare_profile_store(
     connection: &mut Connection,
     profile_home: &Path,
@@ -2435,6 +2471,7 @@ pub fn prepare_profile_store_with_observer(
         validate_v118_canvas_resource_grants(connection)?;
         validate_v119_library_content_index_cleanup(connection)?;
         validate_v120_document_block_tombstones(connection)?;
+        validate_v124_thread_execution_hosts(connection)?;
         return Ok(StorePreparation {
             schema_version: CORE_SCHEMA_VERSION,
             created_fresh: true,
@@ -2466,6 +2503,7 @@ pub fn prepare_profile_store_with_observer(
         validate_v118_canvas_resource_grants(connection)?;
         validate_v119_library_content_index_cleanup(connection)?;
         validate_v120_document_block_tombstones(connection)?;
+        validate_v124_thread_execution_hosts(connection)?;
         return Ok(StorePreparation {
             schema_version: CORE_SCHEMA_VERSION,
             created_fresh: false,
@@ -2526,6 +2564,7 @@ pub fn prepare_profile_store_with_observer(
     validate_v118_canvas_resource_grants(connection)?;
     validate_v119_library_content_index_cleanup(connection)?;
     validate_v120_document_block_tombstones(connection)?;
+    validate_v124_thread_execution_hosts(connection)?;
     Ok(StorePreparation {
         schema_version: CORE_SCHEMA_VERSION,
         created_fresh: false,
@@ -2588,6 +2627,7 @@ pub(crate) fn prepare_legacy_import_candidate(
     validate_v118_canvas_resource_grants(connection)?;
     validate_v119_library_content_index_cleanup(connection)?;
     validate_v120_document_block_tombstones(connection)?;
+    validate_v124_thread_execution_hosts(connection)?;
     Ok(StorePreparation {
         schema_version: CORE_SCHEMA_VERSION,
         created_fresh: false,
@@ -2679,6 +2719,7 @@ fn upgrade_owned_store(
         120 => validate_exact_v120_schema(connection)?,
         121 => validate_exact_v121_schema(connection)?,
         122 => validate_exact_v122_schema(connection)?,
+        123 => validate_exact_v123_schema(connection)?,
         _ => return Err(corrupt("Rust Core forward-migration source is unsupported")),
     }
 
@@ -2818,11 +2859,14 @@ fn upgrade_owned_store(
         }
         if source_version < 121 {
             ensure_v121_page_key_authority(transaction, migration_now)?;
-        } else {
+        } else if source_version < 123 {
             let migrated_at = migration_timestamp(migration_now)?;
             migrate_page_key_display_fields(transaction, &migrated_at)?;
             validate_v121_page_key_invariants(transaction)?;
+        } else {
+            validate_v121_page_key_invariants(transaction)?;
         }
+        ensure_v124_thread_execution_hosts(transaction)?;
         let updated = transaction.execute(
             "UPDATE core_store_metadata SET store_format_version = ?1 \
              WHERE id = 1 AND schema_owner = ?2 AND store_format_version = ?3",
@@ -2850,6 +2894,7 @@ fn upgrade_owned_store(
     validate_v118_canvas_resource_grants(connection)?;
     validate_v119_library_content_index_cleanup(connection)?;
     validate_v120_document_block_tombstones(connection)?;
+    validate_v124_thread_execution_hosts(connection)?;
     Ok(StorePreparation {
         schema_version: CORE_SCHEMA_VERSION,
         created_fresh: false,
@@ -3295,6 +3340,7 @@ fn publish_current_store(
         ensure_v119_library_content_index_cleanup(transaction)?;
         ensure_v120_document_block_tombstones_schema(transaction)?;
         ensure_v121_page_key_authority(transaction, now)?;
+        ensure_v124_thread_execution_hosts(transaction)?;
         import_legacy_writable_roots(transaction, profile_home, now)?;
         import_automation_jitter_salt(transaction, profile_home, now)
     })
@@ -3348,6 +3394,7 @@ fn create_fresh_store(
         ensure_v119_library_content_index_cleanup(transaction)?;
         ensure_v120_document_block_tombstones_schema(transaction)?;
         ensure_v121_page_key_authority(transaction, now)?;
+        ensure_v124_thread_execution_hosts(transaction)?;
         import_legacy_writable_roots(transaction, profile_home, now)?;
         import_automation_jitter_salt(transaction, profile_home, now)
     })
@@ -7573,6 +7620,11 @@ fn validate_exact_v122_schema(connection: &Connection) -> Result<(), StoreError>
     validate_v121_page_key_invariants(connection)
 }
 
+fn validate_exact_v123_schema(connection: &Connection) -> Result<(), StoreError> {
+    validate_exact_core_schema(connection, true, true, true, true, true, true, true, 123)?;
+    validate_v121_page_key_invariants(connection)
+}
+
 fn validate_exact_current_schema(connection: &Connection) -> Result<(), StoreError> {
     validate_exact_core_schema(
         connection,
@@ -7585,7 +7637,8 @@ fn validate_exact_current_schema(connection: &Connection) -> Result<(), StoreErr
         true,
         CORE_SCHEMA_VERSION,
     )?;
-    validate_v121_page_key_invariants(connection)
+    validate_v121_page_key_invariants(connection)?;
+    validate_v124_thread_execution_hosts(connection)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -7756,6 +7809,9 @@ fn build_expected_core_schema_inventory(
     if schema_version >= 121 {
         ensure_v121_page_key_authority(&expected, 0)?;
     }
+    if schema_version >= 124 {
+        ensure_v124_thread_execution_hosts(&expected)?;
+    }
 
     read_schema_inventory(&expected)
 }
@@ -7905,6 +7961,9 @@ pub fn expected_store_schema_fingerprint(version: i64) -> Result<String, StoreEr
     if version >= 121 {
         ensure_v121_page_key_authority(&expected, 0)?;
     }
+    if version >= 124 {
+        ensure_v124_thread_execution_hosts(&expected)?;
+    }
     read_schema_inventory(&expected).map(|inventory| schema_inventory_fingerprint(&inventory))
 }
 
@@ -8029,7 +8088,14 @@ mod tests {
 
     const DOCUMENT_ID: &str = "document:migration-page";
 
+    fn remove_v124_thread_execution_host_schema(connection: &Connection) -> Result<(), StoreError> {
+        connection
+            .execute_batch("ALTER TABLE codex_threads DROP COLUMN execution_host_id;")
+            .map_err(StoreError::from)
+    }
+
     fn remove_v121_page_key_schema(connection: &Connection) -> Result<(), StoreError> {
+        remove_v124_thread_execution_host_schema(connection)?;
         connection
             .execute_batch(
                 "DROP TABLE page_key_assignments; \
@@ -8364,6 +8430,7 @@ mod tests {
                         "View migration",
                         "2026-08-13T00:00:00.000Z",
                     )?;
+                    remove_v124_thread_execution_host_schema(transaction)?;
                     transaction.execute(
                         "UPDATE core_store_metadata SET store_format_version = 121 WHERE id = 1",
                         [],
@@ -8463,6 +8530,7 @@ mod tests {
                         "View migration",
                         "2026-08-13T00:00:00.000Z",
                     )?;
+                    remove_v124_thread_execution_host_schema(transaction)?;
                     transaction.execute(
                         "UPDATE core_store_metadata SET store_format_version = 122 WHERE id = 1",
                         [],
@@ -8562,6 +8630,57 @@ mod tests {
                 })
             })
             .expect("typed migration rejects malformed payload");
+    }
+
+    #[test]
+    fn v124_migration_defaults_existing_threads_to_the_local_execution_host() {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        let kernel = SqliteStoreKernel::open(&home).expect("fresh current Store");
+        kernel
+            .writer()
+            .call(|connection| {
+                with_immediate_transaction(connection, |transaction| {
+                    transaction.execute(
+                        "INSERT INTO codex_threads( \
+                           thread_id, thread_preview, model_provider, status_type, \
+                           status_active_flags_json, archived, created_at, updated_at, linked_at \
+                         ) VALUES ('thread:v123', '', '', 'notLoaded', '[]', 0, 1, 1, \
+                           '2026-08-14T00:00:00.000Z')",
+                        [],
+                    )?;
+                    remove_v124_thread_execution_host_schema(transaction)?;
+                    transaction.execute_batch(
+                        "UPDATE core_store_metadata SET store_format_version = 123 WHERE id = 1; \
+                         PRAGMA user_version = 123;",
+                    )?;
+                    Ok(())
+                })
+            })
+            .expect("seed owned v123 Store");
+        drop(kernel);
+
+        let reopened = SqliteStoreKernel::open(&home).expect("migrate v123 Store");
+        let host = reopened
+            .writer()
+            .call(|connection| {
+                connection.query_row(
+                    "SELECT execution_host_id FROM codex_threads WHERE thread_id = 'thread:v123'",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )
+                .map_err(Into::into)
+            })
+            .expect("migrated execution host");
+        assert_eq!(host, "local");
+        drop(reopened);
+
+        let reopened_again = SqliteStoreKernel::open(&home).expect("reopen current Store");
+        assert_eq!(
+            reopened_again.preparation().schema_version,
+            CORE_SCHEMA_VERSION
+        );
+        assert!(!reopened_again.preparation().created_fresh);
     }
 
     #[test]
@@ -10977,9 +11096,9 @@ mod tests {
                     "id": "view:v110-priority",
                     "layout": "board",
                     "schema": 4,
-                    "boardFields": 5,
+                    "boardFields": 4,
                     "listFields": 5,
-                    "boardPageKeys": 1,
+                    "boardPageKeys": 0,
                     "listPageKeys": 1,
                     "revision": 9
                 },
@@ -10987,9 +11106,9 @@ mod tests {
                     "id": "view:v111-calendar",
                     "layout": "list",
                     "schema": 4,
-                    "boardFields": 5,
+                    "boardFields": 4,
                     "listFields": 5,
-                    "boardPageKeys": 1,
+                    "boardPageKeys": 0,
                     "listPageKeys": 1,
                     "revision": 6
                 },
@@ -10997,9 +11116,9 @@ mod tests {
                     "id": "view:v111-list",
                     "layout": "list",
                     "schema": 4,
-                    "boardFields": 5,
+                    "boardFields": 4,
                     "listFields": 5,
-                    "boardPageKeys": 1,
+                    "boardPageKeys": 0,
                     "listPageKeys": 1,
                     "revision": 5
                 }

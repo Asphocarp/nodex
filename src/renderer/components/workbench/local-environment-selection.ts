@@ -8,10 +8,59 @@ export type LocalEnvironmentSelectionsByWorkspace = Record<
   string | null
 >;
 
-interface LocalEnvironmentConfigCandidate {
+export interface LocalEnvironmentConfigCandidate {
   readonly configPath: string;
   readonly state: "success" | "parseError" | "readError" | "tooLarge";
 }
+
+export type LocalEnvironmentCandidateSource =
+  | {
+      readonly status: "loaded";
+      readonly candidates: readonly LocalEnvironmentConfigCandidate[];
+    }
+  | {
+      readonly status: "unresolved";
+      readonly reason: "loading" | "load-error" | "candidates-unavailable";
+      readonly error: unknown | null;
+    };
+
+interface LocalEnvironmentSelectionResolutionBase {
+  readonly workspaceKey: string | null;
+  readonly storedConfigPath: string | null | undefined;
+  readonly defaultConfigPath: string | null;
+}
+
+export type LocalEnvironmentSelectionResolution =
+  | LocalEnvironmentSelectionResolutionBase & {
+      readonly status: "selected";
+      readonly source: "default" | "saved";
+      readonly resolvedConfigPath: string;
+      readonly repairConfigPath: null;
+    }
+  | LocalEnvironmentSelectionResolutionBase & {
+      readonly status: "without-environment";
+      readonly source: "default" | "saved";
+      readonly resolvedConfigPath: null;
+      readonly repairConfigPath: null;
+    }
+  | LocalEnvironmentSelectionResolutionBase & {
+      readonly status: "needs-attention";
+      readonly issue: "missing" | "parseError" | "readError" | "tooLarge";
+      readonly resolvedConfigPath: null;
+      readonly repairConfigPath: string;
+    }
+  | LocalEnvironmentSelectionResolutionBase & {
+      readonly status: "unresolved";
+      readonly reason:
+        | "workspace-unavailable"
+        | "ambiguous-saved-selection"
+        | "loading"
+        | "load-error"
+        | "candidates-unavailable";
+      readonly error: unknown | null;
+      readonly resolvedConfigPath: null;
+      readonly repairConfigPath: null;
+    };
 
 function normalizePath(value: string): string {
   const withoutExtendedPrefix = value.trim()
@@ -92,6 +141,150 @@ function resolveDefaultConfigPath(
     ?? null;
 }
 
+export function resolveLocalEnvironmentSelection({
+  candidateSource,
+  hostId = "local",
+  selectionsByWorkspace,
+  workspaceRoot,
+}: {
+  candidateSource: LocalEnvironmentCandidateSource;
+  hostId?: string;
+  selectionsByWorkspace: Readonly<LocalEnvironmentSelectionsByWorkspace>;
+  workspaceRoot: string | null | undefined;
+}): LocalEnvironmentSelectionResolution {
+  const workspaceKey = localEnvironmentWorkspaceKey(workspaceRoot, hostId);
+  if (!workspaceKey) {
+    return {
+      status: "unresolved",
+      reason: "workspace-unavailable",
+      error: null,
+      workspaceKey,
+      storedConfigPath: undefined,
+      defaultConfigPath: null,
+      resolvedConfigPath: null,
+      repairConfigPath: null,
+    };
+  }
+
+  const storedSelection = resolveStoredLocalEnvironmentSelectionResult({
+    hostId,
+    selectionsByWorkspace,
+    workspaceKey,
+  });
+  const storedConfigPath = storedSelection.status === "selected"
+    ? storedSelection.configPath
+    : undefined;
+  if (candidateSource.status === "unresolved") {
+    return {
+      status: "unresolved",
+      reason: candidateSource.reason,
+      error: candidateSource.error,
+      workspaceKey,
+      storedConfigPath,
+      defaultConfigPath: null,
+      resolvedConfigPath: null,
+      repairConfigPath: null,
+    };
+  }
+  if (storedSelection.status === "ambiguous") {
+    return {
+      status: "unresolved",
+      reason: "ambiguous-saved-selection",
+      error: null,
+      workspaceKey,
+      storedConfigPath,
+      defaultConfigPath: resolveDefaultConfigPath(candidateSource.candidates),
+      resolvedConfigPath: null,
+      repairConfigPath: null,
+    };
+  }
+
+  const defaultConfigPath = resolveDefaultConfigPath(candidateSource.candidates);
+  if (storedConfigPath === undefined) {
+    const defaultCandidate = candidateSource.candidates.find((candidate) =>
+      candidate.configPath === defaultConfigPath
+    );
+    if (!defaultCandidate) {
+      return {
+        status: "without-environment",
+        source: "default",
+        workspaceKey,
+        storedConfigPath,
+        defaultConfigPath,
+        resolvedConfigPath: null,
+        repairConfigPath: null,
+      };
+    }
+    if (defaultCandidate.state !== "success") {
+      return {
+        status: "needs-attention",
+        issue: defaultCandidate.state,
+        workspaceKey,
+        storedConfigPath,
+        defaultConfigPath,
+        resolvedConfigPath: null,
+        repairConfigPath: defaultCandidate.configPath,
+      };
+    }
+    return {
+      status: "selected",
+      source: "default",
+      workspaceKey,
+      storedConfigPath,
+      defaultConfigPath,
+      resolvedConfigPath: defaultCandidate.configPath,
+      repairConfigPath: null,
+    };
+  }
+
+  if (storedConfigPath === null) {
+    return {
+      status: "without-environment",
+      source: "saved",
+      workspaceKey,
+      storedConfigPath,
+      defaultConfigPath,
+      resolvedConfigPath: null,
+      repairConfigPath: null,
+    };
+  }
+
+  const matchingCandidate = candidateSource.candidates.find((candidate) =>
+    areLocalEnvironmentPathsEquivalent(candidate.configPath, storedConfigPath)
+  );
+  if (matchingCandidate?.state === "success") {
+    return {
+      status: "selected",
+      source: "saved",
+      workspaceKey,
+      storedConfigPath,
+      defaultConfigPath,
+      resolvedConfigPath: matchingCandidate.configPath,
+      repairConfigPath: null,
+    };
+  }
+  if (!matchingCandidate) {
+    return {
+      status: "needs-attention",
+      issue: "missing",
+      workspaceKey,
+      storedConfigPath,
+      defaultConfigPath,
+      resolvedConfigPath: null,
+      repairConfigPath: storedConfigPath,
+    };
+  }
+  return {
+    status: "needs-attention",
+    issue: matchingCandidate.state,
+    workspaceKey,
+    storedConfigPath,
+    defaultConfigPath,
+    resolvedConfigPath: null,
+    repairConfigPath: matchingCandidate.configPath,
+  };
+}
+
 export function localEnvironmentWorkspaceKey(
   workspaceRoot: string | null | undefined,
   hostId = "local",
@@ -148,9 +341,34 @@ export function resolveStoredLocalEnvironmentSelection({
   selectionsByWorkspace: Readonly<LocalEnvironmentSelectionsByWorkspace>;
   workspaceKey: string | null;
 }): string | null | undefined {
-  if (workspaceKey === null) return undefined;
+  const result = resolveStoredLocalEnvironmentSelectionResult({
+    hostId,
+    selectionsByWorkspace,
+    workspaceKey,
+  });
+  return result.status === "selected" ? result.configPath : undefined;
+}
+
+type StoredLocalEnvironmentSelectionResult =
+  | { readonly status: "absent" }
+  | { readonly status: "ambiguous" }
+  | { readonly status: "selected"; readonly configPath: string | null };
+
+function resolveStoredLocalEnvironmentSelectionResult({
+  hostId = "local",
+  selectionsByWorkspace,
+  workspaceKey,
+}: {
+  hostId?: string;
+  selectionsByWorkspace: Readonly<LocalEnvironmentSelectionsByWorkspace>;
+  workspaceKey: string | null;
+}): StoredLocalEnvironmentSelectionResult {
+  if (workspaceKey === null) return { status: "absent" };
   if (Object.prototype.hasOwnProperty.call(selectionsByWorkspace, workspaceKey)) {
-    return selectionsByWorkspace[workspaceKey] ?? null;
+    return {
+      status: "selected",
+      configPath: selectionsByWorkspace[workspaceKey] ?? null,
+    };
   }
 
   const hostPrefix = `${hostId}:`;
@@ -166,12 +384,16 @@ export function resolveStoredLocalEnvironmentSelection({
       continue;
     }
     if (resolved === null || normalizedCandidateValue === null) {
-      if (resolved !== normalizedCandidateValue) return undefined;
+      if (resolved !== normalizedCandidateValue) return { status: "ambiguous" };
       continue;
     }
-    if (!areLocalEnvironmentPathsEquivalent(resolved, normalizedCandidateValue)) return undefined;
+    if (!areLocalEnvironmentPathsEquivalent(resolved, normalizedCandidateValue)) {
+      return { status: "ambiguous" };
+    }
   }
-  return resolved;
+  return resolved === undefined
+    ? { status: "absent" }
+    : { status: "selected", configPath: resolved };
 }
 
 export function resolveLocalEnvironmentConfigSelection({
@@ -187,22 +409,78 @@ export function resolveLocalEnvironmentConfigSelection({
   selectionsByWorkspace: Readonly<LocalEnvironmentSelectionsByWorkspace>;
   workspaceRoot: string | null | undefined;
 }): string | null {
-  const workspaceKey = localEnvironmentWorkspaceKey(workspaceRoot, hostId);
-  if (!workspaceKey) return null;
-  const selectedConfigPath = resolveStoredLocalEnvironmentSelection({
+  return projectLegacyLocalEnvironmentConfigPath(resolveLocalEnvironmentSelection({
+    candidateSource: canValidateSelection
+      ? { status: "loaded", candidates }
+      : {
+          status: "unresolved",
+          reason: "candidates-unavailable",
+          error: null,
+        },
     hostId,
     selectionsByWorkspace,
-    workspaceKey,
-  });
-  if (selectedConfigPath === undefined) return null;
-  if (selectedConfigPath === null || !canValidateSelection) {
-    return selectedConfigPath;
+    workspaceRoot,
+  }));
+}
+
+/** Compatibility projection until all UI call sites render attention/error states. */
+function projectLegacyLocalEnvironmentConfigPath(
+  resolution: LocalEnvironmentSelectionResolution,
+): string | null {
+  if (resolution.status === "selected") return resolution.resolvedConfigPath;
+  if (resolution.status !== "unresolved") return null;
+  if (
+    resolution.reason !== "loading"
+    && resolution.reason !== "load-error"
+    && resolution.reason !== "candidates-unavailable"
+  ) {
+    return null;
+  }
+  return resolution.storedConfigPath ?? null;
+}
+
+export async function loadLocalEnvironmentSelection({
+  hostId = "local",
+  loadCandidates,
+  selectionsByWorkspace,
+  workspaceRoot,
+}: {
+  hostId?: string;
+  loadCandidates: (
+    workspaceRoot: string,
+  ) => Promise<readonly LocalEnvironmentConfigCandidate[]>;
+  selectionsByWorkspace: Readonly<LocalEnvironmentSelectionsByWorkspace>;
+  workspaceRoot: string | null | undefined;
+}): Promise<LocalEnvironmentSelectionResolution> {
+  if (!workspaceRoot) {
+    return resolveLocalEnvironmentSelection({
+      candidateSource: {
+        status: "unresolved",
+        reason: "candidates-unavailable",
+        error: null,
+      },
+      hostId,
+      selectionsByWorkspace,
+      workspaceRoot,
+    });
   }
 
-  const matchingCandidate = candidates.find((candidate) =>
-    areLocalEnvironmentPathsEquivalent(candidate.configPath, selectedConfigPath)
-  );
-  return matchingCandidate?.configPath ?? resolveDefaultConfigPath(candidates);
+  try {
+    const candidates = await loadCandidates(workspaceRoot);
+    return resolveLocalEnvironmentSelection({
+      candidateSource: { status: "loaded", candidates },
+      hostId,
+      selectionsByWorkspace,
+      workspaceRoot,
+    });
+  } catch (error) {
+    return resolveLocalEnvironmentSelection({
+      candidateSource: { status: "unresolved", reason: "load-error", error },
+      hostId,
+      selectionsByWorkspace,
+      workspaceRoot,
+    });
+  }
 }
 
 export async function loadLocalEnvironmentConfigSelection({
@@ -218,34 +496,12 @@ export async function loadLocalEnvironmentConfigSelection({
   selectionsByWorkspace: Readonly<LocalEnvironmentSelectionsByWorkspace>;
   workspaceRoot: string | null | undefined;
 }): Promise<string | null> {
-  if (!workspaceRoot) {
-    return resolveLocalEnvironmentConfigSelection({
-      canValidateSelection: false,
-      candidates: [],
-      hostId,
-      selectionsByWorkspace,
-      workspaceRoot,
-    });
-  }
-
-  try {
-    const candidates = await loadCandidates(workspaceRoot);
-    return resolveLocalEnvironmentConfigSelection({
-      canValidateSelection: true,
-      candidates,
-      hostId,
-      selectionsByWorkspace,
-      workspaceRoot,
-    });
-  } catch {
-    return resolveLocalEnvironmentConfigSelection({
-      canValidateSelection: false,
-      candidates: [],
-      hostId,
-      selectionsByWorkspace,
-      workspaceRoot,
-    });
-  }
+  return projectLegacyLocalEnvironmentConfigPath(await loadLocalEnvironmentSelection({
+    hostId,
+    loadCandidates,
+    selectionsByWorkspace,
+    workspaceRoot,
+  }));
 }
 
 export function resolveLocalEnvironmentOptionSelection({
