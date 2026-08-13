@@ -216,17 +216,58 @@ export function resolveProjectSessionThreadScopeDescriptor(
 export function resolvePendingThreadScopeDescriptor(
   registry: ThreadScopeIdentityRegistry,
   clientThreadId: string,
+  projectSessionId: string | null = null,
 ): ThreadScopeDescriptor {
   const normalizedClientThreadId = clientThreadId.trim();
+  const normalizedProjectSessionId = projectSessionId?.trim() || null;
   if (!normalizedClientThreadId) {
     throw new Error("Pending thread scope identity requires a client thread id");
   }
   return {
-    stableKey: registry.resolve({ clientThreadId: normalizedClientThreadId }),
+    stableKey: registry.resolve({
+      projectSessionId: normalizedProjectSessionId,
+      clientThreadId: normalizedClientThreadId,
+    }),
     phase: "pending",
-    projectSessionId: null,
+    projectSessionId: normalizedProjectSessionId,
     clientThreadId: normalizedClientThreadId,
     threadId: null,
+  };
+}
+
+/**
+ * Attach the immutable client id before navigating away from the source route.
+ * This keeps one React/maitai owner while a draft or Session becomes a pending
+ * task and later receives its server Thread id.
+ */
+export function promoteThreadScopeToPending(
+  registry: ThreadScopeIdentityRegistry,
+  current: ThreadScopeDescriptor,
+  clientThreadId: string,
+  projectSessionId: string | null = current.projectSessionId,
+): ThreadScopeDescriptor {
+  const normalizedClientThreadId = clientThreadId.trim();
+  const normalizedProjectSessionId = projectSessionId?.trim() || null;
+  if (!normalizedClientThreadId) {
+    throw new Error("Pending thread scope promotion requires a client thread id");
+  }
+  if (normalizedProjectSessionId !== current.projectSessionId) {
+    return resolvePendingThreadScopeDescriptor(
+      registry,
+      normalizedClientThreadId,
+      normalizedProjectSessionId,
+    );
+  }
+  registry.register(current.stableKey, {
+    projectSessionId: current.projectSessionId,
+    clientThreadId: normalizedClientThreadId,
+    threadId: current.threadId,
+  });
+  return {
+    ...current,
+    phase: "pending",
+    projectSessionId: normalizedProjectSessionId,
+    clientThreadId: normalizedClientThreadId,
   };
 }
 

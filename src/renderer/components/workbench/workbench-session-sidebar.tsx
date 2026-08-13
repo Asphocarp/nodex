@@ -828,10 +828,20 @@ function SidebarThreadOrganizerSections({
       })
       .map((session): CodexSidebarThreadItem => {
         const threadId = session.thread?.threadId ?? session.id;
+        const hostId = session.thread?.executionHostId ?? "local";
+        const local = hostId === "local";
+        const managedWorktreePath = session.thread?.managedWorktreePath ?? null;
         return {
-          key: `local:session:${session.id}`,
-          kind: "local",
-          hostId: "local",
+          key: `${local ? "local" : "remote"}:session:${session.id}`,
+          kind: local ? "local" : "remote",
+          runLocation: managedWorktreePath
+            ? local
+              ? { kind: "local-worktree", path: managedWorktreePath, phase: "ready" }
+              : { kind: "remote-worktree", hostId, path: managedWorktreePath, phase: "ready" }
+            : local
+              ? { kind: "local-checkout" }
+              : { kind: "remote-checkout", hostId },
+          hostId,
           threadId,
           parentThreadId: session.thread?.parentThreadId ?? null,
           sessionId: session.id,

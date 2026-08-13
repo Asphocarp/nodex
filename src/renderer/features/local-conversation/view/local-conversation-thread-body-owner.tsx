@@ -370,6 +370,7 @@ export function LocalConversationThreadBodyOwner({
     message: string;
   } | null>(null);
   const forkSubmissionInFlightRef = useRef(false);
+  const [isForkSubmitting, setIsForkSubmitting] = useState(false);
   const [isRestoringArchivedThread, setIsRestoringArchivedThread] = useState(false);
   const [isOlderHistoryLoading, setIsOlderHistoryLoading] = useState(false);
   const conversation = useMemo(
@@ -653,10 +654,11 @@ export function LocalConversationThreadBodyOwner({
       if (forkSubmissionInFlightRef.current) return;
 
       forkSubmissionInFlightRef.current = true;
-      setForkDialogState(null);
+      setIsForkSubmitting(true);
       onErrorMessage(null);
       try {
         await fork();
+        setForkDialogState(null);
       } catch (error) {
         onErrorMessage(
           error instanceof Error
@@ -665,6 +667,7 @@ export function LocalConversationThreadBodyOwner({
         );
       } finally {
         forkSubmissionInFlightRef.current = false;
+        setIsForkSubmitting(false);
       }
     },
     [onErrorMessage],
@@ -886,9 +889,11 @@ export function LocalConversationThreadBodyOwner({
       <LocalConversationForkFromTurnDialog
         open={forkDialogState !== null}
         isWorktreeThread={isWorktreeThread}
+        canForkIntoWorktree={onForkFromTurnIntoWorktree !== undefined}
+        isSubmitting={isForkSubmitting}
         showWorktreeOption={onForkFromTurnIntoWorktree !== undefined}
         onOpenChange={(open) => {
-          if (open) return;
+          if (open || isForkSubmitting) return;
           setForkDialogState(null);
         }}
         onForkIntoLocal={() => {

@@ -87,7 +87,7 @@ pub(super) fn read_child_thread_window(
            thread.thread_source, thread.service_name, thread.agent_nickname, \
            thread.agent_role, thread.agent_path, thread.thread_preview, \
            thread.model_provider, thread.model_id, thread.harness_id, \
-           thread.reasoning_effort, thread.service_tier, thread.cwd, \
+           thread.reasoning_effort, thread.service_tier, thread.execution_host_id, thread.cwd, \
            thread.managed_worktree_path, thread.projectless_output_directory, \
            thread.projectless_workspace_browser_root, thread.status_type, \
            thread.status_active_flags_json, thread.archived, thread.created_at, \
@@ -139,7 +139,7 @@ pub(super) fn read_child_thread_window(
 }
 
 fn thread_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ProjectWorkspaceThreadSummary> {
-    let status_type = match row.get::<_, String>(21)?.as_str() {
+    let status_type = match row.get::<_, String>(22)?.as_str() {
         "notLoaded" => Ok(CodexThreadStatusType::NotLoaded),
         "idle" => Ok(CodexThreadStatusType::Idle),
         "systemError" => Ok(CodexThreadStatusType::SystemError),
@@ -147,7 +147,7 @@ fn thread_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ProjectWorkspaceThrea
         _ => Err(rusqlite::Error::InvalidQuery),
     }?;
     let active_flags =
-        serde_json::from_str::<Vec<CodexThreadActiveFlag>>(&row.get::<_, String>(22)?)
+        serde_json::from_str::<Vec<CodexThreadActiveFlag>>(&row.get::<_, String>(23)?)
             .map_err(|_| rusqlite::Error::InvalidQuery)?;
     Ok(ProjectWorkspaceThreadSummary {
         thread_id: row.get(0)?,
@@ -167,18 +167,19 @@ fn thread_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ProjectWorkspaceThrea
         harness_id: row.get(14)?,
         reasoning_effort: row.get(15)?,
         service_tier: row.get(16)?,
-        cwd: row.get(17)?,
-        managed_worktree_path: row.get(18)?,
-        projectless_output_directory: row.get(19)?,
-        projectless_workspace_browser_root: row.get(20)?,
+        execution_host_id: row.get(17)?,
+        cwd: row.get(18)?,
+        managed_worktree_path: row.get(19)?,
+        projectless_output_directory: row.get(20)?,
+        projectless_workspace_browser_root: row.get(21)?,
         status: ProjectWorkspaceThreadStatus {
             status_type,
             active_flags,
         },
-        archived: row.get::<_, i64>(23)? == 1,
-        created_at: row.get(24)?,
-        updated_at: row.get(25)?,
-        linked_at: row.get(26)?,
+        archived: row.get::<_, i64>(24)? == 1,
+        created_at: row.get(25)?,
+        updated_at: row.get(26)?,
+        linked_at: row.get(27)?,
     })
 }
 

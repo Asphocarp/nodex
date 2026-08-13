@@ -1,46 +1,128 @@
 import { describe, expect, test } from "vitest";
 import { fireEvent } from "@testing-library/react";
 import { act } from "react";
+import { NodexTooltipProvider } from "@/components/ui/tooltip";
+import type { WorktreeEnvironmentConfigRecord } from "@/lib/types";
 import { render, settleAsyncRender } from "@/test/dom";
 import { EnvironmentSelectorPopover } from "./environment-selector-popover";
 
-describe("environment selector popover", () => {
-  test("renders as a dropdown menu with the shared local environment layout", async () => {
-    let view!: ReturnType<typeof render>;
+function config(
+  configPath: string,
+  name: string,
+  state: WorktreeEnvironmentConfigRecord["state"] = "success",
+): WorktreeEnvironmentConfigRecord {
+  return {
+    configPath,
+    fileName: configPath.split("/").at(-1) ?? name,
+    state,
+    exists: true,
+    name,
+    hasSetupScript: state === "success",
+    hasCleanupScript: false,
+    actionCount: 0,
+    parseErrorMessage: state === "parseError" ? "Invalid TOML" : null,
+    readErrorMessage: null,
+    tooLargeMessage: null,
+    environment: null,
+  };
+}
 
-    await act(async () => {
-      view = render(
+async function openMenu(view: ReturnType<typeof render>): Promise<void> {
+  await act(async () => {
+    const trigger = view.getByLabelText("Select worktree environment");
+    fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
+    fireEvent.click(trigger);
+    await settleAsyncRender();
+  });
+}
+
+describe("environment selector popover", () => {
+  test("renders the default, explicit no-environment, and settings choices", async () => {
+    const selected: Array<string | null> = [];
+    const view = render(
+      <NodexTooltipProvider>
         <EnvironmentSelectorPopover
           busy={false}
-          options={[
-            {
-              path: ".codex/environments/environment.toml",
-              name: "Default",
-              hasSetupScript: true,
-              hasCleanupScript: false,
-              actionCount: 1,
-            },
+          configs={[
+            config(".codex/environments/environment.toml", "Default"),
+            config(".codex/environments/test.toml", "Tests"),
           ]}
+          defaultPath=".codex/environments/environment.toml"
+          selectedPath=".codex/environments/environment.toml"
           onRefresh={async () => {}}
-          onSelect={async () => true}
-          onOpenSettings={async () => {}}
-        />,
-      );
-    });
+          onSelect={(value) => {
+            selected.push(value);
+            return true;
+          }}
+          onOpenSettings={() => undefined}
+        />
+      </NodexTooltipProvider>,
+    );
+
+    await openMenu(view);
+    expect(document.body.textContent).toContain("Environment");
+    expect(document.body.textContent).toContain("Work without environment");
+    expect(document.body.textContent).toContain("Default");
+    expect(document.body.textContent).toContain("Tests");
+    expect(document.body.textContent).toContain("Environment settings");
 
     await act(async () => {
-      const trigger = view.getByLabelText("Select worktree environment");
-      fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
-      fireEvent.click(trigger);
+      fireEvent.click(view.getByText("Work without environment"));
       await settleAsyncRender();
     });
+    expect(selected).toEqual([null]);
+  });
 
-    const content = view.container.ownerDocument.body.querySelector('[data-radix-menu-content]');
-    const popover = view.container.ownerDocument.body.querySelector('[data-slot="popover-content"]');
+  test("keeps an invalid saved environment in needs-attention state and repairs through settings", async () => {
+    const openedSettings: Array<string | null | undefined> = [];
+    const invalidPath = ".codex/environments/broken.toml";
+    const view = render(
+      <NodexTooltipProvider>
+        <EnvironmentSelectorPopover
+          busy={false}
+          configs={[config(invalidPath, "Broken", "parseError")]}
+          needsAttention
+          repairConfigPath={invalidPath}
+          selectedPath={null}
+          onRefresh={async () => {}}
+          onSelect={() => true}
+          onOpenSettings={(value) => {
+            openedSettings.push(value);
+          }}
+        />
+      </NodexTooltipProvider>,
+    );
 
-    expect(content).not.toBeNull();
-    expect(popover === null).toBe(true);
-    expect(view.container.ownerDocument.body.textContent?.includes("Local environment") ?? false).toBe(true);
-    expect(view.container.ownerDocument.body.textContent?.includes("Environment settings") ?? false).toBe(true);
+    expect(view.getByLabelText("Select worktree environment").textContent).toContain(
+      "Needs attention",
+    );
+    await openMenu(view);
+    expect(document.body.textContent).toContain("Needs attention");
+    expect(document.body.textContent).not.toContain("Repair Broken");
+
+    await act(async () => {
+      fireEvent.click(view.getByText("Environment settings"));
+      await settleAsyncRender();
+    });
+    expect(openedSettings).toEqual([invalidPath]);
+  });
+
+  test("qualifies the title with the primary repository for multi-root projects", async () => {
+    const view = render(
+      <NodexTooltipProvider>
+        <EnvironmentSelectorPopover
+          busy={false}
+          configs={[]}
+          repositoryName="nodex"
+          showRepositoryName
+          onRefresh={async () => {}}
+          onSelect={() => true}
+          onOpenSettings={() => undefined}
+        />
+      </NodexTooltipProvider>,
+    );
+
+    await openMenu(view);
+    expect(document.body.textContent).toContain("Environment · nodex");
   });
 });

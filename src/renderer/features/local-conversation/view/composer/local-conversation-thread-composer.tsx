@@ -2541,8 +2541,7 @@ function HydratedThreadComposer({
             : { threadGoalMaterializedDraft }),
           runInTarget: target.runInTarget,
           runInEnvironmentPath: target.runInEnvironmentPath,
-          worktreeStartMode: target.worktreeStartMode,
-          worktreeBranchPrefix: target.worktreeBranchPrefix,
+          worktreeStartingState: target.worktreeStartingState,
         });
         completeSuccessfulSubmission(draft.objective);
         return true;
@@ -2713,8 +2712,7 @@ function HydratedThreadComposer({
             promptInput,
             runInTarget: target.runInTarget,
             runInEnvironmentPath: target.runInEnvironmentPath,
-            worktreeStartMode: target.worktreeStartMode,
-            worktreeBranchPrefix: target.worktreeBranchPrefix,
+            worktreeStartingState: target.worktreeStartingState,
           });
         } else {
           onErrorMessage("Select a session before starting a new thread.");

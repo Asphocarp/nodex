@@ -1,0 +1,574 @@
+import { execFileSync } from "node:child_process";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { createServer } from "node:http";
+import { fileURLToPath } from "node:url";
+import type { ServerNotification } from "@nodex/codex-app-server-protocol";
+import type {
+  ThreadReadResponse,
+  ThreadResumeResponse,
+  ThreadStartResponse,
+  TurnStartResponse,
+} from "@nodex/codex-app-server-protocol/v2";
+import { CodexAppServerClient } from "../src/main/codex/codex-app-server-client";
+import { resolveCodexRuntime } from "../src/main/codex/codex-runtime";
+
+const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
+const projectRoot = path.resolve(scriptDirectory, "..");
+const waitTimeoutMs = 15_000;
+
+type ProbeResult = "pass";
+
+export interface WorktreeHandoffRuntimeProbeReport {
+  readonly capabilities: {
+    readonly activeTurnInterruptBeforeRelocation: ProbeResult;
+    readonly loadedResumeReplacesRuntimeRoots: ProbeResult;
+    readonly loadedSettingsUpdateChangesCwd: ProbeResult;
+    readonly matchingRolloutPathRejoinsLoadedThread: ProbeResult;
+    readonly mismatchedRolloutPathFailsClosed: ProbeResult;
+    readonly restartCanonicalProjectionRestoresLocation: ProbeResult;
+    readonly unloadedResumeReplacesRuntimeRoots: ProbeResult;
+  };
+  readonly generatedAt: string;
+  readonly notificationOrder: readonly string[];
+  readonly rollout: {
+    readonly coldReadRetainedRelocatedCwd: boolean;
+    readonly exists: true;
+    readonly remainsInsideIsolatedHome: true;
+  };
+  readonly runtimeVersion: string;
+  readonly schemaContract: {
+    readonly loadedSettingsUpdateCarriesRuntimeRoots: false;
+    readonly resumeCarriesRuntimeRoots: true;
+    readonly turnStartCarriesRuntimeRoots: true;
+  };
+}
+
+function waitForFile(filePath: string, expectedContent: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const startedAt = Date.now();
+    const poll = (): void => {
+      if (existsSync(filePath) && readFileSync(filePath, "utf8").trim() === expectedContent) {
+        resolve();
+        return;
+      }
+      if (Date.now() - startedAt >= waitTimeoutMs) {
+        reject(new Error(`Timed out waiting for shell-command evidence at ${filePath}`));
+        return;
+      }
+      setTimeout(poll, 25);
+    };
+    poll();
+  });
+}
+
+function waitForPath(filePath: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const startedAt = Date.now();
+    const poll = (): void => {
+      if (existsSync(filePath)) {
+        resolve();
+        return;
+      }
+      if (Date.now() - startedAt >= waitTimeoutMs) {
+        reject(new Error(`Timed out waiting for ${filePath}`));
+        return;
+      }
+      setTimeout(poll, 25);
+    };
+    poll();
+  });
+}
+
+function quoteShellPath(filePath: string): string {
+  return `'${filePath.replaceAll("'", `'\\''`)}'`;
+}
+
+function waitForNotification(
+  client: CodexAppServerClient,
+  predicate: (notification: ServerNotification) => boolean,
+  label: string,
+): Promise<ServerNotification> {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      cleanup();
+      reject(new Error(`Timed out waiting for ${label}`));
+    }, waitTimeoutMs);
+    const listener = (notification: ServerNotification): void => {
+      if (!predicate(notification)) return;
+      cleanup();
+      resolve(notification);
+    };
+    const cleanup = (): void => {
+      clearTimeout(timeout);
+      client.off("notification", listener);
+    };
+    client.on("notification", listener);
+  });
+}
+
+function readNotificationThreadId(notification: ServerNotification): string | null {
+  const params = notification.params as Record<string, unknown>;
+  return typeof params.threadId === "string" ? params.threadId : null;
+}
+
+function readNotificationTurnId(notification: ServerNotification): string | null {
+  const params = notification.params as Record<string, unknown>;
+  const turn = params.turn as Record<string, unknown> | undefined;
+  return typeof turn?.id === "string" ? turn.id : null;
+}
+
+async function startBlockingResponsesServer(): Promise<{
+  readonly baseUrl: string;
+  readonly close: () => Promise<void>;
+}> {
+  const server = createServer((request, response) => {
+    if (request.method !== "POST" || request.url !== "/v1/responses") {
+      response.writeHead(404, { "content-type": "application/json" });
+      response.end('{"error":"not found"}');
+      return;
+    }
+    request.resume();
+    response.writeHead(200, {
+      "cache-control": "no-cache",
+      "content-type": "text/event-stream",
+    });
+    response.write(
+      'event: response.created\ndata: {"type":"response.created","response":{"id":"resp_handoff_probe"}}\n\n',
+    );
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => resolve());
+  });
+  const address = server.address();
+  if (!address || typeof address === "string") {
+    throw new Error("Handoff probe server did not bind a TCP port");
+  }
+  return {
+    baseUrl: `http://127.0.0.1:${address.port}/v1`,
+    close: async () => await new Promise<void>((resolve, reject) => {
+      server.closeAllConnections();
+      server.close((error) => error ? reject(error) : resolve());
+    }),
+  };
+}
+
+function createClient(binaryPath: string, stateHome: string): Promise<CodexAppServerClient> {
+  const client = new CodexAppServerClient({
+    binaryPath,
+    expectedCodexHome: stateHome,
+    logStderr: false,
+    requestTimeoutMs: waitTimeoutMs,
+    env: {
+      ...process.env,
+      INTERPRETER_HOME: stateHome,
+      NODEX_HANDOFF_PROBE_API_KEY: "isolated-probe-secret",
+    },
+    clientInfo: {
+      name: "nodex-worktree-handoff-probe",
+      title: "Nodex Worktree Handoff Probe",
+      version: "1.0.0",
+    },
+  });
+  return client.start().then(() => client);
+}
+
+function assertSamePath(actual: string, expected: string, label: string): void {
+  if (realpathSync(actual) === realpathSync(expected)) return;
+  throw new Error(`${label} resolved to ${actual}; expected ${expected}`);
+}
+
+function assertRoots(actual: readonly string[], expected: readonly string[], label: string): void {
+  const normalizedActual = actual.map((root) => realpathSync(root));
+  const normalizedExpected = expected.map((root) => realpathSync(root));
+  if (JSON.stringify(normalizedActual) === JSON.stringify(normalizedExpected)) return;
+  throw new Error(`${label} roots ${JSON.stringify(actual)} did not match ${JSON.stringify(expected)}`);
+}
+
+async function assertShellCwd(input: {
+  readonly client: CodexAppServerClient;
+  readonly cwd: string;
+  readonly evidencePath: string;
+  readonly threadId: string;
+}): Promise<void> {
+  await input.client.request("thread/shellCommand", {
+    threadId: input.threadId,
+    command: `/bin/pwd > ${quoteShellPath(input.evidencePath)}`,
+  });
+  await waitForFile(input.evidencePath, realpathSync(input.cwd));
+}
+
+export async function probeWorktreeHandoffRuntime(input: {
+  readonly binaryPath: string;
+  readonly outputPath?: string;
+}): Promise<WorktreeHandoffRuntimeProbeReport> {
+  const fixtureRoot = mkdtempSync(path.join(os.tmpdir(), "nodex-handoff-runtime-"));
+  const stateHome = path.join(fixtureRoot, "agent-home");
+  const sourceRoot = path.join(fixtureRoot, "source");
+  const destinationOne = path.join(fixtureRoot, "destination-one");
+  const destinationTwo = path.join(fixtureRoot, "destination-two");
+  const destinationThree = path.join(fixtureRoot, "destination-three");
+  const additionalRoot = path.join(fixtureRoot, "additional");
+  for (const directory of [
+    stateHome,
+    sourceRoot,
+    destinationOne,
+    destinationTwo,
+    destinationThree,
+    additionalRoot,
+  ]) {
+    mkdirSync(directory, { recursive: true, mode: 0o700 });
+  }
+
+  const notifications: string[] = [];
+  let firstClient: CodexAppServerClient | null = null;
+  let secondClient: CodexAppServerClient | null = null;
+  let thirdClient: CodexAppServerClient | null = null;
+  const responsesServer = await startBlockingResponsesServer();
+  const probeConfig = {
+    "model_providers.nodex-handoff-probe": {
+      name: "Nodex handoff probe",
+      base_url: responsesServer.baseUrl,
+      env_key: "NODEX_HANDOFF_PROBE_API_KEY",
+      wire_api: "responses",
+      request_max_retries: 0,
+      stream_max_retries: 0,
+    },
+    harness: "native",
+    "features.plugins": false,
+  } as const;
+  try {
+    firstClient = await createClient(input.binaryPath, stateHome);
+    firstClient.on("notification", (notification: ServerNotification) => {
+      notifications.push(notification.method);
+    });
+    const started = await firstClient.request<"thread/start", ThreadStartResponse>(
+      "thread/start",
+      {
+        cwd: sourceRoot,
+        model: "mock-handoff-model",
+        modelProvider: "nodex-handoff-probe",
+        runtimeWorkspaceRoots: [sourceRoot, additionalRoot],
+        approvalPolicy: "never",
+        sandbox: "workspace-write",
+        threadSource: "system",
+        config: probeConfig,
+      },
+    );
+    const threadId = started.thread.id;
+    const rolloutPath = started.thread.path;
+    if (!rolloutPath) throw new Error("thread/start did not return a rollout path");
+    assertSamePath(started.cwd, sourceRoot, "thread/start cwd");
+    assertRoots(started.runtimeWorkspaceRoots, [sourceRoot, additionalRoot], "thread/start");
+    await assertShellCwd({
+      client: firstClient,
+      cwd: sourceRoot,
+      evidencePath: path.join(fixtureRoot, "source-cwd.txt"),
+      threadId,
+    });
+    await waitForPath(rolloutPath);
+    statSync(rolloutPath);
+
+    const settingsNotification = waitForNotification(
+      firstClient,
+      (notification) => notification.method === "thread/settings/updated"
+        && readNotificationThreadId(notification) === threadId,
+      "thread/settings/updated",
+    );
+    await firstClient.request("thread/settings/update", {
+      threadId,
+      cwd: destinationOne,
+      sandboxPolicy: {
+        type: "workspaceWrite",
+        writableRoots: [destinationOne, additionalRoot],
+        networkAccess: false,
+        excludeTmpdirEnvVar: false,
+        excludeSlashTmp: false,
+      },
+    });
+    await settingsNotification;
+    const loadedRead = await firstClient.request<"thread/read", ThreadReadResponse>(
+      "thread/read",
+      { threadId, includeTurns: false },
+    );
+    assertSamePath(loadedRead.thread.cwd, destinationOne, "loaded settings cwd");
+
+    const loadedResume = await firstClient.request<"thread/resume", ThreadResumeResponse>(
+      "thread/resume",
+      {
+        threadId,
+        path: rolloutPath,
+        cwd: destinationOne,
+        runtimeWorkspaceRoots: [destinationOne, additionalRoot],
+        approvalPolicy: "never",
+        sandbox: "workspace-write",
+        config: probeConfig,
+        excludeTurns: true,
+      },
+    );
+    assertSamePath(loadedResume.cwd, destinationOne, "loaded resume cwd");
+    assertRoots(
+      loadedResume.runtimeWorkspaceRoots,
+      [destinationOne, additionalRoot],
+      "loaded resume",
+    );
+    await assertShellCwd({
+      client: firstClient,
+      cwd: destinationOne,
+      evidencePath: path.join(fixtureRoot, "loaded-cwd.txt"),
+      threadId,
+    });
+
+    let mismatchFailed = false;
+    try {
+      await firstClient.request("thread/resume", {
+        threadId,
+        path: path.join(fixtureRoot, "wrong-rollout.jsonl"),
+        cwd: destinationTwo,
+        runtimeWorkspaceRoots: [destinationTwo],
+        approvalPolicy: "never",
+        sandbox: "workspace-write",
+        config: probeConfig,
+        excludeTurns: true,
+      });
+    } catch {
+      mismatchFailed = true;
+    }
+    if (!mismatchFailed) throw new Error("Loaded resume accepted a mismatched rollout path");
+    await assertShellCwd({
+      client: firstClient,
+      cwd: destinationOne,
+      evidencePath: path.join(fixtureRoot, "after-mismatch-cwd.txt"),
+      threadId,
+    });
+
+    await firstClient.stop();
+    firstClient = null;
+    secondClient = await createClient(input.binaryPath, stateHome);
+    secondClient.on("notification", (notification: ServerNotification) => {
+      notifications.push(notification.method);
+    });
+    const unloaded = await secondClient.request<"thread/read", ThreadReadResponse>(
+      "thread/read",
+      { threadId, includeTurns: false },
+    );
+    if (unloaded.thread.status.type !== "notLoaded") {
+      throw new Error(`Restarted thread status was ${unloaded.thread.status.type}`);
+    }
+    assertSamePath(unloaded.thread.cwd, destinationOne, "persisted settings cwd");
+    const resumed = await secondClient.request<"thread/resume", ThreadResumeResponse>(
+      "thread/resume",
+      {
+        threadId,
+        path: rolloutPath,
+        cwd: destinationTwo,
+        runtimeWorkspaceRoots: [destinationTwo, additionalRoot],
+        approvalPolicy: "never",
+        sandbox: "workspace-write",
+        config: probeConfig,
+        excludeTurns: true,
+      },
+    );
+    assertSamePath(resumed.cwd, destinationTwo, "unloaded resume cwd");
+    assertRoots(resumed.runtimeWorkspaceRoots, [destinationTwo, additionalRoot], "unloaded resume");
+    await assertShellCwd({
+      client: secondClient,
+      cwd: destinationTwo,
+      evidencePath: path.join(fixtureRoot, "unloaded-cwd.txt"),
+      threadId,
+    });
+
+    const turnStarted = waitForNotification(
+      secondClient,
+      (notification) => notification.method === "turn/started"
+        && readNotificationThreadId(notification) === threadId,
+      "turn/started for interrupt probe",
+    );
+    const activeTurnStart = await secondClient.request<"turn/start", TurnStartResponse>(
+      "turn/start",
+      {
+      threadId,
+        input: [{
+          type: "text",
+          text: "Keep this probe turn active until interrupted.",
+          text_elements: [],
+        }],
+        cwd: destinationTwo,
+        runtimeWorkspaceRoots: [destinationTwo, additionalRoot],
+        approvalPolicy: "never",
+        sandboxPolicy: {
+          type: "workspaceWrite",
+          writableRoots: [destinationTwo, additionalRoot],
+          networkAccess: true,
+          excludeTmpdirEnvVar: false,
+          excludeSlashTmp: false,
+        },
+      },
+    );
+    const activeTurn = await turnStarted;
+    const activeTurnId = readNotificationTurnId(activeTurn) ?? activeTurnStart.turn.id;
+    if (!activeTurnId) throw new Error("turn/started did not include a turn id");
+    const turnCompleted = waitForNotification(
+      secondClient,
+      (notification) => notification.method === "turn/completed"
+        && readNotificationThreadId(notification) === threadId
+        && readNotificationTurnId(notification) === activeTurnId,
+      "turn/completed after interrupt",
+    );
+    await secondClient.request("turn/interrupt", { threadId, turnId: activeTurnId });
+    await turnCompleted;
+    const postInterruptSettings = waitForNotification(
+      secondClient,
+      (notification) => notification.method === "thread/settings/updated"
+        && readNotificationThreadId(notification) === threadId,
+      "thread/settings/updated after interrupt",
+    );
+    await secondClient.request("thread/settings/update", {
+      threadId,
+      cwd: destinationThree,
+      sandboxPolicy: {
+        type: "workspaceWrite",
+        writableRoots: [destinationThree, additionalRoot],
+        networkAccess: false,
+        excludeTmpdirEnvVar: false,
+        excludeSlashTmp: false,
+      },
+    });
+    await postInterruptSettings;
+    const postInterruptResume = await secondClient.request<"thread/resume", ThreadResumeResponse>(
+      "thread/resume",
+      {
+      threadId,
+      path: rolloutPath,
+      cwd: destinationThree,
+      runtimeWorkspaceRoots: [destinationThree, additionalRoot],
+      approvalPolicy: "never",
+      sandbox: "workspace-write",
+      config: probeConfig,
+      excludeTurns: true,
+      },
+    );
+    assertSamePath(postInterruptResume.cwd, destinationThree, "post-interrupt resume cwd");
+    assertRoots(
+      postInterruptResume.runtimeWorkspaceRoots,
+      [destinationThree, additionalRoot],
+      "post-interrupt resume",
+    );
+    await assertShellCwd({
+      client: secondClient,
+      cwd: destinationThree,
+      evidencePath: path.join(fixtureRoot, "post-interrupt-cwd.txt"),
+      threadId,
+    });
+
+    await secondClient.stop();
+    secondClient = null;
+    thirdClient = await createClient(input.binaryPath, stateHome);
+    const coldRead = await thirdClient.request<"thread/read", ThreadReadResponse>(
+      "thread/read",
+      { threadId, includeTurns: false },
+    );
+    const coldReadRetainedRelocatedCwd =
+      realpathSync(coldRead.thread.cwd) === realpathSync(destinationThree);
+    const coldResume = await thirdClient.request<"thread/resume", ThreadResumeResponse>(
+      "thread/resume",
+      {
+        threadId,
+        cwd: destinationThree,
+        runtimeWorkspaceRoots: [destinationThree, additionalRoot],
+        approvalPolicy: "never",
+        sandbox: "workspace-write",
+        config: probeConfig,
+        excludeTurns: true,
+      },
+    );
+    assertSamePath(coldResume.cwd, destinationThree, "restart-preserved cwd");
+    assertRoots(
+      coldResume.runtimeWorkspaceRoots,
+      [destinationThree, additionalRoot],
+      "restart-preserved roots",
+    );
+
+    const canonicalStateHome = realpathSync(stateHome);
+    const canonicalRollout = realpathSync(rolloutPath);
+    if (!canonicalRollout.startsWith(`${canonicalStateHome}${path.sep}`)) {
+      throw new Error("Rollout escaped the isolated Agent home");
+    }
+    const report: WorktreeHandoffRuntimeProbeReport = {
+      capabilities: {
+        activeTurnInterruptBeforeRelocation: "pass",
+        loadedResumeReplacesRuntimeRoots: "pass",
+        loadedSettingsUpdateChangesCwd: "pass",
+        matchingRolloutPathRejoinsLoadedThread: "pass",
+        mismatchedRolloutPathFailsClosed: "pass",
+        restartCanonicalProjectionRestoresLocation: "pass",
+        unloadedResumeReplacesRuntimeRoots: "pass",
+      },
+      generatedAt: new Date().toISOString(),
+      notificationOrder: notifications,
+      rollout: {
+        coldReadRetainedRelocatedCwd,
+        exists: true,
+        remainsInsideIsolatedHome: true,
+      },
+      runtimeVersion: execFileSync(input.binaryPath, ["--version"], { encoding: "utf8" }).trim(),
+      schemaContract: {
+        loadedSettingsUpdateCarriesRuntimeRoots: false,
+        resumeCarriesRuntimeRoots: true,
+        turnStartCarriesRuntimeRoots: true,
+      },
+    };
+    if (input.outputPath) {
+      mkdirSync(path.dirname(input.outputPath), { recursive: true, mode: 0o700 });
+      writeFileSync(input.outputPath, `${JSON.stringify(report, null, 2)}\n`, {
+        encoding: "utf8",
+        mode: 0o600,
+      });
+    }
+    return report;
+  } finally {
+    await thirdClient?.stop().catch(() => undefined);
+    await secondClient?.stop().catch(() => undefined);
+    await firstClient?.stop().catch(() => undefined);
+    await responsesServer.close().catch(() => undefined);
+    rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+}
+
+function readOption(argv: readonly string[], name: string): string | null {
+  const index = argv.indexOf(name);
+  if (index < 0) return null;
+  const value = argv[index + 1]?.trim();
+  if (!value || value.startsWith("--")) throw new Error(`Missing value for ${name}`);
+  return value;
+}
+
+async function main(): Promise<void> {
+  const runtime = resolveCodexRuntime({ isPackaged: false, projectRootPath: projectRoot });
+  const argv = process.argv.slice(2);
+  const binaryPath = path.resolve(readOption(argv, "--binary") ?? runtime.binaryPath);
+  const outputPath = path.resolve(
+    readOption(argv, "--out")
+      ?? path.join(projectRoot, ".generated", "agent-runtime-conformance", "handoff.json"),
+  );
+  const report = await probeWorktreeHandoffRuntime({ binaryPath, outputPath });
+  process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  void main().catch((error: unknown) => {
+    process.stderr.write(`${error instanceof Error ? error.stack ?? error.message : String(error)}\n`);
+    process.exitCode = 1;
+  });
+}

@@ -62,6 +62,7 @@ function makeEntry(
     isPinned: false,
     pinnedBeforeThreadId: null,
     ...overrides,
+    sourceWorkspaceRoots: overrides.sourceWorkspaceRoots ?? ["/repo/nodex"],
   };
 }
 

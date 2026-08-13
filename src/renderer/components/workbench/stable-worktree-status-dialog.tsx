@@ -16,12 +16,12 @@ import {
   NodexDialogTitle,
 } from "@/components/ui/dialog";
 import { WorktreeInitActivityList } from "@/features/local-conversation/view/shared/tools/worktree-init-activity-list";
+import type { CodexWorktreeInitActivity } from "@/lib/codex-worktree-init-activity";
 import type {
   CodexPendingWorktreeCreateResult,
   CodexPendingWorktreeEntry,
 } from "../../../shared/codex-pending-worktree";
 import type { CodexAgentMode } from "../../../shared/types";
-import { resolvePendingWorktreeActivities } from "./pending-worktree-route-model";
 import type { StableWorktreeEntry } from "./stable-worktree-production";
 
 export type { StableWorktreeEntry } from "./stable-worktree-production";
@@ -83,6 +83,36 @@ function findStableWorktreeEntry(
   return entry;
 }
 
+function resolveStableWorktreeActivities(
+  entry: StableWorktreeEntry,
+): readonly CodexWorktreeInitActivity[] {
+  const created = entry.worktreeGitRoot !== null && entry.worktreeWorkspaceRoot !== null;
+  const worktreeStatus = entry.phase === "queued" || entry.phase === "creating"
+    ? "running"
+    : entry.phase === "failed" && !created ? "failed" : "completed";
+  const activities: CodexWorktreeInitActivity[] = [{
+    id: `${entry.id}:${entry.attempt}:worktree`,
+    kind: "worktree",
+    status: worktreeStatus,
+    outputText: entry.worktreeOutputText,
+  }];
+
+  if (entry.localEnvironmentConfigPath == null || entry.phase === "queued" || entry.phase === "creating") {
+    return activities;
+  }
+  activities.push({
+    id: `${entry.id}:${entry.attempt}:setup`,
+    kind: "setup",
+    status: entry.phase === "setting-up"
+      ? "running"
+      : entry.phase === "failed" && created
+        ? "failed"
+        : entry.errorMessage === null ? "completed" : "skipped",
+    outputText: entry.setupOutputText,
+  });
+  return activities;
+}
+
 export function StableWorktreeStatusDialogView({
   entry,
   autoFixing = false,
@@ -92,7 +122,7 @@ export function StableWorktreeStatusDialogView({
   onAutoFix,
   onRetry,
 }: StableWorktreeStatusDialogViewProps) {
-  const activities = resolvePendingWorktreeActivities(entry, null);
+  const activities = resolveStableWorktreeActivities(entry);
   const busy = isWorktreeBusy(entry);
   const failed = entry.phase === "failed";
   const actions = busy ? (
@@ -128,8 +158,7 @@ export function StableWorktreeStatusDialogView({
       }}
     >
       <NodexDialogContent
-        size="large"
-        showCloseButton={false}
+        size="wide"
       >
         <NodexDialogFrame>
           <NodexDialogHeader>

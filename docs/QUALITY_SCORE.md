@@ -1,6 +1,6 @@
 # Quality Score
 
-Last updated: 2026-02-13
+Last updated: 2026-08-14
 
 ## Summary
 | Domain | Grade | Trend | Key Issues |
@@ -9,6 +9,7 @@ Last updated: 2026-02-13
 | HTTP/API Layer | B | -> | Strong validation; thin auth/network-hardening posture |
 | Renderer Board UX | B | -> | Feature-rich; complexity raises regression risk |
 | Editor + NFM | B+ | -> | Deep targeted tests; high behavioral complexity |
+| Managed Worktree Lifecycle | A- | up | Durable recovery and isolated Electron coverage; real SSH gate remains environment-capability dependent |
 | Documentation | A- | up | Harness structure now present; needs ongoing freshness discipline |
 | Release/Operations | B- | -> | Packaging flow documented; limited automated operational checks |
 
@@ -33,6 +34,16 @@ Action items: Add focused integration checks for project-switch + card-stage sta
 Strengths: robust parser/adapter tests, captured engineering learnings, explicit custom extensions.
 Gaps: BlockNote edge behavior remains a moving target.
 Action items: Keep adding regression tests when any keyboard/drag behavior changes.
+
+### Managed Worktree Lifecycle (A-)
+Strengths: one lifecycle owner, operation-discriminated host workers, complete
+snapshot/remove/restore, automatic retention protection, durable execution
+locations, local and cross-host handoff, and an isolated Electron lifecycle
+test covering renderer reload, cold app restart, deletion, and restoration.
+Gaps: a real SSH integration run is possible only on hosts that provide an
+isolated sshd; the capability remains hidden when health/deployment checks fail.
+Action items: run the optional loopback-SSH matrix in a suitable CI worker and
+retain disposable-profile containment for every destructive scenario.
 
 ### Documentation (A-)
 Strengths: progressive-disclosure map (`AGENTS.md` -> domain docs -> deep references).

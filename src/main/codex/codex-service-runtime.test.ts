@@ -6,6 +6,13 @@ import { CodexService } from "./codex-service";
 import type { ResolvedCodexRuntime } from "./codex-runtime";
 import { parse as parseToml } from "smol-toml";
 
+function localClientOf<T>(service: CodexService): T {
+  const router = Reflect.get(service, "client") as {
+    clientForHost: (hostId: string) => unknown;
+  };
+  return router.clientForHost("local") as T;
+}
+
 describe("codex-service runtime bootstrap", () => {
   test("passes the resolved runtime into the Codex app-server client", async () => {
     const runtime: ResolvedCodexRuntime = {
@@ -24,19 +31,17 @@ describe("codex-service runtime bootstrap", () => {
       rootPath: "/tmp/nodex",
       version: "0.115.0",
     };
-    const service = new CodexService({ runtime }) as unknown as {
-      client: {
+    const service = new CodexService({ runtime });
+
+    try {
+      const client = localClientOf<{
         additionalSearchPaths: string[];
         binaryPath: string;
         missingBinaryMessage: string;
-      };
-      shutdown: () => Promise<void>;
-    };
-
-    try {
-      expect(service.client.binaryPath).toBe(runtime.binaryPath);
-      expect(service.client.additionalSearchPaths[0]).toBe(runtime.additionalSearchPaths[0]);
-      expect(service.client.missingBinaryMessage).toBe(runtime.missingBinaryMessage);
+      }>(service);
+      expect(client.binaryPath).toBe(runtime.binaryPath);
+      expect(client.additionalSearchPaths[0]).toBe(runtime.additionalSearchPaths[0]);
+      expect(client.missingBinaryMessage).toBe(runtime.missingBinaryMessage);
     } finally {
       await service.shutdown();
     }
@@ -49,24 +54,22 @@ describe("codex-service runtime bootstrap", () => {
     process.chdir(tempDir);
 
     try {
-      const service = new CodexService() as unknown as {
-        client: {
+      const service = new CodexService();
+
+      try {
+        const client = localClientOf<{
           additionalSearchPaths: string[];
           binaryPath: string;
           missingBinaryMessage: string;
-        };
-        shutdown: () => Promise<void>;
-      };
-
-      try {
+        }>(service);
         const expectedRuntimeRootSuffix = path.join(".generated", "codex-runtime", "agent-runtime");
-        expect(service.client.binaryPath.endsWith(
+        expect(client.binaryPath.endsWith(
           path.join(expectedRuntimeRootSuffix, "bin", "interpreter"),
         )).toBe(true);
-        expect((service.client.additionalSearchPaths[0] ?? "").endsWith(
+        expect((client.additionalSearchPaths[0] ?? "").endsWith(
           path.join(expectedRuntimeRootSuffix, "codex-path"),
         )).toBe(true);
-        expect(service.client.missingBinaryMessage).toBe(
+        expect(client.missingBinaryMessage).toBe(
           "Pinned agent runtime is missing or incomplete. Run `pnpm run stage:codex-runtime:mac`.",
         );
       } finally {
@@ -84,18 +87,13 @@ describe("codex-service runtime bootstrap", () => {
     process.env.NODEX_HOME = nodexHome;
 
     try {
-      const service = new CodexService() as unknown as {
-        client: {
-          expectedCodexHome: string;
-        };
-        runtimeStateHome: string;
-        shutdown: () => Promise<void>;
-      };
+      const service = new CodexService();
 
       try {
         const expectedAgentHome = path.join(nodexHome, "agent");
-        expect(service.runtimeStateHome).toBe(expectedAgentHome);
-        expect(service.client.expectedCodexHome).toBe(expectedAgentHome);
+        expect(Reflect.get(service, "runtimeStateHome")).toBe(expectedAgentHome);
+        expect(localClientOf<{ expectedCodexHome: string }>(service).expectedCodexHome)
+          .toBe(expectedAgentHome);
       } finally {
         await service.shutdown();
       }
@@ -128,15 +126,13 @@ describe("codex-service runtime bootstrap", () => {
       rootPath: "/tmp/nodex",
       version: "0.115.0",
     };
-    const service = new CodexService({ runtime, runtimeStateHome }) as unknown as {
-      client: {
-        resolveEnv: () => Promise<NodeJS.ProcessEnv>;
-      };
-      shutdown: () => Promise<void>;
-    };
+    const service = new CodexService({ runtime, runtimeStateHome });
 
     try {
-      const environment = await service.client.resolveEnv();
+      const client = localClientOf<{
+        resolveEnv: () => Promise<NodeJS.ProcessEnv>;
+      }>(service);
+      const environment = await client.resolveEnv();
       const parsed = parseToml(fs.readFileSync(
         path.join(runtimeStateHome, "config.toml"),
         "utf8",

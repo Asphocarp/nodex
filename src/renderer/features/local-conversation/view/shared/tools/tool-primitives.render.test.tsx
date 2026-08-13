@@ -1,8 +1,11 @@
-import { describe, expect, test } from "vitest";
-import { act, fireEvent } from "@testing-library/react";
+import { beforeEach, describe, expect, test } from "vitest";
+import { act, fireEvent, waitFor } from "@testing-library/react";
 import { render, textContent } from "../../../../../test/dom";
 import {
-  completeThreadActivityDisclosureAnimation,
+  installElementScrollHeight,
+  installMeasuredResizeObserver,
+} from "../../../../../test/browser-globals";
+import {
   ThreadActivityDisclosure,
   ThreadActivityHeader,
   ThreadActivityList,
@@ -86,6 +89,11 @@ describe("ThreadActivityShell", () => {
 });
 
 describe("ThreadActivityDisclosure", () => {
+  beforeEach(() => {
+    installElementScrollHeight(120);
+    installMeasuredResizeObserver({ blockSize: 120, inlineSize: 320 });
+  });
+
   test("uses a rich overlay button labelled by its summary while preserving nested controls", () => {
     const { container } = render(
       <ThreadActivityDisclosure
@@ -123,17 +131,8 @@ describe("ThreadActivityDisclosure", () => {
     expect(button?.getAttribute("aria-labelledby") ?? "").toBe("");
   });
 
-  test("mounts a collapsed body on open, then expands it on the next animation frame", async () => {
-    const originalRequestAnimationFrame = window.requestAnimationFrame;
-    const originalCancelAnimationFrame = window.cancelAnimationFrame;
-    let animationFrameCallback: FrameRequestCallback | null = null;
+  test("keeps a collapsed body mounted, hidden, inert, and measured across toggles", async () => {
     let expandCount = 0;
-    window.requestAnimationFrame = (callback) => {
-      animationFrameCallback = callback;
-      return 1;
-    };
-    window.cancelAnimationFrame = () => {};
-
     const { container } = render(
       <ThreadActivityDisclosure
         bodyTestId="activity-body"
@@ -148,90 +147,73 @@ describe("ThreadActivityDisclosure", () => {
     );
 
     const button = container.querySelector<HTMLButtonElement>("[data-testid='activity-header']");
+    const collapsedBody = container.querySelector<HTMLElement>("[data-testid='activity-body']");
     expect(button?.getAttribute("aria-expanded") ?? "").toBe("false");
-    expect(Boolean(container.querySelector("[data-testid='activity-body']"))).toBe(false);
-
-    try {
-      await act(async () => {
-        fireEvent.click(button as HTMLButtonElement);
-        await Promise.resolve();
-      });
-
-      const openingBody = container.querySelector<HTMLElement>("[data-testid='activity-body']");
-      expect(expandCount).toBe(1);
-      expect(button?.getAttribute("aria-expanded") ?? "").toBe("true");
-      expect(Boolean(openingBody)).toBe(true);
-      expect(openingBody?.style.pointerEvents ?? "").toBe("none");
-
-      await act(async () => {
-        animationFrameCallback?.(0);
-        await Promise.resolve();
-      });
-
-      expect(container.querySelector<HTMLElement>("[data-testid='activity-body']")?.style.pointerEvents ?? "").toBe("auto");
-    } finally {
-      window.requestAnimationFrame = originalRequestAnimationFrame;
-      window.cancelAnimationFrame = originalCancelAnimationFrame;
-    }
-  });
-
-  test("keeps the body mounted and non-interactive while closing", async () => {
-    const { container } = render(
-      <ThreadActivityDisclosure
-        bodyTestId="activity-body"
-        defaultExpanded
-        headerTestId="activity-header"
-        summary="Searched the web"
-      >
-        <div>search rows</div>
-      </ThreadActivityDisclosure>,
-    );
-
-    const button = container.querySelector<HTMLButtonElement>("[data-testid='activity-header']");
-    expect(button?.getAttribute("aria-expanded") ?? "").toBe("true");
-    expect(Boolean(container.querySelector("[data-testid='activity-body']"))).toBe(true);
+    expect(Boolean(collapsedBody)).toBe(true);
+    expect(collapsedBody?.getAttribute("aria-hidden")).toBe("true");
+    expect(collapsedBody?.hasAttribute("inert")).toBe(true);
+    expect(collapsedBody?.style.pointerEvents ?? "").toBe("none");
+    expect(textContent(collapsedBody as HTMLElement)).toContain("patch rows");
 
     await act(async () => {
       fireEvent.click(button as HTMLButtonElement);
       await Promise.resolve();
     });
 
-    const collapsingBody = container.querySelector<HTMLElement>("[data-testid='activity-body']");
-    expect(button?.getAttribute("aria-expanded") ?? "").toBe("false");
-    expect(Boolean(collapsingBody)).toBe(true);
-    expect(collapsingBody?.style.pointerEvents ?? "").toBe("none");
-  });
-
-  test("starts an initial collapse mounted and can reopen it synchronously", async () => {
-    const { container } = render(
-      <ThreadActivityDisclosure
-        bodyTestId="activity-body"
-        headerTestId="activity-header"
-        shouldAnimateInitialCollapse
-        summary="Editing files"
-      >
-        <div>live rows</div>
-      </ThreadActivityDisclosure>,
-    );
-
-    const button = container.querySelector<HTMLButtonElement>("[data-testid='activity-header']");
-    const body = container.querySelector<HTMLElement>("[data-testid='activity-body']");
-    expect(button?.getAttribute("aria-expanded") ?? "").toBe("false");
-    expect(Boolean(body)).toBe(true);
-    expect(body?.style.pointerEvents ?? "").toBe("none");
+    const expandedBody = container.querySelector<HTMLElement>("[data-testid='activity-body']");
+    expect(expandCount).toBe(1);
+    expect(expandedBody).toBe(collapsedBody);
+    expect(button?.getAttribute("aria-expanded") ?? "").toBe("true");
+    expect(expandedBody?.getAttribute("aria-hidden")).toBe("false");
+    expect(expandedBody?.hasAttribute("inert")).toBe(false);
+    expect(expandedBody?.style.pointerEvents ?? "").toBe("auto");
+    await waitFor(() => {
+      expect(expandedBody?.style.height).toBe("120px");
+    });
 
     await act(async () => {
       fireEvent.click(button as HTMLButtonElement);
       await Promise.resolve();
     });
-    expect(button?.getAttribute("aria-expanded") ?? "").toBe("true");
-    expect(container.querySelector<HTMLElement>("[data-testid='activity-body']")?.style.pointerEvents ?? "").toBe("auto");
+    expect(container.querySelector<HTMLElement>("[data-testid='activity-body']"))
+      .toBe(collapsedBody);
+    expect(button?.getAttribute("aria-expanded") ?? "").toBe("false");
+    expect(collapsedBody?.getAttribute("aria-hidden")).toBe("true");
+    expect(collapsedBody?.hasAttribute("inert")).toBe(true);
+    expect(collapsedBody?.style.pointerEvents ?? "").toBe("none");
   });
 
-  test("unmounts only after a closing animation completes", () => {
-    expect(completeThreadActivityDisclosureAnimation("closing")).toBe("collapsed");
-    expect(completeThreadActivityDisclosureAnimation("opening")).toBe("opening");
-    expect(completeThreadActivityDisclosureAnimation("expanded")).toBe("expanded");
+  test("opens running activities by default and preserves a manual collapse", async () => {
+    const view = render(
+      <ThreadActivityDisclosure
+        bodyTestId="activity-body"
+        headerTestId="activity-header"
+        status="running"
+        summary="Creating a worktree"
+      >
+        <div>Preparing worktree</div>
+      </ThreadActivityDisclosure>,
+    );
+    const button = view.container.querySelector<HTMLButtonElement>("[data-testid='activity-header']");
+    expect(button?.getAttribute("aria-expanded")).toBe("true");
+
+    await act(async () => {
+      fireEvent.click(button as HTMLButtonElement);
+      await Promise.resolve();
+    });
+    expect(button?.getAttribute("aria-expanded")).toBe("false");
+
+    view.rerender(
+      <ThreadActivityDisclosure
+        bodyTestId="activity-body"
+        headerTestId="activity-header"
+        status="running"
+        summary="Creating a worktree"
+      >
+        <div>Preparing worktree with more output</div>
+      </ThreadActivityDisclosure>,
+    );
+    expect(button?.getAttribute("aria-expanded")).toBe("false");
   });
 
   test("preserves an expanded body node across streaming summary updates", async () => {

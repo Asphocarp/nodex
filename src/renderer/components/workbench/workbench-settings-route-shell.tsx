@@ -81,7 +81,6 @@ import type {
   BackupSettings,
   DiagnosticsSettings,
   HistorySettings,
-  ManagedWorktreeRecord,
   Project,
   UpdateDiagnosticsSettingsInput,
   TelemetrySettings,
@@ -1284,194 +1283,6 @@ export function WorktreeAutoBranchPrefixSettingControl({
   );
 }
 
-function formatWorktreeTime(ts: string): string {
-  const date = new Date(ts);
-  if (Number.isNaN(date.getTime())) return ts;
-  const diff = Date.now() - date.getTime();
-  if (diff < 60_000) return "just now";
-  if (diff < 3_600_000) {
-    const mins = Math.floor(diff / 60_000);
-    return `${mins}m ago`;
-  }
-  if (diff < 86_400_000) {
-    const hours = Math.floor(diff / 3_600_000);
-    return `${hours}h ago`;
-  }
-  const days = Math.floor(diff / 86_400_000);
-  if (days < 30) return `${days}d ago`;
-  return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-}
-
-export function ManagedWorktreesSettingControl({ open }: { open: boolean }) {
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [records, setRecords] = useState<ManagedWorktreeRecord[]>([]);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const result = await invoke("worktrees:list");
-      setRecords(Array.isArray(result) ? (result as ManagedWorktreeRecord[]) : []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not load managed worktrees.");
-      setRecords([]);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!open) return;
-    void load();
-  }, [open, load]);
-
-  const handleDelete = useCallback(
-    async (threadId: string) => {
-      setDeletingId(threadId);
-      try {
-        await invoke("worktrees:delete", threadId);
-        setRecords((prev) => prev.filter((r) => r.threadId !== threadId));
-      } catch {
-        // Reload to get fresh state on failure
-        await load();
-      } finally {
-        setDeletingId(null);
-      }
-    },
-    [load],
-  );
-
-  const count = records.length;
-
-  return (
-    <div className="flex w-full flex-col gap-2">
-      {/* Header */}
-      <div className="flex items-center gap-2">
-        {count > 0 ? (
-          <span className="rounded-full bg-foreground-5 px-1.5 py-0 text-xs text-(--foreground-secondary) tabular-nums">
-            {count}
-          </span>
-        ) : null}
-        <div className="flex-1" />
-        <button
-          type="button"
-          onClick={() => void load()}
-          className={cn(
-            "rounded-full border px-2 py-0.5 text-xs/4 transition-colors",
-            "border-(--border) text-(--foreground-secondary) hover:bg-foreground-5",
-          )}
-          disabled={loading}
-        >
-          {loading ? "Refreshing\u2026" : "Refresh"}
-        </button>
-      </div>
-
-      {/* Error */}
-      {error ? (
-        <div className="rounded-md bg-(--red-text)/8 px-3 py-2 text-xs text-(--red-text)">
-          {error}
-        </div>
-      ) : null}
-
-      {/* Empty state */}
-      {!error && count === 0 && !loading ? (
-        <div className="py-6 text-center text-xs text-(--foreground-secondary)">
-          No managed worktrees yet
-        </div>
-      ) : null}
-
-      {/* Session list */}
-      {count > 0 ? (
-        <div className="flex max-h-64 flex-col overflow-auto">
-          {records.map((record) => {
-            const isDeleting = deletingId === record.threadId;
-            const label =
-              record.projectName && record.sessionTitle
-                ? `${record.projectName} / ${record.sessionTitle}`
-                : record.projectName ?? record.sessionTitle ?? record.sessionId;
-            return (
-              <div
-                key={record.threadId}
-                className={cn(
-                  "group/wt flex items-start gap-3 border-b border-(--border) px-1 py-2.5 last:border-b-0",
-                  isDeleting && "pointer-events-none opacity-40",
-                )}
-              >
-                {/* Status dot */}
-                <div className="mt-1.5 flex shrink-0">
-                  <span
-                    className={cn(
-                      "size-2 rounded-full",
-                      record.exists
-                        ? "bg-emerald-500"
-                        : "bg-amber-500",
-                    )}
-                    title={record.exists ? "Directory exists" : "Directory missing"}
-                  />
-                </div>
-
-                {/* Content */}
-                <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                  <div className="flex items-baseline gap-1.5">
-                    <span className="truncate text-xs text-(--foreground-secondary)">
-                      {label}
-                    </span>
-                    <span className="text-[10px] text-(--foreground-secondary)/50">/</span>
-                    <span className="shrink-0 text-xs font-medium text-(--foreground)">
-                      {record.threadName || record.threadId.slice(0, 8)}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span
-                      className="min-w-0 truncate font-mono text-[11px] text-(--foreground-secondary)/70"
-                      title={record.path}
-                    >
-                      {record.path}
-                    </span>
-                    <span className="shrink-0 text-[10px] text-(--foreground-secondary)/50">
-                      {formatWorktreeTime(record.linkedAt)}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Delete button */}
-                <button
-                  type="button"
-                  onClick={() => void handleDelete(record.threadId)}
-                  disabled={isDeleting}
-                  className={cn(
-                    "mt-0.5 shrink-0 rounded-sm p-1 text-(--foreground-secondary)/50 transition-colors",
-                    "opacity-0 group-hover/wt:opacity-100 hover:bg-foreground-5 hover:text-(--red-text)",
-                    "focus-visible:opacity-100 focus-visible:ring-1 focus-visible:ring-(--accent-blue) focus-visible:outline-none",
-                  )}
-                  title="Remove worktree directory"
-                >
-                  <svg
-                    width="14"
-                    height="14"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <path d="M3 6h18" />
-                    <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
-                    <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
-                  </svg>
-                </button>
-              </div>
-            );
-          })}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
 export function SmartPrefixParsingSettingControl({
   value,
   onChange,
@@ -1986,6 +1797,7 @@ export interface SettingsRouteShellProps {
   onPathChange: (path: string) => void;
   onBackToApp: () => void;
   onRequestProjectPickerOpen: () => void;
+  onOpenThread?: (threadId: string) => void | Promise<void>;
   projects: Project[];
   activeProjectId: string | null;
   initialLocalEnvironmentProjectId?: string | null;
@@ -2104,6 +1916,7 @@ export function SettingsRouteShell({
   onPathChange,
   onBackToApp,
   onRequestProjectPickerOpen,
+  onOpenThread,
   projects,
   activeProjectId,
   initialLocalEnvironmentProjectId,
@@ -2245,6 +2058,7 @@ export function SettingsRouteShell({
                 initialLocalEnvironmentProjectId={initialLocalEnvironmentProjectId}
                 initialLocalEnvironmentConfigPath={initialLocalEnvironmentConfigPath}
                 onRequestProjectPickerOpen={onRequestProjectPickerOpen}
+                onOpenThread={onOpenThread}
                 threadQueueFollowUpsEnabled={threadQueueFollowUpsEnabled}
                 onThreadQueueFollowUpsEnabledChange={onThreadQueueFollowUpsEnabledChange}
                 composerEnterBehavior={composerEnterBehavior}

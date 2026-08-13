@@ -6,9 +6,13 @@ import { LocalConversationForkFromTurnDialog } from "./local-conversation-fork-f
 function ForkFromTurnDialogStory({
   isWorktreeThread,
   showWorktreeOption,
+  canForkIntoWorktree = true,
+  isSubmitting = false,
 }: {
   isWorktreeThread: boolean;
   showWorktreeOption: boolean;
+  canForkIntoWorktree?: boolean;
+  isSubmitting?: boolean;
 }) {
   const [open, setOpen] = useState(true);
   const [lastChoice, setLastChoice] = useState("No destination selected");
@@ -29,6 +33,8 @@ function ForkFromTurnDialogStory({
       <LocalConversationForkFromTurnDialog
         open={open}
         isWorktreeThread={isWorktreeThread}
+        canForkIntoWorktree={canForkIntoWorktree}
+        isSubmitting={isSubmitting}
         showWorktreeOption={showWorktreeOption}
         onOpenChange={setOpen}
         onForkIntoLocal={() => {
@@ -61,6 +67,26 @@ export const LocalTask: Story = {
 
 export const ManagedWorktree: Story = {
   render: () => (
-    <ForkFromTurnDialogStory isWorktreeThread showWorktreeOption={false} />
+    <ForkFromTurnDialogStory isWorktreeThread showWorktreeOption />
+  ),
+};
+
+export const GitRepositoryRequired: Story = {
+  render: () => (
+    <ForkFromTurnDialogStory
+      isWorktreeThread={false}
+      showWorktreeOption
+      canForkIntoWorktree={false}
+    />
+  ),
+};
+
+export const Submitting: Story = {
+  render: () => (
+    <ForkFromTurnDialogStory
+      isWorktreeThread
+      showWorktreeOption
+      isSubmitting
+    />
   ),
 };

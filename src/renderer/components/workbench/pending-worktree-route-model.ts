@@ -3,10 +3,6 @@ import type {
   CodexPendingWorktreeThreadResolution,
 } from "../../../shared/codex-pending-worktree";
 import { canCreateCodexPendingWorktreeSetupRepair } from "../../../shared/codex-pending-worktree";
-import type {
-  CodexWorktreeInitActivity,
-  CodexWorktreeInitActivityStatus,
-} from "../../lib/codex-worktree-init-activity";
 
 export interface PendingWorktreeRouteActions {
   canAutoFix: boolean;
@@ -17,74 +13,127 @@ export interface PendingWorktreeRouteActions {
   canWorkLocally: boolean;
 }
 
+export type PendingWorktreeProgressStatus =
+  | "pending"
+  | "running"
+  | "completed"
+  | "skipped"
+  | "failed";
+
+export interface PendingWorktreeProgressStep {
+  readonly kind: "workspace" | "checkout" | "setup";
+  readonly status: PendingWorktreeProgressStatus;
+  readonly progressPercentage: number | null;
+}
+
+export interface PendingWorktreeProgressModel {
+  readonly title: "Creating a worktree" | "Worktree created" | "Worktree setup failed" | "Task failed to start";
+  readonly titleIsRunning: boolean;
+  readonly cardVisible: boolean;
+  readonly detailsInitiallyExpanded: boolean;
+  readonly outputText: string;
+  readonly steps: readonly PendingWorktreeProgressStep[];
+  readonly startingTask: boolean;
+}
+
 function hasCreatedWorktree(entry: CodexPendingWorktreeEntry): boolean {
   return entry.worktreeGitRoot !== null && entry.worktreeWorkspaceRoot !== null;
 }
 
-function resolveWorktreeActivityStatus(
+function worktreeLifecycleStatus(
   entry: CodexPendingWorktreeEntry,
-): CodexWorktreeInitActivityStatus {
+): "running" | "completed" | "failed" {
   if (entry.phase === "queued" || entry.phase === "creating") return "running";
   if (entry.phase === "setting-up" || entry.phase === "worktree-ready") return "completed";
   return hasCreatedWorktree(entry) ? "completed" : "failed";
 }
 
-function resolveSetupActivityStatus(
-  entry: CodexPendingWorktreeEntry,
-): CodexWorktreeInitActivityStatus | null {
-  if (entry.phase === "queued" || entry.phase === "creating") return null;
-  if (entry.phase === "setting-up") return "running";
-
-  if (entry.phase === "worktree-ready") {
-    if (entry.localEnvironmentConfigPath === null || entry.localEnvironmentConfigPath === undefined) {
-      return null;
-    }
-    return entry.errorMessage === null ? "completed" : "skipped";
+function checkoutProgressPercentage(output: string): number | null {
+  let result: number | null = null;
+  for (const match of output.matchAll(
+    /(?:^|[\r\n])Updating files:\s+(\d{1,3})%\s+\(\d+\/\d+\)/g,
+  )) {
+    const value = Number(match[1]);
+    if (value >= 0 && value <= 100) result = value;
   }
-
-  return hasCreatedWorktree(entry) ? "failed" : null;
+  return result;
 }
 
-export function resolvePendingWorktreeActivities(
+function setupStatus(
   entry: CodexPendingWorktreeEntry,
-  resolution: CodexPendingWorktreeThreadResolution | null,
-): CodexWorktreeInitActivity[] {
-  const activities: CodexWorktreeInitActivity[] = [
+): PendingWorktreeProgressStatus {
+  if (entry.phase === "queued" || entry.phase === "creating") return "pending";
+  if (entry.phase === "setting-up") return "running";
+  if (entry.phase === "worktree-ready") {
+    return entry.errorMessage === null ? "completed" : "skipped";
+  }
+  return hasCreatedWorktree(entry) ? "failed" : "pending";
+}
+
+function progressSteps(entry: CodexPendingWorktreeEntry): readonly PendingWorktreeProgressStep[] {
+  const lifecycleStatus = worktreeLifecycleStatus(entry);
+  const progressPercentage = checkoutProgressPercentage(entry.worktreeOutputText);
+  const checkoutStarted = progressPercentage !== null
+    || /(?:^|[\r\n])(?:Preparing worktree|Updating index flags:)/.test(entry.worktreeOutputText);
+  const creationDone = lifecycleStatus === "completed";
+  const workspaceStatus = creationDone || checkoutStarted
+    ? "completed"
+    : lifecycleStatus === "failed" ? "failed" : "running";
+  const checkoutStatus = creationDone
+    ? "completed"
+    : checkoutStarted ? lifecycleStatus === "failed" ? "failed" : "running" : "pending";
+  const steps: PendingWorktreeProgressStep[] = [
+    { kind: "workspace", status: workspaceStatus, progressPercentage: null },
     {
-      id: `${entry.id}:${entry.attempt}:worktree`,
-      kind: "worktree",
-      status: resolveWorktreeActivityStatus(entry),
-      outputText: entry.worktreeOutputText,
+      kind: "checkout",
+      status: checkoutStatus,
+      progressPercentage: checkoutStatus === "running" ? progressPercentage : null,
     },
   ];
 
-  const setupStatus = resolveSetupActivityStatus(entry);
-  if (setupStatus) {
-    activities.push({
-      id: `${entry.id}:${entry.attempt}:setup`,
+  if (entry.localEnvironmentConfigPath != null) {
+    steps.push({
       kind: "setup",
-      status: setupStatus,
-      outputText: entry.setupOutputText,
+      status: setupStatus(entry),
+      progressPercentage: null,
     });
   }
+  return steps;
+}
 
-  if (entry.phase === "worktree-ready" && resolution?.state === "failed") {
-    activities.push({
-      id: `${entry.id}:${entry.attempt}:conversation`,
-      kind: "conversation",
-      status: "failed",
-      outputText: "",
-    });
-  } else if (entry.phase === "worktree-ready" && resolution?.state === "waiting") {
-    activities.push({
-      id: `${entry.id}:${entry.attempt}:conversation`,
-      kind: "conversation",
-      status: "running",
-      outputText: "",
-    });
-  }
+function combinedOutput(entry: CodexPendingWorktreeEntry): string {
+  const output = [entry.worktreeOutputText, entry.setupOutputText]
+    .filter((value) => value.length > 0)
+    .join("\n");
+  const error = entry.errorMessage?.trim();
+  if (!error || output.includes(error)) return output;
+  return [output, error].filter(Boolean).join("\n");
+}
 
-  return activities;
+export function resolvePendingWorktreeProgressModel(
+  entry: CodexPendingWorktreeEntry,
+  resolution: CodexPendingWorktreeThreadResolution | null,
+): PendingWorktreeProgressModel {
+  const worktreeFailed = entry.phase === "failed";
+  const conversationFailed = resolution?.state === "failed" && !worktreeFailed;
+  const ready = entry.phase === "worktree-ready";
+  const title = worktreeFailed
+    ? "Worktree setup failed"
+    : conversationFailed
+      ? "Task failed to start"
+      : ready
+        ? "Worktree created"
+        : "Creating a worktree";
+
+  return {
+    title,
+    titleIsRunning: !worktreeFailed && !conversationFailed && !ready,
+    cardVisible: !ready || conversationFailed,
+    detailsInitiallyExpanded: worktreeFailed,
+    outputText: combinedOutput(entry),
+    steps: progressSteps(entry),
+    startingTask: ready && resolution?.state === "starting",
+  };
 }
 
 export function resolvePendingWorktreeRouteActions(

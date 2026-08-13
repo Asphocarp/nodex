@@ -39,6 +39,7 @@ const PROJECT: Project = {
 const THREAD: CodexSidebarThreadItem = {
   key: "local:thread-alpha",
   kind: "local",
+  runLocation: { kind: "local-checkout" },
   hostId: "local",
   threadId: "thread-alpha",
   parentThreadId: null,

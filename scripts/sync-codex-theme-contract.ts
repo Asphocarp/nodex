@@ -102,7 +102,7 @@ const extractDeclarationsFromBlocks = (
   const declarations = new Map<string, string>();
   const normalizedSelector = normalizeSelector(selector);
   const pattern = new RegExp(
-    String.raw`(?:^|(?<=[;]))\s*(${prefix}[A-Za-z0-9_.\\-]+)\s*:\s*([^;}]*)`,
+    String.raw`(?:^|(?<=[;]))\s*(${prefix}[A-Za-z0-9_.\\-]*)\s*:\s*([^;}]*)`,
     "g",
   );
 
@@ -179,6 +179,15 @@ const run = (): void => {
       "--color-token-",
     ),
   );
+  const dangerColorDeclarations = extractDeclarationsFromBlocks(
+    blocks,
+    ":root, :host",
+    "--color-text-danger",
+  );
+  const themeDeclarations = new Map([
+    ...colorTokenDeclarations,
+    ...dangerColorDeclarations,
+  ]);
 
   const output = `/*
  * Synced from the Codex Electron reference CSS.
@@ -188,13 +197,13 @@ const run = (): void => {
 
 ${formatBlock('[data-codex-window-type="electron"]', vscodeDeclarations)}
 
-${formatThemeBlock(colorTokenDeclarations)}
+${formatThemeBlock(themeDeclarations)}
 `;
 
   writeFileSync(outputPath, output);
 
   console.log(
-    `Synced ${vscodeDeclarations.size} vscode vars and ${colorTokenDeclarations.size} color-token vars from ${referencePath} to ${outputPath}`,
+    `Synced ${vscodeDeclarations.size} vscode vars, ${colorTokenDeclarations.size} color-token vars, and ${dangerColorDeclarations.size} danger vars from ${referencePath} to ${outputPath}`,
   );
 };
 

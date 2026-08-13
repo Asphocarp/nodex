@@ -1,5 +1,6 @@
 mod child_thread_window;
 mod execution;
+mod managed_worktree_lifecycle;
 mod managed_worktree_window;
 mod mutation;
 mod project_activity_summary;

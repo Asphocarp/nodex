@@ -1,12 +1,12 @@
 import type { PageRunInTarget } from "./types";
+import type { CodexPendingWorktreeStartingState } from "../../shared/codex-pending-worktree";
 
 export type NewChatStartInIconKey = "local" | "worktree" | "codexWeb" | "cloud" | "usage" | "external";
 
 export interface NewChatStartInTarget {
   runInTarget: PageRunInTarget;
   runInEnvironmentPath?: string | null;
-  worktreeStartMode?: "autoBranch" | "detachedHead";
-  worktreeBranchPrefix?: string | null;
+  worktreeStartingState?: CodexPendingWorktreeStartingState;
 }
 
 export interface NewChatStartInOption {
@@ -56,7 +56,7 @@ export function resolveNewChatStartInOptions(
   return [
     {
       value: "localProject",
-      label: "Work locally",
+      label: "Local",
       iconKey: "local",
       disabled: false,
       selected: selected === "localProject",

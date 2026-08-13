@@ -155,6 +155,8 @@ export const ProjectSessionThreadLinkInputSchema = z.object({
     reasoningEffort: z.string().trim().min(1).max(64).nullable(),
     serviceTier: z.string().trim().min(1).max(64).nullable(),
   }).nullable().optional(),
+  executionHostId: z.string().trim().min(1).max(512).optional(),
+  runtimeWorkspaceRoots: z.array(z.string()).max(128).optional(),
   cwd: z.string().nullable().optional(),
   managedWorktreePath: z.string().nullable().optional(),
   projectlessOutputDirectory: z.string().nullable().optional(),

@@ -681,6 +681,7 @@ function makeSession(args: ShellStoryArgs): ProjectSession {
         threadName: "Codex shell parity",
         threadPreview: "Reviewing shell layout and tab persistence",
         modelProvider: "openai",
+        executionHostId: "local",
         cwd: "/Users/asc/repo/nodex",
         statusType: "notLoaded",
         statusActiveFlags: [],

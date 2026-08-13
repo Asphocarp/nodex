@@ -468,6 +468,19 @@ pub(super) fn apply(
                     thread_id,
                     patch,
                 ),
+                ProjectWorkspaceIntent::SetThreadExecutionLocation {
+                    thread_id,
+                    location,
+                } => thread::set_thread_execution_location(
+                    transaction,
+                    &library_id,
+                    &context,
+                    &store_epoch,
+                    &request.operation_id,
+                    &request_hash,
+                    thread_id,
+                    location,
+                ),
                 ProjectWorkspaceIntent::DeleteThread { thread_id } => thread::delete_thread(
                     transaction,
                     &library_id,
@@ -3598,6 +3611,7 @@ mod tests {
                         thread_id: "thread-native".to_owned(),
                         expected_project_id: Some("project:default".to_owned()),
                         thread_patch: None,
+                        execution_location: None,
                     },
                 ),
             )
@@ -3624,6 +3638,7 @@ mod tests {
                             updated_at: Some(3),
                             ..ProjectWorkspaceThreadPatch::default()
                         })),
+                        execution_location: None,
                     },
                 ),
             )
@@ -3881,6 +3896,7 @@ mod tests {
                         thread_id: "thread-projectless".to_owned(),
                         expected_project_id: None,
                         thread_patch: None,
+                        execution_location: None,
                     },
                 ),
             )

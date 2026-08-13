@@ -48,15 +48,18 @@ export function suggestStableWorktreeProjectName({
 
 export function buildStableWorktreeCreateInput({
   sourceWorkspaceRoot,
+  sourceWorkspaceRoots,
   label,
 }: {
   sourceWorkspaceRoot: string;
+  sourceWorkspaceRoots: readonly string[];
   label: string;
 }): CodexPendingWorktreeCreateInput {
   return {
     hostId: "local",
     label,
     sourceWorkspaceRoot,
+    sourceWorkspaceRoots: [...sourceWorkspaceRoots],
     startingState: {
       type: "branch",
       branchName: "HEAD",

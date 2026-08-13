@@ -36,6 +36,8 @@ interface NewChatStartInSelectorProps {
   contentClassName?: string;
   menuTitle?: ReactNode;
   tooltipContent?: string;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
 export interface NewChatStartInTriggerRenderState {
@@ -54,10 +56,12 @@ export function NewChatStartInSelector({
   side = "top",
   align = "start",
   sideOffset = 8,
-  contentWidth = "workspace",
-  contentClassName = "w-[320px] max-w-[calc(100vw-2rem)]",
-  menuTitle = "Start in",
+  contentWidth = "menuFixed",
+  contentClassName = "flex w-52 max-w-78 flex-col",
+  menuTitle = "Work in",
   tooltipContent = "Select start location",
+  open,
+  onOpenChange,
 }: NewChatStartInSelectorProps) {
   const selectorDisabled = disabled || model.disabled || !actions.onNewThreadStartInTargetChange;
   const options = resolveNewChatStartInOptions({
@@ -67,6 +71,11 @@ export function NewChatStartInSelector({
   }).filter((option) => option.value !== "cloud");
   const triggerIconKey = getNewChatStartInTriggerIconKey(model.target.runInTarget);
   const triggerLabel = getNewChatStartInTriggerLabel(model.target.runInTarget);
+  const repositoryName = model.repositoryName?.trim() || null;
+  const additionalSourceFolderCount = Math.max(
+    0,
+    model.additionalSourceFolderCount ?? 0,
+  );
   const triggerButton = renderTrigger
     ? renderTrigger({
         triggerLabel,
@@ -100,31 +109,63 @@ export function NewChatStartInSelector({
       sideOffset={sideOffset}
       contentWidth={contentWidth}
       contentClassName={contentClassName}
+      open={open}
+      onOpenChange={onOpenChange}
       triggerButton={triggerButton}
     >
       <NodexDropdownTitle>{menuTitle}</NodexDropdownTitle>
 
-      {options.map((option) => (
-        <NodexDropdownItem
-          key={option.value}
-          leftSlot={<StartInIcon iconKey={option.iconKey} className="size-3.5 text-token-description-foreground" />}
-          rightSlot={option.selected ? <NodexDropdownSelectedIcon /> : null}
-          disabled={option.disabled}
-          tooltipText={option.tooltipText}
-          tooltipSide="right"
-          onSelect={() => {
-            actions.onNewThreadStartInTargetChange?.({
-              ...model.target,
-              runInTarget: option.value,
-            });
-          }}
-          data-new-chat-start-in-option={option.value}
-          data-selected={option.selected ? "true" : undefined}
-          className={cn(option.selected && "text-token-foreground")}
-        >
-          {option.label}
-        </NodexDropdownItem>
-      ))}
+      {options.map((option) => {
+        const isWorktree = option.value === "newWorktree";
+        const hasAdditionalSources = isWorktree && additionalSourceFolderCount > 0;
+        const label = hasAdditionalSources && repositoryName
+          ? `New worktree · ${repositoryName}`
+          : option.label;
+        const subText = hasAdditionalSources
+          ? `Work locally in ${additionalSourceFolderCount} other ${additionalSourceFolderCount === 1 ? "folder" : "folders"}`
+          : null;
+        const worktreeTooltip = isWorktree && repositoryName
+          ? [
+              `Create a copy of ${repositoryName} to work in parallel.`,
+              hasAdditionalSources
+                ? "Other project source folders will be accessed directly."
+                : null,
+            ].filter(Boolean).join(" ")
+          : null;
+        return (
+          <NodexDropdownItem
+            key={option.value}
+            leftSlot={(
+              <StartInIcon
+                iconKey={option.iconKey}
+                className={cn(
+                  "size-3.5 text-token-description-foreground",
+                  hasAdditionalSources && "icon-sm self-start",
+                )}
+              />
+            )}
+            rightSlot={option.selected ? <NodexDropdownSelectedIcon /> : null}
+            disabled={option.disabled}
+            tooltipText={option.tooltipText ?? worktreeTooltip}
+            tooltipSide="right"
+            onSelect={() => {
+              actions.onNewThreadStartInTargetChange?.({
+                ...model.target,
+                runInTarget: option.value,
+              });
+            }}
+            data-new-chat-start-in-option={option.value}
+            data-selected={option.selected ? "true" : undefined}
+            className={cn(option.selected && "text-token-foreground")}
+            allowWrap={hasAdditionalSources}
+            subText={subText}
+            subTextAllowWrap={hasAdditionalSources}
+            alignSlotsToStart={hasAdditionalSources}
+          >
+            {label}
+          </NodexDropdownItem>
+        );
+      })}
     </NodexDropdownMenu>
   );
 

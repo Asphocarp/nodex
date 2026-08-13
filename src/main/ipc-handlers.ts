@@ -3809,6 +3809,24 @@ export function registerIpcHandlers(
   );
 
   registerHandle("worktrees:list", () => codexService.listManagedWorktrees());
+  registerHandle("worktrees:settings:get", () =>
+    codexService.getManagedWorktreeSettings()
+  );
+  registerHandle("worktrees:settings:update", (_, input) =>
+    codexService.updateManagedWorktreeSettings(input)
+  );
+  registerHandle("worktrees:execution-hosts:get", () =>
+    codexService.getCodexExecutionHostSettings()
+  );
+  registerHandle("worktrees:execution-hosts:update", (_, input) =>
+    codexService.updateCodexExecutionHostSettings(input)
+  );
+  registerHandle("worktrees:thread:availability", (_, threadId: string) =>
+    codexService.inspectThreadManagedWorktree(threadId)
+  );
+  registerHandle("worktrees:thread:restore", (_, threadId: string) =>
+    codexService.restoreThreadManagedWorktree(threadId)
+  );
 
   registerHandle("worktrees:environments:list", (_, projectId: string) =>
     codexService.listWorktreeEnvironments(projectId),
@@ -3837,8 +3855,8 @@ export function registerIpcHandlers(
     return codexService.saveWorktreeEnvironmentConfig(input);
   });
 
-  registerHandle("worktrees:delete", (_, threadId: string) =>
-    codexService.deleteManagedWorktree(threadId),
+  registerHandle("worktrees:delete", (_, hostId: string, worktreePath: string) =>
+    codexService.deleteManagedWorktree(hostId, worktreePath),
   );
 
   registerHandle("codex:thread:snapshot:request", (_, threadId: string) =>

@@ -1,4 +1,5 @@
 import {
+  type ComponentPropsWithoutRef,
   useCallback,
   useEffect,
   useEffectEvent,
@@ -6,31 +7,33 @@ import {
   useState,
 } from "react";
 import {
-  SessionPinFilledIcon,
-  SessionPinIcon,
   ActivitySpinnerIcon,
-  TextActionPencilSmallIcon,
+  CloseIcon,
+  PendingWorktreeLocalIcon,
+  PendingWorktreeRetryIcon,
 } from "@/components/shared/icons";
 import { NodexButton } from "@/components/ui/button";
 import { toast } from "@/components/ui/toast";
+import {
+  EnsureLocalConversationThreadScrollController,
+  LocalConversationThreadScrollLayout,
+} from "@/features/local-conversation/view/local-conversation-thread-scroll-controller";
+import {
+  CopyMessageActionButton,
+  ThreadMessageActionRow,
+} from "@/features/local-conversation/view/shared/thread-message-actions";
 import { UserMessageText } from "@/features/local-conversation/view/shared/user-message-collapse";
 import { THREAD_VISUAL_TOKENS } from "@/features/local-conversation/view/blocks/local-conversation-visual-tokens";
-import { WorktreeInitActivityList } from "@/features/local-conversation/view/shared/tools/worktree-init-activity-list";
 import { invoke, subscribeCodexPendingWorktreesChanged } from "@/lib/api";
-import { appScope, useScopeHandle } from "@/lib/maitai";
-import { openModal } from "@/lib/modal-registry";
-import { AppShellHeaderContentRegistrar } from "@/lib/workbench-ui-scopes";
-import { RenameChatDialog } from "./rename-chat-dialog";
+import { cn } from "@/lib/utils";
 import type {
   CodexPendingWorktreeEntry,
   CodexPendingWorktreeThreadResolution,
   CodexPendingWorktreesChangedEvent,
 } from "../../../shared/codex-pending-worktree";
 import type { CodexAgentMode } from "../../../shared/types";
-import {
-  resolvePendingWorktreeActivities,
-  resolvePendingWorktreeRouteActions,
-} from "./pending-worktree-route-model";
+import { PendingWorktreeProgress } from "./pending-worktree-progress";
+import { resolvePendingWorktreeRouteActions } from "./pending-worktree-route-model";
 
 type PendingWorktreeRouteAction =
   | "auto-fix"
@@ -50,7 +53,10 @@ export interface PendingWorktreeRouteTransport {
     agentMode: CodexAgentMode,
   ) => Promise<import("../../../shared/codex-pending-worktree").CodexPendingWorktreeCreateResult>;
   retry: (hostId: string, pendingWorktreeId: string) => Promise<void>;
-  workLocally: (hostId: string, pendingWorktreeId: string) => Promise<void>;
+  workLocally: (
+    hostId: string,
+    pendingWorktreeId: string,
+  ) => Promise<{ readonly threadId: string }>;
   continue: (hostId: string, pendingWorktreeId: string) => Promise<void>;
   cancel: (hostId: string, pendingWorktreeId: string) => Promise<void>;
   discardForkSidePanelTransfer: (pendingWorktreeId: string) => Promise<void>;
@@ -121,60 +127,51 @@ function findPendingWorktreeEntry(
   ) ?? null;
 }
 
-function PendingWorktreeRouteHeader({
-  entry,
-  onRename,
-  onTogglePinned,
-  external,
-}: {
-  entry: CodexPendingWorktreeEntry;
-  onRename: () => void;
-  onTogglePinned: () => void;
-  external: boolean;
-}) {
-  const header = (
-    <div className="flex h-toolbar min-w-0 items-center gap-1 px-1">
-      <h1 className="min-w-0 flex-1 truncate text-sm font-medium text-token-foreground">
-        {entry.label || "Setting up worktree"}
-      </h1>
-      <button
-        type="button"
-        aria-label="Rename task"
-        className="flex size-7 shrink-0 cursor-interaction items-center justify-center rounded-md text-token-description-foreground hover:bg-token-list-hover-background hover:text-token-foreground focus-visible:ring-1 focus-visible:ring-token-focus-border focus-visible:outline-none"
-        onClick={onRename}
-      >
-        <TextActionPencilSmallIcon className="icon-xs" />
-      </button>
-      <button
-        type="button"
-        aria-label={entry.isPinned ? "Unpin task" : "Pin task"}
-        className="flex size-7 shrink-0 cursor-interaction items-center justify-center rounded-md text-token-description-foreground hover:bg-token-list-hover-background hover:text-token-foreground focus-visible:ring-1 focus-visible:ring-token-focus-border focus-visible:outline-none"
-        onClick={onTogglePinned}
-      >
-        {entry.isPinned
-          ? <SessionPinFilledIcon className="icon-xs" />
-          : <SessionPinIcon className="icon-xs" />}
-      </button>
-    </div>
-  );
-  if (external) return <AppShellHeaderContentRegistrar content={header} />;
-  return <div className="shrink-0 border-b border-token-border px-4">{header}</div>;
-}
-
 export interface PendingWorktreeRouteViewProps {
   entry: CodexPendingWorktreeEntry;
   resolution: CodexPendingWorktreeThreadResolution | null;
   busyAction?: PendingWorktreeRouteAction | null;
   actionError?: string | null;
-  externalHeader?: boolean;
   onCancel: () => void;
   onContinue: () => void;
   onAutoFix: () => void;
   onEditEnvironment: () => void;
-  onRename: (label: string) => void;
   onRetry: () => void;
-  onTogglePinned: () => void;
   onWorkLocally: () => void;
+}
+
+function PendingWorktreeActionButton({
+  children,
+  disabled = false,
+  loading = false,
+  tone = "ghost",
+  className,
+  ...props
+}: ComponentPropsWithoutRef<"button"> & {
+  loading?: boolean;
+  tone?: "ghost" | "primary" | "secondary";
+}) {
+  return (
+    <button
+      type="button"
+      aria-busy={loading || undefined}
+      disabled={disabled || loading}
+      className={cn(
+        "no-drag flex h-6 cursor-interaction items-center gap-1 rounded-full border border-transparent px-2 py-0.5 text-sm leading-[18px] whitespace-nowrap select-none focus:outline-none focus-visible:ring-2 focus-visible:ring-token-focus disabled:cursor-not-allowed disabled:opacity-40",
+        tone === "secondary"
+          && "bg-token-foreground/5 text-token-foreground enabled:hover:bg-token-foreground/10",
+        tone === "ghost"
+          && "text-token-text-tertiary enabled:hover:bg-token-list-hover-background",
+        tone === "primary"
+          && "bg-token-foreground text-token-dropdown-background enabled:hover:bg-token-foreground/80",
+        className,
+      )}
+      {...props}
+    >
+      {loading ? <ActivitySpinnerIcon aria-hidden="true" className="icon-xs" /> : null}
+      {children}
+    </button>
+  );
 }
 
 export function PendingWorktreeRouteView({
@@ -182,18 +179,13 @@ export function PendingWorktreeRouteView({
   resolution,
   busyAction = null,
   actionError = null,
-  externalHeader = false,
   onCancel,
   onContinue,
   onAutoFix,
   onEditEnvironment,
-  onRename,
   onRetry,
-  onTogglePinned,
   onWorkLocally,
 }: PendingWorktreeRouteViewProps) {
-  const appHandle = useScopeHandle(appScope);
-  const activities = resolvePendingWorktreeActivities(entry, resolution);
   const availableActions = resolvePendingWorktreeRouteActions(entry, resolution);
   const actionButtons = availableActions.canCancel
     || availableActions.canAutoFix
@@ -204,69 +196,58 @@ export function PendingWorktreeRouteView({
     ? (
         <>
           {availableActions.canWorkLocally ? (
-            <NodexButton
-              variant="secondary"
-              size="sm"
-              disabled={busyAction !== null}
+            <PendingWorktreeActionButton
+              tone="ghost"
+              loading={busyAction === "work-locally" || busyAction === "cancel"}
               onClick={onWorkLocally}
             >
-              {busyAction === "work-locally" ? "Starting locally…" : "Work locally"}
-            </NodexButton>
+              <PendingWorktreeLocalIcon />
+              Work locally
+            </PendingWorktreeActionButton>
           ) : null}
           {availableActions.canCancel ? (
-            <NodexButton
-              variant="secondary"
-              size="sm"
-              disabled={busyAction !== null}
+            <PendingWorktreeActionButton
+              tone="ghost"
+              loading={busyAction === "work-locally" || busyAction === "cancel"}
               onClick={onCancel}
             >
-              {busyAction === "cancel" ? "Canceling…" : "Cancel"}
-            </NodexButton>
+              <CloseIcon />
+              Cancel
+            </PendingWorktreeActionButton>
           ) : null}
           {availableActions.canEditEnvironment ? (
-            <NodexButton
-              variant="secondary"
-              size="sm"
-              disabled={busyAction !== null}
+            <PendingWorktreeActionButton
+              tone="secondary"
               onClick={onEditEnvironment}
             >
               Edit environment
-            </NodexButton>
+            </PendingWorktreeActionButton>
           ) : null}
           {availableActions.canAutoFix ? (
-            <NodexButton
-              variant="secondary"
-              size="sm"
-              disabled={busyAction !== null}
+            <PendingWorktreeActionButton
+              tone="secondary"
+              loading={busyAction === "auto-fix"}
               onClick={onAutoFix}
             >
-              {busyAction === "auto-fix" ? (
-                <>
-                  <ActivitySpinnerIcon className="icon-xs" />
-                  Starting…
-                </>
-              ) : "Auto-fix"}
-            </NodexButton>
+              Auto-fix
+            </PendingWorktreeActionButton>
           ) : null}
           {availableActions.canRetry ? (
-            <NodexButton
-              variant="secondary"
-              size="sm"
-              disabled={busyAction !== null}
+            <PendingWorktreeActionButton
+              tone="ghost"
               onClick={onRetry}
             >
-              {busyAction === "retry" ? "Retrying…" : "Retry"}
-            </NodexButton>
+              <PendingWorktreeRetryIcon />
+              Retry
+            </PendingWorktreeActionButton>
           ) : null}
           {availableActions.canContinue ? (
-            <NodexButton
-              variant="primary"
-              size="sm"
-              disabled={busyAction !== null}
+            <PendingWorktreeActionButton
+              tone="primary"
               onClick={onContinue}
             >
-              {busyAction === "continue" ? "Continuing…" : "Continue anyway"}
-            </NodexButton>
+              Continue anyway
+            </PendingWorktreeActionButton>
           ) : null}
         </>
       )
@@ -276,43 +257,31 @@ export function PendingWorktreeRouteView({
     <div
       data-testid="pending-worktree-route-shell"
       data-pending-worktree-phase={entry.phase}
-      className="flex h-full min-h-0 flex-col bg-token-main-surface-primary"
+      className="h-full min-h-0 bg-token-main-surface-primary"
     >
-      <PendingWorktreeRouteHeader
-        entry={entry}
-        external={externalHeader}
-        onRename={() => {
-          openModal(appHandle, RenameChatDialog, {
-            initialValue: entry.label,
-            requireNonEmpty: true,
-            onSave: onRename,
-          });
-        }}
-        onTogglePinned={onTogglePinned}
-      />
-      <div className="scrollbar-token min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-5 pt-16 pb-32">
-          <div className="flex flex-col items-end gap-2">
-            <div
-              data-user-message-bubble="true"
-              className={THREAD_VISUAL_TOKENS.userBubble}
-            >
-              <UserMessageText text={entry.prompt} />
+      <EnsureLocalConversationThreadScrollController>
+        <LocalConversationThreadScrollLayout>
+          <div className="flex flex-col gap-4">
+            <div className="group flex flex-col items-end gap-2">
+              <div
+                data-user-message-bubble="true"
+                className={THREAD_VISUAL_TOKENS.userBubble}
+              >
+                <UserMessageText text={entry.prompt} />
+              </div>
+              <ThreadMessageActionRow align="end" className="opacity-100">
+                <CopyMessageActionButton text={entry.prompt} />
+              </ThreadMessageActionRow>
             </div>
+            <PendingWorktreeProgress
+              entry={entry}
+              resolution={resolution}
+              actions={actionButtons}
+              actionError={actionError}
+            />
           </div>
-          <WorktreeInitActivityList activities={activities} actions={actionButtons} />
-          {actionError ? (
-            <div role="alert" className="text-sm text-token-error-foreground">
-              {actionError}
-            </div>
-          ) : null}
-        </div>
-      </div>
-      <div className="shrink-0 px-5 pb-4">
-        <div className="mx-auto max-w-3xl rounded-2xl border border-token-border bg-token-main-surface-primary px-4 py-3 text-size-chat text-token-input-placeholder-foreground opacity-80">
-          Waiting for worktree setup…
-        </div>
-      </div>
+        </LocalConversationThreadScrollLayout>
+      </EnsureLocalConversationThreadScrollController>
     </div>
   );
 }
@@ -379,7 +348,6 @@ export interface PendingWorktreeRouteProps {
 export function PendingWorktreeRoute({
   clientThreadId,
   agentMode = "auto",
-  externalHeader = false,
   transport = ELECTRON_PENDING_WORKTREE_TRANSPORT,
   onClose,
   onOpenThread,
@@ -486,8 +454,8 @@ export function PendingWorktreeRoute({
         return;
       }
       if (action === "work-locally") {
-        await transport.workLocally(hostId, pendingWorktreeId);
-        await load();
+        const result = await transport.workLocally(hostId, pendingWorktreeId);
+        openResolvedThread(result.threadId);
         return;
       }
       if (action === "auto-fix") {
@@ -514,27 +482,7 @@ export function PendingWorktreeRoute({
     } finally {
       setBusyAction(null);
     }
-  }, [agentMode, busyAction, load, onCancelToSource, onClose, onOpenPendingWorktree, snapshot.entry, transport]);
-
-  const runMetadataAction = useCallback(async (
-    action: "rename" | "pin",
-    label?: string,
-  ) => {
-    const entry = snapshot.entry;
-    if (!entry) return;
-    setActionError(null);
-    try {
-      if (action === "rename") {
-        if (!label?.trim()) return;
-        await transport.rename(entry.hostId, entry.id, label.trim());
-      } else {
-        await transport.setPinned(entry.hostId, entry.id, !entry.isPinned);
-      }
-      await load();
-    } catch (error) {
-      setActionError(errorMessage(error));
-    }
-  }, [load, snapshot.entry, transport]);
+  }, [agentMode, busyAction, load, onCancelToSource, onClose, onOpenPendingWorktree, openResolvedThread, snapshot.entry, transport]);
 
   if (workLocallyHidden && actionError === null) return null;
   if (snapshot.status === "loading") {
@@ -573,7 +521,10 @@ export function PendingWorktreeRoute({
     if (actionError) {
       return <PendingWorktreeRouteStatusSurface error={actionError} onClose={onClose} />;
     }
-    if (snapshot.resolution?.state === "waiting") {
+    if (
+      snapshot.resolution?.state === "waiting"
+      || snapshot.resolution?.state === "starting"
+    ) {
       return <PendingWorktreeRouteStatusSurface error={null} onClose={onClose} />;
     }
     if (snapshot.resolution?.state === "failed") {
@@ -602,16 +553,13 @@ export function PendingWorktreeRoute({
       resolution={snapshot.resolution}
       busyAction={busyAction}
       actionError={actionError}
-      externalHeader={externalHeader}
       onCancel={() => void runAction("cancel")}
       onContinue={() => void runAction("continue")}
       onAutoFix={() => void runAction("auto-fix")}
       onEditEnvironment={() => {
         if (snapshot.entry) onEditEnvironment?.(snapshot.entry);
       }}
-      onRename={(label) => void runMetadataAction("rename", label)}
       onRetry={() => void runAction("retry")}
-      onTogglePinned={() => void runMetadataAction("pin")}
       onWorkLocally={() => void runAction("work-locally")}
     />
   );

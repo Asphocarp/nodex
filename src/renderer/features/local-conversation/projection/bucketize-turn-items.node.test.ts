@@ -384,10 +384,9 @@ describe("bucketizeTurnItems", () => {
     expect(buckets.agentItems.map((item) => item.id).join(",")).toBe("exec,user_2");
   });
 
-  test("keeps worktree initialization standalone after the optimistic user prefix", () => {
+  test("keeps worktree initialization in the first Turn's agent body", () => {
     const buckets = bucketizeTurnItems({
       items: [
-        buildItem({ id: "user", type: "userMessage" }),
         buildItem({
           id: "worktree-init",
           type: "worktreeInit",
@@ -410,6 +409,8 @@ describe("bucketizeTurnItems", () => {
             updatedAt: 2,
           },
         }),
+        buildItem({ id: "user", type: "userMessage" }),
+        buildItem({ id: "assistant", type: "assistantMessage" }),
       ],
       turnStatus: "completed",
     });
@@ -422,11 +423,12 @@ describe("bucketizeTurnItems", () => {
       isBlocked: false,
     });
 
-    expect(buckets.userItems.map((item) => item.id).join(",")).toBe("user");
-    expect(buckets.agentItems.map((item) => item.id).join(",")).toBe("worktree-init");
-    expect(turn.blocks.map((block) => block.type).join(",")).toBe(
-      "userMessage,worktreeInit",
-    );
+    expect(buckets.userItems.map((item) => item.id)).toEqual(["user"]);
+    expect(buckets.agentItems.map((item) => item.id)).toEqual(["worktree-init"]);
+    expect(buckets.assistantItem?.id).toBe("assistant");
+    expect(turn.leadingBlocks.map((block) => block.type)).toEqual(["userMessage"]);
+    expect(turn.buckets.agentItems.map((item) => item.type)).toEqual(["worktreeInit"]);
+    expect(turn.trailingBlocks.map((block) => block.type)).toContain("assistantMessage");
   });
 
   test("groups contiguous completed tool activity while preserving original units", () => {

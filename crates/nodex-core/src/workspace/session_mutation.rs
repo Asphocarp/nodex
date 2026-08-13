@@ -102,6 +102,7 @@ pub(super) fn mutate_session(
             thread_id,
             expected_project_id,
             thread_patch,
+            execution_location,
         } => link_thread(
             connection,
             library_id,
@@ -114,6 +115,7 @@ pub(super) fn mutate_session(
             thread_id,
             expected_project_id.as_deref(),
             thread_patch.as_deref(),
+            execution_location.as_deref(),
         ),
         ProjectSessionIntent::UnlinkThread { thread_id } => unlink_thread(
             connection,
@@ -385,6 +387,9 @@ fn link_thread(
     thread_id: &str,
     expected_project_id: Option<&str>,
     thread_patch: Option<&nodex_core_contracts::workspace::ProjectWorkspaceThreadPatch>,
+    execution_location: Option<
+        &nodex_core_contracts::workspace::ProjectWorkspaceThreadExecutionLocation,
+    >,
 ) -> Result<ProjectWorkspaceApplyOutcome, StoreError> {
     validate_id("thread_id", thread_id)?;
     if let Some(project_id) = expected_project_id {
@@ -400,6 +405,9 @@ fn link_thread(
     let upsert_effects = thread_patch
         .map(|patch| upsert_thread_records(connection, library_id, thread_id, patch))
         .transpose()?;
+    if let Some(location) = execution_location {
+        super::thread::replace_thread_execution_location_records(connection, thread_id, location)?;
+    }
     let (thread_project_id, parent_thread_id) = connection
         .query_row(
             "SELECT project_id, parent_thread_id FROM codex_threads WHERE thread_id = ?1",

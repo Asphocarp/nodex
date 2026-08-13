@@ -782,16 +782,19 @@ describe("CommandToolCall render state", () => {
     );
 
     expect(Boolean(textContent(container).includes("Searched for needle in src"))).toBe(true);
-    expect(Boolean(textContent(container).includes("Auto-review approved"))).toBe(false);
+    expect(Boolean(textContent(container).includes("Auto-review approved"))).toBe(true);
     expect(Boolean(container.querySelector('[data-testid="exec-shell-body"]'))).toBe(false);
 
     const disclosure = container.querySelector<HTMLButtonElement>('button[aria-expanded="false"]');
     expect(Boolean(disclosure)).toBe(true);
+    const disclosureBody = disclosure?.parentElement?.nextElementSibling;
+    expect(disclosureBody?.getAttribute("aria-hidden")).toBe("true");
 
     fireEvent.click(disclosure as HTMLButtonElement);
     await settleAsyncRender();
 
     expect(disclosure?.getAttribute("aria-expanded") ?? "").toBe("true");
+    expect(disclosureBody?.getAttribute("aria-hidden")).toBe("false");
     expect(Boolean(textContent(container).includes("Auto-review approved"))).toBe(true);
   });
 

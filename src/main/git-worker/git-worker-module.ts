@@ -595,20 +595,35 @@ export class GitWorkerModule {
       },
       signal,
       run: async (querySignal) => {
-        const [current, branchList, remoteDefault] = await Promise.all([
+        const [current, branchList, remoteBranches, remoteDefault] = await Promise.all([
           repository.runGit(["branch", "--show-current"], { signal: querySignal }),
           repository.runGit(["branch", "--format=%(refname:short)"], { signal: querySignal }),
+          repository.runGit(
+            ["for-each-ref", "--format=%(refname)", "refs/remotes"],
+            { signal: querySignal },
+          ),
           repository.runGit(
             ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"],
             { allowedNonZeroExitCodes: [1, 128], signal: querySignal },
           ),
         ]);
-        if (!current.success || !branchList.success || !remoteDefault.success) {
+        if (
+          !current.success
+          || !branchList.success
+          || !remoteBranches.success
+          || !remoteDefault.success
+        ) {
           return { currentBranch: null, defaultBranch: null, branches: [] };
         }
         const currentBranch = current.stdout.trim() || null;
         const branches = [...new Set(
           branchList.stdout.split(/\r?\n/).map((branch) => branch.trim()).filter(Boolean),
+        )];
+        const remoteBranchRefs = [...new Set(
+          remoteBranches.stdout
+            .split(/\r?\n/)
+            .map((branch) => branch.trim())
+            .filter((branch) => branch.length > 0 && !branch.endsWith("/HEAD")),
         )];
         const remoteDefaultBranch = remoteDefault.stdout.trim();
         const defaultBranch = remoteDefaultBranch.startsWith("origin/")
@@ -618,7 +633,7 @@ export class GitWorkerModule {
             : branches.includes("master")
               ? "master"
               : currentBranch);
-        return { currentBranch, defaultBranch, branches };
+        return { currentBranch, defaultBranch, branches, remoteBranchRefs };
       },
     });
   }

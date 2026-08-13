@@ -2153,6 +2153,86 @@ export const DynamicToolRegistryRenderers: Story = {
   ),
 };
 
+const HANDOFF_STORY_STATES = [
+  {
+    id: "handoff-queued",
+    status: "queued",
+    steps: [
+      { id: "resolve-thread", label: "Resolve task", status: "queued", message: null },
+      { id: "prepare", label: "Prepare destination", status: "queued", message: null },
+    ],
+  },
+  {
+    id: "handoff-running",
+    status: "running",
+    steps: [
+      { id: "resolve-thread", label: "Resolve task", status: "success", message: null },
+      { id: "prepare", label: "Prepare destination", status: "running", message: "Transferring worktree state." },
+      { id: "commit", label: "Commit task location", status: "queued", message: null },
+    ],
+  },
+  {
+    id: "handoff-success",
+    status: "success",
+    steps: [
+      { id: "resolve-thread", label: "Resolve task", status: "success", message: null },
+      { id: "prepare", label: "Prepare destination", status: "success", message: null },
+      { id: "commit", label: "Commit task location", status: "success", message: null },
+    ],
+  },
+  {
+    id: "handoff-warning",
+    status: "warning",
+    steps: [
+      { id: "resolve-thread", label: "Resolve task", status: "success", message: null },
+      { id: "commit", label: "Commit task location", status: "success", message: null },
+      { id: "cleanup", label: "Clean up source", status: "warning", message: "Cleanup can be retried." },
+    ],
+  },
+  {
+    id: "handoff-error",
+    status: "error",
+    steps: [
+      { id: "resolve-thread", label: "Resolve task", status: "success", message: null },
+      { id: "prepare", label: "Prepare destination", status: "error", message: "Destination is offline." },
+      { id: "commit", label: "Commit task location", status: "queued", message: null },
+    ],
+  },
+] as const;
+
+export const HandoffProgressStates: Story = {
+  render: () => (
+    <StorySurface
+      title="Task handoff progress"
+      description="Queued, running, completed, recoverable-warning, and failed handoffs keep one activity hierarchy and expose each operation step."
+    >
+      <ConversationStorySurface>
+        <div className="flex flex-col gap-3">
+          {HANDOFF_STORY_STATES.map((state) => (
+            <DynamicToolCall
+              key={state.id}
+              item={buildGenericDynamicStoryItem({
+                id: state.id,
+                namespace: "codex_app",
+                tool: "handoff_thread",
+                completed: true,
+                args: { threadId: "thread-story" },
+                contentText: JSON.stringify({
+                  destinationHostDisplayName: "Build box",
+                  operationId: state.id,
+                  status: state.status,
+                  steps: state.steps,
+                  threadTitle: "Audit worktree lifecycle",
+                }),
+              })}
+            />
+          ))}
+        </div>
+      </ConversationStorySurface>
+    </StorySurface>
+  ),
+};
+
 export const DynamicToolCallFallbackRows: Story = {
   render: () => (
     <StorySurface

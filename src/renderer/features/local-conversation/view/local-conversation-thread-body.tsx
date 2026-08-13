@@ -38,6 +38,7 @@ interface LocalConversationThreadBodyProps {
   onErrorMessage: (message: string | null) => void;
   contentShiftX?: number;
   footer?: ReactNode;
+  leadingContent?: ReactNode;
   initialUiState?: ThreadBodyUiStateOverrides;
   transcriptVisible?: boolean;
   turnDiffHoverPreviewDisabled?: boolean;
@@ -58,6 +59,7 @@ function LocalConversationThreadBodyLayout({
   onErrorMessage,
   contentShiftX = 0,
   footer,
+  leadingContent,
   initialUiState,
   transcriptVisible = true,
   initialRestoreSnapshot,
@@ -79,6 +81,7 @@ function LocalConversationThreadBodyLayout({
       footer={footer}
       initialRestoreSnapshot={initialRestoreSnapshot}
     >
+      {leadingContent}
       {transcriptVisible ? (
         <div data-local-conversation-transcript="true" className="contents">
           <McpAppFollowUpProvider onSend={handleMcpAppFollowUp}>
@@ -207,6 +210,7 @@ export const LocalConversationThreadBody = memo(
     && left.onErrorMessage === right.onErrorMessage
     && left.contentShiftX === right.contentShiftX
     && left.footer === right.footer
+    && left.leadingContent === right.leadingContent
     && left.initialUiState === right.initialUiState
     && left.transcriptVisible === right.transcriptVisible
     && left.turnDiffHoverPreviewDisabled === right.turnDiffHoverPreviewDisabled

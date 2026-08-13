@@ -11,6 +11,10 @@ describe("sync-codex-theme-utilities", () => {
           transition-duration: var(--transition-duration-relaxed);
         }
 
+        .text-danger {
+          color: var(--color-text-danger);
+        }
+
         .\\[\\&_\\*\\]\\:text-token-foreground\\/50 * {
           color: var(--color-token-foreground);
         }
@@ -35,6 +39,8 @@ describe("sync-codex-theme-utilities", () => {
 
     expect(generatedCss.includes(".duration-relaxed")).toBe(true);
     expect(generatedCss.includes("--tw-duration: var(--transition-duration-relaxed);")).toBe(true);
+    expect(generatedCss.includes(".text-danger")).toBe(true);
+    expect(generatedCss.includes("color: var(--color-text-danger);")).toBe(true);
     expect(generatedCss.includes(".\\[\\&_\\*\\]\\:text-token-foreground\\/50 *")).toBe(true);
     expect(
       generatedCss.includes(

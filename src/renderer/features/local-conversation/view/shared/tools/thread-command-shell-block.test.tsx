@@ -1,0 +1,49 @@
+import { describe, expect, test } from "vitest";
+import { render } from "@testing-library/react";
+import { NodexTooltipProvider } from "@/components/ui/tooltip";
+import { ThreadCommandShellBlock } from "./thread-command-shell-block";
+
+function renderPlainShell({
+  output,
+  isInProgress = false,
+}: {
+  output: string;
+  isInProgress?: boolean;
+}) {
+  return render(
+    <NodexTooltipProvider>
+      <ThreadCommandShellBlock
+        command=""
+        embeddedAppearance="plain"
+        footer={<button type="button">Retry setup</button>}
+        isInProgress={isInProgress}
+        output={output}
+        variant="embedded"
+      />
+    </NodexTooltipProvider>,
+  );
+}
+
+describe("ThreadCommandShellBlock plain embedded appearance", () => {
+  test("keeps the action footer outside the clipped shell body", () => {
+    const view = renderPlainShell({ output: "Environment setup failed\n" });
+    const footer = view.getByRole("button", { name: "Retry setup" });
+    const outerShell = footer.parentElement;
+    const clippedBody = footer.previousElementSibling;
+
+    expect(outerShell?.lastElementChild).toBe(footer);
+    expect(clippedBody?.contains(view.getByText("Environment setup failed"))).toBe(true);
+    expect(clippedBody?.contains(footer)).toBe(false);
+    expect(Boolean(view.getByRole("button", { name: "Copy output" }))).toBe(true);
+  });
+
+  test("renders ANSI output as safe text and omits the empty-output placeholder while streaming", () => {
+    const completed = renderPlainShell({ output: "plain \u001b[31mred\u001b[0m\n" });
+    expect(completed.container.textContent).toContain("plain red");
+    expect(completed.container.textContent).not.toContain("\u001b");
+    completed.unmount();
+
+    const streaming = renderPlainShell({ output: "", isInProgress: true });
+    expect(streaming.queryByText("No output")).toBe(null);
+  });
+});

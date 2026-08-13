@@ -35,6 +35,7 @@ import type {
 import { makeWorkbenchSceneKey } from "../../../shared/workbench-scene";
 import {
   createThreadScopeIdentityRegistry,
+  promoteThreadScopeToPending,
   WorkbenchSessionScopePath,
   resolveProjectSessionThreadScopeDescriptor,
 } from "@/lib/workbench-ui-scopes";
@@ -332,6 +333,18 @@ export function WorkbenchSessionScene({
                 }) => (
                   <SessionThreadPage
                     {...threadPageProps}
+                    onOpenPendingWorktree={(clientThreadId, projectSessionId) => {
+                      promoteThreadScopeToPending(
+                        threadScopeIdentityRegistry,
+                        threadScopeDescriptor,
+                        clientThreadId,
+                        projectSessionId,
+                      );
+                      threadPageProps.onOpenPendingWorktree(
+                        clientThreadId,
+                        projectSessionId,
+                      );
+                    }}
                     onOpenTurnDiffReview={onOpenTurnDiffReview}
                     onOpenSummaryGitReview={onOpenSummaryGitReview}
                   />

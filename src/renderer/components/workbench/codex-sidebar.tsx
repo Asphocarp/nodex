@@ -21,6 +21,7 @@ import {
   ProjectFolderIcon,
   ProjectFolderOpenIcon,
   ProjectActionsIcon,
+  RemoteStatusIcon,
   SessionPinFilledIcon,
   SessionPinIcon,
   SettingsGeneralIcon,
@@ -40,6 +41,11 @@ import { getGitWorkerClient, invoke } from "@/lib/api";
 import { CODEX_SIDEBAR_PROJECT_FOLDER_TRANSITION } from "@/lib/codex-panel-motion";
 import { formatElapsedSince } from "@/lib/elapsed-time";
 import { CODEX_SIDEBAR_PAGER_BUTTON_CLASS } from "@/lib/codex-sidebar-pagination";
+import {
+  isCodexSidebarRemoteLocation,
+  isCodexSidebarWorktreeLocation,
+  resolveCodexSidebarWorktreeLabel,
+} from "@/lib/codex-sidebar-run-location";
 import { appScope, useScopeHandle } from "@/lib/maitai";
 import { openModal } from "@/lib/modal-registry";
 import { waitForProjectCatalogUpdates } from "@/lib/project-update-queue";
@@ -94,7 +100,7 @@ export const CODEX_SIDEBAR_SECTION_ACTIONS_CLASS = "flex items-center gap-1 poin
 export const CODEX_SIDEBAR_SECTION_ACTION_BUTTON_CLASS = "border-token-border no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap select-none focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-full electron:rounded-md text-token-foreground enabled:hover:bg-token-list-hover-background data-[state=open]:bg-token-list-hover-background border-transparent electron:p-1 electron:[&>svg]:icon-sm flex items-center justify-center p-0.5 h-6 w-6 rounded-md !p-1 text-token-foreground opacity-75 hover:opacity-100";
 export const CODEX_SIDEBAR_GROUP_ACTION_BUTTON_CLASS = SIDEBAR_PROJECT_NEW_CHAT_BUTTON_CLASS;
 export const CODEX_SIDEBAR_THREAD_ROW_CLASS = "group relative h-token-nav-row cursor-interaction rounded-lg py-row-y text-sm hover:bg-token-list-hover-background focus-visible:outline-offset-[-2px]";
-export const CODEX_SIDEBAR_THREAD_ACTION_RAIL_CLASS = "pointer-events-none absolute right-0 top-0 z-10 mr-0.5 flex h-full w-[52px] items-center justify-end gap-2 pr-0.5 opacity-0 group-hover:opacity-100 [&:has(:focus-visible)]:opacity-100";
+export const CODEX_SIDEBAR_THREAD_ACTION_RAIL_CLASS = "pointer-events-none absolute right-0 top-0 z-10 mr-0.5 flex h-full w-[52px] items-center justify-end gap-2 pr-0.5 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 [&:has(:focus-visible)]:opacity-100";
 export const CODEX_SIDEBAR_THREAD_ARCHIVE_BUTTON_CLASS = "!h-5 !w-5 !p-0 opacity-50 hover:opacity-100 focus-visible:opacity-100 [&>svg]:!h-4 [&>svg]:!w-4 pointer-events-auto";
 export const CODEX_SIDEBAR_ROW_LABEL_CLASS = "flex min-w-0 flex-1 cursor-interaction items-center whitespace-nowrap rounded-md py-1 pl-1 pr-0 text-left text-base text-token-foreground";
 const CODEX_SIDEBAR_THREAD_ELAPSED_REFRESH_MS = 30_000;
@@ -1162,7 +1168,10 @@ function CodexSidebarThreadHoverCardMetadataRow({
   if (!label) return null;
 
   return (
-    <div className="flex h-5 min-w-0 items-center gap-1.5 text-sm leading-5">
+    <div
+      className="flex h-5 min-w-0 items-center gap-1.5 text-sm leading-5"
+      data-app-action-sidebar-thread-hover-card-metadata=""
+    >
       <span className="flex h-5 w-4 shrink-0 items-center justify-center text-token-description-foreground">
         {icon}
       </span>
@@ -1186,6 +1195,12 @@ function CodexSidebarThreadHoverCard({
 }) {
   const resolvedProjectLabel = resolveSidebarThreadHoverCardProjectLabel(item, projectLabel);
   const resolvedBranchName = normalizeSidebarHoverCardText(branchName);
+  const worktreeLabel = isCodexSidebarWorktreeLocation(item.runLocation)
+    ? resolveCodexSidebarWorktreeLabel(item.runLocation.path)
+    : null;
+  const remoteHostLabel = isCodexSidebarRemoteLocation(item.runLocation)
+    ? item.runLocation.hostDisplayName?.trim() || item.runLocation.hostId
+    : null;
   const timeLabel = resolveSidebarThreadHoverCardTimeLabel(item);
 
   return (
@@ -1225,6 +1240,10 @@ function CodexSidebarThreadHoverCard({
         icon={<ProjectFolderIcon className="icon-xs" />}
         label={resolvedProjectLabel}
       />
+      <CodexSidebarThreadHoverCardMetadataRow
+        icon={<RemoteStatusIcon className="icon-xs" aria-hidden="true" />}
+        label={remoteHostLabel}
+      />
       {resolvedBranchName ? (
         <div className="flex min-w-0 flex-col gap-1">
           <CodexSidebarThreadHoverCardMetadataRow
@@ -1233,7 +1252,87 @@ function CodexSidebarThreadHoverCard({
           />
         </div>
       ) : null}
+      <CodexSidebarThreadHoverCardMetadataRow
+        icon={<WorktreeStatusIcon className="icon-xs" />}
+        label={worktreeLabel}
+      />
     </div>
+  );
+}
+
+const CODEX_LOCAL_WORKTREE_TOOLTIP = "This conversation is running in a local git worktree.";
+
+function CodexSidebarThreadRunLocationGlyph({
+  item,
+  hideForActions,
+  forceHidden,
+}: {
+  item: CodexSidebarThreadItem;
+  hideForActions: boolean;
+  forceHidden: boolean;
+}) {
+  const location = item.runLocation;
+  const pending = isCodexSidebarWorktreeLocation(location) && location.phase === "pending";
+  const iconClassName = cn(
+    "icon-2xs text-token-description-foreground no-drag shrink-0",
+    pending && "animate-pulse motion-reduce:animate-none",
+  );
+  const wrapperClassName = cn(
+    "ml-2 inline-flex shrink-0 items-center gap-1.5",
+    hideForActions && "group-hover:hidden group-focus-visible:hidden group-has-[:focus-visible]:hidden",
+    forceHidden && "hidden",
+  );
+
+  if (location.kind === "local-checkout") return null;
+  if (location.kind === "remote-checkout") {
+    return (
+      <span
+        className={wrapperClassName}
+        data-app-action-sidebar-thread-run-location="remote-checkout"
+      >
+        <NodexTooltip tooltipContent={location.hostDisplayName?.trim() || location.hostId}>
+          <span className="inline-flex shrink-0">
+            <RemoteStatusIcon className={iconClassName} />
+          </span>
+        </NodexTooltip>
+      </span>
+    );
+  }
+
+  const worktreeIcon = (
+    <NodexTooltip tooltipContent={CODEX_LOCAL_WORKTREE_TOOLTIP}>
+      <span
+        className="inline-flex shrink-0"
+        data-app-action-sidebar-thread-worktree-icon=""
+        data-phase={location.phase}
+      >
+        <WorktreeStatusIcon className={iconClassName} />
+      </span>
+    </NodexTooltip>
+  );
+  if (location.kind === "local-worktree") {
+    return (
+      <span
+        className={wrapperClassName}
+        data-app-action-sidebar-thread-run-location="local-worktree"
+      >
+        {worktreeIcon}
+      </span>
+    );
+  }
+
+  return (
+    <span
+      className={wrapperClassName}
+      data-app-action-sidebar-thread-run-location="remote-worktree"
+    >
+      <NodexTooltip tooltipContent={location.hostDisplayName?.trim() || location.hostId}>
+        <span className="inline-flex shrink-0">
+          <RemoteStatusIcon className={iconClassName} />
+        </span>
+      </NodexTooltip>
+      {worktreeIcon}
+    </span>
   );
 }
 
@@ -1409,6 +1508,11 @@ export function CodexSidebarThreadRow({
                   {title}
                 </span>
               </div>
+              <CodexSidebarThreadRunLocationGlyph
+                item={item}
+                hideForActions={showActionRail}
+                forceHidden={contextMenuOpen}
+              />
               {running || elapsedLabel || showRestingPinnedButton ? (
                 <div
                   className={cn(
@@ -1421,7 +1525,7 @@ export function CodexSidebarThreadRow({
                   {elapsedLabel && !running ? (
                     <span
                       className={cn(
-                        "truncate text-right text-sm leading-4 tabular-nums text-token-description-foreground group-has-[:focus-visible]:hidden group-hover:hidden empty:hidden",
+                        "truncate text-right text-sm leading-4 tabular-nums text-token-description-foreground group-focus-visible:hidden group-has-[:focus-visible]:hidden group-hover:hidden empty:hidden",
                         contextMenuOpen && "hidden",
                       )}
                       title={elapsedTitle}
@@ -1451,7 +1555,7 @@ export function CodexSidebarThreadRow({
                     <span
                       className={cn(
                         "relative -mr-1 flex size-5 shrink-0 items-center justify-center text-token-foreground/70",
-                        showActionRail && "group-has-[:focus-visible]:hidden group-hover:hidden",
+                        showActionRail && "group-focus-visible:hidden group-has-[:focus-visible]:hidden group-hover:hidden",
                         contextMenuOpen && "hidden",
                       )}
                       data-app-action-sidebar-thread-running-indicator=""
@@ -1485,7 +1589,7 @@ export function CodexSidebarThreadRow({
                       aria-label={pinButtonLabel}
                       className={cn(
                         CODEX_SIDEBAR_THREAD_PIN_BUTTON_CLASS,
-                        !item.pinned && "opacity-0 group-hover:opacity-100 group-has-[:focus-visible]:opacity-100 data-[state=open]:opacity-100",
+                        !item.pinned && "opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 group-has-[:focus-visible]:opacity-100 data-[state=open]:opacity-100",
                       )}
                       data-state={contextMenuOpen ? "open" : "closed"}
                       data-app-action-sidebar-thread-pin-session=""
@@ -1576,10 +1680,20 @@ export function CodexThreadRow({
 }) {
   const threadId = session.thread?.threadId ?? session.id;
   if (session.thread?.parentThreadId) return null;
+  const hostId = session.thread?.executionHostId ?? "local";
+  const local = hostId === "local";
+  const managedWorktreePath = session.thread?.managedWorktreePath ?? null;
   const item: CodexSidebarThreadItem = {
-    key: `local:${threadId}`,
-    kind: "local",
-    hostId: "local",
+    key: `${local ? "local" : "remote"}:${threadId}`,
+    kind: local ? "local" : "remote",
+    runLocation: managedWorktreePath
+      ? local
+        ? { kind: "local-worktree", path: managedWorktreePath, phase: "ready" }
+        : { kind: "remote-worktree", hostId, path: managedWorktreePath, phase: "ready" }
+      : local
+        ? { kind: "local-checkout" }
+        : { kind: "remote-checkout", hostId },
+    hostId,
     threadId,
     parentThreadId: session.thread?.parentThreadId ?? null,
     sessionId: session.id,

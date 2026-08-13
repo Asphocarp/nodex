@@ -560,16 +560,16 @@ async function renderNewThreadHome(overrides?: {
             target: {
               runInTarget: "localProject",
               runInEnvironmentPath: null,
-              worktreeStartMode: "detachedHead",
-              worktreeBranchPrefix: "nodex/",
             },
             disabled: false,
             worktreeAvailable: true,
             environments: [],
             environmentsLoading: false,
+            environmentsError: false,
             selectedEnvironmentPath: null,
-            worktreeStartMode: "detachedHead",
-            worktreeBranchPrefix: "nodex/",
+            defaultEnvironmentPath: null,
+            environmentNeedsAttention: false,
+            environmentRepairConfigPath: null,
           }}
           threadStartProgress={overrides?.threadStartProgress ?? null}
           activeThreadId={null}

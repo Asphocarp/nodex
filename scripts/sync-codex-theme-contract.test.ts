@@ -14,6 +14,8 @@ describe("sync-codex-theme-contract", () => {
       :host {
         --color-token-description-foreground: var(--vscode-descriptionForeground);
         --color-token-side-bar-background: var(--vscode-sideBar-background);
+        --color-text-danger: var(--vscode-errorForeground);
+        --color-text-danger-soft: var(--vscode-charts-red);
       }
 
       @supports (color: color-mix(in lab, red, red)) {
@@ -48,6 +50,11 @@ describe("sync-codex-theme-contract", () => {
       '[data-codex-window-type="electron"]',
       "--vscode-",
     );
+    const dangerColorDeclarations = extractDeclarationsFromBlocks(
+      blocks,
+      ":root, :host",
+      "--color-text-danger",
+    );
 
     expect(colorTokenDeclarations.get("--color-token-description-foreground")).toBe(
       "var(--vscode-descriptionForeground)",
@@ -64,6 +71,10 @@ describe("sync-codex-theme-contract", () => {
     expect(vscodeDeclarations.get("--vscode-sideBar-background")).toBe(
       "var(--color-background-surface-under)",
     );
+    expect(dangerColorDeclarations).toEqual(new Map([
+      ["--color-text-danger", "var(--vscode-errorForeground)"],
+      ["--color-text-danger-soft", "var(--vscode-charts-red)"],
+    ]));
   });
 
   test("normalizes runtime vscode overrides observed from Electron", () => {

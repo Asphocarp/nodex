@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { act } from "react";
+import { fireEvent, waitFor } from "@testing-library/react";
 import { NodexHoverCardProvider } from "@/components/ui/hover-card";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
 import { render, textContent } from "@/test/dom";
@@ -12,6 +13,7 @@ function makeThreadItem(overrides: Partial<CodexSidebarThreadItem> = {}): CodexS
   return {
     key: "local:test-thread",
     kind: "local",
+    runLocation: { kind: "local-checkout" },
     hostId: "local",
     threadId: "thread-test",
     parentThreadId: null,
@@ -93,9 +95,109 @@ describe("codex sidebar thread hover card", () => {
     expect(hoverCardText.includes("Projectless chat")).toBe(true);
     expect(hoverCardText.includes("Chat")).toBe(true);
   });
+
+  test("renders remote host, branch, and managed worktree as separate metadata", async () => {
+    await act(async () => {
+      renderOpenThreadHoverCard(makeThreadItem({
+        kind: "remote",
+        hostId: "build-host",
+        runLocation: {
+          kind: "remote-worktree",
+          hostId: "build-host",
+          hostDisplayName: "Build workstation",
+          path: "/srv/.codex/worktrees/91a6/nodex",
+          phase: "ready",
+        },
+      }), {
+        projectLabel: "Nodex",
+        branchName: "feat/worktree-sidebar",
+      });
+    });
+
+    const hoverCard = document.body.querySelector('[role="dialog"]') as HTMLElement | null;
+    expect(hoverCard).not.toBeNull();
+    const metadataRows = [...(hoverCard as HTMLElement).querySelectorAll(
+      "[data-app-action-sidebar-thread-hover-card-metadata]",
+    )]
+      .map((row) => textContent(row).trim())
+      .filter(Boolean);
+    expect(metadataRows).toEqual(expect.arrayContaining([
+      "Nodex",
+      "Build workstation",
+      "feat/worktree-sidebar",
+      "nodex",
+    ]));
+  });
 });
 
 describe("codex sidebar thread row", () => {
+  test("shows the worktree glyph without changing the row accessible name", async () => {
+    let view!: ReturnType<typeof render>;
+    await act(async () => {
+      view = render(
+        <NodexTooltipProvider>
+          <CodexSidebarThreadRow
+            item={makeThreadItem({
+              updatedAt: Number.NaN,
+              runLocation: {
+                kind: "local-worktree",
+                path: "/Users/asc/.codex/worktrees/91a6/nodex",
+                phase: "ready",
+              },
+            })}
+            active={false}
+            onSelect={() => {}}
+          />
+        </NodexTooltipProvider>,
+      );
+    });
+
+    expect(view.getByRole("button", { name: "X Plan Codex terminal reverse engineer" })).not.toBeNull();
+    const icon = view.container.querySelector("[data-app-action-sidebar-thread-worktree-icon]");
+    expect(icon).not.toBeNull();
+    expect((icon as HTMLElement).dataset.phase).toBe("ready");
+
+    fireEvent.pointerMove(icon as Element);
+    await waitFor(() => {
+      expect(view.getByRole("tooltip").textContent).toBe(
+        "This conversation is running in a local git worktree.",
+      );
+    });
+  });
+
+  test("marks pending and remote worktree identities without adding row text", async () => {
+    let view!: ReturnType<typeof render>;
+    await act(async () => {
+      view = render(
+        <NodexTooltipProvider>
+          <CodexSidebarThreadRow
+            item={makeThreadItem({
+              kind: "remote",
+              hostId: "build-host",
+              updatedAt: Number.NaN,
+              runLocation: {
+                kind: "remote-worktree",
+                hostId: "build-host",
+                path: null,
+                phase: "pending",
+              },
+            })}
+            active={false}
+            onSelect={() => {}}
+          />
+        </NodexTooltipProvider>,
+      );
+    });
+
+    const location = view.container.querySelector(
+      '[data-app-action-sidebar-thread-run-location="remote-worktree"]',
+    );
+    expect(location).not.toBeNull();
+    expect(location?.querySelectorAll("svg")).toHaveLength(2);
+    expect((location?.querySelector("[data-phase]") as HTMLElement | null)?.dataset.phase).toBe("pending");
+    expect(view.getByRole("button", { name: "X Plan Codex terminal reverse engineer" })).not.toBeNull();
+  });
+
   test("replaces elapsed metadata with a running indicator for active threads", async () => {
     let container!: HTMLElement;
 

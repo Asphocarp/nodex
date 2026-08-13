@@ -142,6 +142,7 @@ import {
   SelectedAppShellHeaderContent,
   WorkbenchSessionScopePath,
   createThreadScopeIdentityRegistry,
+  promoteThreadScopeToPending,
   resolvePendingThreadScopeDescriptor,
   resolveProjectDraftThreadScopeDescriptor,
   resolveProjectSessionThreadScopeDescriptor,
@@ -365,6 +366,20 @@ const RIGHT_PANEL_HEADER_FALLBACK_RAIL_WIDTH_PX = 62;
 function createProjectAgentDockDraftId(): string {
   return globalThis.crypto?.randomUUID?.()
     ?? `draft-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function resolvePendingProjectSessionId(
+  entries: readonly CodexPendingWorktreeEntry[],
+  clientThreadId: string | null,
+): string | null {
+  if (!clientThreadId) return null;
+  const entry = entries.find((candidate) =>
+    candidate.launchMode === "start-conversation"
+    && candidate.clientThreadId === clientThreadId
+  );
+  return entry?.launchMode === "start-conversation"
+    ? entry.projectSessionId ?? null
+    : null;
 }
 
 const ELECTRON_STABLE_WORKTREE_STATUS_TRANSPORT: StableWorktreeStatusDialogTransport = {
@@ -1659,6 +1674,7 @@ export function WorkbenchRuntime({
     }
     const result = await invoke("codex:pending-worktree:create", buildStableWorktreeCreateInput({
       sourceWorkspaceRoot,
+      sourceWorkspaceRoots: project.sources.map((source) => source.root),
       label: projectName,
     }));
     openStableWorktreeStatus(result.pendingWorktreeId);
@@ -2159,6 +2175,12 @@ export function WorkbenchRuntime({
     forkSessionFromTurn,
     forkSessionFromTurnIntoWorktree,
   } = sessionCommands;
+  const openSettingsThreadSessionById = useCallback(async (threadId: string) => {
+    const opened = await openAttachedThreadSessionById(threadId);
+    if (!opened) return;
+
+    setSettingsPath(null);
+  }, [openAttachedThreadSessionById, setSettingsPath]);
   const panelCommands = useWorkbenchPanelCommandRouter({
     activeSession,
     activePanelOwnerKey,
@@ -2894,6 +2916,7 @@ export function WorkbenchRuntime({
         onPathChange: setSettingsPath,
         onBackToApp: closeSettings,
         onRequestProjectPickerOpen,
+        onOpenThread: openSettingsThreadSessionById,
         projects,
         activeProjectId: activeProject?.id ?? activeProjectId,
         initialLocalEnvironmentProjectId:
@@ -3875,14 +3898,12 @@ export function WorkbenchRuntime({
         onMaterializeProjectDraft={materializeProjectAgentDockDraft}
         onRefreshProjectSessions={refreshProjectSessions}
         onEnsureBlankSessionForProject={ensureBlankSessionForProject}
-        onOpenPendingWorktree={(clientThreadId) => {
-          threadScopeIdentityRegistry.register(
-            projectAgentDockThreadScope.stableKey,
-            {
-              projectSessionId:
-                projectAgentDockThreadScope.projectSessionId,
-              clientThreadId,
-            },
+        onOpenPendingWorktree={(clientThreadId, projectSessionId) => {
+          promoteThreadScopeToPending(
+            threadScopeIdentityRegistry,
+            projectAgentDockThreadScope,
+            clientThreadId,
+            projectSessionId,
           );
         }}
         onOpenLocalEnvironmentsSettings={openLocalEnvironmentsSettings}
@@ -3891,8 +3912,6 @@ export function WorkbenchRuntime({
         composerEnterBehavior={composerEnterBehavior}
         onQueueingEnabledChange={handleThreadQueueFollowUpsEnabledChange}
         onOpenThread={openAttachedThreadSession}
-        worktreeStartMode={worktreeStartMode}
-        worktreeBranchPrefix={worktreeAutoBranchPrefix}
         commandKeymapState={commandKeymapState}
         isMac={isMacPlatform}
       />
@@ -4071,8 +4090,6 @@ export function WorkbenchRuntime({
           onForkSessionFromTurn: forkSessionFromTurn,
           onForkFromTurnIntoWorktree:
             forkSessionFromTurnIntoWorktree,
-          worktreeStartMode,
-          worktreeBranchPrefix: worktreeAutoBranchPrefix,
           searchOpenTick: threadSearchOpenTick,
           summaryPanelMounted: threadSummaryPanelMounted,
           summaryPanelOpen: threadSummaryPanelOpen,
@@ -4381,6 +4398,10 @@ export function WorkbenchRuntime({
                 thread={resolvePendingThreadScopeDescriptor(
                   threadScopeIdentityRegistry,
                   pendingWorktreeClientThreadId!,
+                  resolvePendingProjectSessionId(
+                    pendingWorktrees,
+                    pendingWorktreeClientThreadId,
+                  ),
                 )}
                 route={{
                   routeKey: `/pending-worktree?clientThreadId=${encodeURIComponent(pendingWorktreeClientThreadId!)}`,

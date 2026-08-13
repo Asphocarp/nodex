@@ -437,9 +437,11 @@ function buildModel(args: ComposerSendButtonStoryProps): ThreadFooterModel {
             worktreeAvailable: true,
             environments: [],
             environmentsLoading: false,
+            environmentsError: false,
             selectedEnvironmentPath: null,
-            worktreeStartMode: "autoBranch" as const,
-            worktreeBranchPrefix: "codex/",
+            defaultEnvironmentPath: null,
+            environmentNeedsAttention: false,
+            environmentRepairConfigPath: null,
           },
         }
       : {}),
