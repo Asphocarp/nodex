@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import * as Y from "yjs";
 import type {
   DocumentAwarenessPublishRequest,
@@ -36,6 +36,7 @@ import type {
 } from "./document-local-checkpoint";
 import {
   isDocumentApplyAckHeadValid,
+  mergeNextBoundedYjsUpdate,
   NodexYProvider,
   type DocumentSyncAdapter,
   type NodexYProviderOptions,
@@ -64,11 +65,11 @@ const success = <T>(value: T): DocumentSyncCommandResult<T> => ({
 });
 
 const waitUntil = async (predicate: () => boolean): Promise<void> => {
-  for (let attempt = 0; attempt < 50; attempt += 1) {
+  for (let attempt = 0; attempt < 500; attempt += 1) {
     if (predicate()) {
       return;
     }
-    await Promise.resolve();
+    await new Promise<void>((resolve) => setTimeout(resolve, 1));
   }
   throw new Error("Condition did not settle");
 };
@@ -154,6 +155,7 @@ const checkpointKey = (boundary: DocumentCheckpointBoundary): string =>
 class MemoryDocumentLocalCheckpointStore implements DocumentLocalCheckpointStore {
   private readonly checkpoints = new Map<string, DocumentLocalCheckpoint>();
   readonly clearedDocuments: string[] = [];
+  readonly writeCalls: DocumentLocalCheckpoint[] = [];
   writeGate: Promise<void> | null = null;
   writeError: Error | null = null;
 
@@ -167,6 +169,7 @@ class MemoryDocumentLocalCheckpointStore implements DocumentLocalCheckpointStore
   };
 
   write = async (checkpoint: DocumentLocalCheckpoint): Promise<void> => {
+    this.writeCalls.push({ ...checkpoint, state: checkpoint.state.slice() });
     await this.writeGate;
     if (this.writeError) throw this.writeError;
     const key = checkpointKey(checkpoint);
@@ -453,6 +456,36 @@ class MemoryDocumentSyncAdapter implements DocumentSyncAdapter {
 }
 
 describe("NodexYProvider", () => {
+  test("keeps merged durability batches inside the transport byte limit", () => {
+    const source = new Y.Doc({ guid: "source" });
+    const updates: Uint8Array[] = [];
+    source.on("update", (update: Uint8Array) => updates.push(update.slice()));
+    const text = source.getText("body");
+    text.insert(0, "a".repeat(100));
+    text.insert(text.length, "b".repeat(100));
+    text.insert(text.length, "c".repeat(100));
+    const maxUpdateBytes = Math.max(...updates.map((update) => update.byteLength));
+    const replica = new Y.Doc({ guid: "replica" });
+    try {
+      let remaining = updates;
+      let batches = 0;
+      while (remaining.length > 0) {
+        const batch = mergeNextBoundedYjsUpdate(remaining, maxUpdateBytes);
+        expect(batch.update.byteLength).toBeLessThanOrEqual(maxUpdateBytes);
+        expect(batch.consumedUpdates).toBeGreaterThan(0);
+        Y.applyUpdate(replica, batch.update);
+        remaining = remaining.slice(batch.consumedUpdates);
+        batches += 1;
+      }
+
+      expect(batches).toBeGreaterThan(1);
+      expect(replica.getText("body").toString()).toBe(text.toString());
+    } finally {
+      source.destroy();
+      replica.destroy();
+    }
+  });
+
   test("accepts a redundant CRDT replay at the unchanged durable head", () => {
     expect(
       isDocumentApplyAckHeadValid(
@@ -804,6 +837,140 @@ describe("NodexYProvider", () => {
 
       expect(adapter.maxActiveApplyCalls).toBe(1);
       expect(adapter.serverDocument.getText("title").toString()).toBe("ab");
+    } finally {
+      provider.destroy();
+      document.destroy();
+      adapter.destroy();
+    }
+  });
+
+  test("keeps a later edit in its burst window when an earlier ACK wins", async () => {
+    vi.useFakeTimers();
+    const adapter = new MemoryDocumentSyncAdapter();
+    const document = new Y.Doc({ guid: "document-1" });
+    const replies = [
+      deferred<DocumentSyncCommandResult<DocumentSyncApplyAck>>(),
+      deferred<DocumentSyncCommandResult<DocumentSyncApplyAck>>(),
+    ];
+    adapter.applyHandler = (request) => {
+      const callIndex = adapter.applyCalls.indexOf(request);
+      const reply = replies[callIndex];
+      if (!reply) throw new Error("Unexpected durable apply call");
+      return reply.promise;
+    };
+    const provider = new NodexYProvider({
+      documentId: "document-1",
+      document,
+      adapter,
+      clientSessionId: "window-1",
+      autoConnect: false,
+    });
+    try {
+      await provider.connect();
+      document.getText("title").insert(0, "a");
+      await vi.advanceTimersByTimeAsync(120);
+      expect(adapter.applyCalls).toHaveLength(1);
+
+      document.getText("title").insert(1, "b");
+      await vi.advanceTimersByTimeAsync(50);
+      const firstRequest = adapter.applyCalls[0];
+      if (!firstRequest) throw new Error("Missing first apply request");
+      replies[0]?.resolve(adapter.commit(firstRequest));
+      await vi.runAllTicks();
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(adapter.applyCalls).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(69);
+      expect(adapter.applyCalls).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(adapter.applyCalls).toHaveLength(2);
+
+      const secondRequest = adapter.applyCalls[1];
+      if (!secondRequest) throw new Error("Missing second apply request");
+      replies[1]?.resolve(adapter.commit(secondRequest));
+      await vi.runAllTicks();
+      expect(adapter.serverDocument.getText("title").toString()).toBe("ab");
+    } finally {
+      provider.destroy();
+      document.destroy();
+      adapter.destroy();
+      vi.useRealTimers();
+    }
+  });
+
+  test("bounds durable commits and recovery-cache writes during an editor burst", async () => {
+    vi.useFakeTimers();
+    const adapter = new MemoryDocumentSyncAdapter();
+    const checkpoints = new MemoryDocumentLocalCheckpointStore();
+    seedCanonicalPageDocument(adapter, "");
+    const document = new Y.Doc({ guid: "document-1" });
+    const provider = new NodexYProvider({
+      documentId: "document-1",
+      document,
+      adapter,
+      clientSessionId: "window-1",
+      localCheckpointStore: checkpoints,
+      autoConnect: false,
+    });
+    try {
+      await provider.connect();
+      await provider.checkpoint();
+      checkpoints.writeCalls.length = 0;
+
+      const title = document.getText("title");
+      for (let index = 0; index < 200; index += 1) {
+        title.insert(title.length, "x");
+        await vi.advanceTimersByTimeAsync(5);
+      }
+      await provider.flush();
+      await provider.checkpoint();
+
+      expect(adapter.applyCalls.length).toBeGreaterThan(1);
+      expect(adapter.applyCalls.length).toBeLessThanOrEqual(8);
+      expect(adapter.maxActiveApplyCalls).toBe(1);
+      expect(checkpoints.writeCalls).toHaveLength(1);
+      expect(adapter.serverDocument.getText("title").length).toBe(200);
+    } finally {
+      provider.destroy();
+      document.destroy();
+      adapter.destroy();
+      vi.useRealTimers();
+    }
+  });
+
+  test("stores only local Yjs deltas in disposable crash recovery", async () => {
+    const adapter = new MemoryDocumentSyncAdapter();
+    const checkpoints = new MemoryDocumentLocalCheckpointStore();
+    seedCanonicalPageDocument(adapter, "Base");
+    const document = new Y.Doc({ guid: "document-1" });
+    const provider = new NodexYProvider({
+      documentId: "document-1",
+      document,
+      adapter,
+      clientSessionId: "window-1",
+      localCheckpointStore: checkpoints,
+      autoConnect: false,
+    });
+    try {
+      await provider.connect();
+      provider.disconnect();
+      openPageDocument(document).title.insert(4, " offline");
+      await provider.checkpoint();
+
+      const checkpoint = checkpoints.writeCalls.at(-1);
+      if (!checkpoint) throw new Error("Missing local recovery checkpoint");
+      expect(checkpoint.state.byteLength).toBeLessThan(
+        Y.encodeStateAsUpdate(document).byteLength,
+      );
+
+      const recovered = new Y.Doc({ guid: "document-1" });
+      try {
+        Y.applyUpdate(recovered, Y.encodeStateAsUpdate(adapter.serverDocument));
+        Y.applyUpdate(recovered, checkpoint.state);
+        expect(openPageDocument(recovered).title.toString()).toBe("Base offline");
+      } finally {
+        recovered.destroy();
+      }
     } finally {
       provider.destroy();
       document.destroy();
@@ -1233,6 +1400,7 @@ describe("NodexYProvider", () => {
       const gate = deferred<void>();
       checkpoints.writeGate = gate.promise;
       openPageDocument(document).title.insert(4, " pending");
+      const checkpointing = provider.checkpoint();
       const flushing = provider.flush();
       await flushing;
       expect(adapter.applyCalls.length).toBe(1);
@@ -1242,6 +1410,7 @@ describe("NodexYProvider", () => {
       expect(provider.getStatus().checkpoint.phase).toBe("saving");
 
       gate.resolve(undefined);
+      await checkpointing;
       await waitUntil(() => provider.getStatus().checkpoint.phase === "ready");
     } finally {
       provider.destroy();
@@ -1270,7 +1439,9 @@ describe("NodexYProvider", () => {
 
       openPageDocument(document).title.insert(4, " durable");
       await provider.flush();
-      await waitUntil(() => provider.getStatus().checkpoint.phase === "degraded");
+      await expect(provider.checkpoint()).rejects.toThrow(
+        "checkpoint quota exhausted",
+      );
 
       expect(openPageDocument(adapter.serverDocument).title.toString()).toBe(
         "Base durable",
@@ -1286,6 +1457,43 @@ describe("NodexYProvider", () => {
       provider.destroy();
       document.destroy();
       adapter.destroy();
+    }
+  });
+
+  test("does not spin when the disposable recovery cache keeps failing", async () => {
+    vi.useFakeTimers();
+    const adapter = new MemoryDocumentSyncAdapter();
+    const checkpoints = new MemoryDocumentLocalCheckpointStore();
+    seedCanonicalPageDocument(adapter, "Base");
+    const document = new Y.Doc({ guid: "document-1" });
+    const provider = new NodexYProvider({
+      documentId: "document-1",
+      document,
+      adapter,
+      clientSessionId: "window-1",
+      localCheckpointStore: checkpoints,
+      autoConnect: false,
+    });
+    try {
+      await provider.connect();
+      checkpoints.writeError = new Error("checkpoint quota exhausted");
+
+      openPageDocument(document).title.insert(4, " one");
+      await vi.advanceTimersByTimeAsync(500);
+      expect(checkpoints.writeCalls).toHaveLength(1);
+
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(checkpoints.writeCalls).toHaveLength(1);
+
+      openPageDocument(document).title.insert(8, " two");
+      await vi.advanceTimersByTimeAsync(500);
+      expect(checkpoints.writeCalls).toHaveLength(2);
+    } finally {
+      checkpoints.writeError = null;
+      provider.destroy();
+      document.destroy();
+      adapter.destroy();
+      vi.useRealTimers();
     }
   });
 

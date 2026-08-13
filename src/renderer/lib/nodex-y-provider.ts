@@ -28,12 +28,13 @@ import type {
 } from "../../shared/block-documents/document-sync";
 export type { DocumentSyncAdapter } from "../../shared/block-documents/document-sync";
 import {
-  captureDocumentLocalCheckpoint,
   createDefaultDocumentLocalCheckpointStore,
   hasDocumentUpdateContent,
   restoreDocumentLocalCheckpoint,
+  type DocumentLocalCheckpoint,
   type DocumentLocalCheckpointStore,
 } from "./document-local-checkpoint";
+import { BoundedBurstScheduler } from "./bounded-burst-scheduler";
 
 export type NodexYProviderPhase =
   | "idle"
@@ -130,9 +131,66 @@ const DEFAULT_PAGE_DOCUMENT_SCHEMA = {
   schemaVersion: PAGE_DOCUMENT_SCHEMA_VERSION,
 } as const;
 
+// Editor integrations can emit several Yjs transactions for one visible
+// gesture. Keep SQLite durability prompt, but do not promote each transaction
+// into its own commit/projection cascade.
+const DOCUMENT_UPDATE_BATCH_QUIET_MS = 120;
+const DOCUMENT_UPDATE_BATCH_MAX_MS = 500;
+
+// The disposable recovery cache stores merged local deltas, not repeated full
+// Y.Doc snapshots. Keep its IndexedDB work outside the typing hot path while
+// still bounding how long an offline edit exists only in renderer memory.
+const DOCUMENT_CHECKPOINT_QUIET_MS = 500;
+const DOCUMENT_CHECKPOINT_MAX_MS = 5_000;
+
 let fallbackSessionSequence = 0;
 
 const copyBytes = (value: Uint8Array): Uint8Array => value.slice();
+
+export interface BoundedYjsUpdateBatch {
+  readonly update: Uint8Array;
+  readonly consumedUpdates: number;
+}
+
+/**
+ * Takes the largest conservative prefix whose raw updates fit one transport
+ * envelope, then verifies the merged encoding against the exact byte limit.
+ */
+export const mergeNextBoundedYjsUpdate = (
+  updates: readonly Uint8Array[],
+  maxUpdateBytes: number,
+): BoundedYjsUpdateBatch => {
+  if (!Number.isSafeInteger(maxUpdateBytes) || maxUpdateBytes < 1) {
+    throw new TypeError("maxUpdateBytes must be a positive integer");
+  }
+  if (updates.length === 0) {
+    throw new TypeError("at least one Yjs update is required");
+  }
+  if ((updates[0]?.byteLength ?? 0) > maxUpdateBytes) {
+    throw new RangeError(`Yjs update exceeds ${maxUpdateBytes} bytes`);
+  }
+
+  let consumedUpdates = 0;
+  let rawBytes = 0;
+  for (const update of updates) {
+    if (
+      consumedUpdates > 0
+      && rawBytes + update.byteLength > maxUpdateBytes
+    ) break;
+    rawBytes += update.byteLength;
+    consumedUpdates += 1;
+  }
+
+  let update = copyBytes(Y.mergeUpdates(updates.slice(0, consumedUpdates)));
+  while (update.byteLength > maxUpdateBytes && consumedUpdates > 1) {
+    consumedUpdates -= 1;
+    update = copyBytes(Y.mergeUpdates(updates.slice(0, consumedUpdates)));
+  }
+  if (update.byteLength > maxUpdateBytes) {
+    throw new RangeError(`Merged Yjs update exceeds ${maxUpdateBytes} bytes`);
+  }
+  return { update, consumedUpdates };
+};
 
 const makeClientSessionId = (): string => {
   const randomId = globalThis.crypto?.randomUUID?.();
@@ -243,6 +301,8 @@ export class NodexYProvider {
   private readonly now: () => number;
   private readonly localCheckpointStore: DocumentLocalCheckpointStore | null;
   private readonly documentSchemaAdapter: BlockDocumentSchemaAdapter;
+  private readonly durableBatchScheduler: BoundedBurstScheduler;
+  private readonly checkpointScheduler: BoundedBurstScheduler;
   private readonly statusListeners = new Set<() => void>();
   private readonly flushWaiters = new Set<FlushWaiter>();
 
@@ -275,6 +335,8 @@ export class NodexYProvider {
   private destroyed = false;
   private checkpointHydrated = false;
   private checkpointDisabled = false;
+  private checkpointUpdates: Uint8Array[] = [];
+  private checkpointRetryBlocked = false;
   private checkpointChain: Promise<void> = Promise.resolve();
   private checkpointPhase: DocumentCheckpointPhase;
   private checkpointFailureCount = 0;
@@ -295,7 +357,10 @@ export class NodexYProvider {
     }
 
     this.localUpdateSequence += 1;
-    this.queuedUpdates.push(copyBytes(update));
+    const localUpdate = copyBytes(update);
+    this.queuedUpdates.push(localUpdate);
+    this.checkpointUpdates.push(localUpdate);
+    this.checkpointRetryBlocked = false;
     this.scheduleBatch();
     this.queueLocalCheckpointBestEffort();
     this.refreshStatus();
@@ -356,6 +421,19 @@ export class NodexYProvider {
     this.documentSchemaAdapter = getYjsDocumentSchemaAdapter(
       options.documentSchema ?? DEFAULT_PAGE_DOCUMENT_SCHEMA,
     );
+    this.durableBatchScheduler = new BoundedBurstScheduler({
+      quietMs: DOCUMENT_UPDATE_BATCH_QUIET_MS,
+      maxMs: DOCUMENT_UPDATE_BATCH_MAX_MS,
+      onReady: () => {
+        this.batchScheduled = false;
+        this.pumpDurableQueue();
+      },
+    });
+    this.checkpointScheduler = new BoundedBurstScheduler({
+      quietMs: DOCUMENT_CHECKPOINT_QUIET_MS,
+      maxMs: DOCUMENT_CHECKPOINT_MAX_MS,
+      onReady: () => this.drainScheduledLocalCheckpoint(),
+    });
     this.awareness = new Awareness(this.document);
     this.status = this.buildStatus();
 
@@ -434,6 +512,7 @@ export class NodexYProvider {
     }
 
     this.batchScheduled = false;
+    this.durableBatchScheduler.cancel();
     if (this.retryCancel || !this.connected) {
       this.cancelRetry();
       void this.connect();
@@ -453,6 +532,8 @@ export class NodexYProvider {
     if (this.destroyed) {
       throw providerDestroyedError();
     }
+    this.checkpointRetryBlocked = false;
+    this.checkpointScheduler.cancel();
     await this.queueLocalCheckpoint();
   };
 
@@ -461,18 +542,25 @@ export class NodexYProvider {
       return;
     }
 
-    this.queueLocalCheckpointBestEffort();
+    // Capture once before tearing down the surface-owned Y.Doc. Normal close
+    // awaits checkpoint(); this is only the best-effort crash-recovery fallback.
+    this.checkpointRetryBlocked = false;
+    this.checkpointScheduler.cancel();
+    void this.queueLocalCheckpoint().catch(() => undefined);
     if (this.awareness.getLocalState() !== null) {
       this.awareness.setLocalState(null);
     }
     this.destroyed = true;
     this.connected = false;
     this.cancelRetry();
+    this.durableBatchScheduler.dispose();
+    this.checkpointScheduler.dispose();
     this.clearRealtimeSubscription();
     this.document.off("update", this.handleDocumentUpdate);
     this.awareness.off("update", this.handleAwarenessUpdate);
     this.awareness.destroy();
     this.queuedUpdates = [];
+    this.checkpointUpdates = [];
     this.inFlight = null;
     this.bufferedDocumentEvents = [];
     this.bufferedAwarenessEvents = [];
@@ -688,6 +776,10 @@ export class NodexYProvider {
     this.drainBufferedEvents();
     this.publishLocalAwareness();
     this.startLocalCheckpointHydration(response);
+    // A surface normally becomes editable only after this boundary exists,
+    // but preserve edits made during a slow first sync without polling an
+    // unaddressable cache key beforehand.
+    this.queueLocalCheckpointBestEffort();
     this.refreshStatus();
   }
 
@@ -817,22 +909,15 @@ export class NodexYProvider {
     }
     this.headSeq = event.headSeq;
     this.transientError = undefined;
-    this.queueLocalCheckpointBestEffort();
     this.refreshStatus();
   }
 
   private scheduleBatch(): void {
-    if (this.batchScheduled) {
-      return;
-    }
     this.batchScheduled = true;
-    queueMicrotask(() => {
-      if (this.destroyed || !this.batchScheduled) {
-        return;
-      }
-      this.batchScheduled = false;
-      this.pumpDurableQueue();
-    });
+    // Keep the timer running while another apply is in flight. If its ACK
+    // arrives before this batch is quiet, pumpDurableQueue must keep waiting;
+    // if the timer wins, the queued batch can leave immediately after the ACK.
+    this.durableBatchScheduler.request();
   }
 
   private pumpDurableQueue(): void {
@@ -853,17 +938,29 @@ export class NodexYProvider {
       return;
     }
     if (this.queuedUpdates.length === 0) {
+      this.batchScheduled = false;
+      this.durableBatchScheduler.cancel();
       this.resolveFlushWaitersIfIdle();
       this.refreshStatus();
       return;
     }
+    if (this.batchScheduled) {
+      this.refreshStatus();
+      return;
+    }
 
-    const updates = this.queuedUpdates;
+    this.durableBatchScheduler.cancel();
     let mergedUpdate: Uint8Array;
+    let consumedUpdates: number;
     let touchedBlockIds: readonly BlockId[];
     let updateId: string;
     try {
-      mergedUpdate = copyBytes(Y.mergeUpdates(updates));
+      const batch = mergeNextBoundedYjsUpdate(
+        this.queuedUpdates,
+        this.documentSchemaAdapter.limits.maxUpdateBytes,
+      );
+      mergedUpdate = batch.update;
+      consumedUpdates = batch.consumedUpdates;
       touchedBlockIds = [...new Set(this.resolveTouchedBlockIds(mergedUpdate))];
       updateId = this.createUpdateId(
         this.clientSessionId,
@@ -880,7 +977,7 @@ export class NodexYProvider {
       );
       return;
     }
-    this.queuedUpdates = [];
+    this.queuedUpdates = this.queuedUpdates.slice(consumedUpdates);
     this.updateSequence += 1;
     this.inFlight = {
       request: {
@@ -929,7 +1026,6 @@ export class NodexYProvider {
   private async applyDurableUpdate(
     pending: PendingDurableUpdate,
   ): Promise<void> {
-    this.queueLocalCheckpointBestEffort();
     if (this.inFlight !== pending || this.destroyed || this.terminalError) {
       return;
     }
@@ -964,7 +1060,6 @@ export class NodexYProvider {
     } else if (ack.headSeq > previousHeadSeq) {
       this.requestResync();
     }
-    this.queueLocalCheckpointBestEffort();
     this.refreshStatus();
   }
 
@@ -1076,13 +1171,40 @@ export class NodexYProvider {
       })
       .catch((error: unknown) => {
         this.recordCheckpointFailure(error);
-      });
+    });
     this.checkpointChain = hydration;
-    void hydration.then(() => this.queueLocalCheckpointBestEffort());
   }
 
   private queueLocalCheckpointBestEffort(): void {
-    void this.queueLocalCheckpoint().catch(() => undefined);
+    if (
+      this.checkpointDisabled
+      || !this.localCheckpointStore
+      || !this.storeEpoch
+      || this.generation === undefined
+      || this.checkpointUpdates.length === 0
+    ) return;
+    this.checkpointScheduler.request();
+  }
+
+  private drainScheduledLocalCheckpoint(): void {
+    if (
+      this.checkpointUpdates.length === 0
+      || this.destroyed
+      || this.checkpointDisabled
+    ) {
+      return;
+    }
+    void this.queueLocalCheckpoint()
+      .catch(() => undefined)
+      .finally(() => {
+        if (
+          this.checkpointUpdates.length > 0
+          && !this.checkpointRetryBlocked
+          && !this.destroyed
+        ) {
+          this.checkpointScheduler.request();
+        }
+      });
   }
 
   private queueLocalCheckpoint(): Promise<void> {
@@ -1090,11 +1212,22 @@ export class NodexYProvider {
       this.checkpointDisabled ||
       !this.localCheckpointStore ||
       !this.storeEpoch ||
-      this.generation === undefined
+      this.generation === undefined ||
+      this.checkpointUpdates.length === 0
     ) {
-      return Promise.resolve();
+      return this.checkpointChain;
     }
 
+    const checkpointUpdates = this.checkpointUpdates;
+    this.checkpointUpdates = [];
+    const checkpoint: DocumentLocalCheckpoint = {
+      documentId: this.documentId,
+      storeEpoch: this.storeEpoch,
+      generation: this.generation,
+      headSeq: this.headSeq,
+      state: copyBytes(Y.mergeUpdates(checkpointUpdates)),
+      updatedAt: new Date(this.now()).toISOString(),
+    };
     this.checkpointPhase = "saving";
     this.refreshStatus();
     const write = this.checkpointChain
@@ -1107,12 +1240,6 @@ export class NodexYProvider {
         ) {
           return;
         }
-        const checkpoint = captureDocumentLocalCheckpoint(this.document, {
-          documentId: this.documentId,
-          storeEpoch: this.storeEpoch,
-          generation: this.generation,
-          headSeq: this.headSeq,
-        }, this.documentSchemaAdapter);
         await this.localCheckpointStore.write(
           checkpoint,
           this.documentSchemaAdapter.limits,
@@ -1125,7 +1252,20 @@ export class NodexYProvider {
         this.refreshStatus();
       })
       .catch((error: unknown) => {
-        this.recordCheckpointFailure(error);
+        if (!this.destroyed && !this.checkpointDisabled) {
+          // Keep one compact retry payload. In particular, a persistent quota
+          // failure must not retain one Uint8Array object per editor gesture.
+          this.checkpointUpdates = [copyBytes(Y.mergeUpdates([
+            ...checkpointUpdates,
+            ...this.checkpointUpdates,
+          ]))];
+          this.checkpointRetryBlocked = true;
+        }
+        // A best-effort cache failure must not become a hot retry loop. A new
+        // local update or an explicit lifecycle checkpoint opens one new try.
+        if (!this.destroyed && !this.checkpointDisabled) {
+          this.recordCheckpointFailure(error);
+        }
         throw error;
       });
     this.checkpointChain = write.catch(() => undefined);
@@ -1135,6 +1275,9 @@ export class NodexYProvider {
   private clearLocalCheckpoints(): void {
     if (this.checkpointDisabled) return;
     this.checkpointDisabled = true;
+    this.checkpointUpdates = [];
+    this.checkpointRetryBlocked = false;
+    this.checkpointScheduler.cancel();
     this.checkpointPhase = "disabled";
     this.refreshStatus();
     if (!this.localCheckpointStore) return;

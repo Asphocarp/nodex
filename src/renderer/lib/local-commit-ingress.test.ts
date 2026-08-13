@@ -680,6 +680,67 @@ describe("RendererLocalCommitIngress", () => {
     await first;
   });
 
+  test("bounds inline Document verification concurrency for large deliveries", async () => {
+    const update = Uint8Array.from([1]);
+    const actualDigest = globalThis.crypto.subtle.digest.bind(
+      globalThis.crypto.subtle,
+    );
+    const digest = new Uint8Array(await actualDigest("SHA-256", update));
+    const updateHash = [...digest]
+      .map((byte) => byte.toString(16).padStart(2, "0"))
+      .join("");
+    const documents = Array.from({ length: 24 }, (_, effectOrder) => ({
+      reference: {
+        effect_order: effectOrder,
+        page_id: `page-${effectOrder}`,
+        document_id: `document-${effectOrder}`,
+        generation: 1,
+        base_head_seq: 0,
+        result_head_seq: 1,
+        update_id: `update-${effectOrder}`,
+        update_hash: updateHash,
+        update_byte_length: update.byteLength,
+        resource_kind: "document_update" as const,
+      },
+      inline_update: [...update],
+    }));
+    let activeDigests = 0;
+    let maxActiveDigests = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const digestSpy = vi.spyOn(globalThis.crypto.subtle, "digest")
+      .mockImplementation(async (algorithm, data) => {
+        activeDigests += 1;
+        maxActiveDigests = Math.max(maxActiveDigests, activeDigests);
+        await gate;
+        try {
+          return await actualDigest(algorithm, data);
+        } finally {
+          activeDigests -= 1;
+        }
+      });
+    try {
+      const ingress = new RendererLocalCommitIngress();
+      const admission = ingress.admitPacket(packet({
+        projections: [],
+        documents,
+      }));
+      await Promise.resolve();
+
+      expect(digestSpy).toHaveBeenCalledTimes(8);
+      expect(maxActiveDigests).toBe(8);
+
+      release();
+      await admission;
+      expect(digestSpy).toHaveBeenCalledTimes(documents.length);
+      expect(maxActiveDigests).toBe(8);
+    } finally {
+      digestSpy.mockRestore();
+    }
+  });
+
   test("isolates downstream listener failures from durable command success", async () => {
     const listenerError = vi.fn();
     const healthy = vi.fn();

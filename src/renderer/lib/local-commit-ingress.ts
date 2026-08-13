@@ -23,6 +23,7 @@ import {
   AuthorityFreshnessIndex,
   rendererAuthorityFreshnessIndex,
 } from "./authority-freshness-index";
+import { mapWithConcurrency } from "./map-with-concurrency";
 
 type ProjectionListener = (message: ProjectionStreamMessage) => void;
 type RevocationListener = (message: ResourceRevocationMessage) => void;
@@ -64,6 +65,7 @@ interface PreparedDocumentEvent {
 const HASH_PATTERN = /^[a-f0-9]{64}$/u;
 const DEFAULT_MAX_REMEMBERED_COMMITS = 100_000;
 const DEFAULT_MAX_IN_FLIGHT_ADMISSIONS = 256;
+const DOCUMENT_EVENT_PREPARATION_CONCURRENCY = 8;
 
 const sameValues = <Value>(
   actual: readonly Value[],
@@ -436,8 +438,10 @@ export class RendererLocalCommitIngress {
       identity.store_epoch,
       identity.commit_seq,
     ]);
-    const preparedDocuments = await Promise.all(
-      packet.document_effects.map((effect) => prepareDocumentEvent(packet, effect)),
+    const preparedDocuments = await mapWithConcurrency(
+      packet.document_effects,
+      DOCUMENT_EVENT_PREPARATION_CONCURRENCY,
+      (effect) => prepareDocumentEvent(packet, effect),
     );
     const remembered = this.#remembered.get(commitKey);
     if (remembered && remembered.manifestHash !== identity.manifest_hash) {

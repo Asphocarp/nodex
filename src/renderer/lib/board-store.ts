@@ -60,12 +60,14 @@ import {
   fenceDatabaseRowDetailsForProject,
   revokeDatabaseRowDetail,
 } from "./database-row-detail-store";
+import { mapWithConcurrency } from "./map-with-concurrency";
 
 const DEFAULT_BOARD_FRESHNESS_MS = 30_000;
 const GROUP_WINDOW_FIRST = 50;
 const GROUP_WINDOW_MAX_FIRST = 200;
 const CONSISTENT_WINDOW_READ_ATTEMPTS = 4;
 const MAX_RETAINED_BOARD_STORES = 32;
+const GROUP_WINDOW_READ_CONCURRENCY = 8;
 
 export interface IndexedPage extends DatabasePageSummary {
   columnId: string;
@@ -727,16 +729,20 @@ class BoardProjectStore {
       const fetchScopes: GroupWindowScope[] = scopes.length > 0
         ? scopes
         : [{ scopeKey: UNGROUPED_SCOPE_KEY, scope: null }];
-      const windows = await Promise.all(fetchScopes.map(async (scope) => ({
-        scope,
-        snapshot: await this.readScopedWindow(
+      const windows = await mapWithConcurrency(
+        fetchScopes,
+        GROUP_WINDOW_READ_CONCURRENCY,
+        async (scope) => ({
           scope,
-          this.firstForScope(scope.scopeKey),
-          undefined,
-          floor,
-          minimumStoreEpoch,
-        ),
-      })));
+          snapshot: await this.readScopedWindow(
+            scope,
+            this.firstForScope(scope.scopeKey),
+            undefined,
+            floor,
+            minimumStoreEpoch,
+          ),
+        }),
+      );
       if (windows.every(({ snapshot }) =>
         hasSameProjectionAuthority(groups, snapshot)
       )) {
@@ -1054,10 +1060,14 @@ class BoardProjectStore {
 
   /** Advances every group that still has a continuation (flat list views). */
   loadMoreAll = async (): Promise<void> => {
-    const pending = [...this.groupWindows.entries()]
+    const scopeKeys = [...this.groupWindows.entries()]
       .filter(([, group]) => group.snapshot.nextCursor !== null)
-      .map(([scopeKey]) => this.loadMoreGroup(scopeKey));
-    await Promise.all(pending);
+      .map(([scopeKey]) => scopeKey);
+    await mapWithConcurrency(
+      scopeKeys,
+      GROUP_WINDOW_READ_CONCURRENCY,
+      this.loadMoreGroup,
+    );
   };
 
   loadMore = async (): Promise<void> => {

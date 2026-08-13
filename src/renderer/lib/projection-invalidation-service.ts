@@ -1,4 +1,5 @@
 import { resolveRendererTransport } from "./renderer-transport";
+import { INTERACTIVE_PROJECTION_REPAIR_BURST } from "./causal-projection-runtime";
 import { ProjectionInvalidationRegistry } from "./projection-invalidation-registry";
 
 let rendererRegistry: ProjectionInvalidationRegistry | null = null;
@@ -10,6 +11,7 @@ let rendererRegistry: ProjectionInvalidationRegistry | null = null;
  */
 export const getRendererProjectionInvalidationRegistry = () => {
   rendererRegistry ??= new ProjectionInvalidationRegistry({
+    effectRepairBurst: INTERACTIVE_PROJECTION_REPAIR_BURST,
     subscribeProjection: (scope, listener) =>
       resolveRendererTransport().subscribeProjectionStream(scope, listener),
     subscribeRevocations: (scope, listener) =>

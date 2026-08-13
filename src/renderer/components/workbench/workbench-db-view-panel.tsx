@@ -34,7 +34,6 @@ import {
 } from "./db-view-toolbar";
 import { DatabaseViewSurface } from "./database-view-surface";
 import { DatabaseList } from "./database-list/database-list";
-import { preloadDatabaseListWindow } from "./database-list/use-database-list-window";
 import { DatabaseViewDisplayOptions } from "./database-view-display-options";
 import { DatabaseViewFilter } from "./database-view-filter";
 import { DatabaseViewSort } from "./database-view-sort";
@@ -411,10 +410,6 @@ export function DbViewSessionTab({
     if (!databaseView) return;
     synchronizePreferenceStoreEpoch(databaseView.storeEpoch);
   }, [databaseView, synchronizePreferenceStoreEpoch]);
-  useEffect(() => {
-    if (!databaseView || !effectivePresentation) return;
-    preloadDatabaseListWindow(databaseView, effectivePresentation);
-  }, [databaseView, effectivePresentation]);
   const updateEffectivePresentation = useCallback((
     next: EffectiveDatabaseViewPresentation,
   ) => {

@@ -43,6 +43,19 @@ A complete contiguous patch may apply immediately. A gap, unavailable patch,
 integrity mismatch, conservative reset, or authorization change fences the stale
 projection and schedules a bounded canonical read.
 
+Patchless effects and advisory read-at-least requests accumulate into the latest
+required coordinate per consumer. Interactive consumers repair after 300 ms of
+quiet or at a 5 second starvation deadline, with one canonical read in flight;
+reset, revocation, integrity failure, and a true causal gap stay urgent. Future
+effect tails are Store-epoch keyed and capped at 128 entries because a canonical
+repair can replace a compacted tail. These bounds prevent a busy Document writer
+from turning projection convergence into an unbounded renderer queue. Failed
+canonical reads retry with bounded exponential backoff; routine effects merge
+into that pending retry instead of creating one failed read per notification.
+Renderer admission also verifies inline Document resources through a small
+fixed worker pool, so one large semantic commit cannot fan out an unbounded set
+of buffer copies and digest jobs before its callbacks become visible.
+
 Canonical reads derive their Store epoch, LocalCommit head, projection revision,
 and values from one SQLite snapshot. Renderer stores admit the response only if
 its authority/freshness stamp still covers every dependency observed since the

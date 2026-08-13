@@ -158,7 +158,16 @@ class MemoryCheckpointStore implements DocumentLocalCheckpointStore {
 
   write = async (checkpoint: DocumentLocalCheckpoint): Promise<void> => {
     this.writes += 1;
-    this.checkpoint = checkpoint;
+    this.checkpoint = this.checkpoint
+      ? {
+          ...checkpoint,
+          headSeq: Math.max(this.checkpoint.headSeq, checkpoint.headSeq),
+          state: Y.mergeUpdates([
+            this.checkpoint.state,
+            checkpoint.state,
+          ]),
+        }
+      : checkpoint;
   };
 
   clearDocument = async (): Promise<void> => {

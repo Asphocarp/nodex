@@ -27,6 +27,18 @@ and Awareness contribution. Another surface's or remote transactions converge
 visibly without entering local undo. Deactivation clears ephemeral presence and
 keeps durable work behind a bounded flush/checkpoint boundary.
 
+One visible editing burst may produce many Yjs transactions. The provider merges
+those commutative incremental updates before IPC, admits only one Core apply at
+a time, and lets explicit lifecycle or structural flushes bypass the burst
+timer. A merged apply never crosses the schema's update-byte envelope; an
+oversized burst is drained through multiple ordered commits. The disposable
+recovery cache independently merges only local deltas on a wider quiet/max
+boundary; it never re-encodes the complete Y.Doc for every transaction or
+checkpoints remote state that is already durable in Core. Cache implementations
+atomically merge deltas for a Document boundary. A failed write retains one
+compact retry delta and stops automatic retry until new local work or an
+explicit lifecycle checkpoint arrives.
+
 Structural operations that consume mounted Document shape first flush pending
 updates and carry a typed causal head token. Core rechecks the token with every
 owner, membership, and authorization fact in the committing transaction.

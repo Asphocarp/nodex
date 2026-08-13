@@ -24,6 +24,7 @@ import {
   invalidateExactQuery,
   projectionCursorForSnapshots,
 } from "../../lib/query-invalidation";
+import { mapWithConcurrency } from "../../lib/map-with-concurrency";
 import { queryKeys } from "../../lib/query-keys";
 import { useProjectionRegistration } from "../../lib/projection-invalidation-context";
 import type { ProjectionInvalidationCause } from "../../lib/projection-invalidation-registry";
@@ -54,6 +55,8 @@ interface ScopedWindow {
   readonly scope?: DatabaseViewGroupScopeInput;
   readonly snapshot: DatabaseViewWindowSnapshot<string | null>;
 }
+
+const GROUP_WINDOW_READ_CONCURRENCY = 8;
 
 const resolveDatabaseSurfaceAuthority = (_queryKey: readonly unknown[], data: unknown) => {
   const snapshot = data as {
@@ -248,8 +251,10 @@ export function WorkbenchDatabaseViewSurface({
         readTarget,
         minimumCommitSeq,
       );
-      const scopedWindows = await Promise.all(
-        scopesFromGroups(groups).map(async (scope): Promise<ScopedWindow> => ({
+      const scopedWindows = await mapWithConcurrency(
+        scopesFromGroups(groups),
+        GROUP_WINDOW_READ_CONCURRENCY,
+        async (scope): Promise<ScopedWindow> => ({
           ...scope,
           snapshot: await readDatabaseWindowForContext(
             readContext,
@@ -259,7 +264,7 @@ export function WorkbenchDatabaseViewSurface({
               ...(minimumCommitSeq > 0 ? { minimumCommitSeq } : {}),
             },
           ),
-        })),
+        }),
       );
       return await admitResourceAuthorityQuery(
         { groups, scopedWindows },
