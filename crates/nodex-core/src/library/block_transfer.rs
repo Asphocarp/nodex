@@ -3158,6 +3158,7 @@ struct StagedPageParentGenesis {
     location_revision: i64,
     metadata_revision: i64,
     parent_revision: i64,
+    placement_mutation_block_ids: Vec<String>,
     prepared: crate::document::PreparedYjsGenesis,
 }
 
@@ -3476,12 +3477,32 @@ fn stage_page_parent_root(
         Some(&title_delta),
         body_roots,
     )?;
+    let placement_mutation_block_ids = if prepared.source_update.is_some() {
+        let body_block_ids = prepared_genesis
+            .materialization
+            .search_units
+            .iter()
+            .map(|unit| unit.block_id.as_str())
+            .collect::<BTreeSet<_>>();
+        let mut moved_block_ids = root
+            .source_to_result_block_ids
+            .values()
+            .filter(|block_id| body_block_ids.contains(block_id.as_str()))
+            .cloned()
+            .collect::<Vec<_>>();
+        moved_block_ids.sort();
+        moved_block_ids.dedup();
+        moved_block_ids
+    } else {
+        Vec::new()
+    };
     Ok(StagedPageParentGenesis {
         page_id: root.page_id.clone(),
         document_id: root.document_id.clone(),
         location_revision: revisions.0,
         metadata_revision: revisions.1,
         parent_revision: revisions.0,
+        placement_mutation_block_ids,
         prepared: prepared_genesis,
     })
 }
@@ -3517,7 +3538,11 @@ fn persist_page_parent_genesis(
             operation_id: &update_id,
             placement_genesis_block_ids: &[],
             placement_preapplied_block_ids: &[],
-            placement_mutation_block_ids: &[],
+            // A Move can reuse the promoted Block's descendants (or an entire
+            // wrapped subtree) in the new Page Document. Their source index
+            // entries were detached during staging, but their placement
+            // revisions still advance exactly once here at the new authority.
+            placement_mutation_block_ids: &stage.placement_mutation_block_ids,
             emit_event: true,
         },
         attached_commit,
@@ -4205,6 +4230,7 @@ fn validate_causal_dependencies(
     if intent.causal_dependencies.is_empty() {
         return Ok(());
     }
+    let library_id = context.library_id.0.as_str();
     let project_id = bound_project_id(context)?;
     let mut documents = BTreeSet::new();
     for dependency in &intent.causal_dependencies {
@@ -4219,35 +4245,20 @@ fn validate_causal_dependencies(
                 "Block transfer causal Document head is outside its bound",
             ));
         }
-        let current = connection
-            .query_row(
-                "SELECT project_id, generation, head_seq, readiness \
-                 FROM documents WHERE id = ?1",
-                [&dependency.document_id],
-                |row| {
-                    Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, i64>(1)?,
-                        row.get::<_, i64>(2)?,
-                        row.get::<_, String>(3)?,
-                    ))
-                },
-            )
-            .optional()?;
-        let Some((current_project_id, generation, head_seq, readiness)) = current else {
-            return Err(StoreError::new(
-                StoreErrorCode::RevisionConflict,
-                format!(
-                    "Causal Document {} no longer exists",
-                    dependency.document_id
-                ),
-                true,
-            ));
-        };
-        if current_project_id != project_id
-            || readiness != "ready"
-            || generation != dependency.generation
-            || head_seq != dependency.expected_head_seq
+        // A causal head is a freshness fence over a Document the bound actor
+        // can currently observe. Resolve it through the same Library/access
+        // authority boundary as the transfer itself instead of duplicating the
+        // physical ownership schema here.
+        let authority = require_transfer_authority(
+            connection,
+            library_id,
+            project_id,
+            &dependency.document_id,
+            None,
+            TransferDocumentAccess::Read,
+        )?;
+        if authority.head.generation != dependency.generation
+            || authority.head.head_seq != dependency.expected_head_seq
         {
             return Err(StoreError::new(
                 StoreErrorCode::RevisionConflict,

@@ -948,12 +948,13 @@ mod tests {
         LibraryAccess, LibraryAgentSearchResult, LibraryAgentSearchScope, LibraryAgentSearchTarget,
         LibraryBlockLocation, LibraryBlockPropertyFieldMutation, LibraryBlockPropertyMutation,
         LibraryBlockPropertyMutationErrorCode, LibraryBlockPropertyMutationOutcome,
-        LibraryBlockTransferLogicalIntent, LibraryBlockTransferMode, LibraryBlockTransferSource,
-        LibraryBlockTransferTarget, LibraryDocumentHead, LibraryMoveDestinationScope,
-        LibraryNavigationParent, LibraryPageFileKind, LibraryPageLifecycleMutation,
-        LibraryPageLifecycleState, LibraryPageLifecycleTagOption,
-        LibraryPageLifecycleViewPlacement, LibraryPagePrepareKind, LibraryPageWorkflowStatus,
-        LibraryPageWriteDestination, LibraryProjectAccessChange, LibraryWriteParent,
+        LibraryBlockTransferDocumentHead, LibraryBlockTransferLogicalIntent,
+        LibraryBlockTransferMode, LibraryBlockTransferSource, LibraryBlockTransferTarget,
+        LibraryDocumentHead, LibraryMoveDestinationScope, LibraryNavigationParent,
+        LibraryPageFileKind, LibraryPageLifecycleMutation, LibraryPageLifecycleState,
+        LibraryPageLifecycleTagOption, LibraryPageLifecycleViewPlacement, LibraryPagePrepareKind,
+        LibraryPageWorkflowStatus, LibraryPageWriteDestination, LibraryProjectAccessChange,
+        LibraryWriteParent,
     };
     use nodex_core_contracts::workspace::{
         PROJECT_WORKSPACE_CONTRACT_VERSION, ProjectWorkspaceIntent, ProjectWorkspaceThreadPatch,
@@ -1040,6 +1041,34 @@ mod tests {
             store_epoch: StoreEpoch("epoch-1".to_owned()),
             intent: LibraryIntent::TransferBlocks { intent },
         }
+    }
+
+    fn document_heads(
+        kernel: &SqliteStoreKernel,
+        document_ids: &[&str],
+    ) -> Vec<LibraryBlockTransferDocumentHead> {
+        kernel
+            .readers()
+            .read_default(|connection| {
+                document_ids
+                    .iter()
+                    .map(|document_id| {
+                        connection.query_row(
+                            "SELECT generation, head_seq FROM documents WHERE id = ?1",
+                            [document_id],
+                            |row| {
+                                Ok(LibraryBlockTransferDocumentHead {
+                                    document_id: (*document_id).to_owned(),
+                                    generation: row.get(0)?,
+                                    expected_head_seq: row.get(1)?,
+                                })
+                            },
+                        )
+                    })
+                    .collect::<rusqlite::Result<Vec<_>>>()
+                    .map_err(Into::into)
+            })
+            .expect("current Document heads")
     }
 
     #[test]
@@ -3817,7 +3846,7 @@ mod tests {
             actor: serde_json::json!({ "kind": "test" }),
             mode: LibraryBlockTransferMode::Move,
             root_block_ids: vec![source_root.clone()],
-            causal_dependencies: Vec::new(),
+            causal_dependencies: document_heads(&kernel, &[SOURCE_DOCUMENT, TARGET_DOCUMENT]),
             source: LibraryBlockTransferSource::Page {
                 page_id: SOURCE_PAGE.to_owned(),
             },
@@ -3827,6 +3856,16 @@ mod tests {
                 before_block_id: None,
             },
         };
+        let mut stale_intent = move_intent.clone();
+        stale_intent.causal_dependencies[0].expected_head_seq += 1;
+        let stale = module
+            .apply(
+                &persistent_context,
+                transfer_request("move-transfer-with-stale-head", stale_intent),
+            )
+            .expect_err("a stale causal Document head must reject the transfer");
+        assert_eq!(stale.code, CoreErrorCode::RevisionConflict);
+
         let moved = module
             .apply(
                 &persistent_context,
@@ -3901,7 +3940,7 @@ mod tests {
             actor: serde_json::json!({ "kind": "test" }),
             mode: LibraryBlockTransferMode::Copy,
             root_block_ids: vec![source_root.clone()],
-            causal_dependencies: Vec::new(),
+            causal_dependencies: document_heads(&kernel, &[TARGET_DOCUMENT, SOURCE_DOCUMENT]),
             source: LibraryBlockTransferSource::Document {
                 document_id: TARGET_DOCUMENT.to_owned(),
             },
@@ -4058,7 +4097,10 @@ mod tests {
             actor: serde_json::json!({ "kind": "test" }),
             mode: LibraryBlockTransferMode::Copy,
             root_block_ids: vec![roots.1.clone()],
-            causal_dependencies: Vec::new(),
+            causal_dependencies: document_heads(
+                &kernel,
+                &[FOREIGN_SOURCE_DOCUMENT, LOCAL_SOURCE_DOCUMENT],
+            ),
             source: LibraryBlockTransferSource::Page {
                 page_id: FOREIGN_SOURCE_PAGE.to_owned(),
             },
@@ -4311,12 +4353,17 @@ mod tests {
         const PROMOTE_PAGE: &str = "018f0000-0000-7000-8000-000000000301";
         const WRAP_PAGE: &str = "018f0000-0000-7000-8000-000000000302";
         const ANCHOR_PAGE: &str = "018f0000-0000-7000-8000-000000000303";
+        const MOVE_WRAP_PAGE: &str = "018f0000-0000-7000-8000-000000000304";
         const PROMOTE_DOCUMENT: &str = "document:promotion-source";
         const WRAP_DOCUMENT: &str = "document:wrapper-source";
         const ANCHOR_DOCUMENT: &str = "document:promotion-anchor";
+        const MOVE_WRAP_DOCUMENT: &str = "document:move-wrapper-source";
         const PROMOTE_SIBLING: &str = "018f0000-0000-7000-8000-000000000311";
+        const PROMOTE_CHILD: &str = "018f0000-0000-7000-8000-000000000314";
         const WRAP_SIBLING: &str = "018f0000-0000-7000-8000-000000000312";
         const WRAP_NESTED_ANCHOR: &str = "018f0000-0000-7000-8000-000000000313";
+        const MOVE_WRAP_CHILD: &str = "018f0000-0000-7000-8000-000000000315";
+        const MOVE_WRAP_SIBLING: &str = "018f0000-0000-7000-8000-000000000316";
         const DATABASE: &str = "018f0000-0000-7000-8000-000000000321";
         const DATA_SOURCE: &str = "018f0000-0000-7000-8000-000000000322";
         const VIEW: &str = "018f0000-0000-7000-8000-000000000323";
@@ -4371,6 +4418,12 @@ mod tests {
                 ANCHOR_PAGE,
                 ANCHOR_DOCUMENT,
                 "Anchor",
+            ),
+            (
+                "create-move-wrapper-source",
+                MOVE_WRAP_PAGE,
+                MOVE_WRAP_DOCUMENT,
+                "Move wrapper",
             ),
         ] {
             library
@@ -4443,7 +4496,11 @@ mod tests {
                         |row| row.get::<_, String>(0),
                     )
                 };
-                Ok((root(PROMOTE_DOCUMENT)?, root(WRAP_DOCUMENT)?))
+                Ok((
+                    root(PROMOTE_DOCUMENT)?,
+                    root(WRAP_DOCUMENT)?,
+                    root(MOVE_WRAP_DOCUMENT)?,
+                ))
             })
             .expect("source roots");
         let documents = OwnedDocumentModule::new("profile-1", "library-1", &kernel);
@@ -4490,6 +4547,11 @@ mod tests {
                             ContractDocumentBlockOperation::InsertBlock {
                                 block: paragraph(PROMOTE_SIBLING),
                                 parent_block_id: None,
+                                before_block_id: None,
+                            },
+                            ContractDocumentBlockOperation::InsertBlock {
+                                block: paragraph(PROMOTE_CHILD),
+                                parent_block_id: Some(roots.0.clone()),
                                 before_block_id: None,
                             },
                         ],
@@ -4544,12 +4606,58 @@ mod tests {
                 },
             )
             .expect("shape wrapper source");
+        documents
+            .apply(
+                &context,
+                ModuleApplyRequest {
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
+                    operation_id: "shape-move-wrapper-source".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: OwnedDocumentIntent::ApplyOperationBatch {
+                        document_id: MOVE_WRAP_DOCUMENT.to_owned(),
+                        generation: 1,
+                        expected_head_seq: 1,
+                        operations: vec![
+                            ContractDocumentBlockOperation::UpdateBlock {
+                                block_id: roots.2.clone(),
+                                patch: DocumentBlockUpdatePatch {
+                                    block_type: Some("checkListItem".to_owned()),
+                                    props: Some(BTreeMap::from([(
+                                        "checked".to_owned(),
+                                        serde_json::json!(false),
+                                    )])),
+                                    content: DocumentOptionalValue::Value {
+                                        value: serde_json::json!([{
+                                            "type": "text",
+                                            "text": "Moved wrapped task",
+                                            "styles": {}
+                                        }]),
+                                    },
+                                    unset_content: false,
+                                },
+                            },
+                            ContractDocumentBlockOperation::InsertBlock {
+                                block: paragraph(MOVE_WRAP_CHILD),
+                                parent_block_id: Some(roots.2.clone()),
+                                before_block_id: None,
+                            },
+                            ContractDocumentBlockOperation::InsertBlock {
+                                block: paragraph(MOVE_WRAP_SIBLING),
+                                parent_block_id: None,
+                                before_block_id: None,
+                            },
+                        ],
+                        actor: serde_json::json!({ "kind": "test" }),
+                    },
+                },
+            )
+            .expect("shape move-wrapper source");
 
         let promote_intent = LibraryBlockTransferLogicalIntent {
             actor: serde_json::json!({ "kind": "test" }),
             mode: LibraryBlockTransferMode::Move,
             root_block_ids: vec![roots.0.clone()],
-            causal_dependencies: Vec::new(),
+            causal_dependencies: document_heads(&kernel, &[PROMOTE_DOCUMENT]),
             source: LibraryBlockTransferSource::Document {
                 document_id: PROMOTE_DOCUMENT.to_owned(),
             },
@@ -4616,6 +4724,43 @@ mod tests {
             .expect("replay promotion");
         assert!(replayed.committed.receipt.mutation.duplicate);
         assert_eq!(replayed.committed.commit_seq, promoted.committed.commit_seq);
+
+        let moved_wrapper = library
+            .apply(
+                &context,
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "move-wrapper-to-library".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::TransferBlocks {
+                        intent: LibraryBlockTransferLogicalIntent {
+                            actor: serde_json::json!({ "kind": "test" }),
+                            mode: LibraryBlockTransferMode::Move,
+                            root_block_ids: vec![roots.2.clone()],
+                            causal_dependencies: document_heads(&kernel, &[MOVE_WRAP_DOCUMENT]),
+                            source: LibraryBlockTransferSource::Document {
+                                document_id: MOVE_WRAP_DOCUMENT.to_owned(),
+                            },
+                            target: LibraryBlockTransferTarget::Library {
+                                library_id: "library-1".to_owned(),
+                                before_block_id: None,
+                            },
+                        },
+                    },
+                },
+            )
+            .expect("move wrapped subtree");
+        let moved_wrapper_result = moved_wrapper
+            .committed
+            .value
+            .block_transfer
+            .as_ref()
+            .expect("moved wrapper result");
+        let moved_wrapper_page_id = &moved_wrapper_result.result_root_block_ids[0];
+        assert_eq!(
+            moved_wrapper_result.transformation_evidence[0]["kind"],
+            "wrap"
+        );
 
         let wrap_intent = LibraryBlockTransferLogicalIntent {
             actor: serde_json::json!({ "kind": "test" }),
@@ -4776,6 +4921,44 @@ mod tests {
                     |row| row.get::<_, i64>(0),
                 )?;
                 assert_eq!(source_task_present, 1);
+                let promoted_child = connection.query_row(
+                    "SELECT entry.document_id, block.placement_revision \
+                     FROM document_block_index entry \
+                     JOIN blocks block ON block.id = entry.block_id \
+                     WHERE entry.block_id = ?1",
+                    [PROMOTE_CHILD],
+                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
+                )?;
+                assert_eq!(
+                    promoted_child,
+                    (format!("document:{}", roots.0), 2),
+                );
+                let moved_wrapper_body = connection
+                    .prepare(
+                        "SELECT entry.block_id, block.placement_revision \
+                         FROM document_block_index entry \
+                         JOIN blocks block ON block.id = entry.block_id \
+                         WHERE entry.document_id = ?1 ORDER BY entry.ordinal",
+                    )?
+                    .query_map([format!("document:{moved_wrapper_page_id}")], |row| {
+                        Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+                    })?
+                    .collect::<rusqlite::Result<Vec<_>>>()?;
+                assert_eq!(
+                    moved_wrapper_body,
+                    vec![(roots.2.clone(), 2), (MOVE_WRAP_CHILD.to_owned(), 2)],
+                );
+                let move_wrapper_source_blocks = connection
+                    .prepare(
+                        "SELECT block_id FROM document_block_index \
+                         WHERE document_id = ?1 ORDER BY ordinal",
+                    )?
+                    .query_map([MOVE_WRAP_DOCUMENT], |row| row.get::<_, String>(0))?
+                    .collect::<rusqlite::Result<Vec<_>>>()?;
+                assert_eq!(
+                    move_wrapper_source_blocks,
+                    vec![MOVE_WRAP_SIBLING.to_owned()],
+                );
                 let data_source_evidence = connection.query_row(
                     "SELECT block.library_id, block.placement_revision, \
                             page.parent_kind, page.parent_id, membership.revision, \
@@ -5181,7 +5364,7 @@ mod tests {
             actor: serde_json::json!({ "kind": "test" }),
             mode: LibraryBlockTransferMode::Move,
             root_block_ids: vec![data_source_page_id.clone()],
-            causal_dependencies: Vec::new(),
+            causal_dependencies: document_heads(&kernel, &[ANCHOR_DOCUMENT]),
             source: LibraryBlockTransferSource::Page {
                 page_id: ANCHOR_PAGE.to_owned(),
             },
@@ -5236,7 +5419,7 @@ mod tests {
             actor: serde_json::json!({ "kind": "test" }),
             mode: LibraryBlockTransferMode::Move,
             root_block_ids: vec![data_source_page_id.clone()],
-            causal_dependencies: Vec::new(),
+            causal_dependencies: document_heads(&kernel, &[WRAP_DOCUMENT]),
             source: LibraryBlockTransferSource::Library {
                 library_id: "library-1".to_owned(),
             },
