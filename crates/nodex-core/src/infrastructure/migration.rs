@@ -8782,9 +8782,19 @@ mod tests {
 
     #[test]
     fn v114_task_hierarchy_migrates_to_the_standard_parent_relation_once() {
-        fn snapshot(
-            connection: &Connection,
-        ) -> Result<(i64, String, String, i64, i64, String, String, String), StoreError> {
+        #[derive(Debug, Eq, PartialEq)]
+        struct TaskHierarchySnapshot {
+            retired_table_count: i64,
+            target_data_source_id: String,
+            task_parent_cardinality: String,
+            root_revision: i64,
+            child_revision: i64,
+            parent_page_id: String,
+            sibling_rank: String,
+            generic_relation_cardinality: String,
+        }
+
+        fn snapshot(connection: &Connection) -> Result<TaskHierarchySnapshot, StoreError> {
             let retired_table = connection.query_row(
                 "SELECT count(*) FROM sqlite_schema \
                  WHERE type = 'table' AND name = 'database_task_hierarchy_edges'",
@@ -8833,16 +8843,16 @@ mod tests {
                 [],
                 |row| row.get::<_, String>(0),
             )?;
-            Ok((
-                retired_table,
-                target_source,
-                cardinality,
+            Ok(TaskHierarchySnapshot {
+                retired_table_count: retired_table,
+                target_data_source_id: target_source,
+                task_parent_cardinality: cardinality,
                 root_revision,
                 child_revision,
                 parent_page_id,
                 sibling_rank,
-                generic_cardinality,
-            ))
+                generic_relation_cardinality: generic_cardinality,
+            })
         }
 
         let directory = tempdir().expect("Profile");
@@ -8857,16 +8867,16 @@ mod tests {
             .expect("read migrated Parent Relation");
         assert_eq!(
             first,
-            (
-                0,
-                "source:v110-priority".to_owned(),
-                "one".to_owned(),
-                1,
-                7,
-                "page:v110-priority".to_owned(),
-                "7fffffffffffffffffffffffffffffff".to_owned(),
-                "many".to_owned(),
-            )
+            TaskHierarchySnapshot {
+                retired_table_count: 0,
+                target_data_source_id: "source:v110-priority".to_owned(),
+                task_parent_cardinality: "one".to_owned(),
+                root_revision: 1,
+                child_revision: 7,
+                parent_page_id: "page:v110-priority".to_owned(),
+                sibling_rank: "7fffffffffffffffffffffffffffffff".to_owned(),
+                generic_relation_cardinality: "many".to_owned(),
+            }
         );
 
         drop(upgraded);
