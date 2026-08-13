@@ -56,6 +56,56 @@ pub(crate) struct PersistedDocumentCommit {
     pub committed_at: String,
 }
 
+/// Declares every Block placement change owned by one Document persistence
+/// operation. Keeping these roles together makes structural callers name the
+/// complete intent while reconciliation remains the single validator.
+#[derive(Clone, Copy, Debug)]
+#[must_use]
+pub(crate) struct DocumentPlacementIntent<'a> {
+    structurally_detached_block_ids: &'a [String],
+    placement_genesis_block_ids: &'a [String],
+    placement_preapplied_block_ids: &'a [String],
+    placement_mutation_block_ids: &'a [String],
+}
+
+impl<'a> DocumentPlacementIntent<'a> {
+    pub(crate) const NONE: Self = Self {
+        structurally_detached_block_ids: &[],
+        placement_genesis_block_ids: &[],
+        placement_preapplied_block_ids: &[],
+        placement_mutation_block_ids: &[],
+    };
+
+    /// Blocks intentionally detached by the surrounding structural mutation.
+    /// Generic Document edits must leave this empty so removal keeps its normal
+    /// deletion semantics. The destination owns the canonical placement move.
+    pub(crate) const fn with_structural_detaches(mut self, block_ids: &'a [String]) -> Self {
+        self.structurally_detached_block_ids = block_ids;
+        self
+    }
+
+    /// Typed Blocks receiving their first authoritative Document placement.
+    pub(crate) const fn with_genesis(mut self, block_ids: &'a [String]) -> Self {
+        self.placement_genesis_block_ids = block_ids;
+        self
+    }
+
+    /// Placements whose owning aggregate already advanced their revision.
+    pub(crate) const fn with_preapplied(mut self, block_ids: &'a [String]) -> Self {
+        self.placement_preapplied_block_ids = block_ids;
+        self
+    }
+
+    /// Existing Blocks explicitly moved by this Document operation. Dense
+    /// ordinals of unaffected siblings may shift during projection rebuilds;
+    /// those shifts are not independent placement mutations and must not churn
+    /// their compare-and-swap revision.
+    pub(crate) const fn with_mutations(mut self, block_ids: &'a [String]) -> Self {
+        self.placement_mutation_block_ids = block_ids;
+        self
+    }
+}
+
 pub(crate) struct PersistYjsCommit<'a> {
     pub authority: &'a DocumentAuthorityRow,
     pub actor_project_id: &'a str,
@@ -73,23 +123,7 @@ pub(crate) struct PersistYjsCommit<'a> {
     pub event_kind: &'a str,
     pub write_fence_block_ids: &'a [String],
     pub title_write_fence_required: bool,
-    /// Blocks intentionally detached by the surrounding structural mutation.
-    /// Generic Document edits must leave this empty so removal keeps its normal
-    /// deletion semantics. A transfer declares its complete detached closure;
-    /// the destination Document then performs the one canonical placement move.
-    pub structurally_detached_block_ids: &'a [String],
-    /// Typed Blocks created by the surrounding aggregate and receiving their
-    /// first authoritative Document placement in this commit. Their initial
-    /// placement is revision 1; only subsequent relocations advance it.
-    pub placement_genesis_block_ids: &'a [String],
-    /// Typed placements whose owning aggregate already advanced the placement
-    /// revision before this Document rebuild. Reconciliation attaches their
-    /// index rows without applying the same logical move a second time.
-    pub placement_preapplied_block_ids: &'a [String],
-    /// Existing Blocks explicitly moved by this commit. Dense ordinals of
-    /// unaffected siblings may shift during projection rebuilds; those shifts
-    /// are not independent placement mutations and must not churn their CAS.
-    pub placement_mutation_block_ids: &'a [String],
+    pub placement: DocumentPlacementIntent<'a>,
 }
 
 pub(crate) struct PersistYjsGenesis<'a> {
@@ -103,9 +137,7 @@ pub(crate) struct PersistYjsGenesis<'a> {
     pub full_state: &'a [u8],
     pub store_epoch: &'a str,
     pub operation_id: &'a str,
-    pub placement_genesis_block_ids: &'a [String],
-    pub placement_preapplied_block_ids: &'a [String],
-    pub placement_mutation_block_ids: &'a [String],
+    pub placement: DocumentPlacementIntent<'a>,
     /// Internal collaborator genesis keeps its durable Document artifacts but
     /// lets the owning aggregate publish the single public event.
     pub emit_event: bool,
@@ -325,10 +357,7 @@ fn persist_yjs_commit_inner(
         input.authority,
         Some(input.base_materialization),
         input.materialization,
-        input.structurally_detached_block_ids,
-        input.placement_genesis_block_ids,
-        input.placement_preapplied_block_ids,
-        input.placement_mutation_block_ids,
+        input.placement,
         next_head_seq,
         &now,
     )?;
@@ -570,10 +599,7 @@ fn persist_yjs_genesis_inner(
         input.authority,
         None,
         input.materialization,
-        &[],
-        input.placement_genesis_block_ids,
-        input.placement_preapplied_block_ids,
-        input.placement_mutation_block_ids,
+        input.placement,
         1,
         &now,
     )?;
@@ -743,10 +769,7 @@ fn reconcile_document_blocks(
     authority: &DocumentAuthorityRow,
     base_materialization: Option<&DocumentMaterialization>,
     materialization: &DocumentMaterialization,
-    structurally_detached_block_ids: &[String],
-    placement_genesis_block_ids: &[String],
-    placement_preapplied_block_ids: &[String],
-    placement_mutation_block_ids: &[String],
+    placement: DocumentPlacementIntent<'_>,
     projected_seq: i64,
     now: &str,
 ) -> Result<(), StoreError> {
@@ -779,15 +802,18 @@ fn reconcile_document_blocks(
         .iter()
         .map(|unit| unit.block_id.clone())
         .collect::<HashSet<_>>();
-    let placement_geneses = placement_genesis_block_ids
+    let placement_geneses = placement
+        .placement_genesis_block_ids
         .iter()
         .map(String::as_str)
         .collect::<HashSet<_>>();
-    let placement_preapplied = placement_preapplied_block_ids
+    let placement_preapplied = placement
+        .placement_preapplied_block_ids
         .iter()
         .map(String::as_str)
         .collect::<HashSet<_>>();
-    let placement_mutations = placement_mutation_block_ids
+    let placement_mutations = placement
+        .placement_mutation_block_ids
         .iter()
         .map(String::as_str)
         .collect::<HashSet<_>>();
@@ -948,7 +974,8 @@ fn reconcile_document_blocks(
         }
     }
 
-    let structural_detaches = structurally_detached_block_ids
+    let structural_detaches = placement
+        .structurally_detached_block_ids
         .iter()
         .map(String::as_str)
         .collect::<HashSet<_>>();

@@ -77,7 +77,7 @@ pub(crate) use history::{NewDocumentCheckpoint, insert_document_checkpoint};
 #[cfg(test)]
 pub(crate) use persistence::persist_yjs_genesis;
 pub(crate) use persistence::{
-    DocumentAuthorityRow, PersistYjsCommit, PersistYjsGenesis,
+    DocumentAuthorityRow, DocumentPlacementIntent, PersistYjsCommit, PersistYjsGenesis,
     persist_yjs_commit_with_local_commit, persist_yjs_genesis_with_local_commit,
     read_document_authority, read_legacy_project_owned_document_authority, read_store_epoch,
     rebuild_legacy_import_projections, sha256,

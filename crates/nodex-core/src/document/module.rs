@@ -85,9 +85,10 @@ use super::operations::{
 };
 use super::owners::execute_owner_command;
 use super::persistence::{
-    DocumentAuthorityRow, PersistYjsCommit, PersistYjsGenesis, derive_touched_block_ids,
-    persist_yjs_commit_with_local_commit, persist_yjs_genesis_with_local_commit,
-    read_document_authority, read_event_head, read_local_commit_head, read_store_epoch, sha256,
+    DocumentAuthorityRow, DocumentPlacementIntent, PersistYjsCommit, PersistYjsGenesis,
+    derive_touched_block_ids, persist_yjs_commit_with_local_commit,
+    persist_yjs_genesis_with_local_commit, read_document_authority, read_event_head,
+    read_local_commit_head, read_store_epoch, sha256,
 };
 use super::recovery::{StaleYjsUpdate, persist_recovery_if_barrier_crossed};
 use super::runtime::{DocumentRuntimeCache, reconstruction_duration_metrics};
@@ -1632,9 +1633,7 @@ impl OwnedDocumentModule {
                                             full_state: &prepared.update_v1,
                                             store_epoch: &store_epoch,
                                             operation_id: &operation_id,
-                                            placement_genesis_block_ids: &[],
-                                            placement_preapplied_block_ids: &[],
-                                            placement_mutation_block_ids: &[],
+                                            placement: DocumentPlacementIntent::NONE,
                                             emit_event: true,
                                         },
                                         scope.evidence(),
@@ -1767,11 +1766,8 @@ impl OwnedDocumentModule {
                                             write_fence_block_ids: &prepared.write_fence_block_ids,
                                             title_write_fence_required: prepared
                                                 .title_write_fence_required,
-                                            structurally_detached_block_ids: &[],
-                                            placement_genesis_block_ids: &[],
-                                            placement_preapplied_block_ids: &[],
-                                            placement_mutation_block_ids: &prepared
-                                                .write_fence_block_ids,
+                                            placement: DocumentPlacementIntent::NONE
+                                                .with_mutations(&prepared.write_fence_block_ids),
                                         },
                                         scope.evidence(),
                                     )?;
@@ -3752,10 +3748,8 @@ impl OwnedDocumentModule {
                                 },
                                 write_fence_block_ids: &write_fence_block_ids,
                                 title_write_fence_required,
-                                structurally_detached_block_ids: &[],
-                                placement_genesis_block_ids: &[],
-                                placement_preapplied_block_ids: &[],
-                                placement_mutation_block_ids: &write_fence_block_ids,
+                                placement: DocumentPlacementIntent::NONE
+                                    .with_mutations(&write_fence_block_ids),
                             },
                             scope.evidence(),
                         )?;

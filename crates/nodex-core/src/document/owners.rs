@@ -27,7 +27,7 @@ use super::operations::{
     prepare_document_operation_update, prepare_portable_subtree_transfer_updates,
 };
 use super::persistence::{
-    DocumentAuthorityRow, PersistYjsCommit, PersistYjsGenesis,
+    DocumentAuthorityRow, DocumentPlacementIntent, PersistYjsCommit, PersistYjsGenesis,
     persist_yjs_commit_with_local_commit, persist_yjs_genesis_with_local_commit,
     read_document_authority, read_event_head, read_store_epoch, sha256,
 };
@@ -230,6 +230,13 @@ enum OwnerDocumentPlacement<'a> {
     Preapplied(&'a [String]),
 }
 
+#[derive(Clone, Copy)]
+struct OwnerDocumentWriteContext<'a> {
+    context: &'a BoundModuleContext,
+    commit: &'a CommitContext,
+    store_epoch: &'a str,
+}
+
 #[allow(clippy::too_many_arguments)]
 fn promote_synced_source(
     connection: &Connection,
@@ -300,9 +307,11 @@ fn promote_synced_source(
     let host_operation_id = format!("{operation_id}:host");
     let host_persisted = persist_prepared_update(
         connection,
-        context,
-        commit_context,
-        store_epoch,
+        OwnerDocumentWriteContext {
+            context,
+            commit: commit_context,
+            store_epoch,
+        },
         &host_operation_id,
         host_loaded,
         host_prepared,
@@ -332,9 +341,7 @@ fn promote_synced_source(
             full_state: &source_full_state,
             store_epoch,
             operation_id: &source_operation_id,
-            placement_genesis_block_ids: &[],
-            placement_preapplied_block_ids: &moved_block_ids,
-            placement_mutation_block_ids: &[],
+            placement: DocumentPlacementIntent::NONE.with_preapplied(&moved_block_ids),
             emit_event: true,
         },
         commit_context,
@@ -449,12 +456,15 @@ fn demote_synced_source(
     let source_delete = transfer
         .source
         .ok_or_else(|| corrupt("Cross-Document move omitted its source update"))?;
+    let write = OwnerDocumentWriteContext {
+        context,
+        commit: commit_context,
+        store_epoch,
+    };
     let host_delete_operation_id = format!("{operation_id}:host:delete-reference");
     let host_after_delete = persist_prepared_update(
         connection,
-        context,
-        commit_context,
-        store_epoch,
+        write,
         &host_delete_operation_id,
         host_loaded,
         host_delete,
@@ -464,9 +474,7 @@ fn demote_synced_source(
     let source_operation_id = format!("{operation_id}:source:retire");
     let source_after_delete = persist_prepared_update(
         connection,
-        context,
-        commit_context,
-        store_epoch,
+        write,
         &source_operation_id,
         source_loaded,
         source_delete,
@@ -476,9 +484,7 @@ fn demote_synced_source(
     let host_insert_operation_id = format!("{operation_id}:host:insert-source");
     let host_final = persist_prepared_update(
         connection,
-        context,
-        commit_context,
-        store_epoch,
+        write,
         &host_insert_operation_id,
         host_after_delete.loaded,
         transfer.target,
@@ -588,9 +594,11 @@ fn instantiate_template(
     let target_operation_id = format!("{operation_id}:target");
     let target_persisted = persist_prepared_update(
         connection,
-        context,
-        commit_context,
-        store_epoch,
+        OwnerDocumentWriteContext {
+            context,
+            commit: commit_context,
+            store_epoch,
+        },
         &target_operation_id,
         target_loaded,
         transfer.target,
@@ -696,9 +704,7 @@ fn apply_prepared_update(
 
 fn persist_prepared_update(
     connection: &Connection,
-    context: &BoundModuleContext,
-    commit_context: &CommitContext,
-    store_epoch: &str,
+    write: OwnerDocumentWriteContext<'_>,
     operation_id: &str,
     loaded: LoadedYjsHead,
     prepared: PreparedDocumentOperationUpdate,
@@ -715,7 +721,7 @@ fn persist_prepared_update(
         connection,
         &loaded.authority,
         &loaded.materialization,
-        context,
+        write.context,
         &now,
     )?;
     let (structurally_detached_block_ids, placement_preapplied_block_ids) = match placement {
@@ -727,7 +733,8 @@ fn persist_prepared_update(
         connection,
         PersistYjsCommit {
             authority: &loaded.authority,
-            actor_project_id: context
+            actor_project_id: write
+                .context
                 .project_id
                 .as_ref()
                 .map(|project_id| project_id.0.as_str())
@@ -735,30 +742,29 @@ fn persist_prepared_update(
             base_materialization: &loaded.materialization,
             materialization: &prepared.materialization,
             update_id: operation_id,
-            client_session_id: &context.connection_id,
+            client_session_id: &write.context.connection_id,
             base_head_seq: loaded.authority.head.head_seq,
             client_touched_block_ids: &[],
             update: &prepared.update_v1,
             state_vector: &prepared.state_vector_v1,
-            store_epoch,
+            store_epoch: write.store_epoch,
             operation_id,
             local_commit_id: None,
             event_kind: "document_updated",
             write_fence_block_ids: &prepared.write_fence_block_ids,
             title_write_fence_required: prepared.title_write_fence_required,
-            structurally_detached_block_ids,
-            placement_genesis_block_ids: &[],
-            placement_preapplied_block_ids,
-            placement_mutation_block_ids: &[],
+            placement: DocumentPlacementIntent::NONE
+                .with_structural_detaches(structurally_detached_block_ids)
+                .with_preapplied(placement_preapplied_block_ids),
         },
-        commit_context,
+        write.commit,
     )?;
     record_document_revision_edit(
         connection,
         &loaded.authority.head.id,
         loaded.authority.head.generation,
         persisted.head_seq,
-        &context.connection_id,
+        &write.context.connection_id,
         &persisted.committed_at,
     )?;
     let event = load_committed_event_by_sequence(connection, persisted.event_sequence)?;
@@ -983,9 +989,7 @@ fn create_yjs_owner(
             full_state: &full_state,
             store_epoch,
             operation_id: &update_id,
-            placement_genesis_block_ids: &[],
-            placement_preapplied_block_ids: &[],
-            placement_mutation_block_ids: &[],
+            placement: DocumentPlacementIntent::NONE,
             emit_event: true,
         },
         commit_context,

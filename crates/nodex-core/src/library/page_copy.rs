@@ -16,10 +16,10 @@ use crate::database::{
     validate_page_copy_data_source_destination_prevalidated,
 };
 use crate::document::{
-    BlockDocumentSchema, DocumentMaterialization, PersistYjsGenesis, clone_canvas_genesis,
-    decode_block_document, materialize_decoded_document, mint_document_semantic_etags,
-    persist_yjs_genesis_with_local_commit, prepare_yjs_clone_genesis, read_document_authority,
-    reconstruct_yjs_engine, sha256,
+    BlockDocumentSchema, DocumentMaterialization, DocumentPlacementIntent, PersistYjsGenesis,
+    clone_canvas_genesis, decode_block_document, materialize_decoded_document,
+    mint_document_semantic_etags, persist_yjs_genesis_with_local_commit, prepare_yjs_clone_genesis,
+    read_document_authority, reconstruct_yjs_engine, sha256,
 };
 use crate::domain::block_materialization::MaterializedBlockNode;
 use crate::domain::block_tree::TextDelta;
@@ -30,9 +30,10 @@ use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
 use super::LibraryApplyOutcome;
 use super::mutation::{
-    MutationEffects, ensure_default_page_intrinsic_properties, insert_creator_resource_grant,
-    insert_library_placement, insert_page_read_model, library_commit_result, persist_parent_insert,
-    refresh_page_intrinsic_projection, resolve_write_parent, seal_mutation, sqlite_now,
+    MutationEffects, ParentDocumentWriteContext, ensure_default_page_intrinsic_properties,
+    insert_creator_resource_grant, insert_library_placement, insert_page_read_model,
+    library_commit_result, persist_parent_insert, refresh_page_intrinsic_projection,
+    resolve_write_parent, seal_mutation, sqlite_now,
 };
 
 const MAX_COPY_BLOCKS: usize = 10_000;
@@ -502,13 +503,15 @@ pub(super) fn execute_page_copy(
         .map(|parent_document| {
             persist_parent_insert(
                 connection,
-                requesting_project_id,
-                store_epoch,
-                operation_id,
+                ParentDocumentWriteContext {
+                    actor_project_id: requesting_project_id,
+                    store_epoch,
+                    operation_id,
+                    commit: commit_context,
+                },
                 parent_document,
                 embedded_page(&target_page_id),
                 resolved_parent.before_block_id.clone(),
-                commit_context,
             )
         })
         .transpose()?;
@@ -1010,9 +1013,7 @@ fn persist_copy_documents(
                 full_state: &full_state,
                 store_epoch,
                 operation_id: &update_id,
-                placement_genesis_block_ids: &placement_genesis_block_ids,
-                placement_preapplied_block_ids: &[],
-                placement_mutation_block_ids: &[],
+                placement: DocumentPlacementIntent::NONE.with_genesis(&placement_genesis_block_ids),
                 emit_event: false,
             },
             commit_context,

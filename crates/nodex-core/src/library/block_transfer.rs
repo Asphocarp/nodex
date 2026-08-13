@@ -26,10 +26,10 @@ use crate::database::{
 };
 use crate::document::{
     BlockDocumentSchema, DocumentAuthorityRow, DocumentBlockOperation, DocumentMaterialization,
-    NewDocumentCheckpoint, PersistYjsCommit, PersistYjsGenesis, PortableSubtreeDocumentHead,
-    PortableSubtreeTransferKind, PortableSubtreeTransferRequest, PreparedDocumentOperationUpdate,
-    YrsDocumentEngine, decode_block_document, insert_document_checkpoint,
-    materialize_decoded_document, persist_yjs_commit_with_local_commit,
+    DocumentPlacementIntent, NewDocumentCheckpoint, PersistYjsCommit, PersistYjsGenesis,
+    PortableSubtreeDocumentHead, PortableSubtreeTransferKind, PortableSubtreeTransferRequest,
+    PreparedDocumentOperationUpdate, YrsDocumentEngine, decode_block_document,
+    insert_document_checkpoint, materialize_decoded_document, persist_yjs_commit_with_local_commit,
     persist_yjs_genesis_with_local_commit, prepare_document_operation_update,
     prepare_page_yjs_genesis_with_content, prepare_portable_subtree_transfer_updates,
     prepare_yjs_clone_genesis, read_document_authority, reconstruct_yjs_engine, sha256,
@@ -3327,9 +3327,7 @@ pub(super) fn stage_prepared_fresh_page_in_library(
             full_state: &full_state,
             store_epoch,
             operation_id: &update_id,
-            placement_genesis_block_ids: &[],
-            placement_preapplied_block_ids: &[],
-            placement_mutation_block_ids: &[],
+            placement: DocumentPlacementIntent::NONE,
             emit_event: false,
         },
         commit_context,
@@ -3536,13 +3534,12 @@ fn persist_page_parent_genesis(
             full_state: &full_state,
             store_epoch,
             operation_id: &update_id,
-            placement_genesis_block_ids: &[],
-            placement_preapplied_block_ids: &[],
             // A Move can reuse the promoted Block's descendants (or an entire
             // wrapped subtree) in the new Page Document. Their source index
             // entries were detached during staging, but their placement
             // revisions still advance exactly once here at the new authority.
-            placement_mutation_block_ids: &stage.placement_mutation_block_ids,
+            placement: DocumentPlacementIntent::NONE
+                .with_mutations(&stage.placement_mutation_block_ids),
             emit_event: true,
         },
         attached_commit,
@@ -3762,10 +3759,11 @@ fn persist_prepared_update(
         event_kind: "document_updated",
         write_fence_block_ids: &update.write_fence_block_ids,
         title_write_fence_required: false,
-        structurally_detached_block_ids: &structurally_detached_block_ids,
-        placement_genesis_block_ids,
-        placement_preapplied_block_ids,
-        placement_mutation_block_ids,
+        placement: DocumentPlacementIntent::NONE
+            .with_structural_detaches(&structurally_detached_block_ids)
+            .with_genesis(placement_genesis_block_ids)
+            .with_preapplied(placement_preapplied_block_ids)
+            .with_mutations(placement_mutation_block_ids),
     };
     let persisted = persist_yjs_commit_with_local_commit(connection, input, attached_commit)?;
     Ok(PersistedTransferCommit {

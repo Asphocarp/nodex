@@ -21,12 +21,13 @@ use yrs::{ReadTxn, Transact};
 use crate::database::create_database_authority_records;
 use crate::document::{
     BlockDocumentSchema, DocumentAuthorityRow, DocumentBlockOperation, DocumentMaterialization,
-    PAGE_SCHEMA_KEY, PAGE_SCHEMA_VERSION, PersistYjsCommit, PersistYjsGenesis, YrsDocumentEngine,
-    decode_block_document, materialize_decoded_document, mint_document_semantic_etags,
-    parse_inline_markdown_title, persist_yjs_commit_with_local_commit,
-    persist_yjs_genesis_with_local_commit, prepare_document_operation_update,
-    prepare_page_yjs_genesis, prepare_page_yjs_genesis_with_content, read_document_authority,
-    read_store_epoch, reconstruct_yjs_engine, sha256,
+    DocumentPlacementIntent, PAGE_SCHEMA_KEY, PAGE_SCHEMA_VERSION, PersistYjsCommit,
+    PersistYjsGenesis, YrsDocumentEngine, decode_block_document, materialize_decoded_document,
+    mint_document_semantic_etags, parse_inline_markdown_title,
+    persist_yjs_commit_with_local_commit, persist_yjs_genesis_with_local_commit,
+    prepare_document_operation_update, prepare_page_yjs_genesis,
+    prepare_page_yjs_genesis_with_content, read_document_authority, read_store_epoch,
+    reconstruct_yjs_engine, sha256,
 };
 use crate::domain::block_materialization::MaterializedBlockNode;
 use crate::domain::fractional_rank::{
@@ -108,6 +109,17 @@ pub(super) struct ResolvedParentDocument {
     pub(super) engine: YrsDocumentEngine,
     pub(super) base_materialization: DocumentMaterialization,
     pub(super) schema: BlockDocumentSchema,
+}
+
+/// Stable authority coordinates shared by every parent-Document write in one
+/// Library mutation. Command-specific phase, operations, and placement remain
+/// explicit at the persistence seam.
+#[derive(Clone, Copy)]
+pub(super) struct ParentDocumentWriteContext<'a> {
+    pub(super) actor_project_id: &'a str,
+    pub(super) store_epoch: &'a str,
+    pub(super) operation_id: &'a str,
+    pub(super) commit: &'a CommitContext,
 }
 
 pub(super) struct ResourceAuthority {
@@ -753,6 +765,12 @@ fn move_block(
             }
 
             let mut committed_document_heads = BTreeMap::new();
+            let parent_write = ParentDocumentWriteContext {
+                actor_project_id: &actor_project_id,
+                store_epoch,
+                operation_id,
+                commit: scope.evidence(),
+            };
             if same_document {
                 let target_document = resolved_parent
                     .document
@@ -760,9 +778,7 @@ fn move_block(
                     .ok_or_else(|| corrupt("Same-Document move lost its target"))?;
                 let head_seq = persist_parent_operations_detailed_with_local_commit(
                     connection,
-                    &actor_project_id,
-                    store_epoch,
-                    operation_id,
+                    parent_write,
                     "move",
                     target_document,
                     &[DocumentBlockOperation::MoveBlock {
@@ -771,7 +787,6 @@ fn move_block(
                         before_block_id: resolved_parent.before_block_id.clone(),
                     }],
                     ParentDocumentPlacement::Derived,
-                    scope.evidence(),
                 )?
                 .head_seq;
                 committed_document_heads
@@ -780,16 +795,13 @@ fn move_block(
                 if let Some(source) = &source_document {
                     let head_seq = persist_parent_operations_detailed_with_local_commit(
                         connection,
-                        &actor_project_id,
-                        store_epoch,
-                        operation_id,
+                        parent_write,
                         "source",
                         source,
                         &[DocumentBlockOperation::DeleteBlock {
                             block_id: authority.id.clone(),
                         }],
                         ParentDocumentPlacement::Derived,
-                        scope.evidence(),
                     )?
                     .head_seq;
                     committed_document_heads.insert(source.authority.head.id.clone(), head_seq);
@@ -797,9 +809,7 @@ fn move_block(
                 if let Some(target_document) = &resolved_parent.document {
                     let head_seq = persist_parent_operations_detailed_with_local_commit(
                         connection,
-                        &actor_project_id,
-                        store_epoch,
-                        operation_id,
+                        parent_write,
                         "target",
                         target_document,
                         &[DocumentBlockOperation::InsertBlock {
@@ -808,7 +818,6 @@ fn move_block(
                             before_block_id: resolved_parent.before_block_id.clone(),
                         }],
                         ParentDocumentPlacement::Derived,
-                        scope.evidence(),
                     )?
                     .head_seq;
                     committed_document_heads
@@ -1870,20 +1879,15 @@ fn normalize_ids(ids: &mut Vec<String>) {
 
 pub(super) fn persist_parent_insert(
     connection: &Connection,
-    actor_project_id: &str,
-    store_epoch: &str,
-    operation_id: &str,
+    write: ParentDocumentWriteContext<'_>,
     parent: &ResolvedParentDocument,
     block: MaterializedBlockNode,
     before_block_id: Option<String>,
-    commit: &CommitContext,
 ) -> Result<LibraryBlockTransferDocumentCommit, StoreError> {
     let placement_genesis_block_ids = vec![block.id.clone()];
     persist_parent_operations_detailed_with_local_commit(
         connection,
-        actor_project_id,
-        store_epoch,
-        operation_id,
+        write,
         "insert",
         parent,
         &[DocumentBlockOperation::InsertBlock {
@@ -1892,31 +1896,24 @@ pub(super) fn persist_parent_insert(
             before_block_id,
         }],
         ParentDocumentPlacement::Genesis(&placement_genesis_block_ids),
-        commit,
     )
 }
 
 #[cfg(test)]
 fn persist_parent_operations(
     connection: &Connection,
-    actor_project_id: &str,
-    store_epoch: &str,
-    operation_id: &str,
+    write: ParentDocumentWriteContext<'_>,
     phase: &str,
     parent: &ResolvedParentDocument,
     operations: &[DocumentBlockOperation],
-    commit: &CommitContext,
 ) -> Result<i64, StoreError> {
     persist_parent_operations_detailed(
         connection,
-        actor_project_id,
-        store_epoch,
-        operation_id,
+        write,
         phase,
         parent,
         operations,
         ParentDocumentPlacement::Derived,
-        commit,
         StructuralDetachPolicy::Reject,
     )
     .map(|commit| commit.head_seq)
@@ -1924,25 +1921,19 @@ fn persist_parent_operations(
 
 pub(super) fn persist_parent_operations_detailed_with_local_commit(
     connection: &Connection,
-    actor_project_id: &str,
-    store_epoch: &str,
-    operation_id: &str,
+    write: ParentDocumentWriteContext<'_>,
     phase: &str,
     parent: &ResolvedParentDocument,
     operations: &[DocumentBlockOperation],
     placement: ParentDocumentPlacement<'_>,
-    attached_commit: &CommitContext,
 ) -> Result<LibraryBlockTransferDocumentCommit, StoreError> {
     persist_parent_operations_detailed(
         connection,
-        actor_project_id,
-        store_epoch,
-        operation_id,
+        write,
         phase,
         parent,
         operations,
         placement,
-        attached_commit,
         StructuralDetachPolicy::DeclareRemovedClosure,
     )
 }
@@ -1963,17 +1954,13 @@ enum StructuralDetachPolicy {
     DeclareRemovedClosure,
 }
 
-#[allow(clippy::too_many_arguments)]
 fn persist_parent_operations_detailed(
     connection: &Connection,
-    actor_project_id: &str,
-    store_epoch: &str,
-    operation_id: &str,
+    write: ParentDocumentWriteContext<'_>,
     phase: &str,
     parent: &ResolvedParentDocument,
     operations: &[DocumentBlockOperation],
     placement: ParentDocumentPlacement<'_>,
-    attached_commit: &CommitContext,
     structural_detach_policy: StructuralDetachPolicy,
 ) -> Result<LibraryBlockTransferDocumentCommit, StoreError> {
     let full_state = parent.engine.full_state_v1();
@@ -1998,7 +1985,7 @@ fn persist_parent_operations_detailed(
     }
     let update_id = format!(
         "library-document-{phase}:{}",
-        sha256(operation_id.as_bytes())
+        sha256(write.operation_id.as_bytes())
     );
     let resulting_block_ids = prepared
         .materialization
@@ -2047,7 +2034,7 @@ fn persist_parent_operations_detailed(
         connection,
         PersistYjsCommit {
             authority: &parent.authority,
-            actor_project_id,
+            actor_project_id: write.actor_project_id,
             base_materialization: &parent.base_materialization,
             materialization: &prepared.materialization,
             update_id: &update_id,
@@ -2056,18 +2043,19 @@ fn persist_parent_operations_detailed(
             client_touched_block_ids: &[],
             update: &prepared.update_v1,
             state_vector: &state_vector,
-            store_epoch,
+            store_epoch: write.store_epoch,
             operation_id: &update_id,
-            local_commit_id: Some(operation_id),
+            local_commit_id: Some(write.operation_id),
             event_kind: "document_updated",
             write_fence_block_ids: &prepared.write_fence_block_ids,
             title_write_fence_required: prepared.title_write_fence_required,
-            structurally_detached_block_ids: &structurally_detached_block_ids,
-            placement_genesis_block_ids,
-            placement_preapplied_block_ids,
-            placement_mutation_block_ids: &placement_mutation_block_ids,
+            placement: DocumentPlacementIntent::NONE
+                .with_structural_detaches(&structurally_detached_block_ids)
+                .with_genesis(placement_genesis_block_ids)
+                .with_preapplied(placement_preapplied_block_ids)
+                .with_mutations(&placement_mutation_block_ids),
         },
-        attached_commit,
+        write.commit,
     )?;
     Ok(LibraryBlockTransferDocumentCommit {
         document_id: parent.authority.head.id.clone(),
@@ -2181,13 +2169,15 @@ fn create_database(
                 .map(|parent| {
                     persist_parent_insert(
                         connection,
-                        &project_id,
-                        store_epoch,
-                        operation_id,
+                        ParentDocumentWriteContext {
+                            actor_project_id: &project_id,
+                            store_epoch,
+                            operation_id,
+                            commit: scope.evidence(),
+                        },
                         parent,
                         embedded_resource_block(database_id, "database"),
                         resolved_parent.before_block_id.clone(),
-                        scope.evidence(),
                     )
                 })
                 .transpose()?;
@@ -2421,9 +2411,7 @@ fn create_page(
                     full_state: &full_state,
                     store_epoch,
                     operation_id: &genesis_update_id,
-                    placement_genesis_block_ids: &[],
-                    placement_preapplied_block_ids: &[],
-                    placement_mutation_block_ids: &[],
+                    placement: DocumentPlacementIntent::NONE,
                     emit_event: false,
                 },
                 scope.evidence(),
@@ -2444,13 +2432,15 @@ fn create_page(
                 .map(|parent| {
                     persist_parent_insert(
                         connection,
-                        &project_id,
-                        store_epoch,
-                        operation_id,
+                        ParentDocumentWriteContext {
+                            actor_project_id: &project_id,
+                            store_epoch,
+                            operation_id,
+                            commit: scope.evidence(),
+                        },
                         parent,
                         embedded_resource_block(page_id, "page"),
                         resolved_parent.before_block_id.clone(),
-                        scope.evidence(),
                     )
                 })
                 .transpose()?;
@@ -5338,9 +5328,12 @@ mod tests {
                     )?;
                     persist_parent_operations(
                         transaction,
-                        "project-1",
-                        "epoch-1",
-                        "operation:add-guard-paragraph",
+                        ParentDocumentWriteContext {
+                            actor_project_id: "project-1",
+                            store_epoch: "epoch-1",
+                            operation_id: "operation:add-guard-paragraph",
+                            commit: &commit,
+                        },
                         "guard-setup",
                         &parent,
                         &[DocumentBlockOperation::InsertBlock {
@@ -5358,7 +5351,6 @@ mod tests {
                             parent_block_id: None,
                             before_block_id: None,
                         }],
-                        &commit,
                     )?;
                     insert_module_receipt(
                         transaction,
@@ -5396,15 +5388,17 @@ mod tests {
                     )?;
                     persist_parent_operations(
                         transaction,
-                        "project-1",
-                        "epoch-1",
-                        "operation:ordinary-canvas-delete",
+                        ParentDocumentWriteContext {
+                            actor_project_id: "project-1",
+                            store_epoch: "epoch-1",
+                            operation_id: "operation:ordinary-canvas-delete",
+                            commit: &commit,
+                        },
                         "guard",
                         &parent,
                         &[DocumentBlockOperation::DeleteBlock {
                             block_id: "018f0000-0000-7000-8000-000000000010".to_owned(),
                         }],
-                        &commit,
                     )
                 })
             })
