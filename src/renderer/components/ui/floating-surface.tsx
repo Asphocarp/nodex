@@ -7,6 +7,10 @@ import {
 } from "react";
 import { APP_SHELL_FLOATING_UI_LAYER_CLASS } from "@/lib/app-shell-layers";
 import { cn } from "@/lib/utils";
+import {
+  NodexFloatingLayerProvider,
+  useNodexFloatingLayerIndex,
+} from "./floating-layer";
 
 export const NODEX_FLOATING_SURFACE_DISMISS_EVENT = "codex:dismiss-tooltips";
 
@@ -92,14 +96,20 @@ export const nodexFloatingSurfaceBoundaryStyle: FloatingSurfaceBoundaryStyle = {
 export const NodexFloatingSurface = forwardRef<
   HTMLDivElement,
   ComponentPropsWithoutRef<"div">
->(function NodexFloatingSurface({ className, style, ...props }, ref) {
+>(function NodexFloatingSurface({ children, className, style, ...props }, ref) {
+  const layerIndex = useNodexFloatingLayerIndex(style?.zIndex);
+
   return (
     <div
       ref={ref}
       className={cn(nodexFloatingSurfaceClassName, className)}
-      style={{ ...nodexFloatingSurfaceBoundaryStyle, ...style }}
+      style={{ ...nodexFloatingSurfaceBoundaryStyle, zIndex: layerIndex, ...style }}
       {...props}
-    />
+    >
+      <NodexFloatingLayerProvider zIndex={layerIndex}>
+        {children}
+      </NodexFloatingLayerProvider>
+    </div>
   );
 });
 
