@@ -13,7 +13,7 @@ import {
   CloseIcon,
   EstimateIcon,
   ExpandPanelIcon,
-  PriorityPickerIcon,
+  PriorityIcon,
   RestorePanelIcon,
   TagIcon,
 } from "@/components/shared/icons";
@@ -484,7 +484,7 @@ function PageCreateDialogContent({
                 disabled={saving}
                 presentation="chip"
                 triggerPrefix={(
-                  <PriorityPickerIcon className="icon-xs shrink-0 text-token-description-foreground" />
+                  <PriorityIcon className="icon-xs shrink-0 text-token-description-foreground" />
                 )}
                 searchPlaceholder="Change priority…"
                 searchLeading={null}

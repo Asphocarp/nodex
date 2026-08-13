@@ -1688,11 +1688,23 @@ export function FileTreeLockIcon({ className }: IconProps) {
   );
 }
 
-export function PriorityPickerIcon({ className }: IconProps) {
+export function PriorityIcon({ className, ...props }: SVGProps<SVGSVGElement>) {
   return (
-    <svg viewBox="0 0 16 16" className={cn("size-3", className)} fill="none" aria-hidden="true">
-      <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.5" />
-      <path d="M8 5v3M8 10v1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    <svg
+      {...props}
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      className={cn("shrink-0", className)}
+      fill="currentColor"
+      aria-hidden="true"
+    >
+      <path
+        fillRule="evenodd"
+        clipRule="evenodd"
+        d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1Zm0 1.5a5.5 5.5 0 1 1 0 11 5.5 5.5 0 0 1 0-11Z"
+      />
+      <path d="M7.25 4.5a.75.75 0 0 1 1.5 0v3.75a.75.75 0 0 1-1.5 0V4.5ZM9 11a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z" />
     </svg>
   );
 }
@@ -2318,15 +2330,6 @@ export function NfmSideMenuTableHeaderIcon({ className }: IconProps) {
       <path d="M3.5 8h13" />
       <path d="M8 4.25v11.5" />
       <path d="M3.5 8h13" strokeWidth="2" />
-    </svg>
-  );
-}
-
-export function PriorityIcon({ className }: IconProps) {
-  return (
-    <svg width="17" height="17" viewBox="0 0 17 17" fill="none" className={cn("shrink-0", className)} aria-hidden="true">
-      <path d="M8.694 10.973H8.049L5.881 7.162c.059-.117.103-.19.147-.264a4.8 4.8 0 0 1 .147-.264h4.455c.059.118.103.19.147.264.044.074.088.147.147.265L8.694 10.973Z" fill="currentColor" />
-      <path d="M2.1 8.4a6.3 6.3 0 1 1 12.6 0 6.3 6.3 0 0 1-12.6 0Zm11.025 0a4.725 4.725 0 1 0-9.45 0 4.725 4.725 0 0 0 9.45 0Z" fill="currentColor" />
     </svg>
   );
 }

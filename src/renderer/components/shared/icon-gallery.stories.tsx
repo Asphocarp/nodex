@@ -31,6 +31,7 @@ const APP_ICON_NAMES = [
   "CalendarIcon",
   "ClockIcon",
   "BellIcon",
+  "PriorityIcon",
   "AssigneeIcon",
   "TagIcon",
   "ActivitySpinnerIcon",
