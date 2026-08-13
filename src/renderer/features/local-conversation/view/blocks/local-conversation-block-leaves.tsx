@@ -49,7 +49,7 @@ import {
   CODEX_THREAD_DIVIDER_ENTER_INITIAL,
 } from "../shared/thread-motion";
 import { useMeasuredElementHeight } from "../shared/use-measured-element-height";
-import { CodexShimmerText } from "../shared/codex-shimmer-text";
+import { CodexShimmerProvider, CodexShimmerText } from "../shared/codex-shimmer-text";
 import { AnsweredUserInputBlock } from "../composer/request-cards/answered-user-input-block";
 import { UserAttachmentStrip } from "../shared/user-message-attachments";
 import { useWorkedForLabelText } from "../shared/use-worked-for-label";
@@ -401,36 +401,38 @@ export function ThreadAgentActivityGroupBlock({
     </span>
   );
   const body = (
-    <div
-      className="vertical-scroll-fade-mask flex max-h-56 flex-col overflow-x-hidden overflow-y-auto [--edge-fade-distance:1.5rem]"
-      style={{
-        "--conversation-patch-file-gap": "var(--conversation-grouped-item-gap, 4px)",
-      } as CSSProperties}
-    >
-      {block.bodyEntries.map((entry) => (
-        <div key={entry.id}>
-          <div
-            aria-hidden="true"
-            className="w-full"
-            style={{ height: "var(--conversation-grouped-item-gap, 4px)" }}
-          />
-          {renderCollapsedActivityEntry({
-            entry,
-            isLatestTurn,
-            isStreamingTurn,
-            projectWorkspacePath,
-            projectlessOutputDirectory,
-            threadCwd,
-            onOpenTurnDiffReview,
-            onOpenTurnDiffFileInSidePanel,
-            onOpenThread,
-            onOpenSummaryScheduledAutomation,
-            onOpenMcpAppSidePanel,
-            turnDiffHoverPreviewDisabled,
-          })}
-        </div>
-      ))}
-    </div>
+    <CodexShimmerProvider enabled={false}>
+      <div
+        className="vertical-scroll-fade-mask flex max-h-56 flex-col overflow-x-hidden overflow-y-auto [--edge-fade-distance:1.5rem]"
+        style={{
+          "--conversation-patch-file-gap": "var(--conversation-grouped-item-gap, 4px)",
+        } as CSSProperties}
+      >
+        {block.bodyEntries.map((entry) => (
+          <div key={entry.id}>
+            <div
+              aria-hidden="true"
+              className="w-full"
+              style={{ height: "var(--conversation-grouped-item-gap, 4px)" }}
+            />
+            {renderCollapsedActivityEntry({
+              entry,
+              isLatestTurn,
+              isStreamingTurn,
+              projectWorkspacePath,
+              projectlessOutputDirectory,
+              threadCwd,
+              onOpenTurnDiffReview,
+              onOpenTurnDiffFileInSidePanel,
+              onOpenThread,
+              onOpenSummaryScheduledAutomation,
+              onOpenMcpAppSidePanel,
+              turnDiffHoverPreviewDisabled,
+            })}
+          </div>
+        ))}
+      </div>
+    </CodexShimmerProvider>
   );
 
   return (

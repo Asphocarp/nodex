@@ -1,4 +1,5 @@
-import { AlertTriangle, LoaderCircle } from "@/components/shared/icons/generic-icons";
+import { AlertTriangle } from "@/components/shared/icons/generic-icons";
+import { ActivitySpinnerIcon } from "@/components/shared/icons";
 
 import type { CoreAuthorityStatus } from "../../shared/core-authority-status";
 
@@ -46,7 +47,7 @@ export function CoreAuthorityStatusNotice({
         role={presentation.kind === "unavailable" ? "alert" : "status"}
       >
         {presentation.kind === "recovering" ? (
-          <LoaderCircle className="icon-2xs shrink-0 animate-spin text-token-description-foreground" />
+          <ActivitySpinnerIcon className="icon-2xs shrink-0 text-token-description-foreground" />
         ) : (
           <AlertTriangle className="icon-2xs shrink-0 text-[var(--color-text-warning)]" />
         )}

@@ -1141,6 +1141,7 @@ export class BrowserSidebarService extends EventEmitter {
         mountGeneration: 0,
         title: "New tab",
         isLoading: false,
+        isWaitingForResponse: false,
         canGoBack: false,
         canGoForward: false,
         zoomPercent: 100,
@@ -1697,6 +1698,7 @@ export class BrowserSidebarService extends EventEmitter {
         title: savedPage?.title ?? (command.title?.trim() || "New tab"),
         faviconUrl: savedPage?.faviconUrl ?? command.faviconUrl,
         isLoading: false,
+        isWaitingForResponse: false,
         canGoBack: false,
         canGoForward: false,
         zoomPercent: 100,
@@ -2022,7 +2024,10 @@ export class BrowserSidebarService extends EventEmitter {
 
     if (command.type === "stop") {
       contents.stop();
-      this.refreshSnapshotFromWebContents(key, contents, { isLoading: false });
+      this.refreshSnapshotFromWebContents(key, contents, {
+        isLoading: false,
+        isWaitingForResponse: false,
+      });
       return { ok: true };
     }
 
@@ -2283,6 +2288,7 @@ export class BrowserSidebarService extends EventEmitter {
         pendingUrl: undefined,
         title: "New tab",
         isLoading: false,
+        isWaitingForResponse: false,
         canGoBack: false,
         canGoForward: false,
         errorMessage: undefined,
@@ -2307,6 +2313,7 @@ export class BrowserSidebarService extends EventEmitter {
       url,
       pendingUrl: url,
       isLoading: Boolean(contents && !contents.isDestroyed()),
+      isWaitingForResponse: Boolean(contents && !contents.isDestroyed()),
       errorMessage: undefined,
       failure: undefined,
     });
@@ -2321,7 +2328,10 @@ export class BrowserSidebarService extends EventEmitter {
 
     this.logger.info("Browser navigate start", { ...browserIdentity(tab), hasUrl: url.length > 0 });
     void Promise.resolve(contents.loadURL(url))
-      .then(() => this.refreshSnapshotFromWebContents(key, contents, { pendingUrl: undefined }))
+      .then(() => this.refreshSnapshotFromWebContents(key, contents, {
+        isWaitingForResponse: false,
+        pendingUrl: undefined,
+      }))
       .catch((error) => {
         if (isNavigationAbortError(error)) {
           this.logger.debug("Browser navigate aborted", { ...browserIdentity(tab), hasUrl: url.length > 0 });
@@ -2333,6 +2343,7 @@ export class BrowserSidebarService extends EventEmitter {
         });
         this.updateTab(key, {
           isLoading: false,
+          isWaitingForResponse: false,
           pendingUrl: undefined,
           errorMessage: error instanceof Error ? error.message : "Failed to load page",
         });
@@ -2472,6 +2483,7 @@ export class BrowserSidebarService extends EventEmitter {
     this.updateTab(tabId, {
       webContentsId: null,
       isLoading: false,
+      isWaitingForResponse: false,
       pendingUrl: undefined,
       lifecycleState: current.lifecycleState === "closing"
         ? "closed"
@@ -2528,6 +2540,7 @@ export class BrowserSidebarService extends EventEmitter {
     add("did-start-loading", () => {
       this.updateTabForWebContents(webContentsId, contents, {
         isLoading: true,
+        isWaitingForResponse: true,
         errorMessage: undefined,
         failure: undefined,
       });
@@ -2539,6 +2552,7 @@ export class BrowserSidebarService extends EventEmitter {
       event?.preventDefault?.();
       this.updateTabForWebContents(webContentsId, contents, {
         isLoading: false,
+        isWaitingForResponse: false,
         pendingUrl: undefined,
         failure: {
           kind: "blocked",
@@ -2557,6 +2571,7 @@ export class BrowserSidebarService extends EventEmitter {
     add("did-stop-loading", () => {
       const snapshot = this.updateTabForWebContents(webContentsId, contents, {
         isLoading: false,
+        isWaitingForResponse: false,
         pendingUrl: undefined,
       });
       if (snapshot) {
@@ -2570,6 +2585,7 @@ export class BrowserSidebarService extends EventEmitter {
     add("did-navigate", (...args) => {
       this.updateTabForWebContents(webContentsId, contents, {
         url: readUrlFromEventArgs(args, contents.getURL()),
+        isWaitingForResponse: false,
         pendingUrl: undefined,
       });
       void this.persistPageSnapshotForWebContents(webContentsId, contents);
@@ -2577,6 +2593,7 @@ export class BrowserSidebarService extends EventEmitter {
     add("did-navigate-in-page", (...args) => {
       const snapshot = this.updateTabForWebContents(webContentsId, contents, {
         url: readUrlFromEventArgs(args, contents.getURL()),
+        isWaitingForResponse: false,
         pendingUrl: undefined,
       });
       if (snapshot) {
@@ -2619,6 +2636,7 @@ export class BrowserSidebarService extends EventEmitter {
       this.updateTab(tabKey, {
         lifecycleState: "crashed",
         isLoading: false,
+        isWaitingForResponse: false,
         failure: {
           kind: "crashed",
           failedUrl: tab.url,
@@ -2714,6 +2732,7 @@ export class BrowserSidebarService extends EventEmitter {
     if (errorCode === -3) {
       this.updateTabForWebContents(webContentsId, contents, {
         isLoading: false,
+        isWaitingForResponse: false,
         pendingUrl: undefined,
       });
       this.logger.debug("Browser load aborted", { webContentsId, hasUrl: url.length > 0 });
@@ -2723,6 +2742,7 @@ export class BrowserSidebarService extends EventEmitter {
     this.updateTabForWebContents(webContentsId, contents, {
       url,
       isLoading: false,
+      isWaitingForResponse: false,
       pendingUrl: undefined,
       failure: classifyBrowserPageFailure(
         errorCode,
@@ -3348,6 +3368,7 @@ function deriveBrowserSnapshot(snapshot: BrowserSidebarTabSnapshot): BrowserSide
   const hasBrowserPage = !isBlankBrowserUrl(snapshot.url);
   return {
     ...snapshot,
+    isWaitingForResponse: snapshot.isWaitingForResponse ?? false,
     hasBrowserPage,
     pageActionsDisabled: !hasBrowserPage || snapshot.url.trim().length === 0,
     interactionMode: snapshot.interactionMode ?? "browse",

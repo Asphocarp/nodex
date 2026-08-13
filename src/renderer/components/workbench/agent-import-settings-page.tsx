@@ -1,4 +1,4 @@
-import { FolderOpenIcon } from "@/components/shared/icons";
+import { ActivitySpinnerIcon, FolderOpenIcon } from "@/components/shared/icons";
 import { Check, RefreshCw } from "@/components/shared/icons/generic-icons";
 import { useCallback, useEffect, useState } from "react";
 import type {
@@ -210,7 +210,14 @@ export function AgentImportSettingsPage({
               size="sm"
               variant="secondary"
             >
-              <RefreshCw className={cn("icon-2xs shrink-0", scanningSource === source.kind && "animate-spin")} />
+              {scanningSource === source.kind ? (
+                <ActivitySpinnerIcon
+                  className="icon-2xs shrink-0"
+                  icon={RefreshCw}
+                />
+              ) : (
+                <RefreshCw className="icon-2xs shrink-0" />
+              )}
               {scanningSource === source.kind ? "Scanning…" : "Scan"}
             </NodexButton>
           </SettingRow>

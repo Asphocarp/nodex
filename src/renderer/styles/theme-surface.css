@@ -360,6 +360,10 @@ mark.codex-thread-find-active {
 }
 
 .nodex-logo-shimmer-overlay {
+  overflow: hidden;
+}
+
+.nodex-logo-shimmer-sweep {
   background-image: linear-gradient(
     112deg,
     transparent 22%,
@@ -368,24 +372,26 @@ mark.codex-thread-find-active {
     color-mix(in srgb, var(--color-token-foreground) 7%, transparent) 56%,
     transparent 74%
   );
-  background-position: 140% 0;
-  background-repeat: no-repeat;
-  background-size: 220% 100%;
+  left: -60%;
+  width: 220%;
   animation: 2.2s cubic-bezier(0.4, 0, 0.2, 1) infinite nodex-logo-shimmer;
+  transform: translate3d(92%, 0, 0);
+  will-change: transform;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .nodex-logo-shimmer-overlay {
+  .nodex-logo-shimmer-sweep {
     animation: none;
+    transform: translate3d(0, 0, 0);
   }
 }
 
 @keyframes nodex-logo-shimmer {
-  0% {
-    background-position: 140% 0;
+  from {
+    transform: translate3d(92%, 0, 0);
   }
 
   to {
-    background-position: -120% 0;
+    transform: translate3d(-92%, 0, 0);
   }
 }

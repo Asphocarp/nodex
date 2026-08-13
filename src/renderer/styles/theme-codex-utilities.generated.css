@@ -1,77 +1,8 @@
 /*
  * Synced from the Codex Electron reference CSS.
  * Do not edit by hand. Update the reference file, then rerun:
- *   pnpm run scripts/sync-codex-theme-utilities.ts
+ *   pnpm run sync:codex-theme:utilities
  */
-
-@keyframes hyperspeed-model-shimmer {
-  0% {
-    background-position: 120% 0, 0 0;
-  }
-
-  45% {
-    background-position: -220% 0, 0 0;
-  }
-
-  to {
-    background-position: -220% 0, 0 0;
-  }
-}
-
-@keyframes _curtainRaise_1dnwh_1 {
-  0% {
-    opacity: 0;
-    transform: scale(1.01);
-  }
-
-  to {
-    opacity: 1;
-    transform: scale(1);
-  }
-}
-
-@keyframes _curtainLower_1dnwh_1 {
-  0% {
-    opacity: 1;
-    transform: scale(1);
-  }
-
-  to {
-    opacity: 0;
-    transform: scale(1.01);
-  }
-}
-
-@keyframes _loading-bar-slide_1g9nv_1 {
-  0% {
-    transform: translate(0);
-  }
-
-  to {
-    transform: translate(350%);
-  }
-}
-
-@keyframes toast-open {
-  0% {
-    opacity: 0;
-    transform: translateY(-100%);
-  }
-
-  to {
-    transform: translateY(0);
-  }
-}
-
-@keyframes toast-close {
-  0% {
-    opacity: 1;
-  }
-
-  to {
-    opacity: 0;
-  }
-}
 
 @layer components {
   @property --top-fade {
@@ -457,66 +388,6 @@
 
   .disambig-digits.slashed-zero {
     font-feature-settings: "ss06" on;
-  }
-}
-
-@keyframes loading-shimmer {
-  0% {
-    background-position: -100% 0;
-  }
-
-  to {
-    background-position: 250% 0;
-  }
-}
-
-@keyframes pulse {
-  50% {
-    opacity: .5;
-  }
-}
-
-@keyframes sync-dot-pass-down {
-  0%, 50%, to {
-    opacity: .16;
-    transform: scale(1);
-  }
-
-  12% {
-    opacity: .55;
-    transform: scale(1.1);
-  }
-
-  25% {
-    opacity: 1;
-    transform: scale(1.28);
-  }
-
-  38% {
-    opacity: .55;
-    transform: scale(1.1);
-  }
-}
-
-@keyframes sync-dot-pass-up {
-  0%, 50%, to {
-    opacity: .16;
-    transform: scale(1);
-  }
-
-  62% {
-    opacity: .55;
-    transform: scale(1.1);
-  }
-
-  75% {
-    opacity: 1;
-    transform: scale(1.28);
-  }
-
-  88% {
-    opacity: .55;
-    transform: scale(1.1);
   }
 }
 
@@ -1040,19 +911,6 @@
   syntax: "*";
   inherits: false;
   initial-value: transparent;
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-@keyframes ping {
-  75%, to {
-    opacity: 0;
-    transform: scale(2);
-  }
 }
 
 .px-toolbar {

@@ -1,5 +1,5 @@
 import { useLayoutEffect } from "react";
-import { act, render, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { TestQueryProvider } from "@/test/query";
 import { useMaitaiStore, type MaitaiStore } from "./lib/maitai";
@@ -9,6 +9,12 @@ import {
   RendererStateProvider,
   useAppUpdateStatus,
 } from "./app-providers";
+import {
+  ReducedMotionProvider,
+  useReducedMotionPreference,
+  useResolvedReducedMotion,
+} from "./lib/use-reduced-motion";
+import { REDUCED_MOTION_STORAGE_KEY } from "./lib/reduced-motion";
 
 const updateMocks = vi.hoisted(() => ({
   listener: null as ((status: AppUpdateStatus) => void) | null,
@@ -69,6 +75,63 @@ describe("renderer state provider", () => {
 
     expect(stores).toHaveLength(2);
     expect(stores[0]).toBe(stores[1]);
+  });
+
+  test("resolves and persists the app-scoped three-way motion preference", () => {
+    const originalMatchMedia = window.matchMedia;
+    window.localStorage.setItem(REDUCED_MOTION_STORAGE_KEY, "system");
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: () => ({
+        matches: true,
+        media: "(prefers-reduced-motion: reduce)",
+        onchange: null,
+        addEventListener: () => undefined,
+        removeEventListener: () => undefined,
+        addListener: () => undefined,
+        removeListener: () => undefined,
+        dispatchEvent: () => true,
+      }),
+    });
+
+    function Probe() {
+      const { preference, setPreference } = useReducedMotionPreference();
+      const reduced = useResolvedReducedMotion();
+      return (
+        <div>
+          <output>{`${preference}:${reduced ? "reduced" : "full"}`}</output>
+          <button type="button" onClick={() => setPreference("on")}>On</button>
+          <button type="button" onClick={() => setPreference("off")}>Off</button>
+        </div>
+      );
+    }
+
+    const view = render(
+      <TestQueryProvider>
+        <RendererStateProvider>
+          <ReducedMotionProvider>
+            <Probe />
+          </ReducedMotionProvider>
+        </RendererStateProvider>
+      </TestQueryProvider>,
+    );
+
+    try {
+      expect(view.getByText("system:reduced")).toBeTruthy();
+      fireEvent.click(view.getByRole("button", { name: "Off" }));
+      expect(view.getByText("off:full")).toBeTruthy();
+      expect(window.localStorage.getItem(REDUCED_MOTION_STORAGE_KEY)).toBe("off");
+      fireEvent.click(view.getByRole("button", { name: "On" }));
+      expect(view.getByText("on:reduced")).toBeTruthy();
+      expect(window.localStorage.getItem(REDUCED_MOTION_STORAGE_KEY)).toBe("on");
+    } finally {
+      view.unmount();
+      window.localStorage.removeItem(REDUCED_MOTION_STORAGE_KEY);
+      Object.defineProperty(window, "matchMedia", {
+        configurable: true,
+        value: originalMatchMedia,
+      });
+    }
   });
 });
 

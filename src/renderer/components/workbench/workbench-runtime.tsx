@@ -8,8 +8,9 @@ import {
   useState,
 } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { motion, useMotionValue, useReducedMotion, useTransform, type MotionStyle } from "motion/react";
+import { motion, useMotionValue, useTransform, type MotionStyle } from "motion/react";
 import { ArrowLeft } from "@/components/shared/icons/generic-icons";
+import { useResolvedReducedMotion } from "@/lib/use-reduced-motion";
 import { PanelTabPresentationRegistry } from "./panel-tab-presentation-registry";
 import {
   WorkbenchSidebar,
@@ -43,6 +44,7 @@ import {
 } from "@/lib/terminal-session-store";
 import { BrowserSidebarHiddenWebviewHosts } from "@/features/browser-sidebar/browser-sidebar-hidden-webview-hosts";
 import { BrowserSidebarPanel } from "@/features/browser-sidebar/browser-sidebar-panel";
+import { useBrowserSidebarRendererState } from "@/features/browser-sidebar/browser-sidebar-renderer-state-store";
 import {
   WorkspaceFilesPanel,
   type WorkspaceFilesTab,
@@ -134,6 +136,7 @@ import {
   resolveDesktopNotificationSideChatThreadId,
 } from "@/lib/desktop-notification-action";
 import type { DesktopNotificationActionInvocation } from "../../../shared/types";
+import { makeBrowserSidebarTabKey } from "../../../shared/browser-sidebar";
 import {
   APP_SHELL_ROUTE_THREAD_SCOPE_DESCRIPTOR,
   SelectedAppShellHeaderContent,
@@ -908,7 +911,7 @@ export function WorkbenchRuntime({
   const codexAccount = useLocalConversationAccount();
   const codexConnection = useLocalConversationConnection();
   const codexAccountActions = useCodexAccountActions();
-  const reducedMotion = useReducedMotion();
+  const reducedMotion = useResolvedReducedMotion();
   const sidebarChrome = useWorkbenchSidebarChrome({
     persistedCollapsed: sidebar?.collapsed,
     persistedWidth: sidebar?.width,
@@ -2238,6 +2241,16 @@ export function WorkbenchRuntime({
     resizeAutomationDetailRail,
     resizeBottomPanel,
   } = chromeCommands;
+  const browserSidebarState = useBrowserSidebarRendererState();
+  const browserTabSnapshotByKey = useMemo(
+    () => new Map(
+      browserSidebarState.state.tabs.map((snapshot) => [
+        makeBrowserSidebarTabKey(snapshot),
+        snapshot,
+      ]),
+    ),
+    [browserSidebarState.state.tabs],
+  );
 
   const {
     panelGroupTabs,
@@ -2253,6 +2266,7 @@ export function WorkbenchRuntime({
     panelGroupTabsRef,
     panelTabMruByLeafRef,
     terminalSessionVersion,
+    browserTabSnapshotByKey,
     browserBoundsSyncTriggerByPanel: {
       right: rightPanelMotion.animatedSize,
       bottom: bottomPanelMotion.animatedSize,
@@ -3607,6 +3621,8 @@ export function WorkbenchRuntime({
     project: activeProject,
     projects,
     currentLibraryId,
+    browserViewScopeId: windowSessionId,
+    browserTabSnapshotByKey,
     pageTitleStore,
     commands: panelController.sceneDurable,
     isMac: isMacPlatform,
@@ -3702,6 +3718,8 @@ export function WorkbenchRuntime({
     project: null,
     projects,
     currentLibraryId,
+    browserViewScopeId: windowSessionId,
+    browserTabSnapshotByKey,
     pageTitleStore,
     commands: panelController.sceneDurable,
     isMac: isMacPlatform,

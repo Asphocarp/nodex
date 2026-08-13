@@ -12,7 +12,7 @@ import {
 } from "react";
 import {
   ThreadIcon,
-  SpinnerIcon,
+  ActivitySpinnerIcon,
   PlusIcon,
   SearchIcon,
 } from "@/components/shared/icons";
@@ -229,7 +229,7 @@ function SendToThreadRow({
         ) : null}
       </span>
       {accepting ? (
-        <SpinnerIcon className={cn(
+        <ActivitySpinnerIcon className={cn(
           "size-3.5 shrink-0 text-token-description-foreground",
           hasPreview && "mt-1",
         )} />

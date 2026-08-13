@@ -10,8 +10,9 @@ import {
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
-import { motion, useReducedMotion } from "motion/react";
+import { motion } from "motion/react";
 import { NodexTooltip } from "@/components/ui/tooltip";
+import { useResolvedReducedMotion } from "@/lib/use-reduced-motion";
 import { cn } from "@/lib/utils";
 
 export type MarkerNavigationRevealMode = "smooth" | "instant";
@@ -267,7 +268,7 @@ export function MarkerNavigationRail<TItem extends MarkerNavigationItem>({
   side = "left",
   tooltipSide,
 }: MarkerNavigationRailProps<TItem>) {
-  const reducedMotion = Boolean(useReducedMotion());
+  const reducedMotion = useResolvedReducedMotion();
   const listRef = useRef<HTMLDivElement | null>(null);
   const pointerIdRef = useRef<number | null>(null);
   const pointerStartRef = useRef<{ x: number; y: number } | null>(null);

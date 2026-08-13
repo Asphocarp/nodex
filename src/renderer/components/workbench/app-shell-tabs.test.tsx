@@ -12,11 +12,11 @@ import { render, settleAsyncRender, textContent } from "@/test/dom";
 
 const motionPreference = vi.hoisted(() => ({ reduced: false }));
 
-vi.mock("motion/react", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("motion/react")>();
+vi.mock("@/lib/use-reduced-motion", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/use-reduced-motion")>();
   return {
     ...actual,
-    useReducedMotion: () => motionPreference.reduced,
+    useResolvedReducedMotion: () => motionPreference.reduced,
   };
 });
 

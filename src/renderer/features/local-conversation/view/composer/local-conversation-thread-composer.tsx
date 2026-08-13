@@ -76,11 +76,12 @@ import {
   MicIcon,
   PlusIcon,
   FileIcon,
-  SpinnerIcon,
+  ActivitySpinnerIcon,
   StopIcon,
   UpArrowIcon,
 } from "@/components/shared/icons";
 import { ShortcutKeycaps } from "@/components/ui/shortcut-keycaps";
+import { LoadingPlaceholder } from "@/components/ui/loading-placeholder";
 import { toast } from "@/components/ui/toast";
 import {
   NodexDialog,
@@ -1274,7 +1275,11 @@ function LegacyModelSelectorDropdown({
           >
             <Suspense
               fallback={(
-                <div className="mx-2 my-2 h-12 animate-pulse rounded-lg bg-token-foreground/5" />
+                <LoadingPlaceholder
+                  aria-label="Loading model controls"
+                  className="mx-2 my-2 h-12 rounded-lg"
+                  role="status"
+                />
               )}
             >
               <LazyModelPickerPowerSlider
@@ -3788,7 +3793,7 @@ function HydratedThreadComposer({
         disabled={model.dictation.isRealtimeVoiceActive}
       >
         {isTranscribing ? (
-          <SpinnerIcon className="icon-xs" />
+          <ActivitySpinnerIcon className="icon-xs" />
         ) : (
           <MicIcon className="icon-xs" />
         )}
@@ -3821,7 +3826,7 @@ function HydratedThreadComposer({
         aria-label={composerActionState.label}
       >
         {isPrimaryActionPending ? (
-          <SpinnerIcon className="icon-sm" />
+          <ActivitySpinnerIcon className="icon-sm" />
         ) : composerActionState.action === "stop" ? (
           <StopIcon className="icon-xs" />
         ) : composerActionState.action === "resume" ? (
@@ -4164,7 +4169,7 @@ function HydratedThreadComposer({
                       title={attachment.status === "failed" ? attachment.error : attachment.preview}
                     >
                       {attachment.status === "pending" ? (
-                        <SpinnerIcon className="size-3 text-token-description-foreground" />
+                        <ActivitySpinnerIcon className="size-3 text-token-description-foreground" />
                       ) : (
                         <ComposerAddFilesIcon className="size-3 text-token-description-foreground" />
                       )}

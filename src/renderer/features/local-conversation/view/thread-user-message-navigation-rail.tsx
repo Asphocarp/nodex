@@ -2,7 +2,7 @@ import {
   useCallback,
   type ComponentType,
 } from "react";
-import { useReducedMotion } from "motion/react";
+import { useResolvedReducedMotion } from "@/lib/use-reduced-motion";
 import {
   SidePanelReviewIcon,
   ReviewCommitOrPushIcon,
@@ -181,7 +181,7 @@ export function ThreadUserMessageNavigationRail({
     scrollElementIntoView,
     setScrollMode,
   } = useLocalConversationThreadScrollController();
-  const reducedMotion = Boolean(useReducedMotion());
+  const reducedMotion = useResolvedReducedMotion();
   const contentElement = scrollElement?.querySelector<HTMLElement>(
     "[data-mcp-app-portal-target='true']",
   ) ?? null;

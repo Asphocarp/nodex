@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type MouseEvent } from "react";
-import { ChevronLeftIcon, ChevronRightIcon, DownloadIcon, LoaderCircleIcon, SparklesIcon } from "@/components/shared/icons/generic-icons";
-import { FileIcon } from "@/components/shared/icons";
+import { ChevronLeftIcon, ChevronRightIcon, DownloadIcon, SparklesIcon } from "@/components/shared/icons/generic-icons";
+import { ActivitySpinnerIcon, FileIcon } from "@/components/shared/icons";
 import {
   NodexDialog as Dialog,
   NodexDialogContent as DialogContent,
@@ -180,9 +180,10 @@ function ImageLoadingTile({ label }: { label: string }) {
     <div
       className="size-16 rounded-lg border border-token-border bg-token-bg-tertiary text-token-description-foreground"
       aria-label={label}
+      role="status"
     >
       <div className="flex size-full items-center justify-center">
-        <LoaderCircleIcon className="size-4 animate-spin" aria-hidden="true" />
+        <ActivitySpinnerIcon className="size-4" />
       </div>
     </div>
   );

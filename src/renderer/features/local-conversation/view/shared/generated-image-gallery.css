@@ -1,0 +1,19 @@
+.nodex-generated-image-dot-field {
+  opacity: 0.38;
+}
+
+.nodex-generated-image-dot-field[data-animate="true"] {
+  animation: nodex-generated-image-dot-field-opacity 1.75s ease-in-out infinite;
+  animation-delay: var(--generated-image-dot-field-delay, 0ms);
+}
+
+@keyframes nodex-generated-image-dot-field-opacity {
+  0%, 100% { opacity: 0.38; }
+  50% { opacity: 0.56; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nodex-generated-image-dot-field[data-animate="true"] {
+    animation: none;
+  }
+}

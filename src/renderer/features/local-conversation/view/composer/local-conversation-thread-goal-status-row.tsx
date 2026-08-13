@@ -7,7 +7,7 @@ import {
   GoalResumeIcon,
   GoalTargetIcon,
   GoalTrashIcon,
-  SpinnerIcon,
+  ActivitySpinnerIcon,
 } from "@/components/shared/icons";
 import {
   NodexDialog,
@@ -145,7 +145,7 @@ function ThreadGoalRowIconButton({
         className="border-token-border no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap select-none focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-full electron:rounded-md text-token-text-tertiary enabled:hover:bg-token-list-hover-background data-[state=open]:bg-token-list-hover-background border-transparent electron:p-1 electron:[&>svg]:icon-sm flex items-center justify-center p-0.5 [&>svg]:icon-2xs"
         onClick={onClick}
       >
-        {loading ? <SpinnerIcon className="icon-2xs" /> : children}
+        {loading ? <ActivitySpinnerIcon className="icon-2xs" /> : children}
       </button>
     </NodexTooltip>
   );

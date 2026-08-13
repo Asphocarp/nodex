@@ -2488,8 +2488,8 @@ describe("ThreadFloatingSummaryPanel", () => {
 
     const activeRow = view.getByRole("button", { name: "Investigate layout" });
     const idleRow = view.getByRole("button", { name: "Compare bundle" });
-    expect(activeRow.querySelector("svg.animate-spin") !== null).toBe(true);
-    expect(idleRow.querySelector("svg.animate-spin") === null).toBe(true);
+    expect(activeRow.querySelector('[data-activity-spinner="true"]') !== null).toBe(true);
+    expect(idleRow.querySelector('[data-activity-spinner="true"]') === null).toBe(true);
   });
 
   test("renders the Computer Use PiP as a headerless toggle row when state and action exist", async () => {
@@ -2631,7 +2631,7 @@ describe("ThreadFloatingSummaryPanel", () => {
     expect(
       Boolean(browserButton.querySelector(".loading-shimmer-pure-text")),
     ).toBe(true);
-    expect(Boolean(browserButton.querySelector("svg.animate-spin"))).toBe(true);
+    expect(Boolean(browserButton.querySelector('[data-browser-use-pointer="true"]'))).toBe(true);
     expect(textContent(view.container).includes("Right panel")).toBe(false);
   });
 

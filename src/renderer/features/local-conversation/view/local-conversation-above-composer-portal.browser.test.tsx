@@ -22,6 +22,7 @@ function renderPortalSurface(blocks: ThreadTranscriptBlockModel[], width: number
           conversationId="thread-portal"
           isLatestTurn={true}
           isStreamingTurn={true}
+          onOpenTurnDiffReview={() => undefined}
           threadCwd="/tmp/project"
         />
       </div>

@@ -1,6 +1,6 @@
 import { startTransition, useCallback, useEffect, useEffectEvent, useId, useMemo, useState, type ReactNode, type SVGProps } from "react";
 import { ChevronLeft, Trash2 } from "@/components/shared/icons/generic-icons";
-import { SpinnerIcon, PlusIcon } from "@/components/shared/icons";
+import { ActivitySpinnerIcon, PlusIcon } from "@/components/shared/icons";
 import { NodexButton } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { LazySourceViewer } from "@/components/ui/lazy-source-viewer";
@@ -779,7 +779,7 @@ function WorkspaceProjectEnvironmentGroup({
       {loading ? (
         <div className="border-t border-token-border px-4 py-3">
           <div className="flex items-center gap-2 text-sm text-token-text-secondary">
-            <SpinnerIcon className="icon-xs" />
+            <ActivitySpinnerIcon className="icon-xs" />
             <span>Loading environment</span>
           </div>
         </div>
@@ -1162,7 +1162,7 @@ export function LocalEnvironmentsSettingsPage({
         <PageSection title="Loading local environments">
           <Panel>
             <div className="flex items-center gap-2 p-3 text-sm text-token-text-secondary">
-              <SpinnerIcon className="icon-xs" />
+              <ActivitySpinnerIcon className="icon-xs" />
               Fetching your project configuration.
             </div>
           </Panel>
@@ -1473,7 +1473,7 @@ export function LocalEnvironmentsSettingsPage({
             >
               {saving ? (
                 <>
-                  <SpinnerIcon className="size-4" />
+                  <ActivitySpinnerIcon className="size-4" />
                   Saving…
                 </>
               ) : "Save"}

@@ -1,6 +1,8 @@
-import { motion, useReducedMotion } from "motion/react";
+import { motion } from "motion/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { NodexTooltip } from "@/components/ui/tooltip";
+import { ActivitySpinnerIcon } from "@/components/shared/icons";
+import { useResolvedReducedMotion } from "@/lib/use-reduced-motion";
 import type { CodexTranscriptEntry } from "../../../../lib/types";
 import { cn } from "../../../../lib/utils";
 import { CODEX_THREAD_ACCORDION_TRANSITION } from "./thread-motion";
@@ -103,7 +105,7 @@ function TodoStatusIcon({
   if (status === "in_progress") {
     return (
       <div className="flex h-3.5 w-4.5 items-center justify-center overflow-hidden">
-        <div className="h-[9px] w-[9px] animate-spin rounded-full border border-token-foreground/35 border-t-token-foreground" />
+        <ActivitySpinnerIcon className="size-[9px] text-token-foreground/60" />
       </div>
     );
   }
@@ -152,7 +154,7 @@ function TodoListCompactTooltip({ steps }: { steps: TodoStep[] }) {
 }
 
 function TodoProgressDonut({ percent }: { percent: number }) {
-  const reducedMotion = useReducedMotion();
+  const reducedMotion = useResolvedReducedMotion();
   const clampedPercent = Math.max(0, Math.min(100, percent));
   const strokeDashoffset = 100 - clampedPercent;
 

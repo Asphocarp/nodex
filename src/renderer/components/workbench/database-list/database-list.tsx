@@ -11,9 +11,7 @@ import {
   type ReactNode,
 } from "react";
 
-import {
-  LoaderCircle,
-} from "@/components/shared/icons/generic-icons";
+import { ActivitySpinnerIcon } from "@/components/shared/icons";
 import { NodexButton } from "@/components/ui/button";
 import { toast } from "@/components/ui/toast";
 import { usePropertyOptionRegistries } from "@/components/database/use-property-option-registries";
@@ -1881,7 +1879,7 @@ export function DatabaseList({
           || (!usesCoreAuthority
             && [...(groupPagination?.values() ?? [])].some((state) => state.loadingMore)) ? (
           <div role="status" className="flex h-8 items-center justify-center gap-1.5 text-xs text-token-description-foreground">
-            <LoaderCircle className="icon-2xs animate-spin" />
+            <ActivitySpinnerIcon className="icon-2xs" />
             Loading more…
           </div>
         ) : null}

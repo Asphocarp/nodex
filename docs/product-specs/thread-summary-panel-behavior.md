@@ -136,7 +136,9 @@ the last four finished agents when none remain active. Ordinary rows exclude
 those inline agents, preserve active/done grouping, show `is working` only for
 active agents, reserve trailing content for non-zero diff stats, and open the
 single root-scoped Subagents panel. The selected child transcript remains
-read-only.
+read-only. Avatar identity and row preview text remain static across status
+changes; only the active row's explicit `is working` status uses the classic
+working-label shimmer.
 
 Tasks represents registered background processes, not child-agent metadata.
 Rows can open the same live Process output surface as Process Manager, and the
@@ -154,6 +156,9 @@ placement, and teardown.
 Browser rows come from the Browser summary model. A row shows title, display URL,
 favicon or Browser fallback, and the Browser Use working state. Its native title
 may expose the full raw URL; panel location is not repeated as trailing copy.
+While Browser Use is active, the title/URL may use the explicit classic working
+shimmer and the overlaid Browser-use pointer remains static. Settled rows render
+neither working shimmer nor a spinner overlay.
 
 The thread scroll viewport, sticky footer, and floating summary report their
 anchor and obstacle geometry to the remote-hosted PiP owner. Unmount clears that

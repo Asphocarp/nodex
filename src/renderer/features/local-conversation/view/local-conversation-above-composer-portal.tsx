@@ -1,4 +1,4 @@
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { AnimatePresence, motion } from "motion/react";
 import {
   useCallback,
   useLayoutEffect,
@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
+import { useResolvedReducedMotion } from "@/lib/use-reduced-motion";
 import type { ReviewOpenIntent } from "@/features/review/model/review-view-state";
 import type {
   ThreadBlockModel,
@@ -147,7 +148,7 @@ export function LocalConversationAboveComposerQueuePortalHost({
 }
 
 function AboveComposerMeasuredPill({ children }: { children: ReactNode }) {
-  const reducedMotion = useReducedMotion();
+  const reducedMotion = useResolvedReducedMotion();
   const contentRef = useRef<HTMLDivElement | null>(null);
   const [contentWidthPx, setContentWidthPx] = useState<number | null>(null);
   const { elementRef: boundaryRef, elementWidthPx: availableWidthPx } = useMeasuredElementWidth();
@@ -222,7 +223,7 @@ function AboveComposerFixedContentLayer({
   projectlessOutputDirectory?: string | null;
   onOpenTurnDiffReview?: (intent: ReviewOpenIntent) => void | Promise<void>;
 }) {
-  const reducedMotion = useReducedMotion();
+  const reducedMotion = useResolvedReducedMotion();
   const todoCandidate = blocks.find((block) => block.type === "todoList") ?? null;
   const todoBlock = todoCandidate && parseTodoSteps(todoCandidate.entry).length > 0
     ? todoCandidate

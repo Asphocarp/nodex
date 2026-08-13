@@ -1,5 +1,6 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { transform, type Rule, type Selector, type StyleSheet } from "lightningcss";
 
@@ -310,6 +311,51 @@ const SCROLL_FADE_UTILITY_FALLBACK_CSS = `@layer components {
   }
 }`;
 
+const collectReferencedKeyframeNames = (css: string): ReadonlySet<string> => {
+  const keyframeNames = new Set(
+    Array.from(
+      css.matchAll(/@(?:-[a-z]+-)?keyframes\s+([_a-zA-Z][_a-zA-Z0-9-]*)/g),
+      (match) => match[1],
+    ),
+  );
+  const referencedNames = new Set<string>();
+  const animationDeclarationPattern =
+    /(?:^|[;{])\s*(?:-[a-z]+-)?animation(?:-name)?\s*:\s*([^;}]+)/gm;
+
+  for (const declaration of css.matchAll(animationDeclarationPattern)) {
+    const value = declaration[1] ?? "";
+    for (const name of keyframeNames) {
+      const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const identifierPattern = new RegExp(
+        `(?:^|[^_a-zA-Z0-9-])${escapedName}(?=$|[^_a-zA-Z0-9-])`,
+      );
+      if (identifierPattern.test(value)) referencedNames.add(name);
+    }
+  }
+
+  return referencedNames;
+};
+
+const removeUnreferencedKeyframes = (css: string): string => {
+  const referencedNames = collectReferencedKeyframeNames(css);
+  const result = transform({
+    filename: referencePath,
+    code: Buffer.from(css),
+    minify: false,
+    analyzeDependencies: false,
+    visitor: {
+      Rule(rule) {
+        if (rule.type !== "keyframes") return;
+        if (rule.value.name.type !== "ident") return;
+        if (referencedNames.has(rule.value.name.value)) return;
+        return [];
+      },
+    },
+  });
+
+  return Buffer.from(result.code).toString("utf8");
+};
+
 const buildGeneratedUtilitiesCss = (referenceCss: string): string => {
   const layerNameStack: string[] = [];
   let supportsDepth = 0;
@@ -394,7 +440,7 @@ const buildGeneratedUtilitiesCss = (referenceCss: string): string => {
     generatedCss = nextCss;
   }
 
-  generatedCss = generatedCss.trim();
+  generatedCss = removeUnreferencedKeyframes(generatedCss).trim();
   if (!generatedCss.includes(".px-toolbar")) {
     generatedCss = `${generatedCss}\n\n${TOOLBAR_PADDING_UTILITY_CSS}`;
   }
@@ -405,7 +451,7 @@ const buildGeneratedUtilitiesCss = (referenceCss: string): string => {
   return `/*
  * Synced from the Codex Electron reference CSS.
  * Do not edit by hand. Update the reference file, then rerun:
- *   pnpm run scripts/sync-codex-theme-utilities.ts
+ *   pnpm run sync:codex-theme:utilities
  */
 
 ${generatedCss}
@@ -420,12 +466,16 @@ const run = (): void => {
   console.log(`Synced Codex utility CSS to ${outputPath}`);
 };
 
-if (import.meta.main) {
+if (
+  process.argv[1] != null
+  && resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+) {
   run();
 }
 
 export {
   buildGeneratedUtilitiesCss,
+  collectReferencedKeyframeNames,
   isWindowVariantArbitraryPropertySelector,
   parseStylesheet,
   run,

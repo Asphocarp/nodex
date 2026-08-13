@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { LoaderCircle, Play, SendHorizontal } from "@/components/shared/icons/generic-icons";
+import { Play, SendHorizontal } from "@/components/shared/icons/generic-icons";
+import { ActivitySpinnerIcon } from "@/components/shared/icons";
 import { formatElapsedSince } from "@/lib/elapsed-time";
 import { cn } from "@/lib/utils";
 import type { ThreadSectionLinkedThreadState } from "./thread-section-runtime";
@@ -46,7 +47,7 @@ function deriveFallbackLabel(blockId: string): string {
 }
 
 function StatusIcon({ thread, pending }: { thread: ThreadSectionLinkedThreadState | null; pending: boolean }) {
-  if (pending) return <LoaderCircle className="size-3 animate-spin" />;
+  if (pending) return <ActivitySpinnerIcon className="size-3" />;
   if (thread?.statusType === "active") return <Play className="size-3 fill-current" />;
   return null;
 }
@@ -98,7 +99,6 @@ export function ThreadSectionRow({
   const timeLabel = formatRelativeTime(thread?.updatedAt ?? 0, now);
   const lineTone = resolveLineTone(thread);
   const textTone = resolveTextTone(thread);
-  const isActive = thread?.statusType === "active";
   const pillText = buildPillText(stateLabel, timeLabel, label);
 
   useEffect(() => {
@@ -133,7 +133,7 @@ export function ThreadSectionRow({
   return (
     <section className="w-full py-0" contentEditable={false}>
       <div className="group/sec relative flex w-full items-center gap-0">
-        <div className={cn("h-[1.5px] flex-1 rounded-full", lineTone, isActive && "animate-pulse")} />
+        <div className={cn("h-[1.5px] flex-1 rounded-full", lineTone)} />
 
         <div
           className={cn(
@@ -194,7 +194,7 @@ export function ThreadSectionRow({
           </div>
         </div>
 
-        <div className={cn("h-[1.5px] flex-1 rounded-full", lineTone, isActive && "animate-pulse")} />
+        <div className={cn("h-[1.5px] flex-1 rounded-full", lineTone)} />
 
         {isEditingLabel ? (
           <div className="absolute inset-0 z-20 flex items-center justify-center bg-(--background)">

@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
-import { motion, useReducedMotion } from "motion/react";
+import { motion } from "motion/react";
+import { useResolvedReducedMotion } from "@/lib/use-reduced-motion";
 import { CODEX_SHELL_PANEL_TRANSITION } from "../../../lib/codex-panel-motion";
 import { EnsureLocalConversationThreadScrollController } from "./local-conversation-thread-scroll-controller";
 
@@ -18,7 +19,7 @@ export function LocalConversationNewThreadHomeScreen({
   floatingContent,
   contentShiftX = 0,
 }: LocalConversationNewThreadHomeScreenProps) {
-  const reducedMotion = useReducedMotion();
+  const reducedMotion = useResolvedReducedMotion();
 
   return (
     <div className="relative flex h-full min-h-0 flex-col bg-(--background)">

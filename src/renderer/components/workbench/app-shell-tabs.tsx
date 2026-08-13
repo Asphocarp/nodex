@@ -2,7 +2,7 @@ import * as ContextMenuPrimitive from "@radix-ui/react-context-menu";
 import { dropTargetForElements, draggable } from "@atlaskit/pragmatic-drag-and-drop/element/adapter";
 import { preserveOffsetOnSource } from "@atlaskit/pragmatic-drag-and-drop/element/preserve-offset-on-source";
 import { setCustomNativeDragPreview } from "@atlaskit/pragmatic-drag-and-drop/element/set-custom-native-drag-preview";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { AnimatePresence, motion } from "motion/react";
 import {
   useCallback,
   useEffect,
@@ -20,6 +20,7 @@ import {
 } from "react";
 import { NodexTooltip, NodexTooltipProvider } from "@/components/ui/tooltip";
 import { APP_SHELL_FLOATING_UI_LAYER_CLASS } from "@/lib/app-shell-layers";
+import { useResolvedReducedMotion } from "@/lib/use-reduced-motion";
 import type { PanelId } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import {
@@ -232,7 +233,7 @@ export function AppShellTabs({
   const [retainedTabCount, setRetainedTabCount] = useState(tabs.length);
   const [leftEdgeClipped, setLeftEdgeClipped] = useState(false);
   const [rightEdgeClipped, setRightEdgeClipped] = useState(false);
-  const reducedMotion = useReducedMotion();
+  const reducedMotion = useResolvedReducedMotion();
   const { elementRef: afterTabsInlineRef, elementWidthPx: afterTabsInlineWidthPx } = useMeasuredElementWidth();
   const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? tabs[0] ?? null;
   const resolvedActiveTabId = activeTab?.id ?? null;

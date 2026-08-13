@@ -1235,7 +1235,7 @@ describe("ThreadPlanCardBlock", () => {
       </TooltipProvider>,
     );
 
-    getByText("Writing plan");
+    getByText("Writing plan", { selector: "[data-codex-shimmer]" });
     expect(Boolean(textContent(container).includes("Proposed plan"))).toBe(false);
     expect(Boolean(textContent(container).includes("Expand plan"))).toBe(false);
   });

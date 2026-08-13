@@ -4,7 +4,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { SpinnerIcon } from "@/components/shared/icons";
+import { ActivitySpinnerIcon } from "@/components/shared/icons";
 import {
   NodexDialog,
   NodexDialogAction,
@@ -110,7 +110,7 @@ export function StableWorktreeStatusDialogView({
           disabled={autoFixing}
           onClick={onAutoFix}
         >
-          {autoFixing ? <SpinnerIcon className="icon-xs" /> : null}
+          {autoFixing ? <ActivitySpinnerIcon className="icon-xs" /> : null}
           Auto-fix
         </NodexDialogAction>
       ) : null}

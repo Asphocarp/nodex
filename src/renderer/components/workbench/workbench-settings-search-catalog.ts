@@ -252,6 +252,11 @@ const SETTINGS_SEARCH_PANELS = {
             ["System", "Light", "Dark"],
           ),
           entry(
+            "Reduced motion",
+            "Follow the system setting, reduce interface motion, or allow full motion.",
+            ["System", "On", "Off", "animation", "accessibility"],
+          ),
+          entry(
             "Sans font size",
             "Scales shared sans typography tokens and chat body text across the app.",
             ["Default", "font size", "sans typography"],
