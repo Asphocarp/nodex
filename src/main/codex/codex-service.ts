@@ -238,6 +238,7 @@ import type {
   UpdateWorktreeEnvironmentConfigInput,
   WorktreeEnvironmentConfigRecord,
   WorktreeEnvironmentOption,
+  WorktreeEnvironmentSaveResult,
   WorktreeEnvironmentSettingsSnapshot,
   WorktreeStartMode,
 } from "../../shared/types";
@@ -618,7 +619,7 @@ import {
   readWorktreeEnvironmentDefinition,
   listWorktreeEnvironmentConfigs as listWorktreeEnvironmentConfigRecords,
   readWorktreeEnvironmentSettingsSnapshot as readWorktreeEnvironmentSettingsRecord,
-  saveWorktreeEnvironmentSettingsSnapshot as saveWorktreeEnvironmentSettingsRecord,
+  saveWorktreeEnvironmentConfigFile,
 } from "./worktree-environment-service";
 import { getLogger } from "../logging/logger";
 import { DEFAULT_CODEX_HOST_ID } from "../../shared/codex-host";
@@ -10376,16 +10377,15 @@ export class CodexService extends EventEmitter {
 
   async saveWorktreeEnvironmentConfig(
     input: UpdateWorktreeEnvironmentConfigInput,
-  ): Promise<WorktreeEnvironmentSettingsSnapshot> {
+  ): Promise<WorktreeEnvironmentSaveResult> {
     const project = await this.projectWorkspace.getProject(input.projectId);
     const workspacePath = project?.primaryWorkspaceRoot?.trim();
     if (!project || !workspacePath) {
       throw new Error("Project source folder is required for local environments.");
     }
 
-    return saveWorktreeEnvironmentSettingsRecord({
+    return saveWorktreeEnvironmentConfigFile({
       ...input,
-      projectName: project.name,
       workspacePath,
     });
   }

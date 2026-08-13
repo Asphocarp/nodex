@@ -103,11 +103,27 @@ settings` into Environments with the selected Project/config identity. The
 Environments page owns workspace selection, summary, editing, parse errors,
 creation, and environment-variable presentation.
 
+An environment summary uses the environment name as its page heading and keeps
+Setup, Cleanup, and Actions in one flat detail flow. Setup and Cleanup expose
+platform selection only when a script exists. Selecting a platform without an
+explicit override previews the default script and identifies that fallback.
+Actions disclose multiline commands without turning the entire row into an
+interactive control.
+
+The editor always exposes Default, macOS, Linux, and Windows slots for Setup and
+Cleanup. An Action with both name and command blank is a valid draft and is
+omitted when saved; an Action with only one of those fields blocks saving and
+identifies the missing counterpart. Saves include the revision that was read
+from disk. If that revision is stale, the editor keeps the draft and requires an
+explicit Discard edits action to refetch the canonical file; it never silently
+overwrites an external change. Leaving the editor discards its local draft.
+
 Computer use consumes one typed Main snapshot and owns its verification,
 availability, and action state. Browser detail pages own Browser-specific
 subroutes and anchors. Dynamic section state does not expand the top-level rail
 catalog or become duplicated shell state.
 
-Storybook uses injected service snapshots for sections that otherwise require
-desktop IPC. Stories cover section-owned loading, empty, error, and edit states
-without constructing live Electron fallbacks.
+Storybook renders the production environment components with preloaded query
+caches or explicit editor callbacks. Stories cover summary, platform fallback,
+expanded Actions, validation, conflict, overlays, and narrow layouts without a
+second feature-specific service implementation or live desktop IPC.
