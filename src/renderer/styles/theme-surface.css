@@ -291,7 +291,7 @@ mark.codex-thread-find-active {
   border-radius: var(--composer-border-radius);
 }
 
-._attachmentsDefault_1u8sk_2 {
+._attachmentsDefault_1u8sk_2[data-composer-spacing="default"] {
   --composer-attachment-inset: calc(var(--spacing) * 2);
   --composer-attachment-border-radius: max(
     0px,
@@ -301,7 +301,12 @@ mark.codex-thread-find-active {
   padding-bottom: calc(var(--spacing) * 1.5);
 }
 
-._attachmentsDefault_1u8sk_2 .composer-attachment-surface {
+._attachmentsDefault_1u8sk_2[data-composer-spacing="flush"][data-visible-attachments] {
+  margin-bottom: 5px;
+}
+
+._attachmentsDefault_1u8sk_2[data-composer-spacing="default"]
+  .composer-attachment-surface {
   border-radius: var(--composer-attachment-border-radius);
 }
 
@@ -311,7 +316,8 @@ mark.codex-thread-find-active {
 
 @supports (corner-shape: superellipse(1.5)) {
   ._multilineSurface_1u8sk_2,
-  ._attachmentsDefault_1u8sk_2 .composer-attachment-surface {
+  ._attachmentsDefault_1u8sk_2[data-composer-spacing="default"]
+    .composer-attachment-surface {
     corner-shape: var(--codex-corner-shape);
   }
 }

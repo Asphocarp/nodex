@@ -1,293 +1,38 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
-  type CSSProperties,
-  type RefObject,
+  type ComponentProps,
 } from "react";
 import { ChevronLeftIcon, ChevronRightIcon, ImagesIcon } from "@/components/shared/icons/generic-icons";
-import { useResolvedReducedMotion } from "@/lib/use-reduced-motion";
-import { cn } from "../../../../lib/utils";
-import { useTheme } from "../../../../lib/use-theme";
-import type { ThreadGeneratedImageGalleryItemModel } from "../../thread-stage-types";
-import { calculateGeneratedImageGalleryLayout } from "../../projection/generated-image-gallery-layout";
-import { ImagePreviewDialog } from "./user-message-attachments";
-import { useConversationImageAsset } from "./use-conversation-image-asset";
 import {
-  createGeneratedImageDotFieldConfig,
-  DOT_FIELD_BASE_SPACING,
-  DOT_FIELD_FIRST_WEIGHT,
-  DOT_FIELD_MIN_RADIUS,
-  DOT_FIELD_OPACITY_CUTOFF,
-  DOT_FIELD_OPACITY_DURATION_MS,
-  DOT_FIELD_OPACITY_POWER,
-  DOT_FIELD_RADIUS_FACTOR,
-  DOT_FIELD_SECOND_WEIGHT,
-  generatedImageDotFieldSmoothStep,
-  resolveGeneratedImageDotFieldFrame,
-} from "./generated-image-dot-field";
-import { getPendingImageAnimationClock } from "./pending-image-animation-clock";
-import "./generated-image-gallery.css";
+  areGeneratedImageLiveGroupsEqual,
+  GeneratedImagePlaceholder,
+  getGeneratedImageLiveCollectionSnapshot,
+  ImagePreviewDialog,
+  openUserAttachmentImagePreview,
+  projectGeneratedImageCanonicalGroups,
+  replaceGeneratedImageCanonicalGroups,
+  replaceGeneratedImageLiveGroup,
+  subscribeGeneratedImageLiveCollections,
+  type GeneratedImageDescriptor,
+} from "@/features/user-attachment-image-editor";
+import {
+  ImageCanvasViewIcon,
+  ShortcutPencilIcon,
+} from "@/components/shared/icons";
+import { cn } from "../../../../lib/utils";
+import type { ThreadGeneratedImageGalleryItemModel } from "../../thread-stage-types";
+import { useCodexConversationValue } from "../../local-conversation-store";
+import { calculateGeneratedImageGalleryLayout } from "../../projection/generated-image-gallery-layout";
+import { useConversationImageAssetContext } from "../conversation-image-asset-context";
+import { useConversationImageAsset } from "./use-conversation-image-asset";
 
 const EMPTY_IMAGE_SRC = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==";
 const MAX_IMAGE_REFETCHES = 2;
-
-function clampUnit(value: number): number {
-  return Math.min(1, Math.max(0, value));
-}
-
-interface DotFieldGrid {
-  readonly dpr: number;
-  readonly height: number;
-  readonly spacing: number;
-  readonly width: number;
-  readonly xNormals: Float32Array;
-  readonly xPositions: Float32Array;
-  readonly yNormals: Float32Array;
-  readonly yPositions: Float32Array;
-}
-
-const subscribeDocumentVisibility = (listener: () => void) => {
-  document.addEventListener("visibilitychange", listener);
-  return () => document.removeEventListener("visibilitychange", listener);
-};
-
-const readDocumentVisible = () => document.visibilityState !== "hidden";
-
-function useDocumentVisible(): boolean {
-  return useSyncExternalStore(
-    subscribeDocumentVisibility,
-    readDocumentVisible,
-    () => true,
-  );
-}
-
-function useElementIntersection(ref: RefObject<Element | null>): boolean {
-  const [intersecting, setIntersecting] = useState(
-    () => typeof IntersectionObserver === "undefined",
-  );
-
-  useEffect(() => {
-    const element = ref.current;
-    if (!element) return;
-    if (typeof IntersectionObserver === "undefined") {
-      setIntersecting(true);
-      return;
-    }
-
-    const observer = new IntersectionObserver((entries) => {
-      setIntersecting(entries[0]?.isIntersecting === true);
-    });
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [ref]);
-
-  return intersecting;
-}
-
-interface GeneratedImageDotFieldStyle extends CSSProperties {
-  "--generated-image-dot-field-delay": string;
-}
-
-function GeneratedImageDotField({ active }: { active: boolean }) {
-  const reducedMotion = useResolvedReducedMotion();
-  const { resolved: theme } = useTheme();
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const configRef = useRef<ReturnType<
-    typeof createGeneratedImageDotFieldConfig
-  > | null>(null);
-  configRef.current ??= createGeneratedImageDotFieldConfig();
-  const config = configRef.current;
-  const clock = getPendingImageAnimationClock();
-  const mountedAtRef = useRef<number | null>(null);
-  mountedAtRef.current ??= clock.now();
-  const mountedAt = mountedAtRef.current;
-  const documentVisible = useDocumentVisible();
-  const intersecting = useElementIntersection(containerRef);
-  const animationActive = active
-    && intersecting
-    && documentVisible
-    && !reducedMotion;
-  const elapsedMs = Math.max(0, clock.now() - mountedAt);
-
-  useEffect(() => {
-    const container = containerRef.current;
-    const canvas = canvasRef.current;
-    const context = canvas?.getContext("2d");
-    if (!container || !canvas || !context) return;
-
-    const fullCircle = Math.PI * 2;
-    const color = getComputedStyle(container).color
-      || (theme === "dark" ? "white" : "black");
-    let lastFrameAt = 0;
-    let grid: DotFieldGrid | null = null;
-    let gridInvalidated = true;
-
-    const rebuildGrid = () => {
-      const rect = container.getBoundingClientRect();
-      const width = Math.max(0, Math.floor(rect.width));
-      const height = Math.max(0, Math.floor(rect.height));
-      if (width === 0 || height === 0) {
-        grid = null;
-        gridInvalidated = false;
-        return;
-      }
-
-      const dpr = Math.max(1, window.devicePixelRatio || 1);
-      const canvasWidth = Math.floor(width * dpr);
-      const canvasHeight = Math.floor(height * dpr);
-      if (canvas.width !== canvasWidth || canvas.height !== canvasHeight) {
-        canvas.width = canvasWidth;
-        canvas.height = canvasHeight;
-      }
-
-      const spacing = Math.max(1, DOT_FIELD_BASE_SPACING / dpr);
-      const columnCount = Math.max(1, Math.floor(width / spacing));
-      const rowCount = Math.max(1, Math.floor(height / spacing));
-      const startX = (width - (columnCount - 1) * spacing) * 0.5;
-      const startY = (height - (rowCount - 1) * spacing) * 0.5;
-      const xPositions = new Float32Array(columnCount);
-      const yPositions = new Float32Array(rowCount);
-      const xNormals = new Float32Array(columnCount);
-      const yNormals = new Float32Array(rowCount);
-      for (let index = 0; index < columnCount; index += 1) {
-        xPositions[index] = startX + index * spacing;
-        xNormals[index] = columnCount === 1 ? 0.5 : index / (columnCount - 1);
-      }
-      for (let index = 0; index < rowCount; index += 1) {
-        yPositions[index] = startY + index * spacing;
-        yNormals[index] = rowCount === 1 ? 0.5 : index / (rowCount - 1);
-      }
-      grid = {
-        dpr,
-        height,
-        spacing,
-        width,
-        xNormals,
-        xPositions,
-        yNormals,
-        yPositions,
-      };
-      gridInvalidated = false;
-    };
-
-    const draw = (timestamp: number, force = false) => {
-      if (
-        !force
-        && lastFrameAt !== 0
-        && timestamp - lastFrameAt < 1_000 / 30
-      ) {
-        return;
-      }
-      lastFrameAt = timestamp;
-      if (gridInvalidated || !grid) rebuildGrid();
-      if (!grid) return;
-
-      const frame = resolveGeneratedImageDotFieldFrame(
-        reducedMotion ? 0 : timestamp - mountedAt,
-        config,
-      );
-
-      context.save();
-      context.setTransform(grid.dpr, 0, 0, grid.dpr, 0, 0);
-      context.clearRect(0, 0, grid.width, grid.height);
-      context.fillStyle = color;
-      const radius = Math.max(
-        DOT_FIELD_MIN_RADIUS,
-        grid.spacing * 0.5 * DOT_FIELD_RADIUS_FACTOR,
-      );
-      for (let rowIndex = 0; rowIndex < grid.yPositions.length; rowIndex += 1) {
-        const y = grid.yPositions[rowIndex] ?? 0;
-        const normalizedY = grid.yNormals[rowIndex] ?? 0;
-        for (
-          let columnIndex = 0;
-          columnIndex < grid.xPositions.length;
-          columnIndex += 1
-        ) {
-          const x = grid.xPositions[columnIndex] ?? 0;
-          const normalizedX = grid.xNormals[columnIndex] ?? 0;
-          const firstDistance = Math.hypot(
-            normalizedX - frame.firstX,
-            normalizedY - frame.firstY,
-          );
-          const secondDistance = Math.hypot(
-            normalizedX - frame.secondX,
-            normalizedY - frame.secondY,
-          );
-          const firstField = 1 - generatedImageDotFieldSmoothStep(
-            firstDistance / frame.firstSize,
-          );
-          const secondField = 1 - generatedImageDotFieldSmoothStep(
-            secondDistance / frame.secondSize,
-          );
-          const opacity = clampUnit(
-            firstField * DOT_FIELD_FIRST_WEIGHT
-              + secondField * DOT_FIELD_SECOND_WEIGHT,
-          ) ** DOT_FIELD_OPACITY_POWER;
-          if (opacity <= DOT_FIELD_OPACITY_CUTOFF) continue;
-          context.globalAlpha = opacity;
-          context.beginPath();
-          context.moveTo(x + radius, y);
-          context.arc(x, y, radius, 0, fullCircle);
-          context.fill();
-        }
-      }
-      context.restore();
-    };
-
-    const resizeObserver = typeof ResizeObserver === "undefined"
-      ? null
-      : new ResizeObserver(() => {
-          gridInvalidated = true;
-          if (!animationActive) draw(clock.now(), true);
-        });
-    resizeObserver?.observe(container);
-    draw(clock.now(), true);
-    const unsubscribe = animationActive ? clock.subscribe(draw) : undefined;
-
-    return () => {
-      unsubscribe?.();
-      resizeObserver?.disconnect();
-    };
-  }, [animationActive, clock, config, mountedAt, reducedMotion, theme]);
-
-  return (
-    <div
-      ref={containerRef}
-      className="nodex-generated-image-dot-field absolute inset-0 overflow-hidden"
-      data-animate={animationActive ? "true" : undefined}
-      data-generated-image-dot-field="true"
-      style={{
-        "--generated-image-dot-field-delay":
-          `${-(elapsedMs % DOT_FIELD_OPACITY_DURATION_MS)}ms`,
-        maskImage:
-          "linear-gradient(to top left, transparent 0%, black 30% 70%, transparent 100%)",
-        WebkitMaskImage:
-          "linear-gradient(to top left, transparent 0%, black 30% 70%, transparent 100%)",
-      } as GeneratedImageDotFieldStyle}
-    >
-      <canvas ref={canvasRef} aria-hidden="true" className="block h-full w-full" />
-    </div>
-  );
-}
-
-export function GeneratedImagePlaceholder({ hidden }: { hidden: boolean }) {
-  return (
-    <div
-      aria-busy="true"
-      aria-hidden={hidden || undefined}
-      aria-label={hidden ? undefined : "Generating image..."}
-      aria-live={hidden ? undefined : "polite"}
-      className="electron-dark:text-white/70 relative aspect-square w-full max-w-[400px] overflow-clip rounded-[36px] bg-token-bg-tertiary/70 text-token-text-secondary dark:text-white/70"
-      role={hidden ? undefined : "status"}
-    >
-      <GeneratedImageDotField active={!hidden} />
-    </div>
-  );
-}
 
 function GalleryControls({
   canGoNext,
@@ -295,12 +40,14 @@ function GalleryControls({
   onNext,
   onPrevious,
   overflowCount,
+  onOpenCanvas,
 }: {
   canGoNext: boolean;
   canGoPrevious: boolean;
   onNext: () => void;
   onPrevious: () => void;
   overflowCount: number;
+  onOpenCanvas?: () => void;
 }) {
   return (
     <>
@@ -309,6 +56,17 @@ function GalleryControls({
         <span className="tabular-nums">{overflowCount}</span>
       </div>
       <div className="pointer-events-none absolute right-2 bottom-2 z-10 flex items-center gap-1 opacity-0 group-focus-within/generated-image-gallery-controls:pointer-events-auto group-focus-within/generated-image-gallery-controls:opacity-100 group-hover/generated-image-gallery-controls:pointer-events-auto group-hover/generated-image-gallery-controls:opacity-100">
+        {onOpenCanvas ? (
+          <button
+            type="button"
+            aria-label="Open Canvas view"
+            className="flex h-6 cursor-interaction items-center gap-1 rounded-full bg-black/45 px-2 text-sm text-white shadow-sm backdrop-blur-[12px] hover:bg-black/60"
+            onClick={onOpenCanvas}
+          >
+            <ImageCanvasViewIcon aria-hidden="true" className="size-3.5" />
+            Canvas
+          </button>
+        ) : null}
         <button
           type="button"
           aria-label="Previous images"
@@ -341,6 +99,7 @@ function GeneratedImageTile({
   imageNumber,
   onAspectRatioChange,
   onOpen,
+  onEdit,
   square,
   widthPx,
 }: {
@@ -350,6 +109,7 @@ function GeneratedImageTile({
   imageNumber: number;
   onAspectRatioChange: (ratio: number) => void;
   onOpen: () => void;
+  onEdit?: () => void;
   square: boolean;
   widthPx: number;
 }) {
@@ -374,63 +134,82 @@ function GeneratedImageTile({
   }
 
   return (
-    <button
-      type="button"
-      aria-hidden={hidden || undefined}
-      aria-label={alt}
-      data-testid="generated-image-preview"
-      tabIndex={hidden ? -1 : undefined}
-      className="shrink-0 cursor-interaction overflow-hidden rounded-[16px] bg-token-main-surface-primary focus-visible:ring-1 focus-visible:ring-token-focus-border focus-visible:outline-none"
-      style={{ height: heightPx, width: widthPx }}
-      onClick={onOpen}
-    >
-      <img
-        src={previewSrc}
-        alt={alt}
-        draggable
-        className={cn(
-          "block h-full",
-          square ? "w-full object-cover" : "w-auto object-contain",
-        )}
-        referrerPolicy="no-referrer"
-        onDragStart={(event) => {
-          event.dataTransfer.effectAllowed = "copy";
-          event.dataTransfer.setData("application/x-codex-image", JSON.stringify({
-            filename: `generated-image-${imageNumber}`,
-            src: fullAsset.dataUrl
-              ?? fullAsset.downloadSrc
-              ?? fullAsset.previewSrc
-              ?? previewSrc,
-          }));
-        }}
-        onLoad={(event) => {
-          setFailure(null);
-          const { naturalHeight, naturalWidth } = event.currentTarget;
-          if (naturalHeight <= 0 || naturalWidth <= 0) return;
-          onAspectRatioChange(naturalWidth / naturalHeight);
-        }}
-        onError={() => {
-          if (failureCount >= MAX_IMAGE_REFETCHES) return;
-          setFailure({ count: failureCount + 1, src: previewSrc });
-          previewAsset.refetch();
-        }}
-      />
-    </button>
+    <>
+      <button
+        type="button"
+        aria-hidden={hidden || undefined}
+        aria-label={alt}
+        data-testid="generated-image-preview"
+        tabIndex={hidden ? -1 : undefined}
+        className="shrink-0 cursor-interaction overflow-hidden rounded-[16px] bg-token-main-surface-primary focus-visible:ring-1 focus-visible:ring-token-focus-border focus-visible:outline-none"
+        style={{ height: heightPx, width: widthPx }}
+        onClick={onOpen}
+      >
+        <img
+          src={previewSrc}
+          alt={alt}
+          draggable
+          className={cn(
+            "block h-full",
+            square ? "w-full object-cover" : "w-auto object-contain",
+          )}
+          referrerPolicy="no-referrer"
+          onDragStart={(event) => {
+            event.dataTransfer.effectAllowed = "copy";
+            event.dataTransfer.setData("application/x-codex-image", JSON.stringify({
+              filename: `generated-image-${imageNumber}`,
+              src: fullAsset.dataUrl
+                ?? fullAsset.downloadSrc
+                ?? fullAsset.previewSrc
+                ?? previewSrc,
+            }));
+          }}
+          onLoad={(event) => {
+            setFailure(null);
+            const { naturalHeight, naturalWidth } = event.currentTarget;
+            if (naturalHeight <= 0 || naturalWidth <= 0) return;
+            onAspectRatioChange(naturalWidth / naturalHeight);
+          }}
+          onError={() => {
+            if (failureCount >= MAX_IMAGE_REFETCHES) return;
+            setFailure({ count: failureCount + 1, src: previewSrc });
+            previewAsset.refetch();
+          }}
+        />
+      </button>
+      {onEdit ? (
+        <button
+          type="button"
+          aria-label={`Edit generated image ${imageNumber}`}
+          className="pointer-events-none absolute bottom-2 left-2 z-10 flex h-6 cursor-interaction items-center gap-1 rounded-full bg-black/45 px-2 text-sm text-white opacity-0 shadow-sm backdrop-blur-[12px] group-focus-within/generated-image-preview:pointer-events-auto group-focus-within/generated-image-preview:opacity-100 group-hover/generated-image-preview:pointer-events-auto group-hover/generated-image-preview:opacity-100 hover:bg-black/60"
+          onClick={onEdit}
+        >
+          <ShortcutPencilIcon aria-hidden="true" className="size-3.5" />
+          Edit
+        </button>
+      ) : null}
+    </>
   );
 }
 
 function GeneratedImagePreview({
+  availableImageCount,
   image,
   imageNumber,
   onNextImage,
   onOpenChange,
+  onCloseAutoFocus,
   onPreviousImage,
+  onEditImage,
 }: {
+  availableImageCount: number;
   image: ThreadGeneratedImageGalleryItemModel;
   imageNumber: number;
   onNextImage?: () => void;
   onOpenChange: (open: boolean) => void;
+  onCloseAutoFocus?: ComponentProps<typeof ImagePreviewDialog>["onCloseAutoFocus"];
   onPreviousImage?: () => void;
+  onEditImage?: () => void;
 }) {
   const fullAsset = useConversationImageAsset(image.src ?? image.previewSrc ?? "", {
     shouldLoadFileDataUrl: true,
@@ -444,24 +223,173 @@ function GeneratedImagePreview({
       src={fullAsset.previewSrc ?? EMPTY_IMAGE_SRC}
       downloadSrc={fullAsset.downloadSrc ?? EMPTY_IMAGE_SRC}
       alt={alt}
+      analytics={{
+        availableImageCount,
+        entrypoint: "image_click",
+        imageSource: "generated",
+      }}
+      onCloseAutoFocus={onCloseAutoFocus}
       onPreviousImage={onPreviousImage}
       onNextImage={onNextImage}
+      onEditImage={onEditImage}
     />
   );
 }
 
 export function GeneratedImageGallery({
+  groupId = "generated-image-gallery",
   images,
   pendingImageCount,
+  turnStartedAtMs = null,
 }: {
+  groupId?: string;
   images: readonly ThreadGeneratedImageGalleryItemModel[];
   pendingImageCount: number;
+  turnStartedAtMs?: number | null;
 }) {
+  const { composerTarget, conversationId } = useConversationImageAssetContext();
+  const canonicalGeneratedGroups = useCodexConversationValue(
+    conversationId,
+    projectGeneratedImageCanonicalGroups,
+    areGeneratedImageLiveGroupsEqual,
+  );
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [containerWidthPx, setContainerWidthPx] = useState<number | null>(null);
   const [aspectRatios, setAspectRatios] = useState<Readonly<Record<string, number>>>({});
   const [startIndex, setStartIndex] = useState(0);
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
+  const previewTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const localEditorImages = useMemo<GeneratedImageDescriptor[]>(
+    () => {
+      const canonicalImagesById = new Map(
+        canonicalGeneratedGroups.flatMap((group) => group.images).map(
+          (image) => [image.id, image],
+        ),
+      );
+      return images.map((image, index) => {
+        const canonical = canonicalImagesById.get(image.id);
+        const alt = canonical?.alt ?? `Generated image ${index + 1}`;
+        return {
+          id: image.id,
+          alt,
+          attachmentId: image.id.startsWith("image-playground:")
+            ? image.id
+            : `image-playground:${image.id}`,
+          attachmentSrc: image.src ?? image.previewSrc ?? "",
+          downloadSrc: image.src ?? image.previewSrc ?? "",
+          generatedOrdinal: canonical?.generatedOrdinal ?? index + 1,
+          groupId,
+          previewSrc: image.previewSrc ?? image.src,
+          referrerPolicy: "no-referrer",
+          source: "generated",
+          src: image.src ?? image.previewSrc ?? "",
+          status: "ready",
+          tabTitle: canonical?.tabTitle ?? alt,
+          turnStartedAtMs: turnStartedAtMs ?? undefined,
+        };
+      });
+    },
+    [canonicalGeneratedGroups, groupId, images, turnStartedAtMs],
+  );
+  const getLiveCollectionSnapshot = useCallback(
+    () => getGeneratedImageLiveCollectionSnapshot(conversationId ?? ""),
+    [conversationId],
+  );
+  const liveCollection = useSyncExternalStore(
+    subscribeGeneratedImageLiveCollections,
+    getLiveCollectionSnapshot,
+    getLiveCollectionSnapshot,
+  );
+
+  useEffect(() => {
+    if (!conversationId) return undefined;
+    return replaceGeneratedImageLiveGroup(conversationId, {
+      id: groupId,
+      images: localEditorImages,
+      pendingImageCount,
+      turnStartedAtMs,
+    });
+  }, [
+    conversationId,
+    groupId,
+    localEditorImages,
+    pendingImageCount,
+    turnStartedAtMs,
+  ]);
+
+  useEffect(() => {
+    if (!conversationId) return undefined;
+    return replaceGeneratedImageCanonicalGroups(
+      conversationId,
+      canonicalGeneratedGroups,
+    );
+  }, [canonicalGeneratedGroups, conversationId]);
+
+  const resolveEditorImages = () => {
+    if (!conversationId) return localEditorImages;
+    const liveImages = liveCollection.images;
+    return liveImages.length > 0 ? liveImages : localEditorImages;
+  };
+
+  const openEditor = (index: number, entrypoint: "gallery_edit_button" | "lightbox_edit_button") => {
+    const clickedImage = localEditorImages[index];
+    const editorImages = resolveEditorImages();
+    const image = editorImages.find((candidate) => candidate.id === clickedImage?.id);
+    if (!image) return;
+    void openUserAttachmentImagePreview({
+      alt: image.alt,
+      attachmentId: image.attachmentId,
+      attachmentSrc: image.attachmentSrc,
+      availableImageCount: editorImages.length,
+      composerTarget: composerTarget ?? undefined,
+      downloadSrc: image.downloadSrc,
+      entrypoint,
+      generatedImages: editorImages,
+      imageSource: "generated",
+      initialImageId: image.id,
+      initialView: "single",
+      openInEditor: true,
+      policy: "edit_button",
+      previewSrc: image.previewSrc,
+      referrerPolicy: "no-referrer",
+      src: image.src,
+      threadId: conversationId,
+      title: image.tabTitle,
+    });
+  };
+
+  const liveImageCount = conversationId
+    ? liveCollection.images.filter(
+        (image) => image.status === "ready",
+      ).length
+    : localEditorImages.length;
+  const openCanvas = Math.max(localEditorImages.length, liveImageCount) > 1
+    ? () => {
+        const editorImages = resolveEditorImages();
+        const image = editorImages.at(-1);
+        if (!image) return;
+        void openUserAttachmentImagePreview({
+          alt: image.alt,
+          attachmentId: image.attachmentId,
+          attachmentSrc: image.attachmentSrc,
+          availableImageCount: editorImages.length,
+          composerTarget: composerTarget ?? undefined,
+          downloadSrc: image.downloadSrc,
+          entrypoint: "canvas_button",
+          generatedImages: editorImages,
+          imageSource: "generated",
+          initialImageId: image.id,
+          initialView: "playground",
+          openInEditor: true,
+          policy: "edit_button",
+          previewSrc: image.previewSrc,
+          referrerPolicy: "no-referrer",
+          src: image.src,
+          threadId: conversationId,
+          title: image.tabTitle,
+        });
+      }
+    : undefined;
 
   useEffect(() => {
     const element = containerRef.current;
@@ -525,7 +453,7 @@ export function GeneratedImageGallery({
               ? layout.heightPx
               : (aspectRatios[image.id] ?? 1) * layout.heightPx;
             return (
-              <div key={image.id} className="relative shrink-0">
+              <div key={image.id} className="group/generated-image-preview relative shrink-0">
                 <GeneratedImageTile
                   heightPx={layout.heightPx}
                   hidden={hidden}
@@ -538,8 +466,28 @@ export function GeneratedImageGallery({
                       ? current
                       : { ...current, [image.id]: ratio });
                   }}
-                  onOpen={() => setPreviewIndex(index)}
+                  onOpen={() => {
+                    const trigger = document.activeElement;
+                    previewTriggerRef.current = trigger instanceof HTMLButtonElement
+                      ? trigger
+                      : null;
+                    setPreviewIndex(index);
+                  }}
+                  onEdit={() => openEditor(index, "gallery_edit_button")}
                 />
+                {index === images.length - 1 && layout.overflowCount === 0 && openCanvas ? (
+                  <div className="pointer-events-none absolute right-2 bottom-2 z-10 opacity-0 group-focus-within/generated-image-gallery-controls:pointer-events-auto group-focus-within/generated-image-gallery-controls:opacity-100 group-hover/generated-image-gallery-controls:pointer-events-auto group-hover/generated-image-gallery-controls:opacity-100">
+                    <button
+                      type="button"
+                      aria-label="Open Canvas view"
+                      className="flex h-6 cursor-interaction items-center gap-1 rounded-full bg-black/45 px-2 text-sm text-white shadow-sm backdrop-blur-[12px] hover:bg-black/60"
+                      onClick={openCanvas}
+                    >
+                      <ImageCanvasViewIcon aria-hidden="true" className="size-3.5" />
+                      Canvas
+                    </button>
+                  </div>
+                ) : null}
               </div>
             );
           })}
@@ -557,7 +505,10 @@ export function GeneratedImageGallery({
                 aria-hidden={hidden || undefined}
                 style={{ height: layout.heightPx, width: layout.heightPx }}
               >
-                <GeneratedImagePlaceholder hidden={hidden} />
+                <GeneratedImagePlaceholder
+                  hidden={hidden}
+                  seed={`${groupId}:pending:${index}`}
+                />
               </div>
             );
           })}
@@ -569,13 +520,19 @@ export function GeneratedImageGallery({
             canGoNext={resolvedStartIndex < layout.maxStartIndex}
             onPrevious={() => setStartIndex(Math.max(resolvedStartIndex - 1, 0))}
             onNext={() => setStartIndex(Math.min(resolvedStartIndex + 1, layout.maxStartIndex))}
+            onOpenCanvas={openCanvas}
           />
         ) : null}
       </div>
       {activePreviewImage ? (
         <GeneratedImagePreview
+          availableImageCount={images.length}
           image={activePreviewImage}
           imageNumber={(previewIndex ?? 0) + 1}
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            previewTriggerRef.current?.focus();
+          }}
           onOpenChange={handlePreviewOpenChange}
           onPreviousImage={previewIndex !== null && previewIndex > 0
             ? () => setPreviewIndex(previewIndex - 1)
@@ -583,6 +540,7 @@ export function GeneratedImageGallery({
           onNextImage={previewIndex !== null && previewIndex < images.length - 1
             ? () => setPreviewIndex(previewIndex + 1)
             : undefined}
+          onEditImage={() => openEditor(previewIndex ?? 0, "lightbox_edit_button")}
         />
       ) : null}
     </>

@@ -15,6 +15,7 @@ function renderPromptEditor({
   singleLine = false,
   onKeyDown = vi.fn(() => false),
   onLargeTextPaste,
+  onPasteFiles,
   onSuggestionStateChange,
   onSuggestionAction,
 }: {
@@ -22,6 +23,7 @@ function renderPromptEditor({
   singleLine?: boolean;
   onKeyDown?: (event: KeyboardEvent) => boolean;
   onLargeTextPaste?: (text: string) => boolean;
+  onPasteFiles?: Parameters<typeof ComposerPromptEditor>[0]["onPasteFiles"];
   onSuggestionStateChange?: Parameters<typeof ComposerPromptEditor>[0]["onSuggestionStateChange"];
   onSuggestionAction?: Parameters<typeof ComposerPromptEditor>[0]["onSuggestionAction"];
 }) {
@@ -37,6 +39,7 @@ function renderPromptEditor({
       onChange={onChange}
       onKeyDown={onKeyDown}
       onLargeTextPaste={onLargeTextPaste}
+      onPasteFiles={onPasteFiles}
       onSuggestionStateChange={onSuggestionStateChange}
       onSuggestionAction={onSuggestionAction}
     />,
@@ -51,6 +54,25 @@ function renderPromptEditor({
     editorRef,
     onChange,
     onKeyDown,
+  };
+}
+
+function createFileClipboardData(
+  files: readonly File[],
+  initial: Record<string, string> = {},
+) {
+  const { clipboardData, data } = createClipboardData(initial);
+  return {
+    data,
+    clipboardData: {
+      ...clipboardData,
+      files,
+      items: files.map((file) => ({
+        kind: "file" as const,
+        type: file.type,
+        getAsFile: () => file,
+      })),
+    },
   };
 }
 
@@ -127,6 +149,48 @@ describe("ComposerPromptEditor", () => {
     fireEvent.paste(editor, { clipboardData });
 
     expect(editorRef.current?.getText()).toBe(text);
+  });
+
+  test("hands a pasted image to the attachment owner instead of inserting clipboard text", () => {
+    const image = new File(["image"], "diagram.png", { type: "image/png" });
+    const onPasteFiles = vi.fn(() => true);
+    const { editor, editorRef, onChange } = renderPromptEditor({
+      value: "existing",
+      onPasteFiles,
+    });
+    const { clipboardData } = createFileClipboardData([image], {
+      "text/plain": "diagram.png",
+    });
+
+    act(() => editorRef.current?.focusAtEnd());
+    fireEvent.paste(editor, { clipboardData });
+
+    expect(onPasteFiles).toHaveBeenCalledWith({
+      imageFiles: [image],
+      otherFiles: [],
+      source: "paste",
+    });
+    expect(editorRef.current?.getText()).toBe("existing");
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  test("preserves meaningful text when an image shares a rich clipboard payload", () => {
+    const image = new File(["image"], "diagram.png", { type: "image/png" });
+    const onPasteFiles = vi.fn(() => true);
+    const { editor, editorRef } = renderPromptEditor({
+      value: "",
+      onPasteFiles,
+    });
+    const { clipboardData } = createFileClipboardData([image], {
+      "text/plain": "Keep this note",
+      "text/html": "<p>Keep this note</p><img src=\"data:image/png;base64,aQ==\">",
+    });
+
+    act(() => editorRef.current?.focusAtEnd());
+    fireEvent.paste(editor, { clipboardData });
+
+    expect(onPasteFiles).not.toHaveBeenCalled();
+    expect(editorRef.current?.getText()).toBe("Keep this note");
   });
 
   test("maps text offsets through paragraphs in one traversal", () => {

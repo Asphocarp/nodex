@@ -339,6 +339,8 @@ export function updateSessionTab(
       return { ...tab, ...common, ...(input.config === undefined ? {} : { config: parseWorkbenchProjectionTabConfig(tab.kind, input.config) }) };
     case "files":
       return { ...tab, ...common, ...(input.config === undefined ? {} : { config: parseWorkbenchProjectionTabConfig(tab.kind, input.config) }) };
+    case "image_editor":
+      return { ...tab, ...common, ...(input.config === undefined ? {} : { config: parseWorkbenchProjectionTabConfig(tab.kind, input.config) }) };
   }
 }
 

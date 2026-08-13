@@ -1,5 +1,6 @@
 import { memo, useCallback, useLayoutEffect, useRef, type ReactNode } from "react";
 import { appScope, useScopeHandle } from "@/lib/maitai";
+import { ThreadScope } from "@/lib/workbench-ui-scopes";
 import type {
   ThreadBodySurfaceModel,
   ThreadBodyUiStateOverrides,
@@ -28,6 +29,7 @@ import {
   updateLocalConversationThreadRestoreSnapshot,
   type LocalConversationThreadRestoreSnapshot,
 } from "./local-conversation-thread-view-state";
+import { resolveImageEditComposerTarget } from "../image-edit-composer-target";
 
 interface LocalConversationThreadBodyProps {
   model: ThreadBodySurfaceModel;
@@ -160,12 +162,19 @@ function AttachedLocalConversationThreadBody(
 
 function LocalConversationThreadBodyScopedRoot(props: LocalConversationThreadBodyProps) {
   const { model } = props;
+  const threadScopePath = useScopeHandle(ThreadScope).path;
+  const composerTarget = resolveImageEditComposerTarget({
+    composerScopeIdentity: model.composerScopeIdentity,
+    isSideChat: model.isSideChat,
+    threadScopePath,
+  });
   return (
     <HookFeedbackSettingsNavigationProvider
       hostId={model.hostId}
       onOpenHooksSettings={props.actions.onOpenHooksSettings}
     >
       <ConversationImageAssetProvider
+        composerTarget={composerTarget}
         hostId={model.hostId}
         conversationId={model.threadId}
       >

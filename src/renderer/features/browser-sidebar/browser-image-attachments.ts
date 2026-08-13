@@ -1,8 +1,10 @@
+import { parseAssetSource } from "../../../shared/assets";
+
 export interface BrowserImageAttachmentIntent {
   id: string;
   filename: string;
-  path: string;
-  dataUrl: string;
+  /** Canonical managed asset URI produced by the trusted Browser boundary. */
+  source: string;
 }
 
 const pendingByConversation = new Map<
@@ -26,8 +28,8 @@ export function publishBrowserImageAttachment(
     !conversationId
     || !attachment.id
     || !attachment.filename
-    || !attachment.path
-    || !attachment.dataUrl
+    || !attachment.source
+    || !parseAssetSource(attachment.source)
   ) {
     throw new Error("Browser image attachment is incomplete");
   }

@@ -3260,6 +3260,7 @@ export function buildThreadStageStorySurfaceModels(
     : "high";
   const footerModel: ThreadFooterModel = {
     projectId: STORY_PROJECT_ID,
+    hostId: "default",
     projectWorkspacePath: STORY_WORKSPACE_PATH,
     threadId: activeThreadId,
     cwd: conversation?.cwd ?? null,

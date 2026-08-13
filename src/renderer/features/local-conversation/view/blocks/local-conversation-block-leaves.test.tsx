@@ -1566,10 +1566,10 @@ describe("image-view and completed elicitation leaves", () => {
       />,
     );
 
-    expect(container.querySelectorAll('[role="button"][aria-label="Inspected image"]').length).toBe(0);
+    expect(container.querySelectorAll('button[aria-label="Inspected image"]').length).toBe(0);
     fireEvent.click(container.querySelector('button[aria-expanded="false"]') as HTMLElement);
     await settleAsyncRender();
-    expect(container.querySelectorAll('[role="button"][aria-label="Inspected image"]').length).toBe(2);
+    expect(container.querySelectorAll('button[aria-label="Inspected image"]').length).toBe(2);
   });
 
   test("renders generated images and pending output in the dedicated preview gallery", async () => {
@@ -1618,7 +1618,7 @@ describe("image-view and completed elicitation leaves", () => {
     expect(Boolean(getByLabelText("Image preview"))).toBe(true);
     expect(getByLabelText("Image preview").querySelector("img")?.getAttribute("src"))
       .toBe(imageTwo);
-    expect(getByLabelText("Download image").getAttribute("href")).toBe(imageTwo);
+    expect(getByLabelText("Download image").getAttribute("type")).toBe("button");
   });
 
   test("refetches a failed generated-image preview at most twice for its resolved source", async () => {

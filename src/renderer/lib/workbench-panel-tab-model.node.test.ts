@@ -3,6 +3,7 @@ import {
   buildSideChatParentNavigationPath,
   isAutomationPanelTab,
   isBackgroundAgentPanelTab,
+  isImageEditorPanelTab,
   isMcpAppPanelTab,
   isPanelTabClosable,
   isPlanPanelTab,
@@ -11,7 +12,10 @@ import {
   isSideChatPanelTab,
   isSubagentsPanelTab,
   isTransientPanelTab,
+  makeImageEditorPanelTabId,
   makeProcessOutputPanelTabId,
+  updateImageEditorPanelTabTitle,
+  type ImageEditorPanelTab,
   type ProjectSessionRenderableTab,
   type SideChatPanelTab,
 } from "./workbench-panel-tab-model";
@@ -43,6 +47,7 @@ describe("workbench panel tab model", () => {
     ["backgroundAgent", isBackgroundAgentPanelTab],
     ["subagentsPanel", isSubagentsPanelTab],
     ["processOutputPanel", isProcessOutputPanelTab],
+    ["imageEditor", isImageEditorPanelTab],
   ] as const)("recognizes only the %s discriminant", (kind, guard) => {
     expect(guard(transient(kind))).toBe(true);
     expect(guard(transient("different"))).toBe(false);
@@ -57,6 +62,7 @@ describe("workbench panel tab model", () => {
       "backgroundAgent",
       "subagentsPanel",
       "processOutputPanel",
+      "imageEditor",
     ]) {
       expect(isTransientPanelTab(transient(discriminant))).toBe(true);
     }
@@ -108,6 +114,31 @@ describe("workbench panel tab model", () => {
     expect(isRootThreadRightPanelComposerOverlayEligibleTab(
       transient("planPanel"),
     )).toBe(false);
+    const imageTab = {
+      ...transient("imageEditor"),
+      threadId: "thread-1",
+      options: {
+        composerTarget: null,
+        initialView: "single",
+      },
+    } as ImageEditorPanelTab;
+    expect(isRootThreadRightPanelComposerOverlayEligibleTab(imageTab))
+      .toBe(true);
+    expect(isRootThreadRightPanelComposerOverlayEligibleTab({
+      ...imageTab,
+      threadId: null,
+    } as ImageEditorPanelTab)).toBe(false);
+    expect(isRootThreadRightPanelComposerOverlayEligibleTab({
+      ...imageTab,
+      threadId: null,
+      options: {
+        ...imageTab.options,
+        composerTarget: {
+          channelId: "/new-chat::root",
+          placement: "root",
+        },
+      },
+    })).toBe(true);
     expect(isRootThreadRightPanelComposerOverlayEligibleTab(null))
       .toBe(false);
   });
@@ -125,5 +156,37 @@ describe("workbench panel tab model", () => {
       makeTestWorkbenchSession({ projectId: null }),
       "thread-1",
     )).toBe("session:session-1/thread:thread-1");
+  });
+
+  test("creates renderer-local image tab identities", () => {
+    expect(makeImageEditorPanelTabId()).toMatch(
+      /^image:[0-9a-f-]{36}$/u,
+    );
+  });
+
+  test("updates image chrome without changing tab identity", () => {
+    const tab = {
+      ...transient("imageEditor"),
+      id: "image:one",
+      title: "User attachment",
+      tooltip: "User attachment",
+    } as ImageEditorPanelTab;
+    const sibling = {
+      ...tab,
+      id: "image:two",
+    } as ImageEditorPanelTab;
+
+    const next = updateImageEditorPanelTabTitle(
+      [tab, sibling],
+      tab.id,
+      "  Generated image 2  ",
+    );
+
+    expect(next[0]).toMatchObject({
+      id: tab.id,
+      title: "Generated image 2",
+      tooltip: "Generated image 2",
+    });
+    expect(next[1]).toBe(sibling);
   });
 });

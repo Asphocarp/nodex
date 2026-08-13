@@ -31,6 +31,7 @@ import { makeWorkbenchSessionPanelSlotKey } from "./workbench-panel-slot-key";
 import type {
   AgentPanelTab,
   AutomationPanelTab,
+  ImageEditorPanelTab,
   McpAppPanelTab,
   PlanPanelTab,
   ProcessOutputPanelTab,
@@ -76,7 +77,8 @@ export type WorkbenchEphemeralTab =
   | PlanPanelTab
   | AutomationPanelTab
   | AgentPanelTab
-  | ProcessOutputPanelTab;
+  | ProcessOutputPanelTab
+  | ImageEditorPanelTab;
 
 export interface WorkbenchEphemeralTabRemovalInput {
   readonly sessionId: string;
@@ -248,6 +250,8 @@ const EPHEMERAL_PANEL_FIELDS = [
   "backgroundAgentActiveTabByPanel",
   "processOutputTabsBySession",
   "processOutputActiveTabByPanel",
+  "imageEditorTabsBySession",
+  "imageEditorActiveTabByPanel",
   "pendingProcessOutputOpen",
   "activePlanKeyBySession",
   "panelCollapsedOverrides",
@@ -473,6 +477,10 @@ export function useWorkbenchPanelController({
         field: "processOutputActiveTabByPanel" as const,
         tabs: state.processOutputTabsBySession[sessionId] ?? [],
       },
+      {
+        field: "imageEditorActiveTabByPanel" as const,
+        tabs: state.imageEditorTabsBySession[sessionId] ?? [],
+      },
     ];
     for (const candidate of candidates) {
       const tab = candidate.tabs.find((item) => item.id === tabId);
@@ -534,6 +542,11 @@ export function useWorkbenchPanelController({
         activeField: "processOutputActiveTabByPanel" as const,
         tabs: state.processOutputTabsBySession[sessionId] ?? [],
       },
+      {
+        tabsField: "imageEditorTabsBySession" as const,
+        activeField: "imageEditorActiveTabByPanel" as const,
+        tabs: state.imageEditorTabsBySession[sessionId] ?? [],
+      },
     ];
     for (const candidate of candidates) {
       const tab = candidate.tabs.find((item) => item.id === tabId);
@@ -582,7 +595,8 @@ export function useWorkbenchPanelController({
       | "planActiveTabByPanel"
       | "automationActiveTabByPanel"
       | "backgroundAgentActiveTabByPanel"
-      | "processOutputActiveTabByPanel";
+      | "processOutputActiveTabByPanel"
+      | "imageEditorActiveTabByPanel";
     if ("sideChat" in tab) {
       activeField = "sideChatActiveTabByPanel";
       dispatch({
@@ -628,6 +642,16 @@ export function useWorkbenchPanelController({
       dispatch({
         type: "update",
         field: "processOutputTabsBySession",
+        update: (current) => ({
+          ...current,
+          [tab.sessionId]: upsert(current[tab.sessionId] ?? []),
+        }),
+      });
+    } else if ("imageEditor" in tab) {
+      activeField = "imageEditorActiveTabByPanel";
+      dispatch({
+        type: "update",
+        field: "imageEditorTabsBySession",
         update: (current) => ({
           ...current,
           [tab.sessionId]: upsert(current[tab.sessionId] ?? []),

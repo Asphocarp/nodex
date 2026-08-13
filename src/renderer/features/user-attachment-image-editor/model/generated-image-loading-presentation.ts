@@ -1,6 +1,3 @@
-export const DOT_FIELD_BASE_SPACING = 12;
-export const DOT_FIELD_RADIUS_FACTOR = 0.16;
-export const DOT_FIELD_MIN_RADIUS = 0.55;
 export const DOT_FIELD_OPACITY_CUTOFF = 0.03;
 export const DOT_FIELD_SIZE_FACTOR = 0.78;
 export const DOT_FIELD_FIRST_WEIGHT = 1.2;
@@ -17,6 +14,44 @@ const DOT_FIELD_DURATIONS = {
   fieldSize1: 3_600,
   fieldSize2: 2_400,
 } as const;
+
+export type GeneratedImageLoadingPresentation =
+  | "default"
+  | "single"
+  | "playground"
+  | "thumbnail";
+
+export interface GeneratedImageDotFieldPresentation {
+  readonly radius: number | null;
+  readonly radiusFactor: number;
+  readonly spacing: number;
+}
+
+export function resolveGeneratedImageDotFieldPresentation(
+  presentation: GeneratedImageLoadingPresentation,
+): GeneratedImageDotFieldPresentation {
+  if (presentation === "playground") {
+    return { radius: 1.5, radiusFactor: 0, spacing: 14 };
+  }
+  if (presentation === "thumbnail") {
+    return { radius: 0.75, radiusFactor: 0, spacing: 6 };
+  }
+  return { radius: null, radiusFactor: 0.16, spacing: 12 };
+}
+
+export function resolveGeneratedImageDotFieldGridSpacing(
+  presentation: GeneratedImageLoadingPresentation,
+  devicePixelRatio: number,
+): number {
+  const { spacing } = resolveGeneratedImageDotFieldPresentation(presentation);
+  if (presentation === "playground" || presentation === "thumbnail") {
+    return spacing;
+  }
+  const dpr = Number.isFinite(devicePixelRatio) && devicePixelRatio > 0
+    ? devicePixelRatio
+    : 1;
+  return Math.max(1, spacing / dpr);
+}
 
 interface DotFieldChannels {
   readonly offsetX1: number;
@@ -81,22 +116,31 @@ function interpolate(start: number, end: number, progress: number): number {
   return start + (end - start) * progress;
 }
 
-function randomBetween(
-  start: number,
-  end: number,
-  random: () => number,
-): number {
+function randomBetween(start: number, end: number, random: () => number): number {
   return start + random() * (end - start);
 }
 
-/** Creates every randomized channel once so visibility changes never restart a tile. */
+export function createStableGeneratedImageRandom(seed: string): () => number {
+  let state = 2_166_136_261;
+  for (const character of seed) {
+    state ^= character.codePointAt(0) ?? 0;
+    state = Math.imul(state, 16_777_619);
+  }
+  return () => {
+    state += 0x6d2b79f5;
+    let value = state;
+    value = Math.imul(value ^ (value >>> 15), value | 1);
+    value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
+    return ((value ^ (value >>> 14)) >>> 0) / 4_294_967_296;
+  };
+}
+
 export function createGeneratedImageDotFieldConfig(
   random: () => number = Math.random,
 ): GeneratedImageDotFieldConfig {
   const randomDuration = (duration: number) => (
     duration * DOT_FIELD_DURATION_FACTOR * randomBetween(1, 1.35, random)
   );
-
   return {
     durations: {
       offsetX1: randomDuration(DOT_FIELD_DURATIONS.offsetX1),
@@ -141,7 +185,6 @@ export function resolveGeneratedImageDotFieldFrame(
   const phase = (duration: number, offset: number) => (
     triangleWave(elapsed / duration + offset)
   );
-
   return {
     firstX: interpolate(
       config.bounds.x1Start,

@@ -81,6 +81,14 @@ describe("Workbench ephemeral panel state", () => {
       mcpAppTabsBySession: {
         "session:one": [],
       },
+      imageEditorTabsBySession: {
+        "session:one": [],
+        "session:two": [],
+      },
+      imageEditorActiveTabByPanel: {
+        [oneRightLeaf]: "image:one",
+        [twoRightLeaf]: "image:two",
+      },
       planActiveTabByPanel: {
         [oneBottomLeaf]: "plan:one",
       },
@@ -106,6 +114,12 @@ describe("Workbench ephemeral panel state", () => {
       [twoRightLeaf]: "side-chat:two",
     });
     expect(next.mcpAppTabsBySession).toEqual({});
+    expect(next.imageEditorTabsBySession).toEqual({
+      "session:two": [],
+    });
+    expect(next.imageEditorActiveTabByPanel).toEqual({
+      [twoRightLeaf]: "image:two",
+    });
     expect(next.planActiveTabByPanel).toEqual({});
     expect(next.activePlanKeyBySession).toEqual({
       "session:two": "plan:two",
@@ -139,6 +153,9 @@ describe("Workbench ephemeral panel state", () => {
       processOutputActiveTabByPanel: {
         [slot]: "process:one",
       },
+      imageEditorActiveTabByPanel: {
+        [slot]: "image:one",
+      },
     } as unknown as ReturnType<typeof createWorkbenchEphemeralPanelState>;
 
     const next = reduceWorkbenchEphemeralPanelState(initial, {
@@ -154,11 +171,53 @@ describe("Workbench ephemeral panel state", () => {
     expect(next.sideChatActiveTabByPanel).toEqual({});
     expect(next.mcpAppActiveTabByPanel).toEqual({});
     expect(next.processOutputActiveTabByPanel).toEqual({});
+    expect(next.imageEditorActiveTabByPanel).toEqual({});
     expect(next.planActiveTabByPanel).toEqual({
       [slot]: "plan:one",
     });
     expect(next.activePlanKeyBySession).toEqual({
       "session:one": "turn:one",
+    });
+  });
+
+  test("removes an image editor tab and clears only its active slots", () => {
+    const slot = makeWorkbenchSessionPanelSlotKey(
+      "session:one",
+      "right",
+      "leaf:right",
+    );
+    const fallback = makeWorkbenchSessionPanelSlotKey(
+      "session:one",
+      "right",
+    );
+    const initial = {
+      ...createWorkbenchEphemeralPanelState(),
+      imageEditorTabsBySession: {
+        "session:one": [
+          { id: "image:one" },
+          { id: "image:two" },
+        ],
+      },
+      imageEditorActiveTabByPanel: {
+        [slot]: "image:one",
+        [fallback]: "image:two",
+      },
+    } as unknown as ReturnType<typeof createWorkbenchEphemeralPanelState>;
+
+    const next = reduceWorkbenchEphemeralPanelState(initial, {
+      type: "remove-ephemeral-tab",
+      tabsField: "imageEditorTabsBySession",
+      activeField: "imageEditorActiveTabByPanel",
+      sessionId: "session:one",
+      tabId: "image:one",
+      slotKeys: [slot, fallback],
+    });
+
+    expect(next.imageEditorTabsBySession["session:one"]).toEqual([
+      { id: "image:two" },
+    ]);
+    expect(next.imageEditorActiveTabByPanel).toEqual({
+      [fallback]: "image:two",
     });
   });
 });

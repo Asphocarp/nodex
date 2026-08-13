@@ -743,7 +743,7 @@ describe("LocalConversationTurnEntry", () => {
               type: "image",
               id: "user_images:image:0",
               source: "data:image/png;base64,aW1hZ2U=",
-              sourceKind: "local",
+              sourceKind: "inline-image",
               caption: "diagram",
             },
           ],

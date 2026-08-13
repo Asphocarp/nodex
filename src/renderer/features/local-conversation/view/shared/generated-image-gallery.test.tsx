@@ -1,9 +1,15 @@
-import { act, waitFor } from "@testing-library/react";
+import { act, fireEvent, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { renderWithMaitai } from "../../../../test/dom";
+import { TestQueryProvider } from "../../../../test/query";
 import { GeneratedImageGallery } from "./generated-image-gallery";
-import { getPendingImageAnimationClockSubscriberCount } from "./pending-image-animation-clock";
+import { getGeneratedImageAnimationClockSubscriberCount } from "../../../user-attachment-image-editor/view/generated-image-animation-clock";
+import { ConversationImageAssetProvider } from "../conversation-image-asset-context";
+import {
+  registerUserAttachmentImagePreviewOpener,
+  type OpenUserAttachmentImagePreviewOptions,
+} from "@/features/user-attachment-image-editor";
 
 const originalIntersectionObserver = globalThis.IntersectionObserver;
 const originalVisibilityState = Object.getOwnPropertyDescriptor(
@@ -68,7 +74,7 @@ afterEach(() => {
   } else {
     Reflect.deleteProperty(document, "visibilityState");
   }
-  expect(getPendingImageAnimationClockSubscriberCount()).toBe(0);
+  expect(getGeneratedImageAnimationClockSubscriberCount()).toBe(0);
 });
 
 describe("GeneratedImageGallery pending scheduling", () => {
@@ -117,7 +123,7 @@ describe("GeneratedImageGallery pending scheduling", () => {
       await waitFor(() => {
         expect(ControlledIntersectionObserver.instances).toHaveLength(6);
       });
-      expect(getPendingImageAnimationClockSubscriberCount()).toBe(0);
+      expect(getGeneratedImageAnimationClockSubscriberCount()).toBe(0);
 
       await act(async () => {
         for (const observer of ControlledIntersectionObserver.instances) {
@@ -129,7 +135,7 @@ describe("GeneratedImageGallery pending scheduling", () => {
       expect(view.container.querySelectorAll(
         '[data-generated-image-dot-field="true"][data-animate="true"]',
       )).toHaveLength(4);
-      expect(getPendingImageAnimationClockSubscriberCount()).toBe(4);
+      expect(getGeneratedImageAnimationClockSubscriberCount()).toBe(4);
 
       await act(async () => {
         setDocumentVisibility("hidden");
@@ -139,11 +145,77 @@ describe("GeneratedImageGallery pending scheduling", () => {
       expect(view.container.querySelectorAll(
         '[data-generated-image-dot-field="true"][data-animate="true"]',
       )).toHaveLength(0);
-      expect(getPendingImageAnimationClockSubscriberCount()).toBe(0);
+      expect(getGeneratedImageAnimationClockSubscriberCount()).toBe(0);
     } finally {
       view.unmount();
       measurement.mockRestore();
       getContext.mockRestore();
+    }
+  });
+
+  test("keeps gallery clicks in the lightbox while Edit and Canvas open the right editor", async () => {
+    const opened: OpenUserAttachmentImagePreviewOptions[] = [];
+    const unregister = registerUserAttachmentImagePreviewOpener(async (options) => {
+      opened.push(options);
+      return true;
+    });
+    const src = "data:image/png;base64,aW1hZ2U=";
+    const view = renderWithMaitai(
+      <TestQueryProvider>
+        <ConversationImageAssetProvider
+          composerTarget={{
+            channelId: "ThreadScope:task-1::root",
+            placement: "root",
+          }}
+          conversationId="task-1"
+          hostId="local"
+        >
+          <GeneratedImageGallery
+            images={[
+              { id: "generated-1", src },
+              { id: "generated-2", src },
+            ]}
+            pendingImageCount={0}
+          />
+        </ConversationImageAssetProvider>
+      </TestQueryProvider>,
+    );
+
+    try {
+      fireEvent.click(view.getByRole("button", {
+        name: "Generated image 1",
+      }));
+      expect(opened).toEqual([]);
+      expect(await view.findByRole("dialog", {
+        name: "Image preview",
+      })).not.toBeNull();
+
+      fireEvent.click(view.getByRole("button", {
+        name: "Edit image",
+      }));
+      await waitFor(() => expect(opened.at(-1)).toMatchObject({
+        composerTarget: {
+          channelId: "ThreadScope:task-1::root",
+          placement: "root",
+        },
+        entrypoint: "lightbox_edit_button",
+        initialView: "single",
+        openInEditor: true,
+        threadId: "task-1",
+      }));
+
+      fireEvent.click(view.getAllByRole("button", {
+        name: "Open Canvas view",
+      }).at(-1)!);
+      await waitFor(() => expect(opened.at(-1)).toMatchObject({
+        entrypoint: "canvas_button",
+        initialImageId: "generated-2",
+        initialView: "playground",
+        openInEditor: true,
+      }));
+    } finally {
+      view.unmount();
+      unregister();
     }
   });
 });

@@ -1,5 +1,6 @@
 import type { ComponentType } from "react";
 import { MessageSquare } from "@/components/shared/icons/generic-icons";
+import { ImageEditorTabIcon } from "@/components/shared/icons";
 import type { WorkbenchSurfaceDescriptor } from "../../shared/workbench-scene";
 import { getPanelNewTabAction } from "./workbench-panel-actions";
 
@@ -15,6 +16,9 @@ export function resolveWorkbenchSceneTabPresentation(
   if (isProjectHomeRoot) return { title: "Project Home" };
   if (surface.kind === "conversation") {
     return { title: surface.titleSnapshot, icon: MessageSquare };
+  }
+  if (surface.kind === "image_editor") {
+    return { title: surface.titleSnapshot, icon: ImageEditorTabIcon };
   }
 
   const action = getPanelNewTabAction(surface.kind);

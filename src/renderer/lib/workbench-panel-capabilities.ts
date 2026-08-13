@@ -4,7 +4,9 @@ import {
   type WorkbenchTabKind,
 } from "@/lib/types";
 
-export type WorkbenchPanelActionKind = WorkbenchTabKind | "side_chat";
+export type WorkbenchPanelActionKind =
+  | Exclude<WorkbenchTabKind, "image_editor">
+  | "side_chat";
 
 export type WorkbenchPanelActionUnavailableReason =
   | "no_session"

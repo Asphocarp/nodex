@@ -61,6 +61,7 @@ import type {
   TurnStatus as CodexAppServerTurnStatus,
 } from "@nodex/codex-app-server-protocol/v2";
 import type { WorkbenchReviewConfig } from "./workbench-review-context";
+import type { WorkbenchImageEditorSurfaceConfig } from "./workbench-image-editor";
 import type {
   BrowserSidebarDeviceToolbarState,
   BrowserUsePresentationOrigin,
@@ -589,7 +590,8 @@ export type WorkbenchTabKind =
   | "terminal"
   | "browser"
   | "review"
-  | "files";
+  | "files"
+  | "image_editor";
 
 export const PROJECT_SESSION_SINGLETON_TAB_KINDS = [
   "review",
@@ -773,6 +775,7 @@ export interface WorkbenchProjectionTabConfigByKind {
   browser: WorkbenchProjectionBrowserTabConfig;
   review: WorkbenchReviewConfig;
   files: WorkbenchProjectionFilesTabConfig;
+  image_editor: WorkbenchImageEditorSurfaceConfig;
 }
 
 export type WorkbenchProjectionTabConfig =
@@ -2742,7 +2745,7 @@ export interface CodexUserImageAttachment {
   type: "image";
   id: string;
   source: string;
-  sourceKind: "local" | "remote";
+  sourceKind: "inline-image" | "local-image" | "remote-pointer";
   caption?: string;
 }
 

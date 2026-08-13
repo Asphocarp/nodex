@@ -1025,6 +1025,7 @@ export type ThreadSummaryPanelMode = "hidden" | "pinned" | "popover";
 export interface ThreadBodySurfaceModel {
   projectId: string | null;
   hostId: string;
+  composerScopeIdentity?: string | null;
   sessionId?: string | null;
   threadId: string | null;
   isSideChat: boolean;
@@ -1056,6 +1057,7 @@ export interface ThreadBodySurfaceModel {
 
 export interface ThreadFooterModel {
   projectId: string | null;
+  hostId: string;
   projectWorkspacePath?: string | null;
   threadId: string | null;
   cwd: string | null;

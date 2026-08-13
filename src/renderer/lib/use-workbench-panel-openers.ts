@@ -3,6 +3,12 @@ import {
   useEffect,
   useRef,
 } from "react";
+import {
+  normalizeUserAttachmentImageEditorOptions,
+  resolveImagePreviewOpenDisposition,
+  type NormalizedUserAttachmentImageEditorOptions,
+  type OpenUserAttachmentImagePreviewOptions,
+} from "@/features/user-attachment-image-editor";
 import { toast } from "@/components/ui/toast";
 import {
   workspaceTextDocumentRegistry,
@@ -29,7 +35,9 @@ import {
 import {
   buildSideChatParentNavigationPath,
   getSideChatTabTitle,
+  makeImageEditorPanelTabId,
   type AutomationPanelTab,
+  type ImageEditorPanelTab,
   type McpAppPanelTab,
   type PlanPanelTab,
   type SideChatPanelTab,
@@ -85,6 +93,77 @@ import type {
 } from "./use-workbench-panel-lifecycle";
 
 type ProjectSession = WorkbenchSessionRenderProjection;
+export const IMAGE_SIDE_PANEL_AUTO_EXPANDED_STORAGE_KEY =
+  "image-side-panel-auto-expanded-v1";
+
+type ImagePanelExpansionStorage = Pick<
+  Storage,
+  "getItem" | "setItem"
+>;
+
+function resolveImagePanelExpansionStorage():
+ImagePanelExpansionStorage | null {
+  if (typeof localStorage === "undefined") return null;
+  return localStorage;
+}
+
+/** Marks and reports the one-time image side-panel expansion affordance. */
+export function consumeImagePanelAutoExpansion(
+  storage: ImagePanelExpansionStorage | null =
+    resolveImagePanelExpansionStorage(),
+): boolean {
+  if (!storage) return true;
+  try {
+    const stored = storage.getItem(
+      IMAGE_SIDE_PANEL_AUTO_EXPANDED_STORAGE_KEY,
+    );
+    if (stored === "true" || stored === "1") return false;
+    storage.setItem(
+      IMAGE_SIDE_PANEL_AUTO_EXPANDED_STORAGE_KEY,
+      "true",
+    );
+    return true;
+  } catch {
+    return true;
+  }
+}
+
+export function createImageEditorPanelTab(input: {
+  readonly id?: `image:${string}`;
+  readonly sessionId: string;
+  readonly leafId: string;
+  readonly options: NormalizedUserAttachmentImageEditorOptions;
+  readonly stateKey?: number;
+}): ImageEditorPanelTab {
+  return {
+    imageEditor: true,
+    id: input.id ?? makeImageEditorPanelTabId(),
+    sessionId: input.sessionId,
+    projectId: input.options.projectId,
+    threadId: input.options.threadId,
+    panelId: "right",
+    leafId: input.leafId,
+    title: input.options.title,
+    tooltip: input.options.tooltip,
+    stateKey: input.stateKey ?? Date.now(),
+    preview: true,
+    pinBehavior: "automatic",
+    options: input.options,
+  };
+}
+
+export function removeImageEditorPreviewsFromLeaf(
+  tabs: readonly ImageEditorPanelTab[],
+  leafId: string,
+): ImageEditorPanelTab[] {
+  return tabs.filter((tab) =>
+    tab.preview !== true
+    ||
+    tab.panelId !== "right"
+    || (tab.leafId ?? leafId) !== leafId
+  );
+}
+
 export interface OpenCanvasStageOptions {
   readonly targetPanelId?: PanelId;
   readonly targetLeafId?: string;
@@ -188,7 +267,104 @@ export function useWorkbenchPanelOpeners({
     updateActivePanel,
   } = lifecycle;
 
-const openSideChat = useCallback(async (
+  const normalizeImageEditorOptions = useCallback((
+    options: OpenUserAttachmentImagePreviewOptions,
+  ): NormalizedUserAttachmentImageEditorOptions | null => {
+    if (!activeSession) return null;
+    return normalizeUserAttachmentImageEditorOptions({
+      ...options,
+      projectId: options.projectId === undefined
+        ? activeSession.projectId
+        : options.projectId,
+      threadId: options.threadId === undefined
+        ? activeSession.thread?.threadId ?? null
+        : options.threadId,
+    });
+  }, [activeSession]);
+
+  const openNormalizedImageEditor = useCallback(async (
+    options: NormalizedUserAttachmentImageEditorOptions,
+  ): Promise<boolean> => {
+    if (!activeSession) return false;
+    if (options.policy === "disabled") return false;
+
+    const panelId = "right" as const;
+    const leafId = resolveSessionPanelActiveLeafId(
+      activeSession,
+      panelId,
+    );
+    const tab = createImageEditorPanelTab({
+      sessionId: activeSession.id,
+      leafId,
+      options,
+    });
+
+    // Only the current ephemeral image preview is replaceable. A preview that
+    // has been pinned is already a durable Scene surface and is left intact.
+    panelControllerRef.current.updateImageEditorTabsBySession((current) => {
+      const tabs = current[activeSession.id] ?? [];
+      const nextTabs = removeImageEditorPreviewsFromLeaf(tabs, leafId);
+      if (nextTabs.length === tabs.length) return current;
+      return {
+        ...current,
+        [activeSession.id]: nextTabs,
+      };
+    });
+    panelControllerRef.current.upsertEphemeralTab(tab);
+
+    await updateActivePanel(panelId, {
+      size: {
+        ...activeSession.panels[panelId].size,
+        fullWidth: options.initialView === "playground",
+      },
+    });
+
+    if (consumeImagePanelAutoExpansion()) {
+      panelControllerRef.current.updatePanelCollapsedOverrides((current) => ({
+        ...current,
+        [makeWorkbenchSessionPanelSlotKey(
+          activeSession.id,
+          panelId,
+        )]: false,
+      }));
+    }
+    await ensureActivePanelOpenWithoutRefresh(panelId);
+    return true;
+  }, [
+    activeSession,
+    ensureActivePanelOpenWithoutRefresh,
+    updateActivePanel,
+  ]);
+
+  const openUserAttachmentImageEditor = useCallback(async (
+    options: OpenUserAttachmentImagePreviewOptions,
+  ): Promise<boolean> => {
+    const normalized = normalizeImageEditorOptions({
+      ...options,
+      openInEditor: true,
+    });
+    if (!normalized) return false;
+    return openNormalizedImageEditor(normalized);
+  }, [normalizeImageEditorOptions, openNormalizedImageEditor]);
+
+  /**
+   * Routes editor-capable image opens. A false preview-dialog disposition is
+   * intentionally left to the renderer-window dialog owner.
+   */
+  const openImagePreview = useCallback(async (
+    options: OpenUserAttachmentImagePreviewOptions,
+  ): Promise<boolean> => {
+    const normalized = normalizeImageEditorOptions(options);
+    if (!normalized) return false;
+    const disposition = resolveImagePreviewOpenDisposition(
+      normalized,
+      "local-thread",
+    );
+    if (disposition !== "editor") return false;
+    return openNormalizedImageEditor(normalized);
+  }, [normalizeImageEditorOptions, openNormalizedImageEditor]);
+
+  const openSideChat = useCallback(async (
     input: ThreadOpenSideChatInput & {
       targetPanelId?: PanelId;
       targetLeafId?: string;
@@ -926,6 +1102,8 @@ const openSideChat = useCallback(async (
   ]);
 
   return {
+    openUserAttachmentImageEditor,
+    openImagePreview,
     openSideChat,
     openExistingSideChat,
     openMcpAppSidePanel,

@@ -2,7 +2,15 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { act, fireEvent, waitFor } from "@testing-library/react";
 import { useState, type ReactNode } from "react";
 import { NodexTooltipProvider } from "../../../components/ui/tooltip";
-import { createMaitaiStore, MaitaiProvider } from "../../../lib/maitai";
+import {
+  createMaitaiStore,
+  MaitaiProvider,
+  ScopeProvider,
+} from "../../../lib/maitai";
+import {
+  ThreadScope,
+  type ThreadScopeDescriptor,
+} from "../../../lib/workbench-ui-scopes";
 import { installAsyncRequestAnimationFrame } from "../../../test/browser-globals";
 import { render, settleAsyncRender } from "../../../test/dom";
 import type {
@@ -21,13 +29,23 @@ const originalGetBoundingClientRect = HTMLElement.prototype.getBoundingClientRec
 const originalRangeGetClientRects = Range.prototype.getClientRects;
 const originalRangeGetBoundingClientRect = Range.prototype.getBoundingClientRect;
 
+const TEST_THREAD_SCOPE: ThreadScopeDescriptor = {
+  stableKey: "session:local-conversation-thread-body-test",
+  phase: "attached",
+  projectSessionId: "local-conversation-thread-body-test",
+  clientThreadId: null,
+  threadId: "thread_1",
+};
+
 function TooltipProvider({ children }: { readonly children: ReactNode }) {
   const [store] = useState(() => createMaitaiStore());
   return (
     <MaitaiProvider store={store}>
-      <LocalConversationTestQueryProvider>
-        <NodexTooltipProvider>{children}</NodexTooltipProvider>
-      </LocalConversationTestQueryProvider>
+      <ScopeProvider scope={ThreadScope} descriptor={TEST_THREAD_SCOPE}>
+        <LocalConversationTestQueryProvider>
+          <NodexTooltipProvider>{children}</NodexTooltipProvider>
+        </LocalConversationTestQueryProvider>
+      </ScopeProvider>
     </MaitaiProvider>
   );
 }

@@ -54,7 +54,7 @@ export function buildCodexUserAttachmentsFromContent(
         type: "image",
         id: buildUserAttachmentId(itemId, "image", index),
         source,
-        sourceKind: "local",
+        sourceKind: "inline-image",
         caption: getString(input, ["caption", "name"]),
       });
       return;
@@ -67,7 +67,7 @@ export function buildCodexUserAttachmentsFromContent(
         type: "image",
         id: buildUserAttachmentId(itemId, "local-image", index),
         source,
-        sourceKind: "local",
+        sourceKind: "local-image",
         caption: getString(input, ["caption", "name"]),
       });
       return;
@@ -86,7 +86,7 @@ export function buildCodexUserAttachmentsFromContent(
         type: "image",
         id: buildUserAttachmentId(itemId, "remote-image", index),
         source: normalizeRemotePointerId(pointer),
-        sourceKind: "remote",
+        sourceKind: "remote-pointer",
         caption: getString(input, ["caption", "name"]),
       });
       return;

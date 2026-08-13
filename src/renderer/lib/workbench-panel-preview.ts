@@ -141,6 +141,7 @@ export function makePreviewWorkbenchTabProjection(
     && draft.kind !== "browser"
     && draft.kind !== "terminal"
     && draft.kind !== "review"
+    && draft.kind !== "image_editor"
   ) {
     throw new Error("Projectless sessions cannot own this workbench tab");
   }
@@ -179,6 +180,7 @@ export function makePreviewWorkbenchTabProjection(
     case "terminal":
     case "review":
     case "files":
+    case "image_editor":
       return {
         ...base,
         kind: draft.kind,
@@ -253,6 +255,13 @@ export function makePinnedPreviewTabCreateInput(
                 session.projectId ?? previewTab.config.projectId,
             }
           : previewTab.config,
+      };
+    case "image_editor":
+      return {
+        ...base,
+        kind: previewTab.kind,
+        clientTabId: previewTab.id,
+        config: previewTab.config,
       };
   }
 }

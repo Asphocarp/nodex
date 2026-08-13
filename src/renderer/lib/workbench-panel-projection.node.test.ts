@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import type {
   AgentPanelTab,
   AutomationPanelTab,
+  ImageEditorPanelTab,
   McpAppPanelTab,
   PlanPanelTab,
   ProcessOutputPanelTab,
@@ -13,6 +14,7 @@ import {
   collectMountedBrowserTabIds,
   collectPanelPresentedPageIds,
   getRenderablePanelPreviewTab,
+  shouldExpandImageEditorPanelForViewChange,
   type SessionPanelRenderModelInput,
 } from "./workbench-panel-projection";
 import { makeWorkbenchSessionPanelSlotKey } from "./workbench-panel-slot-key";
@@ -90,6 +92,40 @@ function auxiliaryTabs() {
       cwd: "/workspace",
       terminalSessionId: null,
     } satisfies ProcessOutputPanelTab,
+    image: {
+      ...common,
+      imageEditor: true,
+      id: "image:preview",
+      projectId: "project-1",
+      threadId: "thread-1",
+      title: "User attachment",
+      tooltip: "User attachment",
+      preview: true,
+      pinBehavior: "automatic",
+      options: {
+        availableImageCount: 1,
+        composerTarget: null,
+        entrypoint: "gallery_edit_button",
+        generatedImages: null,
+        imageSource: "uploaded",
+        images: [{
+          id: "attachment-1",
+          alt: "Attachment",
+          attachmentSrc: "data:image/png;base64,AA==",
+          source: "uploaded",
+          src: "data:image/png;base64,AA==",
+        }],
+        initialImageId: "attachment-1",
+        initialPlaygroundTool: "navigate",
+        initialView: "single",
+        openInEditor: true,
+        policy: "edit_button",
+        projectId: "project-1",
+        threadId: "thread-1",
+        title: "User attachment",
+        tooltip: "User attachment",
+      },
+    } satisfies ImageEditorPanelTab,
   };
 }
 
@@ -131,6 +167,10 @@ function input(
       [session.id]: [tabs.process],
     },
     processOutputActiveTabByPanel: { [key]: tabs.process.id },
+    imageEditorTabsBySession: {
+      [session.id]: [tabs.image],
+    },
+    imageEditorActiveTabByPanel: { [key]: tabs.image.id },
     panelCollapsedOverrides: {},
     activePlanKeyBySession: {},
     ...overrides,
@@ -164,6 +204,8 @@ function durableOnlyInput(
     backgroundAgentActiveTabByPanel: {},
     processOutputTabsBySession: {},
     processOutputActiveTabByPanel: {},
+    imageEditorTabsBySession: {},
+    imageEditorActiveTabByPanel: {},
   });
 }
 
@@ -187,6 +229,7 @@ describe("workbench panel projection", () => {
       "automation",
       "agents",
       "process",
+      "image:preview",
       "preview",
     ]);
     expect(model.rightActiveTabId).toBe("preview");
@@ -202,6 +245,7 @@ describe("workbench panel projection", () => {
         | "sideChatActiveTabByPanel"
         | "backgroundAgentActiveTabByPanel"
         | "processOutputActiveTabByPanel"
+        | "imageEditorActiveTabByPanel"
       >;
     }> = [
       { expected: "plan", omit: [] },
@@ -238,6 +282,17 @@ describe("workbench panel projection", () => {
         ],
       },
       {
+        expected: "image:preview",
+        omit: [
+          "planActiveTabByPanel",
+          "automationActiveTabByPanel",
+          "mcpAppActiveTabByPanel",
+          "sideChatActiveTabByPanel",
+          "backgroundAgentActiveTabByPanel",
+          "processOutputActiveTabByPanel",
+        ],
+      },
+      {
         expected: "durable",
         omit: [
           "planActiveTabByPanel",
@@ -246,6 +301,7 @@ describe("workbench panel projection", () => {
           "sideChatActiveTabByPanel",
           "backgroundAgentActiveTabByPanel",
           "processOutputActiveTabByPanel",
+          "imageEditorActiveTabByPanel",
         ],
       },
     ];
@@ -294,6 +350,8 @@ describe("workbench panel projection", () => {
       backgroundAgentActiveTabByPanel: {},
       processOutputTabsBySession: {},
       processOutputActiveTabByPanel: {},
+      imageEditorTabsBySession: {},
+      imageEditorActiveTabByPanel: {},
     }));
     expect(model.activeTabIdsByPanelLeaf.right["right-leaf"])
       .toBe("first");
@@ -343,6 +401,56 @@ describe("workbench panel projection", () => {
     expect(model.browserRetentionTabs.map((tab) => tab.id))
       .toEqual(["right-browser", "bottom-browser"]);
     expect([...model.visibleBrowserTabIds]).toEqual(["right-browser"]);
+  });
+
+  test("keeps image Canvas width owned by the panel instead of deriving it from tab config", () => {
+    const base = input();
+    const image = {
+      ...auxiliaryTabs().image,
+      options: {
+        ...auxiliaryTabs().image.options,
+        initialView: "playground" as const,
+      },
+    };
+    const model = buildSessionPanelRenderModel({
+      ...base,
+      planActiveTabByPanel: {},
+      automationActiveTabByPanel: {},
+      mcpAppActiveTabByPanel: {},
+      sideChatActiveTabByPanel: {},
+      backgroundAgentActiveTabByPanel: {},
+      processOutputActiveTabByPanel: {},
+      imageEditorTabsBySession: {
+        [base.session.id]: [image],
+      },
+    });
+
+    expect(model.rightActiveRenderableTab?.id).toBe(image.id);
+    expect(model.rightPanel.size.fullWidth).toBe(false);
+    expect(model.rightPanelFullWidth).toBe(false);
+  });
+
+  test("expands only while entering Canvas, not while restoring an existing Canvas", () => {
+    expect(shouldExpandImageEditorPanelForViewChange({
+      panelIsFullWidth: false,
+      previousView: "single",
+      view: "playground",
+    })).toBe(true);
+    expect(shouldExpandImageEditorPanelForViewChange({
+      panelIsFullWidth: false,
+      previousView: "playground",
+      view: "playground",
+    })).toBe(false);
+    expect(shouldExpandImageEditorPanelForViewChange({
+      panelIsFullWidth: true,
+      previousView: "single",
+      view: "playground",
+    })).toBe(false);
+    expect(shouldExpandImageEditorPanelForViewChange({
+      panelIsFullWidth: true,
+      previousView: "playground",
+      view: "single",
+    })).toBe(false);
   });
 
   test("retains the active Browser owner until its panel animation unmounts", () => {

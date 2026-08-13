@@ -27,6 +27,8 @@ const nodexButtonVariants = cva(
           "text-token-foreground hover:bg-token-list-hover-background",
         destructive:
           "bg-token-error-background text-token-error-foreground hover:opacity-90",
+        accentAction:
+          "border border-transparent bg-token-charts-blue text-white hover:bg-token-charts-blue/90",
       },
       size: {
         default: "h-9 rounded-xl px-4 text-sm",
