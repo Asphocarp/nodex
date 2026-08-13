@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import * as HoverCardPrimitive from "@radix-ui/react-hover-card";
-import { EstimatePickerIcon, PriorityValueIcon } from "@/components/shared/icons";
+import { EstimateIcon, PriorityValueIcon } from "@/components/shared/icons";
 import { StatusLabel } from "@/lib/status-presentation";
 import {
   BOARD_STATUS_LABELS,
@@ -93,7 +93,7 @@ export function CardInfoHoverCard({
               {/* Estimate */}
               {card.estimate && (
                 <span className="inline-flex h-5 items-center gap-1 text-[11px]/5 text-(--foreground-secondary)">
-                  <EstimatePickerIcon className="size-3.5" />
+                  <EstimateIcon className="size-3.5" />
                   <span>{ESTIMATE_LABEL[card.estimate] ?? card.estimate.toUpperCase()}</span>
                 </span>
               )}

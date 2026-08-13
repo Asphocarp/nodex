@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { EstimatePickerIcon, PriorityValueIcon } from "@/components/shared/icons";
+import { EstimateIcon, PriorityValueIcon } from "@/components/shared/icons";
 import { StatusLabel } from "@/lib/status-presentation";
 import { BOARD_PRIORITY_OPTIONS } from "@/lib/board-options";
 import { estimateStyles } from "@/lib/types";
@@ -112,7 +112,7 @@ const semanticOption = (
     if (visual) {
       return (
         <span className="inline-flex min-w-0 max-w-full items-center gap-2 text-sm/5 text-token-text-primary">
-          <EstimatePickerIcon className="size-4 text-token-description-foreground" />
+          <EstimateIcon className="size-4 text-token-description-foreground" />
           <span className="truncate">{option.name}</span>
         </span>
       );
@@ -152,7 +152,7 @@ export function SemanticSelectPropertyEditor({
   readonly disabled: boolean;
   readonly pending?: boolean;
   readonly registryState?: DataSourcePropertyOptionRegistryState;
-  readonly presentation: "compact" | "page" | "chip" | "inline" | "list";
+  readonly presentation: "compact" | "page" | "chip" | "list";
   readonly searchPlaceholder?: string;
   readonly searchLeading?: ReactNode;
   readonly contentClassName?: string;

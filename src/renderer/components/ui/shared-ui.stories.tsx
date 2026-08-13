@@ -20,7 +20,7 @@ import {
   SidePanelReviewIcon,
   SidePanelSideChatIcon,
   ConfigStatusIcon,
-  EstimatePickerIcon,
+  EstimateIcon,
   RefreshIcon,
   BoardIcon,
 } from "@/components/shared/icons";
@@ -156,7 +156,7 @@ function CompactIconLabelTriggerDemo() {
         contentWidth="xs"
         triggerButton={(
           <NodexDropdownButtonTrigger size="xs">
-            <EstimatePickerIcon />
+            <EstimateIcon />
             <span>Estimate</span>
           </NodexDropdownButtonTrigger>
         )}

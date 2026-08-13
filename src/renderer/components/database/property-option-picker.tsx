@@ -58,7 +58,7 @@ export interface PropertyOptionPickerProps {
   readonly loadingMore?: boolean;
   readonly registryError?: boolean;
   readonly hasMore?: boolean;
-  readonly presentation?: "compact" | "page" | "chip" | "inline" | "list";
+  readonly presentation?: "compact" | "page" | "chip" | "list";
   readonly triggerButton?: ReactElement;
   readonly triggerPrefix?: ReactNode;
   readonly searchPlaceholder?: string;
@@ -357,9 +357,7 @@ export function PropertyOptionPicker({
               "hover:bg-token-foreground/5 focus-visible:ring-2 focus-visible:ring-token-focus disabled:opacity-50",
               presentation === "page"
                 ? "rounded-md px-1 text-sm"
-                : presentation === "inline"
-                  ? "h-7 gap-1.5 rounded-md px-1.5 text-sm/5"
-                  : presentation === "chip"
+                : presentation === "chip"
                   ? cn(
                       "h-6 gap-1 rounded-full border-[0.5px] pl-1.5 pr-2 text-xs/4 font-medium [&_svg]:size-4 [&_svg]:shrink-0",
                       NODEX_RAISED_CONTROL_CHROME_CLASS_NAME,

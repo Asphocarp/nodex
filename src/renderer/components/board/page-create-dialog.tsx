@@ -11,7 +11,9 @@ import { MAX_PAGE_TITLE_LENGTH } from "../../../shared/page-limits";
 import {
   ChevronRightIcon,
   CloseIcon,
+  EstimateIcon,
   ExpandPanelIcon,
+  PriorityPickerIcon,
   RestorePanelIcon,
   TagIcon,
 } from "@/components/shared/icons";
@@ -449,7 +451,8 @@ function PageCreateDialogContent({
               label="Status"
               triggerAriaLabel="Status"
               mode="single"
-              presentation="inline"
+              presentation="chip"
+              triggerPrefix={<StatusIcon statusId={status} className="icon-xs" />}
               options={statusOptions}
               selectedIds={[status]}
               disabled={saving}
@@ -479,7 +482,10 @@ function PageCreateDialogContent({
                 options={PAGE_CREATE_PRIORITY_OPTIONS}
                 selectedId={priority}
                 disabled={saving}
-                presentation="inline"
+                presentation="chip"
+                triggerPrefix={(
+                  <PriorityPickerIcon className="icon-xs shrink-0 text-token-description-foreground" />
+                )}
                 searchPlaceholder="Change priority…"
                 searchLeading={null}
                 contentClassName="w-[min(220px,calc(100vw-16px))]"
@@ -503,7 +509,10 @@ function PageCreateDialogContent({
                 options={PAGE_CREATE_ESTIMATE_OPTIONS}
                 selectedId={estimate}
                 disabled={saving}
-                presentation="inline"
+                presentation="chip"
+                triggerPrefix={(
+                  <EstimateIcon className="icon-xs shrink-0 text-token-description-foreground" />
+                )}
                 searchPlaceholder="Change estimate…"
                 searchLeading={null}
                 contentClassName="w-[min(220px,calc(100vw-16px))]"

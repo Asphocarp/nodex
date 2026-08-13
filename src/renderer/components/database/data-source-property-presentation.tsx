@@ -1,8 +1,8 @@
 import {
+  AssigneeIcon,
   CalendarIcon,
-  EstimatePickerIcon,
+  EstimateIcon,
   PageIcon,
-  PeopleIcon,
   PriorityIcon,
   StatusIcon,
   TagIcon,
@@ -59,14 +59,14 @@ export const dataSourcePropertyIcon = (
     case "priority":
       return PriorityIcon;
     case "estimate":
-      return EstimatePickerIcon;
+      return EstimateIcon;
     case "tags":
       return TagIcon;
     case "due_date":
     case "schedule_boundary":
       return CalendarIcon;
     case "assignee":
-      return PeopleIcon;
+      return AssigneeIcon;
     case "typed":
       return dataSourcePropertyTypeIcon(role.valueType);
   }
