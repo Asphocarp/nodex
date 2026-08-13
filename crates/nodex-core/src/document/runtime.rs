@@ -227,6 +227,99 @@ pub(crate) fn reconstruct_yjs_engine(
     result
 }
 
+/// Reconstructs a retained historical head for stale-update attribution.
+///
+/// Retention is allowed to remove history older than the latest usable
+/// snapshot. In that case this returns `None` so the recovery boundary can
+/// fail closed instead of guessing which Blocks the stale update addressed.
+pub(crate) fn reconstruct_retained_yjs_engine_at(
+    connection: &Connection,
+    head: &DocumentHeadRow,
+    target_head_seq: i64,
+) -> Result<Option<YrsDocumentEngine>, StoreError> {
+    if !head.is_live_yjs_authority() {
+        return Err(corrupt(format!(
+            "Document {} is not live Yjs authority",
+            head.id
+        )));
+    }
+    if target_head_seq < 0 || target_head_seq > head.head_seq {
+        return Err(corrupt(format!(
+            "Document {} historical head is outside its generation",
+            head.id
+        )));
+    }
+    if target_head_seq == head.head_seq {
+        return reconstruct_yjs_engine(connection, head).map(Some);
+    }
+
+    let repository = DocumentReadRepository::new(connection);
+    let snapshot = repository.latest_snapshot(&head.id, head.generation, target_head_seq)?;
+    let snapshot_seq = snapshot
+        .as_ref()
+        .map_or(0, |snapshot| snapshot.snapshot_seq);
+    let mut engine = match snapshot {
+        Some(snapshot) => {
+            if snapshot.schema_version != head.schema_version
+                || sha256(&snapshot.snapshot_update) != snapshot.snapshot_hash
+            {
+                return Err(corrupt(format!(
+                    "Document {} historical snapshot evidence is invalid",
+                    head.id
+                )));
+            }
+            YrsDocumentEngine::from_full_state_v1(&head.id, &snapshot.snapshot_update).map_err(
+                |error| {
+                    corrupt(format!(
+                        "Document {} historical snapshot failed: {error}",
+                        head.id
+                    ))
+                },
+            )?
+        }
+        None => YrsDocumentEngine::new(&head.id),
+    };
+    let updates =
+        repository.updates_between(&head.id, head.generation, snapshot_seq, target_head_seq)?;
+    let mut expected_seq = snapshot_seq + 1;
+    for update in updates {
+        if update.seq != expected_seq {
+            return Ok(None);
+        }
+        if sha256(&update.update_blob) != update.update_hash {
+            return Err(corrupt(format!(
+                "Document {} historical update evidence is invalid at sequence {expected_seq}",
+                head.id
+            )));
+        }
+        let candidate = engine
+            .prepare_update_v1(&update.update_blob)
+            .map_err(|error| {
+                corrupt(format!(
+                    "Document {} historical update failed at sequence {expected_seq}: {error}",
+                    head.id
+                ))
+            })?;
+        engine.commit_candidate(candidate).map_err(|error| {
+            corrupt(format!(
+                "Document {} historical update commit failed at sequence {expected_seq}: {error}",
+                head.id
+            ))
+        })?;
+        expected_seq += 1;
+    }
+    if expected_seq - 1 != target_head_seq {
+        return Ok(None);
+    }
+    if engine.full_state_v1().len() > MAX_DOCUMENT_UPDATE_BYTES {
+        return Err(corrupt(format!(
+            "Document {} historical state exceeds the runtime bound",
+            head.id
+        )));
+    }
+    Ok(Some(engine))
+}
+
 pub(crate) fn reconstruction_duration_metrics() -> DurationMetricSnapshot {
     RECONSTRUCTION_DURATION
         .get_or_init(DurationMetric::default)

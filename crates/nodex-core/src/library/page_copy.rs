@@ -16,7 +16,7 @@ use crate::database::{
     validate_page_copy_data_source_destination_prevalidated,
 };
 use crate::document::{
-    BlockDocumentSchema, DocumentMaterialization, DocumentPlacementIntent, PersistYjsGenesis,
+    BlockDocumentSchema, DocumentMaterialization, DocumentPlacementEvidence, PersistYjsGenesis,
     clone_canvas_genesis, decode_block_document, materialize_decoded_document,
     mint_document_semantic_etags, persist_yjs_genesis_with_local_commit, prepare_yjs_clone_genesis,
     read_document_authority, reconstruct_yjs_engine, sha256,
@@ -1013,7 +1013,8 @@ fn persist_copy_documents(
                 full_state: &full_state,
                 store_epoch,
                 operation_id: &update_id,
-                placement: DocumentPlacementIntent::NONE.with_genesis(&placement_genesis_block_ids),
+                placement: DocumentPlacementEvidence::STRUCTURAL
+                    .with_genesis(&placement_genesis_block_ids),
                 emit_event: false,
             },
             commit_context,

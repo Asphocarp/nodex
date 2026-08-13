@@ -21,7 +21,7 @@ use yrs::{ReadTxn, Transact};
 use crate::database::create_database_authority_records;
 use crate::document::{
     BlockDocumentSchema, DocumentAuthorityRow, DocumentBlockOperation, DocumentMaterialization,
-    DocumentPlacementIntent, PAGE_SCHEMA_KEY, PAGE_SCHEMA_VERSION, PersistYjsCommit,
+    DocumentPlacementEvidence, PAGE_SCHEMA_KEY, PAGE_SCHEMA_VERSION, PersistYjsCommit,
     PersistYjsGenesis, YrsDocumentEngine, decode_block_document, materialize_decoded_document,
     mint_document_semantic_etags, parse_inline_markdown_title,
     persist_yjs_commit_with_local_commit, persist_yjs_genesis_with_local_commit,
@@ -786,14 +786,16 @@ fn move_block(
                         parent_block_id: None,
                         before_block_id: resolved_parent.before_block_id.clone(),
                     }],
-                    ParentDocumentPlacement::Derived,
+                    ParentDocumentPlacement::Derived {
+                        attachment_advances: &[],
+                    },
                 )?
                 .head_seq;
                 committed_document_heads
                     .insert(target_document.authority.head.id.clone(), head_seq);
             } else {
                 if let Some(source) = &source_document {
-                    let head_seq = persist_parent_operations_detailed_with_local_commit(
+                    let head_seq = persist_parent_relocation_source_with_local_commit(
                         connection,
                         parent_write,
                         "source",
@@ -801,7 +803,7 @@ fn move_block(
                         &[DocumentBlockOperation::DeleteBlock {
                             block_id: authority.id.clone(),
                         }],
-                        ParentDocumentPlacement::Derived,
+                        std::slice::from_ref(&authority.id),
                     )?
                     .head_seq;
                     committed_document_heads.insert(source.authority.head.id.clone(), head_seq);
@@ -817,7 +819,9 @@ fn move_block(
                             parent_block_id: None,
                             before_block_id: resolved_parent.before_block_id.clone(),
                         }],
-                        ParentDocumentPlacement::Derived,
+                        ParentDocumentPlacement::Derived {
+                            attachment_advances: std::slice::from_ref(&authority.id),
+                        },
                     )?
                     .head_seq;
                     committed_document_heads
@@ -1913,7 +1917,9 @@ fn persist_parent_operations(
         phase,
         parent,
         operations,
-        ParentDocumentPlacement::Derived,
+        ParentDocumentPlacement::Derived {
+            attachment_advances: &[],
+        },
         StructuralDetachPolicy::Reject,
     )
     .map(|commit| commit.head_seq)
@@ -1934,7 +1940,30 @@ pub(super) fn persist_parent_operations_detailed_with_local_commit(
         parent,
         operations,
         placement,
-        StructuralDetachPolicy::DeclareRemovedClosure,
+        StructuralDetachPolicy::Reject,
+    )
+}
+
+/// Persists the source half of a cross-authority relocation. The caller must
+/// commit the matching destination placement in the same LocalCommit.
+pub(super) fn persist_parent_relocation_source_with_local_commit(
+    connection: &Connection,
+    write: ParentDocumentWriteContext<'_>,
+    phase: &str,
+    parent: &ResolvedParentDocument,
+    operations: &[DocumentBlockOperation],
+    relocated_block_ids: &[String],
+) -> Result<LibraryBlockTransferDocumentCommit, StoreError> {
+    persist_parent_operations_detailed(
+        connection,
+        write,
+        phase,
+        parent,
+        operations,
+        ParentDocumentPlacement::Derived {
+            attachment_advances: &[],
+        },
+        StructuralDetachPolicy::Explicit(relocated_block_ids),
     )
 }
 
@@ -1942,16 +1971,15 @@ pub(super) fn persist_parent_operations_detailed_with_local_commit(
 /// resource shell is reconciled into a parent Document.
 #[derive(Clone, Copy)]
 pub(super) enum ParentDocumentPlacement<'a> {
-    Derived,
+    Derived { attachment_advances: &'a [String] },
     Genesis(&'a [String]),
     Preapplied(&'a [String]),
 }
 
 #[derive(Clone, Copy)]
-enum StructuralDetachPolicy {
-    #[cfg(test)]
+enum StructuralDetachPolicy<'a> {
     Reject,
-    DeclareRemovedClosure,
+    Explicit(&'a [String]),
 }
 
 fn persist_parent_operations_detailed(
@@ -1961,7 +1989,7 @@ fn persist_parent_operations_detailed(
     parent: &ResolvedParentDocument,
     operations: &[DocumentBlockOperation],
     placement: ParentDocumentPlacement<'_>,
-    structural_detach_policy: StructuralDetachPolicy,
+    structural_detach_policy: StructuralDetachPolicy<'_>,
 ) -> Result<LibraryBlockTransferDocumentCommit, StoreError> {
     let full_state = parent.engine.full_state_v1();
     let prepared = prepare_document_operation_update(
@@ -1987,46 +2015,22 @@ fn persist_parent_operations_detailed(
         "library-document-{phase}:{}",
         sha256(write.operation_id.as_bytes())
     );
-    let resulting_block_ids = prepared
-        .materialization
-        .search_units
-        .iter()
-        .map(|unit| unit.block_id.as_str())
-        .collect::<BTreeSet<_>>();
     let structurally_detached_block_ids = match structural_detach_policy {
-        #[cfg(test)]
         StructuralDetachPolicy::Reject => Vec::new(),
-        StructuralDetachPolicy::DeclareRemovedClosure => parent
-            .base_materialization
-            .search_units
-            .iter()
-            .filter(|unit| !resulting_block_ids.contains(unit.block_id.as_str()))
-            .map(|unit| unit.block_id.clone())
-            .collect::<Vec<_>>(),
+        StructuralDetachPolicy::Explicit(block_ids) => block_ids.to_vec(),
     };
-    let (placement_genesis_block_ids, placement_preapplied_block_ids) = match placement {
-        ParentDocumentPlacement::Derived => (&[][..], &[][..]),
-        ParentDocumentPlacement::Genesis(block_ids) => (block_ids, &[][..]),
-        ParentDocumentPlacement::Preapplied(block_ids) => (&[][..], block_ids),
-    };
-    let placement_geneses = placement_genesis_block_ids
-        .iter()
-        .map(String::as_str)
-        .collect::<BTreeSet<_>>();
-    let placement_preapplied = placement_preapplied_block_ids
-        .iter()
-        .map(String::as_str)
-        .collect::<BTreeSet<_>>();
-    let placement_mutation_block_ids = operations
+    let (placement_genesis_block_ids, placement_preapplied_block_ids, placement_advance_block_ids) =
+        match placement {
+            ParentDocumentPlacement::Derived {
+                attachment_advances,
+            } => (&[][..], &[][..], attachment_advances),
+            ParentDocumentPlacement::Genesis(block_ids) => (block_ids, &[][..], &[][..]),
+            ParentDocumentPlacement::Preapplied(block_ids) => (&[][..], block_ids, &[][..]),
+        };
+    let exact_moved_block_ids = operations
         .iter()
         .filter_map(|operation| match operation {
             DocumentBlockOperation::MoveBlock { block_id, .. } => Some(block_id.clone()),
-            DocumentBlockOperation::InsertBlock { block, .. }
-                if !placement_geneses.contains(block.id.as_str())
-                    && !placement_preapplied.contains(block.id.as_str()) =>
-            {
-                Some(block.id.clone())
-            }
             _ => None,
         })
         .collect::<Vec<_>>();
@@ -2049,11 +2053,13 @@ fn persist_parent_operations_detailed(
             event_kind: "document_updated",
             write_fence_block_ids: &prepared.write_fence_block_ids,
             title_write_fence_required: prepared.title_write_fence_required,
-            placement: DocumentPlacementIntent::NONE
+            document_write_fence_required: false,
+            placement: DocumentPlacementEvidence::STRUCTURAL
                 .with_structural_detaches(&structurally_detached_block_ids)
                 .with_genesis(placement_genesis_block_ids)
                 .with_preapplied(placement_preapplied_block_ids)
-                .with_mutations(&placement_mutation_block_ids),
+                .with_advances(placement_advance_block_ids)
+                .with_exact_moves(&exact_moved_block_ids),
         },
         write.commit,
     )?;
@@ -2411,7 +2417,7 @@ fn create_page(
                     full_state: &full_state,
                     store_epoch,
                     operation_id: &genesis_update_id,
-                    placement: DocumentPlacementIntent::NONE,
+                    placement: DocumentPlacementEvidence::STRUCTURAL,
                     emit_event: false,
                 },
                 scope.evidence(),
@@ -5308,6 +5314,37 @@ mod tests {
                     (1, 1, 1, 0)
                 );
                 assert!(evidence.1.is_some());
+                let replaced_paragraph = connection.query_row(
+                    "SELECT block.lifecycle, block.placement_revision, block.metadata_revision, \
+                            tombstone.document_id, tombstone.document_generation, \
+                            tombstone.deletion_head_seq, tombstone.placement_revision \
+                     FROM blocks block \
+                     JOIN document_block_tombstones tombstone ON tombstone.block_id = block.id \
+                     WHERE block.id = ?1",
+                    [&empty_block_id],
+                    |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, i64>(1)?,
+                            row.get::<_, i64>(2)?,
+                            row.get::<_, String>(3)?,
+                            row.get::<_, i64>(4)?,
+                            row.get::<_, i64>(5)?,
+                            row.get::<_, i64>(6)?,
+                        ))
+                    },
+                )?;
+                assert_eq!(replaced_paragraph.0, "deleted");
+                assert_eq!((replaced_paragraph.1, replaced_paragraph.2), (2, 2));
+                assert_eq!(replaced_paragraph.3, host_document_id);
+                assert_eq!(
+                    (
+                        replaced_paragraph.4,
+                        replaced_paragraph.5,
+                        replaced_paragraph.6,
+                    ),
+                    (1, page_head_seq + 1, 2),
+                );
                 Ok(())
             })
             .expect("Canvas authority evidence");

@@ -68,6 +68,68 @@ const LEGACY_P4_PRIORITY_NAME: &str = "P4 - Later";
 const P3_PRIORITY_ID: &str = "p3-low";
 const P3_PRIORITY_NAME: &str = "P3 - Low";
 
+const V120_DOCUMENT_BLOCK_TOMBSTONES_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS document_block_tombstones (
+  block_id TEXT PRIMARY KEY REFERENCES blocks(id) ON DELETE CASCADE,
+  library_id TEXT NOT NULL REFERENCES libraries(id) ON DELETE CASCADE,
+  document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+  document_generation INTEGER NOT NULL CHECK (document_generation >= 1),
+  deletion_head_seq INTEGER NOT NULL CHECK (deletion_head_seq >= 1),
+  placement_revision INTEGER NOT NULL CHECK (placement_revision >= 2),
+  deleted_at TEXT NOT NULL,
+  CHECK (length(block_id) BETWEEN 1 AND 512),
+  CHECK (length(library_id) BETWEEN 1 AND 512),
+  CHECK (length(document_id) BETWEEN 1 AND 512),
+  CHECK (length(deleted_at) > 0)
+) WITHOUT ROWID, STRICT;
+
+CREATE INDEX IF NOT EXISTS idx_document_block_tombstones_document
+  ON document_block_tombstones(document_id, deletion_head_seq, block_id);
+
+CREATE TRIGGER IF NOT EXISTS document_block_tombstones_validate_insert
+BEFORE INSERT ON document_block_tombstones BEGIN
+  SELECT CASE WHEN NOT EXISTS (
+    SELECT 1
+    FROM blocks block
+    JOIN documents document ON document.id = NEW.document_id
+    WHERE block.id = NEW.block_id
+      AND block.library_id = NEW.library_id
+      AND block.lifecycle = 'deleted'
+      AND block.placement_revision = NEW.placement_revision
+      AND block.type NOT IN (
+        'page', 'database', 'synced_block_source',
+        'reusable_template_source', 'canvas'
+      )
+      AND document.library_id = NEW.library_id
+      AND document.generation = NEW.document_generation
+      AND NEW.deletion_head_seq = document.head_seq + 1
+  ) THEN RAISE(ABORT, 'document Block tombstone authority mismatch') END;
+  SELECT CASE WHEN EXISTS (
+    SELECT 1 FROM document_block_index entry WHERE entry.block_id = NEW.block_id
+  ) OR EXISTS (
+    SELECT 1 FROM library_block_placements placement WHERE placement.block_id = NEW.block_id
+  ) THEN RAISE(ABORT, 'placed Block cannot retain a Document tombstone') END;
+END;
+
+CREATE TRIGGER IF NOT EXISTS document_block_tombstones_are_immutable
+BEFORE UPDATE ON document_block_tombstones BEGIN
+  SELECT RAISE(ABORT, 'document Block tombstones are immutable');
+END;
+
+CREATE TABLE IF NOT EXISTS local_commit_relocation_obligations (
+  store_epoch TEXT NOT NULL,
+  commit_seq INTEGER NOT NULL,
+  block_id TEXT NOT NULL REFERENCES blocks(id) ON DELETE RESTRICT,
+  source_document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE RESTRICT,
+  PRIMARY KEY (store_epoch, commit_seq, block_id),
+  FOREIGN KEY (store_epoch, commit_seq)
+    REFERENCES local_commits(store_epoch, commit_seq) ON DELETE CASCADE,
+  CHECK (length(store_epoch) BETWEEN 1 AND 512),
+  CHECK (length(block_id) BETWEEN 1 AND 512),
+  CHECK (length(source_document_id) BETWEEN 1 AND 512)
+) WITHOUT ROWID, STRICT;
+"#;
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 struct StoredPriorityOption {
@@ -2046,6 +2108,181 @@ pub enum StorePreparationEvent {
     MigrationProgress { completed: u64, total: u64 },
 }
 
+fn ensure_v120_document_block_tombstones_schema(connection: &Connection) -> Result<(), StoreError> {
+    connection.execute_batch(
+        "CREATE TABLE IF NOT EXISTS document_block_tombstones ( \
+           block_id TEXT PRIMARY KEY REFERENCES blocks(id) ON DELETE CASCADE, \
+           library_id TEXT NOT NULL REFERENCES libraries(id) ON DELETE CASCADE, \
+           document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE, \
+           document_generation INTEGER NOT NULL CHECK (document_generation >= 1), \
+           deletion_head_seq INTEGER NOT NULL CHECK (deletion_head_seq >= 1), \
+           placement_revision INTEGER NOT NULL CHECK (placement_revision >= 2), \
+           deleted_at TEXT NOT NULL, \
+           CHECK (length(block_id) BETWEEN 1 AND 512), \
+           CHECK (length(library_id) BETWEEN 1 AND 512), \
+           CHECK (length(document_id) BETWEEN 1 AND 512), \
+           CHECK (length(deleted_at) > 0) \
+         ) WITHOUT ROWID, STRICT; \
+         CREATE INDEX IF NOT EXISTS idx_document_block_tombstones_document \
+           ON document_block_tombstones(document_id, deletion_head_seq, block_id); \
+         CREATE TABLE IF NOT EXISTS local_commit_relocation_obligations ( \
+           store_epoch TEXT NOT NULL, \
+           commit_seq INTEGER NOT NULL, \
+           block_id TEXT NOT NULL REFERENCES blocks(id) ON DELETE RESTRICT, \
+           source_document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE RESTRICT, \
+           PRIMARY KEY (store_epoch, commit_seq, block_id), \
+           FOREIGN KEY (store_epoch, commit_seq) \
+             REFERENCES local_commits(store_epoch, commit_seq) ON DELETE CASCADE, \
+           CHECK (length(store_epoch) BETWEEN 1 AND 512), \
+           CHECK (length(block_id) BETWEEN 1 AND 512), \
+           CHECK (length(source_document_id) BETWEEN 1 AND 512) \
+         ) WITHOUT ROWID, STRICT",
+    )?;
+    let has_document_wide_fence: bool = connection.query_row(
+        "SELECT EXISTS( \
+           SELECT 1 FROM pragma_table_info('document_structural_barriers') \
+           WHERE name = 'document_wide_fence' \
+         )",
+        [],
+        |row| row.get(0),
+    )?;
+    if !has_document_wide_fence {
+        connection.execute_batch(
+            "ALTER TABLE document_structural_barriers \
+               ADD COLUMN document_wide_fence INTEGER NOT NULL DEFAULT 0 \
+               CHECK (document_wide_fence IN (0, 1))",
+        )?;
+    }
+    connection.execute_batch(
+        "WITH candidates AS ( \
+           SELECT block.id AS block_id, block.library_id, block.placement_revision, \
+                  block.updated_at AS deleted_at, change.seq, \
+                  CAST(json_extract(change.payload_json, '$.documentId') AS TEXT) AS document_id, \
+                  CAST(json_extract(change.payload_json, '$.generation') AS INTEGER) AS document_generation, \
+                  CAST(json_extract(change.payload_json, '$.headSeq') AS INTEGER) AS deletion_head_seq, \
+                  row_number() OVER (PARTITION BY block.id ORDER BY change.seq DESC) AS recency \
+           FROM blocks block \
+           JOIN change_log change ON change.kind LIKE 'owned_document.%' \
+             AND json_type(change.payload_json, '$.documentId') = 'text' \
+             AND json_type(change.payload_json, '$.generation') = 'integer' \
+             AND json_type(change.payload_json, '$.headSeq') = 'integer' \
+           JOIN documents source_document \
+             ON source_document.id = CAST(json_extract(change.payload_json, '$.documentId') AS TEXT) \
+            AND source_document.library_id = block.library_id \
+            AND source_document.generation = CAST(json_extract(change.payload_json, '$.generation') AS INTEGER) \
+             AND EXISTS ( \
+               SELECT 1 FROM json_each(change.block_ids_json) touched \
+               WHERE CAST(touched.value AS TEXT) = block.id \
+             ) \
+           WHERE block.lifecycle = 'deleted' \
+             AND block.placement_revision >= 2 \
+             AND block.type NOT IN ( \
+               'page', 'database', 'synced_block_source', \
+               'reusable_template_source', 'canvas' \
+             ) \
+             AND NOT EXISTS ( \
+               SELECT 1 FROM document_block_index entry \
+               WHERE entry.block_id = block.id \
+             ) \
+             AND NOT EXISTS ( \
+               SELECT 1 FROM library_block_placements placement \
+               WHERE placement.block_id = block.id \
+             ) \
+         ) \
+         INSERT OR IGNORE INTO document_block_tombstones( \
+           block_id, library_id, document_id, document_generation, \
+           deletion_head_seq, placement_revision, deleted_at \
+         ) \
+         SELECT candidate.block_id, candidate.library_id, candidate.document_id, \
+                candidate.document_generation, candidate.deletion_head_seq, \
+                candidate.placement_revision, candidate.deleted_at \
+         FROM candidates candidate \
+         JOIN documents document ON document.id = candidate.document_id \
+           AND document.library_id = candidate.library_id \
+           AND document.generation = candidate.document_generation \
+         WHERE candidate.recency = 1",
+    )?;
+    connection.execute_batch(V120_DOCUMENT_BLOCK_TOMBSTONES_SQL)?;
+    validate_v120_document_block_tombstones(connection)
+}
+
+fn validate_v120_document_block_tombstones(connection: &Connection) -> Result<(), StoreError> {
+    for (object_type, object_name) in [
+        ("table", "document_block_tombstones"),
+        ("index", "idx_document_block_tombstones_document"),
+        ("trigger", "document_block_tombstones_validate_insert"),
+        ("trigger", "document_block_tombstones_are_immutable"),
+        ("table", "local_commit_relocation_obligations"),
+    ] {
+        let exists = connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type = ?1 AND name = ?2)",
+            params![object_type, object_name],
+            |row| row.get::<_, bool>(0),
+        )?;
+        if !exists {
+            return Err(corrupt(format!(
+                "v120 Store is missing {object_type} {object_name}"
+            )));
+        }
+    }
+    let has_document_wide_fence: bool = connection.query_row(
+        "SELECT EXISTS( \
+           SELECT 1 FROM pragma_table_info('document_structural_barriers') \
+           WHERE name = 'document_wide_fence' \
+         )",
+        [],
+        |row| row.get(0),
+    )?;
+    if !has_document_wide_fence {
+        return Err(corrupt(
+            "v120 Store is missing the Document-wide structural barrier coordinate",
+        ));
+    }
+    let invalid = connection.query_row(
+        "SELECT count(*) \
+         FROM document_block_tombstones tombstone \
+         LEFT JOIN blocks block ON block.id = tombstone.block_id \
+         LEFT JOIN documents document ON document.id = tombstone.document_id \
+         WHERE block.id IS NULL OR document.id IS NULL \
+            OR block.library_id <> tombstone.library_id \
+            OR document.library_id <> tombstone.library_id \
+            OR block.lifecycle <> 'deleted' \
+            OR block.placement_revision <> tombstone.placement_revision \
+            OR block.type IN ( \
+              'page', 'database', 'synced_block_source', \
+              'reusable_template_source', 'canvas' \
+            ) \
+            OR document.generation <> tombstone.document_generation \
+            OR tombstone.deletion_head_seq > document.head_seq \
+            OR EXISTS ( \
+              SELECT 1 FROM document_block_index entry \
+              WHERE entry.block_id = tombstone.block_id \
+            ) \
+            OR EXISTS ( \
+              SELECT 1 FROM library_block_placements placement \
+              WHERE placement.block_id = tombstone.block_id \
+            )",
+        [],
+        |row| row.get::<_, i64>(0),
+    )?;
+    if invalid != 0 {
+        return Err(corrupt(format!(
+            "{invalid} Document Block tombstones disagree with durable authority"
+        )));
+    }
+    let unresolved_relocations: i64 = connection.query_row(
+        "SELECT count(*) FROM local_commit_relocation_obligations",
+        [],
+        |row| row.get(0),
+    )?;
+    if unresolved_relocations != 0 {
+        return Err(corrupt(format!(
+            "{unresolved_relocations} LocalCommit relocation obligations survived transaction sealing"
+        )));
+    }
+    Ok(())
+}
+
 pub fn prepare_profile_store(
     connection: &mut Connection,
     profile_home: &Path,
@@ -2077,6 +2314,7 @@ pub fn prepare_profile_store_with_observer(
         validate_v117_library_content_ownership(connection)?;
         validate_v118_canvas_resource_grants(connection)?;
         validate_v119_library_content_index_cleanup(connection)?;
+        validate_v120_document_block_tombstones(connection)?;
         return Ok(StorePreparation {
             schema_version: CORE_SCHEMA_VERSION,
             created_fresh: true,
@@ -2107,6 +2345,7 @@ pub fn prepare_profile_store_with_observer(
         validate_v117_library_content_ownership(connection)?;
         validate_v118_canvas_resource_grants(connection)?;
         validate_v119_library_content_index_cleanup(connection)?;
+        validate_v120_document_block_tombstones(connection)?;
         return Ok(StorePreparation {
             schema_version: CORE_SCHEMA_VERSION,
             created_fresh: false,
@@ -2166,6 +2405,7 @@ pub fn prepare_profile_store_with_observer(
     validate_v117_library_content_ownership(connection)?;
     validate_v118_canvas_resource_grants(connection)?;
     validate_v119_library_content_index_cleanup(connection)?;
+    validate_v120_document_block_tombstones(connection)?;
     Ok(StorePreparation {
         schema_version: CORE_SCHEMA_VERSION,
         created_fresh: false,
@@ -2227,6 +2467,7 @@ pub(crate) fn prepare_legacy_import_candidate(
     validate_v117_library_content_ownership(connection)?;
     validate_v118_canvas_resource_grants(connection)?;
     validate_v119_library_content_index_cleanup(connection)?;
+    validate_v120_document_block_tombstones(connection)?;
     Ok(StorePreparation {
         schema_version: CORE_SCHEMA_VERSION,
         created_fresh: false,
@@ -2314,6 +2555,7 @@ fn upgrade_owned_store(
         116 => validate_exact_v116_schema(connection)?,
         117 => validate_exact_v117_schema(connection)?,
         118 => validate_exact_v118_schema(connection)?,
+        119 => validate_exact_v119_schema(connection)?,
         _ => return Err(corrupt("Rust Core forward-migration source is unsupported")),
     }
 
@@ -2448,6 +2690,7 @@ fn upgrade_owned_store(
         ensure_v117_library_content_ownership(transaction)?;
         ensure_v118_canvas_resource_grants(transaction)?;
         ensure_v119_library_content_index_cleanup(transaction)?;
+        ensure_v120_document_block_tombstones_schema(transaction)?;
         let updated = transaction.execute(
             "UPDATE core_store_metadata SET store_format_version = ?1 \
              WHERE id = 1 AND schema_owner = ?2 AND store_format_version = ?3",
@@ -2474,6 +2717,7 @@ fn upgrade_owned_store(
     validate_v117_library_content_ownership(connection)?;
     validate_v118_canvas_resource_grants(connection)?;
     validate_v119_library_content_index_cleanup(connection)?;
+    validate_v120_document_block_tombstones(connection)?;
     Ok(StorePreparation {
         schema_version: CORE_SCHEMA_VERSION,
         created_fresh: false,
@@ -2917,6 +3161,7 @@ fn publish_current_store(
         ensure_v117_library_content_ownership(transaction)?;
         ensure_v118_canvas_resource_grants(transaction)?;
         ensure_v119_library_content_index_cleanup(transaction)?;
+        ensure_v120_document_block_tombstones_schema(transaction)?;
         import_legacy_writable_roots(transaction, profile_home, now)?;
         import_automation_jitter_salt(transaction, profile_home, now)
     })
@@ -2968,6 +3213,7 @@ fn create_fresh_store(
         ensure_v117_library_content_ownership(transaction)?;
         ensure_v118_canvas_resource_grants(transaction)?;
         ensure_v119_library_content_index_cleanup(transaction)?;
+        ensure_v120_document_block_tombstones_schema(transaction)?;
         import_legacy_writable_roots(transaction, profile_home, now)?;
         import_automation_jitter_salt(transaction, profile_home, now)
     })
@@ -6744,6 +6990,10 @@ fn validate_exact_v118_schema(connection: &Connection) -> Result<(), StoreError>
     validate_exact_core_schema(connection, true, true, true, true, true, true, true, 118)
 }
 
+fn validate_exact_v119_schema(connection: &Connection) -> Result<(), StoreError> {
+    validate_exact_core_schema(connection, true, true, true, true, true, true, true, 119)
+}
+
 fn validate_exact_current_schema(connection: &Connection) -> Result<(), StoreError> {
     validate_exact_core_schema(
         connection,
@@ -6920,6 +7170,9 @@ fn build_expected_core_schema_inventory(
     if schema_version >= 119 {
         ensure_v119_library_content_index_cleanup(&expected)?;
     }
+    if schema_version >= 120 {
+        ensure_v120_document_block_tombstones_schema(&expected)?;
+    }
 
     read_schema_inventory(&expected)
 }
@@ -7063,6 +7316,9 @@ pub fn expected_store_schema_fingerprint(version: i64) -> Result<String, StoreEr
     if version >= 119 {
         ensure_v119_library_content_index_cleanup(&expected)?;
     }
+    if version >= 120 {
+        ensure_v120_document_block_tombstones_schema(&expected)?;
+    }
     read_schema_inventory(&expected).map(|inventory| schema_inventory_fingerprint(&inventory))
 }
 
@@ -7186,6 +7442,168 @@ mod tests {
     use super::*;
 
     const DOCUMENT_ID: &str = "document:migration-page";
+
+    #[test]
+    fn published_current_store_identity_matches_the_exact_schema() {
+        assert_eq!(
+            i64::from(nodex_core_protocol::CURRENT_STORE_VERSION),
+            CORE_SCHEMA_VERSION,
+        );
+        assert_eq!(
+            nodex_core_protocol::CURRENT_STORE_SCHEMA_FINGERPRINT,
+            expected_store_schema_fingerprint(CORE_SCHEMA_VERSION)
+                .expect("current Store fingerprint"),
+        );
+    }
+
+    #[test]
+    fn v120_backfill_ignores_indexed_blocks_deleted_with_their_owner() {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        let kernel = SqliteStoreKernel::open(&home).expect("fresh current Store");
+        kernel
+            .writer()
+            .call(|connection| {
+                with_immediate_transaction(connection, |transaction| {
+                    crate::infrastructure::visibility_delta_journal::install_test_maintenance_context(
+                        transaction,
+                    )?;
+                    transaction.execute("DROP TABLE document_block_tombstones", [])?;
+                    let now = "2026-08-13T00:00:00.000Z";
+                    transaction.execute(
+                        "INSERT INTO profiles(id, created_at, updated_at) \
+                         VALUES ('profile:v120-backfill', ?1, ?1)",
+                        [now],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO libraries(id, profile_id, created_at, updated_at) \
+                         VALUES ('library:v120-backfill', 'profile:v120-backfill', ?1, ?1)",
+                        [now],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO projects(id, library_id, name, created, updated) \
+                         VALUES ('project:v120-backfill', 'library:v120-backfill', \
+                           'Page lifecycle migration', ?1, ?1)",
+                        [now],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO documents( \
+                           id, library_id, generation, head_seq, schema_key, schema_version, \
+                           state_vector, state_hash, readiness, authority, sync_engine, \
+                           created_at, updated_at \
+                         ) VALUES ( \
+                           'document:v120-backfill', 'library:v120-backfill', 1, 2, \
+                           'nodex.page', 2, X'', '', 'ready', 'ydoc_primary', 'yjs', ?1, ?1 \
+                         )",
+                        [now],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO blocks( \
+                           id, library_id, type, lifecycle, placement_revision, \
+                           metadata_revision, created_at, updated_at \
+                         ) VALUES ( \
+                           'block:v120-indexed-deleted-child', 'library:v120-backfill', \
+                           'paragraph', 'active', 1, 1, ?1, ?1 \
+                         )",
+                        [now],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO blocks( \
+                           id, library_id, type, lifecycle, placement_revision, \
+                           metadata_revision, created_at, updated_at \
+                         ) VALUES ( \
+                           'block:v120-detached-delete', 'library:v120-backfill', \
+                           'paragraph', 'deleted', 2, 2, ?1, ?1 \
+                         )",
+                        [now],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO document_block_index( \
+                           document_id, block_id, parent_block_id, ordinal, block_type, text, projected_seq \
+                         ) VALUES ( \
+                           'document:v120-backfill', 'block:v120-indexed-deleted-child', \
+                           NULL, 0, 'paragraph', 'Earlier content', 2 \
+                         )",
+                        [],
+                    )?;
+                    transaction.execute(
+                        "UPDATE blocks SET lifecycle = 'deleted' \
+                         WHERE id = 'block:v120-indexed-deleted-child'",
+                        [],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO change_log( \
+                           project_id, store_epoch, kind, operation_id, block_ids_json, \
+                           document_ids_json, payload_json, projection_impact_json, committed_at \
+                         ) VALUES ( \
+                           'project:v120-backfill', 'epoch:v120-backfill', \
+                           'owned_document.document_updated', 'operation:v120-backfill', \
+                           '[\"block:v120-indexed-deleted-child\"]', \
+                           '[\"document:v120-backfill\"]', \
+                           '{\"module\":\"owned_document\",\"kind\":\"document_updated\",\
+                             \"documentId\":\"document:v120-backfill\",\"generation\":1,\"headSeq\":2}', \
+                           '{\"kind\":\"none\"}', \
+                           ?1 \
+                         )",
+                        [now],
+                    )?;
+                    for (operation_id, generation, head_seq) in [
+                        ("operation:v120-current-delete", 1, 2),
+                        ("operation:v120-stale-generation", 0, 99),
+                    ] {
+                        transaction.execute(
+                            "INSERT INTO change_log( \
+                               project_id, store_epoch, kind, operation_id, block_ids_json, \
+                               document_ids_json, payload_json, projection_impact_json, committed_at \
+                             ) VALUES ( \
+                               'project:v120-backfill', 'epoch:v120-backfill', \
+                               'owned_document.document_updated', ?1, \
+                               '[\"block:v120-detached-delete\"]', \
+                               '[\"document:v120-backfill\"]', \
+                               json_object( \
+                                 'module', 'owned_document', 'kind', 'document_updated', \
+                                 'documentId', 'document:v120-backfill', \
+                                 'generation', ?2, 'headSeq', ?3 \
+                               ), \
+                               '{\"kind\":\"none\"}', ?4 \
+                             )",
+                            params![operation_id, generation, head_seq, now],
+                        )?;
+                    }
+
+                    ensure_v120_document_block_tombstones_schema(transaction)?;
+                    let tombstones: i64 = transaction.query_row(
+                        "SELECT count(*) FROM document_block_tombstones \
+                         WHERE block_id = 'block:v120-indexed-deleted-child'",
+                        [],
+                        |row| row.get(0),
+                    )?;
+                    assert_eq!(tombstones, 0);
+                    let restored_authority = transaction.query_row(
+                        "SELECT document_id, document_generation, deletion_head_seq, \
+                                placement_revision \
+                         FROM document_block_tombstones \
+                         WHERE block_id = 'block:v120-detached-delete'",
+                        [],
+                        |row| {
+                            Ok((
+                                row.get::<_, String>(0)?,
+                                row.get::<_, i64>(1)?,
+                                row.get::<_, i64>(2)?,
+                                row.get::<_, i64>(3)?,
+                            ))
+                        },
+                    )?;
+                    assert_eq!(
+                        restored_authority,
+                        ("document:v120-backfill".to_owned(), 1, 2, 2),
+                        "backfill must use the latest event in the current Document generation",
+                    );
+                    Ok(())
+                })
+            })
+            .expect("backfill keeps Page-owned deleted children restorable as a closure");
+    }
 
     fn fixture(name: &str) -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -8731,7 +9149,13 @@ mod tests {
         let connection = open_writer(&home.join("nodex.db")).expect("current writer");
         connection
             .execute_batch(
-                "CREATE UNIQUE INDEX idx_block_documents_owner_document_library_v117 \
+                "DROP TRIGGER document_block_tombstones_validate_insert; \
+                 DROP TRIGGER document_block_tombstones_are_immutable; \
+                 DROP INDEX idx_document_block_tombstones_document; \
+                 DROP TABLE document_block_tombstones; \
+                 DROP TABLE local_commit_relocation_obligations; \
+                 ALTER TABLE document_structural_barriers DROP COLUMN document_wide_fence; \
+                 CREATE UNIQUE INDEX idx_block_documents_owner_document_library_v117 \
                    ON block_documents(block_id, document_id, library_id); \
                  UPDATE core_store_metadata SET store_format_version = 118 \
                    WHERE id = 1 AND schema_owner = 'rust_core'; \

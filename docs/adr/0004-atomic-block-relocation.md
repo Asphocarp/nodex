@@ -33,6 +33,15 @@ The writer performs the operation as follows:
 5. In one SQLite transaction, append both Document updates, advance both heads, update Block locations and materialized indexes, record the relocation ledger/history/change log, and release durable fences.
 6. After commit, swap live caches, fan out both updates plus a relocation event, and release the ephemeral lease.
 
+A source detach is not a deletion exemption that may stand alone. Each detached
+application identity registers a transaction-local obligation. Before the
+LocalCommit can seal, the Block must remain active, be absent from its source,
+and have exactly one canonical destination (another Document, the Library, or
+an active Data Source membership). A missing descendant, source-only detach,
+duplicate destination, or incomplete membership aborts the entire SQLite
+transaction. Write-fence closure remains coordination evidence and is never
+reused as the semantic set of moved identities.
+
 Moving a document-bearing Card changes only its shell placement. Its owned Document ID and body do not move. Copy is a separate operation that recursively allocates new application IDs; reference target IDs remain unchanged.
 
 If the process crashes before commit, no change is visible. If it crashes after commit but before fanout, state-vector reconnection recovers the committed state. Replaying the same `relocationId` returns the recorded result.

@@ -269,8 +269,8 @@ mod tests {
     use rusqlite::params;
 
     use crate::document::{
-        DocumentPlacementIntent, PersistYjsGenesis, persist_yjs_genesis, prepare_page_yjs_genesis,
-        read_document_authority,
+        DocumentPlacementEvidence, PersistYjsGenesis, persist_yjs_genesis,
+        prepare_page_yjs_genesis, read_document_authority,
     };
     use crate::infrastructure::store::SqliteStoreKernel;
 
@@ -362,7 +362,7 @@ mod tests {
                         full_state: &genesis.engine.full_state_v1(),
                         store_epoch: "epoch:revision-maintenance",
                         operation_id: "operation:revision-maintenance-genesis",
-                        placement: DocumentPlacementIntent::NONE,
+                        placement: DocumentPlacementEvidence::STRUCTURAL,
                         emit_event: false,
                     },
                 )?;

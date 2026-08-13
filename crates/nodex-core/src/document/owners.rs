@@ -27,7 +27,7 @@ use super::operations::{
     prepare_document_operation_update, prepare_portable_subtree_transfer_updates,
 };
 use super::persistence::{
-    DocumentAuthorityRow, DocumentPlacementIntent, PersistYjsCommit, PersistYjsGenesis,
+    DocumentAuthorityRow, DocumentPlacementEvidence, PersistYjsCommit, PersistYjsGenesis,
     persist_yjs_commit_with_local_commit, persist_yjs_genesis_with_local_commit,
     read_document_authority, read_event_head, read_store_epoch, sha256,
 };
@@ -341,7 +341,7 @@ fn promote_synced_source(
             full_state: &source_full_state,
             store_epoch,
             operation_id: &source_operation_id,
-            placement: DocumentPlacementIntent::NONE.with_preapplied(&moved_block_ids),
+            placement: DocumentPlacementEvidence::STRUCTURAL.with_preapplied(&moved_block_ids),
             emit_event: true,
         },
         commit_context,
@@ -753,7 +753,8 @@ fn persist_prepared_update(
             event_kind: "document_updated",
             write_fence_block_ids: &prepared.write_fence_block_ids,
             title_write_fence_required: prepared.title_write_fence_required,
-            placement: DocumentPlacementIntent::NONE
+            document_write_fence_required: false,
+            placement: DocumentPlacementEvidence::STRUCTURAL
                 .with_structural_detaches(structurally_detached_block_ids)
                 .with_preapplied(placement_preapplied_block_ids),
         },
@@ -989,7 +990,7 @@ fn create_yjs_owner(
             full_state: &full_state,
             store_epoch,
             operation_id: &update_id,
-            placement: DocumentPlacementIntent::NONE,
+            placement: DocumentPlacementEvidence::STRUCTURAL,
             emit_event: true,
         },
         commit_context,

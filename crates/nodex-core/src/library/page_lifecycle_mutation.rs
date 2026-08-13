@@ -16,7 +16,7 @@ use serde_json::{Map, Value, json};
 
 use crate::database;
 use crate::document::{
-    BlockDocumentSchema, DocumentBlockOperation, DocumentPlacementIntent, PAGE_SCHEMA_KEY,
+    BlockDocumentSchema, DocumentBlockOperation, DocumentPlacementEvidence, PAGE_SCHEMA_KEY,
     PAGE_SCHEMA_VERSION, PersistYjsGenesis, persist_yjs_genesis_with_local_commit,
     prepare_page_yjs_genesis_with_content, read_document_authority, sha256,
 };
@@ -523,7 +523,7 @@ fn create_page(
                     full_state: &full_state,
                     store_epoch,
                     operation_id: &genesis_update_id,
-                    placement: DocumentPlacementIntent::NONE,
+                    placement: DocumentPlacementEvidence::STRUCTURAL,
                     emit_event: false,
                 },
                 scope.evidence(),
@@ -1793,7 +1793,9 @@ fn delete_page(
                         &[DocumentBlockOperation::DeleteBlock {
                             block_id: page_id.to_owned(),
                         }],
-                        ParentDocumentPlacement::Derived,
+                        ParentDocumentPlacement::Derived {
+                            attachment_advances: &[],
+                        },
                     )
                 })
                 .transpose()?;

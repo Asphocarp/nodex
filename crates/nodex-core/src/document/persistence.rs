@@ -4,6 +4,8 @@ use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 
+use nodex_core_contracts::ProjectionImpact;
+
 use crate::domain::derived_records::{BlockDocumentAssetKind, BlockDocumentReference};
 use crate::infrastructure::document_repository::{DocumentHeadRow, DocumentReadRepository};
 use crate::infrastructure::event_log::{NewChangeLogEntry, append_change_log};
@@ -14,7 +16,11 @@ use crate::infrastructure::projection_impact::{
 };
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
-use super::{DocumentMaterialization, DocumentSearchMarkerKind};
+use super::materialization::DocumentPlacementDelta;
+use super::{
+    DocumentMaterialization, DocumentSearchMarkerKind, derive_document_node_delta,
+    derive_document_placement_delta, exact_moves_explain_document_placement,
+};
 
 const TYPED_CREATION_BLOCK_TYPES: &[&str] = &[
     "page",
@@ -56,24 +62,55 @@ pub(crate) struct PersistedDocumentCommit {
     pub committed_at: String,
 }
 
-/// Declares every Block placement change owned by one Document persistence
-/// operation. Keeping these roles together makes structural callers name the
-/// complete intent while reconciliation remains the single validator.
+/// Attributes same-parent ordering changes without trusting renderer metadata.
+/// Collaborative updates use the conservative tree delta; typed compilers name
+/// exact moved roots so dense ordinal shifts do not churn sibling CAS.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum DocumentReorderAttribution<'a> {
+    Conservative,
+    Exact(&'a [String]),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum DocumentReactivationPolicy {
+    Reject,
+    LastDocumentAuthority,
+}
+
+/// Declares only placement evidence that one Document's canonical before/after
+/// trees cannot prove. Write fences are deliberately absent: coordination
+/// scope and semantic placement identity are different concepts.
 #[derive(Clone, Copy, Debug)]
 #[must_use]
-pub(crate) struct DocumentPlacementIntent<'a> {
+pub(crate) struct DocumentPlacementEvidence<'a> {
     structurally_detached_block_ids: &'a [String],
     placement_genesis_block_ids: &'a [String],
     placement_preapplied_block_ids: &'a [String],
-    placement_mutation_block_ids: &'a [String],
+    placement_advance_block_ids: &'a [String],
+    reorder_attribution: DocumentReorderAttribution<'a>,
+    reactivation_policy: DocumentReactivationPolicy,
 }
 
-impl<'a> DocumentPlacementIntent<'a> {
-    pub(crate) const NONE: Self = Self {
+impl<'a> DocumentPlacementEvidence<'a> {
+    /// Raw collaborative or wholesale updates. Core derives every local
+    /// placement change from the canonical materializations.
+    pub(crate) const COLLABORATIVE: Self = Self {
         structurally_detached_block_ids: &[],
         placement_genesis_block_ids: &[],
         placement_preapplied_block_ids: &[],
-        placement_mutation_block_ids: &[],
+        placement_advance_block_ids: &[],
+        reorder_attribution: DocumentReorderAttribution::Conservative,
+        reactivation_policy: DocumentReactivationPolicy::LastDocumentAuthority,
+    };
+
+    /// Typed structural updates name their exact move and authority evidence.
+    pub(crate) const STRUCTURAL: Self = Self {
+        structurally_detached_block_ids: &[],
+        placement_genesis_block_ids: &[],
+        placement_preapplied_block_ids: &[],
+        placement_advance_block_ids: &[],
+        reorder_attribution: DocumentReorderAttribution::Exact(&[]),
+        reactivation_policy: DocumentReactivationPolicy::Reject,
     };
 
     /// Blocks intentionally detached by the surrounding structural mutation.
@@ -96,14 +133,23 @@ impl<'a> DocumentPlacementIntent<'a> {
         self
     }
 
-    /// Existing Blocks explicitly moved by this Document operation. Dense
-    /// ordinals of unaffected siblings may shift during projection rebuilds;
-    /// those shifts are not independent placement mutations and must not churn
-    /// their compare-and-swap revision.
-    pub(crate) const fn with_mutations(mut self, block_ids: &'a [String]) -> Self {
-        self.placement_mutation_block_ids = block_ids;
+    /// Existing Blocks attached from another authority whose placement
+    /// revision advances in this persistence operation.
+    pub(crate) const fn with_advances(mut self, block_ids: &'a [String]) -> Self {
+        self.placement_advance_block_ids = block_ids;
         self
     }
+
+    /// Exact moved roots emitted by a typed Document compiler.
+    pub(crate) const fn with_exact_moves(mut self, block_ids: &'a [String]) -> Self {
+        self.reorder_attribution = DocumentReorderAttribution::Exact(block_ids);
+        self
+    }
+}
+
+#[derive(Debug, Default)]
+struct ReconciledDocumentBlocks {
+    placement_changed_page_ids: Vec<String>,
 }
 
 pub(crate) struct PersistYjsCommit<'a> {
@@ -123,7 +169,8 @@ pub(crate) struct PersistYjsCommit<'a> {
     pub event_kind: &'a str,
     pub write_fence_block_ids: &'a [String],
     pub title_write_fence_required: bool,
-    pub placement: DocumentPlacementIntent<'a>,
+    pub document_write_fence_required: bool,
+    pub placement: DocumentPlacementEvidence<'a>,
 }
 
 pub(crate) struct PersistYjsGenesis<'a> {
@@ -137,7 +184,7 @@ pub(crate) struct PersistYjsGenesis<'a> {
     pub full_state: &'a [u8],
     pub store_epoch: &'a str,
     pub operation_id: &'a str,
-    pub placement: DocumentPlacementIntent<'a>,
+    pub placement: DocumentPlacementEvidence<'a>,
     /// Internal collaborator genesis keeps its durable Document artifacts but
     /// lets the owning aggregate publish the single public event.
     pub emit_event: bool,
@@ -340,10 +387,13 @@ fn persist_yjs_commit_inner(
             )
         })?;
     let now = sqlite_now(connection)?;
+    let placement_delta =
+        derive_document_placement_delta(input.base_materialization, input.materialization);
     let derived_touched_block_ids = derive_touched_block_ids(
         &input.authority.owner_block_id,
         input.base_materialization,
         input.materialization,
+        &placement_delta,
     );
     validate_document_references(
         connection,
@@ -352,14 +402,18 @@ fn persist_yjs_commit_inner(
         input.materialization,
         false,
     )?;
-    reconcile_document_blocks(
+    let reconciled_blocks = reconcile_document_blocks(
         connection,
-        input.authority,
-        Some(input.base_materialization),
-        input.materialization,
-        input.placement,
-        next_head_seq,
-        &now,
+        ReconcileDocumentBlocksInput {
+            context,
+            authority: input.authority,
+            base_materialization: Some(input.base_materialization),
+            materialization: input.materialization,
+            placement: input.placement,
+            derived_placement: &placement_delta,
+            projected_seq: next_head_seq,
+            now: &now,
+        },
     )?;
     persist_materialization(
         connection,
@@ -445,15 +499,18 @@ fn persist_yjs_commit_inner(
     if changed != 1 {
         return Err(conflict("Document head advanced before commit"));
     }
-    if !input.write_fence_block_ids.is_empty() || input.title_write_fence_required {
+    if !input.write_fence_block_ids.is_empty()
+        || input.title_write_fence_required
+        || input.document_write_fence_required
+    {
         let mut block_ids = input.write_fence_block_ids.to_vec();
         block_ids.sort();
         block_ids.dedup();
         connection.execute(
             "INSERT INTO document_structural_barriers (\
                document_id, generation, head_seq, operation_id, block_ids_json, \
-               title_fence, committed_at\
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+               title_fence, document_wide_fence, committed_at\
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![
                 input.authority.head.id,
                 input.authority.head.generation,
@@ -462,6 +519,7 @@ fn persist_yjs_commit_inner(
                 serde_json::to_string(&block_ids)
                     .map_err(|_| internal("Structural barrier Block IDs"))?,
                 i64::from(input.title_write_fence_required),
+                i64::from(input.document_write_fence_required),
                 now,
             ],
         )?;
@@ -486,7 +544,7 @@ fn persist_yjs_commit_inner(
         "localCommitId": input.local_commit_id,
     });
     let page_impact = input.authority.page_impact();
-    let projection_impact = impact_for_page_document(
+    let owner_projection_impact = impact_for_page_document(
         page_impact.as_ref(),
         Some((
             &input.authority.head.id,
@@ -494,8 +552,25 @@ fn persist_yjs_commit_inner(
             next_head_seq,
         )),
     )?;
+    let nested_page_placement_changed = !reconciled_blocks.placement_changed_page_ids.is_empty();
+    let nested_page_projection_impact = if !nested_page_placement_changed {
+        ProjectionImpact::None
+    } else {
+        ProjectionImpact::Resources {
+            page_ids: reconciled_blocks.placement_changed_page_ids,
+            database_ids: Vec::new(),
+            data_source_ids: Vec::new(),
+            view_ids: Vec::new(),
+            document_heads: Vec::new(),
+        }
+    };
+    let projection_impact = local_commit::merge_projection_impact(
+        owner_projection_impact,
+        nested_page_projection_impact,
+    )?;
     let projection_impact = if input.base_materialization.title != input.materialization.title
         || input.base_materialization.rich_title != input.materialization.rich_title
+        || nested_page_placement_changed
     {
         expand_database_coordinates(connection, projection_impact)?
     } else {
@@ -596,12 +671,16 @@ fn persist_yjs_genesis_inner(
     )?;
     reconcile_document_blocks(
         connection,
-        input.authority,
-        None,
-        input.materialization,
-        input.placement,
-        1,
-        &now,
+        ReconcileDocumentBlocksInput {
+            context,
+            authority: input.authority,
+            base_materialization: None,
+            materialization: input.materialization,
+            placement: input.placement,
+            derived_placement: &DocumentPlacementDelta::default(),
+            projected_seq: 1,
+            now: &now,
+        },
     )?;
     persist_materialization(
         connection,
@@ -764,19 +843,35 @@ fn persist_yjs_genesis_inner(
     })
 }
 
+struct ReconcileDocumentBlocksInput<'a> {
+    context: &'a CommitContext,
+    authority: &'a DocumentAuthorityRow,
+    base_materialization: Option<&'a DocumentMaterialization>,
+    materialization: &'a DocumentMaterialization,
+    placement: DocumentPlacementEvidence<'a>,
+    derived_placement: &'a DocumentPlacementDelta,
+    projected_seq: i64,
+    now: &'a str,
+}
+
 fn reconcile_document_blocks(
     connection: &Connection,
-    authority: &DocumentAuthorityRow,
-    base_materialization: Option<&DocumentMaterialization>,
-    materialization: &DocumentMaterialization,
-    placement: DocumentPlacementIntent<'_>,
-    projected_seq: i64,
-    now: &str,
-) -> Result<(), StoreError> {
+    input: ReconcileDocumentBlocksInput<'_>,
+) -> Result<ReconciledDocumentBlocks, StoreError> {
+    let ReconcileDocumentBlocksInput {
+        context,
+        authority,
+        base_materialization,
+        materialization,
+        placement,
+        derived_placement,
+        projected_seq,
+        now,
+    } = input;
+    let mut placement_changed_page_ids = HashSet::new();
     let existing = connection
         .prepare(
-            "SELECT block.id, block.type, block.lifecycle, block.placement_revision, \
-                    entry.parent_block_id, entry.ordinal \
+            "SELECT block.id, block.type, block.lifecycle \
              FROM document_block_index entry \
              JOIN blocks block ON block.id = entry.block_id \
              WHERE entry.document_id = ?1 ORDER BY block.id",
@@ -786,9 +881,6 @@ fn reconcile_document_blocks(
                 row.get::<_, String>(0)?,
                 row.get::<_, String>(1)?,
                 row.get::<_, String>(2)?,
-                row.get::<_, i64>(3)?,
-                row.get::<_, Option<String>>(4)?,
-                row.get::<_, i64>(5)?,
             ))
         })?
         .collect::<rusqlite::Result<Vec<_>>>()
@@ -812,11 +904,32 @@ fn reconcile_document_blocks(
         .iter()
         .map(String::as_str)
         .collect::<HashSet<_>>();
-    let placement_mutations = placement
-        .placement_mutation_block_ids
+    let placement_advances = placement
+        .placement_advance_block_ids
         .iter()
         .map(String::as_str)
         .collect::<HashSet<_>>();
+    let exact_moves = match placement.reorder_attribution {
+        DocumentReorderAttribution::Conservative => None,
+        DocumentReorderAttribution::Exact(block_ids) => {
+            Some(block_ids.iter().map(String::as_str).collect::<HashSet<_>>())
+        }
+    };
+    if let Some(exact_moves) = exact_moves.as_ref()
+        && let Some(base_materialization) = base_materialization
+        && !exact_moves_explain_document_placement(
+            base_materialization,
+            materialization,
+            exact_moves,
+        )
+    {
+        return Err(invalid(
+            "Typed Document update changed placement outside its declared move roots".to_owned(),
+        ));
+    }
+    let mut consumed_geneses = HashSet::new();
+    let mut consumed_preapplied = HashSet::new();
+    let mut consumed_advances = HashSet::new();
     if placement_geneses
         .iter()
         .any(|block_id| !active_ids.contains(*block_id))
@@ -831,11 +944,15 @@ fn reconcile_document_blocks(
             .query_row(
                 "SELECT block.library_id, block.type, block.lifecycle, \
                         block.placement_revision, \
-                        entry.document_id, entry.parent_block_id, entry.ordinal, \
-                        placement.block_id IS NOT NULL \
+                        entry.document_id, \
+                        placement.block_id IS NOT NULL, \
+                        tombstone.document_id, tombstone.document_generation, \
+                        tombstone.placement_revision \
                  FROM blocks block \
                  LEFT JOIN document_block_index entry ON entry.block_id = block.id \
                  LEFT JOIN library_block_placements placement ON placement.block_id = block.id \
+                 LEFT JOIN document_block_tombstones tombstone \
+                   ON tombstone.block_id = block.id \
                  WHERE block.id = ?1",
                 [&unit.block_id],
                 |row| {
@@ -845,9 +962,10 @@ fn reconcile_document_blocks(
                         row.get::<_, String>(2)?,
                         row.get::<_, i64>(3)?,
                         row.get::<_, Option<String>>(4)?,
-                        row.get::<_, Option<String>>(5)?,
-                        row.get::<_, Option<i64>>(6)?,
-                        row.get::<_, bool>(7)?,
+                        row.get::<_, bool>(5)?,
+                        row.get::<_, Option<String>>(6)?,
+                        row.get::<_, Option<i64>>(7)?,
+                        row.get::<_, Option<i64>>(8)?,
                     ))
                 },
             )
@@ -855,6 +973,20 @@ fn reconcile_document_blocks(
             .map_err(|_| corrupt("Registered Block row has invalid column types"))?;
         match registered {
             None => {
+                let retired = connection
+                    .query_row(
+                        "SELECT 1 FROM retired_block_identities WHERE block_id = ?1",
+                        [&unit.block_id],
+                        |_| Ok(()),
+                    )
+                    .optional()?
+                    .is_some();
+                if retired {
+                    return Err(invalid(format!(
+                        "Retired Block identity {} cannot be recreated",
+                        unit.block_id
+                    )));
+                }
                 if !is_uuid_v7(&unit.block_id)
                     || TYPED_CREATION_BLOCK_TYPES.contains(&unit.block_type.as_str())
                 {
@@ -882,9 +1014,10 @@ fn reconcile_document_blocks(
                 lifecycle,
                 placement_revision,
                 document_id,
-                parent_block_id,
-                ordinal,
                 is_library_root,
+                tombstone_document_id,
+                tombstone_document_generation,
+                tombstone_placement_revision,
             )) => {
                 if library_id != authority.head.library_id
                     || document_id
@@ -900,10 +1033,10 @@ fn reconcile_document_blocks(
                 let placement_genesis = placement_geneses.contains(unit.block_id.as_str());
                 let placement_was_preapplied =
                     placement_preapplied.contains(unit.block_id.as_str());
-                let placement_mutation = placement_mutations.contains(unit.block_id.as_str());
+                let placement_advances_here = placement_advances.contains(unit.block_id.as_str());
                 if usize::from(placement_genesis)
                     + usize::from(placement_was_preapplied)
-                    + usize::from(placement_mutation)
+                    + usize::from(placement_advances_here)
                     > 1
                 {
                     return Err(invalid(format!(
@@ -932,22 +1065,63 @@ fn reconcile_document_blocks(
                     )));
                 }
                 let typed_resource = TYPED_CREATION_BLOCK_TYPES.contains(&block_type.as_str());
-                let expected_ordinal =
-                    i64::try_from(unit.ordinal).map_err(|_| internal("Block ordinal overflow"))?;
-                let placement_changed = document_id.as_deref() != Some(&authority.head.id)
-                    || parent_block_id != unit.parent_block_id
-                    || (ordinal != Some(expected_ordinal) && placement_mutation);
-                if placement_changed
-                    && !placement_genesis
-                    && !placement_was_preapplied
-                    && !placement_mutation
+                let attached_from_another_authority =
+                    document_id.as_deref() != Some(&authority.head.id);
+                let reactivating_from_same_document = attached_from_another_authority
+                    && lifecycle == "deleted"
+                    && !typed_resource
+                    && placement.reactivation_policy
+                        == DocumentReactivationPolicy::LastDocumentAuthority
+                    && tombstone_document_id.as_deref() == Some(&authority.head.id)
+                    && tombstone_document_generation == Some(authority.head.generation)
+                    && tombstone_placement_revision == Some(placement_revision);
+                if lifecycle != "active"
+                    && attached_from_another_authority
+                    && !reactivating_from_same_document
                 {
                     return Err(invalid(format!(
-                        "Block {} changed placement without a structural intent",
+                        "Deleted Block {} requires same-Document restore evidence",
                         unit.block_id
                     )));
                 }
-                let placement_revision_advances = placement_changed && placement_mutation;
+                let parent_changed = derived_placement
+                    .parent_changed_block_ids
+                    .contains(&unit.block_id);
+                let reordered = derived_placement
+                    .reordered_block_ids
+                    .contains(&unit.block_id);
+                let exact_move = exact_moves
+                    .as_ref()
+                    .is_some_and(|block_ids| block_ids.contains(unit.block_id.as_str()));
+                let attributed_reorder = reordered
+                    && match exact_moves.as_ref() {
+                        None => true,
+                        Some(_) => exact_move,
+                    };
+                if attached_from_another_authority
+                    && !placement_genesis
+                    && !placement_was_preapplied
+                    && !placement_advances_here
+                    && !reactivating_from_same_document
+                {
+                    return Err(invalid(format!(
+                        "Block {} attached without a cross-authority placement intent",
+                        unit.block_id
+                    )));
+                }
+                let local_placement_changed = parent_changed || attributed_reorder;
+                let placement_changed = attached_from_another_authority || local_placement_changed;
+                let placement_revision_advances =
+                    placement_changed && !placement_genesis && !placement_was_preapplied;
+                if placement_genesis {
+                    consumed_geneses.insert(unit.block_id.as_str());
+                }
+                if placement_was_preapplied && placement_changed {
+                    consumed_preapplied.insert(unit.block_id.as_str());
+                }
+                if placement_advances_here && attached_from_another_authority {
+                    consumed_advances.insert(unit.block_id.as_str());
+                }
                 if (lifecycle != "active" && !typed_resource)
                     || block_type != unit.block_type
                     || placement_changed
@@ -970,6 +1144,34 @@ fn reconcile_document_blocks(
                         ],
                     )?;
                 }
+                if block_type == "page" && local_placement_changed {
+                    let changed = connection.execute(
+                        "UPDATE page_read_model SET \
+                           placement_revision = ( \
+                             SELECT placement_revision FROM blocks WHERE id = ?1 \
+                           ), updated_at = ?2 \
+                         WHERE page_block_id = ?1",
+                        params![unit.block_id, now],
+                    )?;
+                    if changed != 1 {
+                        return Err(corrupt(&format!(
+                            "Page {} lost its placement projection",
+                            unit.block_id
+                        )));
+                    }
+                    placement_changed_page_ids.insert(unit.block_id.clone());
+                }
+                if reactivating_from_same_document {
+                    let removed = connection.execute(
+                        "DELETE FROM document_block_tombstones \
+                         WHERE block_id = ?1 AND document_id = ?2 \
+                           AND placement_revision = ?3",
+                        params![unit.block_id, authority.head.id, placement_revision],
+                    )?;
+                    if removed != 1 {
+                        return Err(conflict("Document Block tombstone changed before restore"));
+                    }
+                }
             }
         }
     }
@@ -991,7 +1193,27 @@ fn reconcile_document_blocks(
             )));
         }
     }
-    for (block_id, block_type, lifecycle, _, _, _) in &existing {
+    local_commit::register_relocation_obligations(
+        connection,
+        context,
+        &authority.head.id,
+        placement.structurally_detached_block_ids,
+    )?;
+    let require_exact_consumption = |declared: &HashSet<&str>,
+                                     consumed: &HashSet<&str>,
+                                     label: &str|
+     -> Result<(), StoreError> {
+        if declared == consumed {
+            return Ok(());
+        }
+        Err(invalid(format!(
+            "Document placement {label} evidence does not match the canonical transition"
+        )))
+    };
+    require_exact_consumption(&placement_geneses, &consumed_geneses, "genesis")?;
+    require_exact_consumption(&placement_preapplied, &consumed_preapplied, "preapplied")?;
+    require_exact_consumption(&placement_advances, &consumed_advances, "advance")?;
+    for (block_id, block_type, lifecycle) in &existing {
         if active_ids.contains(block_id) {
             continue;
         }
@@ -1008,21 +1230,50 @@ fn reconcile_document_blocks(
             ));
         }
     }
+    connection.execute(
+        "DELETE FROM document_block_index WHERE document_id = ?1",
+        [&authority.head.id],
+    )?;
     for block_id in existing_ids.difference(&active_ids) {
         if structural_detaches.contains(block_id.as_str()) {
             continue;
         }
-        connection.execute(
+        let (_, block_type, lifecycle) = existing
+            .iter()
+            .find(|row| row.0 == *block_id)
+            .ok_or_else(|| corrupt("Deleted Document Block lost its registry row"))?;
+        if TYPED_CREATION_BLOCK_TYPES.contains(&block_type.as_str()) && lifecycle == "deleted" {
+            continue;
+        }
+        let changed = connection.execute(
             "UPDATE blocks SET lifecycle = 'deleted', placement_revision = placement_revision + 1, \
                metadata_revision = metadata_revision + 1, \
                updated_at = ?1 WHERE id = ?2 AND library_id = ?3 AND lifecycle <> 'deleted'",
             params![now, block_id, authority.head.library_id],
         )?;
+        if changed != 1 {
+            return Err(corrupt(&format!(
+                "Document Block {block_id} deletion did not advance its lifecycle"
+            )));
+        }
+        if !TYPED_CREATION_BLOCK_TYPES.contains(&block_type.as_str()) {
+            connection.execute(
+                "INSERT INTO document_block_tombstones( \
+                   block_id, library_id, document_id, document_generation, \
+                   deletion_head_seq, placement_revision, deleted_at \
+                 ) SELECT id, library_id, ?1, ?2, ?3, placement_revision, ?4 \
+                   FROM blocks WHERE id = ?5 AND library_id = ?6",
+                params![
+                    authority.head.id,
+                    authority.head.generation,
+                    projected_seq,
+                    now,
+                    block_id,
+                    authority.head.library_id,
+                ],
+            )?;
+        }
     }
-    connection.execute(
-        "DELETE FROM document_block_index WHERE document_id = ?1",
-        [&authority.head.id],
-    )?;
     for unit in &materialization.search_units {
         connection.execute(
             "INSERT INTO document_block_index ( \
@@ -1039,7 +1290,11 @@ fn reconcile_document_blocks(
             ],
         )?;
     }
-    Ok(())
+    let mut placement_changed_page_ids = placement_changed_page_ids.into_iter().collect::<Vec<_>>();
+    placement_changed_page_ids.sort();
+    Ok(ReconciledDocumentBlocks {
+        placement_changed_page_ids,
+    })
 }
 
 fn reconcile_legacy_document_blocks(
@@ -1889,41 +2144,13 @@ pub(crate) fn derive_touched_block_ids(
     owner_block_id: &str,
     before: &DocumentMaterialization,
     after: &DocumentMaterialization,
+    placement_delta: &DocumentPlacementDelta,
 ) -> Vec<String> {
-    let before_units = before
-        .search_units
-        .iter()
-        .map(|unit| {
-            (
-                unit.block_id.as_str(),
-                (
-                    unit.parent_block_id.as_deref(),
-                    unit.block_type.as_str(),
-                    unit.text.as_str(),
-                ),
-            )
-        })
-        .collect::<HashMap<_, _>>();
-    let after_units = after
-        .search_units
-        .iter()
-        .map(|unit| {
-            (
-                unit.block_id.as_str(),
-                (
-                    unit.parent_block_id.as_deref(),
-                    unit.block_type.as_str(),
-                    unit.text.as_str(),
-                ),
-            )
-        })
-        .collect::<HashMap<_, _>>();
-    let mut touched = before_units
-        .keys()
-        .chain(after_units.keys())
-        .filter(|block_id| before_units.get(**block_id) != after_units.get(**block_id))
-        .map(|block_id| (*block_id).to_owned())
+    let mut touched = derive_document_node_delta(before, after)
+        .into_iter()
         .collect::<HashSet<_>>();
+    touched.extend(placement_delta.parent_changed_block_ids.iter().cloned());
+    touched.extend(placement_delta.reordered_block_ids.iter().cloned());
     if before.title != after.title || before.rich_title != after.rich_title {
         touched.insert(owner_block_id.to_owned());
     }

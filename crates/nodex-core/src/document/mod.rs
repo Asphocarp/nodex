@@ -35,6 +35,10 @@ pub use materialization::{
     DocumentMaterialization, DocumentMaterializationError, DocumentSearchMarkerKind,
     materialize_decoded_document, schema_metadata,
 };
+pub(crate) use materialization::{
+    derive_document_node_delta, derive_document_placement_delta,
+    exact_moves_explain_document_placement,
+};
 pub(crate) use module::require_owned_document_read_access;
 pub use module::{
     CanvasSceneSyncSnapshot, DocumentCacheMetrics, OwnedDocumentApplyOutcome, OwnedDocumentModule,
@@ -77,7 +81,7 @@ pub(crate) use history::{NewDocumentCheckpoint, insert_document_checkpoint};
 #[cfg(test)]
 pub(crate) use persistence::persist_yjs_genesis;
 pub(crate) use persistence::{
-    DocumentAuthorityRow, DocumentPlacementIntent, PersistYjsCommit, PersistYjsGenesis,
+    DocumentAuthorityRow, DocumentPlacementEvidence, PersistYjsCommit, PersistYjsGenesis,
     persist_yjs_commit_with_local_commit, persist_yjs_genesis_with_local_commit,
     read_document_authority, read_legacy_project_owned_document_authority, read_store_epoch,
     rebuild_legacy_import_projections, sha256,

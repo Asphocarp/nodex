@@ -23,7 +23,8 @@ use super::LibraryApplyOutcome;
 use super::mutation::{
     MutationEffects, ParentDocumentWriteContext, ResolvedWriteParent, embedded_resource_block,
     insert_creator_resource_grant, insert_library_placement, library_commit_result,
-    persist_parent_operations_detailed_with_local_commit, resolve_library_mutation_authority,
+    persist_parent_operations_detailed_with_local_commit,
+    persist_parent_relocation_source_with_local_commit, resolve_library_mutation_authority,
     resolve_write_parent_for_context, seal_mutation, sqlite_now,
 };
 
@@ -431,11 +432,13 @@ pub(super) fn move_canvas(
                     "canvas-move",
                     parent,
                     &operations,
-                    super::mutation::ParentDocumentPlacement::Derived,
+                    super::mutation::ParentDocumentPlacement::Derived {
+                        attachment_advances: &[],
+                    },
                 )?);
             } else {
                 if let Some(source) = source_document.as_ref() {
-                    document_commits.push(persist_parent_operations_detailed_with_local_commit(
+                    document_commits.push(persist_parent_relocation_source_with_local_commit(
                         connection,
                         parent_write,
                         "canvas-source",
@@ -443,7 +446,7 @@ pub(super) fn move_canvas(
                         &[DocumentBlockOperation::DeleteBlock {
                             block_id: canvas_id.to_owned(),
                         }],
-                        super::mutation::ParentDocumentPlacement::Derived,
+                        &[canvas_id.to_owned()],
                     )?);
                 }
                 if let Some(target) = resolved.parent.document.as_ref() {
@@ -461,7 +464,9 @@ pub(super) fn move_canvas(
                         "canvas-target",
                         target,
                         &operations,
-                        super::mutation::ParentDocumentPlacement::Derived,
+                        super::mutation::ParentDocumentPlacement::Derived {
+                            attachment_advances: &[canvas_id.to_owned()],
+                        },
                     )?);
                 }
             }
@@ -655,7 +660,9 @@ pub(super) fn delete(
                         &[DocumentBlockOperation::DeleteBlock {
                             block_id: canvas_id.to_owned(),
                         }],
-                        super::mutation::ParentDocumentPlacement::Derived,
+                        super::mutation::ParentDocumentPlacement::Derived {
+                            attachment_advances: &[],
+                        },
                     )
                 })
                 .transpose()?;

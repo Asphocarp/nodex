@@ -805,9 +805,121 @@ pub(crate) fn record_revocation(
     Ok(())
 }
 
+/// Registers Blocks removed from a Document without terminal deletion. The
+/// LocalCommit cannot seal until every identity has exactly one replacement
+/// authority, preventing source-only relocations from leaving active orphans.
+pub(crate) fn register_relocation_obligations(
+    connection: &Connection,
+    context: &CommitContext,
+    source_document_id: &str,
+    block_ids: &[String],
+) -> Result<(), StoreError> {
+    assert_open(connection, context)?;
+    for block_id in block_ids {
+        connection.execute(
+            "INSERT OR IGNORE INTO local_commit_relocation_obligations( \
+               store_epoch, commit_seq, block_id, source_document_id \
+             ) VALUES (?1, ?2, ?3, ?4)",
+            params![
+                context.store_epoch,
+                context.commit_seq,
+                block_id,
+                source_document_id,
+            ],
+        )?;
+        let stored_source = connection.query_row(
+            "SELECT source_document_id FROM local_commit_relocation_obligations \
+             WHERE store_epoch = ?1 AND commit_seq = ?2 AND block_id = ?3",
+            params![context.store_epoch, context.commit_seq, block_id],
+            |row| row.get::<_, String>(0),
+        )?;
+        if stored_source != source_document_id {
+            return Err(corrupt(
+                "One LocalCommit detached a Block from multiple source Documents",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_and_clear_relocation_obligations(
+    connection: &Connection,
+    context: &CommitContext,
+) -> Result<(), StoreError> {
+    let schema_version: i64 = connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+    if schema_version < 120 {
+        // Historical migrations seal LocalCommits before the v120 relocation
+        // ledger exists. Current stores are validated to contain the ledger
+        // before they can accept ordinary writer traffic.
+        return Ok(());
+    }
+    let obligations = connection
+        .prepare(
+            "SELECT block_id, source_document_id \
+             FROM local_commit_relocation_obligations \
+             WHERE store_epoch = ?1 AND commit_seq = ?2 ORDER BY block_id",
+        )?
+        .query_map(params![context.store_epoch, context.commit_seq], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    for (block_id, source_document_id) in &obligations {
+        let (
+            lifecycle,
+            document_locations,
+            source_locations,
+            library_locations,
+            data_source_parent,
+        ) = connection.query_row(
+            "SELECT block.lifecycle, \
+                   (SELECT count(*) FROM document_block_index entry \
+                    WHERE entry.block_id = block.id), \
+                   (SELECT count(*) FROM document_block_index entry \
+                    WHERE entry.block_id = block.id AND entry.document_id = ?2), \
+                   (SELECT count(*) FROM library_block_placements placement \
+                    WHERE placement.block_id = block.id), \
+                   EXISTS( \
+                     SELECT 1 \
+                     FROM pages page \
+                     JOIN data_source_page_memberships membership \
+                       ON membership.page_block_id = page.block_id \
+                      AND membership.data_source_id = page.parent_id \
+                      AND membership.removed_at IS NULL \
+                     WHERE page.block_id = block.id \
+                       AND page.library_id = block.library_id \
+                       AND page.parent_kind = 'data_source' \
+                   ) \
+                 FROM blocks block WHERE block.id = ?1",
+            params![block_id, source_document_id],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, bool>(4)?,
+                ))
+            },
+        )?;
+        let location_count = document_locations + library_locations + i64::from(data_source_parent);
+        if lifecycle != "active" || source_locations != 0 || location_count != 1 {
+            return Err(corrupt(&format!(
+                "Relocated Block {block_id} did not finish at exactly one destination authority"
+            )));
+        }
+    }
+    connection.execute(
+        "DELETE FROM local_commit_relocation_obligations \
+         WHERE store_epoch = ?1 AND commit_seq = ?2",
+        params![context.store_epoch, context.commit_seq],
+    )?;
+    Ok(())
+}
+
 pub(super) fn seal(connection: &Connection, context: &CommitContext) -> Result<i64, StoreError> {
     assert_open(connection, context)?;
     super::visibility_delta_journal::validate_seal(connection, context)?;
+    validate_and_clear_relocation_obligations(connection, context)?;
     let effect_count: i64 = connection.query_row(
         "SELECT count(*) FROM local_commit_effects
          WHERE store_epoch = ?1 AND commit_seq = ?2",
@@ -3774,6 +3886,7 @@ fn corrupt(message: &str) -> StoreError {
 mod tests {
     use tempfile::tempdir;
 
+    use crate::infrastructure::sqlite::with_immediate_transaction;
     use crate::infrastructure::store::SqliteStoreKernel;
 
     use super::*;
@@ -3796,6 +3909,244 @@ mod tests {
             .collect::<rusqlite::Result<Vec<_>>>()
             .expect("query plan rows")
             .join("\n")
+    }
+
+    fn seed_relocation_ledger(connection: &Connection) -> Result<(), StoreError> {
+        crate::infrastructure::visibility_delta_journal::install_test_maintenance_context(
+            connection,
+        )?;
+        connection.execute_batch(
+            "INSERT INTO profiles(id, created_at, updated_at) \
+             VALUES ('profile:relocation-ledger', '2026-08-13', '2026-08-13'); \
+             INSERT INTO libraries(id, profile_id, created_at, updated_at) \
+             VALUES ( \
+               'library:relocation-ledger', 'profile:relocation-ledger', \
+               '2026-08-13', '2026-08-13' \
+             ); \
+             INSERT INTO projects(id, library_id, name, created, updated) \
+             VALUES ( \
+               'project:relocation-ledger', 'library:relocation-ledger', \
+               'Relocation ledger', '2026-08-13', '2026-08-13' \
+             ); \
+             INSERT INTO documents( \
+               id, library_id, generation, head_seq, schema_key, schema_version, \
+               state_vector, state_hash, readiness, authority, sync_engine, created_at, updated_at \
+             ) VALUES \
+               ( \
+                 'document:relocation-source', 'library:relocation-ledger', 1, 1, \
+                 'nodex.page', 2, X'', '', 'ready', 'ydoc_primary', 'yjs', \
+                 '2026-08-13', '2026-08-13' \
+               ), \
+               ( \
+                 'document:relocation-target', 'library:relocation-ledger', 1, 1, \
+                 'nodex.page', 2, X'', '', 'ready', 'ydoc_primary', 'yjs', \
+                 '2026-08-13', '2026-08-13' \
+               ), \
+               ( \
+                 'document:relocation-other', 'library:relocation-ledger', 1, 1, \
+                 'nodex.page', 2, X'', '', 'ready', 'ydoc_primary', 'yjs', \
+                 '2026-08-13', '2026-08-13' \
+               ); \
+             INSERT INTO blocks( \
+               id, library_id, type, lifecycle, placement_revision, metadata_revision, \
+               created_at, updated_at \
+             ) VALUES \
+               ( \
+                 'block:relocation-a', 'library:relocation-ledger', 'paragraph', \
+                 'active', 1, 1, '2026-08-13', '2026-08-13' \
+               ), \
+               ( \
+                 'block:relocation-b', 'library:relocation-ledger', 'paragraph', \
+                 'active', 1, 1, '2026-08-13', '2026-08-13' \
+               ); \
+             INSERT INTO document_block_index( \
+               document_id, block_id, parent_block_id, ordinal, block_type, text, projected_seq \
+             ) VALUES \
+               ( \
+                 'document:relocation-source', 'block:relocation-a', NULL, 0, \
+                 'paragraph', 'A', 1 \
+               ), \
+               ( \
+                 'document:relocation-source', 'block:relocation-b', NULL, 1, \
+                 'paragraph', 'B', 1 \
+               );",
+        )?;
+        Ok(())
+    }
+
+    #[test]
+    fn relocation_ledger_rejects_lost_or_ambiguous_blocks_before_seal() {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        let kernel = SqliteStoreKernel::open_test(&home).expect("current Core store");
+        kernel
+            .writer()
+            .call(|connection| seed_relocation_ledger(connection))
+            .expect("seed relocation authorities");
+
+        let source_only = kernel.writer().call(|connection| {
+            with_immediate_transaction(connection, |transaction| {
+                let commit = begin(
+                    transaction,
+                    "epoch:relocation-ledger",
+                    "operation:source-only-relocation",
+                    &"a".repeat(64),
+                    "2026-08-13",
+                )?;
+                let block_ids = vec!["block:relocation-a".to_owned()];
+                register_relocation_obligations(
+                    transaction,
+                    &commit,
+                    "document:relocation-source",
+                    &block_ids,
+                )?;
+                transaction.execute(
+                    "DELETE FROM document_block_index WHERE block_id = 'block:relocation-a'",
+                    [],
+                )?;
+                finalize(transaction, &commit).map(|_| ())
+            })
+        });
+        let error = source_only.expect_err("source-only detach cannot seal");
+        assert_eq!(error.code, StoreErrorCode::StoreCorrupt);
+
+        let partial = kernel.writer().call(|connection| {
+            with_immediate_transaction(connection, |transaction| {
+                let commit = begin(
+                    transaction,
+                    "epoch:relocation-ledger",
+                    "operation:partial-relocation",
+                    &"b".repeat(64),
+                    "2026-08-13",
+                )?;
+                let block_ids = vec![
+                    "block:relocation-a".to_owned(),
+                    "block:relocation-b".to_owned(),
+                ];
+                register_relocation_obligations(
+                    transaction,
+                    &commit,
+                    "document:relocation-source",
+                    &block_ids,
+                )?;
+                transaction.execute(
+                    "DELETE FROM document_block_index \
+                     WHERE block_id IN ('block:relocation-a', 'block:relocation-b')",
+                    [],
+                )?;
+                transaction.execute(
+                    "INSERT INTO document_block_index( \
+                       document_id, block_id, parent_block_id, ordinal, block_type, text, projected_seq \
+                     ) VALUES ( \
+                       'document:relocation-target', 'block:relocation-a', NULL, 0, \
+                       'paragraph', 'A', 1 \
+                     )",
+                    [],
+                )?;
+                finalize(transaction, &commit).map(|_| ())
+            })
+        });
+        let error = partial.expect_err("partial closure cannot seal");
+        assert_eq!(error.code, StoreErrorCode::StoreCorrupt);
+
+        let ambiguous_source = kernel.writer().call(|connection| {
+            with_immediate_transaction(connection, |transaction| {
+                let commit = begin(
+                    transaction,
+                    "epoch:relocation-ledger",
+                    "operation:ambiguous-relocation-source",
+                    &"c".repeat(64),
+                    "2026-08-13",
+                )?;
+                let block_ids = vec!["block:relocation-a".to_owned()];
+                register_relocation_obligations(
+                    transaction,
+                    &commit,
+                    "document:relocation-source",
+                    &block_ids,
+                )?;
+                register_relocation_obligations(
+                    transaction,
+                    &commit,
+                    "document:relocation-other",
+                    &block_ids,
+                )
+            })
+        });
+        let error = ambiguous_source.expect_err("one Block cannot name two sources");
+        assert_eq!(error.code, StoreErrorCode::StoreCorrupt);
+
+        kernel
+            .writer()
+            .call(|connection| {
+                with_immediate_transaction(connection, |transaction| {
+                    let commit = begin(
+                        transaction,
+                        "epoch:relocation-ledger",
+                        "operation:complete-relocation",
+                        &"d".repeat(64),
+                        "2026-08-13",
+                    )?;
+                    let block_ids = vec![
+                        "block:relocation-a".to_owned(),
+                        "block:relocation-b".to_owned(),
+                    ];
+                    register_relocation_obligations(
+                        transaction,
+                        &commit,
+                        "document:relocation-source",
+                        &block_ids,
+                    )?;
+                    transaction.execute(
+                        "DELETE FROM document_block_index \
+                         WHERE block_id IN ('block:relocation-a', 'block:relocation-b')",
+                        [],
+                    )?;
+                    transaction.execute_batch(
+                        "INSERT INTO document_block_index( \
+                           document_id, block_id, parent_block_id, ordinal, block_type, text, projected_seq \
+                         ) VALUES \
+                           ( \
+                             'document:relocation-target', 'block:relocation-a', NULL, 0, \
+                             'paragraph', 'A', 1 \
+                           ), \
+                           ( \
+                             'document:relocation-target', 'block:relocation-b', NULL, 1, \
+                             'paragraph', 'B', 1 \
+                           );",
+                    )?;
+                    validate_and_clear_relocation_obligations(transaction, &commit)?;
+                    let obligations: i64 = transaction.query_row(
+                        "SELECT count(*) FROM local_commit_relocation_obligations \
+                         WHERE store_epoch = ?1 AND commit_seq = ?2",
+                        params![commit.store_epoch(), commit.commit_seq()],
+                        |row| row.get(0),
+                    )?;
+                    assert_eq!(obligations, 0);
+                    Ok(())
+                })
+            })
+            .expect("complete closure discharges every obligation");
+
+        kernel
+            .readers()
+            .read_default(|connection| {
+                let source_locations: i64 = connection.query_row(
+                    "SELECT count(*) FROM document_block_index \
+                     WHERE document_id = 'document:relocation-source'",
+                    [],
+                    |row| row.get(0),
+                )?;
+                let target_locations: i64 = connection.query_row(
+                    "SELECT count(*) FROM document_block_index \
+                     WHERE document_id = 'document:relocation-target'",
+                    [],
+                    |row| row.get(0),
+                )?;
+                assert_eq!((source_locations, target_locations), (0, 2));
+                Ok::<_, StoreError>(())
+            })
+            .expect("complete relocation authority");
     }
 
     #[test]
