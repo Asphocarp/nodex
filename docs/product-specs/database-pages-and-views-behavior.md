@@ -187,6 +187,12 @@ Board does not discard the draft or move authority to another Board.
 
 The composer owns an uncommitted title/body Document draft plus compatible
 Status, Priority, Estimate, and Tags selections from the target Source schema.
+These property controls form a compact chip strip. Each chip keeps its semantic
+icon visible and, when empty, shows the property name rather than a generic
+empty-value label. An empty value may use `Empty` when the surrounding row or
+section already identifies the property.
+Estimate uses one half-filled triangular semantic glyph across property labels,
+values, pickers, Page summaries, and View rows.
 Opening or editing the composer creates no Page, option, history, or Database
 row. Submit creates Page identity, title, body, membership, values, and View
 placement atomically. A failed submission keeps the complete draft.

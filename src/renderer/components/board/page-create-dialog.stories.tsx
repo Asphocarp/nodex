@@ -125,7 +125,14 @@ const openPropertyPicker = async (
 };
 
 export const Default: Story = {
-  parameters: { viewport: referenceViewport },
+  parameters: {
+    viewport: referenceViewport,
+    docs: {
+      description: {
+        story: "The composer presents Status, Priority, Estimate, and Tags as one compact chip strip; empty chips retain their semantic icons and property names.",
+      },
+    },
+  },
 };
 
 export const StatusPickerOpen: Story = {
