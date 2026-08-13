@@ -89,6 +89,10 @@ import { resolveBlockDocumentMutationBarrier } from "@/lib/block-document-mutati
 import { toast } from "@/components/ui/toast";
 import { computeNativeDropIndexFromSurface } from "../board/native-drop-index";
 import { DatabaseList } from "./database-list/database-list";
+import {
+  useDatabaseViewMutationHistory,
+  type DatabaseViewMutationHistory,
+} from "./database-view-mutation-history";
 
 const DATABASE_VIEW_PAGE_DRAG_MIME =
   "application/vnd.nodex.database-view-pages.v1+json";
@@ -125,6 +129,7 @@ interface DatabaseViewSurfaceProps {
   ) => void;
   readonly onCommitted?: () => void | Promise<void>;
   readonly commitOperations?: typeof commitDatabaseViewOperations;
+  readonly mutationHistory?: DatabaseViewMutationHistory;
   readonly keyboardSurface?: {
     readonly surfaceId: string;
     readonly presentationId: string;
@@ -486,6 +491,10 @@ function BoardPageCardSurface({
 
 export function DatabaseViewSurface(props: DatabaseViewSurfaceProps) {
   const { onSelectedPageIdsChange } = props;
+  const localMutationHistory = useDatabaseViewMutationHistory(
+    `${props.model.storeEpoch}:${props.model.databaseViewId}`,
+  );
+  const mutationHistory = props.mutationHistory ?? localMutationHistory;
   const [selectedPageIds, setSelectedPageIds] = useState<ReadonlySet<string>>(
     () => new Set(props.initialSelectedPageIds),
   );
@@ -520,6 +529,7 @@ export function DatabaseViewSurface(props: DatabaseViewSurfaceProps) {
         onSelectedPageIdsChange={handleSelectedPageIdsChange}
         pageCreateSurfaceId={props.pageCreateSurfaceId}
         onRequestCreatePage={props.onRequestCreatePage}
+        mutationHistory={mutationHistory}
       />
     );
   }

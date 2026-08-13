@@ -1020,13 +1020,36 @@ export interface components {
                 readonly total_occurrence_count: number;
             } | {
                 readonly ancestor_page_ids: readonly string[];
+                /**
+                 * Format: int32
+                 * @description Number of concrete Page occurrences in this subtree. Transient
+                 *     rows are skipped, but their descendants remain part of the count.
+                 */
+                readonly concrete_subtree_page_count: number;
                 /** Format: int32 */
                 readonly depth: number;
+                /**
+                 * @description Stable occurrence identity of the first direct child when one is
+                 *     present. This lets a bounded renderer preview the normalized
+                 *     "after parent" slot without materializing the whole subtree.
+                 */
+                readonly first_child_occurrence_key?: string | null;
                 readonly group_path: readonly (string | null)[];
                 readonly has_children: boolean;
                 /** @enum {string} */
                 readonly kind: "page";
                 readonly occurrence_key: string;
+                /**
+                 * Format: int32
+                 * @description Maximum number of Parent edges below this occurrence.
+                 */
+                readonly subtree_height: number;
+                /**
+                 * Format: int32
+                 * @description Number of Page occurrences in this visible occurrence subtree,
+                 *     including transient context rows and this row.
+                 */
+                readonly subtree_occurrence_count: number;
                 readonly summary: components["schemas"]["DatabaseRowSummary"];
                 readonly transient_kind: components["schemas"]["DatabaseListTransientKind"];
             })[];
@@ -1773,6 +1796,19 @@ export interface components {
             readonly pages: readonly components["schemas"]["DatabaseTaskParentPage"][];
             readonly parent_page_id?: string | null;
         } | {
+            readonly expected_projection: components["schemas"]["DatabaseListProjectionExpectation"];
+            readonly initiator_occurrence_key: string;
+            /** @enum {string} */
+            readonly kind: "move_list_occurrences";
+            readonly presentation_override: components["schemas"]["DatabaseViewPresentationOverrideInput"];
+            readonly selection: components["schemas"]["DatabaseListMoveSelection"];
+            readonly target: components["schemas"]["DatabaseListMoveTarget"];
+            readonly view_id: string;
+        } | {
+            /** @enum {string} */
+            readonly kind: "undo_list_occurrence_move";
+            readonly recipe: components["schemas"]["DatabaseListMoveUndoRecipe"];
+        } | {
             /** Format: int64 */
             readonly expected_revision: number;
             /** @enum {string} */
@@ -1791,6 +1827,95 @@ export interface components {
             readonly subgroup_key?: string | null;
             /** Format: int64 */
             readonly total_occurrence_count: number;
+        };
+        /** @enum {string} */
+        readonly DatabaseListMoveEdge: "before" | "after" | "inside";
+        readonly DatabaseListMoveNormalizedTarget: {
+            readonly before_page_id?: string | null;
+            /** Format: int32 */
+            readonly depth: number;
+            readonly edge: components["schemas"]["DatabaseListMoveEdge"];
+            readonly group_key?: string | null;
+            readonly parent_page_id?: string | null;
+            readonly subgroup_key?: string | null;
+            readonly target_occurrence_key: string;
+            readonly target_page_id?: string | null;
+        };
+        readonly DatabaseListMoveParentGuard: {
+            readonly page_id: string;
+            readonly parent_page_id?: string | null;
+        };
+        readonly DatabaseListMovePropertyState: {
+            readonly after_value: components["schemas"]["DatabasePropertyValueInput"];
+            readonly before_value: components["schemas"]["DatabasePropertyValueInput"];
+            readonly page_id: string;
+            readonly property_id: string;
+        };
+        /**
+         * @description One contiguous source run restored by semantic Undo. A null parent means
+         *     the Page run belonged at List root; `before_page_id` is always outside the
+         *     moved closure.
+         */
+        readonly DatabaseListMoveRestoreRun: {
+            readonly before_page_id?: string | null;
+            readonly page_ids: readonly string[];
+            readonly parent_page_id?: string | null;
+        };
+        /**
+         * @description Selection semantics for one Database List drag. Occurrence identities are
+         *     resolved against the exact effective List projection inside Core; callers
+         *     never materialize descendant Page IDs themselves.
+         */
+        readonly DatabaseListMoveSelection: {
+            /** @enum {string} */
+            readonly kind: "explicit";
+            readonly occurrence_keys: readonly string[];
+        } | {
+            readonly excluded_occurrence_keys: readonly string[];
+            /** @enum {string} */
+            readonly kind: "all_matching";
+        };
+        /**
+         * @description A raw pointer target. Page target normalization (including
+         *     `after(parent) -> before(first child)`) remains a Core responsibility.
+         */
+        readonly DatabaseListMoveTarget: {
+            readonly edge: components["schemas"]["DatabaseListMoveEdge"];
+            /** @enum {string} */
+            readonly kind: "page";
+            readonly occurrence_key: string;
+        } | {
+            /** @enum {string} */
+            readonly kind: "group";
+            readonly occurrence_key: string;
+        };
+        /**
+         * @description Opaque-to-UI inverse recipe. Core validates the move's logical post-image
+         *     before restoring these runs, so session Undo cannot overwrite a later edit.
+         */
+        readonly DatabaseListMoveUndoRecipe: {
+            readonly data_source_id: string;
+            readonly post_before_page_id?: string | null;
+            readonly post_order_guard: boolean;
+            readonly post_parent_guards: readonly components["schemas"]["DatabaseListMoveParentGuard"][];
+            readonly property_states: readonly components["schemas"]["DatabaseListMovePropertyState"][];
+            readonly restore_runs: readonly components["schemas"]["DatabaseListMoveRestoreRun"][];
+            readonly view_id: string;
+        };
+        /**
+         * @description Renderer-visible causal coordinate. The canonical scope body is omitted
+         *     because callers only need to prove that the scope identity and revision
+         *     they rendered are still current.
+         */
+        readonly DatabaseListProjectionExpectation: {
+            /** Format: int64 */
+            readonly covered_commit_seq: number;
+            readonly effect_hash?: string | null;
+            /** Format: int64 */
+            readonly revision: number;
+            /** Format: int32 */
+            readonly schema_version: number;
+            readonly scope_key: string;
         };
         /** @enum {string} */
         readonly DatabaseListTransientKind: "none" | "ancestor" | "child";
@@ -1817,6 +1942,22 @@ export interface components {
             readonly window_end: number;
             /** Format: int64 */
             readonly window_start: number;
+        };
+        readonly DatabaseOperationOutcome: {
+            /** @enum {string} */
+            readonly kind: "list_occurrence_move";
+            readonly move_root_page_ids: readonly string[];
+            readonly moved_page_ids: readonly string[];
+            readonly normalized_target: components["schemas"]["DatabaseListMoveNormalizedTarget"];
+            /** Format: int32 */
+            readonly operation_index: number;
+            readonly undo_recipe: components["schemas"]["DatabaseListMoveUndoRecipe"];
+        } | {
+            /** @enum {string} */
+            readonly kind: "list_occurrence_move_undo";
+            /** Format: int32 */
+            readonly operation_index: number;
+            readonly restored_page_ids: readonly string[];
         };
         readonly DatabasePagePosition: {
             /** Format: int64 */
@@ -5068,6 +5209,19 @@ export interface components {
                 readonly pages: readonly components["schemas"]["DatabaseTaskParentPage"][];
                 readonly parent_page_id?: string | null;
             } | {
+                readonly expected_projection: components["schemas"]["DatabaseListProjectionExpectation"];
+                readonly initiator_occurrence_key: string;
+                /** @enum {string} */
+                readonly kind: "move_list_occurrences";
+                readonly presentation_override: components["schemas"]["DatabaseViewPresentationOverrideInput"];
+                readonly selection: components["schemas"]["DatabaseListMoveSelection"];
+                readonly target: components["schemas"]["DatabaseListMoveTarget"];
+                readonly view_id: string;
+            } | {
+                /** @enum {string} */
+                readonly kind: "undo_list_occurrence_move";
+                readonly recipe: components["schemas"]["DatabaseListMoveUndoRecipe"];
+            } | {
                 /** Format: int64 */
                 readonly expected_revision: number;
                 /** @enum {string} */
@@ -6345,6 +6499,7 @@ export interface components {
                         readonly [key: string]: number;
                     };
                     readonly operation_kinds: readonly string[];
+                    readonly operation_outcomes?: readonly components["schemas"]["DatabaseOperationOutcome"][];
                 };
                 /** @enum {string} */
                 readonly status: "committed";
@@ -6366,6 +6521,7 @@ export interface components {
                         readonly [key: string]: number;
                     };
                     readonly operation_kinds: readonly string[];
+                    readonly operation_outcomes?: readonly components["schemas"]["DatabaseOperationOutcome"][];
                 };
                 /** @enum {string} */
                 readonly status: "no_op";

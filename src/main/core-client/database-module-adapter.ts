@@ -2,7 +2,10 @@ import type {
   DatabaseApplyOperationV2,
   DatabaseApplyResultV2,
   DatabaseApplyV2,
+  DatabaseListMoveUndoRecipeV2,
   DatabaseModuleErrorV2,
+  DatabaseOperationOutcomeV2,
+  DatabasePropertyValueInputV2,
   DatabaseModuleReadRequestV2,
   DatabaseModuleReadResultV2,
   DatabaseReadV2,
@@ -20,6 +23,8 @@ import {
   parseDatabaseId,
   parseDatabaseViewId,
   parseDataSourceId,
+  parseDataSourceOptionId,
+  parseDataSourcePropertyId,
 } from "../../shared/database-identities";
 import type { DatabaseViewConfigV4 } from "../../shared/database-kernel";
 import {
@@ -263,6 +268,46 @@ const toCoreTransferTarget = (
   return { kind: target.kind, data_source_id: target.dataSourceId };
 };
 
+const toCorePropertyValueInput = (
+  value: DatabasePropertyValueInputV2,
+): Extract<CoreDatabaseIntent, { readonly kind: "edit_property_values" }>["edits"][number]["edit"] extends infer Edit
+  ? Edit extends { readonly kind: "replace"; readonly value: infer Input }
+    ? Input
+    : never
+  : never => {
+  if (value.kind === "select") {
+    return { kind: value.kind, option_id: value.optionId };
+  }
+  if (value.kind === "multi_select") {
+    return { kind: value.kind, option_ids: value.optionIds };
+  }
+  return value;
+};
+
+const toCoreDatabaseListMoveUndoRecipe = (
+  recipe: DatabaseListMoveUndoRecipeV2,
+): Extract<CoreDatabaseIntent, { readonly kind: "undo_list_occurrence_move" }>["recipe"] => ({
+  view_id: recipe.viewId,
+  data_source_id: recipe.dataSourceId,
+  property_states: recipe.propertyStates.map((state) => ({
+    page_id: state.pageId,
+    property_id: state.propertyId,
+    before_value: toCorePropertyValueInput(state.beforeValue),
+    after_value: toCorePropertyValueInput(state.afterValue),
+  })),
+  post_parent_guards: recipe.postParentGuards.map((guard) => ({
+    page_id: guard.pageId,
+    parent_page_id: guard.parentPageId,
+  })),
+  post_before_page_id: recipe.postBeforePageId,
+  post_order_guard: recipe.postOrderGuard,
+  restore_runs: recipe.restoreRuns.map((run) => ({
+    page_ids: run.pageIds,
+    parent_page_id: run.parentPageId,
+    before_page_id: run.beforePageId,
+  })),
+});
+
 export const toCoreDatabaseIntent = (
   operation: DatabaseApplyOperationV2,
 ): CoreDatabaseIntent => {
@@ -422,6 +467,46 @@ export const toCoreDatabaseIntent = (
         parent_page_id: operation.parentPageId ?? null,
         before_page_id: operation.beforePageId ?? null,
       };
+    case "move_list_occurrences":
+      return {
+        kind: operation.kind,
+        view_id: operation.viewId,
+        presentation_override: toCoreDatabaseViewPresentationOverride(
+          operation.presentationOverride,
+        ),
+        expected_projection: {
+          scope_key: operation.expectedProjection.scopeKey,
+          schema_version: operation.expectedProjection.schemaVersion,
+          revision: operation.expectedProjection.revision,
+          covered_commit_seq: operation.expectedProjection.coveredCommitSeq,
+          effect_hash: operation.expectedProjection.effectHash,
+        },
+        initiator_occurrence_key: operation.initiatorOccurrenceKey,
+        selection: operation.selection.kind === "explicit"
+          ? {
+              kind: operation.selection.kind,
+              occurrence_keys: operation.selection.occurrenceKeys,
+            }
+          : {
+              kind: operation.selection.kind,
+              excluded_occurrence_keys: operation.selection.excludedOccurrenceKeys,
+            },
+        target: operation.target.kind === "page"
+          ? {
+              kind: operation.target.kind,
+              occurrence_key: operation.target.occurrenceKey,
+              edge: operation.target.edge,
+            }
+          : {
+              kind: operation.target.kind,
+              occurrence_key: operation.target.occurrenceKey,
+            },
+      };
+    case "undo_list_occurrence_move":
+      return {
+        kind: operation.kind,
+        recipe: toCoreDatabaseListMoveUndoRecipe(operation.recipe),
+      };
     case "put_view_personal_presentation":
       return {
         kind: operation.kind,
@@ -469,6 +554,94 @@ const validateCoreCommit = (
   return operationKinds;
 };
 
+type CoreDatabaseOperationOutcome = NonNullable<
+  DatabaseApplyResult["receipt"]["operation_outcomes"]
+>[number];
+type CoreDatabaseListMoveUndoRecipe = Extract<
+  CoreDatabaseOperationOutcome,
+  { readonly kind: "list_occurrence_move" }
+>["undo_recipe"];
+
+const fromCorePropertyValueInput = (
+  value: CoreDatabaseListMoveUndoRecipe["property_states"][number]["before_value"],
+  propertyId: ReturnType<typeof parseDataSourcePropertyId>,
+): DatabasePropertyValueInputV2 => {
+  if (value.kind === "select") {
+    return {
+      kind: value.kind,
+      optionId: parseDataSourceOptionId({
+        propertyId,
+        value: value.option_id,
+      }),
+    };
+  }
+  if (value.kind === "multi_select") {
+    return {
+      kind: value.kind,
+      optionIds: value.option_ids.map((optionId) =>
+        parseDataSourceOptionId({ propertyId, value: optionId })
+      ),
+    };
+  }
+  return value;
+};
+
+const fromCoreDatabaseListMoveUndoRecipe = (
+  recipe: CoreDatabaseListMoveUndoRecipe,
+): DatabaseListMoveUndoRecipeV2 => ({
+  viewId: parseDatabaseViewId(recipe.view_id),
+  dataSourceId: parseDataSourceId(recipe.data_source_id),
+  propertyStates: recipe.property_states.map((state) => {
+    const propertyId = parseDataSourcePropertyId(state.property_id);
+    return {
+      pageId: state.page_id,
+      propertyId,
+      beforeValue: fromCorePropertyValueInput(state.before_value, propertyId),
+      afterValue: fromCorePropertyValueInput(state.after_value, propertyId),
+    };
+  }),
+  postParentGuards: recipe.post_parent_guards.map((guard) => ({
+    pageId: guard.page_id,
+    parentPageId: guard.parent_page_id ?? null,
+  })),
+  postBeforePageId: recipe.post_before_page_id ?? null,
+  postOrderGuard: recipe.post_order_guard,
+  restoreRuns: recipe.restore_runs.map((run) => ({
+    pageIds: run.page_ids,
+    parentPageId: run.parent_page_id ?? null,
+    beforePageId: run.before_page_id ?? null,
+  })),
+});
+
+const fromCoreDatabaseOperationOutcome = (
+  outcome: CoreDatabaseOperationOutcome,
+): DatabaseOperationOutcomeV2 => {
+  if (outcome.kind === "list_occurrence_move_undo") {
+    return {
+      kind: outcome.kind,
+      operationIndex: outcome.operation_index,
+      restoredPageIds: outcome.restored_page_ids,
+    };
+  }
+  return {
+    kind: outcome.kind,
+    operationIndex: outcome.operation_index,
+    movedPageIds: outcome.moved_page_ids,
+    moveRootPageIds: outcome.move_root_page_ids,
+    normalizedTarget: {
+      targetOccurrenceKey: outcome.normalized_target.target_occurrence_key,
+      targetPageId: outcome.normalized_target.target_page_id ?? null,
+      parentPageId: outcome.normalized_target.parent_page_id ?? null,
+      beforePageId: outcome.normalized_target.before_page_id ?? null,
+      groupKey: outcome.normalized_target.group_key ?? null,
+      subgroupKey: outcome.normalized_target.subgroup_key ?? null,
+      depth: outcome.normalized_target.depth,
+      edge: outcome.normalized_target.edge,
+    },
+    undoRecipe: fromCoreDatabaseListMoveUndoRecipe(outcome.undo_recipe),
+  };
+};
+
 const coreReceiptEvidence = (
   committed: DatabaseApplyResult,
   operationKinds: readonly DatabaseApplyOperationV2["kind"][],
@@ -476,6 +649,9 @@ const coreReceiptEvidence = (
   operationId: committed.receipt.operation_id,
   duplicate: committed.receipt.duplicate,
   operationKinds,
+  operationOutcomes: (committed.receipt.operation_outcomes ?? []).map(
+    fromCoreDatabaseOperationOutcome,
+  ),
   affectedDatabaseIds: committed.receipt.affected_database_ids,
   affectedDataSourceIds: committed.receipt.affected_data_source_ids,
   affectedPageIds: committed.receipt.affected_page_ids,

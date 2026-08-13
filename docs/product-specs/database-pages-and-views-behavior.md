@@ -145,18 +145,40 @@ command. Only an unconsumed keyboard-navigation request may move focus to a
 Page row; selection commands, View projection refreshes, and edits in another
 surface never replay an earlier row-focus request.
 
-An ordinary Page-row drag resolves against the target row midpoint as a
-before/after insertion and never treats the row center as an implicit drop
-inside the target Page. Transient hierarchy context cannot originate a drag.
-Holding Option/Alt deliberately switches that target to the nest operation.
-Reorder, cross-group Property adoption, explicit nest,
-un-nest, and eligible
-multi-Page drops compile from occurrence context into one atomic Database apply
-with Property, Parent-value, and position compare-and-swap. The renderer may apply
-a conservative optimistic occurrence projection and recompile once after a
-typed revision conflict; otherwise it rolls back and converges from Core. A
-successful lossless move offers a session Undo whose inverse carries the exact
-committed revisions.
+An ordinary Page-row drag resolves against the target row midpoint as a raw
+before/after edge; the exact midpoint belongs to `after`. A leaf target keeps
+that edge at its current sibling level. `after` on a target that already has
+children normalizes to the first child slot, so the insertion guide uses the
+prospective child depth. Adjacent row halves that describe the same sibling
+boundary resolve to one stable insertion slot, and its circular endpoint sits
+on the prospective parent branch rather than following the hovered row's raw
+indent. Holding Option/Alt explicitly appends inside a Page, and group headers
+accept only a root-level inside drop. Transient hierarchy context cannot
+originate a drag, and a target inside the moved closure is never committable.
+
+Dragging an occurrence moves its concrete subtree as one semantic action.
+Transient rows are skipped as values but do not stop traversal; selecting an
+ancestor and descendant normalizes to one source root; duplicate occurrences
+are resolved by path and written once per Page. Cross-group adoption updates
+every concrete Page in the closure, while Parent and rank changes apply only to
+the normalized roots, preserving all internal Parent edges and child ranks.
+Core resolves the full occurrence graph and commits Property, Parent, and order
+writes atomically from one semantic operation; a bounded renderer window never
+authors descendant IDs or primitive inverse operations.
+
+The active source row alone becomes translucent, while descendants stay in
+place. A body-portaled compact preview represents the initiator, mirrors its
+visible Priority, Page ID, Status, and title columns, and shows the concrete
+Page count; rows do not live-shift during pointer movement. Returning the source
+to its unchanged structural slot is a silent no-op: it creates no mutation,
+error, toast, or Undo entry. After drop,
+a conservative optimistic projection remains until a receipt-fenced canonical
+window confirms the same parent, group, and order semantics. One typed revision
+conflict may rebase against fresh occurrence authority; exhausted conflicts
+roll back without clearing the readable List. Successful moves are silent.
+Their opaque Core recipe enters a bounded, Store-epoch-and-View-scoped session
+history, and List-scoped Command/Ctrl+Z restores it only while editor, input,
+combobox, and menu Undo owners are inactive.
 
 Primary and subgroup headers paint an opaque full-width sticky surface through
 the scrollport's top edge. The scroll container must not introduce transparent
