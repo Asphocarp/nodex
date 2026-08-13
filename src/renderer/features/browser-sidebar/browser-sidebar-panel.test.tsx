@@ -683,6 +683,7 @@ function makeBrowserSnapshot(
     url: "https://www.google.com/",
     title: "Google",
     isLoading: false,
+    isWaitingForResponse: false,
     canGoBack: false,
     canGoForward: false,
     zoomPercent: 100,

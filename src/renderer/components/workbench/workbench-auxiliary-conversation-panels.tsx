@@ -5,7 +5,7 @@ import {
   useState,
 } from "react";
 import { Bot } from "@/components/shared/icons/generic-icons";
-import { SpinnerIcon } from "@/components/shared/icons";
+import { ActivitySpinnerIcon } from "@/components/shared/icons";
 import { toast } from "@/components/ui/toast";
 import {
   ConnectedThreadStage,
@@ -343,7 +343,10 @@ function BackgroundAgentLoadingPanel({
       <div className="mx-auto flex h-full w-full max-w-2xl flex-col items-center justify-center text-center">
         <div className="relative mb-3 flex size-10 items-center justify-center rounded-xl bg-token-bg-secondary text-token-text-secondary">
           <Bot className="icon-md opacity-40" />
-          <SpinnerIcon className="icon-xs absolute animate-spin text-token-text-secondary" />
+          <ActivitySpinnerIcon
+            className="icon-xs text-token-text-secondary"
+            containerClassName="absolute"
+          />
         </div>
         <div className="text-base font-semibold text-token-text-primary">
           {title}

@@ -137,6 +137,7 @@ import { publishBrowserImageAttachment } from "./browser-image-attachments";
 import { publishBrowserImageDragState } from "./browser-image-drag-state";
 import {
   BrowserAnnotateIcon,
+  ActivitySpinnerIcon,
   BrowserBackIcon,
   BrowserExternalIcon,
   BrowserHideIcon,
@@ -192,6 +193,7 @@ const DEFAULT_BROWSER_SNAPSHOT: Omit<
   url: "about:blank",
   title: "New tab",
   isLoading: false,
+  isWaitingForResponse: false,
   canGoBack: false,
   canGoForward: false,
   zoomPercent: 100,
@@ -1312,14 +1314,6 @@ export function BrowserSidebarPanel({
             onSave={() => void actOnCredentialCandidate("save")}
           />
         ) : null}
-        <div
-          className={cn(
-            "pointer-events-none absolute inset-x-0 bottom-0 h-0.5 overflow-hidden transition-opacity",
-            snapshot.isLoading ? "opacity-100" : "opacity-0",
-          )}
-        >
-          <div className="h-full w-1/3 animate-[_loading-bar-slide_1g9nv_1_1.15s_ease-in-out_infinite] rounded-full bg-token-text-primary/35" />
-        </div>
       </div>
 
       <div
@@ -2872,7 +2866,7 @@ function LocalServerThumbnail({
       role="img"
     >
       {loading ? (
-        <BrowserReloadIcon className="icon-xs animate-spin motion-reduce:animate-none" />
+        <ActivitySpinnerIcon className="icon-xs" icon={BrowserReloadIcon} />
       ) : online ? (
         <span className="size-1.5 rounded-full bg-token-text-tertiary/50" />
       ) : (

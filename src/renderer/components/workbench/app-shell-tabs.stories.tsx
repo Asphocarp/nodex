@@ -4,6 +4,7 @@ import { useState } from "react";
 import { History, X } from "@/components/shared/icons/generic-icons";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
 import { resolveWorkspaceFileTabIcon } from "@/features/workspace-files";
+import { BrowserTabFavicon } from "@/features/browser-sidebar/browser-tab-favicon";
 import {
   AppShellTabs,
   type AppShellTabItem,
@@ -120,6 +121,68 @@ function AppShellTabsStory({ showInsertionPreview = false }: { showInsertionPrev
 }
 
 export const PageStageTabs: Story = {};
+
+function BrowserFaviconLifecycleStory() {
+  const [phase, setPhase] = useState<"waiting" | "loading" | "settled">(
+    "waiting",
+  );
+  const faviconUrl =
+    "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='4' fill='%2310a37f'/%3E%3C/svg%3E";
+  const tabs: AppShellTabItem[] = [{
+    id: "browser-loading",
+    title: "Browser research",
+    iconElement: (
+      <BrowserTabFavicon
+        className="icon-xs"
+        faviconUrl={faviconUrl}
+        isLoading={phase !== "settled"}
+        isWaitingForResponse={phase === "waiting"}
+      />
+    ),
+    closable: true,
+    renderPanel: () => (
+      <div className="flex h-full flex-col items-center justify-center gap-4">
+        <span className="text-sm text-token-description-foreground">
+          {phase === "waiting"
+            ? "Waiting for first response"
+            : phase === "loading"
+              ? "Loading with favicon"
+              : "Settled"}
+        </span>
+        <div className="flex gap-2">
+          {(["waiting", "loading", "settled"] as const).map((value) => (
+            <button
+              type="button"
+              aria-pressed={phase === value}
+              className="rounded-md bg-token-foreground/8 px-3 py-1.5 text-sm"
+              key={value}
+              onClick={() => setPhase(value)}
+            >
+              {value}
+            </button>
+          ))}
+        </div>
+      </div>
+    ),
+  }];
+
+  return (
+    <NodexTooltipProvider>
+      <div className="h-screen bg-token-main-surface-primary text-token-foreground">
+        <AppShellTabs
+          activeTabId="browser-loading"
+          onCloseTab={() => undefined}
+          onSelect={() => undefined}
+          tabs={tabs}
+        />
+      </div>
+    </NodexTooltipProvider>
+  );
+}
+
+export const BrowserFaviconLifecycle: Story = {
+  render: () => <BrowserFaviconLifecycleStory />,
+};
 
 function LiveCardTitleStory() {
   const [titleSource] = useState(() => {

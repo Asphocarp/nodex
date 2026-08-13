@@ -111,55 +111,11 @@
     animation: subagent-activity-chip-enter .28s cubic-bezier(.23, 1, .32, 1) both;
   }
 
-  .subagent-identicon-empty-scan {
-    opacity: 0;
-    animation: subagent-identicon-empty-scan 1s step-end infinite;
-  }
-
-  .subagent-identicon-filled-scan {
-    animation: subagent-identicon-filled-scan 1s step-end infinite;
-  }
-
-  @keyframes subagent-identicon-empty-scan {
-    0%,
-    20% {
-      opacity: 1;
-    }
-
-    20.001%,
-    to {
-      opacity: 0;
-    }
-  }
-
-  @keyframes subagent-identicon-filled-scan {
-    0%,
-    20% {
-      opacity: 0;
-    }
-
-    20.001%,
-    to {
-      opacity: 1;
-    }
-  }
-
   @media (prefers-reduced-motion: reduce) {
     .right-panel-composer-overlay-enter,
-    .subagent-activity-chip[data-animate-entrance],
-    .subagent-identicon-empty-scan,
-    .subagent-identicon-filled-scan {
+    .subagent-activity-chip[data-animate-entrance] {
       animation: none;
     }
-  }
-
-  .pulsing-dot {
-    background-color: currentColor;
-    border-radius: 50%;
-    width: 6px;
-    height: 6px;
-    animation: 1.5s infinite pulse;
-    display: inline-block;
   }
 
   .panel-animated [data-panel] {

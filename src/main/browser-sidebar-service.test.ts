@@ -70,6 +70,7 @@ class FakeWebContents extends EventEmitter {
   title = "New tab";
   loading = false;
   destroyed = false;
+  loadPromise: Promise<void> | null = null;
   rejectLoadWith: unknown = null;
   zoomFactors: number[] = [];
   findCalls: Array<{ text: string; options?: { forward?: boolean; findNext?: boolean; matchCase?: boolean } }> = [];
@@ -124,6 +125,7 @@ class FakeWebContents extends EventEmitter {
     this.loadUrls.push(url);
     this.url = url;
     if (this.rejectLoadWith) return Promise.reject(this.rejectLoadWith);
+    if (this.loadPromise) return this.loadPromise;
     return Promise.resolve();
   }
   reload() { this.reloads += 1; }
@@ -963,6 +965,61 @@ describe("BrowserSidebarService webview lifecycle", () => {
     expect(contents.listenerCount("destroyed")).toBe(1);
     expect(contents.listenerCount("did-start-loading")).toBe(1);
     expect(contents.windowOpenHandlerCalls).toBe(1);
+  });
+
+  test("publishes waiting, loading, and settled navigation phases in order", async () => {
+    const contents = new FakeWebContents();
+    let resolveLoad: (() => void) | undefined;
+    contents.loadPromise = new Promise<void>((resolve) => {
+      resolveLoad = resolve;
+    });
+    const service = createService(new Map([[101, contents]]));
+    await registerTab(service);
+    await service.handleWebviewHostCreated({
+      ...browserIdentity,
+      projectId: "alpha",
+      hostKind: "panel",
+      mountGeneration: 1,
+      webContentsId: 101,
+      initialUrl: "about:blank",
+    });
+
+    const result = await service.handleCommand({
+      type: "navigate",
+      ...browserIdentity,
+      url: "https://example.com",
+      source: "manual",
+      initiator: "address_bar",
+    });
+    expect(result.ok).toBe(true);
+    expect(readTab(service)).toMatchObject({
+      isLoading: true,
+      isWaitingForResponse: true,
+    });
+
+    contents.loading = true;
+    contents.emit("did-start-loading");
+    expect(readTab(service)).toMatchObject({
+      isLoading: true,
+      isWaitingForResponse: true,
+    });
+
+    contents.url = "https://example.com/";
+    contents.emit("did-navigate", {}, contents.url);
+    expect(readTab(service)).toMatchObject({
+      isLoading: true,
+      isWaitingForResponse: false,
+    });
+
+    contents.loading = false;
+    contents.emit("did-stop-loading");
+    expect(readTab(service)).toMatchObject({
+      isLoading: false,
+      isWaitingForResponse: false,
+    });
+
+    resolveLoad?.();
+    await flushLoadPromise();
   });
 
   test("rejects a guest that was not attached by the requesting window", async () => {

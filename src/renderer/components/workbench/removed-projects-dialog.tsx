@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { LoaderCircle } from "@/components/shared/icons/generic-icons";
+import { ActivitySpinnerIcon } from "@/components/shared/icons";
 import { useRemovedProjects } from "@/lib/use-projects";
 import type { Project } from "@/lib/types";
 import { NodexButton } from "@/components/ui/button";
@@ -140,8 +140,12 @@ export function RemovedProjectsDialogView({
         <NodexDialogBody className="min-h-0">
           <div className="min-h-28 overflow-y-auto pr-1">
             {loading ? (
-              <div className="flex min-h-28 items-center justify-center text-token-description-foreground">
-                <LoaderCircle className="size-4 animate-spin" aria-label="Loading removed projects" />
+              <div
+                aria-label="Loading removed projects"
+                className="flex min-h-28 items-center justify-center text-token-description-foreground"
+                role="status"
+              >
+                <ActivitySpinnerIcon className="size-4" />
               </div>
             ) : error ? (
               <div className="flex min-h-28 flex-col items-center justify-center gap-3 text-center">

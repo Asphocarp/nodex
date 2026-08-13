@@ -23,6 +23,7 @@ const makeTab = (
   url: "about:blank",
   title: "New tab",
   isLoading: false,
+  isWaitingForResponse: false,
   canGoBack: false,
   canGoForward: false,
   zoomPercent: 100,

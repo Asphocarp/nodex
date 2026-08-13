@@ -13,6 +13,7 @@ import { BrowserSidebarRuntimeSynchronizer } from "./features/browser-sidebar/br
 import { CodeFontSizeProvider } from "./lib/use-code-font-size";
 import { FileLinkOpenerProvider } from "./lib/use-file-link-opener";
 import { SansFontSizeProvider } from "./lib/use-sans-font-size";
+import { ReducedMotionProvider } from "./lib/use-reduced-motion";
 import { CodexServiceTierSettingsProvider } from "./lib/use-codex-service-tier-settings";
 import { CodexThreadSettingsProvider } from "./lib/use-codex-thread-settings";
 import { NodexQueryProvider } from "./lib/query-client";
@@ -174,25 +175,27 @@ export function AppProviders({ children }: AppProvidersProps) {
     <NodexQueryProvider>
       <RendererStateProvider>
         <ThemeProvider>
-          <AppUpdateStatusProvider>
-            <BrowserSidebarRuntimeSynchronizer />
-            <BrowserSidebarThemeSynchronizer />
-            <SansFontSizeProvider>
-              <CodeFontSizeProvider>
-                <FileLinkOpenerProvider>
-                  <CodexServiceTierSettingsProvider>
-                    <CodexThreadSettingsProvider>
-                      <NodexHoverCardProvider>
-                        <NodexTooltipProvider>
-                          {children}
-                        </NodexTooltipProvider>
-                      </NodexHoverCardProvider>
-                    </CodexThreadSettingsProvider>
-                  </CodexServiceTierSettingsProvider>
-                </FileLinkOpenerProvider>
-              </CodeFontSizeProvider>
-            </SansFontSizeProvider>
-          </AppUpdateStatusProvider>
+          <ReducedMotionProvider>
+            <AppUpdateStatusProvider>
+              <BrowserSidebarRuntimeSynchronizer />
+              <BrowserSidebarThemeSynchronizer />
+              <SansFontSizeProvider>
+                <CodeFontSizeProvider>
+                  <FileLinkOpenerProvider>
+                    <CodexServiceTierSettingsProvider>
+                      <CodexThreadSettingsProvider>
+                        <NodexHoverCardProvider>
+                          <NodexTooltipProvider>
+                            {children}
+                          </NodexTooltipProvider>
+                        </NodexHoverCardProvider>
+                      </CodexThreadSettingsProvider>
+                    </CodexServiceTierSettingsProvider>
+                  </FileLinkOpenerProvider>
+                </CodeFontSizeProvider>
+              </SansFontSizeProvider>
+            </AppUpdateStatusProvider>
+          </ReducedMotionProvider>
         </ThemeProvider>
       </RendererStateProvider>
     </NodexQueryProvider>

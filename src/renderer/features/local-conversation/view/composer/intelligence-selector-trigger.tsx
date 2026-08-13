@@ -9,12 +9,13 @@ import {
   type ForwardedRef,
   type RefObject,
 } from "react";
-import { useReducedMotion, useReducedMotionConfig } from "motion/react";
+import { useReducedMotionConfig } from "motion/react";
 import {
   FastModeIcon,
   ChevronDownIcon,
 } from "@/components/shared/icons";
 import { cn } from "@/lib/utils";
+import { useResolvedReducedMotion } from "@/lib/use-reduced-motion";
 import { COMPOSER_FOOTER_GHOST_BUTTON_CLASS_NAME } from "../shared/composer-footer-controls";
 
 export const INTELLIGENCE_SELECTOR_MENU_WIDTH_PX = 224;
@@ -237,7 +238,7 @@ export const IntelligenceSelectorTrigger = forwardRef<
   },
   forwardedRef,
 ) {
-  const prefersReducedMotion = useReducedMotion();
+  const prefersReducedMotion = useResolvedReducedMotion();
   const configuredReducedMotion = useReducedMotionConfig();
   const shouldReduceMotion = Boolean(prefersReducedMotion || configuredReducedMotion);
   const setTriggerRef = useCallback((element: HTMLButtonElement | null) => {

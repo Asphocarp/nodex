@@ -139,7 +139,7 @@ function SubagentOverviewRow({
       className="flex min-h-8 w-full cursor-interaction items-start gap-2 rounded-md px-1 py-1 text-left hover:bg-token-bg-secondary focus-visible:bg-token-bg-secondary focus-visible:outline-2 focus-visible:outline-offset-2"
       onClick={() => onSelect(row)}
     >
-      <SubagentAvatar seed={row.conversationId} active={row.status === "active"} className="mt-0.5 size-6" />
+      <SubagentAvatar seed={row.conversationId} className="mt-0.5 size-6" />
       <span className="min-w-0 flex-1">
         <span className="flex items-baseline gap-2 text-sm">
           <span className="min-w-0 flex-1 truncate text-token-foreground">{row.displayName}</span>
@@ -152,7 +152,6 @@ function SubagentOverviewRow({
             className={cn(
               "block text-sm leading-5 text-token-text-secondary",
               previewLineCount === 2 ? "line-clamp-2" : "truncate",
-              row.lastAssistantMessage === null && row.status !== "done" && "loading-shimmer-pure-text",
             )}
           >
             {preview}

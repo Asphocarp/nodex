@@ -1,20 +1,90 @@
-import { cn } from "../../../../lib/utils";
+import { useSyncExternalStore, type ComponentPropsWithoutRef } from "react";
+import avatar0Dark from "@/assets/subagent-avatars/avatar-0-dark.svg";
+import avatar0Light from "@/assets/subagent-avatars/avatar-0-light.svg";
+import avatar1Dark from "@/assets/subagent-avatars/avatar-1-dark.svg";
+import avatar1Light from "@/assets/subagent-avatars/avatar-1-light.svg";
+import avatar2Dark from "@/assets/subagent-avatars/avatar-2-dark.svg";
+import avatar2Light from "@/assets/subagent-avatars/avatar-2-light.svg";
+import avatar3Dark from "@/assets/subagent-avatars/avatar-3-dark.svg";
+import avatar3Light from "@/assets/subagent-avatars/avatar-3-light.svg";
+import avatar4Dark from "@/assets/subagent-avatars/avatar-4-dark.svg";
+import avatar4Light from "@/assets/subagent-avatars/avatar-4-light.svg";
+import avatar5Dark from "@/assets/subagent-avatars/avatar-5-dark.svg";
+import avatar5Light from "@/assets/subagent-avatars/avatar-5-light.svg";
+import avatar6Dark from "@/assets/subagent-avatars/avatar-6-dark.svg";
+import avatar6Light from "@/assets/subagent-avatars/avatar-6-light.svg";
+import avatar7Dark from "@/assets/subagent-avatars/avatar-7-dark.svg";
+import avatar7Light from "@/assets/subagent-avatars/avatar-7-light.svg";
+import avatar8Dark from "@/assets/subagent-avatars/avatar-8-dark.svg";
+import avatar8Light from "@/assets/subagent-avatars/avatar-8-light.svg";
+import avatar9Dark from "@/assets/subagent-avatars/avatar-9-dark.svg";
+import avatar9Light from "@/assets/subagent-avatars/avatar-9-light.svg";
+import { cn } from "@/lib/utils";
 
-const SUBAGENT_IDENTICON_GRID_SIZE = 5;
-const SUBAGENT_IDENTICON_MIRROR_COLUMNS = 3;
-const SUBAGENT_IDENTICON_CELL_SIZE = 4;
-const SUBAGENT_IDENTICON_SCAN_DELAY_MS = 200;
-const SUBAGENT_IDENTICON_HASH_MODULUS = 4_294_967_296;
-const SUBAGENT_IDENTICON_HASH_OFFSET = 2_166_136_261;
-const SUBAGENT_IDENTICON_HASH_MULTIPLIER = 131;
+const SUBAGENT_AVATAR_HASH_MODULUS = 2_147_483_647;
+type SubagentAvatarTheme = "dark" | "light";
 
-const SUBAGENT_IDENTICON_COLORS = [
-  "var(--color-token-charts-yellow)",
-  "var(--color-token-charts-orange)",
-  "var(--color-token-charts-red)",
-  "var(--color-token-charts-purple)",
-  "var(--color-token-charts-blue)",
+const avatarThemeListeners = new Set<() => void>();
+let avatarThemeObserver: MutationObserver | null = null;
+
+function readAvatarTheme(): SubagentAvatarTheme {
+  if (typeof document === "undefined") return "light";
+  return document.documentElement.classList.contains("dark") ? "dark" : "light";
+}
+
+function subscribeAvatarTheme(listener: () => void): () => void {
+  avatarThemeListeners.add(listener);
+  if (
+    avatarThemeListeners.size === 1
+    && typeof document !== "undefined"
+    && typeof MutationObserver !== "undefined"
+  ) {
+    avatarThemeObserver = new MutationObserver(() => {
+      avatarThemeListeners.forEach((currentListener) => currentListener());
+    });
+    avatarThemeObserver.observe(document.documentElement, {
+      attributeFilter: ["class"],
+      attributes: true,
+    });
+  }
+
+  return () => {
+    avatarThemeListeners.delete(listener);
+    if (avatarThemeListeners.size > 0) return;
+    avatarThemeObserver?.disconnect();
+    avatarThemeObserver = null;
+  };
+}
+
+function useSubagentAvatarTheme(): SubagentAvatarTheme {
+  return useSyncExternalStore(
+    subscribeAvatarTheme,
+    readAvatarTheme,
+    () => "light",
+  );
+}
+
+export const SUBAGENT_AVATAR_ASSETS = [
+  { dark: avatar0Dark, light: avatar0Light },
+  { dark: avatar1Dark, light: avatar1Light },
+  { dark: avatar2Dark, light: avatar2Light },
+  { dark: avatar3Dark, light: avatar3Light },
+  { dark: avatar4Dark, light: avatar4Light },
+  { dark: avatar5Dark, light: avatar5Light },
+  { dark: avatar6Dark, light: avatar6Light },
+  { dark: avatar7Dark, light: avatar7Light },
+  { dark: avatar8Dark, light: avatar8Light },
+  { dark: avatar9Dark, light: avatar9Light },
 ] as const;
+
+/** Matches the deterministic zero-based avatar mapping used by Codex Electron. */
+export function resolveSubagentAvatarIndex(seed: string): number {
+  let hash = 0;
+  for (let index = 0; index < seed.length; index += 1) {
+    hash = (hash * 31 + seed.charCodeAt(index)) % SUBAGENT_AVATAR_HASH_MODULUS;
+  }
+  return hash % SUBAGENT_AVATAR_ASSETS.length;
+}
 
 export function SubagentGlyphIcon({ className }: { className?: string }) {
   return (
@@ -49,150 +119,27 @@ export function SubagentGlyphIcon({ className }: { className?: string }) {
     </svg>
   );
 }
-
-export interface SubagentAvatarCell {
-  animationDelayMs: number;
-  column: number;
-  row: number;
-}
-
-export interface SubagentAvatarIdenticon {
-  cells: SubagentAvatarCell[];
-  color: string;
-  scanCells: Array<SubagentAvatarCell & { filled: boolean }>;
-}
-
-function hashSubagentIdenticonSeed(seed: string): number {
-  let hash = SUBAGENT_IDENTICON_HASH_OFFSET;
-  for (let index = 0; index < seed.length; index += 1) {
-    hash = (hash * SUBAGENT_IDENTICON_HASH_MULTIPLIER + seed.charCodeAt(index))
-      % SUBAGENT_IDENTICON_HASH_MODULUS;
-  }
-  return hash;
-}
-
-function hasShapeBit(hash: number, bit: number): boolean {
-  return Math.floor(hash / 2 ** bit) % 2 === 1;
-}
-
-function getCellKey(column: number, row: number): string {
-  return `${row}:${column}`;
-}
-
-function getRowAnimationDelayMs(row: number): number {
-  return row * SUBAGENT_IDENTICON_SCAN_DELAY_MS;
-}
-
-function resolveSubagentIdenticonColor(hash: number): string {
-  const index = Math.floor((hash / SUBAGENT_IDENTICON_HASH_MODULUS) * SUBAGENT_IDENTICON_COLORS.length);
-  return SUBAGENT_IDENTICON_COLORS[index % SUBAGENT_IDENTICON_COLORS.length] ?? SUBAGENT_IDENTICON_COLORS[0];
-}
-
-function buildSubagentIdenticonScanCells(filledKeys: Set<string>): SubagentAvatarIdenticon["scanCells"] {
-  const cells: SubagentAvatarIdenticon["scanCells"] = [];
-  for (let row = 0; row < SUBAGENT_IDENTICON_GRID_SIZE; row += 1) {
-    for (let column = 0; column < SUBAGENT_IDENTICON_GRID_SIZE; column += 1) {
-      cells.push({
-        animationDelayMs: getRowAnimationDelayMs(row),
-        column,
-        filled: filledKeys.has(getCellKey(column, row)),
-        row,
-      });
-    }
-  }
-  return cells;
-}
-
-export function buildSubagentAvatarIdenticon(seed: string): SubagentAvatarIdenticon {
-  const shapeHash = hashSubagentIdenticonSeed(`${seed}:shape`);
-  const colorHash = hashSubagentIdenticonSeed(`${seed}:color`);
-  const cells: SubagentAvatarCell[] = [];
-  const filledKeys = new Set<string>();
-
-  for (let row = 0; row < SUBAGENT_IDENTICON_GRID_SIZE; row += 1) {
-    for (let column = 0; column < SUBAGENT_IDENTICON_MIRROR_COLUMNS; column += 1) {
-      if (!hasShapeBit(shapeHash, row * SUBAGENT_IDENTICON_MIRROR_COLUMNS + column)) continue;
-
-      const animationDelayMs = getRowAnimationDelayMs(row);
-      cells.push({ animationDelayMs, column, row });
-      filledKeys.add(getCellKey(column, row));
-
-      const mirroredColumn = SUBAGENT_IDENTICON_GRID_SIZE - 1 - column;
-      if (mirroredColumn === column) continue;
-      cells.push({ animationDelayMs, column: mirroredColumn, row });
-      filledKeys.add(getCellKey(mirroredColumn, row));
-    }
-  }
-
-  if (cells.length === 0) {
-    const center = Math.floor(SUBAGENT_IDENTICON_GRID_SIZE / 2);
-    cells.push({
-      animationDelayMs: getRowAnimationDelayMs(center),
-      column: center,
-      row: center,
-    });
-    filledKeys.add(getCellKey(center, center));
-  }
-
-  return {
-    cells,
-    color: resolveSubagentIdenticonColor(colorHash),
-    scanCells: buildSubagentIdenticonScanCells(filledKeys),
-  };
-}
-
-export function SubagentAvatar({
-  seed,
-  active = false,
-  className,
-  iconClassName,
-}: {
+export interface SubagentAvatarProps extends Omit<
+  ComponentPropsWithoutRef<"img">,
+  "alt" | "draggable" | "src"
+> {
   seed: string;
-  active?: boolean;
-  className?: string;
-  iconClassName?: string;
-}) {
-  const identicon = buildSubagentAvatarIdenticon(seed);
+}
+
+export function SubagentAvatar({ seed, className, ...props }: SubagentAvatarProps) {
+  const resolvedTheme = useSubagentAvatarTheme();
+  const index = resolveSubagentAvatarIndex(seed);
+  const asset = SUBAGENT_AVATAR_ASSETS[index] ?? SUBAGENT_AVATAR_ASSETS[0];
 
   return (
-    <svg
-      aria-hidden="true"
-      className={cn("shrink-0", className ?? "size-4", iconClassName)}
-      data-subagent-avatar-active={active ? "true" : "false"}
+    <img
+      {...props}
+      alt=""
+      className={cn("size-3.5 shrink-0", className)}
+      data-subagent-avatar-index={index}
       data-subagent-avatar-seed={seed}
-      fill="none"
-      shapeRendering="crispEdges"
-      viewBox="-2 -1 24 24"
-      xmlns="http://www.w3.org/2000/svg"
-    >
-      {identicon.cells.map((cell) => (
-        <rect
-          className={active ? "subagent-identicon-filled-scan" : undefined}
-          fill={identicon.color}
-          height={SUBAGENT_IDENTICON_CELL_SIZE}
-          key={`${cell.row}:${cell.column}`}
-          style={active ? { animationDelay: `${cell.animationDelayMs}ms` } : undefined}
-          width={SUBAGENT_IDENTICON_CELL_SIZE}
-          x={cell.column * SUBAGENT_IDENTICON_CELL_SIZE}
-          y={cell.row * SUBAGENT_IDENTICON_CELL_SIZE}
-        />
-      ))}
-      {active
-        ? identicon.scanCells.map((cell) =>
-          cell.filled ? null : (
-            <rect
-              className="subagent-identicon-empty-scan"
-              fill={identicon.color}
-              height={SUBAGENT_IDENTICON_CELL_SIZE}
-              key={`scan:${cell.row}:${cell.column}`}
-              style={{ animationDelay: `${cell.animationDelayMs}ms` }}
-              width={SUBAGENT_IDENTICON_CELL_SIZE}
-              x={cell.column * SUBAGENT_IDENTICON_CELL_SIZE}
-              y={cell.row * SUBAGENT_IDENTICON_CELL_SIZE}
-            />
-          )
-        )
-        : null}
-    </svg>
+      draggable={false}
+      src={asset[resolvedTheme]}
+    />
   );
 }

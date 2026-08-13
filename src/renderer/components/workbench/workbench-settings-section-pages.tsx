@@ -42,6 +42,7 @@ import {
   PageStageCollapsedPropertiesSettingControl,
   PasteResourceDescriptionSoftLimitSettingControl,
   PasteResourceTextThresholdSettingControl,
+  ReducedMotionSettingControl,
   SansFontSizeSettingControl,
   ServiceTierSettingControl,
   SmartPrefixParsingSettingControl,
@@ -317,6 +318,12 @@ export function AppearanceSettingsPage() {
       <SectionBlock title="Theme">
         <SettingRow label="Theme" description="Match system mode or force a fixed theme.">
           <ThemeSettingControl />
+        </SettingRow>
+        <SettingRow
+          label="Reduced motion"
+          description="Follow the system setting, reduce interface motion, or allow full motion."
+        >
+          <ReducedMotionSettingControl />
         </SettingRow>
         <SettingRow
           label="Sans font size"

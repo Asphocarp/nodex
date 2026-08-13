@@ -7,6 +7,7 @@ import {
   ComposerPlanModeIcon,
 } from "@/components/shared/icons";
 import { BudgetedMarkdownRenderer } from "./markdown/budgeted-markdown-renderer";
+import { CodexShimmerText } from "./codex-shimmer-text";
 import { cn } from "../../../../lib/utils";
 import {
   AssistantRatingButton,
@@ -99,14 +100,11 @@ export function PlanMessage({
       ) : null}
 
       <div className="relative flex h-10 flex-wrap items-center justify-between gap-2 px-3 py-2">
-        <span
-          className={cn(
-            "inline-flex items-center gap-2 text-base leading-tight font-normal text-token-text-tertiary",
-            !completed && "loading-shimmer-pure-text",
-          )}
-        >
+        <span className="inline-flex items-center gap-2 text-base leading-tight font-normal text-token-text-tertiary">
           <ComposerPlanModeIcon className="icon-2xs shrink-0" />
-          {completed ? "Plan" : "Writing plan"}
+          <CodexShimmerText active={!completed}>
+            {completed ? "Plan" : "Writing plan"}
+          </CodexShimmerText>
         </span>
 
         <div

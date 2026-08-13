@@ -8,7 +8,8 @@ import {
   useState,
 } from "react";
 import { flushSync } from "react-dom";
-import { animate, motion, useMotionValue, useReducedMotion, type MotionValue } from "motion/react";
+import { animate, motion, useMotionValue, type MotionValue } from "motion/react";
+import { useResolvedReducedMotion } from "@/lib/use-reduced-motion";
 import type { CodexConversationChildMembership } from "../../../lib/types";
 import type { ReviewOpenIntent } from "@/features/review/model/review-view-state";
 import { cn } from "../../../lib/utils";
@@ -1298,7 +1299,7 @@ export function LocalConversationVirtualizedTurnList({
   scrollElement,
   ...coreProps
 }: LocalConversationVirtualizedTurnListProps) {
-  const prefersReducedMotion = useReducedMotion();
+  const prefersReducedMotion = useResolvedReducedMotion();
   const baseScrollController = useLocalConversationThreadScrollController();
   const responseSpacerHeightMotion = useMotionValue(0);
   const latestTurnYMotion = useMotionValue(0);

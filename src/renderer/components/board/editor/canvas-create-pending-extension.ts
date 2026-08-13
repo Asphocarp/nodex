@@ -60,7 +60,7 @@ function createPendingIndicator(blockId: string): HTMLElement {
 
   const activity = document.createElement("span");
   activity.className =
-    "size-1.5 animate-pulse rounded-full bg-token-text-secondary";
+    "size-1.5 rounded-full bg-token-text-secondary";
   activity.setAttribute("aria-hidden", "true");
   indicator.append(activity, "Creating Canvas…");
   return indicator;

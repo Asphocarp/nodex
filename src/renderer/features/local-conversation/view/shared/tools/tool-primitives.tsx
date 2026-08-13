@@ -284,7 +284,7 @@ export function ThreadRichActivityHeader({
       <span
         id={disclosure ? summaryId : undefined}
         className={cn(
-          "min-w-0 flex-1 truncate text-token-conversation-body [&_.loading-shimmer-pure-text]:align-top [&_*:not(button)]:!text-token-conversation-body",
+          "min-w-0 flex-1 truncate text-token-conversation-body [&_[data-codex-shimmer]]:align-top [&_*:not(button)]:!text-token-conversation-body",
           disclosure
             && "[@media(hover:hover)]:group-[:hover:not(:has([data-agent-activity-file-link]:hover))]/activity-header:!text-token-foreground [@media(hover:hover)]:group-[:hover:not(:has([data-agent-activity-file-link]:hover))]/activity-header:[&_*:not(button)]:!text-token-foreground",
           summaryClassName,

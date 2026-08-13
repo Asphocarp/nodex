@@ -6,7 +6,7 @@ import {
   SettingsSearchIcon,
   ThreadIcon,
   GlobeIcon,
-  SpinnerIcon,
+  ActivitySpinnerIcon,
   UpArrowIcon,
 } from "@/components/shared/icons";
 import { cn } from "@/lib/utils";
@@ -207,7 +207,7 @@ export function ContentSearchSurfaceView({
             </button>
           </div>
           <div className="flex min-w-0 items-center gap-1.5 text-right">
-            {loading ? <SpinnerIcon className="size-3 animate-spin" /> : null}
+            {loading ? <ActivitySpinnerIcon className="size-3" /> : null}
             <span className="truncate">{resultLabel}</span>
           </div>
         </div>

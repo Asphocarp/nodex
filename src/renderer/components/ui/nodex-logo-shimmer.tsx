@@ -23,7 +23,9 @@ export function NodexLogoShimmer({ className }: { readonly className?: string })
       <div
         className="nodex-logo-shimmer-overlay pointer-events-none absolute inset-0"
         style={MASK_STYLE}
-      />
+      >
+        <span className="nodex-logo-shimmer-sweep absolute inset-y-0 block" />
+      </div>
     </div>
   );
 }

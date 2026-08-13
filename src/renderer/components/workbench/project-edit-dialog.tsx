@@ -7,12 +7,13 @@ import {
   type ReactNode,
   type SetStateAction,
 } from "react";
-import { motion, useReducedMotion } from "motion/react";
+import { motion } from "motion/react";
 import {
   CloseIcon,
   FolderIcon,
   FolderPlusIcon,
 } from "@/components/shared/icons";
+import { useResolvedReducedMotion } from "@/lib/use-reduced-motion";
 import {
   DEFAULT_PROJECT_APPEARANCE,
   type ProjectAppearance,
@@ -132,7 +133,7 @@ export function ProjectSourcesEditor({
 }) {
   const [draggingOver, setDraggingOver] = useState(false);
   const [animateReorder, setAnimateReorder] = useState(false);
-  const reducedMotion = useReducedMotion();
+  const reducedMotion = useResolvedReducedMotion();
 
   const appendSources = (picked: string[]) => {
     setDraggingOver(false);

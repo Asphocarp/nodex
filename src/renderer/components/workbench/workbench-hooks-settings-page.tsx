@@ -11,7 +11,7 @@ import {
   TriangleAlert,
   UserRound,
 } from "@/components/shared/icons/generic-icons";
-import { FileIcon, HooksIcon } from "@/components/shared/icons";
+import { ActivitySpinnerIcon, FileIcon, HooksIcon } from "@/components/shared/icons";
 import { NodexButton, NodexSwitch } from "@/components/ui/button";
 import {
   NodexDialog,
@@ -592,7 +592,11 @@ export function CodexHooksSettingsView({
           disabled={noRoots || loading || refreshing}
           onClick={onRefresh}
         >
-          <RefreshCw className={cn("icon-xs", refreshing ? "animate-spin" : null)} />
+          {refreshing ? (
+            <ActivitySpinnerIcon className="icon-xs" icon={RefreshCw} />
+          ) : (
+            <RefreshCw className="icon-xs" />
+          )}
         </NodexButton>
       )}
     >

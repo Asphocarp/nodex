@@ -53,6 +53,7 @@ function makeBrowserSnapshot(browserTabId: string): BrowserSidebarTabSnapshot {
     url: `https://${browserTabId}.example`,
     title: browserTabId,
     isLoading: false,
+    isWaitingForResponse: false,
     canGoBack: false,
     canGoForward: false,
     zoomPercent: 100,

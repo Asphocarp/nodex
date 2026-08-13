@@ -1,6 +1,6 @@
 import { ExternalLink, ImageIcon, ListTree, PictureInPicture2, Slash, SquareTerminal, X } from "@/components/shared/icons/generic-icons";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { motion, useReducedMotion } from "motion/react";
+import { motion } from "motion/react";
 import {
   BranchStatusIcon,
   FileIcon,
@@ -9,7 +9,7 @@ import {
   ComposerPlanModeIcon,
   SidePanelSideChatIcon,
   LocalStatusIcon,
-  SpinnerIcon,
+  ActivitySpinnerIcon,
   ThreadSummaryChangesIcon,
   ThreadSummaryCommitIcon,
   ThreadSummaryCreatePullRequestIcon,
@@ -21,6 +21,7 @@ import {
   NodexPopoverTrigger,
 } from "@/components/ui/popover";
 import { NodexTooltip } from "@/components/ui/tooltip";
+import { useResolvedReducedMotion } from "@/lib/use-reduced-motion";
 import { BranchSelectorPopover } from "../shared/branch-selector-popover";
 import { NewChatStartInSelector, StartInIcon } from "../shared/new-chat-start-in-selector";
 import {
@@ -108,6 +109,7 @@ import { ThreadSummaryCreatePullRequestDialog } from "./thread-summary-create-pu
 import { ThreadSummaryBranchSetupDialog } from "./thread-summary-branch-setup-dialog";
 import { ThreadSummaryPanelToggleButton } from "./thread-summary-panel-toggle";
 import { SubagentAvatar } from "../shared/subagent-avatar";
+import { CodexShimmerText } from "../shared/codex-shimmer-text";
 import { ImagePreviewDialog } from "../shared/user-message-attachments";
 import {
   buildMcpAppSidePanelInput,
@@ -482,13 +484,46 @@ function SummaryBrowserFavicon({
   );
 }
 
+const BROWSER_USE_POINTER_PATH = "M12.725 20.288c-.367.716-.842 1.166-1.425 1.35-.583.191-1.15.12-1.7-.213-.55-.325-.954-.846-1.213-1.563L3.787 6.95c-.175-.492-.216-.958-.124-1.4.091-.45.291-.83.6-1.137a2.187 2.187 0 0 1 1.137-.6c.45-.092.92-.05 1.412.125l12.913 4.6c.717.258 1.237.662 1.563 1.212.333.542.404 1.104.212 1.688-.183.583-.633 1.058-1.35 1.425l-4.925 2.512-2.5 4.913Z";
+
+function BrowserUsePointerIcon({ className }: { className?: string }) {
+  return (
+    <span
+      aria-hidden="true"
+      className={cn("relative flex items-center justify-center", className)}
+      data-browser-use-pointer="true"
+    >
+      <svg
+        className="absolute inset-0 size-full"
+        fill="none"
+        viewBox="0 0 24 24"
+        style={{ color: "var(--color-token-main-surface-primary)" }}
+      >
+        <path
+          d={BROWSER_USE_POINTER_PATH}
+          stroke="currentColor"
+          strokeLinejoin="round"
+          strokeWidth="1.5"
+        />
+      </svg>
+      <svg
+        className="absolute inset-0 size-full text-token-text-primary"
+        fill="none"
+        viewBox="0 0 24 24"
+      >
+        <path d={BROWSER_USE_POINTER_PATH} fill="currentColor" />
+      </svg>
+    </span>
+  );
+}
+
 function SummaryBrowserRowIcon({ row }: { row: ThreadSummaryPanelBrowserRow }) {
   return (
     <span aria-hidden={true} className="icon-xs relative flex shrink-0 items-center justify-center overflow-visible">
       <SummaryBrowserFavicon faviconUrl={row.faviconUrl} isAgentWorking={row.isAgentWorking} />
       {row.isAgentWorking ? (
         <span className="absolute inset-0 flex items-center justify-center">
-          <SpinnerIcon className="size-4 text-token-text-secondary" />
+          <BrowserUsePointerIcon className="size-4" />
         </span>
       ) : null}
     </span>
@@ -511,9 +546,12 @@ function SummaryBrowserRowLabel({ row }: { row: ThreadSummaryPanelBrowserRow }) 
   if (!row.isAgentWorking) return content;
 
   return (
-    <span className="loading-shimmer-pure-text flex min-w-0 items-baseline gap-2">
+    <CodexShimmerText
+      variant="classic"
+      className="flex min-w-0 items-baseline gap-2"
+    >
       {content}
-    </span>
+    </CodexShimmerText>
   );
 }
 
@@ -532,14 +570,16 @@ function BackgroundSubagentRowLabel({ row }: { row: ThreadComposerShellBackgroun
     <span className="flex min-w-0 items-center gap-1.5">
       <SubagentAvatar
         seed={row.conversationId}
-        active={active}
         className="icon-sm pointer-events-none"
       />
       <span className="min-w-0 truncate font-medium">{row.displayName}</span>
       {active ? (
-        <span className="loading-shimmer-pure-text shrink-0 whitespace-nowrap text-size-chat text-token-text-tertiary">
+        <CodexShimmerText
+          variant="classic"
+          className="shrink-0 whitespace-nowrap text-size-chat text-token-text-tertiary"
+        >
           is working
-        </span>
+        </CodexShimmerText>
       ) : null}
     </span>
   );
@@ -607,7 +647,6 @@ function BackgroundSubagentCompactStrip({
           <SubagentAvatar
             key={row.conversationId}
             seed={row.conversationId}
-            active={row.status === "active"}
             className="size-4"
           />
         ))}
@@ -1277,7 +1316,7 @@ export function ThreadSummaryPanelSurface({
                       onClick={() => handleOpenGitReview(primaryGitSource)}
                       trailing={(
                         gitSummary.loading ? (
-                          <SpinnerIcon className="icon-xs shrink-0 text-token-text-tertiary" />
+                          <ActivitySpinnerIcon className="icon-xs shrink-0 text-token-text-tertiary" />
                         ) : changes.additions > 0 || changes.deletions > 0 ? (
                           <DiffStats
                             additions={changes.additions}
@@ -1510,7 +1549,7 @@ export function ThreadSummaryPanelSurface({
                         label={row.title}
                         title={row.title}
                         icon={row.isResponseInProgress
-                          ? <SpinnerIcon className="icon-sm shrink-0" />
+                          ? <ActivitySpinnerIcon className="icon-sm shrink-0" />
                           : <SidePanelSideChatIcon className="icon-sm shrink-0" />}
                         interactive={Boolean(actions?.onOpenSummarySideChatRow && row.panelId)}
                         onClick={actions?.onOpenSummarySideChatRow && row.panelId
@@ -1761,7 +1800,7 @@ export function ThreadFloatingSummaryPanel({
   open,
   ...props
 }: ThreadFloatingSummaryPanelProps) {
-  const reducedMotion = useReducedMotion();
+  const reducedMotion = useResolvedReducedMotion();
   if (!mounted) return null;
 
   return (

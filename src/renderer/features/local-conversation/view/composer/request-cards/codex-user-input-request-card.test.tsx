@@ -11,11 +11,11 @@ import {
 import { resetCodexUserInputDraftStateForTests } from "../../../user-input-draft-state";
 import { resetUserInputAutoResolutionStateForTests } from "../../../user-input-auto-resolution-state";
 
-vi.mock("motion/react", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("motion/react")>();
+vi.mock("@/lib/use-reduced-motion", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/use-reduced-motion")>();
   return {
     ...actual,
-    useReducedMotion: () => true,
+    useResolvedReducedMotion: () => true,
   };
 });
 

@@ -65,6 +65,7 @@ import {
 } from "../../lib/paste-resource-settings";
 import { usePasteResourceSettings } from "../../lib/use-paste-resource-settings";
 import { useSansFontSize } from "../../lib/use-sans-font-size";
+import { useReducedMotionPreference } from "../../lib/use-reduced-motion";
 import type { ComposerEnterBehavior } from "../../lib/composer-enter-behavior";
 import { useSpellcheck } from "../../lib/use-spellcheck";
 import { useTheme } from "../../lib/use-theme";
@@ -387,6 +388,22 @@ export function ThemeSettingControl() {
         { value: "system", label: "System", icon: Monitor },
         { value: "light", label: "Light", icon: Sun },
         { value: "dark", label: "Dark", icon: Moon },
+      ]}
+    />
+  );
+}
+
+export function ReducedMotionSettingControl() {
+  const { preference, setPreference } = useReducedMotionPreference();
+
+  return (
+    <SegmentedControl
+      value={preference}
+      onChange={setPreference}
+      options={[
+        { value: "system", label: "System" },
+        { value: "on", label: "On" },
+        { value: "off", label: "Off" },
       ]}
     />
   );
